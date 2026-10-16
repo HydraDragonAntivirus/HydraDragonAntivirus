@@ -1424,13 +1424,6 @@ async fn handle_scan(
                     apply_tlsh_blacklist(&ti, &data, res);
                     report = apply_smart_whitelist(&ti, &data, &job_name, res);
                 });
-                // Reliable labels (analyst signatures, benign corpus, trusted signer) feed
-                // the ML datasets of dataset_paths.json; engine guesses never do.
-                if let (Ok(res), Some(ds)) = (&r, engine.dataset.get()) {
-                    if let Some((label, _source)) = crate::dataset::reliable_label(res) {
-                        ds.export(&job_sha, &data, &job_name, label);
-                    }
-                }
                 let _ = rtx.send(r);
                 // VirusKovAlyzer static report, after the verdict went out (the client is
                 // not kept waiting unless the smart whitelist needed it). Stored once per hash.

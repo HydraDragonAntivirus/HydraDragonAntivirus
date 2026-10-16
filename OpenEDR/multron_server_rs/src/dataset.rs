@@ -1,4 +1,5 @@
-//! ML training datasets filled from the cloud.
+//! The ML training datasets: indexing, statistics and human-verdict relabelling.
+//! The server never copies files into them; only files put there by hand are trained on.
 //!
 //! `dataset_paths.json` next to the server (see `yarGen/TRAINING_GUIDE.md`) names the
 //! same folders the ML and HydraDragonSig training uses:
@@ -36,35 +37,17 @@
 //! }
 //! ```
 //!
-//! A file is copied as `<SHA256>.<ext>` into the (first "own") folder of its platform
-//! (APK -> android, PE -> windows, JavaScript -> javascript) and label, ONLY when the
-//! label comes from a reliable source, so the models never learn the engine's own mistakes:
-//!
-//! * an analyst verdict (human review) - malicious or clean;
-//! * analyst signatures / the analyst company allow-list;
-//! * an exact SHA-256 match in the verified benign reference corpus;
-//! * a valid, trusted Authenticode signature with a clean verdict.
-//!
-//! XOR-filter hash verdicts, ML / heuristic verdicts, TLSH look-alikes
-//! (`possible_clean`) and `suspicious` are never copied. Missing keys or an absent file
-//! turn that folder (or the whole feature) off.
-//!
 //! Duplicates are decided by CONTENT, not by name. At start a background thread hashes
 //! every file already in the six folders (whatever its name; `dataset_index.jsonl` caches
 //! the digests by path + size + modification time, so later starts only hash new or
 //! changed files). Then:
 //!
-//! * the same content already under the same label (any name, any extension) -> nothing
-//!   is written;
-//! * the same content under the OTHER label:
-//!   - a `<SHA256>.<ext>` copy this server wrote -> it is removed and the file is written
-//!     under the new label (an analyst flipped the verdict);
-//!   - any other file (yours) -> nothing is written or moved: the case goes to
-//!     `dataset_conflicts.jsonl` and the dashboard, and you decide. The server never
-//!     deletes or moves a file it did not write.
+//! * copies of the same content under the same label are duplicates (moved to the
+//!   `deleted_from_*` backup folders);
+//! * the same content under both labels is a conflict: it goes to
+//!   `dataset_conflicts.jsonl` and the dashboard, and you decide.
 //!
-//! Copies that arrive while the index is still being built wait in memory (up to
-//! `PENDING_MAX_BYTES`) and are written once it is ready.
+//! `<SHA256>.<ext>` files are copies earlier builds of this server wrote ("ours").
 //!
 //! `Dataset::public_stats` counts the unique hashes per platform and label that are only
 //! in "own" folders, only in "public" folders, or in both, plus the last 30 days of
@@ -78,10 +61,6 @@ use std::sync::{Arc, Mutex};
 
 use serde::{Deserialize, Serialize};
 
-use crate::engine_adapter::ResultMessage;
-
-/// Copies waiting for the index, at most this many bytes in memory.
-const PENDING_MAX_BYTES: usize = 256 * 1024 * 1024;
 
 /// Days of additions in `public_stats`.
 pub const STATS_DAYS: usize = 30;
@@ -91,7 +70,7 @@ pub const STATS_DAYS: usize = 30;
 pub const BACKUP_PREFIX: &str = "deleted_from_";
 
 /// SHA-256 of an empty file. Empty files carry no sample (a failed copy or download):
-/// never indexed, exported, counted or reported as a label conflict.
+/// never indexed, counted or reported as a label conflict.
 pub const EMPTY_SHA256: &str = "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855";
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -249,16 +228,6 @@ impl DatasetPaths {
         }
     }
 
-    /// Folder the server writes its copies to: the first "own" folder of that
-    /// platform and label (public datasets are never written to).
-    pub fn dir(&self, platform: Platform, label: Label) -> Option<&Path> {
-        self.list(platform, label)
-            .0
-            .iter()
-            .find(|(p, s)| *s == Source::Own && !p.as_os_str().is_empty())
-            .map(|(p, _)| p.as_path())
-    }
-
     /// Display name of a configured folder (`name` in dataset_paths.json).
     pub fn name_of(&self, platform: Platform, label: Label, dir: &Path) -> Option<String> {
         let l = self.list(platform, label);
@@ -314,34 +283,10 @@ struct CacheLine {
     h: String,
 }
 
-struct Pending {
-    sha: String,
-    data: Vec<u8>,
-    name: String,
-    label: Label,
-}
-
-/// What `Dataset::export` did.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum ExportOutcome {
-    Written(PathBuf),
-    /// The same content is already under this label (any name).
-    AlreadyPresent(PathBuf),
-    /// The same content is under the other label in a file this server did not write.
-    Conflict(Vec<PathBuf>),
-    /// Waiting for the index (written when it is ready).
-    Queued,
-    /// Not a dataset platform, no folder for it, pending queue full or I/O error.
-    Skipped,
-}
-
 #[derive(Debug, Clone, Serialize)]
 pub struct DatasetStatus {
     pub ready: bool,
     pub indexed_files: u64,
-    pub pending: usize,
-    pub written: u64,
-    pub duplicates_skipped: u64,
     pub conflicts: u64,
     /// Files moved to the folder of their human verdict, or removed as duplicates of a
     /// file already there (`dataset_moves.jsonl`).
@@ -461,11 +406,7 @@ pub struct Dataset {
     index: Mutex<HashMap<String, Vec<Entry>>>,
     ready: AtomicBool,
     indexed_files: AtomicU64,
-    pending: Mutex<(Vec<Pending>, usize)>,
-    written: AtomicU64,
-    duplicates_skipped: AtomicU64,
     conflicts: AtomicU64,
-    tmp_seq: AtomicU64,
     /// Human verdicts that arrived before the index was ready (applied when it is).
     pending_human: Mutex<Vec<(String, Label)>>,
     /// Files moved to the folder of their human verdict, or removed there as duplicates.
@@ -508,11 +449,7 @@ impl Dataset {
             index: Mutex::new(HashMap::new()),
             ready: AtomicBool::new(false),
             indexed_files: AtomicU64::new(0),
-            pending: Mutex::new((Vec::new(), 0)),
-            written: AtomicU64::new(0),
-            duplicates_skipped: AtomicU64::new(0),
             conflicts: AtomicU64::new(0),
-            tmp_seq: AtomicU64::new(0),
             pending_human: Mutex::new(Vec::new()),
             moved_by_human: AtomicU64::new(0),
             duplicates_removed: AtomicU64::new(0),
@@ -525,9 +462,6 @@ impl Dataset {
         DatasetStatus {
             ready: self.ready.load(Ordering::Relaxed),
             indexed_files: self.indexed_files.load(Ordering::Relaxed),
-            pending: self.pending.lock().unwrap().0.len(),
-            written: self.written.load(Ordering::Relaxed),
-            duplicates_skipped: self.duplicates_skipped.load(Ordering::Relaxed),
             conflicts: self.conflicts.load(Ordering::Relaxed),
             moved_by_human: self.moved_by_human.load(Ordering::Relaxed),
             duplicates_removed: self.duplicates_removed.load(Ordering::Relaxed),
@@ -804,7 +738,7 @@ impl Dataset {
     }
 
     /// Drops the "existing" conflicts of earlier index builds (each build finds them
-    /// again) and lines about empty files; conflicts from exports stay.
+    /// again) and lines about empty files; label conflicts found by human verdicts stay.
     fn prune_conflicts(&self) {
         let path = self.conflicts_file();
         let Ok(text) = std::fs::read_to_string(&path) else { return };
@@ -916,11 +850,6 @@ impl Dataset {
         if moved > 0 {
             eprintln!("[dataset] {moved} files moved to the folder of their human verdict (dataset_moves.jsonl)");
         }
-        let waiting = std::mem::take(&mut self.pending.lock().unwrap().0);
-        for p in waiting {
-            self.export_indexed(&p.sha, &p.data, &p.name, p.label, "queued");
-        }
-        self.pending.lock().unwrap().1 = 0;
     }
 
     /// Human verdicts (sha256, verdict) for files that may be in the datasets, e.g.
@@ -1200,107 +1129,6 @@ impl Dataset {
         }
     }
 
-    /// Copies `data` into the folder for its platform and `label`, by content.
-    pub fn export(&self, sha256: &str, data: &[u8], name: &str, label: Label) -> ExportOutcome {
-        if data.is_empty() {
-            return ExportOutcome::Skipped;
-        }
-        let Some(platform) = platform_of(data, name) else { return ExportOutcome::Skipped };
-        if self.paths.dir(platform, label).is_none() {
-            return ExportOutcome::Skipped;
-        }
-        if !self.ready.load(Ordering::Relaxed) {
-            let mut g = self.pending.lock().unwrap();
-            // Re-check under the lock: the indexer may have just finished.
-            if !self.ready.load(Ordering::Relaxed) {
-                if g.1 + data.len() > PENDING_MAX_BYTES {
-                    eprintln!("[dataset] pending queue full, {sha256} not copied");
-                    return ExportOutcome::Skipped;
-                }
-                g.1 += data.len();
-                g.0.push(Pending { sha: sha256.to_string(), data: data.to_vec(), name: name.to_string(), label });
-                return ExportOutcome::Queued;
-            }
-        }
-        self.export_indexed(sha256, data, name, label, "scan")
-    }
-
-    fn export_indexed(&self, sha256: &str, data: &[u8], name: &str, label: Label, source: &str) -> ExportOutcome {
-        let Some(platform) = platform_of(data, name) else { return ExportOutcome::Skipped };
-        let Some(dir) = self.paths.dir(platform, label) else { return ExportOutcome::Skipped };
-        let group: Option<Arc<str>> = self.paths.name_of(platform, label, dir).map(Arc::from);
-        let sha = sha256.to_ascii_uppercase();
-        // One lock for check + write + index update: two copies of the same file
-        // arriving together cannot both be written.
-        let mut index = self.index.lock().unwrap();
-        let entries = index.entry(sha.clone()).or_default();
-        entries.retain(|e| e.path.exists()); // removed by hand since the index was built
-
-        if let Some(e) = entries.iter().find(|e| e.platform == platform && e.label == label) {
-            self.duplicates_skipped.fetch_add(1, Ordering::Relaxed);
-            return ExportOutcome::AlreadyPresent(e.path.clone());
-        }
-        let theirs: Vec<PathBuf> = entries
-            .iter()
-            .filter(|e| e.platform == platform && e.label == label.other() && !e.ours)
-            .map(|e| e.path.clone())
-            .collect();
-        if !theirs.is_empty() {
-            drop(index);
-            self.record_conflict("label", &sha, platform, Some(label), source, &theirs);
-            return ExportOutcome::Conflict(theirs);
-        }
-        // Our own copy under the other label: the verdict flipped, move it.
-        entries.retain(|e| {
-            if e.platform == platform && e.label == label.other() && e.ours {
-                let _ = std::fs::remove_file(&e.path);
-                false
-            } else {
-                true
-            }
-        });
-
-        let file = format!("{sha}.{}", extension(platform, name));
-        let target = dir.join(&file);
-        if std::fs::create_dir_all(dir).is_err() {
-            return ExportOutcome::Skipped;
-        }
-        let tmp = dir.join(format!(
-            ".{file}.{}-{}.part",
-            std::process::id(),
-            self.tmp_seq.fetch_add(1, Ordering::Relaxed)
-        ));
-        if std::fs::write(&tmp, data).is_err() {
-            let _ = std::fs::remove_file(&tmp);
-            return ExportOutcome::Skipped;
-        }
-        if target.exists() || std::fs::rename(&tmp, &target).is_err() {
-            let _ = std::fs::remove_file(&tmp);
-            if target.exists() {
-                // Same name, so same content (the name is the SHA-256).
-                entries.push(Entry { platform, label, path: target.clone(), ours: true, source: Source::Own, added: now_secs(), group: group.clone() });
-                self.duplicates_skipped.fetch_add(1, Ordering::Relaxed);
-                return ExportOutcome::AlreadyPresent(target);
-            }
-            return ExportOutcome::Skipped;
-        }
-        entries.push(Entry { platform, label, path: target.clone(), ours: true, source: Source::Own, added: now_secs(), group: group.clone() });
-        drop(index);
-        self.written.fetch_add(1, Ordering::Relaxed);
-        self.indexed_files.fetch_add(1, Ordering::Relaxed);
-        if let (Ok(meta), Ok(mut f)) = (
-            std::fs::metadata(&target),
-            std::fs::OpenOptions::new().create(true).append(true).open(self.cache_file()),
-        ) {
-            let mtime = unix_secs(meta.modified().ok());
-            let line = CacheLine { p: target.to_string_lossy().into_owned(), s: meta.len(), m: mtime, h: sha };
-            if let Ok(s) = serde_json::to_string(&line) {
-                let _ = writeln!(f, "{s}");
-            }
-        }
-        ExportOutcome::Written(target)
-    }
-
     fn record_conflict(&self, kind: &str, sha: &str, platform: Platform, wanted: Option<Label>, source: &str, paths: &[PathBuf]) {
         self.conflicts.fetch_add(1, Ordering::Relaxed);
         let line = serde_json::json!({
@@ -1439,21 +1267,6 @@ fn is_inside(child: &Path, parent: &Path) -> bool {
     !p.is_empty() && c.len() > p.len() + 1 && c.starts_with(&p) && c.as_bytes()[p.len()] == b'/'
 }
 
-/// Label of an engine result when (and only when) it comes from a reliable source.
-pub fn reliable_label(res: &ResultMessage) -> Option<(Label, &'static str)> {
-    if crate::engine_adapter::is_xorfilter_result(res) {
-        return None;
-    }
-    let ruleset = res.rule.as_ref().and_then(|r| r["ruleset"].as_str()).unwrap_or("");
-    match res.verdict.as_str() {
-        "malicious" if ruleset.starts_with("analyst/") => Some((Label::Malware, "analyst signature")),
-        "clean" if ruleset == "analyst/company_allowlist" => Some((Label::Clean, "analyst company allow-list")),
-        "clean" if ruleset == "benign_corpus/sha256" => Some((Label::Clean, "benign reference corpus")),
-        "clean" if res.signer.as_ref().is_some_and(|s| s.signed && s.trusted) => Some((Label::Clean, "trusted signature")),
-        _ => None,
-    }
-}
-
 /// Label from an analyst verdict (`suspicious` and the rest are not labels).
 pub fn human_label(verdict: &str) -> Option<Label> {
     match verdict {
@@ -1461,55 +1274,6 @@ pub fn human_label(verdict: &str) -> Option<Label> {
         "clean" => Some(Label::Clean),
         _ => None,
     }
-}
-
-/// Platform of a sample by CONTENT only (the name is never used to decide): an APK
-/// is a ZIP holding AndroidManifest.xml and classes*.dex, a PE has a valid PE header,
-/// JavaScript is text the HydraDragonSig JS parser (OXC) accepts. A JS file submitted
-/// as `.txt` or without an extension still reaches the JS dataset.
-pub fn platform_of(data: &[u8], _name: &str) -> Option<Platform> {
-    if data.starts_with(b"PK\x03\x04") {
-        let head = &data[..data.len().min(8 * 1024 * 1024)];
-        if contains(head, b"AndroidManifest.xml") && contains(head, b"classes") {
-            return Some(Platform::Android);
-        }
-        return None;
-    }
-    if is_pe(data) {
-        return Some(Platform::Windows);
-    }
-    if !data.is_empty() && !data[..data.len().min(4096)].contains(&0) && hydradragonsig::scanner::filetype::is_javascript(data) {
-        return Some(Platform::JavaScript);
-    }
-    None
-}
-
-fn is_pe(data: &[u8]) -> bool {
-    if data.len() < 0x40 || !data.starts_with(b"MZ") {
-        return false;
-    }
-    let off = u32::from_le_bytes([data[0x3c], data[0x3d], data[0x3e], data[0x3f]]) as usize;
-    data.get(off..off.saturating_add(4)) == Some(b"PE\0\0".as_slice())
-}
-
-fn extension(platform: Platform, name: &str) -> &'static str {
-    let lower = name.to_ascii_lowercase();
-    match platform {
-        Platform::Android => "apk",
-        Platform::JavaScript => "js",
-        Platform::Windows => {
-            for ext in ["dll", "sys", "scr", "ocx", "cpl", "drv", "efi"] {
-                if lower.ends_with(&format!(".{ext}")) {
-                    return ext;
-                }
-            }
-            "exe"
-        }
-    }
-}
-
-fn contains(hay: &[u8], needle: &[u8]) -> bool {
-    hay.windows(needle.len()).any(|w| w == needle)
 }
 
 #[cfg(test)]
@@ -1547,98 +1311,17 @@ mod tests {
     }
 
     #[test]
-    fn platforms() {
-        assert_eq!(platform_of(&pe(1), "a.dll"), Some(Platform::Windows));
-        assert_eq!(platform_of(b"PK\x03\x04...AndroidManifest.xml...classes.dex", "x.zip"), Some(Platform::Android));
-        assert_eq!(platform_of(b"PK\x03\x04 plain zip", "x.zip"), None);
-        assert_eq!(platform_of(b"var a = 1;", "a.js"), Some(Platform::JavaScript));
-        assert_eq!(platform_of(b"var a = 1;", "a.txt"), Some(Platform::JavaScript), "content, not the name");
-        assert_eq!(platform_of(b"just some words here", "a.js"), None);
-        assert_eq!(platform_of(b"MZ not a pe", "a.exe"), None);
-    }
-
-    #[test]
-    fn same_name_different_content_both_kept_same_content_once() {
-        let (root, ds) = setup("names");
-        ds.build_index();
-        let (a, b) = (pe(1), pe(2));
-        assert!(matches!(ds.export(&sha(&a), &a, "setup.exe", Label::Clean), ExportOutcome::Written(_)));
-        assert!(matches!(ds.export(&sha(&b), &b, "setup.exe", Label::Clean), ExportOutcome::Written(_)), "same name, other hash");
-        // Same content again, under another name and extension: not written twice.
-        assert!(matches!(ds.export(&sha(&a), &a, "other.dll", Label::Clean), ExportOutcome::AlreadyPresent(_)));
-        assert_eq!(std::fs::read_dir(root.join("clean")).unwrap().count(), 2);
-        let _ = std::fs::remove_dir_all(&root);
-    }
-
-    #[test]
-    fn existing_file_under_any_name_is_a_duplicate() {
-        let (root, ds) = setup("existing");
-        let a = pe(3);
-        std::fs::write(root.join("clean").join("notepad_original_name.exe"), &a).unwrap();
-        ds.build_index();
-        assert!(matches!(ds.export(&sha(&a), &a, "x.exe", Label::Clean), ExportOutcome::AlreadyPresent(_)));
-        assert_eq!(std::fs::read_dir(root.join("clean")).unwrap().count(), 1);
-        let _ = std::fs::remove_dir_all(&root);
-    }
-
-    #[test]
-    fn user_file_under_other_label_is_reported_not_touched() {
-        let (root, ds) = setup("conflict");
-        let a = pe(4);
-        let theirs = root.join("mal").join("sample.bin");
-        std::fs::write(&theirs, &a).unwrap();
-        ds.build_index();
-        assert!(matches!(ds.export(&sha(&a), &a, "x.exe", Label::Clean), ExportOutcome::Conflict(_)));
-        assert!(theirs.exists(), "the user's file is never removed");
-        assert_eq!(std::fs::read_dir(root.join("clean")).unwrap().count(), 0, "nothing written");
-        let log = std::fs::read_to_string(ds.conflicts_file()).unwrap();
-        assert!(log.contains(&sha(&a)) && log.contains("\"kind\":\"label\""));
-        assert_eq!(ds.status().conflicts, 1);
-        let _ = std::fs::remove_dir_all(&root);
-    }
-
-    #[test]
-    fn our_copy_moves_when_the_label_flips() {
-        let (root, ds) = setup("flip");
-        ds.build_index();
-        let a = pe(5);
-        let ExportOutcome::Written(first) = ds.export(&sha(&a), &a, "x.exe", Label::Clean) else { panic!() };
-        assert!(matches!(ds.export(&sha(&a), &a, "x.exe", Label::Malware), ExportOutcome::Written(_)));
-        assert!(!first.exists(), "our old copy was removed");
-        assert_eq!(std::fs::read_dir(root.join("mal")).unwrap().count(), 1);
-        let _ = std::fs::remove_dir_all(&root);
-    }
-
-    #[test]
-    fn existing_conflicts_are_reported_and_queue_waits_for_index() {
+    fn existing_conflicts_are_reported() {
         let (root, ds) = setup("queue");
         let a = pe(6);
         std::fs::write(root.join("mal").join("m.exe"), &a).unwrap();
         std::fs::write(root.join("clean").join("c.exe"), &a).unwrap();
-        let b = pe(7);
-        assert_eq!(ds.export(&sha(&b), &b, "b.exe", Label::Clean), ExportOutcome::Queued);
         ds.build_index();
         assert_eq!(ds.status().conflicts, 1, "the same content under both labels already");
-        assert!(root.join("clean").join(format!("{}.exe", sha(&b))).exists(), "queued copy written");
         // The digest cache lets a second index reuse the hashes.
         let cache = std::fs::read_to_string(root.join("state").join("dataset_index.jsonl")).unwrap();
-        assert_eq!(cache.lines().count(), 3);
+        assert_eq!(cache.lines().count(), 2);
         let _ = std::fs::remove_dir_all(&root);
-    }
-
-    #[test]
-    fn labels_need_a_reliable_source() {
-        let mut r: ResultMessage = serde_json::from_value(serde_json::json!({ "type": "result", "id": 0 })).unwrap();
-        r.verdict = "malicious".into();
-        assert_eq!(reliable_label(&r), None, "plain engine verdict");
-        r.rule = Some(serde_json::json!({ "ruleset": "analyst/clamav" }));
-        assert_eq!(reliable_label(&r).map(|x| x.0), Some(Label::Malware));
-        r.rule = Some(serde_json::json!({ "ruleset": "xorfilter/malicious_sha256" }));
-        assert_eq!(reliable_label(&r), None, "xor filter is not reliable");
-        r.verdict = "clean".into();
-        r.rule = Some(serde_json::json!({ "ruleset": "benign_corpus/sha256" }));
-        assert_eq!(reliable_label(&r).map(|x| x.0), Some(Label::Clean));
-        assert_eq!(human_label("suspicious"), None);
     }
 
     #[test]
@@ -1647,7 +1330,6 @@ mod tests {
             serde_json::from_str(r#"{ "windows_malware": "C:\\data\\mal", "android_clean": null }"#).unwrap();
         assert_eq!(p.windows_malware, FolderList::own("C:\\data\\mal"));
         assert_eq!(p.android_clean, FolderList::default());
-        assert_eq!(p.dir(Platform::Windows, Label::Malware), Some(Path::new("C:\\data\\mal")));
         assert_eq!(p.folders(), vec![(Platform::Windows, Label::Malware, Source::Own, PathBuf::from("C:\\data\\mal"))]);
         assert!(p.any());
     }
@@ -1680,9 +1362,6 @@ mod tests {
             "a folder listed twice is walked once"
         );
         // Copies go to the first own folder, never to a public one.
-        assert_eq!(p.dir(Platform::Windows, Label::Malware), Some(Path::new("own1")));
-        assert_eq!(p.dir(Platform::Windows, Label::Clean), Some(Path::new("c")));
-        assert_eq!(p.dir(Platform::JavaScript, Label::Clean), None);
         assert!(serde_json::from_str::<DatasetPaths>(r#"{ "windows_malware": { "path": "x", "source": "mine" } }"#).is_err());
     }
 
@@ -1747,10 +1426,10 @@ mod tests {
         assert_eq!(st.cells.len(), 4);
         assert!(st.cells.values().all(|m| m.len() == 3));
 
-        // A copy written by the server is "own": e becomes own only.
+        // A file put by hand in an own folder is "own": e becomes own only.
         let e = pe(14);
-        let ExportOutcome::Written(path) = ds.export(&sha(&e), &e, "e.exe", Label::Malware) else { panic!() };
-        assert!(path.starts_with(root.join("mal_own")), "written to the own folder, not a public one");
+        std::fs::write(root.join("mal_own").join("e.exe"), &e).unwrap();
+        ds.build_index();
         assert_eq!(counts(&ds.public_stats(&[]).unwrap(), "windows", "malware"), (1, 2, 1, 4));
         let _ = std::fs::remove_dir_all(&root);
     }
@@ -1892,9 +1571,8 @@ mod tests {
         assert_eq!(ds.status().indexed_files, 0);
         assert_eq!(ds.status().conflicts, 0, "two empty files under both labels are no conflict");
         let left = ds.recent_conflicts(10);
-        assert_eq!(left.len(), 1, "old empty-file line pruned, export conflict kept");
+        assert_eq!(left.len(), 1, "old empty-file line pruned, label conflict kept");
         assert_eq!(left[0]["sha256"], "AB");
-        assert_eq!(ds.export(EMPTY_SHA256, b"", "e.exe", Label::Malware), ExportOutcome::Skipped);
         let users = [UserFile::new(&EMPTY_SHA256.to_ascii_lowercase(), "unknown", &[], "")];
         assert_eq!(ds.public_stats(&users).unwrap().cells["all"]["all"].total, 0);
         let _ = std::fs::remove_dir_all(&root);

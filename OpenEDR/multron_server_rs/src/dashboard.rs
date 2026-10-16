@@ -693,17 +693,13 @@ async fn handle_stop(State(app): State<Arc<AppState>>) -> impl IntoResponse {
     Json(serde_json::json!({"ok": true}))
 }
 
-/// An analyst verdict is a reliable label: files with this content already in the ML
-/// dataset folders under the other label move to the verdict's folder (nothing is
-/// lost, see `Dataset::apply_human_verdict`), then the kept file is copied there if
-/// the dataset does not have it yet.
+/// An analyst verdict relabels files with this content that are ALREADY in the ML
+/// dataset folders (moved to the verdict's folder, nothing lost, see
+/// `Dataset::apply_human_verdict`). Nothing is copied into the dataset: only files
+/// put there by hand are trained on.
 fn export_human_label(engine: &crate::engine_adapter::EngineAdapter, sha: &str, verdict: &str) {
     let (Some(ds), Some(label)) = (engine.dataset.get(), crate::dataset::human_label(verdict)) else { return };
     ds.apply_human_verdict(sha, label);
-    let Some(k) = engine.find_kept(&sha.to_ascii_uppercase()) else { return };
-    if let Some(bytes) = k.read() {
-        ds.export(sha, &bytes, &k.name, label);
-    }
 }
 
 #[derive(Deserialize)]
@@ -792,8 +788,8 @@ async fn handle_remove_incoming_duplicates(State(app): State<Arc<AppState>>, Jso
     }
 }
 
-/// ML dataset label conflicts (same content already in the other label folder in a
-/// file the server did not write), newest first.
+/// ML dataset label conflicts (same content in both a malware and a clean folder),
+/// newest first.
 async fn handle_dataset_conflicts(State(app): State<Arc<AppState>>) -> impl IntoResponse {
     match app.engine.dataset.get() {
         Some(ds) => {
@@ -2078,8 +2074,8 @@ fn sync_analyst_tlsh(
 }
 
 /// Saves an analyst verdict for one file. The kept file moves to the verdict's folder,
-/// the TLSH analyst list is updated and the file is copied into the ML dataset under
-/// the verdict's label.
+/// the TLSH analyst list is updated and files with this content already in the ML
+/// dataset folders move to the verdict's label (nothing is copied into the dataset).
 async fn handle_review_save(
     State(app): State<Arc<AppState>>,
     who: Option<Extension<AnalystId>>,

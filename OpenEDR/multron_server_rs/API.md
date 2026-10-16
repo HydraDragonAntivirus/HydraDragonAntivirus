@@ -462,7 +462,7 @@ JSON body:
 
 #### `GET /api/dataset/conflicts`
 
-ML dataset label conflicts (same content already in the other label folder in a file the server did not write), newest first.
+ML dataset label conflicts (same content in both a malware and a clean folder), newest first.
 
 <sub>Handler: `src/dashboard.rs` → `handle_dataset_conflicts`</sub>
 
@@ -764,7 +764,7 @@ Query parameters:
 
 #### `POST /api/review`
 
-Saves an analyst verdict for one file. The kept file moves to the verdict's folder, the TLSH analyst list is updated and the file is copied into the ML dataset under the verdict's label.
+Saves an analyst verdict for one file. The kept file moves to the verdict's folder, the TLSH analyst list is updated and files with this content already in the ML dataset folders move to the verdict's label (nothing is copied into the dataset).
 
 JSON body:
 

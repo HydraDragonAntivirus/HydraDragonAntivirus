@@ -1133,8 +1133,7 @@ window.sigKey = (list) => list && list.length ? `${list[0].layer}: ${list[0].nam
                           ["Token", l.token ? "required" : "off"],
                           ["Hash whitelist", l.hashWhitelist ? "on" : "off"], ["Hash signatures", l.hashSignatures],
                           ["ML datasets", !l.dataset ? "off (no dataset_paths.json)"
-                            : (l.dataset.ready ? "ready" : "indexing") + ` · ${l.dataset.indexed_files} files · +${l.dataset.written} written · ${l.dataset.duplicates_skipped} duplicates skipped`
-                              + (l.dataset.pending ? ` · ${l.dataset.pending} waiting` : "")
+                            : (l.dataset.ready ? "ready" : "indexing") + ` · ${l.dataset.indexed_files} files`
                               + (l.dataset.conflicts ? ` · ${l.dataset.conflicts} label conflicts (/api/dataset/conflicts)` : "")]]) {
       limits.append(el("span", null, k), el("span", null, String(v)));
     }
