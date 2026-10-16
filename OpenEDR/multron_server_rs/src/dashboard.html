@@ -341,6 +341,11 @@
         <button type="button" id="sortKeptByType">Sort multron_incoming by file type (HydraDragonSig / ClamAV)</button>
         <span class="hint" id="sortKeptMsg"></span>
       </div>
+      <div style="display:flex;gap:8px;align-items:center;margin-top:12px;flex-wrap:wrap">
+        <button type="button" id="unpackKeptXz">Unpack all .xz files in multron_incoming</button>
+        <span class="hint" id="unpackXzMsg"></span>
+      </div>
+      <div class="hint">Unpacks every <code>.xz</code> kept file (stored compressed when disk space was low) next to itself and deletes the <code>.xz</code> only after the unpacked SHA-256 matches its name, so nothing is lost. Stops before free space drops under the low-disk threshold; files that fail stay as they are. Training and the type sort read the plain files.</div>
       <div class="hint">Moves each kept file into a folder named after its file type: the HydraDragonSig type first (<code>javascript</code>, <code>powershell</code>, <code>batch</code>, <code>vbs</code>, <code>python</code>, <code>pe32</code>/<code>pe64</code>, <code>elf64</code>, <code>apk</code>, <code>jar</code>, <code>dex</code>, <code>pdf</code>, <code>zip</code>, ...), then the ClamAV type (hydradragonclamav <code>.ftm</code> magic: <code>rar</code>, <code>html</code>, <code>text_ascii</code>, ...) where HydraDragonSig only says text or archive. The content decides, never the file name; <code>.xz</code> files are unpacked to check. Files of unknown type stay in the category folder. New files are sorted this way when they are kept.</div>
       <div class="hint">Moves the copies the server wrote into the ML dataset folders (<code>&lt;SHA256&gt;.exe</code> etc.) whose file is in <code>multron_incoming/</code> to a backup folder next to the dataset folder (<code>deleted_from_data2_pe</code>, ...). Nothing is deleted; training never reads the backup folders. <code>multron_incoming</code> keeps the file with its telemetry; your own and public dataset files are never touched. Logged in <code>dataset_moves.jsonl</code>.</div>
       <label style="display:flex;gap:8px;align-items:center;margin-top:12px">
@@ -1561,6 +1566,18 @@ window.sigKey = (list) => list && list.length ? `${list[0].layer}: ${list[0].nam
       const m = r.moved || {};
       const parts = Object.entries(m).filter(([k]) => k !== "unchanged" && k !== "other").map(([k, n]) => `${n} ${k}`);
       msg.textContent = `Moved ${parts.length ? parts.join(", ") : "nothing"}` + (m.other ? `; ${m.other} of unknown type back to the category folder` : "") + `; ${m.unchanged || 0} already in place.`;
+    } catch (e) { msg.textContent = "Error: " + e.message; }
+    finally { btn.disabled = false; }
+  };
+
+  $("unpackKeptXz").onclick = async () => {
+    const btn = $("unpackKeptXz"), msg = $("unpackXzMsg");
+    if (!confirm("Unpack every .xz file in multron_incoming? Each .xz is deleted after its unpacked content is verified. This uses more disk space.")) return;
+    btn.disabled = true;
+    msg.textContent = "Unpacking… (large folders take a while)";
+    try {
+      const r = (await post("/api/kept/unpack-xz", {})).result || {};
+      msg.textContent = `Unpacked ${r.unpacked || 0} files (+${((r.bytes_added || 0) / 1048576).toFixed(1)} MB)` + (r.failed ? `, ${r.failed} failed (left as .xz)` : "") + (r.stopped_low_disk ? "; stopped: low disk space" : "") + ".";
     } catch (e) { msg.textContent = "Error: " + e.message; }
     finally { btn.disabled = false; }
   };

@@ -383,6 +383,69 @@ impl EngineAdapter {
     /// right folder stay; a file of unknown type moves back to the category folder.
     /// Nothing is overwritten. Returns how many files moved per type folder ("other"
     /// = unknown type) and how many were already in place ("unchanged").
+    /// Unpacks every `.xz` kept file (written when disk space was low) to the plain
+    /// file next to it, then deletes the `.xz`. Lossless: the `.xz` is deleted only
+    /// after the unpacked content's SHA-256 matches the one in its name (an existing
+    /// plain file with the same content counts as unpacked). Stops when free disk space
+    /// would drop under the low-disk threshold. Files that fail stay as they are.
+    pub fn unpack_kept_xz(&self) -> XzUnpack {
+        use sha2::Digest;
+        let mut r = XzUnpack::default();
+        let Some(dir) = self.work_dir.as_ref() else { return r };
+        for k in self.list_kept() {
+            if !k.xz || k.legacy {
+                continue;
+            }
+            let xz_len = std::fs::metadata(&k.path).map(|m| m.len()).unwrap_or(0);
+            let Some(data) = k.read() else {
+                r.failed += 1;
+                continue;
+            };
+            if !hex::encode_upper(sha2::Sha256::digest(&data)).eq_ignore_ascii_case(&k.sha256) {
+                eprintln!("[kept] {} does not unpack to its SHA-256, left as it is", k.path.display());
+                r.failed += 1;
+                continue;
+            }
+            let Some(parent) = k.path.parent() else { continue };
+            let target = parent.join(format!("{}_{}", k.sha256, k.name));
+            let already = std::fs::read(&target)
+                .map(|d| hex::encode_upper(sha2::Sha256::digest(&d)).eq_ignore_ascii_case(&k.sha256))
+                .unwrap_or(false);
+            if !already {
+                if target.exists() {
+                    // Another file under that name: never overwritten.
+                    r.failed += 1;
+                    continue;
+                }
+                if let Some(free) = get_available_disk_space_bytes(dir) {
+                    if free < data.len() as u64 + self.low_disk_threshold_bytes {
+                        r.stopped_low_disk = true;
+                        break;
+                    }
+                }
+                let tmp = parent.join(format!("{}_{}.unpacking", k.sha256, k.name));
+                if std::fs::write(&tmp, &data).is_err() || std::fs::rename(&tmp, &target).is_err() {
+                    let _ = std::fs::remove_file(&tmp);
+                    r.failed += 1;
+                    continue;
+                }
+            }
+            if std::fs::remove_file(&k.path).is_err() {
+                r.failed += 1;
+                continue;
+            }
+            self.kept_index_set(&k.sha256, &target);
+            let used = if k.category == "clean" { &self.kept_clean_bytes } else { &self.kept_bytes };
+            if !already {
+                used.fetch_add(data.len() as u64, Ordering::Relaxed);
+            }
+            let _ = used.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |v| Some(v.saturating_sub(xz_len)));
+            r.unpacked += 1;
+            r.bytes_added += (data.len() as u64).saturating_sub(xz_len);
+        }
+        r
+    }
+
     pub fn sort_kept_by_type(&self) -> Result<std::collections::BTreeMap<String, u64>, String> {
         let mut counts: std::collections::BTreeMap<String, u64> = std::collections::BTreeMap::new();
         let Some(dir) = self.work_dir.as_ref() else { return Ok(counts) };
@@ -1101,6 +1164,17 @@ impl Pressure {
     pub fn still(&self, start: &Pressure) -> bool {
         (start.clean && self.clean) || (start.shared && self.shared) || (start.disk && self.disk)
     }
+}
+
+/// Result of `EngineAdapter::unpack_kept_xz`.
+#[derive(Debug, Default, serde::Serialize)]
+pub struct XzUnpack {
+    pub unpacked: u64,
+    pub failed: u64,
+    /// Extra disk space used (unpacked size minus the `.xz` size).
+    pub bytes_added: u64,
+    /// Stopped early: free disk space would have dropped under the low-disk threshold.
+    pub stopped_low_disk: bool,
 }
 
 /// A file kept in the work folder: `<category>/<SHA256>_<name>[.xz]` (older servers
@@ -1850,6 +1924,28 @@ mod pc_test {
 #[cfg(test)]
 mod kept_tests {
     use super::*;
+
+    #[test]
+    fn xz_unpacked_verified_and_removed() {
+        use sha2::Digest;
+        let dir = std::env::temp_dir().join(format!("kept_xz_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let ad = EngineAdapter::new(Some(dir.clone()), false, true, 1, true, false, 1, false, 1);
+        let data = b"var payload = 'hello';".repeat(50);
+        let sha = hex::encode_upper(sha2::Sha256::digest(&data));
+        let js = dir.join("clean").join("javascript");
+        std::fs::create_dir_all(&js).unwrap();
+        compress_bytes_lzma2_max(&data, &js.join(format!("{sha}_a.js.xz"))).unwrap();
+        // a .xz whose content does not match its name stays
+        let bad = "B".repeat(64);
+        compress_bytes_lzma2_max(b"other", &js.join(format!("{bad}_b.js.xz"))).unwrap();
+        let r = ad.unpack_kept_xz();
+        assert_eq!((r.unpacked, r.failed), (1, 1));
+        assert_eq!(std::fs::read(js.join(format!("{sha}_a.js"))).unwrap(), data);
+        assert!(!js.join(format!("{sha}_a.js.xz")).exists());
+        assert!(js.join(format!("{bad}_b.js.xz")).exists());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     #[test]
     fn duplicates_removed_and_not_stored_again() {

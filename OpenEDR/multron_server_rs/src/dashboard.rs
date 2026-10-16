@@ -334,6 +334,7 @@ pub fn dashboard_router(state: Arc<AppState>) -> Router {
         .route("/api/dataset/conflicts", get(handle_dataset_conflicts))
         .route("/api/dataset/remove-incoming-duplicates", post(handle_remove_incoming_duplicates))
         .route("/api/kept/sort-by-type", post(handle_sort_kept_by_type))
+        .route("/api/kept/unpack-xz", post(handle_unpack_kept_xz))
         .route("/api/compress-low-disk", post(handle_compress_low_disk))
         .route("/api/rescan", post(handle_rescan_one))
         .route("/api/rescan/bulk", get(handle_rescan_status).post(handle_rescan_bulk))
@@ -654,6 +655,25 @@ async fn handle_keep_possible_clean(State(app): State<Arc<AppState>>, Json(t): J
     app.save_settings().await;
     info_event(&app, format!("keep possible_clean files: {}", if t.enabled { "on" } else { "off" }));
     Json(serde_json::json!({ "ok": true, "enabled": t.enabled }))
+}
+
+/// Unpacks every `.xz` file in multron_incoming and deletes the `.xz` once the
+/// unpacked SHA-256 is verified.
+async fn handle_unpack_kept_xz(State(app): State<Arc<AppState>>) -> Response {
+    let eng = Arc::clone(&app.engine);
+    match tokio::task::spawn_blocking(move || eng.unpack_kept_xz()).await {
+        Ok(r) => {
+            info_event(&app, format!(
+                "multron_incoming: {} .xz files unpacked ({:.1} MB more on disk), {} failed{}",
+                r.unpacked,
+                r.bytes_added as f64 / 1048576.0,
+                r.failed,
+                if r.stopped_low_disk { "; stopped: low disk space" } else { "" }
+            ));
+            Json(serde_json::json!({ "ok": true, "result": r })).into_response()
+        }
+        Err(_) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({ "ok": false, "error": "failed" }))).into_response(),
+    }
 }
 
 /// Sorts multron_incoming by ClamAV file type: `<category>/<type>/`.
