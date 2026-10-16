@@ -437,6 +437,7 @@ async fn guard_middleware(req: Request<axum::body::Body>, next: Next) -> Respons
     next.run(req).await
 }
 
+/// The dashboard page (HTML).
 async fn handle_index() -> impl IntoResponse {
     let mut headers = HeaderMap::new();
     headers.insert("Content-Type", "text/html; charset=utf-8".parse().unwrap());
@@ -464,6 +465,9 @@ async fn kept_counts_cached(engine: &Arc<EngineAdapter>) -> serde_json::Value {
     v
 }
 
+/// Everything the dashboard header shows: engine status, listener, settings, connected
+/// clients, all-time telemetry counts, kept-file counts, queue and memory figures, and
+/// the event log since `since` (sequence number).
 async fn handle_state(
     Query(q): Query<StateQuery>,
     State(app): State<Arc<AppState>>,
@@ -596,6 +600,8 @@ struct EcsQuery {
     since: i64,
 }
 
+/// Dashboard events since sequence number `since`, as ECS JSON. Returns `{events,
+/// seq}`.
 async fn handle_events_ecs(
     State(app): State<Arc<AppState>>,
     Query(query): Query<EcsQuery>,
@@ -609,6 +615,8 @@ async fn handle_events_ecs(
     })))
 }
 
+/// Starts the scan listener (WebSocket + public API) with these settings and saves
+/// them.
 async fn handle_start(
     State(app): State<Arc<AppState>>,
     Json(settings): Json<SavedSettings>,
@@ -623,6 +631,7 @@ async fn handle_start(
     }
 }
 
+/// Stops the scan listener.
 async fn handle_stop(State(app): State<Arc<AppState>>) -> impl IntoResponse {
     app.stop_listener(true).await;
     Json(serde_json::json!({"ok": true}))
@@ -758,6 +767,8 @@ async fn handle_collect_xorfilter(State(app): State<Arc<AppState>>, Json(t): Jso
     Json(serde_json::json!({ "ok": true, "enabled": t.enabled }))
 }
 
+/// Whether clean PE/APK files are kept in multron_incoming. Saved to
+/// multron_server.json.
 async fn handle_keep_clean(State(app): State<Arc<AppState>>, Json(t): Json<KeepToggle>) -> impl IntoResponse {
     app.engine.keep_clean.store(t.enabled, std::sync::atomic::Ordering::Relaxed);
     app.settings.write().await.keep_clean = t.enabled;
@@ -766,6 +777,8 @@ async fn handle_keep_clean(State(app): State<Arc<AppState>>, Json(t): Json<KeepT
     Json(serde_json::json!({ "ok": true, "enabled": t.enabled }))
 }
 
+/// Whether kept files are stored LZMA2-compressed (`.xz`) when disk space runs low.
+/// Saved.
 async fn handle_compress_low_disk(State(app): State<Arc<AppState>>, Json(t): Json<KeepToggle>) -> impl IntoResponse {
     app.engine.compress_low_disk.store(t.enabled, std::sync::atomic::Ordering::Relaxed);
     app.settings.write().await.lzma_low_disk = t.enabled;
@@ -799,6 +812,8 @@ struct BulkRescanBody {
     categories: Vec<String>,
 }
 
+/// Rescans every kept file of the given categories (empty = all) with the current
+/// engine. Returns `{queued}`; 409 when one is already running.
 async fn handle_rescan_bulk(State(app): State<Arc<AppState>>, Json(b): Json<BulkRescanBody>) -> Response {
     match crate::rescan::start_bulk(&app.scan_server, &b.categories) {
         Ok(n) => Json(serde_json::json!({ "ok": true, "queued": n })).into_response(),
@@ -824,6 +839,8 @@ struct AuditBulkBody {
     kinds: Vec<String>,
 }
 
+/// Rescans the problem files found by `GET /api/rescan/audit` (duplicates and/or files
+/// missing from telemetry).
 async fn handle_rescan_audit_bulk(State(app): State<Arc<AppState>>, Json(b): Json<AuditBulkBody>) -> Response {
     let srv = Arc::clone(&app.scan_server);
     match tokio::task::spawn_blocking(move || crate::rescan::start_bulk_problems(&srv, &b.categories, &b.kinds)).await {
@@ -915,15 +932,18 @@ async fn handle_rescan_log(State(app): State<Arc<AppState>>) -> impl IntoRespons
     Json(serde_json::json!({ "ok": true, "status": app.scan_server.rescan.status(), "log": app.scan_server.rescan.log() }))
 }
 
+/// Progress of the bulk rescan.
 async fn handle_rescan_status(State(app): State<Arc<AppState>>) -> impl IntoResponse {
     Json(app.scan_server.rescan.status())
 }
 
+/// Stops the bulk rescan.
 async fn handle_rescan_stop(State(app): State<Arc<AppState>>) -> impl IntoResponse {
     app.scan_server.rescan.request_stop();
     Json(serde_json::json!({ "ok": true }))
 }
 
+/// Whether every kept file is rescanned automatically after an engine reload. Saved.
 async fn handle_rescan_after_reload(State(app): State<Arc<AppState>>, Json(t): Json<KeepToggle>) -> impl IntoResponse {
     app.scan_server.rescan.after_reload.store(t.enabled, std::sync::atomic::Ordering::Relaxed);
     app.settings.write().await.rescan_after_reload = t.enabled;
@@ -939,6 +959,7 @@ struct FsListQuery {
     path: String,
 }
 
+/// Lists a folder on the server's own disk (for the folder whitelist picker).
 async fn handle_fs_list(Query(q): Query<FsListQuery>) -> Response {
     match tokio::task::spawn_blocking(move || crate::folder_wl::list_dir(&q.path)).await {
         Ok(Ok(v)) => Json(v).into_response(),
@@ -966,6 +987,8 @@ fn folder_exclusions(app: &AppState) -> Vec<Option<PathBuf>> {
     ]
 }
 
+/// Counts the file types in a folder before a folder whitelist (multron_incoming and
+/// the move target are never walked).
 async fn handle_folder_types(State(app): State<Arc<AppState>>, Json(b): Json<FolderBody>) -> Response {
     let ex = folder_exclusions(&app);
     let res = tokio::task::spawn_blocking(move || {
@@ -980,6 +1003,8 @@ async fn handle_folder_types(State(app): State<Arc<AppState>>, Json(b): Json<Fol
     }
 }
 
+/// Starts hashing a folder on the server's disk for a bulk whitelist (`exts` filters,
+/// `max_mb` skips large files).
 async fn handle_folder_start(State(app): State<Arc<AppState>>, Json(b): Json<FolderBody>) -> Response {
     let ex = folder_exclusions(&app);
     let refs: Vec<Option<&std::path::Path>> = ex.iter().map(|p| p.as_deref()).collect();
@@ -990,10 +1015,12 @@ async fn handle_folder_start(State(app): State<Arc<AppState>>, Json(b): Json<Fol
     }
 }
 
+/// Progress of the folder hashing job.
 async fn handle_folder_status() -> impl IntoResponse {
     Json(crate::folder_wl::JOB.status())
 }
 
+/// Stops the folder hashing job.
 async fn handle_folder_stop() -> impl IntoResponse {
     crate::folder_wl::JOB.request_stop();
     Json(serde_json::json!({"ok": true}))
@@ -1007,6 +1034,8 @@ struct MirrorConfigBody {
     target: String,
 }
 
+/// Sets the backup archive mirror folder (absolute path, e.g.
+/// `\\\\ARCHIVEPC\\viruskov_archive`; empty = off) and starts a mirror run.
 async fn handle_mirror_config(State(app): State<Arc<AppState>>, Json(b): Json<MirrorConfigBody>) -> Response {
     let target = b.target.trim().to_string();
     if !target.is_empty() && !std::path::Path::new(&target).is_absolute() {
@@ -1022,6 +1051,7 @@ async fn handle_mirror_config(State(app): State<Arc<AppState>>, Json(b): Json<Mi
     Json(serde_json::json!({ "ok": true, "mirror": app.scan_server.mirror.status() })).into_response()
 }
 
+/// Runs the archive mirror now.
 async fn handle_mirror_run(State(app): State<Arc<AppState>>) -> Response {
     if app.scan_server.mirror.target().is_empty() {
         return (StatusCode::BAD_REQUEST, Json(serde_json::json!({ "error": "set the archive folder first" }))).into_response();
@@ -1051,6 +1081,7 @@ async fn handle_kept_dedupe(State(app): State<Arc<AppState>>) -> Response {
     }
 }
 
+/// Removes duplicate samples from the archive mirror. Returns `{removed, bytes}`.
 async fn handle_mirror_dedupe(State(app): State<Arc<AppState>>) -> Response {
     let m = Arc::clone(&app.scan_server.mirror);
     match tokio::task::spawn_blocking(move || m.dedupe_now()).await {
@@ -1063,6 +1094,7 @@ async fn handle_mirror_dedupe(State(app): State<Arc<AppState>>) -> Response {
     }
 }
 
+/// Stops the running mirror.
 async fn handle_mirror_stop(State(app): State<Arc<AppState>>) -> Response {
     app.scan_server.mirror.request_stop();
     Json(serde_json::json!({ "ok": true })).into_response()
@@ -1078,6 +1110,8 @@ struct OffloadConfigBody {
     auto: bool,
 }
 
+/// Sets the folder kept files are moved to (another disk / network share) and whether
+/// moving is automatic.
 async fn handle_offload_config(State(app): State<Arc<AppState>>, Json(b): Json<OffloadConfigBody>) -> Response {
     let target = b.target.trim().to_string();
     if !target.is_empty() {
@@ -1102,6 +1136,8 @@ async fn handle_offload_config(State(app): State<Arc<AppState>>, Json(b): Json<O
     Json(serde_json::json!({ "ok": true, "offload": off.status() })).into_response()
 }
 
+/// Moves the kept files of the given categories to the move target now. Returns
+/// `{files}`.
 async fn handle_offload_start(State(app): State<Arc<AppState>>, body: Option<Json<BulkRescanBody>>) -> Response {
     let cats = body.map(|Json(b)| b.categories).unwrap_or_default();
     let srv = Arc::clone(&app.scan_server);
@@ -1118,6 +1154,7 @@ async fn handle_offload_start(State(app): State<Arc<AppState>>, body: Option<Jso
     }
 }
 
+/// Stops moving files.
 async fn handle_offload_stop(State(app): State<Arc<AppState>>) -> impl IntoResponse {
     app.scan_server.offload.request_stop();
     Json(serde_json::json!({ "ok": true }))
@@ -1153,6 +1190,9 @@ fn maintenance_json(app: &AppState) -> serde_json::Value {
     })
 }
 
+/// Maintenance state: `{maintenance, mode, message, activeWork, pid, handoff,
+/// seamlessUpdate}`. `activeWork` = files being uploaded or scanned (the updater waits
+/// for 0).
 async fn handle_maintenance_status(State(app): State<Arc<AppState>>) -> impl IntoResponse {
     Json(maintenance_json(&app))
 }
@@ -1325,6 +1365,7 @@ async fn handle_limits_reset(State(app): State<Arc<AppState>>) -> impl IntoRespo
     Json(serde_json::json!({"ok": true, "limits": applied}))
 }
 
+/// Lifts every automatic (rate-limit) IP ban. Returns `{unbanned}`.
 async fn handle_unban(State(app): State<Arc<AppState>>) -> impl IntoResponse {
     let n = app.scan_server.limiter.unban_all();
     info_event(&app, format!("{n} blocked IP(s) unblocked"));
@@ -1440,6 +1481,7 @@ fn lan_addresses() -> Vec<String> {
     addrs
 }
 
+/// Telemetry totals by verdict and the file-type statistics.
 async fn handle_dashboard_insights_stats(State(app): State<Arc<AppState>>) -> impl IntoResponse {
     let stats = app.threat_intel.stats();
     let srv = Arc::clone(&app.scan_server);
@@ -1461,6 +1503,8 @@ async fn handle_dashboard_insights_stats(State(app): State<Arc<AppState>>) -> im
     }))
 }
 
+/// Everything known about one SHA-256: telemetry insight, prevalence, human review and
+/// a VirusTotal link (`found: false` when never seen).
 async fn handle_dashboard_insights_hash(
     State(app): State<Arc<AppState>>,
     Path(sha256): Path<String>,
@@ -1498,9 +1542,7 @@ fn file_ext(name: &str) -> String {
     }
 }
 
-/// Pending queue (up to 5000, oldest first) with telemetry for grouping by extension
-/// and folder. Similar files are loaded per item (`/api/reviews/similar/:sha256`).
-/// Files waiting for the engine and files being scanned right now (oldest first).
+/// `all=1`: no length limit on the list.
 #[derive(Deserialize)]
 struct AllQuery {
     #[serde(default)]
@@ -1513,6 +1555,8 @@ impl AllQuery {
     }
 }
 
+/// Files being scanned right now and files waiting for the engine, oldest first (500
+/// each; `all=1`: all).
 async fn handle_scan_queue(State(app): State<Arc<AppState>>, Query(q): Query<AllQuery>) -> impl IntoResponse {
     let (scanning, waiting, ns, nw) = app.scan_server.scan_queue.snapshot(if q.all() { usize::MAX } else { 500 });
     Json(serde_json::json!({
@@ -1568,6 +1612,10 @@ fn csv_lower(v: &Option<String>) -> Vec<String> {
         .collect()
 }
 
+/// The human analysis queue. Without parameters: the oldest 5000 pending files
+/// (`all=1`: every one). With `offset` / `limit` and the filters (`ext`, `not_ext`,
+/// `engine_verdict`, `folder`, `not_folder`): the pending files that pass the filters,
+/// oldest first, one page at a time; `next_offset` is null on the last page.
 async fn handle_reviews_list(State(app): State<Arc<AppState>>, Query(q): Query<ReviewsQuery>) -> impl IntoResponse {
     // Open files that are not queued yet (e.g. removed by hand, or seen before
     // auto-queueing) are added before listing.
@@ -1714,6 +1762,7 @@ fn add_engine_detail(app: &AppState, v: &mut serde_json::Value, sha256: &str) {
     }
 }
 
+/// Up to 5 similar files (TLSH) with their verdicts.
 async fn handle_review_similar(State(app): State<Arc<AppState>>, Path(sha256): Path<String>) -> impl IntoResponse {
     let sha = sha256.trim().to_lowercase();
     let ti = Arc::clone(&app.threat_intel);
@@ -1753,6 +1802,10 @@ struct ReviewBulkBody {
 
 const BULK_MAX: usize = 100_000;
 
+/// One verdict for many files at once: the given hashes, or the last finished folder
+/// hashing (`folder_job`). `verdict` = malicious | suspicious | clean | dismiss
+/// (dismiss = remove pending entries). A malicious verdict needs `threat_name`.
+/// `dry_run` only reports what would change.
 async fn handle_reviews_bulk(State(app): State<Arc<AppState>>, Json(mut b): Json<ReviewBulkBody>) -> Response {
     if b.folder_job {
         if crate::folder_wl::JOB.is_running() {
@@ -1967,6 +2020,9 @@ fn sync_analyst_tlsh(
     });
 }
 
+/// Saves an analyst verdict for one file. The kept file moves to the verdict's folder,
+/// the TLSH analyst list is updated and the file is copied into the ML dataset under
+/// the verdict's label.
 async fn handle_review_save(
     State(app): State<Arc<AppState>>,
     Json(b): Json<ReviewSaveBody>,
@@ -2019,6 +2075,7 @@ async fn handle_review_start(State(app): State<Arc<AppState>>, Json(b): Json<Rev
     }
 }
 
+/// Releases a file an analyst had started (`/api/review/start`) back to the queue.
 async fn handle_review_release(State(app): State<Arc<AppState>>, Json(b): Json<ReviewDeleteBody>) -> Response {
     match app.threat_intel.reviews.release(b.sha256.trim()) {
         Ok(r) => (StatusCode::OK, Json(serde_json::json!({"ok": true, "review": r.to_dashboard_json()}))).into_response(),
@@ -2031,6 +2088,8 @@ struct ReviewDeleteBody {
     sha256: String,
 }
 
+/// Deletes the human review of one file (and its TLSH analyst entry). 404 when there is
+/// none.
 async fn handle_review_delete(
     State(app): State<Arc<AppState>>,
     Json(b): Json<ReviewDeleteBody>,
@@ -2052,6 +2111,8 @@ struct NamingQuery {
     name: String,
 }
 
+/// Normalizes a threat name to the naming scheme. Returns `{name, yara_id}` or
+/// `{ok:false, error}`.
 async fn handle_naming_check(Query(q): Query<NamingQuery>) -> impl IntoResponse {
     match crate::naming::normalize_threat_name(&q.name) {
         Ok(n) => Json(serde_json::json!({"ok": true, "name": n, "yara_id": crate::naming::yara_identifier(&n)})),
@@ -2059,6 +2120,8 @@ async fn handle_naming_check(Query(q): Query<NamingQuery>) -> impl IntoResponse 
     }
 }
 
+/// The analyst signatures (Signature room): kind, name, source, modified, plus the
+/// naming categories and platforms.
 async fn handle_signatures_list() -> impl IntoResponse {
     use crate::analyst_engine::SigKind;
     let mut items = Vec::new();
@@ -2162,6 +2225,7 @@ async fn handle_signature_save(
     Json(serde_json::json!({ "ok": true, "kind": kind.id(), "name": name, "file": path.display().to_string(), "note": note, "retrohunt": hunt })).into_response()
 }
 
+/// Progress and hits of the running / last retrohunts.
 async fn handle_retrohunt_status(State(app): State<Arc<AppState>>) -> impl IntoResponse {
     Json(app.scan_server.retrohunt.status())
 }
@@ -2189,6 +2253,7 @@ async fn handle_retrohunt_archive(State(app): State<Arc<AppState>>, Json(b): Jso
     Json(serde_json::json!({ "ok": true, "retrohunt": hunt })).into_response()
 }
 
+/// Stops every running retrohunt.
 async fn handle_retrohunt_stop(State(app): State<Arc<AppState>>) -> impl IntoResponse {
     app.scan_server.retrohunt.stop_all();
     Json(serde_json::json!({ "ok": true }))
@@ -2201,6 +2266,8 @@ struct SignatureDeleteBody {
     name: String,
 }
 
+/// Deletes an analyst signature. ClamAV / HydraDragonSig ones are unloaded at once;
+/// YARA stays loaded until the next engine reload.
 async fn handle_signature_delete(
     State(app): State<Arc<AppState>>,
     Json(b): Json<SignatureDeleteBody>,
@@ -2225,6 +2292,7 @@ async fn handle_signature_delete(
 
 // ---------------- Company (signer) allow / block lists ----------------
 
+/// The company (signer) allow and block lists.
 async fn handle_companies_get(State(app): State<Arc<AppState>>) -> impl IntoResponse {
     Json(serde_json::json!({ "ok": true, "lists": app.engine.analyst.company_lists() }))
 }
@@ -2237,6 +2305,8 @@ struct CompaniesBody {
     block: Vec<String>,
 }
 
+/// Replaces the company allow / block lists (a name may not be in both). Active at
+/// once; cached verdicts are cleared.
 async fn handle_companies_save(
     State(app): State<Arc<AppState>>,
     Json(b): Json<CompaniesBody>,
@@ -2354,6 +2424,7 @@ async fn handle_ban_add(State(app): State<Arc<AppState>>, Json(b): Json<BanBody>
     }
 }
 
+/// Removes an analyst IP ban.
 async fn handle_ban_remove(State(app): State<Arc<AppState>>, Json(b): Json<BanBody>) -> Response {
     match app.scan_server.ip_bans.remove(&b.ip) {
         Ok(removed) => {
@@ -2366,6 +2437,8 @@ async fn handle_ban_remove(State(app): State<Arc<AppState>>, Json(b): Json<BanBo
     }
 }
 
+/// The false-positive ignore lists (ClamAV `.ign2`, HydraDragonSig, YARA) with their
+/// entries.
 async fn handle_fp_lists(State(app): State<Arc<AppState>>) -> Response {
     let rules = match fp_rules_dir(&app) {
         Ok(r) => r,
@@ -2391,6 +2464,8 @@ struct FpIgnoreBody {
     file_name: String,
 }
 
+/// Adds a signature to a false-positive ignore list (`kind` = clamav | hydrasig | yara)
+/// with reason, analyst and the file it was seen on.
 async fn handle_fp_ignore(State(app): State<Arc<AppState>>, Json(b): Json<FpIgnoreBody>) -> Response {
     let bad = |e: String| (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": e}))).into_response();
     let Some(kind) = crate::fp_ignore::Kind::parse(&b.kind) else {
@@ -2425,6 +2500,8 @@ struct FpUnignoreBody {
     name: String,
 }
 
+/// Removes a signature from a false-positive ignore list. Active after the next engine
+/// reload.
 async fn handle_fp_unignore(State(app): State<Arc<AppState>>, Json(b): Json<FpUnignoreBody>) -> Response {
     let Some(kind) = crate::fp_ignore::Kind::parse(&b.kind) else {
         return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "unknown kind"}))).into_response();

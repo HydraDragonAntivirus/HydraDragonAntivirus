@@ -463,6 +463,7 @@ pub fn maintenance_code(mode: &str) -> u8 {
     }
 }
 
+/// Liveness: `{status: ok | maintenance, maintenance, maintenanceMode, ...}`.
 async fn handle_health(State(server): State<Arc<ScanServer>>) -> impl IntoResponse {
     axum::Json(serde_json::json!({
         "status": if server.maintenance() { "maintenance" } else { "ok" },
@@ -723,6 +724,8 @@ fn extract_client_ip(addr: SocketAddr, headers: &HeaderMap) -> String {
     client_ip
 }
 
+/// Public telemetry for one SHA-256 (verdict, prevalence, first/last seen). No folders,
+/// names of users or IPs.
 async fn handle_hash_insights(
     Path(sha256): Path<String>,
     ConnectInfo(addr): ConnectInfo<SocketAddr>,
@@ -874,6 +877,7 @@ fn public_type_stats(mut v: serde_json::Value) -> serde_json::Value {
     v
 }
 
+/// Public telemetry totals for the website statistics page.
 async fn handle_insights_stats(State(server): State<Arc<ScanServer>>) -> Response {
     // No per-IP quota here: the website polls this endpoint, and the 500/day quota of the
     // hash lookups was used up in about an hour, after which the numbers froze.
@@ -910,6 +914,8 @@ async fn handle_insights_stats(State(server): State<Arc<ScanServer>>) -> Respons
         .into_response()
 }
 
+/// The scan WebSocket used by Multron Win Cleaner and the other clients (hello, check,
+/// scan, scan_url; see API.md).
 async fn ws_handler(
     ws: WebSocketUpgrade,
     ConnectInfo(addr): ConnectInfo<SocketAddr>,
@@ -2112,6 +2118,7 @@ pub async fn execute_url_scan(
     Ok(ecs)
 }
 
+/// Scans a URL (JSON body, `url`) and returns the ECS result.
 async fn handle_scan_url(
     State(server): State<Arc<ScanServer>>,
     axum::Json(req): axum::Json<UrlScanRequest>,
@@ -2132,6 +2139,7 @@ async fn handle_scan_url(
     }
 }
 
+/// Same as POST, with `?url=`.
 async fn handle_scan_url_get(
     State(server): State<Arc<ScanServer>>,
     axum::extract::Query(query): axum::extract::Query<UrlScanQuery>,
@@ -2636,6 +2644,7 @@ pub fn similar_files(ti: &crate::threat_intel::ThreatIntelStore, sha: &str, limi
     list
 }
 
+/// Public list of files similar to this SHA-256 (TLSH) with their verdicts.
 async fn handle_similar(
     ConnectInfo(addr): ConnectInfo<SocketAddr>,
     headers: HeaderMap,
@@ -2691,6 +2700,7 @@ fn cached_dataset_stats(server: &ScanServer) -> serde_json::Value {
     v
 }
 
+/// Public ML dataset totals (own / public / user-submitted) for the statistics page.
 async fn handle_dataset_stats(
     ConnectInfo(addr): ConnectInfo<SocketAddr>,
     headers: HeaderMap,

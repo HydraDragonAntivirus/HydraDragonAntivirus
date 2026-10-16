@@ -388,6 +388,8 @@ pub struct SearchQuery {
     back: bool,
 }
 
+/// Searches the open file for a byte pattern (`pattern`, hex), forward from `from` or
+/// backward with `back=true`. Returns the offset of the match.
 pub async fn handle_search(Query(q): Query<SearchQuery>) -> Response {
     let Some((_, data)) = doc(&q.token) else { return err(StatusCode::NOT_FOUND, "file is not open any more, open it again") };
     let pat = match hex::decode(q.pattern.replace([' ', '-'], "")) {
