@@ -4,7 +4,9 @@ HydraDragon ML Model Trainer - Android APK Edition
 Extracts the exact 24-dimensional DEX and AndroidManifest.xml features,
 matching OpenEDR/openedr_web/src/apk.rs and tools/apk_train.py.
 Extracts out-of-core chunks to disk to eliminate memory pressure (< 1.5 GB RAM).
-Enforces exact 50% Benign / 50% Malicious class balance.
+Trains on ALL samples (no 50/50 undersampling): every benign APK is used, because
+false positives are the critical failure. Duplicate feature rows are removed and rows
+labelled both ways are dropped.
 Exports both:
   1. `apk_model.onnx` (Standard ONNX format)
   2. `apk_trees.bin` (25-byte binary forest bundle for Rust openedr_web)
@@ -110,13 +112,13 @@ def extract_apk_chunks_to_disk(file_list: List[str], label_name: str, label_val:
     print(f"[+] Total {label_name} APK samples extracted: {total_valid}")
     return total_valid
 
-def load_apk_chunks_balanced(chunk_dir: str):
+def load_apk_chunks(chunk_dir: str, balance: bool = False):
     chunk_files = dataset_paths.ChunkManifest(chunk_dir).chunk_files(
         chunk_dir, "chunk_apk_", glob.glob(os.path.join(chunk_dir, "chunk_apk_*.joblib")))
     if not chunk_files:
         raise RuntimeError(f"No APK chunk files found in {chunk_dir}")
         
-    print(f"[*] Found {len(chunk_files)} chunk files in {chunk_dir}. Loading and balancing 50/50...")
+    print(f"[*] Found {len(chunk_files)} chunk files in {chunk_dir}. Loading ALL samples...")
     X_mal_list, X_ben_list = [], []
     
     for cf in chunk_files:
@@ -131,29 +133,33 @@ def load_apk_chunks_balanced(chunk_dir: str):
     if not X_mal_list or not X_ben_list:
         raise RuntimeError(f"Need both Malicious and Benign chunks in {chunk_dir} to train!")
         
-    X_mal = np.vstack(X_mal_list)
-    X_ben = np.vstack(X_ben_list)
-    
-    n_mal = len(X_mal)
-    n_ben = len(X_ben)
-    target_each = min(n_mal, n_ben)
-    print(f"[*] Raw APK counts: {n_mal} Malicious, {n_ben} Benign -> Balancing to {target_each} each (50/50)")
-    
-    np.random.seed(42)
-    idx_mal = np.random.choice(n_mal, target_each, replace=False)
-    idx_ben = np.random.choice(n_ben, target_each, replace=False)
-    
-    X = np.vstack([X_mal[idx_mal], X_ben[idx_ben]])
-    y = np.array([1] * target_each + [0] * target_each, dtype=np.int32)
-    
+    X_mal = np.unique(np.vstack(X_mal_list), axis=0)
+    X_ben = np.unique(np.vstack(X_ben_list), axis=0)
+    del X_mal_list, X_ben_list
+
+    # Same feature vector labelled both ways: the model cannot learn it, drop from both.
+    both = {r.tobytes() for r in X_ben} & {r.tobytes() for r in X_mal}
+    if both:
+        X_mal = np.array([r for r in X_mal if r.tobytes() not in both])
+        X_ben = np.array([r for r in X_ben if r.tobytes() not in both])
+    print(f"[*] After dedup: {len(X_mal)} Malicious, {len(X_ben)} Benign ({len(both)} conflicting rows dropped)")
+
+    if balance:
+        rng = np.random.default_rng(42)
+        n = min(len(X_mal), len(X_ben))
+        X_mal = X_mal[rng.choice(len(X_mal), n, replace=False)]
+        X_ben = X_ben[rng.choice(len(X_ben), n, replace=False)]
+        print(f"[*] --balance: undersampled to {n} each (50/50)")
+
+    X = np.vstack([X_mal, X_ben])
+    y = np.array([1] * len(X_mal) + [0] * len(X_ben), dtype=np.int32)
+
     joblib_out = os.path.join(os.path.dirname(__file__), "apk_features.joblib")
     joblib.dump({"X": X, "y": y}, joblib_out, compress=3)
-    print(f"[+] Saved complete balanced APK dataset to: {joblib_out}")
-    
-    del X_mal, X_ben, X_mal_list, X_ben_list
+    print(f"[+] Saved APK dataset to: {joblib_out}")
+
     gc.collect()
-    
-    print(f"[+] Loaded perfectly balanced APK dataset: {len(X)} samples ({target_each} Malicious, {target_each} Benign)")
+    print(f"[+] APK dataset: {len(X)} samples ({len(X_mal)} Malicious, {len(X_ben)} Benign, ratio 1:{len(X_ben) / max(len(X_mal), 1):.2f})")
     return X, y
 
 def parse_args():
@@ -161,7 +167,8 @@ def parse_args():
     dataset_paths.add_args(parser, "android")
     parser.add_argument("--output-onnx", type=str, default="apk_model.onnx", help="Output ONNX model path")
     parser.add_argument("--output-bin", type=str, default="apk_trees.bin", help="Output 25-byte tree bundle path")
-    parser.add_argument("--max-samples-per-class", type=int, default=30000, help="Max samples to scan from each class")
+    parser.add_argument("--max-samples-per-class", type=int, default=0, help="Max samples to scan from each class (0 = unlimited, the default)")
+    parser.add_argument("--balance", action="store_true", help="Old behaviour: undersample both classes to 50/50 (default: use ALL samples)")
     parser.add_argument("--chunk-dir", type=str, default="cache_chunks_apk", help="Directory to store APK feature chunks")
     parser.add_argument("--chunk-size", type=int, default=1000, help="Number of APK files per disk chunk")
     parser.add_argument("--extract-only", action="store_true", help="Only extract chunks to disk, do not train")
@@ -178,8 +185,9 @@ def main():
     if not args.train_only:
         print("[*] Discovering APK files...")
         mal_files, ben_files = dataset_paths.collect(
-            args, "android", keep=lambda p: p.lower().endswith((".apk", ".zip")),
-            max_per_class=args.max_samples_per_class)
+            args, "android", max_per_class=args.max_samples_per_class)
+        # Every file is tried: apk_features() decides by content (no extension filter)
+        # and returns None for anything that is not an APK.
         print(f"[+] Discovered {len(mal_files)} malicious APKs and {len(ben_files)} benign APKs.")
 
         extract_apk_chunks_to_disk(mal_files, "MALICIOUS", 1, args.chunk_dir, args.chunk_size)
@@ -189,12 +197,12 @@ def main():
         print("[+] APK feature extraction complete. Exiting as --extract-only was specified.")
         return
 
-    X, y = load_apk_chunks_balanced(args.chunk_dir)
+    X, y = load_apk_chunks(args.chunk_dir, balance=args.balance)
 
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.15, random_state=42, stratify=y)
     print(f"[*] Train set: {len(X_train)} | Test set: {len(X_test)}")
 
-    print("[*] Training LightGBM Classifier (50/50 Balanced)...")
+    print("[*] Training LightGBM Classifier (all samples, no class re-weighting: extra benign keeps FPs down)...")
     clf = lgb.LGBMClassifier(
         n_estimators=300,
         learning_rate=0.03,

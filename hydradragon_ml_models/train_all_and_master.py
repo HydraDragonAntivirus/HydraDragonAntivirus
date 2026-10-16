@@ -107,7 +107,10 @@ def export_onnx(clf, n_features: int, out_path: str):
 # -------------------------------------------------------------
 def train_domain(name: str, joblib_path: str, n_features: int, max_samples: int = 0,
                  n_estimators: int = 250, num_leaves: int = 63, max_depth: int = 8,
-                 lr: float = 0.03):
+                 lr: float = 0.03, balance: bool = False):
+    """balance=False (PE / JS / APK): ALL samples, every benign one is kept - false
+    positives are the critical failure. balance=True: the old 50/50 undersampling,
+    capped at max_samples (URL: 15M rows)."""
     print("\n" + "=" * 65, flush=True)
     print(f" [*] TRAINING {name.upper()} MODEL ({os.path.basename(joblib_path)})", flush=True)
     print("=" * 65, flush=True)
@@ -122,25 +125,26 @@ def train_domain(name: str, joblib_path: str, n_features: int, max_samples: int 
     del data
     gc.collect()
     
-    # Balance 50/50
     mal_idx = np.where(y == 1)[0]
     ben_idx = np.where(y == 0)[0]
-    target_each = min(len(mal_idx), len(ben_idx))
-    if max_samples > 0 and target_each > max_samples // 2:
-        target_each = max_samples // 2
-        
     np.random.seed(42)
-    sel_mal = np.random.choice(mal_idx, target_each, replace=False)
-    sel_ben = np.random.choice(ben_idx, target_each, replace=False)
-    sel = np.concatenate([sel_mal, sel_ben])
+    if balance:
+        target_each = min(len(mal_idx), len(ben_idx))
+        if max_samples > 0 and target_each > max_samples // 2:
+            target_each = max_samples // 2
+        sel = np.concatenate([np.random.choice(mal_idx, target_each, replace=False),
+                              np.random.choice(ben_idx, target_each, replace=False)])
+    else:
+        sel = np.arange(len(y))
     np.random.shuffle(sel)
-    
+
     X = X[sel]
     y = y[sel]
-    del mal_idx, ben_idx, sel_mal, sel_ben, sel
+    del sel
     gc.collect()
-    
-    print(f"  [+] Dataset Balanced: {len(X):,} samples ({target_each:,} Malicious, {target_each:,} Benign)", flush=True)
+
+    n_mal, n_ben = int((y == 1).sum()), int((y == 0).sum())
+    print(f"  [+] Dataset: {len(X):,} samples ({n_mal:,} Malicious, {n_ben:,} Benign{', 50/50' if balance else ', all samples'})", flush=True)
     print(f"  [+] Feature Dimension: {X.shape[1]} (Expected: {n_features})", flush=True)
     assert X.shape[1] == n_features, f"Feature dimension mismatch: {X.shape[1]} vs {n_features}"
     
@@ -214,7 +218,8 @@ def main():
     
     # 4. URL Model (32 Features) - 200k samples from 15.3M url_features_cache.joblib
     url_clf, url_probs, url_y = train_domain("url", os.path.join(BASE_DIR, "url_features_cache.joblib"),
-                                             n_features=32, max_samples=200000, n_estimators=300, num_leaves=63, max_depth=8)
+                                             n_features=32, max_samples=200000, n_estimators=300, num_leaves=63, max_depth=8,
+                                             balance=True)
     url_onnx = os.path.join(BASE_DIR, "url_model.onnx")
     url_bin = os.path.join(BASE_DIR, "url_trees.bin")
     url_hdtr = os.path.join(BASE_DIR, "url_model.bin")

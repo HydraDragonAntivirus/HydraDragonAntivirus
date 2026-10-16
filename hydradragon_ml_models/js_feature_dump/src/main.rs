@@ -9,6 +9,8 @@
 //! Includes OpenEDR/openedr_static/src/ml/{features,js_features}.rs by path, so the
 //! features train_js_lgbm.py learns from are byte for byte what the engine computes at
 //! scan time. Files the extractor rejects (not valid JS) are skipped, as in the engine.
+//! No extension filter: every UTF-8 file is offered to the extractor, which decides
+//! by content. `max_per_class` 0 (or missing) = unlimited.
 //! Output: CSV with `label,path,<51 features>` (label 1 = malicious).
 
 use std::io::Write;
@@ -25,8 +27,6 @@ mod features;
 #[path = "../../../OpenEDR/openedr_static/src/ml/js_features.rs"]
 mod js_features;
 
-const EXTS: [&str; 7] = ["js", "jse", "vbs", "html", "htm", "txt", ""];
-
 fn walk(dir: &Path, max: usize) -> Vec<PathBuf> {
     let mut out = Vec::new();
     let mut stack = vec![dir.to_path_buf()];
@@ -37,21 +37,14 @@ fn walk(dir: &Path, max: usize) -> Vec<PathBuf> {
             if p.is_dir() {
                 stack.push(p);
             } else {
-                if has_js_ext(&p) {
-                    out.push(p);
-                    if out.len() >= max {
-                        return out;
-                    }
+                out.push(p);
+                if out.len() >= max {
+                    return out;
                 }
             }
         }
     }
     out
-}
-
-fn has_js_ext(p: &Path) -> bool {
-    let ext = p.extension().and_then(|x| x.to_str()).unwrap_or("").to_ascii_lowercase();
-    EXTS.contains(&ext.as_str())
 }
 
 /// Files of a folder (`dir`) or of a list file (`@list`), at most `max`.
@@ -66,7 +59,6 @@ fn inputs(arg: &str, max: usize) -> Vec<PathBuf> {
                 .map(str::trim)
                 .filter(|l| !l.is_empty())
                 .map(PathBuf::from)
-                .filter(|p| has_js_ext(p))
                 .take(max)
                 .collect()
         }
@@ -113,7 +105,7 @@ fn run() {
         std::process::exit(2);
     }
     std::panic::set_hook(Box::new(|_| {})); // parser panics on odd input: skip the file quietly
-    let max = a.get(4).and_then(|v| v.parse().ok()).unwrap_or(usize::MAX);
+    let max = a.get(4).and_then(|v| v.parse().ok()).filter(|&m: &usize| m > 0).unwrap_or(usize::MAX);
     let mal = inputs(&a[1], max);
     let ben = inputs(&a[2], max);
     eprintln!("[+] {} malicious, {} benign files", mal.len(), ben.len());

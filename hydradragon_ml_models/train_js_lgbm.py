@@ -60,7 +60,8 @@ def parse_args():
     dataset_paths.add_args(ap, "javascript")
     ap.add_argument("--features-csv", default=os.path.join(BASE_DIR, "js_features.csv"))
     ap.add_argument("--reuse-csv", action="store_true", help="Train from an existing --features-csv, no extraction")
-    ap.add_argument("--max-samples-per-class", type=int, default=50000)
+    ap.add_argument("--max-samples-per-class", type=int, default=0, help="0 = unlimited (default): every benign file is used")
+    ap.add_argument("--balance", action="store_true", help="Old behaviour: undersample both classes to 50/50 (default: use ALL samples)")
     ap.add_argument("--output-bin", default=os.path.join(BASE_DIR, "js_trees.bin"))
     ap.add_argument("--no-sync", action="store_true", help="Do not copy js_trees.bin into the engine model folders")
     return ap.parse_args()
@@ -68,10 +69,9 @@ def parse_args():
 
 def dump_features(args):
     """Builds and runs js_feature_dump (Rust, the engine's extractor) -> CSV."""
-    # Same extensions js_feature_dump accepts (EXTS in js_feature_dump/src/main.rs).
-    exts = {"js", "jse", "vbs", "html", "htm", "txt", ""}
-    keep = lambda p: os.path.splitext(p)[1].lower().lstrip(".") in exts
-    mal, ben = dataset_paths.collect(args, "javascript", keep=keep, max_per_class=args.max_samples_per_class)
+    # No extension filter: js_feature_dump keeps every UTF-8 file the engine's JS
+    # extractor accepts (decided by content, as at scan time).
+    mal, ben = dataset_paths.collect(args, "javascript", max_per_class=args.max_samples_per_class)
     lists = []
     for name, files in (("js_malicious.lst", mal), ("js_benign.lst", ben)):
         path = os.path.join(BASE_DIR, name)
@@ -85,8 +85,10 @@ def dump_features(args):
         sys.exit("js_feature_dump failed")
 
 
-def load_features(path, max_per_class):
-    """Balanced 50/50 dataset from the js_feature_dump CSV (label,path,<51 features>)."""
+def load_features(path, max_per_class, balance=False):
+    """ALL rows of the js_feature_dump CSV (label,path,<51 features>): every benign file
+    is kept (false positives are the critical failure). Duplicate rows are removed and
+    rows labelled both ways are dropped. `balance` restores the old 50/50 undersampling."""
     mal, ben = [], []
     with open(path, newline="", encoding="utf-8") as fh:
         rd = csv.reader(fh)
@@ -94,13 +96,24 @@ def load_features(path, max_per_class):
             sys.exit("CSV columns do not match JS_FEATURE_NAMES (js_features.rs changed?)")
         for row in rd:
             (mal if row[0] == "1" else ben).append([float(v) for v in row[2:]])
-    mal = np.asarray(mal, dtype=np.float32)
-    ben = np.asarray(ben, dtype=np.float32)
-    n = min(len(mal), len(ben), max_per_class)
-    print(f"[*] {len(mal)} malicious, {len(ben)} benign -> {n} each (50/50)")
+    mal = np.unique(np.asarray(mal, dtype=np.float32), axis=0)
+    ben = np.unique(np.asarray(ben, dtype=np.float32), axis=0)
+    both = {r.tobytes() for r in ben} & {r.tobytes() for r in mal}
+    if both:
+        mal = np.array([r for r in mal if r.tobytes() not in both], dtype=np.float32)
+        ben = np.array([r for r in ben if r.tobytes() not in both], dtype=np.float32)
+    print(f"[*] After dedup: {len(mal)} malicious, {len(ben)} benign ({len(both)} conflicting rows dropped)")
     rng = np.random.default_rng(42)
-    X = np.vstack([mal[rng.choice(len(mal), n, replace=False)], ben[rng.choice(len(ben), n, replace=False)]])
-    y = np.array([1] * n + [0] * n, dtype=np.int32)
+    if balance:
+        n = min(len(mal), len(ben))
+        if max_per_class > 0:
+            n = min(n, max_per_class)
+        mal = mal[rng.choice(len(mal), n, replace=False)]
+        ben = ben[rng.choice(len(ben), n, replace=False)]
+        print(f"[*] --balance: undersampled to {n} each (50/50)")
+    X = np.vstack([mal, ben])
+    y = np.array([1] * len(mal) + [0] * len(ben), dtype=np.int32)
+    print(f"[+] Dataset: {len(X)} samples ({len(mal)} malicious, {len(ben)} benign, ratio 1:{len(ben) / max(len(mal), 1):.2f})")
     const = [JS_FEATURE_NAMES[i] for i in range(X.shape[1]) if np.all(X[:, i] == X[0, i])]
     print(f"[*] Constant features (the trees cannot use them): {const}")
     return X, y
@@ -170,7 +183,7 @@ def main():
     args = parse_args()
     if not (args.reuse_csv and os.path.isfile(args.features_csv)):
         dump_features(args)
-    X, y = load_features(args.features_csv, args.max_samples_per_class)
+    X, y = load_features(args.features_csv, args.max_samples_per_class, balance=args.balance)
 
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.15, random_state=42, stratify=y)
     print(f"[*] Training LightGBM: {len(X_train)} train / {len(X_test)} test")
