@@ -873,6 +873,7 @@
             <input id="vaStrQ" type="search" placeholder="Filter strings (case-insensitive)…">
             <label class="chkl">Min length <input id="vaStrMin" type="number" min="3" max="64" value="5" style="width:64px"></label>
             <select id="vaStrEnc"><option value="">ASCII + UTF-16</option><option value="A">ASCII</option><option value="W">UTF-16LE</option></select>
+            <label class="chkl" title="Hide the strings found in files with a human clean verdict (the string whitelist, like yarGen's goodware strings) and list only the unknown ones."><input id="vaStrUnknown" type="checkbox"> Only unknown strings</label>
           </div>
           <div class="hint" id="vaStrInfo" style="margin:4px 0"></div>
           <div class="tablewrap" style="max-height:560px"><table><thead><tr><th class="num">Offset</th><th>Enc</th><th>String</th></tr></thead><tbody id="vaStrRows"></tbody></table></div>
@@ -2587,12 +2588,39 @@ window.sigKey = (list) => list && list.length ? `${list[0].layer}: ${list[0].nam
   const hexN = (n, w) => n == null ? "—" : n.toString(16).toUpperCase().padStart(w, "0");
   const size = (n) => n == null ? "—" : n < 1024 ? n + " B" : n < 1048576 ? (n / 1024).toFixed(1) + " KB" : n < 1073741824 ? (n / 1048576).toFixed(2) + " MB" : (n / 1073741824).toFixed(2) + " GB";
   const vtag = (v) => { const c = v === "malicious" ? "t-malicious" : v === "suspicious" ? "t-suspicious" : v === "clean" ? "t-clean" : v === "possible_clean" ? "t-possible_clean" : "t-unknown"; return `<span class="tag ${c}">${esc((v || "unknown").replace("_", " ").toUpperCase())}</span>`; };
-  const api = async (url, body) => {
+  const api = async (url, body, retried) => {
+    const d0 = doc, tok = doc && doc.token;
     const res = await fetch(url, body === undefined ? { cache: "no-store" } : { method: "POST", headers: { "Content-Type": "application/json", "X-Multron-Dashboard": "1" }, body: JSON.stringify(body) });
     const d = await res.json().catch(() => ({}));
+    // The server dropped the open file (other files opened since, or a restart):
+    // open it again quietly from where it came from and repeat the call (calls that
+    // fail together share one re-open).
+    if (res.status === 404 && !retried && tok && doc === d0 && (url.includes(encodeURIComponent(tok)) || (body && body.token === tok))) {
+      if (doc.token === tok && !reopening) reopening = reopen().finally(() => { reopening = null; });
+      const fresh = doc.token !== tok ? doc.token : await reopening;
+      if (fresh && doc === d0) {
+        url = url.split(encodeURIComponent(tok)).join(encodeURIComponent(fresh));
+        if (body && body.token === tok) body = { ...body, token: fresh };
+        return api(url, body, true);
+      }
+    }
     if (!res.ok) throw new Error(d.error || res.statusText);
     return d;
   };
+  // New token for the current file, only if the same content opens again (its path,
+  // else the kept file by SHA-256). Archive members and unpacked dumps have no path.
+  let reopening = null;
+  async function reopen() {
+    const sha = ((doc.report || {}).hashes || {}).sha256 || "";
+    for (const body of [doc.source && !doc.source.includes(" › ") ? { path: doc.source } : null, sha ? { sha256: sha } : null]) {
+      if (!body) continue;
+      try {
+        const r = await api("/api/alyzer/open", body, true);
+        if ((((r.report || {}).hashes || {}).sha256 || "").toLowerCase() === sha.toLowerCase()) { doc.token = r.token; return r.token; }
+      } catch (_) {}
+    }
+    return null;
+  }
   const msg = (t, bad) => { $("vaMsg").textContent = t; $("vaMsg").style.color = bad ? "var(--red)" : ""; };
 
   let doc = null;              // last /api/alyzer/open answer
@@ -2820,7 +2848,7 @@ window.sigKey = (list) => list && list.length ? `${list[0].layer}: ${list[0].nam
   $("vaImpDlls").addEventListener("click", (e) => { const tr = e.target.closest("tr[data-dll]"); if (tr) { impSel = +tr.dataset.dll; renderImports(); } });
 
   // ---------------- strings ----------------
-  let strLoaded = false, strTimer = 0, strData = [];
+  let strLoaded = false, strTimer = 0, strData = [], strMeta = {};
 
   // ---------------- decompiler (hydradragondecompiler) ----------------
   let decLoaded = false, decItems = [];
@@ -2953,18 +2981,26 @@ window.sigKey = (list) => list && list.length ? `${list[0].layer}: ${list[0].nam
     strLoaded = true;
     $("vaStrInfo").textContent = "Extracting…";
     try {
-      const d = await api(`/api/alyzer/strings?token=${encodeURIComponent(doc.token)}&min=${+$("vaStrMin").value || 5}&q=${encodeURIComponent($("vaStrQ").value.trim())}`);
-      strData = d.strings; renderStrings(d.truncated);
+      const d = await api(`/api/alyzer/strings?token=${encodeURIComponent(doc.token)}&min=${+$("vaStrMin").value || 5}&q=${encodeURIComponent($("vaStrQ").value.trim())}&unknown=${$("vaStrUnknown").checked ? 1 : 0}`);
+      strData = d.strings; strMeta = d; renderStrings();
     } catch (e) { $("vaStrInfo").textContent = e.message; }
   }
-  function renderStrings(truncated) {
+  function renderStrings() {
     const enc = $("vaStrEnc").value;
     const rows = enc ? strData.filter(s => s.e === enc) : strData;
-    $("vaStrInfo").textContent = `${rows.length.toLocaleString()} strings${truncated ? " (first 50,000 — narrow the filter)" : ""}. Click an offset to see it in the hex editor.`;
-    $("vaStrRows").innerHTML = rows.slice(0, 5000).map(s => `<tr><td class="mono num"><a href="#" data-go="${s.o}" data-len="${s.e === "W" ? s.s.length * 2 : s.s.length}" style="color:var(--accent)">0x${hexN(s.o, 8)}</a></td><td>${s.e === "W" ? "UTF-16" : "ASCII"}</td><td class="mono" style="white-space:pre-wrap;word-break:break-all">${esc(s.s)}</td></tr>`).join("");
+    const known = rows.filter(s => s.k).length;
+    const w = strMeta.whitelist;
+    const wl = !w ? " String whitelist: off."
+      : !w.ready ? " String whitelist: loading…"
+      : ` String whitelist: ${w.strings.toLocaleString()} strings of ${w.files.toLocaleString()} human clean files${w.building ? ` (building: ${w.build_done.toLocaleString()} / ${w.build_total.toLocaleString()} files)` : ""}; strings shorter than ${w.min_len} are never whitelisted.`;
+    $("vaStrInfo").textContent = `${rows.length.toLocaleString()} strings${strMeta.truncated ? " (first 50,000 — narrow the filter)" : ""}`
+      + (strMeta.hidden ? `, ${strMeta.hidden.toLocaleString()} whitelisted hidden` : known ? `, ${known.toLocaleString()} whitelisted (dimmed)` : "")
+      + `. Click an offset to see it in the hex editor.` + wl;
+    $("vaStrRows").innerHTML = rows.slice(0, 5000).map(s => `<tr${s.k ? ' style="opacity:.5" title="In the string whitelist: seen in a file with a human clean verdict"' : ""}><td class="mono num"><a href="#" data-go="${s.o}" data-len="${s.e === "W" ? s.s.length * 2 : s.s.length}" style="color:var(--accent)">0x${hexN(s.o, 8)}</a></td><td>${s.e === "W" ? "UTF-16" : "ASCII"}${s.k ? ' <span class="tag t-clean">clean</span>' : ""}</td><td class="mono" style="white-space:pre-wrap;word-break:break-all">${esc(s.s)}</td></tr>`).join("");
   }
   ["vaStrQ", "vaStrMin"].forEach(id => $(id).addEventListener("input", () => { clearTimeout(strTimer); strTimer = setTimeout(loadStrings, 350); }));
-  $("vaStrEnc").onchange = () => renderStrings(false);
+  $("vaStrEnc").onchange = () => renderStrings();
+  $("vaStrUnknown").onchange = () => loadStrings();
 
   // ---------------- hex editor ----------------
   const ROW_H = 20, CHUNK = 65536;

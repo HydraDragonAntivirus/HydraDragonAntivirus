@@ -677,6 +677,27 @@ pub struct RuleSet {
     warnings: Vec<String>,
 }
 
+/// Highest score a `PUA.*` rule can give: the engines' PUA score (0.60), between
+/// the Suspicious (0.50) and Malicious (0.85) cut-offs.
+pub const PUA_MAX_SCORE: u32 = 60;
+
+/// A rule whose family is `PUA.*` names potentially unwanted software, not malware:
+/// its verdict is at most `Pua` and its score at most [`PUA_MAX_SCORE`], whatever
+/// the YAML says, so a hit never makes a file malicious on its own.
+fn cap_pua_rule(rule: &mut Rule) {
+    let pua = rule
+        .family
+        .as_deref()
+        .and_then(|f| f.get(..4))
+        .is_some_and(|p| p.eq_ignore_ascii_case("PUA."));
+    if pua {
+        if rule.verdict == Verdict::Malware {
+            rule.verdict = Verdict::Pua;
+        }
+        rule.score = rule.score.min(PUA_MAX_SCORE);
+    }
+}
+
 impl RuleSet {
     pub fn empty() -> Self {
         Self {
@@ -723,6 +744,7 @@ impl RuleSet {
         }
         for rule in &mut rules {
             rule.compute_required_types();
+            cap_pua_rule(rule);
         }
         let mut ruleset = Self {
             rules,
@@ -4346,6 +4368,38 @@ static _REGEX_COMPILE_GUARD: Lazy<Regex> = Lazy::new(|| Regex::new(".*").unwrap(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn pua_family_never_gives_malware() {
+        let yaml = r#"
+rules:
+- id: T-PUA
+  title: t
+  severity: high
+  verdict: malware
+  score: 90
+  family: PUA.Win32.Test
+  logic: any
+  conditions:
+  - type: string_contains
+    value: "x"
+- id: T-MAL
+  title: t
+  severity: high
+  verdict: malware
+  score: 90
+  family: Trojan.Win32.Test
+  logic: any
+  conditions:
+  - type: string_contains
+    value: "x"
+"#;
+        let set = RuleSet::from_yaml_str(yaml).unwrap();
+        assert_eq!(set.rules[0].verdict, Verdict::Pua);
+        assert_eq!(set.rules[0].score, PUA_MAX_SCORE);
+        assert_eq!(set.rules[1].verdict, Verdict::Malware);
+        assert_eq!(set.rules[1].score, 90);
+    }
 
     /// `string_contains` over strings the caller supplies (not in the raw bytes), as
     /// multron does with decompiler-recovered strings: found through the index.

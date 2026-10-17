@@ -203,7 +203,7 @@ Query parameters:
 
 #### `GET /api/alyzer/strings`
 
-Every ASCII and UTF-16LE string (with its file offset), like the Strings page of the Pascal VirusKovAlyzer. At most 50,000 entries.
+Every ASCII and UTF-16LE string (with its file offset), like the Strings page of the Pascal VirusKovAlyzer. At most 50,000 entries. Strings in the string whitelist (every string of the files with a human clean verdict, see `string_wl`) are marked `"k": 1`, or left out with `unknown=1` (`hidden` counts them); `whitelist` is its status.
 
 Query parameters:
 
@@ -212,6 +212,7 @@ Query parameters:
 | `token` | `string` | yes |  |
 | `min` | `integer` | no |  |
 | `q` | `string` | no | Case-insensitive filter. |
+| `unknown` | `integer` | no | 1: leave out the strings in the string whitelist (strings of files with a human clean verdict), so only the unknown ones are listed. |
 
 <sub>Handler: `src/alyzer.rs` → `handle_strings`</sub>
 

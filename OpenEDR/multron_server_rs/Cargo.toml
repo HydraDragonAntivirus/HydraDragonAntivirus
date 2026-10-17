@@ -52,6 +52,6 @@ yaxpeax-arch = { version = "0.3", default-features = false, features = ["std"] }
 yaxpeax-arm = { version = "0.5", default-features = false, features = ["std", "fmt"] }
 # VirusKovAlyzer: the scanner's own archive extractor, decompiler-lite string pass and
 # Unicorn unpacker (the same crates openedr_static builds, so nothing is built twice).
-hydradragonextractor = { path = "../owlyshield_predict/hydradragonextractor" }
+hydradragonextractor = { path = "../../hydradragonextractor" }
 hydradragondecompiler = { path = "../../hydradragondecompiler" }
 hydradragonunicorn = { path = "../../hydradragonunicorn" }

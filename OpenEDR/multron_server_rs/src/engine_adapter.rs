@@ -315,6 +315,13 @@ impl EngineAdapter {
         self.find_kept(sha_upper)?.read()
     }
 
+    /// Bytes of a kept upload through the kept index (`kept_path_of`), for many
+    /// lookups in a row; `read_kept_sample` lists every kept file each time.
+    pub fn read_kept_indexed(&self, sha: &str) -> Option<Vec<u8>> {
+        let p = self.kept_path_of(sha)?;
+        KeptFile::parse(p.clone(), category_dir_of(&p))?.read()
+    }
+
     /// Where this sample is kept, if it is (one stat call after the first walk).
     fn kept_path_of(&self, sha: &str) -> Option<PathBuf> {
         let sha = sha.to_ascii_uppercase();

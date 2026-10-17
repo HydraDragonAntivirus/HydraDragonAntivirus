@@ -39,7 +39,7 @@ rand = "0.10"
 sevenz-rust2 = { version = "0.20", features = ["brotli", "deflate", "lz4", "zstd"] }
 
 # Standalone pure-Rust archive/compression extractor (tar, gzip, xz, lzma)
-hydradragonextractor = { path = "../OpenEDR/owlyshield_predict/hydradragonextractor" }
+hydradragonextractor = { path = "../hydradragonextractor" }
 vmpunpacker = { path = "../vmpunpacker" }
 pefile-rs = { path = "../pefile-rs" }
 

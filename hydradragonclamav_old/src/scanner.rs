@@ -333,7 +333,9 @@ impl Engine {
             && state.matches.len() < options.max_matches
             && looks_like_supported_archive(data)
         {
-            if let Ok(children) = extract_archive_from_bytes(data) {
+            if let Ok(children) = extract_archive_from_bytes(data, false)
+                .map(|v| v.into_iter().map(|e| e.data).collect::<Vec<Vec<u8>>>())
+            {
                 if !self.database.container.is_empty() {
                     self.scan_containers(data, &children, object_path, options, &mut state.matches);
                 }

@@ -5,7 +5,8 @@
 //!
 //! A file is opened once into memory and gets a token; the hex editor then reads
 //! byte ranges, searches and saves a patched COPY by token. The original file is
-//! never written. At most `MAX_DOCS` files stay open (oldest dropped first).
+//! never written. At most `MAX_DOCS` files and `MAX_DOCS_BYTES` stay open; the one
+//! used longest ago is dropped first, and opening a file again replaces its old copy.
 
 use std::collections::VecDeque;
 use std::path::PathBuf;
@@ -19,7 +20,9 @@ use sha2::{Digest, Sha256};
 
 use crate::dashboard::AppState;
 
-const MAX_DOCS: usize = 4;
+const MAX_DOCS: usize = 16;
+/// Memory for open files together; the newest file always stays, whatever its size.
+const MAX_DOCS_BYTES: usize = 1024 * 1024 * 1024;
 /// Largest file opened (it is held in memory).
 pub const MAX_OPEN_BYTES: u64 = 512 * 1024 * 1024;
 const MAX_RANGE: usize = 1024 * 1024;
@@ -37,8 +40,27 @@ fn docs() -> &'static Mutex<VecDeque<Doc>> {
     D.get_or_init(|| Mutex::new(VecDeque::new()))
 }
 
+/// The open file of a token; using it makes it the last one to be dropped.
 fn doc(token: &str) -> Option<(String, Arc<Vec<u8>>)> {
-    docs().lock().unwrap().iter().find(|d| d.token == token).map(|d| (d.name.clone(), Arc::clone(&d.data)))
+    let mut g = docs().lock().unwrap();
+    let i = g.iter().position(|d| d.token == token)?;
+    let d = g.remove(i)?;
+    let out = (d.name.clone(), Arc::clone(&d.data));
+    g.push_back(d);
+    Some(out)
+}
+
+/// Adds an open file: an older copy of the same file (same source and content) is
+/// replaced, then the files used longest ago go until the limits hold.
+fn add_doc(g: &mut VecDeque<Doc>, d: Doc) {
+    g.retain(|o| !(o.source == d.source && o.data == d.data));
+    g.push_back(d);
+    let mut bytes: usize = g.iter().map(|o| o.data.len()).sum();
+    while g.len() > 1 && (g.len() > MAX_DOCS || bytes > MAX_DOCS_BYTES) {
+        if let Some(o) = g.pop_front() {
+            bytes -= o.data.len();
+        }
+    }
 }
 
 fn err(code: StatusCode, msg: impl Into<String>) -> Response {
@@ -113,10 +135,7 @@ async fn open_doc(app: &Arc<AppState>, name: String, source: String, data: Vec<u
     let token = format!("{}-{}", &sha[..16.min(sha.len())], chrono::Utc::now().timestamp_millis());
     {
         let mut g = docs().lock().unwrap();
-        g.push_back(Doc { token: token.clone(), name: name.clone(), source: source.clone(), data: Arc::clone(&data) });
-        while g.len() > MAX_DOCS {
-            g.pop_front();
-        }
+        add_doc(&mut g, Doc { token: token.clone(), name: name.clone(), source: source.clone(), data: Arc::clone(&data) });
     }
     let insight = app.threat_intel.get(&sha);
     let review = app.threat_intel.reviews.get(&sha);
@@ -442,47 +461,57 @@ pub struct StringsQuery {
     /// Case-insensitive filter.
     #[serde(default)]
     q: String,
+    /// 1: leave out the strings in the string whitelist (strings of files with a human
+    /// clean verdict), so only the unknown ones are listed.
+    #[serde(default)]
+    unknown: u8,
 }
 
 /// Every ASCII and UTF-16LE string (with its file offset), like the Strings page of
-/// the Pascal VirusKovAlyzer. At most 50,000 entries.
+/// the Pascal VirusKovAlyzer. At most 50,000 entries. Strings in the string whitelist
+/// (every string of the files with a human clean verdict, see `string_wl`) are marked
+/// `"k": 1`, or left out with `unknown=1` (`hidden` counts them); `whitelist` is its
+/// status.
 pub async fn handle_strings(Query(q): Query<StringsQuery>) -> Response {
     let Some((_, data)) = doc(&q.token) else { return err(StatusCode::NOT_FOUND, "file is not open any more, open it again") };
     let min = q.min.clamp(3, 64);
     let filter = q.q.to_lowercase();
-    let out = tokio::task::spawn_blocking(move || extract_strings(&data, min, &filter)).await.unwrap_or_default();
+    let only_unknown = q.unknown == 1;
+    let (out, hidden) = tokio::task::spawn_blocking(move || {
+        extract_strings(&data, min, &filter, crate::string_wl::get().map(|w| w.as_ref()), only_unknown)
+    })
+    .await
+    .unwrap_or_default();
     let truncated = out.len() >= MAX_STRINGS;
-    Json(serde_json::json!({ "ok": true, "strings": out, "truncated": truncated })).into_response()
+    Json(serde_json::json!({
+        "ok": true, "strings": out, "truncated": truncated, "hidden": hidden,
+        "whitelist": crate::string_wl::get().map(|w| w.status()),
+    }))
+    .into_response()
 }
 
 fn printable(b: u8) -> bool {
     (0x20..0x7f).contains(&b) || b == b'\t'
 }
 
-fn extract_strings(data: &[u8], min: usize, filter: &str) -> Vec<serde_json::Value> {
-    let mut out = Vec::new();
-    let push = |off: usize, enc: &str, s: String, out: &mut Vec<serde_json::Value>| {
-        if out.len() >= MAX_STRINGS {
-            return;
-        }
-        if filter.is_empty() || s.to_lowercase().contains(filter) {
-            out.push(serde_json::json!({ "o": off, "e": enc, "s": s.chars().take(512).collect::<String>() }));
-        }
-    };
-    // ASCII
+/// Calls `f(offset, "A" | "W", text)` for every ASCII string, then every UTF-16LE
+/// string (both alignments), of at least `min` characters, until `f` returns false.
+/// Shared by the Strings page and the string whitelist, so both see the same strings.
+pub(crate) fn each_string(data: &[u8], min: usize, mut f: impl FnMut(usize, &'static str, &str) -> bool) {
+    // ASCII (printable bytes only, so always valid UTF-8)
     let mut start = None;
     for (i, &b) in data.iter().enumerate() {
         if printable(b) {
             start.get_or_insert(i);
         } else if let Some(s) = start.take() {
-            if i - s >= min {
-                push(s, "A", String::from_utf8_lossy(&data[s..i]).into_owned(), &mut out);
+            if i - s >= min && !f(s, "A", std::str::from_utf8(&data[s..i]).unwrap_or_default()) {
+                return;
             }
         }
     }
     if let Some(s) = start {
-        if data.len() - s >= min {
-            push(s, "A", String::from_utf8_lossy(&data[s..]).into_owned(), &mut out);
+        if data.len() - s >= min && !f(s, "A", std::str::from_utf8(&data[s..]).unwrap_or_default()) {
+            return;
         }
     }
     // UTF-16LE, both alignments
@@ -497,8 +526,8 @@ fn extract_strings(data: &[u8], min: usize, filter: &str) -> Vec<serde_json::Val
                 buf.push(lo as char);
             } else {
                 if let Some(s) = run_start.take() {
-                    if buf.len() >= min {
-                        push(s, "W", std::mem::take(&mut buf), &mut out);
+                    if buf.len() >= min && !f(s, "W", &buf) {
+                        return;
                     }
                 }
                 buf.clear();
@@ -506,13 +535,60 @@ fn extract_strings(data: &[u8], min: usize, filter: &str) -> Vec<serde_json::Val
             i += 2;
         }
         if let Some(s) = run_start {
-            if buf.len() >= min {
-                push(s, "W", buf, &mut out);
+            if buf.len() >= min && !f(s, "W", &buf) {
+                return;
             }
         }
     }
+}
+
+/// Strings looked up in the whitelist together (one disk pass per batch).
+const WL_BATCH: usize = 65_536;
+
+/// The Strings page rows (at most `MAX_STRINGS`, by offset) and how many whitelisted
+/// strings were left out.
+fn extract_strings(
+    data: &[u8],
+    min: usize,
+    filter: &str,
+    wl: Option<&crate::string_wl::StringWhitelist>,
+    only_unknown: bool,
+) -> (Vec<serde_json::Value>, u64) {
+    let mut out = Vec::new();
+    let mut hidden = 0u64;
+    let mut batch: Vec<(usize, &'static str, String)> = Vec::new();
+    let flush = |batch: &mut Vec<(usize, &'static str, String)>, out: &mut Vec<serde_json::Value>, hidden: &mut u64| {
+        let known = match wl {
+            Some(w) => w.contains_many(&batch.iter().map(|(_, _, s)| s.as_str()).collect::<Vec<_>>()),
+            None => vec![false; batch.len()],
+        };
+        for ((off, enc, s), k) in batch.drain(..).zip(known) {
+            if out.len() >= MAX_STRINGS {
+                break;
+            }
+            if k && only_unknown {
+                *hidden += 1;
+                continue;
+            }
+            let mut v = serde_json::json!({ "o": off, "e": enc, "s": s.chars().take(512).collect::<String>() });
+            if k {
+                v["k"] = serde_json::json!(1);
+            }
+            out.push(v);
+        }
+    };
+    each_string(data, min, |off, enc, s| {
+        if filter.is_empty() || s.to_lowercase().contains(filter) {
+            batch.push((off, enc, s.to_string()));
+            if batch.len() >= WL_BATCH {
+                flush(&mut batch, &mut out, &mut hidden);
+            }
+        }
+        out.len() < MAX_STRINGS
+    });
+    flush(&mut batch, &mut out, &mut hidden);
     out.sort_by_key(|v| v["o"].as_u64().unwrap_or(0));
-    out
+    (out, hidden)
 }
 
 #[derive(Deserialize)]
@@ -636,6 +712,25 @@ pub async fn handle_list() -> impl IntoResponse {
 mod tests {
     use super::*;
 
+    fn d(token: &str, source: &str, data: &[u8]) -> Doc {
+        Doc { token: token.into(), name: String::new(), source: source.into(), data: Arc::new(data.to_vec()) }
+    }
+
+    #[test]
+    fn open_files_reopen_replaces_and_least_recently_used_goes() {
+        let mut g = VecDeque::new();
+        add_doc(&mut g, d("a1", "a", b"A"));
+        add_doc(&mut g, d("a2", "a", b"A"));
+        assert_eq!(g.len(), 1, "same file opened again replaces the old copy");
+        add_doc(&mut g, d("b", "a", b"B"));
+        assert_eq!(g.len(), 2, "same path, new content: both stay");
+        for i in 0..MAX_DOCS + 3 {
+            add_doc(&mut g, d(&format!("x{i}"), &format!("x{i}"), b"x"));
+        }
+        assert_eq!(g.len(), MAX_DOCS);
+        assert_eq!(g.back().unwrap().token, format!("x{}", MAX_DOCS + 2));
+    }
+
     #[test]
     fn explain_shows_matched_bytes_with_context() {
         let data = b"....hello EVILCODE world....";
@@ -668,10 +763,30 @@ mod tests {
     fn strings_ascii_and_wide() {
         let mut d = b"\x00\x01hello world\x00\x02".to_vec();
         d.extend_from_slice(&[b'W', 0, b'i', 0, b'd', 0, b'e', 0, b'!', 0, 0, 0]);
-        let s = extract_strings(&d, 4, "");
+        let (s, _) = extract_strings(&d, 4, "", None, false);
         let texts: Vec<_> = s.iter().map(|v| (v["e"].as_str().unwrap().to_string(), v["s"].as_str().unwrap().to_string())).collect();
         assert!(texts.contains(&("A".into(), "hello world".into())));
         assert!(texts.contains(&("W".into(), "Wide!".into())));
-        assert_eq!(extract_strings(&d, 4, "world").len(), 1);
+        assert_eq!(extract_strings(&d, 4, "world", None, false).0.len(), 1);
+    }
+
+    #[test]
+    fn whitelisted_strings_are_marked_or_left_out() {
+        let dir = std::env::temp_dir().join(format!("alyzer_swl_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let wl = crate::string_wl::StringWhitelist::new(dir.clone());
+        let clean = b"\x00kernel32.dll\x00".to_vec();
+        wl.sync(&["C".to_string()].into_iter().collect(), &|_| Some(clean.clone()));
+        let mut d = b"\x00kernel32.dll\x00evil-payload\x00\x01\x01\x01".to_vec();
+        d.extend_from_slice(&[b'k', 0, b'e', 0, b'r', 0, b'n', 0, b'e', 0, b'l', 0, b'3', 0, b'2', 0, b'.', 0, b'd', 0, b'l', 0, b'l', 0, 0, 0]);
+        let (all, hidden) = extract_strings(&d, 4, "", Some(&wl), false);
+        let k: Vec<(String, bool)> = all.iter().map(|v| (v["s"].as_str().unwrap().to_string(), v.get("k").is_some())).collect();
+        assert_eq!(k, [("kernel32.dll".into(), true), ("evil-payload".into(), false), ("kernel32.dll".into(), true)]);
+        assert_eq!(hidden, 0);
+        let (unknown, hidden) = extract_strings(&d, 4, "", Some(&wl), true);
+        assert_eq!(unknown.len(), 1);
+        assert_eq!(unknown[0]["s"], "evil-payload");
+        assert_eq!(hidden, 2, "ASCII and UTF-16 copies");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

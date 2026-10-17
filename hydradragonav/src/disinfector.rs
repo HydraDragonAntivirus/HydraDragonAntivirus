@@ -99,8 +99,8 @@ impl<'a> Disinfector<'a> {
 
         // ---- Step 6: Extract embedded archives from memory ----
         let t0 = Instant::now();
-        let extracted_files = match extract_archive_from_bytes(&dumped_bytes) {
-            Ok(files) => files,
+        let extracted_files = match extract_archive_from_bytes(&dumped_bytes, false) {
+            Ok(entries) => entries.into_iter().map(|e| e.data).collect::<Vec<Vec<u8>>>(),
             Err(_) => Vec::new(),
         };
         engines.push(Self::engine_result(

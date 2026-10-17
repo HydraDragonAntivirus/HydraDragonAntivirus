@@ -23,6 +23,7 @@ mod rescan;
 mod retrohunt;
 mod sample_zip;
 mod similarity;
+mod string_wl;
 mod events;
 mod handoff;
 mod limits;
@@ -188,6 +189,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         });
     } else if !args.archive {
         startup_upkeep(&engine, &threat_intel);
+    }
+    if !args.archive {
+        // VirusKovAlyzer string whitelist: strings of the human clean files.
+        string_wl::start(Arc::clone(&engine), Arc::clone(&threat_intel));
     }
     let scan_server = ScanServer::new(
         args.clone(),

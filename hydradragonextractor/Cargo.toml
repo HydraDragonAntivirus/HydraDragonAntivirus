@@ -2,15 +2,22 @@
 name = "hydradragonextractor"
 version = "0.1.0"
 edition = "2024"
-description = "Pure-Rust archive and compression extractor - zip, tar, gzip, xz, lzma, 7z, asar, nsis"
+description = "Pure-Rust archive extractor — ZIP via ripzip, TAR/GZIP/XZ/BZIP2/ZSTD/7z/ISO/CAB via native crates, RAR via unrar-ng, Electron ASAR, NSIS installers and PE self-extractors"
 license = "GPL-2.0-or-later"
 
 [dependencies]
-tar = "0.4"
+ripzip = "0.1"
 flate2 = { version = "1", default-features = false, features = ["rust_backend"] }
+tar = "0.4"
 lzma-rust2 = "0.21"
 sevenz-rust2 = { version = "0.23", features = ["brotli", "deflate", "lz4", "zstd"] }
+bzip2 = "0.6"
+zstd = "0.13"
+unrar = { package = "unrar-ng", git = "https://github.com/HydraDragonAntivirus/unrar.rs" }
 thiserror = "2"
+tempfile = "3"
+isomage = "2"
+cab = "0.6"
 # Electron .asar archives — read-only (no write/integrity features needed)
 asar = { version = "0.3", default-features = false }
 # NSIS (NullSoft) installer parsing/extraction — pure Rust
