@@ -96,7 +96,7 @@ body.vk-legacy main.container *, body.vk-legacy main.container *::before { box-s
 }
 .legend-item > span[data-i18n] { color: var(--text-muted) !important; }
 .legend-item b { font-family: var(--font-mono); font-weight: 500; color: var(--text-main) !important; font-size: 0.82rem; }
-.legend-dot { width: 8px !important; height: 8px !important; }
+.legend-dot { width: 8px !important; height: 8px !important; flex-shrink: 0; }
 #pctUnknown ~ *, .legend-item:has(#pctUnknown) .legend-dot { background: var(--text-dim) !important; }
 @media (max-width: 860px) { .ratio-legend { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; } }
 #humanPanel .ratio-legend { grid-template-columns: repeat(3, minmax(0, 1fr)) !important; border-top: 0; margin-bottom: 18px !important; }

@@ -140,7 +140,7 @@
   /* ---------------- Hash lookup ---------------- */
   var VERDICT = {
     malicious: ['var(--accent-red)', 'h.v.mal', 'Zararlı'],
-    suspicious: ['var(--accent-amber)', 'h.v.sus', 'Şüpheli/Sezgisel/Greyware/Riskware/PUA/HackTool'],
+    suspicious: ['var(--accent-amber)', 'h.v.sus', 'Şüpheli / Sezgisel / Greyware / Riskware / PUA / HackTool'],
     clean: ['var(--accent-green)', 'h.v.cln', 'Temiz'],
     possible_clean: ['#6fcf97', 'h.v.pcl', 'Muhtemelen temiz'],
     unknown: ['var(--text-muted)', 'h.v.unk', 'Bilinmiyor']

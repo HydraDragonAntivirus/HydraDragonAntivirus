@@ -3,8 +3,8 @@
   'use strict';
   var API = 'https://api.viruskov.com/api/v1';
   var L = {
-    tr: { v: { malicious: 'Zararlı', suspicious: 'Şüpheli/Sezgisel/Greyware/Riskware/PUA/HackTool', clean: 'Temiz', possible_clean: 'Muhtemelen temiz', unknown: 'Bilinmiyor' }, human: 'insan', anyType: 'Tür: hepsi', guessed: 'Motorun tespit adından tahmin edilen tür', exact: 'Kategori.Platform.Aile adından', noneOfType: 'Bu türde kayıt yok.', empty: 'Bu gün için kayıt yok.', err: 'Liste alınamadı', loading: 'Yükleniyor…' },
-    en: { v: { malicious: 'Malicious', suspicious: 'Suspicious/Heuristics/Greyware/Riskware/PUA/HackTool', clean: 'Clean', possible_clean: 'Possibly clean', unknown: 'Unknown' }, human: 'human', anyType: 'Type: all', guessed: 'Type guessed from the engine detection name', exact: 'From the Category.Platform.Family name', noneOfType: 'No entries of this type.', empty: 'No entries for this day.', err: 'Could not load the list', loading: 'Loading…' }
+    tr: { v: { malicious: 'Zararlı', suspicious: 'Şüpheli / Sezgisel / Greyware / Riskware / PUA / HackTool', clean: 'Temiz', possible_clean: 'Muhtemelen temiz', unknown: 'Bilinmiyor' }, human: 'insan', anyType: 'Tür: hepsi', guessed: 'Motorun tespit adından tahmin edilen tür', exact: 'Kategori.Platform.Aile adından', noneOfType: 'Bu türde kayıt yok.', empty: 'Bu gün için kayıt yok.', err: 'Liste alınamadı', loading: 'Yükleniyor…' },
+    en: { v: { malicious: 'Malicious', suspicious: 'Suspicious / Heuristics / Greyware / Riskware / PUA / HackTool', clean: 'Clean', possible_clean: 'Possibly clean', unknown: 'Unknown' }, human: 'human', anyType: 'Type: all', guessed: 'Type guessed from the engine detection name', exact: 'From the Category.Platform.Family name', noneOfType: 'No entries of this type.', empty: 'No entries for this day.', err: 'Could not load the list', loading: 'Loading…' }
   };
   var COLORS = { malicious: 'var(--accent-red)', suspicious: 'var(--accent-amber)', clean: 'var(--accent-green)', possible_clean: '#6fcf97', unknown: 'var(--text-muted)' };
   var lang = function () { return window.ViruskovI18n ? window.ViruskovI18n.getLang() : 'tr'; };

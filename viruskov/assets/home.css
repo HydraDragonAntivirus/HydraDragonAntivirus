@@ -265,7 +265,7 @@ p code, li code { background: rgba(255,255,255,0.05); border: 1px solid var(--bo
 .h-tele-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin: 22px 0 0; }
 .h-tele-grid > div { display: grid; gap: 4px; }
 .h-tele-grid dt { display: flex; align-items: center; gap: 7px; font-size: 0.78rem; color: var(--text-muted); }
-.h-tele-grid dt i { width: 8px; height: 8px; border-radius: 2px; display: inline-block; }
+.h-tele-grid dt i { width: 8px; height: 8px; border-radius: 2px; display: inline-block; flex-shrink: 0; }
 .h-tele-grid dd { margin: 0; font-family: var(--font-mono); font-size: 0.98rem; color: var(--text-main); font-variant-numeric: tabular-nums; }
 .h-pct { font-family: var(--font-mono); font-size: 0.72rem; color: var(--text-dim); }
 .h-tele-specs { display: grid; grid-template-columns: repeat(3, 1fr); margin-top: 28px; border-top: 1px solid var(--border-subtle); padding-top: 18px; gap: 12px; }
