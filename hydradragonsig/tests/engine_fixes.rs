@@ -288,3 +288,78 @@ fn xor_and_base64_atoms_skip_the_plain_text() {
     assert!(scan(&b64, stub.as_bytes()).is_empty(), "base64 atom must not match plain text");
     assert_eq!(scan(&b64, b"VGhpcyBwcm9ncmFtIGNhbm5vdCBiZSBydW4gaW4gRE9TIG1vZGU="), vec!["R"]);
 }
+
+fn crc32(data: &[u8]) -> u32 {
+    let mut c = !0u32;
+    for &b in data {
+        c ^= b as u32;
+        for _ in 0..8 {
+            c = if c & 1 != 0 { (c >> 1) ^ 0xEDB8_8320 } else { c >> 1 };
+        }
+    }
+    !c
+}
+
+/// Zip of (name, compression method, bytes); method 0 stores `bytes`, others are
+/// written as they are (a member the reader cannot open).
+fn zip(members: &[(&str, u16, &[u8])]) -> Vec<u8> {
+    let (mut out, mut central) = (Vec::new(), Vec::new());
+    for (name, method, data) in members {
+        let offset = out.len() as u32;
+        let crc = crc32(data);
+        let header = |sig: &[u8], central: bool| {
+            let mut h = sig.to_vec();
+            if central {
+                h.extend(20u16.to_le_bytes());
+            }
+            h.extend(20u16.to_le_bytes());
+            h.extend(0u16.to_le_bytes());
+            h.extend(method.to_le_bytes());
+            h.extend([0u8; 4]);
+            h.extend(crc.to_le_bytes());
+            h.extend((data.len() as u32).to_le_bytes());
+            h.extend((data.len() as u32).to_le_bytes());
+            h.extend((name.len() as u16).to_le_bytes());
+            h.extend(0u16.to_le_bytes());
+            if central {
+                h.extend([0u8; 6]); // comment length, disk, internal attributes
+                h.extend(0u32.to_le_bytes()); // external attributes
+                h.extend(offset.to_le_bytes());
+            }
+            h.extend(name.as_bytes());
+            h
+        };
+        out.extend(header(b"PK\x03\x04", false));
+        out.extend(*data);
+        central.extend(header(b"PK\x01\x02", true));
+    }
+    let cd_offset = out.len() as u32;
+    let n = members.len() as u16;
+    out.extend(&central);
+    out.extend(b"PK\x05\x06");
+    out.extend([0u8; 4]);
+    out.extend(n.to_le_bytes());
+    out.extend(n.to_le_bytes());
+    out.extend((central.len() as u32).to_le_bytes());
+    out.extend(cd_offset.to_le_bytes());
+    out.extend(0u16.to_le_bytes());
+    out
+}
+
+#[test]
+fn unreadable_archive_member_does_not_stop_the_scan() {
+    // The size limit keeps the rule off the zip itself: only the member can match.
+    let set = rules("  - id: R\n    title: t\n    severity: high\n    verdict: malware\n    logic: all\n    conditions:\n      - type: string_contains\n        value: 'ARCHIVE-MEMBER-MARK'\n      - type: file_size_lte\n        bytes: 100\n");
+    let good: &[u8] = b"\x00\x01 ARCHIVE-MEMBER-MARK payload \x00";
+    // Method 12 (bzip2) is not built in: the reader cannot open that member, like an
+    // encrypted one.
+    let data = zip(&[("locked.bin", 12, b"0123456789abcdef"), ("payload.bin", 0, good)]);
+    let ctx = MemoryScanContext { buffer: data, identifier: "t.zip".into(), base_address: None };
+    let report = scan_memory_owned(ctx, &set, &ScanOptions::default()).expect("the scan goes on");
+    use hydradragonsig::models::ScanResultCode;
+    let member = |n: &str| report.archive_members.iter().find(|m| m.name == n).map(|m| m.result_code);
+    assert_eq!(member("locked.bin"), Some(ScanResultCode::OpenError), "{:?}", report.archive_members);
+    assert!(member("payload.bin").is_some_and(|c| c.is_infected()), "the member after it is still scanned: {:?}", report.archive_members);
+    assert!(report.findings.iter().any(|f| f.rule_id == "R"));
+}
+

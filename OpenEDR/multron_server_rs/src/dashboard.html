@@ -2372,7 +2372,7 @@ window.sigKey = (list) => list && list.length ? `${list[0].layer}: ${list[0].nam
     $("rhList").innerHTML = rhHunts.map(h => {
       const pct = h.total ? Math.round(100 * h.done / h.total) : (h.state === "done" ? 100 : 0);
       const open = rhOpen.has(h.id);
-      const rows = h.matches.map(m => `<tr>
+      const rows = h.matches.map(m => `<tr data-sha="${rsEsc(m.sha256)}" data-name="${rsEsc(m.file_name || "")}">
           <td class="file" title="${rsEsc(m.file_name)}"><b>${rsEsc(m.file_name || "—")}</b></td>
           <td class="mono" title="${rsEsc(m.sha256)}">${rsEsc(m.sha256.slice(0, 16))}…</td>
           <td>${rsEsc(m.category.replace("_", " "))}</td>
@@ -2475,7 +2475,7 @@ window.sigKey = (list) => list && list.length ? `${list[0].layer}: ${list[0].nam
 (() => {
   // Right-click menu for file rows: queue, verdicts, rescan log, scan queue.
   const esc = (s) => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
-  const ROWS = "#haRows tr.it, #haRecentRows tr[data-sha], #rsRows tr[data-sha], #sqRows tr[data-sha], #feed tr[data-sha], #srcFiles tr[data-sha]";
+  const ROWS = "#haRows tr.it, #haRecentRows tr[data-sha], #rsRows tr[data-sha], #sqRows tr[data-sha], #feed tr[data-sha], #srcFiles tr[data-sha], #rhList tr[data-sha]";
   let menu = null;
   const toast = (msg) => {
     let t = document.getElementById("ctxToast");

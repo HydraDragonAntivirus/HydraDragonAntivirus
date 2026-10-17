@@ -286,9 +286,24 @@ fn scan_archive_members_from_bytes(
     };
 
     for index in 0..archive.len() {
-        let mut member = archive
-            .by_index(index)
-            .with_context(|| format!("failed to read archive member #{index}"))?;
+        // An encrypted or broken member is recorded and skipped: it must not end the
+        // scan of the other members (and of the archive itself).
+        let entry_name = archive.name_for_index(index).unwrap_or("").replace('\\', "/");
+        let mut member = match archive.by_index(index) {
+            Ok(m) => m,
+            Err(_) => {
+                let name = entry_name;
+                output.members.push(ArchiveMemberResult {
+                    path: format!("archive://{}!{}", parent_path.display(), name),
+                    name,
+                    result_code: ScanResultCode::OpenError,
+                    threat_name: None,
+                    size: 0,
+                    depth,
+                });
+                continue;
+            }
+        };
         if member.is_dir() {
             continue;
         }
@@ -337,12 +352,22 @@ fn scan_archive_members_from_bytes(
             continue;
         }
 
-        let scan_ctx = HydraScanner::scan_bytes(
-            member_bytes,
-            PathBuf::from(virtual_path.clone()),
-            scanner_config,
-        )?;
-        let member_report = finalize_scan_context(scan_ctx, rules, options, scanner_config, depth)?;
+        let member_report = match HydraScanner::scan_bytes(member_bytes, PathBuf::from(virtual_path.clone()), scanner_config)
+            .and_then(|ctx| finalize_scan_context(ctx, rules, options, scanner_config, depth))
+        {
+            Ok(r) => r,
+            Err(_) => {
+                output.members.push(ArchiveMemberResult {
+                    name,
+                    path: virtual_path,
+                    result_code: ScanResultCode::OpenError,
+                    threat_name: None,
+                    size,
+                    depth,
+                });
+                continue;
+            }
+        };
         let result_code = member_report.result_code;
         let threat_name = member_report.threat_name.clone();
         let scanned_size = member_report.file_size;

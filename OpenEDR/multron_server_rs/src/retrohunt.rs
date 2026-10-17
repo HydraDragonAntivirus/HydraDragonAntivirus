@@ -9,12 +9,13 @@
 //! picks a rule in the signature room and every file of the mirrored work folder is
 //! matched against it; nothing is rescanned or written, the current verdict is shown.
 //!
-//! Hunts run one at a time on a background thread, one file at a time; signatures
-//! saved while a hunt runs wait in the queue. The newest `HISTORY` hunts are kept in
+//! Hunts run one at a time on a background thread; inside a hunt the files are
+//! shared out to `hunt_threads()` workers (one core is left to the live scans).
+//! Signatures saved while a hunt runs wait in the queue. The newest `HISTORY` hunts are kept in
 //! memory for the dashboard.
 
 use std::collections::{HashSet, VecDeque};
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -31,6 +32,13 @@ const HISTORY: usize = 20;
 /// Matches kept per hunt (the count goes on).
 const MATCHES_MAX: usize = 2000;
 const YARA_TIMEOUT: Duration = Duration::from_secs(20);
+/// Upper bound of the workers of one hunt.
+const MAX_HUNT_THREADS: usize = 8;
+
+/// Workers of one hunt: the cores minus one for the live scans, 1..=MAX_HUNT_THREADS.
+fn hunt_threads() -> usize {
+    std::thread::available_parallelism().map_or(1, |n| n.get().saturating_sub(1)).clamp(1, MAX_HUNT_THREADS)
+}
 
 #[derive(Debug, Clone, Serialize)]
 pub struct HuntMatch {
@@ -122,23 +130,24 @@ impl Matcher {
         }
     }
 
-    /// Names of the matching rules (empty = no match).
-    fn scan(&self, yara: &mut Option<yara_x::Scanner<'_>>, data: &[u8], name: &str) -> Vec<String> {
+    /// Names of the matching rules (empty = no match). Takes the file by value:
+    /// HydraDragonSig scans an owned buffer, so it is moved in, not copied.
+    fn scan(&self, yara: &mut Option<yara_x::Scanner<'_>>, data: Vec<u8>, name: &str) -> Vec<String> {
         match self {
             Matcher::Yara(_) => {
                 let Some(sc) = yara.as_mut() else { return Vec::new() };
-                match sc.scan(data) {
+                match sc.scan(&data) {
                     Ok(r) => r.matching_rules().map(|m| m.identifier().to_string()).collect(),
                     Err(_) => Vec::new(),
                 }
             }
             Matcher::Clam(engine) => engine
-                .scan_bytes_named(data, if name.is_empty() { "file" } else { name }, ClamScanOptions::default(), &[])
+                .scan_bytes_named(&data, if name.is_empty() { "file" } else { name }, ClamScanOptions::default(), &[])
                 .into_iter()
                 .map(|m| m.name)
                 .collect(),
             Matcher::Sig(rules) => {
-                let ctx = MemoryScanContext { buffer: data.to_vec(), identifier: name.to_string(), base_address: None };
+                let ctx = MemoryScanContext { buffer: data, identifier: name.to_string(), base_address: None };
                 match hydradragonsig::scan_memory_owned(ctx, rules, &hydradragonsig::ScanOptions::default()) {
                     Ok(r) if matches!(r.verdict, SigVerdict::Malware | SigVerdict::Pua | SigVerdict::Suspicious) => {
                         vec![r.threat_name.unwrap_or_else(|| "HydraDragonSig rule".into())]
@@ -285,82 +294,46 @@ fn run(srv: &Arc<ScanServer>, job: &Job) {
             return;
         }
     };
-    let mut yara = match &matcher {
-        Matcher::Yara(rules) => {
-            let mut sc = yara_x::Scanner::new(rules);
-            sc.set_timeout(YARA_TIMEOUT);
-            Some(sc)
-        }
-        _ => None,
-    };
 
     // One entry per SHA-256 (a duplicate is the same file in another folder).
     let mut seen = HashSet::new();
     let files: Vec<_> = srv.engine.list_kept().into_iter().filter(|k| seen.insert(k.sha256.to_ascii_uppercase())).collect();
     let name = rh.hunts.lock().unwrap().iter().find(|h| h.id == job.id).map(|h| h.name.clone()).unwrap_or_default();
-    srv.log_info(format!("retrohunt #{} started: {} {name} over {} kept files", job.id, job.kind.id(), files.len()));
+    let threads = hunt_threads().min(files.len().max(1));
+    srv.log_info(format!(
+        "retrohunt #{} started: {} {name} over {} kept files, {threads} thread(s)",
+        job.id,
+        job.kind.id(),
+        files.len()
+    ));
     rh.update(job.id, |h| h.total = files.len());
 
-    let mut stopped = false;
-    for k in files {
-        if rh.stop.load(Ordering::Relaxed) {
-            stopped = true;
-            break;
-        }
-        let Some(data) = k.read() else {
-            rh.update(job.id, |h| {
-                h.unreadable += 1;
-                h.done += 1;
-            });
-            continue;
-        };
-        let hits = matcher.scan(&mut yara, &data, &k.name);
-        let size = data.len() as u64;
-        drop(data);
-        if hits.is_empty() {
-            rh.update(job.id, |h| h.done += 1);
-            continue;
-        }
-        let sha = k.sha256.to_ascii_lowercase();
-        let old = srv.threat_intel.get(&sha).map(|i| i.verdict).unwrap_or_else(|| "unknown".into());
-        let mut m = HuntMatch {
-            sha256: sha.clone(),
-            file_name: k.name.clone(),
-            category: k.category,
-            size,
-            rule: hits.join(", "),
-            old_verdict: old,
-            new_verdict: String::new(),
-            threat: None,
-            detail: None,
-            error: None,
-        };
-        if job.rescan {
-            // Full engine with the current settings: the new signature is already live.
-            match crate::rescan::rescan_logged(srv, &sha, "retrohunt", 0) {
-                Ok(c) => {
-                    m.old_verdict = c.old_verdict;
-                    m.new_verdict = c.new_verdict;
-                    m.threat = c.threat;
-                    m.detail = c.detail;
+    let next = AtomicUsize::new(0);
+    let stopped = AtomicBool::new(false);
+    std::thread::scope(|scope| {
+        for _ in 0..threads {
+            scope.spawn(|| {
+                // YARA-X scanners are per thread; the compiled rules are shared.
+                let mut yara = match &matcher {
+                    Matcher::Yara(rules) => {
+                        let mut sc = yara_x::Scanner::new(rules);
+                        sc.set_timeout(YARA_TIMEOUT);
+                        Some(sc)
+                    }
+                    _ => None,
+                };
+                loop {
+                    if rh.stop.load(Ordering::Relaxed) {
+                        stopped.store(true, Ordering::Relaxed);
+                        break;
+                    }
+                    let Some(k) = files.get(next.fetch_add(1, Ordering::Relaxed)) else { break };
+                    hunt_file(srv, job, &matcher, &mut yara, k);
                 }
-                Err(e) => m.error = Some(e),
-            }
-        } else {
-            // Match only: the current verdict stays as it is.
-            m.new_verdict = m.old_verdict.clone();
-            m.threat = srv.threat_intel.get(&sha).and_then(|i| i.threat_name);
+            });
         }
-        let changed = job.rescan && m.error.is_none() && m.old_verdict != m.new_verdict;
-        rh.update(job.id, |h| {
-            h.done += 1;
-            h.matched += 1;
-            h.changed += changed as usize;
-            if h.matches.len() < MATCHES_MAX {
-                h.matches.push(m);
-            }
-        });
-    }
+    });
+    let stopped = stopped.into_inner();
     let mut summary = String::new();
     rh.update(job.id, |h| {
         h.state = if stopped { "stopped" } else { "done" };
@@ -374,6 +347,69 @@ fn run(srv: &Arc<ScanServer>, job: &Job) {
     srv.log_info(format!("retrohunt #{} {}: {name}: {summary}", job.id, if stopped { "stopped" } else { "finished" }));
 }
 
+/// Matches one kept file and, on a match, rescans it and records it in the hunt.
+fn hunt_file(
+    srv: &Arc<ScanServer>,
+    job: &Job,
+    matcher: &Matcher,
+    yara: &mut Option<yara_x::Scanner<'_>>,
+    k: &crate::engine_adapter::KeptFile,
+) {
+    let rh = &srv.retrohunt;
+    let Some(data) = k.read() else {
+        rh.update(job.id, |h| {
+            h.unreadable += 1;
+            h.done += 1;
+        });
+        return;
+    };
+    let size = data.len() as u64;
+    let hits = matcher.scan(yara, data, &k.name);
+    if hits.is_empty() {
+        rh.update(job.id, |h| h.done += 1);
+        return;
+    }
+    let sha = k.sha256.to_ascii_lowercase();
+    let old = srv.threat_intel.get(&sha).map(|i| i.verdict).unwrap_or_else(|| "unknown".into());
+    let mut m = HuntMatch {
+        sha256: sha.clone(),
+        file_name: k.name.clone(),
+        category: k.category,
+        size,
+        rule: hits.join(", "),
+        old_verdict: old,
+        new_verdict: String::new(),
+        threat: None,
+        detail: None,
+        error: None,
+    };
+    if job.rescan {
+        // Full engine with the current settings: the new signature is already live.
+        match crate::rescan::rescan_logged(srv, &sha, "retrohunt", 0) {
+            Ok(c) => {
+                m.old_verdict = c.old_verdict;
+                m.new_verdict = c.new_verdict;
+                m.threat = c.threat;
+                m.detail = c.detail;
+            }
+            Err(e) => m.error = Some(e),
+        }
+    } else {
+        // Match only: the current verdict stays as it is.
+        m.new_verdict = m.old_verdict.clone();
+        m.threat = srv.threat_intel.get(&sha).and_then(|i| i.threat_name);
+    }
+    let changed = job.rescan && m.error.is_none() && m.old_verdict != m.new_verdict;
+    rh.update(job.id, |h| {
+        h.done += 1;
+        h.matched += 1;
+        h.changed += changed as usize;
+        if h.matches.len() < MATCHES_MAX {
+            h.matches.push(m);
+        }
+    });
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -383,8 +419,8 @@ mod tests {
         let m = Matcher::build(SigKind::Yara, "rule Hunt_Test { strings: $a = \"RETROHUNT-MARK\" condition: $a }").unwrap();
         let Matcher::Yara(rules) = &m else { panic!() };
         let mut sc = Some(yara_x::Scanner::new(rules));
-        assert_eq!(m.scan(&mut sc, b"xx RETROHUNT-MARK yy", "a"), vec!["Hunt_Test".to_string()]);
-        assert!(m.scan(&mut sc, b"nothing here", "b").is_empty());
+        assert_eq!(m.scan(&mut sc, b"xx RETROHUNT-MARK yy".to_vec(), "a"), vec!["Hunt_Test".to_string()]);
+        assert!(m.scan(&mut sc, b"nothing here".to_vec(), "b").is_empty());
         assert!(Matcher::build(SigKind::Yara, "rule broken {").is_err());
     }
 
@@ -393,8 +429,8 @@ mod tests {
         let hex: String = b"RETROHUNT-MARK".iter().map(|b| format!("{b:02x}")).collect();
         let m = Matcher::build(SigKind::ClamNdb, &format!("Trojan.Win32.Hunt.A:0:*:{hex}\n")).unwrap();
         let mut none = None;
-        assert_eq!(m.scan(&mut none, b"xx RETROHUNT-MARK yy", "a.bin"), vec!["Trojan.Win32.Hunt.A".to_string()]);
-        assert!(m.scan(&mut none, b"nothing here", "b.bin").is_empty());
+        assert_eq!(m.scan(&mut none, b"xx RETROHUNT-MARK yy".to_vec(), "a.bin"), vec!["Trojan.Win32.Hunt.A".to_string()]);
+        assert!(m.scan(&mut none, b"nothing here".to_vec(), "b.bin").is_empty());
     }
 
     #[test]
@@ -403,8 +439,8 @@ mod tests {
         let src = format!("Trojan.Win32.Hunt.B;Engine:51-255,Target:0;0&1;{};{}\n", h(b"FIRST-PART"), h(b"SECOND-PART"));
         let m = Matcher::build(SigKind::ClamLdb, &src).unwrap();
         let mut none = None;
-        assert_eq!(m.scan(&mut none, b"a FIRST-PART b SECOND-PART c", "a.bin"), vec!["Trojan.Win32.Hunt.B".to_string()]);
-        assert!(m.scan(&mut none, b"a FIRST-PART only", "b.bin").is_empty());
+        assert_eq!(m.scan(&mut none, b"a FIRST-PART b SECOND-PART c".to_vec(), "a.bin"), vec!["Trojan.Win32.Hunt.B".to_string()]);
+        assert!(m.scan(&mut none, b"a FIRST-PART only".to_vec(), "b.bin").is_empty());
     }
 
     #[test]
@@ -412,7 +448,7 @@ mod tests {
         let src = "rules:\n  - id: ANALYST-HUNT\n    title: \"Trojan.Win32.Hunt.C\"\n    severity: high\n    verdict: malware\n    confidence: 90\n    score: 90\n    family: \"Trojan.Win32.Hunt.C\"\n    logic: all\n    conditions:\n      - type: string_set\n        min: 2\n        nocase: true\n        values:\n          - \"first-unique-mark\"\n          - \"second-unique-mark\"\n";
         let m = Matcher::build(SigKind::HydraSig, src).unwrap();
         let mut none = None;
-        assert_eq!(m.scan(&mut none, b"..FIRST-UNIQUE-MARK..second-unique-mark..", "a.bin"), vec!["Trojan.Win32.Hunt.C".to_string()]);
-        assert!(m.scan(&mut none, b"..first-unique-mark only..", "b.bin").is_empty());
+        assert_eq!(m.scan(&mut none, b"..FIRST-UNIQUE-MARK..second-unique-mark..".to_vec(), "a.bin"), vec!["Trojan.Win32.Hunt.C".to_string()]);
+        assert!(m.scan(&mut none, b"..first-unique-mark only..".to_vec(), "b.bin").is_empty());
     }
 }
