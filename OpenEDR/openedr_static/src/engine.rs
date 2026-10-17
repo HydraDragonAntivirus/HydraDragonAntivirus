@@ -338,7 +338,12 @@ impl StaticEngine {
                         if let Ok(entries) = std::fs::read_dir(&dir) {
                             for entry in entries.flatten() {
                                 let p = entry.path();
+                                // Disinfection definitions live in the same folder (hydradragonunicorn).
+                                let is_disinfect = p.file_name().is_some_and(|n| {
+                                    n.to_string_lossy().eq_ignore_ascii_case(hydradragonunicorn::DISINFECT_RULES_FILE)
+                                });
                                 if p.is_file()
+                                    && !is_disinfect
                                     && p.extension()
                                         .and_then(|e| e.to_str())
                                         .map_or(false, |e| e.eq_ignore_ascii_case("yaml") || e.eq_ignore_ascii_case("yml"))

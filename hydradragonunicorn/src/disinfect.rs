@@ -18,6 +18,11 @@ pub mod rules;
 
 pub use rules::{DisinfectRules, VirusRule};
 
+/// File name of the extra disinfection definitions shipped next to the HydraDragonSig
+/// rules (`hydradragonsig_rules/`). It is not a HydraDragonSig rule file: rule loaders
+/// that read every YAML in that folder skip it.
+pub const DISINFECT_RULES_FILE: &str = "disinfect_rules.yaml";
+
 use engine::{Plan, PlannedCleanup};
 use pe_edit as pe;
 

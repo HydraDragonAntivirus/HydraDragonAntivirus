@@ -35,7 +35,7 @@ pub use fs::{
 };
 pub use module::{Module, ModuleInfo, ModuleRegistry, ModuleType};
 pub use disinfect::{
-    detect_bytes_with, disinfect_bytes, disinfect_bytes_with, DisinfectOutcome, DisinfectRules,
+    detect_bytes_with, disinfect_bytes, disinfect_bytes_with, DisinfectOutcome, DisinfectRules, DISINFECT_RULES_FILE,
 };
 pub use sality::SalityModule;
 pub use scanner::{

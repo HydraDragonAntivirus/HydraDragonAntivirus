@@ -244,10 +244,6 @@ pub fn find_restore(
     None
 }
 
-/// Disinfection definitions next to the HydraDragonSig rules (not loaded as
-/// detection rules: the engine skips the file, it has no `rules:` list).
-pub const DISINFECT_RULES_FILE: &str = "disinfect_rules.yaml";
-
 /// The built-in disinfection definitions plus `<hydradragonsig_rules>/disinfect_rules.yaml`
 /// (a definition with the same name replaces the built-in one). Read on every request,
 /// so an edited file applies without a restart; a broken file falls back to the built-in set.
@@ -255,7 +251,7 @@ fn disinfect_rules(engine: &EngineAdapter) -> std::borrow::Cow<'static, hydradra
     use hydradragonunicorn::DisinfectRules;
     let file = engine
         .rules_dir()
-        .map(|d| crate::fp_ignore::Kind::HydraSig.dir(&d).join(DISINFECT_RULES_FILE))
+        .map(|d| crate::fp_ignore::Kind::HydraSig.dir(&d).join(hydradragonunicorn::DISINFECT_RULES_FILE))
         .filter(|f| f.is_file());
     match file {
         Some(f) => match DisinfectRules::builtin_with_file(&f) {
