@@ -155,6 +155,7 @@ async fn open_doc(app: &Arc<AppState>, name: String, source: String, data: Vec<u
         "engine_detail": cached.as_ref().and_then(|c| c.detail.clone()),
         "signer": insight.as_ref().and_then(|i| i.signer.clone()),
         "human": review.as_ref().map(|r| r.to_dashboard_json()),
+        "virustotal": crate::human_review::virustotal_url(&sha),
     }))
     .into_response()
 }

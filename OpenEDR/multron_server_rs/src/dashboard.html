@@ -873,6 +873,7 @@
         <button class="primary" id="vaOpen">Open</button>
         <select id="vaDocs" title="Files open in VirusKovAlyzer"><option value="">Open files…</option></select>
         <button class="ghost" id="vaScan" disabled>Scan with engine</button>
+        <button class="ghost" id="vaVt" disabled title="Open this file on VirusTotal (by SHA-256; nothing is uploaded)">VirusTotal ↗</button>
         <button class="ghost" id="vaImphash" disabled title="Make an analyst imphash signature from this PE (Signature room)">Imphash signature</button>
         <button class="ghost" id="vaUnpack" disabled title="Runs the PE in the engine's Unicorn emulator and opens the memory image">Unpack (Unicorn)</button>
       </div>
@@ -2757,6 +2758,7 @@ window.sigKey = (list) => list && list.length ? `${list[0].layer}: ${list[0].nam
       $("vaDocs").innerHTML = `<option value="">Open files (${d.open.length})…</option>` + d.open.map(o => `<option value="${esc(o.source)}">${esc(o.name)} · ${size(o.size)}</option>`).join("");
     } catch (_) {}
   }
+  $("vaVt").onclick = () => { if (doc && doc.virustotal) window.open(doc.virustotal, "_blank", "noopener"); };
   $("vaDocs").onchange = () => { const v = $("vaDocs").value; if (v) { $("vaSrc").value = v; $("vaOpen").click(); } $("vaDocs").value = ""; };
 
   function setDoc(d) {
@@ -2774,6 +2776,7 @@ window.sigKey = (list) => list && list.length ? `${list[0].layer}: ${list[0].nam
     }
     $("vaBody").hidden = false;
     $("vaScan").disabled = false;
+    $("vaVt").disabled = !d.virustotal;
     $("vaUnpack").disabled = !r.pe;
     $("vaImphash").disabled = !(r.hashes && r.hashes.imphash);
     $("vaTitle").innerHTML = `<b>${esc(d.name)}</b> <span class="hint" style="margin:0">${size(d.size)} · ${esc(r.file_type || "")} · ${esc(d.source)}</span>`;
