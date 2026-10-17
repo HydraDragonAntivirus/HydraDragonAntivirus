@@ -2258,7 +2258,14 @@ async fn handle_review_delete(
 ) -> Response {
     if app.threat_intel.reviews.remove(b.sha256.trim()) {
         app.threat_intel.similarity.remove_analyst_sig(b.sha256.trim());
-        info_event(&app, format!("human analysis removed: {}", b.sha256.trim().to_lowercase()));
+        // The human verdict no longer applies: put the kept file back in the folder of
+        // the engine verdict (otherwise it stays in e.g. clean/ with no verdict behind it).
+        let sha = b.sha256.trim().to_lowercase();
+        let engine_verdict = app.threat_intel.get(&sha).map(|i| i.verdict).unwrap_or_else(|| "unknown".into());
+        let eng = Arc::clone(&app.engine);
+        let sha_upper = sha.to_ascii_uppercase();
+        tokio::task::spawn_blocking(move || eng.relabel_kept(&sha_upper, &engine_verdict));
+        info_event(&app, format!("human analysis removed: {}", sha));
         (StatusCode::OK, Json(serde_json::json!({"ok": true}))).into_response()
     } else {
         (StatusCode::NOT_FOUND, Json(serde_json::json!({"error": "no review for this hash"}))).into_response()
