@@ -16,6 +16,10 @@ unicorn-engine = { path = "unicorn-engine-rs/bindings/rust/unicorn-engine", feat
 # Bitfield flags for VFS object flags (FsFlags)
 bitflags = "2.13.0"
 
+# Disinfection definitions (YAML, same library as hydradragonsig)
+serde = { version = "1.0.228", features = ["derive"] }
+yaml_serde = "0.10.4"
+
 # Error handling
 thiserror = "2.0.18"
 log = "0.4.32"

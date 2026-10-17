@@ -309,6 +309,7 @@ mod tests {
     use super::*;
     use crate::fs::{FileAttributes, FsFlags, FsType};
     use crate::module::{Module, ModuleInfo, ModuleType};
+    use crate::scanner::ScanResult;
     use std::fs;
     use std::path::{Path, PathBuf};
     use std::sync::{Arc, Mutex};
@@ -485,9 +486,9 @@ mod tests {
         }
 
         let count = Arc::new(Mutex::new(0usize));
-        let module = Arc::new(Mutex::new(CountingModule {
+        let module: Arc<Mutex<dyn ScanModule>> = Arc::new(Mutex::new(CountingModule {
             scan_count: Arc::clone(&count),
-        }) as Mutex<dyn ScanModule>);
+        }));
 
         let obs = CountingObserver::new();
 

@@ -1426,6 +1426,7 @@ pub fn apply_analyst_hit(res: &mut ResultMessage, hit: &crate::analyst_engine::A
     let layer = match hit.engine {
         "tlsh_blacklist" => "TLSH blacklist".to_string(),
         "analyst_tlsh" => "Analyst TLSH".to_string(),
+        "analyst_imphash" => "Analyst imphash".to_string(),
         "company_blocklist" => "Analyst company block-list".to_string(),
         e => format!("Analyst {e}"),
     };

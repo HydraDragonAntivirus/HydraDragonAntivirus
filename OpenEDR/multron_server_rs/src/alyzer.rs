@@ -41,7 +41,7 @@ fn docs() -> &'static Mutex<VecDeque<Doc>> {
 }
 
 /// The open file of a token; using it makes it the last one to be dropped.
-fn doc(token: &str) -> Option<(String, Arc<Vec<u8>>)> {
+pub(crate) fn doc(token: &str) -> Option<(String, Arc<Vec<u8>>)> {
     let mut g = docs().lock().unwrap();
     let i = g.iter().position(|d| d.token == token)?;
     let d = g.remove(i)?;
@@ -469,22 +469,26 @@ pub struct StringsQuery {
 
 /// Every ASCII and UTF-16LE string (with its file offset), like the Strings page of
 /// the Pascal VirusKovAlyzer. At most 50,000 entries. Strings in the string whitelist
-/// (every string of the files with a human clean verdict, see `string_wl`) are marked
-/// `"k": 1`, or left out with `unknown=1` (`hidden` counts them); `whitelist` is its
-/// status.
+/// of this file's type (every string of the files of that type with a human clean
+/// verdict, see `string_wl`; `file_type` names the type) are marked `"k": 1`, or left
+/// out with `unknown=1` (`hidden` counts them); `whitelist` is its status.
 pub async fn handle_strings(Query(q): Query<StringsQuery>) -> Response {
     let Some((_, data)) = doc(&q.token) else { return err(StatusCode::NOT_FOUND, "file is not open any more, open it again") };
     let min = q.min.clamp(3, 64);
     let filter = q.q.to_lowercase();
     let only_unknown = q.unknown == 1;
-    let (out, hidden) = tokio::task::spawn_blocking(move || {
-        extract_strings(&data, min, &filter, crate::string_wl::get().map(|w| w.as_ref()), only_unknown)
+    let (out, hidden, group) = tokio::task::spawn_blocking(move || {
+        let group = crate::string_wl::file_type(&data);
+        let (out, hidden) = extract_strings(&data, min, &filter, crate::string_wl::get().map(|w| (w.as_ref(), group.as_str())), only_unknown);
+        (out, hidden, group)
     })
     .await
     .unwrap_or_default();
     let truncated = out.len() >= MAX_STRINGS;
     Json(serde_json::json!({
         "ok": true, "strings": out, "truncated": truncated, "hidden": hidden,
+        // The whitelist of this file type is used (`string_wl::file_type`).
+        "file_type": group,
         "whitelist": crate::string_wl::get().map(|w| w.status()),
     }))
     .into_response()
@@ -551,7 +555,7 @@ fn extract_strings(
     data: &[u8],
     min: usize,
     filter: &str,
-    wl: Option<&crate::string_wl::StringWhitelist>,
+    wl: Option<(&crate::string_wl::StringWhitelist, &str)>,
     only_unknown: bool,
 ) -> (Vec<serde_json::Value>, u64) {
     let mut out = Vec::new();
@@ -559,7 +563,7 @@ fn extract_strings(
     let mut batch: Vec<(usize, &'static str, String)> = Vec::new();
     let flush = |batch: &mut Vec<(usize, &'static str, String)>, out: &mut Vec<serde_json::Value>, hidden: &mut u64| {
         let known = match wl {
-            Some(w) => w.contains_many(&batch.iter().map(|(_, _, s)| s.as_str()).collect::<Vec<_>>()),
+            Some((w, group)) => w.contains_many(group, &batch.iter().map(|(_, _, s)| s.as_str()).collect::<Vec<_>>()),
             None => vec![false; batch.len()],
         };
         for ((off, enc, s), k) in batch.drain(..).zip(known) {
@@ -779,11 +783,13 @@ mod tests {
         wl.sync(&["C".to_string()].into_iter().collect(), &|_| Some(clean.clone()));
         let mut d = b"\x00kernel32.dll\x00evil-payload\x00\x01\x01\x01".to_vec();
         d.extend_from_slice(&[b'k', 0, b'e', 0, b'r', 0, b'n', 0, b'e', 0, b'l', 0, b'3', 0, b'2', 0, b'.', 0, b'd', 0, b'l', 0, b'l', 0, 0, 0]);
-        let (all, hidden) = extract_strings(&d, 4, "", Some(&wl), false);
+        let g = crate::string_wl::file_type(&d);
+        assert_eq!(g, crate::string_wl::file_type(&clean), "same type as the clean file");
+        let (all, hidden) = extract_strings(&d, 4, "", Some((&wl, g.as_str())), false);
         let k: Vec<(String, bool)> = all.iter().map(|v| (v["s"].as_str().unwrap().to_string(), v.get("k").is_some())).collect();
         assert_eq!(k, [("kernel32.dll".into(), true), ("evil-payload".into(), false), ("kernel32.dll".into(), true)]);
         assert_eq!(hidden, 0);
-        let (unknown, hidden) = extract_strings(&d, 4, "", Some(&wl), true);
+        let (unknown, hidden) = extract_strings(&d, 4, "", Some((&wl, g.as_str())), true);
         assert_eq!(unknown.len(), 1);
         assert_eq!(unknown[0]["s"], "evil-payload");
         assert_eq!(hidden, 2, "ASCII and UTF-16 copies");

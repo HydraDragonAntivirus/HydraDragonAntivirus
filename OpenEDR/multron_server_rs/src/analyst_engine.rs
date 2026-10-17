@@ -74,6 +74,12 @@ impl SigKind {
     }
 }
 
+/// Container members scanned with the analyst signatures: nesting depth, member
+/// count per file and largest member, so a crafted archive cannot stall a scan.
+const MEMBER_MAX_DEPTH: usize = 3;
+const MEMBER_BUDGET: usize = 512;
+const MEMBER_MAX_BYTES: usize = 64 * 1024 * 1024;
+
 /// A match from an analyst signature.
 #[derive(Debug, Clone)]
 pub struct AnalystHit {
@@ -314,8 +320,47 @@ impl AnalystEngine {
         None
     }
 
-    /// Runs the analyst signatures over a file. Cheap when no analyst signatures exist.
+    /// Runs the analyst signatures over a file and, when it is a container the
+    /// extractor can open (archives, NSIS installers, PE self-extractors, ASAR...),
+    /// over every member as well, so an installer gets the name and level of what it
+    /// carries. Cheap when no analyst signatures exist.
     pub fn scan(&self, data: &[u8], name: &str) -> Vec<AnalystHit> {
+        let mut hits = Vec::new();
+        if self.clam.read().unwrap().is_none() && self.sig.read().unwrap().is_none() {
+            return hits;
+        }
+        let mut budget = MEMBER_BUDGET;
+        self.scan_into(data, name, 0, &mut budget, &mut hits);
+        hits
+    }
+
+    fn scan_into(&self, data: &[u8], name: &str, depth: usize, budget: &mut usize, hits: &mut Vec<AnalystHit>) {
+        for hit in self.scan_one(data, name) {
+            if !hits.iter().any(|h| h.engine == hit.engine && h.name == hit.name) {
+                hits.push(hit);
+            }
+        }
+        if depth >= MEMBER_MAX_DEPTH || hydradragonextractor::detect_format(data).is_none() {
+            return;
+        }
+        let Ok(members) = hydradragonextractor::extract_archive_from_bytes(data, false) else {
+            return;
+        };
+        for m in members {
+            if *budget == 0 {
+                return;
+            }
+            if m.data.is_empty() || m.data.len() > MEMBER_MAX_BYTES {
+                continue;
+            }
+            *budget -= 1;
+            let member_name = format!("{name}/{}", m.name);
+            self.scan_into(&m.data, &member_name, depth + 1, budget, hits);
+        }
+    }
+
+    /// The analyst signatures over one buffer (no container recursion).
+    fn scan_one(&self, data: &[u8], name: &str) -> Vec<AnalystHit> {
         let mut hits = Vec::new();
         if let Some(clam) = self.clam.read().unwrap().as_ref() {
             for m in clam.scan_bytes_named(data, if name.is_empty() { "file" } else { name }, ClamScanOptions::default(), &[]) {

@@ -203,7 +203,7 @@ Query parameters:
 
 #### `GET /api/alyzer/strings`
 
-Every ASCII and UTF-16LE string (with its file offset), like the Strings page of the Pascal VirusKovAlyzer. At most 50,000 entries. Strings in the string whitelist (every string of the files with a human clean verdict, see `string_wl`) are marked `"k": 1`, or left out with `unknown=1` (`hidden` counts them); `whitelist` is its status.
+Every ASCII and UTF-16LE string (with its file offset), like the Strings page of the Pascal VirusKovAlyzer. At most 50,000 entries. Strings in the string whitelist of this file's type (every string of the files of that type with a human clean verdict, see `string_wl`; `file_type` names the type) are marked `"k": 1`, or left out with `unknown=1` (`hidden` counts them); `whitelist` is its status.
 
 Query parameters:
 
@@ -345,6 +345,7 @@ JSON body:
 | `rescan_after_reload` | `boolean` | no | Rescan kept unknown / possible_clean files after every engine reload. |
 | `lzma_low_disk` | `boolean` | no | Low-disk LZMA2 compression of kept files (dashboard). A new key on purpose: the old `compress_low_disk` was written as true by every earlier build without being a choice, so it is ignored and the default is off. |
 | `low_disk_gb` | `integer` | no |  |
+| `tlsh_blacklist_max_dist` | `integer` | no | Largest TLSH distance to a TLSH blacklist digest that still flags a file (dashboard; `similarity::TLSH_BLACKLIST_DISTANCES`). |
 | `limits` | `crate::limits::LimitSettings` | no | Limits edited in the dashboard; None until they are changed there once. |
 
 <sub>Handler: `src/dashboard.rs` → `handle_start`</sub>
@@ -424,6 +425,18 @@ JSON body:
 | `enabled` | `boolean` | no |  |
 
 <sub>Handler: `src/dashboard.rs` → `handle_keep_possible_clean`</sub>
+
+#### `POST /api/tlsh-blacklist-distance`
+
+Largest TLSH distance to a TLSH blacklist digest that still flags a file (one of 5, 10, 15, 20, 30; default 10). Applies to new scans at once and is saved to multron_server.json; verdicts already cached stay until those files are rescanned.
+
+JSON body:
+
+| Name | Type | Required | Description |
+|---|---|---|---|
+| `distance` | `integer` | yes |  |
+
+<sub>Handler: `src/dashboard.rs` → `handle_tlsh_blacklist_distance`</sub>
 
 #### `POST /api/keep-clean`
 
@@ -931,6 +944,39 @@ JSON body:
 | `name` | `string` | yes |  |
 
 <sub>Handler: `src/dashboard.rs` → `handle_signature_delete`</sub>
+
+#### `GET /api/imphash-signatures`
+
+Analyst imphash signatures (`imphash_sigs`), newest first.
+
+<sub>Handler: `src/dashboard.rs` → `handle_imphash_list`</sub>
+
+#### `POST /api/imphash-signatures`
+
+Makes an analyst imphash signature from a PE (a kept file by `sha256`, or the VirusKovAlyzer file of `token`). Refused for .NET programs, small import tables and any imphash a clean file has (benign corpus or human clean verdict); see `imphash_sigs`. Applies to new scans at once.
+
+JSON body:
+
+| Name | Type | Required | Description |
+|---|---|---|---|
+| `sha256` | `string` | no | SHA-256 of a kept file... |
+| `token` | `string` | no | ...or a file open in VirusKovAlyzer. |
+| `threat` | `string` | yes | Category.Platform.Family[.Variant]. |
+| `analyst` | `string` | no |  |
+
+<sub>Handler: `src/dashboard.rs` → `handle_imphash_create`</sub>
+
+#### `POST /api/imphash-signatures/delete`
+
+Deletes an analyst imphash signature.
+
+JSON body:
+
+| Name | Type | Required | Description |
+|---|---|---|---|
+| `imphash` | `string` | yes |  |
+
+<sub>Handler: `src/dashboard.rs` → `handle_imphash_delete`</sub>
 
 #### `GET /api/fp/detections/:sha256`
 

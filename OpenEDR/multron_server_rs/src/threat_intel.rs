@@ -49,6 +49,10 @@ pub struct ThreatInsight {
     /// malware type. Dashboard only, like `folders`.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub detections: Vec<DetectionRef>,
+    /// Hash checks answered "need upload" whose scan result has not come yet: the check
+    /// already counted the sighting, so that result does not count it again.
+    #[serde(skip)]
+    pub pending_uploads: u32,
 }
 
 /// One matched signature: the engine layer ("YARA", "ClamAV", "Analyst clamav", ...)
@@ -318,6 +322,8 @@ impl ThreatIntelStore {
         w.send(WriterMsg::Flush(tx)).is_ok() && rx.recv_timeout(timeout).is_ok()
     }
 
+    /// Records a sighting with its verdict (`seen_count` + 1), or the result of an
+    /// upload a hash check asked for (`record_check`), which that check already counted.
     pub fn record(
         &self,
         sha256_hex: &str,
@@ -326,6 +332,26 @@ impl ThreatIntelStore {
         file_name: Option<&str>,
         file_size: Option<u64>,
         score: f64,
+    ) {
+        self.record_inner(sha256_hex, verdict, threat, file_name, file_size, score, false);
+    }
+
+    /// A hash check of a file the server has to scan: counts the sighting with an
+    /// "unknown" placeholder; the scan result of the upload is not counted again.
+    pub fn record_check(&self, sha256_hex: &str, file_name: Option<&str>, file_size: Option<u64>) {
+        self.record_inner(sha256_hex, "unknown", None, file_name, file_size, 0.0, true);
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn record_inner(
+        &self,
+        sha256_hex: &str,
+        verdict: &str,
+        threat: Option<&str>,
+        file_name: Option<&str>,
+        file_size: Option<u64>,
+        score: f64,
+        check: bool,
     ) {
         let Some(sha_bytes) = parse_sha(sha256_hex) else {
             return;
@@ -350,9 +376,18 @@ impl ThreatIntelStore {
                 sightings: Vec::new(),
                 signer: None,
                 detections: Vec::new(),
+                pending_uploads: 0,
             });
 
-            entry.seen_count += 1;
+            // One sighting = one check or one upload, not both.
+            if check {
+                entry.seen_count += 1;
+                entry.pending_uploads += 1;
+            } else if entry.pending_uploads > 0 {
+                entry.pending_uploads -= 1;
+            } else {
+                entry.seen_count += 1;
+            }
             entry.last_seen = now_str;
 
             // Upgrade verdict if a better analysis emerged. A placeholder "unknown"
@@ -1012,5 +1047,30 @@ mod sighting_tests {
         add_sighting(&mut l, "5.6.7.8", "", "t4");
         assert_eq!(l.len(), 3);
         assert_eq!(l[2].count, 2, "client without paths counts each upload");
+    }
+
+    #[test]
+    fn check_and_its_upload_are_one_sighting() {
+        let path = std::env::temp_dir().join(format!("ti_seen_{}.jsonl", std::process::id()));
+        let _ = std::fs::remove_file(&path);
+        let ti = ThreatIntelStore::new(Some(path.clone()));
+        let sha = "ab".repeat(32);
+        let seen = || ti.get(&sha).unwrap().seen_count;
+        // Unknown file: hash check (needs upload), then the scan result of the upload.
+        ti.record_check(&sha, Some("a.exe"), Some(10));
+        ti.record(&sha, "malicious", Some("Trojan.Win32.X"), Some("a.exe"), Some(10), 1.0);
+        assert_eq!(seen(), 1);
+        assert_eq!(ti.get(&sha).unwrap().verdict, "malicious");
+        // Later: answered from the hash (no upload) and a direct upload without a check.
+        ti.record(&sha, "malicious", None, Some("a.exe"), Some(10), 1.0);
+        ti.record(&sha, "malicious", None, Some("a.exe"), Some(10), 1.0);
+        assert_eq!(seen(), 3);
+        // Two clients check before either uploads; one upload, one waiter.
+        ti.record_check(&sha, None, None);
+        ti.record_check(&sha, None, None);
+        ti.record(&sha, "malicious", None, None, None, 1.0);
+        ti.record(&sha, "malicious", None, None, None, 1.0);
+        assert_eq!(seen(), 5);
+        let _ = std::fs::remove_file(&path);
     }
 }

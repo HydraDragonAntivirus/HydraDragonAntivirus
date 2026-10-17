@@ -108,6 +108,7 @@ impl AppState {
             settings.lzma_low_disk = on;
         }
         engine.compress_low_disk.store(settings.lzma_low_disk, std::sync::atomic::Ordering::Relaxed);
+        settings.tlsh_blacklist_max_dist = crate::similarity::set_blacklist_max_dist(settings.tlsh_blacklist_max_dist);
         scan_server.rescan.after_reload.store(settings.rescan_after_reload, std::sync::atomic::Ordering::Relaxed);
         if !cfg.offload_dir.trim().is_empty() {
             settings.offload_target = cfg.offload_dir.trim().to_string();
@@ -239,6 +240,7 @@ impl AppState {
             s.collect_xorfilter = g.collect_xorfilter;
             s.keep_clean = g.keep_clean;
             s.lzma_low_disk = g.lzma_low_disk;
+            s.tlsh_blacklist_max_dist = g.tlsh_blacklist_max_dist;
             s.rescan_after_reload = g.rescan_after_reload;
             s.offload_target = g.offload_target.clone();
             s.offload_auto = g.offload_auto;
@@ -328,6 +330,7 @@ pub fn dashboard_router(state: Arc<AppState>) -> Router {
         .route("/api/handoff/cancel", post(handle_handoff_cancel))
         .route("/api/handoff/release", post(handle_handoff_release))
         .route("/api/keep-possible-clean", post(handle_keep_possible_clean))
+        .route("/api/tlsh-blacklist-distance", post(handle_tlsh_blacklist_distance))
         .route("/api/keep-clean", post(handle_keep_clean))
         .route("/api/keep-all-unique", post(handle_keep_all_unique))
         .route("/api/collect-xorfilter", post(handle_collect_xorfilter))
@@ -377,6 +380,8 @@ pub fn dashboard_router(state: Arc<AppState>) -> Router {
         )
         .route("/api/signatures", get(handle_signatures_list).post(handle_signature_save))
         .route("/api/signatures/delete", post(handle_signature_delete))
+        .route("/api/imphash-signatures", get(handle_imphash_list).post(handle_imphash_create))
+        .route("/api/imphash-signatures/delete", post(handle_imphash_delete))
         .route("/api/fp/detections/:sha256", get(handle_fp_detections))
         .route("/api/fp/lists", get(handle_fp_lists))
         .route("/api/fp/ignore", post(handle_fp_ignore))
@@ -418,9 +423,10 @@ fn is_local_host(host: &str) -> bool {
 /// Dashboard calls that write human verdicts or change what decides a verdict (rules,
 /// FP lists, company lists, bans): with `analyst_keys.txt` in place they need a valid
 /// `X-Multron-Analyst-Key` (see `human_review::analyst_keys`).
-const ANALYST_PATHS: [&str; 14] = [
+const ANALYST_PATHS: [&str; 16] = [
     "/api/review", "/api/review/start", "/api/review/release", "/api/review/delete",
     "/api/reviews/bulk", "/api/reviews/requeue", "/api/signatures", "/api/signatures/delete",
+    "/api/imphash-signatures", "/api/imphash-signatures/delete",
     "/api/fp/ignore", "/api/fp/unignore", "/api/companies", "/api/rules", "/api/bans/add", "/api/bans/remove",
 ];
 
@@ -602,6 +608,8 @@ async fn handle_state(
             "dataset": app.engine.dataset.get().map(|d| d.status()),
             "compressLowDisk": app.engine.compress_low_disk.load(std::sync::atomic::Ordering::Relaxed),
             "lowDiskThresholdGB": app.engine.low_disk_threshold_bytes / (1024 * 1024 * 1024),
+            "tlshBlacklistMaxDist": crate::similarity::blacklist_max_dist(),
+            "tlshBlacklistDistances": crate::similarity::TLSH_BLACKLIST_DISTANCES,
         },
         "editableLimits": srv.limits.get(),
         "rescan": srv.rescan.status(),
@@ -700,6 +708,28 @@ async fn handle_stop(State(app): State<Arc<AppState>>) -> impl IntoResponse {
 fn export_human_label(engine: &crate::engine_adapter::EngineAdapter, sha: &str, verdict: &str) {
     let (Some(ds), Some(label)) = (engine.dataset.get(), crate::dataset::human_label(verdict)) else { return };
     ds.apply_human_verdict(sha, label);
+}
+
+#[derive(Deserialize)]
+struct DistanceBody {
+    distance: u32,
+}
+
+/// Largest TLSH distance to a TLSH blacklist digest that still flags a file (one of
+/// 5, 10, 15, 20, 30; default 10). Applies to new scans at once and is saved to
+/// multron_server.json; verdicts already cached stay until those files are rescanned.
+async fn handle_tlsh_blacklist_distance(State(app): State<Arc<AppState>>, Json(b): Json<DistanceBody>) -> impl IntoResponse {
+    if !crate::similarity::TLSH_BLACKLIST_DISTANCES.contains(&b.distance) {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({ "ok": false, "error": format!("distance must be one of {:?}", crate::similarity::TLSH_BLACKLIST_DISTANCES) })),
+        );
+    }
+    let d = crate::similarity::set_blacklist_max_dist(b.distance);
+    app.settings.write().await.tlsh_blacklist_max_dist = d;
+    app.save_settings().await;
+    info_event(&app, format!("TLSH blacklist distance: {d} or less flags a file"));
+    (StatusCode::OK, Json(serde_json::json!({ "ok": true, "distance": d })))
 }
 
 #[derive(Deserialize)]
@@ -2173,6 +2203,76 @@ async fn handle_naming_check(Query(q): Query<NamingQuery>) -> impl IntoResponse 
     match crate::naming::normalize_threat_name(&q.name) {
         Ok(n) => Json(serde_json::json!({"ok": true, "name": n, "yara_id": crate::naming::yara_identifier(&n)})),
         Err(e) => Json(serde_json::json!({"ok": false, "error": e})),
+    }
+}
+
+/// Analyst imphash signatures (`imphash_sigs`), newest first.
+async fn handle_imphash_list() -> impl IntoResponse {
+    Json(serde_json::json!({ "ok": true, "items": crate::imphash_sigs::list(), "min_imports": crate::imphash_sigs::MIN_IMPORTS }))
+}
+
+#[derive(Deserialize)]
+struct ImphashCreateBody {
+    /// SHA-256 of a kept file...
+    #[serde(default)]
+    sha256: String,
+    /// ...or a file open in VirusKovAlyzer.
+    #[serde(default)]
+    token: String,
+    /// Category.Platform.Family[.Variant].
+    threat: String,
+    #[serde(default)]
+    analyst: String,
+}
+
+/// Makes an analyst imphash signature from a PE (a kept file by `sha256`, or the
+/// VirusKovAlyzer file of `token`). Refused for .NET programs, small import tables and
+/// any imphash a clean file has (benign corpus or human clean verdict); see
+/// `imphash_sigs`. Applies to new scans at once.
+async fn handle_imphash_create(
+    State(app): State<Arc<AppState>>,
+    who: Option<Extension<AnalystId>>,
+    Json(mut b): Json<ImphashCreateBody>,
+) -> Response {
+    apply_analyst(&who, &mut b.analyst);
+    let (eng, ti) = (Arc::clone(&app.engine), Arc::clone(&app.threat_intel));
+    let r = tokio::task::spawn_blocking(move || -> Result<crate::imphash_sigs::ImphashSig, String> {
+        let (sha, data) = if !b.token.trim().is_empty() {
+            let (_, data) = crate::alyzer::doc(b.token.trim()).ok_or("the file is not open in VirusKovAlyzer any more")?;
+            use sha2::Digest;
+            (hex::encode(sha2::Sha256::digest(data.as_slice())), data.to_vec())
+        } else {
+            let sha = b.sha256.trim().to_ascii_uppercase();
+            let data = eng.read_kept_indexed(&sha).ok_or("this file is not kept on the server")?;
+            (sha, data)
+        };
+        crate::imphash_sigs::create(&ti, &sha, &data, &b.threat, &b.analyst)
+    })
+    .await;
+    match r {
+        Ok(Ok(sig)) => {
+            info_event(&app, format!("imphash signature {} -> {} ({} imports, from {})", sig.imphash, sig.threat, sig.imports, sig.sha256));
+            Json(serde_json::json!({ "ok": true, "signature": sig })).into_response()
+        }
+        Ok(Err(e)) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({ "ok": false, "error": e }))).into_response(),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({ "ok": false, "error": e.to_string() }))).into_response(),
+    }
+}
+
+#[derive(Deserialize)]
+struct ImphashDeleteBody {
+    imphash: String,
+}
+
+/// Deletes an analyst imphash signature.
+async fn handle_imphash_delete(State(app): State<Arc<AppState>>, Json(b): Json<ImphashDeleteBody>) -> Response {
+    match crate::imphash_sigs::remove(&b.imphash) {
+        Ok(true) => {
+            info_event(&app, format!("imphash signature {} deleted", b.imphash.trim()));
+            Json(serde_json::json!({ "ok": true })).into_response()
+        }
+        Ok(false) => (StatusCode::NOT_FOUND, Json(serde_json::json!({ "ok": false, "error": "no such imphash signature" }))).into_response(),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({ "ok": false, "error": e.to_string() }))).into_response(),
     }
 }
 

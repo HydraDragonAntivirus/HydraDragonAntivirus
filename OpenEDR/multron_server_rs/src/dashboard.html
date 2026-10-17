@@ -365,6 +365,12 @@
       <div class="hint">Moves each kept file into a folder named after its file type: the HydraDragonSig type first (<code>javascript</code>, <code>powershell</code>, <code>batch</code>, <code>vbs</code>, <code>python</code>, <code>pe32</code>/<code>pe64</code>, <code>elf64</code>, <code>apk</code>, <code>jar</code>, <code>dex</code>, <code>pdf</code>, <code>zip</code>, ...), then the ClamAV type (hydradragonclamav <code>.ftm</code> magic: <code>rar</code>, <code>html</code>, <code>text_ascii</code>, ...) where HydraDragonSig only says text or archive. The content decides, never the file name; <code>.xz</code> files are unpacked to check. Files of unknown type stay in the category folder. New files are sorted this way when they are kept.</div>
       <div class="hint">Moves the copies the server wrote into the ML dataset folders (<code>&lt;SHA256&gt;.exe</code> etc.) whose file is in <code>multron_incoming/</code> to a backup folder next to the dataset folder (<code>deleted_from_data2_pe</code>, ...). Nothing is deleted; training never reads the backup folders. <code>multron_incoming</code> keeps the file with its telemetry; your own and public dataset files are never touched. Logged in <code>dataset_moves.jsonl</code>.</div>
       <label style="display:flex;gap:8px;align-items:center;margin-top:12px">
+        TLSH blacklist: flag files within distance
+        <select id="tlshBlacklistDist" style="width:auto"></select>
+        of a blacklist digest
+      </label>
+      <div class="hint">Lower is stricter (fewer false positives, fewer variants caught). Default 10; 20 already flagged clean signed drivers. Applies to new scans at once; files scanned before keep their cached verdict until they are rescanned. Analyst TLSH signatures keep their own limit.</div>
+      <label style="display:flex;gap:8px;align-items:center;margin-top:12px">
         <input type="checkbox" id="keepPossibleClean" style="width:auto">
         Keep <b>possible clean</b> files (TLSH smart whitelist) in <code>multron_incoming/possible_clean/</code>
       </label>
@@ -543,6 +549,16 @@
       <div class="hint" style="margin-top:0">Every saved signature is matched against all kept files (every category of the work folder), like VirusTotal Retrohunt. Each match is rescanned with the full engine and the current settings, so its verdict updates; a human verdict still wins. Saving a rule again starts a new hunt.</div>
       <div class="row2" style="margin-top:8px"><div id="rhSummary" class="hint" style="margin:0"></div><div style="text-align:right"><button class="danger" id="rhStop" style="width:auto" hidden>Stop retrohunt</button></div></div>
       <div id="rhList"></div>
+      <h2 style="margin-top:22px" id="imphashSigs">Imphash signatures</h2>
+      <div class="hint" style="margin-top:0">The import hash of a PE you know is malicious flags every other PE with the same import table (only unknown / possible clean / suspicious results are raised; a human clean verdict always wins). Refused for .NET programs, import tables smaller than <span id="ihMin">10</span> entries and any imphash a clean file has (benign reference corpus or a human clean verdict). Applies to new scans at once. Open the file in VirusKovAlyzer and press <b>Imphash signature</b>, or give the SHA-256 of a kept file.</div>
+      <div class="row2" style="margin-top:8px">
+        <div><label for="ihSha">SHA-256 of a kept file</label><input id="ihSha" type="text" spellcheck="false" placeholder="64 hex characters"></div>
+        <div><label for="ihThreat">Threat name</label><input id="ihThreat" type="text" spellcheck="false" placeholder="Trojan.Win32.Remcos.A"></div>
+      </div>
+      <div class="hint" id="ihFrom" style="margin:4px 0"></div>
+      <button class="primary" id="ihCreate">Create imphash signature</button>
+      <div id="ihMsg" class="error"></div>
+      <div id="ihList" style="margin-top:8px"></div>
       <h2 style="margin-top:22px">Company (signer) lists</h2>
       <div class="hint" style="margin-top:0">One Authenticode signer name per line, exactly as in the certificate. <b>Allow</b> makes validly signed files clean (a broken or untrusted signature is ignored). <b>Block</b> marks the signer's files malicious. Analyst ClamAV and HydraDragonSig hits still apply on top; a human hash verdict always wins.</div>
       <div class="row2" style="margin-top:8px">
@@ -843,6 +859,7 @@
         <button class="primary" id="vaOpen">Open</button>
         <select id="vaDocs" title="Files open in VirusKovAlyzer"><option value="">Open files…</option></select>
         <button class="ghost" id="vaScan" disabled>Scan with engine</button>
+        <button class="ghost" id="vaImphash" disabled title="Make an analyst imphash signature from this PE (Signature room)">Imphash signature</button>
         <button class="ghost" id="vaUnpack" disabled title="Runs the PE in the engine's Unicorn emulator and opens the memory image">Unpack (Unicorn)</button>
       </div>
       <div class="hint" id="vaMsg" style="margin:4px 0 8px">Opens a kept upload or any file on this server: hashes, PE headers, sections with entropy, imports / exports, strings, indicators, a disassembler (x86 / x64, ARM, Thumb, ARM64 for PE, ELF, Mach-O and raw code, with import names), the scanner's own decompiler, archive extractor and Unicorn unpacker, and a hex editor. The original file is never changed; edits are saved as a copy in <code>alyzer_edited\</code>.</div>
@@ -1139,6 +1156,11 @@ window.sigKey = (list) => list && list.length ? `${list[0].layer}: ${list[0].nam
       limits.append(el("span", null, k), el("span", null, String(v)));
     }
     if (document.activeElement !== $("keepPossibleClean")) $("keepPossibleClean").checked = !!l.keepPossibleClean;
+    if (l.tlshBlacklistDistances && document.activeElement !== $("tlshBlacklistDist")) {
+      const sel = $("tlshBlacklistDist");
+      if (sel.options.length !== l.tlshBlacklistDistances.length) sel.innerHTML = l.tlshBlacklistDistances.map(d => `<option value="${d}">${d}</option>`).join("");
+      sel.value = String(l.tlshBlacklistMaxDist);
+    }
     if (document.activeElement !== $("keepAllUnique")) $("keepAllUnique").checked = !!l.keepAllUnique;
     if (document.activeElement !== $("collectXorfilter")) $("collectXorfilter").checked = !!l.collectXorfilter;
     if (document.activeElement !== $("keepClean")) $("keepClean").checked = !!l.keepClean;
@@ -1618,6 +1640,10 @@ window.sigKey = (list) => list && list.length ? `${list[0].layer}: ${list[0].nam
     finally { btn.disabled = false; }
   };
 
+  $("tlshBlacklistDist").onchange = async (e) => {
+    try { await post("/api/tlsh-blacklist-distance", { distance: +e.target.value }); }
+    catch (err) { alert(err.message); }
+  };
   $("keepPossibleClean").onchange = async (e) => {
     try { await post("/api/keep-possible-clean", { enabled: e.target.checked }); }
     catch (_) { e.target.checked = !e.target.checked; }
@@ -2362,6 +2388,48 @@ window.sigKey = (list) => list && list.length ? `${list[0].layer}: ${list[0].nam
   };
   sigLoad();
 
+  // Analyst imphash signatures.
+  let ihToken = "", ihTokenSha = "";
+  window.ihFill = (sha, token, threat, imphash) => {
+    $("ihSha").value = sha; ihToken = token || ""; ihTokenSha = sha.toLowerCase();
+    if (threat && !$("ihThreat").value.trim()) $("ihThreat").value = threat;
+    if (!$("ihThreat").value.trim() && nbCurrent) $("ihThreat").value = nbCurrent;
+    $("ihFrom").textContent = `From the file open in VirusKovAlyzer · imphash ${imphash || "?"}`;
+    $("ihMsg").textContent = "";
+    $("imphashSigs").scrollIntoView({ behavior: "smooth" });
+  };
+  async function ihLoad() {
+    try {
+      const d = await (await fetch("/api/imphash-signatures", { cache: "no-store" })).json();
+      $("ihMin").textContent = d.min_imports;
+      $("ihList").innerHTML = d.items.length ? `<div style="overflow-x:auto"><table><thead><tr><th>Imphash</th><th>Threat</th><th class="num">Imports</th><th>From</th><th>By</th><th>Added</th><th></th></tr></thead><tbody>${d.items.map(s => `<tr>
+          <td class="mono">${haEsc(s.imphash)}</td><td><b>${haEsc(s.threat)}</b></td><td class="num">${s.imports}</td>
+          <td class="mono" title="${haEsc(s.sha256)}">${haEsc(s.sha256.slice(0, 16))}…</td><td>${haEsc(s.analyst || "—")}</td>
+          <td>${s.added ? new Date(s.added).toLocaleString() : ""}</td>
+          <td><button class="ghost" onclick="ihDelete('${haEsc(s.imphash)}')">Delete</button></td></tr>`).join("")}</tbody></table></div>`
+        : `<div class="hint">No imphash signatures yet.</div>`;
+    } catch (_) {}
+  }
+  window.ihDelete = async (h) => {
+    if (!confirm(`Delete the imphash signature ${h}?`)) return;
+    try { await post("/api/imphash-signatures/delete", { imphash: h }); ihLoad(); }
+    catch (err) { $("ihMsg").style.color = ""; $("ihMsg").textContent = err.message; }
+  };
+  $("ihSha").addEventListener("input", () => { if ($("ihSha").value.trim().toLowerCase() !== ihTokenSha) $("ihFrom").textContent = ""; });
+  $("ihCreate").onclick = async () => {
+    $("ihMsg").style.color = ""; $("ihMsg").textContent = "";
+    const sha = $("ihSha").value.trim();
+    const body = { sha256: sha, threat: $("ihThreat").value.trim() };
+    if (ihToken && sha.toLowerCase() === ihTokenSha) body.token = ihToken;
+    try {
+      const r = await post("/api/imphash-signatures", body);
+      $("ihMsg").style.color = "var(--green)";
+      $("ihMsg").textContent = `Saved: imphash ${r.signature.imphash} → ${r.signature.threat} (${r.signature.imports} imports).`;
+      ihLoad();
+    } catch (err) { $("ihMsg").textContent = err.message; }
+  };
+  ihLoad();
+
   // Retrohunt results of saved signatures.
   const rhOpen = new Set();
   let rhTimer = null, rhHunts = [];
@@ -2682,6 +2750,7 @@ window.sigKey = (list) => list && list.length ? `${list[0].layer}: ${list[0].nam
     $("vaBody").hidden = false;
     $("vaScan").disabled = false;
     $("vaUnpack").disabled = !r.pe;
+    $("vaImphash").disabled = !(r.hashes && r.hashes.imphash);
     $("vaTitle").innerHTML = `<b>${esc(d.name)}</b> <span class="hint" style="margin:0">${size(d.size)} · ${esc(r.file_type || "")} · ${esc(d.source)}</span>`;
     renderOverview(); renderPe(); renderImports();
     $("vaStrRows").innerHTML = ""; $("vaStrInfo").textContent = "";
@@ -2761,6 +2830,11 @@ window.sigKey = (list) => list && list.length ? `${list[0].layer}: ${list[0].nam
     const a = e.target.closest(".va-copy"); if (a) { e.preventDefault(); navigator.clipboard.writeText(a.dataset.copy).catch(() => {}); a.textContent = "copied"; setTimeout(() => a.textContent = "copy", 1200); }
     const g = e.target.closest("[data-go]"); if (g && doc) { e.preventDefault(); gotoOffset(+g.dataset.go, true); }
   });
+  $("vaImphash").onclick = () => {
+    if (!doc || typeof window.ihFill !== "function") return;
+    const threat = (doc.human && doc.human.threat_name) || (doc.engine && doc.engine.threat) || "";
+    window.ihFill(doc.report.hashes.sha256, doc.token, threat, doc.report.hashes.imphash);
+  };
   $("vaScan").onclick = async () => {
     if (!doc) return;
     $("vaScan").disabled = true;
@@ -2992,7 +3066,7 @@ window.sigKey = (list) => list && list.length ? `${list[0].layer}: ${list[0].nam
     const w = strMeta.whitelist;
     const wl = !w ? " String whitelist: off."
       : !w.ready ? " String whitelist: loading…"
-      : ` String whitelist: ${w.strings.toLocaleString()} strings of ${w.files.toLocaleString()} human clean files${w.building ? ` (building: ${w.build_done.toLocaleString()} / ${w.build_total.toLocaleString()} files)` : ""}; strings shorter than ${w.min_len} are never whitelisted.`;
+      : ` String whitelist (${strMeta.file_type || "?"} files): ${w.strings.toLocaleString()} strings of ${w.files.toLocaleString()} human clean files (all types)${w.building ? ` (building: ${w.build_done.toLocaleString()} / ${w.build_total.toLocaleString()} files)` : ""}; strings shorter than ${w.min_len} are never whitelisted.`;
     $("vaStrInfo").textContent = `${rows.length.toLocaleString()} strings${strMeta.truncated ? " (first 50,000 — narrow the filter)" : ""}`
       + (strMeta.hidden ? `, ${strMeta.hidden.toLocaleString()} whitelisted hidden` : known ? `, ${known.toLocaleString()} whitelisted (dimmed)` : "")
       + `. Click an offset to see it in the hex editor.` + wl;

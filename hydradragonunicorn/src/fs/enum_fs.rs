@@ -209,6 +209,7 @@ fn glob_match_inner(p: &[char], n: &[char]) -> bool {
 mod tests {
     use super::*;
     use std::fs;
+    use std::path::PathBuf;
     use std::sync::{Arc, Mutex};
     use tempfile::TempDir;
 

@@ -264,6 +264,10 @@ fn default_low_disk_gb() -> u64 {
     15
 }
 
+fn default_tlsh_blacklist_dist() -> u32 {
+    crate::similarity::TLSH_BLACKLIST_DEFAULT_DIST
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SavedSettings {
     pub host: String,
@@ -312,6 +316,10 @@ pub struct SavedSettings {
     pub lzma_low_disk: bool,
     #[serde(default = "default_low_disk_gb")]
     pub low_disk_gb: u64,
+    /// Largest TLSH distance to a TLSH blacklist digest that still flags a file
+    /// (dashboard; `similarity::TLSH_BLACKLIST_DISTANCES`).
+    #[serde(default = "default_tlsh_blacklist_dist")]
+    pub tlsh_blacklist_max_dist: u32,
     /// Limits edited in the dashboard; None until they are changed there once.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub limits: Option<crate::limits::LimitSettings>,
@@ -337,6 +345,7 @@ impl Default for SavedSettings {
             archive: false,
             lzma_low_disk: false,
             low_disk_gb: 15,
+            tlsh_blacklist_max_dist: default_tlsh_blacklist_dist(),
             limits: None,
         }
     }

@@ -705,6 +705,12 @@ impl UnpackerEngine {
         Ok(())
     }
 
+    /// The Unicorn instance after `init_uc`, for callers that add their own hooks
+    /// (the disinfector) or read emulated memory after `emu`.
+    pub fn unicorn_mut(&mut self) -> Option<&mut Unicorn<'static, ()>> {
+        self.uc.as_mut()
+    }
+
     // ------------------------------------------------------------------
     // emu — start the emulator
     // ------------------------------------------------------------------

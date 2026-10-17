@@ -5,7 +5,8 @@
 //! Policy, which is also what the API tells clients in `recommended_action`:
 //!
 //! * The infected part is cut out only when a disinfector RECOGNISES the infection
-//!   by signature (hydradragonunicorn: W32.Sality.PE today). A generic or ML
+//!   by signature (hydradragonunicorn's YAML definitions,
+//!   hydradragonunicorn/disinfect_rules/default.yaml). A generic or ML
 //!   detection is never "repaired": there is nothing known to remove.
 //! * Disinfection is NOT the recommended action for ordinary files. A repaired
 //!   program is not the vendor's file (a virus may have changed more than its
@@ -362,6 +363,7 @@ fn repair_verdict(ti: &ThreatIntelStore, engine: &EngineAdapter, data: &[u8], na
         .scan_blocking_opts(data, name, sha, false, |res| {
             crate::scan_server::apply_analyst_tlsh(ti, data, res);
             crate::scan_server::apply_tlsh_blacklist(ti, data, res);
+            crate::scan_server::apply_imphash_sigs(ti, data, res);
             crate::scan_server::apply_smart_whitelist(ti, data, name, res);
         })
         .map(|r| r.verdict)

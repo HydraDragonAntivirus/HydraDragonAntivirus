@@ -7,7 +7,7 @@
 //!   `tlsh_signatures/tlsh_blacklist*.jsonl` (or `.txt`), one JSON object per line:
 //!   `{"tlsh":"T1…","file_name":"…","virus":"Category.Platform.Family","sha256":"…","size":N}`
 //!   (`tlsh_builder blacklist` writes this). A file the engine did not detect that is
-//!   within `ANALYST_TLSH_MAX_DIST` of a digest (and, when `size` is known, within
+//!   within `blacklist_max_dist()` (dashboard setting, default 10) of a digest (and, when `size` is known, within
 //!   `ANALYST_TLSH_SIZE_FACTOR` of its size) is flagged malicious with that virus name
 //!   (made `Category.Platform.Family` by `naming::threat_from_name` when it is not).
 //!   Plain lines are read too: `T1…:<file name>:<virus name>`, abuse.ch tlsh_db
@@ -48,6 +48,24 @@ pub const SIMILAR_MAX_DIST: u32 = 80;
 pub const ANALYST_TLSH_MAX_DIST: u32 = 30;
 /// ...and its size (padding stripped) must be within this factor of the sample's.
 const ANALYST_TLSH_SIZE_FACTOR: f64 = 1.5;
+/// TLSH blacklist: how close a file must be to a blacklist digest to be flagged,
+/// chosen in the dashboard (lower = fewer false positives). 20 already flagged clean
+/// signed drivers, so the default is 10.
+pub const TLSH_BLACKLIST_DISTANCES: [u32; 5] = [5, 10, 15, 20, 30];
+pub const TLSH_BLACKLIST_DEFAULT_DIST: u32 = 10;
+static TLSH_BLACKLIST_MAX_DIST: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(TLSH_BLACKLIST_DEFAULT_DIST);
+
+/// Sets the TLSH blacklist distance; a value not in `TLSH_BLACKLIST_DISTANCES` takes
+/// the default. Returns the value used.
+pub fn set_blacklist_max_dist(d: u32) -> u32 {
+    let d = if TLSH_BLACKLIST_DISTANCES.contains(&d) { d } else { TLSH_BLACKLIST_DEFAULT_DIST };
+    TLSH_BLACKLIST_MAX_DIST.store(d, std::sync::atomic::Ordering::Relaxed);
+    d
+}
+
+pub fn blacklist_max_dist() -> u32 {
+    TLSH_BLACKLIST_MAX_DIST.load(std::sync::atomic::Ordering::Relaxed)
+}
 
 /// One analyst TLSH signature (a line of `analyst_tlsh.jsonl`).
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -342,6 +360,18 @@ impl SimilarityIndex {
             .map(|(s, d)| (s.meta.clone(), d))
     }
 
+    /// SHA-256 of verified benign corpus PEs with this imphash (at most `limit`).
+    pub fn corpus_imphash_matches(&self, imphash: &str, limit: usize) -> Vec<String> {
+        self.corpus_refs
+            .read()
+            .unwrap()
+            .iter()
+            .filter(|r| matches!(&r.st, Structure::Pe(fp) if fp.imphash.as_deref().is_some_and(|h| h.eq_ignore_ascii_case(imphash))))
+            .take(limit)
+            .map(|r| r.sha256.clone())
+            .collect()
+    }
+
     /// (Re)reads `tlsh_signatures/tlsh_whitelist_refs.jsonl` written by
     /// `tlsh_builder refs` from a verified benign corpus.
     pub fn reload_corpus_refs(&self) -> usize {
@@ -407,7 +437,7 @@ impl SimilarityIndex {
         n
     }
 
-    /// Closest blacklist digest with a virus name within `ANALYST_TLSH_MAX_DIST` and,
+    /// Closest blacklist digest with a virus name within `blacklist_max_dist()` and,
     /// when its size is known, `ANALYST_TLSH_SIZE_FACTOR` (trailing 00 padding
     /// stripped, as for analyst TLSH signatures).
     pub fn blacklist_match(&self, data: &[u8]) -> Option<BlacklistMatch> {
@@ -418,6 +448,7 @@ impl SimilarityIndex {
         let body = trim_trailing_padding(data);
         let q = crate::analyzer::tlsh_digest(body)?.parse::<Tlsh>().ok()?;
         let len = body.len() as f64;
+        let max = blacklist_max_dist();
         list.iter()
             .filter(|k| k.threat.is_some())
             .filter(|k| k.size == 0 || {
@@ -425,7 +456,7 @@ impl SimilarityIndex {
                 len.max(sz) <= len.min(sz) * ANALYST_TLSH_SIZE_FACTOR
             })
             .map(|k| (k, q.compare(&k.tlsh)))
-            .filter(|(_, d)| *d <= ANALYST_TLSH_MAX_DIST)
+            .filter(|(_, d)| *d <= max)
             .min_by_key(|(_, d)| *d)
             .map(|(k, d)| BlacklistMatch {
                 threat: k.threat.clone().unwrap_or_default(),

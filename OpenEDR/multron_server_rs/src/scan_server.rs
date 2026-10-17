@@ -1260,13 +1260,10 @@ fn handle_check(
             }
         }
 
-        server.threat_intel.record(
+        server.threat_intel.record_check(
             &sha_hex,
-            "unknown",
-            None,
             if name.is_empty() { None } else { Some(&name) },
             if it.size > 0 { Some(it.size as u64) } else { None },
-            0.0,
         );
         server.threat_intel.add_folder(&sha_hex, &session.address, &it.folder, &it.path);
         send_json(out, &serde_json::json!({"type": "need_upload", "id": it.id}));
@@ -1422,6 +1419,7 @@ async fn handle_scan(
                 let r = engine.scan_blocking_with(&data, &job_name, &job_sha, |res| {
                     apply_analyst_tlsh(&ti, &data, res);
                     apply_tlsh_blacklist(&ti, &data, res);
+                    apply_imphash_sigs(&ti, &data, res);
                     report = apply_smart_whitelist(&ti, &data, &job_name, res);
                 });
                 let _ = rtx.send(r);
@@ -1747,6 +1745,43 @@ pub fn apply_tlsh_blacklist(ti: &crate::threat_intel::ThreatIntelStore, data: &[
         m.distance,
         m.tlsh,
         if m.file.is_empty() { String::new() } else { format!(" ({})", m.file) }
+    );
+    res.detail = Some(detail.clone());
+    if let Some(o) = res.antivirus.as_mut().and_then(|a| a.as_object_mut()) {
+        o.insert("detail".into(), serde_json::json!(detail));
+    }
+}
+
+/// Analyst imphash signatures (`imphash_sigs`): same limits as the TLSH blacklist —
+/// only raises unknown / possible_clean / suspicious results, never a file an analyst
+/// marked clean. Costs nothing while there are no imphash signatures.
+pub fn apply_imphash_sigs(ti: &crate::threat_intel::ThreatIntelStore, data: &[u8], res: &mut ResultMessage) {
+    if !crate::imphash_sigs::any() || !data.starts_with(b"MZ") {
+        return;
+    }
+    if !matches!(res.verdict.as_str(), "unknown" | "possible_clean" | "suspicious") {
+        return;
+    }
+    if ti.reviews.completed(&res.sha256).and_then(|r| r.verdict).as_deref() == Some("clean") {
+        return;
+    }
+    let Some((imphash, _, _)) = crate::analyzer::pe_imphash(data) else { return };
+    let Some(sig) = crate::imphash_sigs::lookup(&imphash) else { return };
+    let before = res.verdict.clone();
+    crate::engine_adapter::apply_analyst_hit(
+        res,
+        &crate::analyst_engine::AnalystHit { engine: "analyst_imphash", name: sig.threat.clone(), verdict: "malicious" },
+    );
+    if res.verdict == before {
+        return;
+    }
+    let detail = format!(
+        "Analyst imphash signature: {} — imphash {} ({} imports) of {} (made by {})",
+        sig.threat,
+        sig.imphash,
+        sig.imports,
+        sig.sha256,
+        if sig.analyst.is_empty() { "an analyst" } else { sig.analyst.as_str() }
     );
     res.detail = Some(detail.clone());
     if let Some(o) = res.antivirus.as_mut().and_then(|a| a.as_object_mut()) {

@@ -6,7 +6,8 @@
 //   - Module / plugin registry
 //   - Scanner service with observer pattern
 //   - Unicorn-based x86-32 CPU emulator
-//   - W32.Sality.PE scan module (SalityKiller port)
+//   - Generic signature-driven disinfector (YAML definitions, disinfect_rules/)
+//   - W32.Sality.PE scan module (SalityKiller port, runs on the disinfector)
 //
 // Nothing in this crate touches the existing hydradragonav scanner.
 
@@ -33,7 +34,9 @@ pub use fs::{
     MemoryVirtualFs, VirtualFs,
 };
 pub use module::{Module, ModuleInfo, ModuleRegistry, ModuleType};
-pub use disinfect::{disinfect_bytes, DisinfectOutcome};
+pub use disinfect::{
+    detect_bytes_with, disinfect_bytes, disinfect_bytes_with, DisinfectOutcome, DisinfectRules,
+};
 pub use sality::SalityModule;
 pub use scanner::{
     CleanVerdict, LogScanObserver, NullScanObserver, ScanModule, ScanObserver, ScanResult,

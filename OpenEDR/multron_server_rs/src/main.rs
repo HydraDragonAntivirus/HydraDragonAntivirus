@@ -13,6 +13,7 @@ mod analyzer;
 mod alyzer;
 mod archive;
 mod human_review;
+mod imphash_sigs;
 mod ip_bans;
 mod naming;
 mod reports;

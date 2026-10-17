@@ -2,6 +2,10 @@
 //! string (ASCII and UTF-16LE, at least `MIN_LEN` characters) of every kept file with a
 //! human "clean" verdict. The Strings page can hide them and show only the unknown ones.
 //!
+//! Grouped by file type (`file_type`, the HydraDragonSig `file_type` value): a string is
+//! known for a PE only when a clean PE has it, for a script only when a clean script of
+//! that kind has it, and so on.
+//!
 //! The list follows the human verdicts on its own (checked every minute): new clean
 //! files are added, and when a clean verdict is taken back the list is built again
 //! without that file. Nothing is written into the ML datasets or the rule folders.
@@ -10,7 +14,7 @@
 //! grows (one 64-bit key per string, first 8 bytes of the SHA-256 of its text):
 //! - `strings-<generation>.u64`: sorted unique keys, little endian, read from disk;
 //! - `strings-<generation>.idx`: first key of every `BLOCK` keys, held in memory;
-//! - `whitelist.json`: generation, `MIN_LEN` and the SHA-256 of the files in it.
+//! - `whitelist.json`: generation, `FORMAT`, `MIN_LEN` and the SHA-256 of the files in it.
 //!
 //! Up to `pending_max` keys of newly added files stay in memory and are merged into a
 //! new generation later; after a restart those files are simply read again.
@@ -29,6 +33,9 @@ use sha2::{Digest, Sha256};
 
 /// Shortest string in the list (yarGen's minimum); shorter ones are never "known".
 pub const MIN_LEN: usize = 6;
+/// Key layout; a list written in another one is built again (1: text only, 2: file
+/// type + text).
+const FORMAT: u32 = 2;
 /// Keys per index entry (one disk read per lookup of a key in that block).
 const BLOCK: usize = 1024;
 /// Keys sorted in memory before a run goes to disk while building.
@@ -41,17 +48,57 @@ const CHECK_EVERY: Duration = Duration::from_secs(60);
 /// Files larger than this are not read (the VirusKovAlyzer limit).
 const MAX_FILE: usize = crate::alyzer::MAX_OPEN_BYTES as usize;
 
-/// Key of a string's text (the same for its ASCII and UTF-16LE form).
-pub fn key(s: &str) -> u64 {
-    let d = Sha256::digest(s.as_bytes());
+/// Key of a string's text in files of type `group` (the same for its ASCII and
+/// UTF-16LE form).
+pub fn key(group: &str, s: &str) -> u64 {
+    let mut h = Sha256::new();
+    h.update(group.as_bytes());
+    h.update([0u8]);
+    h.update(s.as_bytes());
+    let d = h.finalize();
     u64::from_le_bytes(d[..8].try_into().unwrap())
+}
+
+/// File type group of `data` by content: the most specific HydraDragonSig `file_type`
+/// value it matches (`pe`, `apk`, `javascript`, `powershell`, ..., `text`, `binary`),
+/// else its primary type.
+pub fn file_type(data: &[u8]) -> String {
+    let i = hydradragonsig::scanner::filetype::classify_bytes_only(data);
+    let specific = [
+        (i.is_apk, "apk"),
+        (i.is_pe, "pe"),
+        (i.is_elf, "elf"),
+        (i.is_macho, "macho"),
+        (i.is_dex, "dex"),
+        (i.is_jar, "jar"),
+        (i.is_java_class, "java_class"),
+        (i.is_pdf, "pdf"),
+        (i.is_office, "office"),
+        (i.is_microsoft_compound, "ole"),
+        (i.is_javascript, "javascript"),
+        (i.is_powershell, "powershell"),
+        (i.is_batch, "batch"),
+        (i.is_vbs, "vbs"),
+        (i.is_python, "python"),
+        (i.is_script, "script"),
+    ];
+    if let Some((_, t)) = specific.iter().find(|(is, _)| *is) {
+        return t.to_string();
+    }
+    match i.primary.as_str() {
+        "" | "unknown" if i.is_plain_text => "text".into(),
+        "" | "unknown" if i.is_binary => "binary".into(),
+        "" => "unknown".into(),
+        p => p.to_ascii_lowercase(),
+    }
 }
 
 /// Sorted unique keys of every string of `data` the list holds.
 fn file_keys(data: &[u8]) -> Vec<u64> {
+    let group = file_type(data);
     let mut v = Vec::new();
     crate::alyzer::each_string(data, MIN_LEN, |_, _, s| {
-        v.push(key(s));
+        v.push(key(&group, s));
         true
     });
     v.sort_unstable();
@@ -61,6 +108,8 @@ fn file_keys(data: &[u8]) -> Vec<u64> {
 
 #[derive(Serialize, Deserialize, Default)]
 struct Manifest {
+    #[serde(default)]
+    format: u32,
     generation: u64,
     min_len: usize,
     keys: u64,
@@ -188,11 +237,12 @@ impl StringWhitelist {
         }
     }
 
-    /// For each string: in the list? Strings shorter than `MIN_LEN` are never.
-    pub fn contains_many(&self, strings: &[&str]) -> Vec<bool> {
+    /// For each string: in a clean file of type `group` (`file_type`)? Strings shorter
+    /// than `MIN_LEN` are never.
+    pub fn contains_many(&self, group: &str, strings: &[&str]) -> Vec<bool> {
         let mut out = vec![false; strings.len()];
         let mut keys: Vec<(u64, usize)> =
-            strings.iter().enumerate().filter(|(_, s)| s.len() >= MIN_LEN).map(|(i, s)| (key(s), i)).collect();
+            strings.iter().enumerate().filter(|(_, s)| s.len() >= MIN_LEN).map(|(i, s)| (key(group, s), i)).collect();
         if keys.is_empty() {
             return out;
         }
@@ -221,7 +271,7 @@ impl StringWhitelist {
     fn load(&self) {
         let _ = std::fs::create_dir_all(&self.dir);
         let man: Option<Manifest> = std::fs::read(self.dir.join("whitelist.json")).ok().and_then(|b| serde_json::from_slice(&b).ok());
-        if let Some(m) = man.filter(|m| m.min_len == MIN_LEN) {
+        if let Some(m) = man.filter(|m| m.min_len == MIN_LEN && m.format == FORMAT) {
             match Disk::open(&self.dir, m.generation, m.keys) {
                 Ok(d) => {
                     *self.disk.write().unwrap() = Some(Arc::new(d));
@@ -374,7 +424,7 @@ impl StringWhitelist {
         files.extend(ok);
         let mut list: Vec<String> = files.iter().cloned().collect();
         list.sort();
-        let man = Manifest { generation, min_len: MIN_LEN, keys, files: list };
+        let man = Manifest { format: FORMAT, generation, min_len: MIN_LEN, keys, files: list };
         let tmp = self.dir.join("whitelist.json.tmp");
         std::fs::write(&tmp, serde_json::to_vec(&man).map_err(io::Error::other)?)?;
         std::fs::rename(&tmp, self.dir.join("whitelist.json"))?;
@@ -468,42 +518,61 @@ mod tests {
         v.iter().map(|s| s.to_string()).collect()
     }
 
-    fn known(wl: &StringWhitelist, s: &[&str]) -> Vec<bool> {
-        wl.contains_many(s)
+    /// Known for files of the type of `like`?
+    fn known(wl: &StringWhitelist, like: &[u8], s: &[&str]) -> Vec<bool> {
+        wl.contains_many(&file_type(like), s)
     }
+
+    const A: &[u8] = b"\x00\x01kernel32.dll\x00GetProcAddress\x00abc\x00\x02";
+    const B: &[u8] = b"\x01LoadLibraryW\x02k\x00e\x00r\x00n\x00e\x00l\x00b\x00a\x00s\x00e\x00\x00\x00";
 
     #[test]
     fn follows_clean_verdicts_on_disk_and_in_memory() {
         let (dir, wl) = setup("follow");
-        let mut files: HashMap<String, Vec<u8>> = HashMap::new();
-        files.insert("A".into(), b"\x00kernel32.dll\x00GetProcAddress\x00abc\x00".to_vec());
-        files.insert("B".into(), b"\x01LoadLibraryW\x02k\x00e\x00r\x00n\x00e\x00l\x00b\x00a\x00s\x00e\x00\x00\x00".to_vec());
+        assert_eq!(file_type(A), file_type(B), "both test files are the same type");
+        let files: HashMap<String, Vec<u8>> = [("A".to_string(), A.to_vec()), ("B".to_string(), B.to_vec())].into_iter().collect();
         let read = |s: &str| files.get(s).cloned();
 
         wl.sync(&set(&["A"]), &read);
-        assert_eq!(known(&wl, &["kernel32.dll", "GetProcAddress", "abc", "LoadLibraryW"]), [true, true, false, false], "abc is too short");
+        assert_eq!(known(&wl, A, &["kernel32.dll", "GetProcAddress", "abc", "LoadLibraryW"]), [true, true, false, false], "abc is too short");
         assert_eq!(wl.status().files, 1);
         assert!(wl.disk.read().unwrap().is_none(), "a few files go to memory first");
 
         // B arrives; its UTF-16 string counts as the same text. Memory is over the
         // limit, so a new generation is written.
         wl.sync(&set(&["A", "B"]), &read);
-        assert_eq!(known(&wl, &["kernelbase", "LoadLibraryW", "GetProcAddress", "unknown!"]), [true, true, true, false]);
+        assert_eq!(known(&wl, A, &["kernelbase", "LoadLibraryW", "GetProcAddress", "unknown!"]), [true, true, true, false]);
         assert!(wl.disk.read().unwrap().is_some());
         assert!(wl.pending.read().unwrap().is_empty());
 
         // A restart reads it back from disk.
         let again = StringWhitelist::new(dir.clone());
         again.sync(&set(&["A", "B"]), &read);
-        assert_eq!(known(&again, &["kernel32.dll", "kernelbase"]), [true, true]);
+        assert_eq!(known(&again, A, &["kernel32.dll", "kernelbase"]), [true, true]);
         assert_eq!(again.status().files, 2);
 
         // A's clean verdict is taken back: only B's strings stay.
         again.sync(&set(&["B"]), &read);
-        assert_eq!(known(&again, &["kernel32.dll", "kernelbase"]), [false, true]);
+        assert_eq!(known(&again, A, &["kernel32.dll", "kernelbase"]), [false, true]);
         assert_eq!(again.status().files, 1);
         let left: Vec<String> = std::fs::read_dir(&dir).unwrap().flatten().map(|e| e.file_name().to_string_lossy().into_owned()).collect();
         assert_eq!(left.len(), 3, "manifest + one generation, no runs: {left:?}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn strings_are_known_per_file_type() {
+        let (dir, wl) = setup("types");
+        let text = b"powershell -nop -w hidden is in this clean text file\n".to_vec();
+        let mut pe = b"MZ".to_vec();
+        pe.resize(0x40, 0);
+        pe.extend_from_slice(b"\x00powershell -nop -w hidden is in this clean text file\x00");
+        assert_ne!(file_type(&text), file_type(&pe));
+        let t = text.clone();
+        wl.sync(&set(&["T"]), &|_| Some(t.clone()));
+        let s = "powershell -nop -w hidden is in this clean text file";
+        assert_eq!(known(&wl, &text, &[s]), [true]);
+        assert_eq!(known(&wl, &pe, &[s]), [false], "a clean text file does not vouch for a PE");
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -514,19 +583,20 @@ mod tests {
         wl.sync(&set(&["A", "GONE"]), &read);
         assert_eq!(wl.status().files, 1);
         assert!(wl.files.lock().unwrap().missing.contains("GONE"));
-        assert_eq!(known(&wl, &["hello world"]), [true]);
+        assert_eq!(known(&wl, b"hello world", &["hello world"]), [true]);
         let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
     fn many_files_build_through_runs() {
         let (dir, wl) = setup("many");
-        let data: HashMap<String, Vec<u8>> = (0..(DIRECT_FILES + 5)).map(|i| (format!("F{i}"), format!("string number {i}\0shared string").into_bytes())).collect();
+        let data: HashMap<String, Vec<u8>> =
+            (0..(DIRECT_FILES + 5)).map(|i| (format!("F{i}"), format!("\x01string number {i}\x00shared string\x02").into_bytes())).collect();
         let desired: HashSet<String> = data.keys().cloned().collect();
         wl.sync(&desired, &|s| data.get(s).cloned());
         let st = wl.status();
         assert_eq!((st.files, st.strings), (DIRECT_FILES + 5, DIRECT_FILES as u64 + 6));
-        assert_eq!(known(&wl, &["string number 7", "shared string", "string number 999"]), [true, true, false]);
+        assert_eq!(known(&wl, &data["F7"], &["string number 7", "shared string", "string number 999"]), [true, true, false]);
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

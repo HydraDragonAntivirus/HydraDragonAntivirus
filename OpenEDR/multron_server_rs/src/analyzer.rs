@@ -730,6 +730,12 @@ fn parse_pe(d: &[u8], ind: &mut Vec<Indicator>) -> Option<PeInfo> {
     })
 }
 
+/// Imphash, import count and .NET flag of a PE, without the rest of the report.
+pub fn pe_imphash(data: &[u8]) -> Option<(String, usize, bool)> {
+    let pe = parse_pe(data, &mut Vec::new())?;
+    Some((imphash(&pe.imports)?, pe.import_count, pe.is_dotnet))
+}
+
 /// Mandiant/pefile imphash: md5 of "dll.func" pairs, lowercase, extension stripped.
 fn imphash(imports: &[ImportDll]) -> Option<String> {
     let mut parts = Vec::new();
