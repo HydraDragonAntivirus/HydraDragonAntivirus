@@ -126,7 +126,7 @@ pub fn rescan_one(server: &Arc<ScanServer>, sha_hex: &str) -> Result<Change, Str
     let kept = server
         .engine
         .find_kept(&sha_up)
-        .ok_or("this file is not kept on the server (multron_incoming); the client has to send it again")?;
+        .ok_or_else(|| format!("{}; the client has to send it again", crate::missing_files::explain(&sha_up)))?;
     let data = kept.read().ok_or("the kept file could not be read")?;
     let data_len = data.len() as u64;
     let actual = hex::encode_upper(Sha256::digest(&data));

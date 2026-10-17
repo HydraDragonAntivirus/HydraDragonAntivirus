@@ -323,6 +323,11 @@ impl EngineAdapter {
     }
 
     /// Where this sample is kept, if it is (one stat call after the first walk).
+    /// Whether the file of `sha` is kept here (through the kept index; cheap).
+    pub fn is_kept(&self, sha: &str) -> bool {
+        self.kept_path_of(sha).is_some()
+    }
+
     fn kept_path_of(&self, sha: &str) -> Option<PathBuf> {
         let sha = sha.to_ascii_uppercase();
         let mut g = self.kept_index.lock().unwrap();
@@ -910,13 +915,13 @@ impl EngineAdapter {
     /// An XOR-filter hit whose file is not kept yet: ask for the upload once (this run)
     /// so it can be collected and checked; the scan gives it the same verdict.
     fn want_xorfilter_upload(&self, sha_hex: &str) -> bool {
-        const MAX_REQUESTED: usize = 1_000_000;
         if !self.collect_xorfilter.load(Ordering::Relaxed) || self.work_dir.is_none() {
             return false;
         }
         if self.find_kept(&sha_hex.to_ascii_uppercase()).is_some() {
             return false;
         }
+        const MAX_REQUESTED: usize = 1_000_000;
         let mut g = self.xf_requested.lock().unwrap();
         g.len() < MAX_REQUESTED && g.insert(sha_hex.to_ascii_lowercase())
     }
@@ -1094,14 +1099,25 @@ impl EngineAdapter {
         } else {
             (&self.kept_bytes, self.keep_limit_bytes)
         };
-        let should_keep = !data.is_empty()
+        let wanted = !data.is_empty()
             && (self.keep_all_unique.load(Ordering::Relaxed)
                 || (is_xorfilter && self.collect_xorfilter.load(Ordering::Relaxed))
                 || (self.keep_threats && is_threat)
                 || (self.keep_unknown && is_unknown)
                 || (is_clean && self.keep_clean.load(Ordering::Relaxed) && is_pe_or_apk(data, name))
-                || (self.keep_possible_clean.load(Ordering::Relaxed) && is_possible_clean))
-            && used.load(Ordering::Relaxed) + size <= limit;
+                || (self.keep_possible_clean.load(Ordering::Relaxed) && is_possible_clean));
+        let should_keep = wanted && used.load(Ordering::Relaxed) + size <= limit;
+        if wanted && !should_keep && self.kept_path_of(sha).is_none() {
+            // Used to be dropped silently: say so, and remember why the file is missing.
+            let detail = format!(
+                "{category}, {} KB, quota {} / {} MB",
+                size / 1024,
+                used.load(Ordering::Relaxed) / 1_048_576,
+                limit / 1_048_576
+            );
+            eprintln!("[kept] not kept, keep quota full: {sha} {name} ({detail})");
+            crate::missing_files::record(sha, "quota", detail);
+        }
 
         if should_keep {
             // Already kept (under another name or in another category): keep that copy,
@@ -1145,6 +1161,7 @@ impl EngineAdapter {
                             compress_bytes_lzma2_max(data, &target_xz)
                         };
                         if let Ok(compressed_len) = comp_res {
+                            crate::missing_files::clear(sha);
                             self.kept_index_set(sha, &target_xz);
                             used.fetch_add(compressed_len, Ordering::Relaxed);
                             self.kept_files.fetch_add(1, Ordering::Relaxed);
@@ -1164,6 +1181,7 @@ impl EngineAdapter {
                         std::fs::write(&target, data).is_ok()
                     };
                     if stored {
+                        crate::missing_files::clear(sha);
                         self.kept_index_set(sha, &target);
                         used.fetch_add(size, Ordering::Relaxed);
                         self.kept_files.fetch_add(1, Ordering::Relaxed);

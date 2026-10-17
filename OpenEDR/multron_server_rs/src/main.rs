@@ -15,6 +15,7 @@ mod archive;
 mod human_review;
 mod imphash_sigs;
 mod ip_bans;
+mod missing_files;
 mod naming;
 mod reports;
 mod folder_wl;
@@ -327,9 +328,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 fn startup_upkeep(engine: &Arc<EngineAdapter>, ti: &Arc<threat_intel::ThreatIntelStore>) {
     engine.sort_legacy_kept(|sha| ti.get(sha).map(|i| i.verdict));
     // Kept files follow human verdicts (e.g. bulk whitelists made by older builds).
-    let queued = ti.sync_review_queue();
+    let queued = ti.sync_review_queue(&|s| engine.is_kept(s));
     if queued > 0 {
         eprintln!("[review] {queued} open files added to the human analysis queue");
+    }
+    // Without a work folder nothing is kept: leave the queue alone.
+    let pruned = if engine.work_dir().is_some() { ti.prune_queue_without_file(&|s| engine.is_kept(s)) } else { 0 };
+    if pruned > 0 {
+        eprintln!("[review] {pruned} queued files removed: their file is not on the server");
     }
     let moved = engine.relabel_many(&ti.reviews.completed_verdicts());
     if moved > 0 {

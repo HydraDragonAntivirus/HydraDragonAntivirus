@@ -868,6 +868,22 @@ pub fn cached_type_stats(server: &ScanServer) -> serde_json::Value {
     v
 }
 
+/// Unknown hashes whose file the server does not have (never uploaded, dropped by the
+/// quota, offloaded). They are left out of the public statistics: nothing was analysed.
+/// Cached for 60 s like the type statistics.
+fn cached_absent_unknown(server: &ScanServer) -> usize {
+    static CACHE: StdMutex<Option<(std::time::Instant, usize)>> = StdMutex::new(None);
+    let mut g = CACHE.lock().unwrap();
+    if let Some((t, n)) = g.as_ref() {
+        if t.elapsed() < Duration::from_secs(60) {
+            return *n;
+        }
+    }
+    let n = server.threat_intel.unknown_hashes().iter().filter(|s| !server.engine.is_kept(s)).count();
+    *g = Some((std::time::Instant::now(), n));
+    n
+}
+
 /// The matched signature names are for the dashboard only.
 fn public_type_stats(mut v: serde_json::Value) -> serde_json::Value {
     for k in ["all", "recent"] {
@@ -883,6 +899,7 @@ async fn handle_insights_stats(State(server): State<Arc<ScanServer>>) -> Respons
     // No per-IP quota here: the website polls this endpoint, and the 500/day quota of the
     // hash lookups was used up in about an hour, after which the numbers froze.
     let stats = server.threat_intel.stats();
+    let absent = cached_absent_unknown(&server).min(stats.unknown_count);
     let response = serde_json::json!({
         "status": "success",
         "engine": ENGINE_NAME,
@@ -892,14 +909,15 @@ async fn handle_insights_stats(State(server): State<Arc<ScanServer>>) -> Respons
         // Malicious + suspicious files by malware type (all time and last 7 days).
         "types": public_type_stats(cached_type_stats(&server)),
         "telemetry": {
-            "total_unique_hashes": stats.total_unique_hashes,
+            // Unknown hashes without a file on the server are not counted.
+            "total_unique_hashes": stats.total_unique_hashes - absent,
             "total_sightings": stats.total_sightings,
             "verdicts": {
                 "malicious": stats.malicious_count,
                 "suspicious": stats.suspicious_count,
                 "clean": stats.clean_count,
                 "possible_clean": stats.possible_clean_count,
-                "unknown": stats.unknown_count,
+                "unknown": stats.unknown_count - absent,
             }
         }
     });
@@ -1551,7 +1569,11 @@ fn record_result(server: &ScanServer, session: &SessionHandle, res: &ResultMessa
     // human analysis queue automatically.
     // possible_clean (TLSH smart whitelist) is not verified either, and a malicious
     // engine verdict can be a false positive.
-    if res.source == "scan" && crate::human_review::AUTO_QUEUE_VERDICTS.contains(&res.verdict.as_str()) {
+    // Only when the file is kept here (not dropped by the keep quota).
+    if res.source == "scan"
+        && crate::human_review::AUTO_QUEUE_VERDICTS.contains(&res.verdict.as_str())
+        && server.engine.is_kept(&res.sha256)
+    {
         let _ = server.threat_intel.reviews.enqueue(
             &res.sha256,
             "auto",
@@ -2262,6 +2284,12 @@ async fn handle_review_request(
             serde_json::json!({"status": "error", "error": "scan the file first; only files seen by VirusKov can be queued"}),
         );
     };
+    if !server.engine.is_kept(&sha) {
+        return json(
+            StatusCode::NOT_FOUND,
+            serde_json::json!({"status": "error", "error": "the file is not on the server; scan it with a VirusKov client so it is uploaded, then ask again"}),
+        );
+    }
     let name = insight.file_names.first().map(String::as_str);
     match server.threat_intel.reviews.enqueue(&sha, "user", Some(&insight.verdict), name) {
         Ok(r) => json(StatusCode::OK, serde_json::json!({"status": "success", "human_analysis": r.to_public_json()})),

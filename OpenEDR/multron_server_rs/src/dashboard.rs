@@ -946,8 +946,8 @@ async fn handle_reviews_requeue(State(app): State<Arc<AppState>>, Json(b): Json<
     if !crate::human_review::AUTO_QUEUE_VERDICTS.contains(&v.as_str()) {
         return (StatusCode::BAD_REQUEST, Json(serde_json::json!({ "error": "unknown verdict" }))).into_response();
     }
-    let ti = Arc::clone(&app.threat_intel);
-    match tokio::task::spawn_blocking(move || ti.requeue(&v, b.include_removed)).await {
+    let (ti, eng) = (Arc::clone(&app.threat_intel), Arc::clone(&app.engine));
+    match tokio::task::spawn_blocking(move || ti.requeue(&v, b.include_removed, &|s| eng.is_kept(s))).await {
         Ok(Ok(n)) => Json(serde_json::json!({ "ok": true, "queued": n })).into_response(),
         Ok(Err(e)) => (StatusCode::CONFLICT, Json(serde_json::json!({ "error": e }))).into_response(),
         Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({ "error": e.to_string() }))).into_response(),
@@ -976,8 +976,9 @@ async fn handle_kept_info(State(app): State<Arc<AppState>>, Path(sha256): Path<S
 async fn handle_kept_reveal(State(app): State<Arc<AppState>>, Json(b): Json<RescanBody>) -> Response {
     let sha = b.sha256.trim().to_ascii_uppercase();
     let eng = Arc::clone(&app.engine);
+    let sha_q = sha.clone();
     let Some(k) = tokio::task::spawn_blocking(move || eng.find_kept(&sha)).await.ok().flatten() else {
-        return (StatusCode::NOT_FOUND, Json(serde_json::json!({ "error": "this file is not kept on the server (not uploaded, deleted, or moved by offload)" }))).into_response();
+        return (StatusCode::NOT_FOUND, Json(serde_json::json!({ "error": crate::missing_files::explain(&sha_q) }))).into_response();
     };
     let path = k.path.clone();
     let res = reveal_in_file_manager(&path);
@@ -1716,8 +1717,14 @@ fn csv_lower(v: &Option<String>) -> Vec<String> {
 async fn handle_reviews_list(State(app): State<Arc<AppState>>, Query(q): Query<ReviewsQuery>) -> impl IntoResponse {
     // Open files that are not queued yet (e.g. removed by hand, or seen before
     // auto-queueing) are added before listing.
-    let ti = Arc::clone(&app.threat_intel);
-    let _ = tokio::task::spawn_blocking(move || ti.sync_review_queue()).await;
+    let (ti, eng) = (Arc::clone(&app.threat_intel), Arc::clone(&app.engine));
+    let _ = tokio::task::spawn_blocking(move || {
+        ti.sync_review_queue(&|s| eng.is_kept(s));
+        if eng.work_dir().is_some() {
+            ti.prune_queue_without_file(&|s| eng.is_kept(s));
+        }
+    })
+    .await;
     let r = &app.threat_intel.reviews;
     let all = q.all.as_deref().is_some_and(|v| v == "1" || v == "true");
     let offset = q.offset.unwrap_or(0);
@@ -1869,6 +1876,10 @@ fn review_row(
         }
     }
     add_engine_detail(app, &mut v, &rv.sha256);
+    // No file on the server: say why (never uploaded, keep quota full, offloaded).
+    if !app.engine.is_kept(&rv.sha256) {
+        v["file_missing"] = serde_json::json!(crate::missing_files::explain(&rv.sha256));
+    }
     v["classification"] = crate::scan_server::classification_json(
         v["current_verdict"].as_str().unwrap_or(""),
         v["current_threat"].as_str(),
@@ -2326,7 +2337,7 @@ async fn handle_imphash_create(
             (hex::encode(sha2::Sha256::digest(data.as_slice())), data.to_vec())
         } else {
             let sha = b.sha256.trim().to_ascii_uppercase();
-            let data = eng.read_kept_indexed(&sha).ok_or("this file is not kept on the server")?;
+            let data = eng.read_kept_indexed(&sha).ok_or_else(|| crate::missing_files::explain(&sha))?;
             (sha, data)
         };
         crate::imphash_sigs::create(&ti, &sha, &data, &b.threat, &b.analyst)

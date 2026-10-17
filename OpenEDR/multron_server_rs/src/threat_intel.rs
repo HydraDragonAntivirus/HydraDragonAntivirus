@@ -580,15 +580,17 @@ impl ThreatIntelStore {
     /// Puts every hash whose effective verdict is still open (unknown, suspicious or
     /// possible_clean, no completed human review) into the human analysis queue if it
     /// is not there yet, so the queue matches the "Unknown" / "Suspicious" counts.
-    /// Covers files recorded before auto-queueing existed, hashes a client checked but
-    /// never uploaded, and queue entries removed by hand. Returns how many were added.
-    pub fn sync_review_queue(&self) -> usize {
+    /// Covers files recorded before auto-queueing existed and queue entries removed by
+    /// hand. Only files kept on the server (`is_kept`, upper-case SHA-256): a hash
+    /// without its file cannot be analysed. Returns how many were added.
+    pub fn sync_review_queue(&self, is_kept: &dyn Fn(&str) -> bool) -> usize {
         let open: Vec<(String, String, Option<String>)> = {
             let guard = self.map.read().unwrap();
             guard
                 .values()
                 .filter(|i| crate::human_review::AUTO_QUEUE_VERDICTS.contains(&i.verdict.as_str()))
                 .filter(|i| self.reviews.get(&i.sha256).is_none() && !self.reviews.was_removed(&i.sha256))
+                .filter(|i| is_kept(&i.sha256.to_ascii_uppercase()))
                 .map(|i| (i.sha256.clone(), i.verdict.clone(), i.file_names.first().cloned()))
                 .collect()
         };
@@ -599,9 +601,23 @@ impl ThreatIntelStore {
             .count()
     }
 
+    /// Removes from the queue the pending files whose file is not kept on the server
+    /// (never uploaded, dropped by the quota, offloaded): they cannot be analysed and
+    /// may never come. Files an analyst has started stay. A file uploaded later is
+    /// queued again by the scan. Returns how many were removed.
+    pub fn prune_queue_without_file(&self, is_kept: &dyn Fn(&str) -> bool) -> usize {
+        self.reviews
+            .pending(usize::MAX)
+            .into_iter()
+            .filter(|r| r.started_by.is_empty() && !is_kept(&r.sha256.to_ascii_uppercase()))
+            .filter(|r| self.reviews.remove(&r.sha256))
+            .count()
+    }
+
     /// Puts files with this engine verdict and no human review into the queue again,
-    /// also the ones an analyst removed when `include_removed`. Returns how many.
-    pub fn requeue(&self, verdict: &str, include_removed: bool) -> Result<usize, String> {
+    /// also the ones an analyst removed when `include_removed`. Only files kept on the
+    /// server. Returns how many.
+    pub fn requeue(&self, verdict: &str, include_removed: bool, is_kept: &dyn Fn(&str) -> bool) -> Result<usize, String> {
         let todo: Vec<(String, Option<String>)> = {
             let guard = self.map.read().unwrap();
             guard
@@ -609,6 +625,7 @@ impl ThreatIntelStore {
                 .filter(|i| i.verdict == verdict)
                 .filter(|i| self.reviews.get(&i.sha256).is_none())
                 .filter(|i| include_removed || !self.reviews.was_removed(&i.sha256))
+                .filter(|i| is_kept(&i.sha256.to_ascii_uppercase()))
                 .map(|i| (i.sha256.to_ascii_lowercase(), i.file_names.first().cloned()))
                 .collect()
         };
@@ -808,6 +825,20 @@ impl ThreatIntelStore {
             })
         };
         serde_json::json!({ "all": out(all), "recent": out(recent), "recent_days": recent_days })
+    }
+
+    /// SHA-256 (upper-case hex) of every hash whose final verdict (human first) is
+    /// unknown.
+    pub fn unknown_hashes(&self) -> Vec<String> {
+        let guard = self.map.read().unwrap();
+        guard
+            .iter()
+            .filter(|(sha, item)| {
+                let human = self.reviews.completed_verdict_raw(sha);
+                !matches!(human.as_deref().unwrap_or(item.verdict.as_str()), "malicious" | "suspicious" | "clean" | "possible_clean")
+            })
+            .map(|(sha, _)| hex::encode_upper(sha))
+            .collect()
     }
 
     pub fn stats(&self) -> ThreatIntelStats {

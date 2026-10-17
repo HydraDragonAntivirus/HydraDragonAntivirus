@@ -134,7 +134,9 @@ fn move_one(engine: &EngineAdapter, target: &Path, k: &KeptFile) -> Result<u64, 
         let _ = std::fs::remove_file(&dest);
         std::fs::rename(&part, &dest).map_err(|e| format!("rename {}: {e}", k.file_name()))?;
     }
-    engine.forget_kept(k).ok_or_else(|| format!("{}: copied, but the local file could not be deleted", k.file_name()))
+    let freed = engine.forget_kept(k).ok_or_else(|| format!("{}: copied, but the local file could not be deleted", k.file_name()))?;
+    crate::missing_files::record(&k.sha256, "offloaded", dest.display().to_string());
+    Ok(freed)
 }
 
 /// What to move: every kept file of `categories` (by hand), or the oldest files until

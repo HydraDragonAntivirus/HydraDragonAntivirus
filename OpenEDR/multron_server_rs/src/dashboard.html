@@ -1999,6 +1999,7 @@ window.sigKey = (list) => list && list.length ? `${list[0].layer}: ${list[0].nam
       (r.detections || []).length ? `<div><span class="k">Signatures (${r.detections.length}):</span>${sigChips(r.detections)}</div>` : "",
       r.engine_detail ? `<div><span class="k">Detected by:</span> ${haEsc(r.engine_detail)} · <a href="#" onclick="fpOpen('${sha}', ${haEsc(JSON.stringify(haName(r) || ""))});return false" style="color:var(--accent)">False positive: turn off a signature…</a></div>` : "",
       `<div><span class="k">Signer:</span> ${haSigner(r, true)}</div>`,
+      r.file_missing ? `<div><span class="k">File:</span> <span style="color:var(--accent-red,#e5534b)">${haEsc(r.file_missing)}</span></div>` : "",
       `<div><a href="${haEsc(r.virustotal)}" target="_blank" rel="noopener" style="color:var(--accent)">VirusTotal ↗</a> · <a href="#" onclick="rescanSha('${sha}');return false" style="color:var(--accent)">Rescan</a></div>`,
       `<div><span class="k">Requested:</span> ${new Date(r.requested_at).toLocaleString()}${r.started_at ? ` · <span class="k">${r.timed ? "started" : "verdict"}:</span> ${new Date(r.started_at).toLocaleString()}${r.started_by ? " by <b>" + haEsc(r.started_by) + "</b>" : ""}` : ""}${r.reviewed_at ? ` · <span class="k">done:</span> ${new Date(r.reviewed_at).toLocaleString()}` : ""}</div>`,
       `<div id="haSimilar" class="k">Looking for similar files…</div>`,

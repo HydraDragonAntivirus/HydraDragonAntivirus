@@ -89,7 +89,7 @@ pub async fn handle_open(State(app): State<Arc<AppState>>, Json(b): Json<OpenBod
     let path_in = b.path.trim().trim_matches('"').to_string();
     let loaded = tokio::task::spawn_blocking(move || -> Result<(String, String, Vec<u8>), String> {
         if !sha_in.is_empty() {
-            let k = eng.find_kept(&sha_in).ok_or("this file is not kept on the server (not uploaded, or moved by offload)")?;
+            let k = eng.find_kept(&sha_in).ok_or_else(|| crate::missing_files::explain(&sha_in))?;
             let data = k.read().ok_or("the kept file could not be read")?;
             Ok((k.name.clone(), k.path.display().to_string(), data))
         } else if !path_in.is_empty() {
