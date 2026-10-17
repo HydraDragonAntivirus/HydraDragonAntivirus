@@ -398,7 +398,7 @@
         </div>
         <div class="stat-card c-amber">
           <div class="stat-card-val" id="tiSuspicious" style="color:var(--accent-amber);">—</div>
-          <div class="stat-card-lbl" data-i18n="stat.suspicious">Şüpheli / Sezgisel / Greyware / Riskware / PUA / HackTool</div>
+          <div class="stat-card-lbl" data-i18n="stat.suspicious"><span>Şüpheli<small class="lbl-sub">Sezgisel · Greyware · Riskware · PUA · HackTool</small></span></div>
         </div>
         <div class="stat-card c-green">
           <div class="stat-card-val" id="tiClean" style="color:var(--accent-green);">—</div>
@@ -444,7 +444,7 @@
         </div>
         <div class="legend-item">
           <span class="legend-dot" style="background:var(--accent-amber);"></span>
-          <span style="color:var(--text-muted);" data-i18n="ratio.suspicious">Şüpheli / Sezgisel / Greyware / Riskware / PUA / HackTool:</span>
+          <span style="color:var(--text-muted);" data-i18n="ratio.suspicious"><span>Şüpheli:<small class="lbl-sub">Sezgisel · Greyware · Riskware · PUA · HackTool</small></span></span>
           <b style="color:var(--accent-amber); margin-left:auto;" id="pctSuspicious">%0</b>
         </div>
         <div class="legend-item">
@@ -521,7 +521,7 @@
       </div>
       <div class="ratio-legend" style="margin-bottom:10px">
         <div class="legend-item"><span class="legend-dot" style="background:var(--accent-green);"></span><span style="color:var(--text-muted);" data-i18n="ha.clean">Temiz</span><b style="color:var(--accent-green); margin-left:auto;" id="haClean">0</b></div>
-        <div class="legend-item"><span class="legend-dot" style="background:var(--accent-amber);"></span><span style="color:var(--text-muted);" data-i18n="ha.suspicious">Şüpheli / Sezgisel / Greyware / Riskware / PUA / HackTool</span><b style="color:var(--accent-amber); margin-left:auto;" id="haSusp">0</b></div>
+        <div class="legend-item"><span class="legend-dot" style="background:var(--accent-amber);"></span><span style="color:var(--text-muted);" data-i18n="ha.suspicious"><span>Şüpheli<small class="lbl-sub">Sezgisel · Greyware · Riskware · PUA · HackTool</small></span></span><b style="color:var(--accent-amber); margin-left:auto;" id="haSusp">0</b></div>
         <div class="legend-item"><span class="legend-dot" style="background:var(--accent-red);"></span><span style="color:var(--text-muted);" data-i18n="ha.malicious">Zararlı</span><b style="color:var(--accent-red); margin-left:auto;" id="haMal">0</b></div>
       </div>
       <div class="spec-lbl" data-i18n="ha.chart">Son 14 gün — günlük insan kararları</div>
@@ -602,7 +602,7 @@
         <div style="display:flex; gap:6px; flex-wrap:wrap;" id="filterPills">
           <button class="btn btn-sm btn-red" data-filter="all"><span data-i18n="history.filter_all">Tümü</span> (<span id="cntAll">0</span>)</button>
           <button class="btn btn-sm btn-ghost" data-filter="malicious"><span data-i18n="history.filter_mal"> Zararlı</span> (<span id="cntMal">0</span>)</button>
-          <button class="btn btn-sm btn-ghost" data-filter="suspicious"><span data-i18n="history.filter_susp"> Şüpheli / Sezgisel / Greyware / Riskware / PUA / HackTool</span> (<span id="cntSusp">0</span>)</button>
+          <button class="btn btn-sm btn-ghost" data-filter="suspicious" title="Şüpheli / Sezgisel / Greyware / Riskware / PUA / HackTool"><span data-i18n="history.filter_susp"> Şüpheli</span> (<span id="cntSusp">0</span>)</button>
           <button class="btn btn-sm btn-ghost" data-filter="clean"><span data-i18n="history.filter_clean"> Temiz</span> (<span id="cntClean">0</span>)</button>
           <button class="btn btn-sm btn-ghost" data-filter="unknown"><span data-i18n="history.filter_unk"> Bilinmeyen</span> (<span id="cntUnk">0</span>)</button>
         </div>
@@ -832,7 +832,7 @@
         chart.innerHTML = days.map(d => {
           const tot = d.clean + d.suspicious + d.malicious;
           const pct = (v) => (v / max * 100).toFixed(2) + '%';
-          const tip = `${d.date}: ${tot} · ${haT('ha.clean', 'Temiz')} ${d.clean} · ${haT('ha.suspicious', 'Şüpheli / Sezgisel / Greyware / Riskware / PUA / HackTool')} ${d.suspicious} · ${haT('ha.malicious', 'Zararlı')} ${d.malicious}`;
+          const tip = `${d.date}: ${tot} · ${haT('ha.clean', 'Temiz')} ${d.clean} · ${haT('ha.suspicious', 'Şüpheli').replace(/<small[^>]*>/, ' (').replace(/<\/small>/, ')').replace(/<[^>]+>/g, '')} ${d.suspicious} · ${haT('ha.malicious', 'Zararlı')} ${d.malicious}`;
           return `<div class="ha-day" title="${tip}"><i class="c" style="height:${pct(d.clean)}"></i><i class="s" style="height:${pct(d.suspicious)}"></i><i class="m" style="height:${pct(d.malicious)}"></i></div>`;
         }).join('');
       }

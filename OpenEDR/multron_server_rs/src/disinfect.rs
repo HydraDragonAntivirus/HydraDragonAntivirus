@@ -244,6 +244,31 @@ pub fn find_restore(
     None
 }
 
+/// Disinfection definitions next to the HydraDragonSig rules (not loaded as
+/// detection rules: the engine skips the file, it has no `rules:` list).
+pub const DISINFECT_RULES_FILE: &str = "disinfect_rules.yaml";
+
+/// The built-in disinfection definitions plus `<hydradragonsig_rules>/disinfect_rules.yaml`
+/// (a definition with the same name replaces the built-in one). Read on every request,
+/// so an edited file applies without a restart; a broken file falls back to the built-in set.
+fn disinfect_rules(engine: &EngineAdapter) -> std::borrow::Cow<'static, hydradragonunicorn::DisinfectRules> {
+    use hydradragonunicorn::DisinfectRules;
+    let file = engine
+        .rules_dir()
+        .map(|d| crate::fp_ignore::Kind::HydraSig.dir(&d).join(DISINFECT_RULES_FILE))
+        .filter(|f| f.is_file());
+    match file {
+        Some(f) => match DisinfectRules::builtin_with_file(&f) {
+            Ok(r) => std::borrow::Cow::Owned(r),
+            Err(e) => {
+                eprintln!("[disinfect] {e}; using the built-in definitions");
+                std::borrow::Cow::Borrowed(DisinfectRules::builtin())
+            }
+        },
+        None => std::borrow::Cow::Borrowed(DisinfectRules::builtin()),
+    }
+}
+
 /// Disinfect `data` in memory and decide what to recommend. Returns the report and
 /// the repaired bytes (when the infection was removed).
 pub fn run(
@@ -256,7 +281,9 @@ pub fn run(
 
     let name = client_path.rsplit(['\\', '/']).next().filter(|n| !n.is_empty()).unwrap_or("file");
     let system = system_path_reason(client_path);
-    let outcome = std::panic::catch_unwind(|| hydradragonunicorn::disinfect_bytes(data)).unwrap_or(DisinfectOutcome::NotInfected);
+    let rules = disinfect_rules(engine);
+    let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| hydradragonunicorn::disinfect_bytes_with(data, &rules)))
+        .unwrap_or(DisinfectOutcome::NotInfected);
 
     let mut report = DisinfectReport {
         sha256: sha256_hex(data),
