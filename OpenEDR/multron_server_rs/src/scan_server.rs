@@ -1417,10 +1417,7 @@ async fn handle_scan(
                 };
                 let mut report = None;
                 let r = engine.scan_blocking_with(&data, &job_name, &job_sha, |res| {
-                    apply_analyst_tlsh(&ti, &data, res);
-                    apply_tlsh_blacklist(&ti, &data, res);
-                    apply_imphash_sigs(&ti, &data, res);
-                    report = apply_smart_whitelist(&ti, &data, &job_name, res);
+                    report = apply_threat_intel(&ti, &data, &job_name, res);
                 });
                 let _ = rtx.send(r);
                 // VirusKovAlyzer static report, after the verdict went out (the client is
@@ -1787,6 +1784,23 @@ pub fn apply_imphash_sigs(ti: &crate::threat_intel::ThreatIntelStore, data: &[u8
     if let Some(o) = res.antivirus.as_mut().and_then(|a| a.as_object_mut()) {
         o.insert("detail".into(), serde_json::json!(detail));
     }
+}
+
+/// Everything a verdict gets on top of the engine scan, in this order: analyst TLSH
+/// signatures, the TLSH blacklist, analyst imphash signatures, then the TLSH smart
+/// whitelist. Every scan path (live scans, rescans, VirusKovAlyzer, disinfection)
+/// uses this, so they all give the same verdict. Returns the static report when the
+/// smart whitelist had to build it.
+pub fn apply_threat_intel(
+    ti: &crate::threat_intel::ThreatIntelStore,
+    data: &[u8],
+    name: &str,
+    res: &mut ResultMessage,
+) -> Option<crate::analyzer::FileReport> {
+    apply_analyst_tlsh(ti, data, res);
+    apply_tlsh_blacklist(ti, data, res);
+    apply_imphash_sigs(ti, data, res);
+    apply_smart_whitelist(ti, data, name, res)
 }
 
 pub fn apply_smart_whitelist(

@@ -643,13 +643,19 @@ pub struct TokenBody {
 }
 
 /// Scans the open file with the engine now (nothing is kept, the verdict cache and
-/// telemetry are not touched) and returns verdict, threat, engines and signer.
+/// telemetry are not touched) and returns verdict, threat, engines and signer. Same
+/// verdict as a live scan: analyst TLSH / imphash signatures, the TLSH blacklist and
+/// the smart whitelist are applied too (the analyst ClamAV / HydraDragonSig / YARA
+/// signatures and company lists are part of the engine scan itself).
 pub async fn handle_scan(State(app): State<Arc<AppState>>, Json(b): Json<TokenBody>) -> Response {
     let Some((name, data)) = doc(&b.token) else { return err(StatusCode::NOT_FOUND, "file is not open any more, open it again") };
     let eng = Arc::clone(&app.engine);
+    let ti = Arc::clone(&app.threat_intel);
     let res = tokio::task::spawn_blocking(move || {
         let sha = hex::encode_upper(Sha256::digest(data.as_slice()));
-        let r = eng.scan_blocking_opts(&data, &name, &sha, false, |_| {});
+        let r = eng.scan_blocking_opts(&data, &name, &sha, false, |res| {
+            crate::scan_server::apply_threat_intel(&ti, &data, &name, res);
+        });
         (r, explain_json(&eng.explain_matches(&data, &name, MAX_EXPLAIN_RANGES), &data))
     })
     .await;

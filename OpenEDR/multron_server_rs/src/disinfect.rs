@@ -388,10 +388,7 @@ fn repair_verdict(ti: &ThreatIntelStore, engine: &EngineAdapter, data: &[u8], na
     }
     engine
         .scan_blocking_opts(data, name, sha, false, |res| {
-            crate::scan_server::apply_analyst_tlsh(ti, data, res);
-            crate::scan_server::apply_tlsh_blacklist(ti, data, res);
-            crate::scan_server::apply_imphash_sigs(ti, data, res);
-            crate::scan_server::apply_smart_whitelist(ti, data, name, res);
+            crate::scan_server::apply_threat_intel(ti, data, name, res);
         })
         .map(|r| r.verdict)
         .unwrap_or_else(|_| "unknown".into())

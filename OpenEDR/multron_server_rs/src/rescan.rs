@@ -138,10 +138,7 @@ pub fn rescan_one(server: &Arc<ScanServer>, sha_hex: &str) -> Result<Change, Str
     let ti = Arc::clone(&server.threat_intel);
     let mut report = None;
     let res = server.engine.scan_blocking_opts(&data, &kept.name, &sha_up, false, |res| {
-        crate::scan_server::apply_analyst_tlsh(&ti, &data, res);
-        crate::scan_server::apply_tlsh_blacklist(&ti, &data, res);
-        crate::scan_server::apply_imphash_sigs(&ti, &data, res);
-        report = crate::scan_server::apply_smart_whitelist(&ti, &data, &kept.name, res);
+        report = crate::scan_server::apply_threat_intel(&ti, &data, &kept.name, res);
     })?;
 
     // The kept file sits in the folder of the effective verdict: a human verdict wins.
