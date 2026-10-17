@@ -774,9 +774,10 @@ async fn handle_hash_insights(
                     "virustotal": vt,
                     "classification": classification_json(
                         human_verdict.as_deref().unwrap_or(&insight.verdict),
-                        human_threat.as_deref().or(insight.threat_name.as_deref()),
+                        if human_verdict.is_some() { human_threat.as_deref() } else { insight.threat_name.as_deref() },
                     ),
-                    "threat_name": human_threat.or(insight.threat_name.clone()),
+                    // A human verdict replaces the engine name too: a clean review must not keep the engine detection name.
+                    "threat_name": if human_verdict.is_some() { human_threat } else { insight.threat_name.clone() },
                     "first_seen": insight.first_seen,
                     "last_seen": insight.last_seen,
                     "seen_count": insight.seen_count,
@@ -2329,11 +2330,11 @@ async fn handle_file_report(
     let human_verdict = review.as_ref().filter(|r| r.is_completed()).and_then(|r| r.verdict.clone());
     let engine_verdict = insight.as_ref().map(|i| i.verdict.clone()).unwrap_or_else(|| "unknown".into());
     let verdict = human_verdict.clone().unwrap_or_else(|| engine_verdict.clone());
-    let threat_name = review
-        .as_ref()
-        .filter(|r| r.is_completed())
-        .and_then(|r| r.threat_name.clone())
-        .or_else(|| insight.as_ref().and_then(|i| i.threat_name.clone()));
+    // A human verdict replaces the engine name too (clean review -> no threat name).
+    let threat_name = match review.as_ref().filter(|r| r.is_completed()) {
+        Some(r) => r.threat_name.clone(),
+        None => insight.as_ref().and_then(|i| i.threat_name.clone()),
+    };
     let mut resp = json_response(
         StatusCode::OK,
         serde_json::json!({
@@ -2410,8 +2411,11 @@ async fn handle_daily_feed(
             let mut csv = String::from("first_seen,sha256,verdict,verdict_source,threat_name,file_name,file_size,seen_count,category,platform,family\n");
             for (i, v, human) in &rows {
                 let esc = |s: &str| format!("\"{}\"", s.replace('"', "\"\""));
-                let human_threat = server.threat_intel.reviews.completed(&i.sha256).and_then(|r| r.threat_name);
-                let c = crate::naming::classify(human_threat.as_deref().or(i.threat_name.as_deref()).unwrap_or(""));
+                let threat = match server.threat_intel.reviews.completed(&i.sha256) {
+                    Some(r) => r.threat_name,
+                    None => i.threat_name.clone(),
+                };
+                let c = crate::naming::classify(threat.as_deref().unwrap_or(""));
                 let malicious = v == "malicious" || v == "suspicious";
                 csv.push_str(&format!(
                     "{},{},{},{},{},{},{},{},{},{},{}\n",
@@ -2419,7 +2423,7 @@ async fn handle_daily_feed(
                     i.sha256.to_lowercase(),
                     v,
                     if *human { "human" } else { "engine" },
-                    esc(i.threat_name.as_deref().unwrap_or("")),
+                    esc(threat.as_deref().unwrap_or("")),
                     esc(i.file_names.first().map(String::as_str).unwrap_or("")),
                     i.file_size.unwrap_or(0),
                     i.seen_count,
@@ -2442,7 +2446,7 @@ async fn handle_daily_feed(
                 "date": date,
                 "count": rows.len(),
                 "items": rows.iter().map(|(i, v, human)| {
-                    let threat = server.threat_intel.reviews.completed(&i.sha256).and_then(|r| r.threat_name).or(i.threat_name.clone());
+                    let threat = match server.threat_intel.reviews.completed(&i.sha256) { Some(r) => r.threat_name, None => i.threat_name.clone() };
                     serde_json::json!({
                     "sha256": i.sha256.to_lowercase(),
                     "first_seen": i.first_seen,
