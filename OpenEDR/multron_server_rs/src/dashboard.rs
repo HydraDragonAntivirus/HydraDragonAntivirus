@@ -1683,6 +1683,21 @@ struct ReviewsQuery {
     /// first page only).
     #[serde(default)]
     recent: Option<String>,
+    /// Search every completed verdict (not only the 200 most recent) in every field
+    /// the row shows: names, folders, hashes, detections, signer, notes, threat,
+    /// analyst (case-insensitive).
+    #[serde(default)]
+    recent_q: Option<String>,
+    /// Verdicts list filters, like the queue's: analyst verdict, current engine
+    /// verdict ("unknown" when none), source ("auto", "user", "rescan"), malware type.
+    #[serde(default)]
+    recent_verdict: Option<String>,
+    #[serde(default)]
+    recent_engine: Option<String>,
+    #[serde(default)]
+    recent_source: Option<String>,
+    #[serde(default)]
+    recent_type: Option<String>,
 }
 
 fn csv_lower(v: &Option<String>) -> Vec<String> {
@@ -1718,11 +1733,7 @@ async fn handle_reviews_list(State(app): State<Arc<AppState>>, Query(q): Query<R
     let mut page: Vec<(crate::human_review::HumanReview, Option<_>, String)> = Vec::new();
     for rv in r.pending(usize::MAX) {
         let ins = app.threat_intel.get(&rv.sha256);
-        let name = rv
-            .file_name
-            .clone()
-            .or_else(|| ins.as_ref().and_then(|i| i.file_names.first().cloned()))
-            .unwrap_or_default();
+        let name = review_name(&rv, ins.as_ref());
         let ext = file_ext(&name);
         if filtered {
             let ext_key = if ext.is_empty() { "-".to_string() } else { ext.clone() };
@@ -1761,45 +1772,55 @@ async fn handle_reviews_list(State(app): State<Arc<AppState>>, Query(q): Query<R
     }
     let pending: Vec<serde_json::Value> = page
         .into_iter()
-        .map(|(rv, ins, ext)| {
-            let mut v = rv.to_dashboard_json();
-            v["ext"] = serde_json::json!(ext);
-            if let Some(ins) = ins {
-                v["seen_count"] = serde_json::json!(ins.seen_count);
-                v["file_names"] = serde_json::json!(ins.file_names);
-                v["file_size"] = serde_json::json!(ins.file_size);
-                v["folders"] = serde_json::json!(ins.folders);
-                v["full_folders"] = serde_json::json!(ins.full_folders);
-                v["sightings"] = serde_json::json!(ins.sightings);
-                v["current_verdict"] = serde_json::json!(ins.verdict);
-                v["current_threat"] = serde_json::json!(ins.threat_name);
-                v["detections"] = serde_json::json!(ins.detections);
-                if let Some(sg) = &ins.signer {
-                    v["signer"] = serde_json::json!(sg);
-                }
-            }
-            add_engine_detail(&app, &mut v, &rv.sha256);
-            v["classification"] = crate::scan_server::classification_json(
-                v["current_verdict"].as_str().unwrap_or(""),
-                v["current_threat"].as_str(),
-            );
-            v
-        })
+        .map(|(rv, ins, ext)| review_row(&app, &rv, ins, ext))
         .collect();
     let with_recent = match q.recent.as_deref() {
         Some(v) => v != "0" && v != "false",
         None => offset == 0,
     };
-    let recent: Vec<serde_json::Value> = r
-        .recent_completed(if with_recent { 200 } else { 0 })
-        .iter()
-        .map(|rv| {
-            let mut v = rv.to_dashboard_json();
-            add_engine_detail(&app, &mut v, &rv.sha256);
+    // Verdicts: the 200 newest, or with a search / filter every completed verdict that
+    // matches (newest first, at most 500), so a wrong verdict is found by any field.
+    let lc = |o: &Option<String>| o.as_deref().map(|s| s.trim().to_lowercase()).filter(|s| !s.is_empty());
+    let (rq, rverdict, rengine, rsource, rtype) =
+        (lc(&q.recent_q), lc(&q.recent_verdict), lc(&q.recent_engine), lc(&q.recent_source), lc(&q.recent_type));
+    let searching = rq.is_some() || rverdict.is_some() || rengine.is_some() || rsource.is_some() || rtype.is_some();
+    let mut recent: Vec<serde_json::Value> = Vec::new();
+    if with_recent {
+        let (pool, cap) = if searching { (r.recent_completed(usize::MAX), 500) } else { (r.recent_completed(200), 200) };
+        for rv in pool {
+            if rverdict.as_ref().is_some_and(|v| rv.verdict.as_deref().map(str::to_lowercase).as_deref() != Some(v.as_str())) {
+                continue;
+            }
+            if rsource.as_ref().is_some_and(|s| rv.source.to_lowercase() != *s) {
+                continue;
+            }
+            let ins = app.threat_intel.get(&rv.sha256);
+            if let Some(e) = &rengine {
+                let cur = ins.as_ref().map(|i| i.verdict.to_ascii_lowercase()).unwrap_or_else(|| "unknown".into());
+                if cur != *e {
+                    continue;
+                }
+            }
+            let ext = file_ext(&review_name(&rv, ins.as_ref()));
+            let mut v = review_row(&app, &rv, ins, ext);
+            // In this list the analyst's verdict gives the malware type.
             v["classification"] = crate::scan_server::classification_json(rv.verdict.as_deref().unwrap_or(""), rv.threat_name.as_deref());
-            v
-        })
-        .collect();
+            if rtype.as_ref().is_some_and(|t| v["classification"]["category"].as_str().map(str::to_lowercase).as_deref() != Some(t.as_str())) {
+                continue;
+            }
+            if let Some(needle) = &rq {
+                let mut hay = String::new();
+                json_text(&v, &mut hay);
+                if !hay.to_lowercase().contains(needle.as_str()) {
+                    continue;
+                }
+            }
+            recent.push(v);
+            if recent.len() >= cap {
+                break;
+            }
+        }
+    }
     Json(serde_json::json!({
         "ok": true,
         "stats": r.stats(),
@@ -1817,6 +1838,61 @@ async fn handle_reviews_list(State(app): State<Arc<AppState>>, Query(q): Query<R
 
 /// Which engines flagged the file ("jpeg (YARA), MalwareNet.PE (PE_ML)"), from the
 /// last engine verdict in the scan cache. Missing when the cache entry expired.
+/// File name of a review: the one the client sent, else the first name seen.
+fn review_name(rv: &crate::human_review::HumanReview, ins: Option<&crate::threat_intel::ThreatInsight>) -> String {
+    rv.file_name.clone().or_else(|| ins.and_then(|i| i.file_names.first().cloned())).unwrap_or_default()
+}
+
+/// One row of the analyst lists (queue and verdicts): the review plus what the
+/// telemetry knows about the file (names, folders, sightings, engine verdict, signer).
+fn review_row(
+    app: &AppState,
+    rv: &crate::human_review::HumanReview,
+    ins: Option<crate::threat_intel::ThreatInsight>,
+    ext: String,
+) -> serde_json::Value {
+    let mut v = rv.to_dashboard_json();
+    v["file_name"] = serde_json::json!(review_name(rv, ins.as_ref()));
+    v["ext"] = serde_json::json!(ext);
+    if let Some(ins) = ins {
+        v["seen_count"] = serde_json::json!(ins.seen_count);
+        v["file_names"] = serde_json::json!(ins.file_names);
+        v["file_size"] = serde_json::json!(ins.file_size);
+        v["folders"] = serde_json::json!(ins.folders);
+        v["full_folders"] = serde_json::json!(ins.full_folders);
+        v["sightings"] = serde_json::json!(ins.sightings);
+        v["current_verdict"] = serde_json::json!(ins.verdict);
+        v["current_threat"] = serde_json::json!(ins.threat_name);
+        v["detections"] = serde_json::json!(ins.detections);
+        if let Some(sg) = &ins.signer {
+            v["signer"] = serde_json::json!(sg);
+        }
+    }
+    add_engine_detail(app, &mut v, &rv.sha256);
+    v["classification"] = crate::scan_server::classification_json(
+        v["current_verdict"].as_str().unwrap_or(""),
+        v["current_threat"].as_str(),
+    );
+    v
+}
+
+/// Every string and number in a JSON value, one per line (search haystack).
+fn json_text(v: &serde_json::Value, out: &mut String) {
+    match v {
+        serde_json::Value::String(s) => {
+            out.push_str(s);
+            out.push('\n');
+        }
+        serde_json::Value::Number(n) => {
+            out.push_str(&n.to_string());
+            out.push('\n');
+        }
+        serde_json::Value::Array(a) => a.iter().for_each(|x| json_text(x, out)),
+        serde_json::Value::Object(o) => o.values().for_each(|x| json_text(x, out)),
+        _ => {}
+    }
+}
+
 fn add_engine_detail(app: &AppState, v: &mut serde_json::Value, sha256: &str) {
     if v.get("signer").map_or(true, |s| s.is_null()) || v.get("detections").is_none() {
         if let Some(ins) = app.threat_intel.get(sha256) {

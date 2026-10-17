@@ -776,8 +776,8 @@
     </div>
 
     <div class="ha-tab" id="haTabRecent" hidden>
-      <div class="ha-toolbar" style="grid-template-columns:minmax(180px,1fr) 170px 170px">
-        <input id="haRecentSearch" type="search" placeholder="Search SHA-256, threat, note, analyst…">
+      <div class="ha-toolbar" style="grid-template-columns:minmax(180px,1fr) 150px 150px 150px 150px">
+        <input id="haRecentSearch" type="search" placeholder="Search every field: file name, folder, SHA-256, detection, signer, threat, note, analyst… (all verdicts)">
         <select id="haRecentF">
           <option value="">Verdict: any</option>
           <option value="malicious">Malicious</option>
@@ -785,10 +785,24 @@
           <option value="clean">Clean</option>
         </select>
         <select id="haRecentType"><option value="">Type: any</option></select>
+        <select id="haRecentEngine">
+          <option value="">Engine: any</option>
+          <option value="unknown">Unknown</option>
+          <option value="possible_clean">Possible clean</option>
+          <option value="suspicious">Suspicious</option>
+          <option value="malicious">Malicious</option>
+          <option value="clean">Clean</option>
+        </select>
+        <select id="haRecentSource">
+          <option value="">Source: any</option>
+          <option value="auto">Engine (auto)</option>
+          <option value="user">Website user</option>
+          <option value="rescan">Rescan</option>
+        </select>
       </div>
       <div class="tablewrap ha-table" style="margin-top:10px">
         <table>
-          <thead><tr><th>SHA-256</th><th>Verdict</th><th>Notes</th><th>Analyst</th><th class="num">Waited</th><th class="num">Analysis</th><th class="num">Total</th><th>Reviewed</th><th></th></tr></thead>
+          <thead><tr><th>File</th><th>Verdict</th><th>Notes</th><th>Analyst</th><th class="num">Waited</th><th class="num">Analysis</th><th class="num">Total</th><th>Reviewed</th><th></th></tr></thead>
           <tbody id="haRecentRows"></tbody>
         </table>
       </div>
@@ -2010,16 +2024,19 @@ window.sigKey = (list) => list && list.length ? `${list[0].layer}: ${list[0].nam
   };
   window.haEdit = (i) => { const r = haRecentList[i]; if (r) window.haFill(r.sha256, r.verdict, r.threat_name || "", r.note || "", r.internal_note || ""); };
 
+  // Every string / number of a row (the same fields the server searches).
+  const haText = (v) => v == null ? "" : typeof v === "object" ? Object.values(v).map(haText).join("\n") : String(v);
   const haRenderRecent = () => {
     const q = $("haRecentSearch").value.trim().toLowerCase(), f = $("haRecentF").value, ty = $("haRecentType").value;
+    const ef = $("haRecentEngine").value, sf = $("haRecentSource").value;
     const types = {};
     haRecentList.forEach(r => { if (r.classification) types[r.classification.category] = (types[r.classification.category] || 0) + 1; });
     $("haRecentType").innerHTML = `<option value="">Type: any</option>` + Object.keys(types).sort((a, b) => types[b] - types[a])
       .map(t => `<option value="${haEsc(t)}" ${t === ty ? "selected" : ""}>${haEsc(t)} (${types[t]})</option>`).join("");
     const rows = haRecentList.map((r, i) => [r, i]).filter(([r]) => (!f || r.verdict === f) && (!ty || r.classification?.category === ty) &&
-      (!q || [r.sha256, r.threat_name, r.note, r.internal_note, r.analyst].join("\n").toLowerCase().includes(q)));
+      (!ef || (r.current_verdict || "unknown") === ef) && (!sf || r.source === sf) && (!q || haText(r).toLowerCase().includes(q)));
     $("haRecentRows").innerHTML = rows.length ? rows.map(([r, i]) => `<tr data-sha="${r.sha256}" data-name="${haEsc(r.file_name || "")}">
-        <td class="mono" title="${r.sha256}">${r.sha256.slice(0, 20)}…</td>
+        <td title="${haEsc([r.file_name, ...(r.file_names || []).filter(n => n !== r.file_name)].filter(Boolean).join("\n") + "\n" + r.sha256)}">${r.file_name ? `<div style="max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${haEsc(r.file_name)}</div>` : ""}<span class="mono" style="color:var(--muted);font-size:11px">${r.sha256.slice(0, 20)}…</span></td>
         <td>${haVTag(r.verdict)} ${r.threat_name ? "<b>" + haEsc(r.threat_name) + "</b>" : haTypeTag(r.classification)}${sigChips(r.detections, 2)}</td>
         <td class="detail" title="${haEsc(r.note + (r.internal_note ? "\nInternal: " + r.internal_note : ""))}">${haEsc(r.note || "")}${r.internal_note ? ` <i>· internal: ${haEsc(r.internal_note)}</i>` : ""}</td>
         <td>${haEsc(r.analyst || "—")}</td>
@@ -2030,12 +2047,20 @@ window.sigKey = (list) => list && list.length ? `${list[0].layer}: ${list[0].nam
         <td style="white-space:nowrap"><a href="${haEsc(r.virustotal)}" target="_blank" rel="noopener">VT ↗</a> <button class="ghost" onclick="haEdit(${i})">Edit</button></td>
       </tr>`).join("") : `<tr><td colspan="9" class="empty">No verdicts.</td></tr>`;
   };
-  ["haRecentSearch", "haRecentF", "haRecentType"].forEach(id => $(id).addEventListener("input", haRenderRecent));
+  const HA_RECENT_CTL = ["haRecentSearch", "haRecentF", "haRecentType", "haRecentEngine", "haRecentSource"];
+  HA_RECENT_CTL.forEach(id => $(id).addEventListener("input", haRenderRecent));
+  // The list holds the 200 newest verdicts; a search or filter asks the server for every match.
+  let haRecentTimer = null;
+  HA_RECENT_CTL.forEach(id => $(id).addEventListener("input", () => { clearTimeout(haRecentTimer); haRecentTimer = setTimeout(() => haLoad(), 400); }));
 
   const haLoad = async () => {
     if ($("haDlg").open) return;
     try {
-      const res = await fetch("/api/reviews" + ($("haAll").checked ? "?all=1" : ""), { cache: "no-store" });
+      const qs = new URLSearchParams();
+      if ($("haAll").checked) qs.set("all", "1");
+      [["recent_q", "haRecentSearch"], ["recent_verdict", "haRecentF"], ["recent_type", "haRecentType"], ["recent_engine", "haRecentEngine"], ["recent_source", "haRecentSource"]]
+        .forEach(([k, id]) => { const val = $(id).value.trim(); if (val) qs.set(k, val); });
+      const res = await fetch("/api/reviews" + (qs.toString() ? "?" + qs : ""), { cache: "no-store" });
       if (!res.ok) return;
       const d = await res.json();
       const st = d.stats || {};
