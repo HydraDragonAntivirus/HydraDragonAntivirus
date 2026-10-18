@@ -40,7 +40,7 @@ pub const GENERIC_TREE_THRESHOLD: f32 = 0.85;
 /// One signature match explained for the analyst view (`StaticEngine::explain_matches`).
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct MatchExplain {
-    /// "ClamAV", "YARA", "HydraSig" (the server adds "Analyst").
+    /// "ClamAV", "YARA", "HydraSig", "ML" (the server adds "Analyst").
     pub engine: &'static str,
     pub rule: String,
     /// ClamAV signature type (`Extended`, `Logical`, ...), "YARA-X rule", or the
@@ -1012,6 +1012,20 @@ impl StaticEngine {
                 evidence: hit.evidence,
                 ranges,
             });
+        }
+        // ML: probability and the features that moved the score, when the model
+        // flagged the file (same thresholds as the scan).
+        let ml = if is_pe {
+            self.ml.explain_pe(data).map(|e| (e, "MalwareNet.PE.HighConfidence", PE_TREE_THRESHOLD, "PE tree ensemble (65 header/section/code features)"))
+        } else if is_js_content(data) {
+            std::str::from_utf8(data).ok().and_then(|src| self.ml.explain_js(src)).map(|e| (e, "MalwareNet.JS.HighConfidence", JS_TREE_THRESHOLD, "JavaScript tree ensemble (51 AST/lexical features)"))
+        } else {
+            None
+        };
+        if let Some((e, rule, threshold, kind)) = ml {
+            if e.probability >= threshold {
+                out.push(ml_explain(rule, kind, threshold, &e));
+            }
         }
         out
     }
@@ -2212,6 +2226,35 @@ fn find_valid_embedded_pe(data: &[u8]) -> Option<usize> {
         }
     }
     None
+}
+
+/// `MatchExplain` for an ML verdict: the definition lists probability, threshold and
+/// every feature's value and log-odds contribution; evidence holds the top ten.
+fn ml_explain(rule: &str, kind: &str, threshold: f32, e: &crate::ml::scanner::MlExplanation) -> MatchExplain {
+    let fmt = |v: f32| if v.fract() == 0.0 && v.abs() < 1e12 { format!("{}", v as i64) } else { format!("{:.3}", v) };
+    let mut def = format!(
+        "Malware probability {:.2}% (threshold {:.2}%)\nlog-odds {:.3} = base {:.3} + feature contributions\n\nfeature = value  -> contribution (+ towards malware, - towards clean)\n",
+        e.probability * 100.0,
+        threshold * 100.0,
+        e.raw_score,
+        e.bias
+    );
+    for f in &e.features {
+        def.push_str(&format!("{} = {}  -> {:+.3}\n", f.name, fmt(f.value), f.contribution));
+    }
+    MatchExplain {
+        engine: "ML",
+        score: e.probability,
+        rule: rule.to_string(),
+        kind: format!("{} · {:.2}% malware", kind, e.probability * 100.0),
+        source: None,
+        line: None,
+        definition: Some(def),
+        object_path: None,
+        view: None,
+        evidence: e.features.iter().filter(|f| f.contribution > 0.0).take(10).map(|f| format!("{}={} ({:+.2})", f.name, fmt(f.value), f.contribution)).collect(),
+        ranges: Vec::new(),
+    }
 }
 
 fn is_js_content(bytes: &[u8]) -> bool {

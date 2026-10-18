@@ -66,6 +66,21 @@ impl MlScanner {
         Some(trees.predict_probability(&arr))
     }
 
+    /// Why the PE model scored this file: probability and every feature with its
+    /// value and contribution to the log-odds, strongest first.
+    pub fn explain_pe(&self, data: &[u8]) -> Option<MlExplanation> {
+        let trees = self.pe_trees.as_ref()?;
+        let arr = pe_features::extract_pe_features(data)?.to_array();
+        Some(MlExplanation::new(trees.explain(&arr), &arr, &super::features::PeFeatureVector::NAMES))
+    }
+
+    /// Same as [`Self::explain_pe`] for the JavaScript model.
+    pub fn explain_js(&self, source: &str) -> Option<MlExplanation> {
+        let trees = self.js_trees.as_ref()?;
+        let arr = js_features::extract_js_features(source)?.to_array();
+        Some(MlExplanation::new(trees.explain(&arr), &arr, &super::features::JsFeatureVector::NAMES))
+    }
+
     pub fn predict_js(&self, source: &str) -> Option<f32> {
         let trees = self.js_trees.as_ref()?;
         let features = js_features::extract_js_features(source)?;
@@ -186,5 +201,42 @@ mod tests {
         // Exact parity with the Python exporter (max diff ~1e-7 there; 1e-6 here).
         let g = s.predict_generic(&[0.0; GENERIC_FEATURE_COUNT]).unwrap();
         assert!((g - 5.156021e-6).abs() < 1e-6, "generic zeros20 = {g}");
+    }
+}
+
+/// One feature's part in an ML verdict.
+#[derive(Clone, Debug, serde::Serialize)]
+pub struct MlFeatureContribution {
+    pub name: &'static str,
+    pub value: f32,
+    /// Change in log-odds this feature caused (positive = towards malware).
+    pub contribution: f32,
+}
+
+/// Probability and per-feature attribution of a tree-model score.
+#[derive(Clone, Debug, serde::Serialize)]
+pub struct MlExplanation {
+    pub probability: f32,
+    pub raw_score: f32,
+    pub bias: f32,
+    /// Sorted by |contribution|, largest first; zero contributions dropped.
+    pub features: Vec<MlFeatureContribution>,
+}
+
+impl MlExplanation {
+    fn new(e: super::tree_model::TreeExplanation, values: &[f32], names: &[&'static str]) -> Self {
+        let mut features: Vec<MlFeatureContribution> = e
+            .contributions
+            .iter()
+            .enumerate()
+            .filter(|(_, c)| c.abs() > 1e-6)
+            .map(|(i, &c)| MlFeatureContribution {
+                name: names.get(i).copied().unwrap_or("?"),
+                value: values.get(i).copied().unwrap_or(0.0),
+                contribution: c,
+            })
+            .collect();
+        features.sort_by(|a, b| b.contribution.abs().partial_cmp(&a.contribution.abs()).unwrap_or(std::cmp::Ordering::Equal));
+        Self { probability: e.probability, raw_score: e.raw_score, bias: e.bias, features }
     }
 }

@@ -1058,7 +1058,7 @@ window.sigChips = (list, max) => {
   const e = (x) => String(x ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
   const shown = max ? list.slice(0, max) : list;
   const all = list.map(d => `${d.layer}: ${d.name}`).join("\n");
-  return `<div class="sigs" title="${e(all)}">` + shown.map(d => `<span class="sigc"><b>${e(d.layer)}</b>${e(d.name)}</span>`).join("") +
+  return `<div class="sigs" title="${e(all)}">` + shown.map(d => `<span class="sigc"><b>${e(d.layer)}</b>${e(d.name)}${/_ML$/.test(d.layer || "") && d.score != null ? ` ${(d.score * 100).toFixed(1)}%` : ""}</span>`).join("") +
     (list.length > shown.length ? `<span class="sigc">+${list.length - shown.length} more</span>` : "") + `</div>`;
 };
 window.sigKey = (list) => list && list.length ? `${list[0].layer}: ${list[0].name}` : "";
@@ -2890,10 +2890,10 @@ window.sigKey = (list) => list && list.length ? `${list[0].layer}: ${list[0].nam
     };
     const rows = list.map(m => {
       const rng = (m.ranges || []).map(r => `<div class="mono" style="font-size:11.5px;margin:2px 0"><a href="#" data-go="${r.start}" data-len="${r.len}" style="color:var(--accent)">0x${r.start.toString(16).toUpperCase()}</a> +${r.len}: <span title="matched bytes">${esc(hexSp(r.hex))}${r.truncated ? " …" : ""}</span><br><span class="hint" style="margin:0">${esc(r.before)}</span><b style="background:var(--accent-bg,rgba(255,200,0,.25))">${esc(r.ascii)}</b><span class="hint" style="margin:0">${esc(r.after)}</span></div>`).join("");
-      const noRange = !(m.ranges || []).length ? `<div class="hint" style="margin:2px 0">${where(m) ? "Matched there, not in the raw bytes of this file." : "No byte range: condition, hash, PE structure, heuristic or regex match."}</div>` : "";
-      const ev = (m.evidence || []).length ? `<div style="font-size:11.5px;margin-top:3px">${m.engine.includes("YARA") ? "Patterns: " : "Evidence: "}${m.evidence.slice(0, 12).map(x => `<code>${esc(x)}</code>`).join(" ")}</div>` : "";
+      const noRange = !(m.ranges || []).length ? `<div class="hint" style="margin:2px 0">${m.engine === "ML" ? "Model verdict from extracted features, not a byte match." : where(m) ? "Matched there, not in the raw bytes of this file." : "No byte range: condition, hash, PE structure, heuristic or regex match."}</div>` : "";
+      const ev = (m.evidence || []).length ? `<div style="font-size:11.5px;margin-top:3px">${m.engine.includes("YARA") ? "Patterns: " : m.engine === "ML" ? "Features pushing towards malware: " : "Evidence: "}${m.evidence.slice(0, 12).map(x => `<code>${esc(x)}</code>`).join(" ")}</div>` : "";
       const src = m.source ? `<div class="hint" style="margin:2px 0">${esc(m.source)}${m.line ? ":" + m.line : ""}</div>` : "";
-      const def = m.definition ? `<details style="margin-top:3px"><summary style="cursor:pointer;font-size:11.5px">Signature</summary><pre style="white-space:pre-wrap;word-break:break-all;font-size:11px;max-height:240px;overflow:auto;margin:4px 0">${esc(m.definition)}</pre></details>` : "";
+      const def = m.definition ? `<details style="margin-top:3px"><summary style="cursor:pointer;font-size:11.5px">${m.engine === "ML" ? "Every feature: value and contribution" : "Signature"}</summary><pre style="white-space:pre-wrap;word-break:break-all;font-size:11px;max-height:240px;overflow:auto;margin:4px 0">${esc(m.definition)}</pre></details>` : "";
       return `<tr><td>${esc(m.engine)}</td><td><b>${esc(m.rule)}</b> ${scoreTag(m.score)}<div class="hint" style="margin:2px 0">${esc(m.kind || "")}${where(m) ? " · " + where(m) : ""}</div>${src}${def}</td><td>${rng}${noRange}${ev}</td></tr>`;
     }).join("");
     return `<h3 class="va-h">Why it was detected (${list.length})</h3><div class="hint" style="margin:0 0 4px">Every signature that matched, strongest first. Click an offset to select the matched bytes in the hex view.</div><div class="tablewrap" style="max-height:420px"><table><thead><tr><th>Engine</th><th>Signature</th><th>Matched bytes</th></tr></thead><tbody>${rows}</tbody></table></div>`;
@@ -2902,7 +2902,7 @@ window.sigKey = (list) => list && list.length ? `${list[0].layer}: ${list[0].nam
   function extractedHtml(list) {
     if (!list.length) return "";
     return `<h3 class="va-h">Extracted by the scanner (${list.length})</h3><div class="tablewrap" style="max-height:260px"><table><thead><tr><th>Origin</th><th>Name</th><th class="num">Depth</th><th class="num">Size</th><th>Verdict</th><th>SHA-256</th></tr></thead><tbody>` +
-      list.map(o => `<tr><td>${esc(o.origin_type || "")}</td><td title="${esc(o.path || "")}">${esc(o.name || o.path || "")}</td><td class="num">${o.depth ?? ""}</td><td class="num">${size(o.size)}</td><td>${vtag(o.verdict)}${(o.detections || []).length ? ` <span class="hint" style="margin:0">${(o.detections || []).slice(0, 3).map(x => esc(x.name || x.rule || "")).join(", ")}</span>` : ""}</td><td class="mono" style="font-size:11px">${o.sha256 ? `<a href="#" class="va-sha" data-sha="${esc(o.sha256)}" title="Open if the server kept it" style="color:var(--accent)">${esc(o.sha256.slice(0, 16))}…</a>` : ""}</td></tr>`).join("") +
+      list.map(o => `<tr><td>${esc(o.origin_type || "")}</td><td title="${esc(o.path || "")}">${esc(o.name || o.path || "")}</td><td class="num">${o.depth ?? ""}</td><td class="num">${size(o.size)}</td><td>${vtag(o.verdict)}${(o.detections || []).length ? ` <span class="hint" style="margin:0">${(o.detections || []).slice(0, 3).map(x => esc(x.name || x.rule || "")).join(", ")}</span>` : ""}</td><td class="mono" style="font-size:11px">${o.sha256 ? `<a href="#" class="va-sha" data-sha="${esc(o.sha256)}" title="Open if the server kept it" style="color:var(--accent);word-break:break-all">${esc(o.sha256)}</a>` : ""}</td></tr>`).join("") +
       `</tbody></table></div>`;
   }
   document.addEventListener("click", (e) => { const a = e.target.closest(".va-sha"); if (a) { e.preventDefault(); $("vaSrc").value = a.dataset.sha; open({ sha256: a.dataset.sha }); } });
