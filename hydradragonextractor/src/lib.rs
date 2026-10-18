@@ -298,7 +298,13 @@ pub fn list_entries(data: &[u8]) -> Result<Vec<EntryInfo>> {
             return pe_embedded::nsis_list_entries(data);
         }
         if let Some(payload) = pe_embedded::sfx_payload(data) {
-            return list_entries(payload);
+            let mut entries = list_entries(payload)?;
+            for extra in pe_embedded::sfx_extra_payloads(data) {
+                if let Ok(more) = list_entries(extra) {
+                    entries.extend(more);
+                }
+            }
+            return Ok(entries);
         }
     }
     if is_rar(data) {
@@ -347,7 +353,16 @@ pub fn extract_entry(data: &[u8], name: &str) -> Result<Vec<u8>> {
             return pe_embedded::nsis_extract_entry(data, name);
         }
         if let Some(payload) = pe_embedded::sfx_payload(data) {
-            return extract_entry(payload, name);
+            let first = extract_entry(payload, name);
+            if first.is_ok() {
+                return first;
+            }
+            for extra in pe_embedded::sfx_extra_payloads(data) {
+                if let Ok(found) = extract_entry(extra, name) {
+                    return Ok(found);
+                }
+            }
+            return first;
         }
     }
     if is_rar(data) {
@@ -404,7 +419,17 @@ fn extract_to_memory(data: &[u8], relevant_only: bool) -> Result<Vec<ExtractedEn
             return pe_embedded::nsis_to_memory(data);
         }
         if let Some(payload) = pe_embedded::sfx_payload(data) {
-            return extract_archive_from_bytes(payload, relevant_only);
+            let mut entries = extract_archive_from_bytes(payload, relevant_only)?;
+            for extra in pe_embedded::sfx_extra_payloads(data) {
+                if let Ok(more) = extract_archive_from_bytes(extra, relevant_only) {
+                    entries.extend(more);
+                }
+                if entries.len() >= MAX_ARCHIVE_ENTRIES {
+                    entries.truncate(MAX_ARCHIVE_ENTRIES);
+                    break;
+                }
+            }
+            return Ok(entries);
         }
     }
     if data.starts_with(&ZIP_LOCAL_MAGIC) {

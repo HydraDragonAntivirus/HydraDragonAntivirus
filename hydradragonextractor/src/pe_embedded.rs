@@ -88,6 +88,39 @@ pub(crate) fn sfx_payload(data: &[u8]) -> Option<&[u8]> {
         .map(|pos| &ov[pos..])
 }
 
+/// Total length of a 7z archive from its signature header: 32-byte start header +
+/// next-header offset + next-header size.
+fn sevenz_len(a: &[u8]) -> Option<usize> {
+    if !a.starts_with(&SEVENZ_MAGIC) || a.len() < 32 {
+        return None;
+    }
+    let off = u64::from_le_bytes(a.get(12..20)?.try_into().ok()?);
+    let size = u64::from_le_bytes(a.get(20..28)?.try_into().ok()?);
+    let total = 32u64.checked_add(off)?.checked_add(size)?;
+    usize::try_from(total).ok().filter(|&t| t <= a.len())
+}
+
+/// Archives stored back to back after the first SFX payload (e.g. an Advanced
+/// Installer SFX: the program's 7z, then a second 7z with the MSI). Each one starts
+/// right where the previous 7z ends. At most 16.
+pub(crate) fn sfx_extra_payloads(data: &[u8]) -> Vec<&[u8]> {
+    let mut out = Vec::new();
+    let Some(mut cur) = sfx_payload(data) else { return out };
+    while out.len() < 16 {
+        let Some(len) = sevenz_len(cur) else { break };
+        let next = &cur[len..];
+        let starts = [&SEVENZ_MAGIC[..], &RAR5_MAGIC[..], &RAR15_MAGIC[..], &ZIP_LOCAL_MAGIC[..]]
+            .iter()
+            .any(|m| next.starts_with(m));
+        if !starts {
+            break;
+        }
+        out.push(next);
+        cur = next;
+    }
+    out
+}
+
 /// "inno", "nsis" or "sfx" for a PE that carries an archive.
 pub(crate) fn detect(data: &[u8]) -> Option<&'static str> {
     if !data.starts_with(b"MZ") {
