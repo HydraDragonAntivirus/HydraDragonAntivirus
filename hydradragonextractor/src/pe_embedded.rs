@@ -46,7 +46,7 @@ fn overlay(data: &[u8]) -> Option<&[u8]> {
     (!ov.is_empty()).then_some(ov)
 }
 
-fn find(haystack: &[u8], needle: &[u8]) -> Option<usize> {
+pub(crate) fn find(haystack: &[u8], needle: &[u8]) -> Option<usize> {
     if needle.is_empty() || needle.len() > haystack.len() {
         return None;
     }
@@ -88,10 +88,12 @@ pub(crate) fn sfx_payload(data: &[u8]) -> Option<&[u8]> {
         .map(|pos| &ov[pos..])
 }
 
-/// "nsis" or "sfx" for a PE that carries an archive.
+/// "inno", "nsis" or "sfx" for a PE that carries an archive.
 pub(crate) fn detect(data: &[u8]) -> Option<&'static str> {
     if !data.starts_with(b"MZ") {
         None
+    } else if crate::inno_setup::is_inno(data) {
+        Some("inno")
     } else if is_nsis(data) {
         Some("nsis")
     } else if sfx_payload(data).is_some() {

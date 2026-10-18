@@ -2,7 +2,7 @@
 name = "hydradragonextractor"
 version = "0.1.0"
 edition = "2024"
-description = "Pure-Rust archive extractor — ZIP via ripzip, TAR/GZIP/XZ/BZIP2/ZSTD/7z/ISO/CAB via native crates, RAR via unrar-ng, Electron ASAR, NSIS installers and PE self-extractors"
+description = "Pure-Rust archive extractor — ZIP via ripzip, TAR/GZIP/XZ/BZIP2/ZSTD/7z/ISO/CAB via native crates, RAR via unrar-ng, Electron ASAR, NSIS installers and Inno Setup installers and PE self-extractors"
 license = "GPL-2.0-or-later"
 
 [dependencies]
@@ -22,6 +22,8 @@ cab = "0.6"
 asar = { version = "0.3", default-features = false }
 # NSIS (NullSoft) installer parsing/extraction — pure Rust
 nsis = { git = "https://github.com/BinFlip/nsis-rs.git" }
+# Inno Setup installer parsing/extraction ([Code], records, files) — pure Rust
+innospect = "0.2"
 
 [dev-dependencies]
 # Enable the writer (default features) only for tests, to build sample archives.

@@ -45,6 +45,7 @@ pub(crate) const RAR5_MAGIC: [u8; 8] = [0x52, 0x61, 0x72, 0x21, 0x1a, 0x07, 0x01
 mod rar;
 mod pe_embedded;
 mod electron_asar;
+pub mod inno_setup;
 pub mod heuristics;
 
 pub struct ExtractResult {
@@ -290,6 +291,9 @@ pub fn list_entries(data: &[u8]) -> Result<Vec<EntryInfo>> {
         return electron_asar::asar_list_entries(data);
     }
     if data.starts_with(b"MZ") {
+        if inno_setup::is_inno(data) {
+            return inno_setup::inno_list_entries(data);
+        }
         if pe_embedded::is_nsis(data) {
             return pe_embedded::nsis_list_entries(data);
         }
@@ -336,6 +340,9 @@ pub fn extract_entry(data: &[u8], name: &str) -> Result<Vec<u8>> {
         return electron_asar::asar_extract_entry(data, name);
     }
     if data.starts_with(b"MZ") {
+        if inno_setup::is_inno(data) {
+            return inno_setup::inno_extract_entry(data, name);
+        }
         if pe_embedded::is_nsis(data) {
             return pe_embedded::nsis_extract_entry(data, name);
         }
@@ -390,6 +397,9 @@ fn extract_to_memory(data: &[u8], relevant_only: bool) -> Result<Vec<ExtractedEn
         return electron_asar::asar_to_memory(data);
     }
     if data.starts_with(b"MZ") {
+        if inno_setup::is_inno(data) {
+            return inno_setup::inno_to_memory(data);
+        }
         if pe_embedded::is_nsis(data) {
             return pe_embedded::nsis_to_memory(data);
         }
