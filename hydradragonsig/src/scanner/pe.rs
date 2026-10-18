@@ -66,7 +66,9 @@ pub fn scan_pe(bytes: &[u8]) -> Option<PeInfo> {
     let mut sections = Vec::new();
     let mut suspicious_sections = Vec::new();
     for section in &pe.sections {
-        let name = section.name.trim_matches('\0').to_string();
+        // The name ends at the first NUL; bytes after it (left by some tools and
+        // infectors, e.g. `UPX1\0c`) are not part of it.
+        let name = section.name.split('\0').next().unwrap_or("").to_string();
         let start = section.pointer_to_raw_data as usize;
         let size = section.size_of_raw_data as usize;
         let entropy = if start < bytes.len() {
@@ -92,6 +94,8 @@ pub fn scan_pe(bytes: &[u8]) -> Option<PeInfo> {
             raw_size: section.size_of_raw_data as u64,
             entropy,
             characteristics: section.characteristics,
+            virtual_address: section.virtual_address as u64,
+            raw_offset: section.pointer_to_raw_data as u64,
         });
     }
 
@@ -121,5 +125,11 @@ pub fn scan_pe(bytes: &[u8]) -> Option<PeInfo> {
         suspicious_sections,
         likely_packed,
         time_date_stamp,
+        data_directories: pe
+            .optional_header
+            .data_directories
+            .iter()
+            .map(|d| (d.virtual_address, d.size))
+            .collect(),
     })
 }

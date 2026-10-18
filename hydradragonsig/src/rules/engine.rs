@@ -185,7 +185,7 @@ static STRING_SET_CACHE: Lazy<Mutex<HashMap<String, Arc<DoubleArrayAhoCorasick<u
 static XOR_TEXT_AC_CACHE: Lazy<Mutex<HashMap<String, Arc<XorTextAc>>>> =
     Lazy::new(|| Mutex::new(HashMap::new()));
 
-fn cached_regex(pattern: &str) -> Option<Arc<Regex>> {
+pub(super) fn cached_regex(pattern: &str) -> Option<Arc<Regex>> {
     if let Some(found) = REGEX_CACHE.lock().ok()?.get(pattern).cloned() {
         return Some(found);
     }
@@ -1114,6 +1114,9 @@ fn warm_rule_caches(rule: &Rule) {
             | RuleCondition::PathRegex { pattern } => {
                 let _ = cached_regex(pattern);
             }
+            RuleCondition::PeSection { name_regex: Some(pattern), .. } => {
+                let _ = cached_regex(pattern);
+            }
             RuleCondition::StringSet {
                 values,
                 nocase,
@@ -1535,6 +1538,7 @@ fn evaluate_rule_with_matches(
             | RuleCondition::SuspiciousImportCount { .. }
             | RuleCondition::SectionEntropy { .. }
             | RuleCondition::SectionNameRegex { .. }
+            | RuleCondition::PeSection { .. }
             | RuleCondition::PackedPe => view.ensure_pe(report, bytes),
             RuleCondition::HashSha256 { .. } | RuleCondition::HashMd5 { .. } => {
                 if report.hashes.sha256.is_empty() && !bytes.is_empty() {
@@ -1950,6 +1954,7 @@ fn evaluate_condition(
                 .find(|section| re.is_match(&section.name))
                 .map(|section| format!("section_name_regex `{}` matched {}", pattern, section.name))
         }
+        RuleCondition::PeSection { .. } => super::pe_section::evaluate(cond, report.pe.as_ref()?, bytes),
         RuleCondition::PackedPe => {
             let pe = report.pe.as_ref()?;
             pe.likely_packed

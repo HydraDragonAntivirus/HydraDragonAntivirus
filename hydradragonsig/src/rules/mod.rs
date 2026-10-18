@@ -1,6 +1,7 @@
 mod engine;
 mod icon;
 mod icon_metric;
+mod pe_section;
 mod types;
 pub mod validate;
 

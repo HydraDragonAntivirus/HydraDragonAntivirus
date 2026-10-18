@@ -26,6 +26,8 @@ digest = "0.11.3"
 env_logger = { version = "0.11.10", optional = true }
 pefile-rs = { path = "../pefile-rs" }
 hex = "0.4.3"
+# pe_section code references (same version as openedr_static)
+iced-x86 = { version = "1.21", default-features = false, features = ["std", "decoder", "instr_info"] }
 # Perceptual image hashing (pHash) for image_fuzzy_hash rules. Features are
 # limited to the decoders ClamAV's fuzzy_img# subsignatures are built against.
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "bmp", "webp"] }

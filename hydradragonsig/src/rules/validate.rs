@@ -279,6 +279,66 @@ fn check_condition(cond: &RuleCondition, rules: &[Rule], own_id: &str, known_ids
         | RuleCondition::DllRegex { pattern }
         | RuleCondition::SectionNameRegex { pattern }
         | RuleCondition::PathRegex { pattern } => out.extend(regex_problem(pattern)),
+        RuleCondition::PeSection {
+            name_regex,
+            flags_all,
+            flags_none,
+            entropy_min,
+            entropy_max,
+            raw_size_min,
+            raw_size_max,
+            code_xrefs_min,
+            has_entry,
+            directories_any,
+            directories_none,
+            directory_share_max,
+            ..
+        } => {
+            if let Some(p) = name_regex {
+                out.extend(regex_problem(p));
+            }
+            for f in flags_all.iter().chain(flags_none) {
+                if super::pe_section::flag_value(f).is_none() {
+                    let names: Vec<&str> = super::pe_section::FLAGS.iter().map(|(n, _)| *n).collect();
+                    out.push(format!("unknown section flag `{f}` (known: {})", names.join(", ")));
+                }
+            }
+            if let Some(m) = directory_share_max {
+                if !(0.0..=1.0).contains(m) {
+                    out.push(format!("directory_share_max {m} is outside 0..1"));
+                }
+                if directories_any.is_empty() {
+                    out.push("directory_share_max needs directories_any".into());
+                }
+            }
+            for d in directories_any.iter().chain(directories_none) {
+                if super::pe_section::directory_index(d).is_none() {
+                    out.push(format!("unknown data directory `{d}` (known: {})", super::pe_section::DIRECTORIES.join(", ")));
+                }
+            }
+            for e in [entropy_min, entropy_max].into_iter().flatten() {
+                if !(0.0..=8.0).contains(e) {
+                    out.push(format!("entropy {e} is outside 0..8"));
+                }
+            }
+            if code_xrefs_min == &Some(0) {
+                out.push("code_xrefs_min: 0 always holds".into());
+            }
+            let empty = name_regex.is_none()
+                && flags_all.is_empty()
+                && flags_none.is_empty()
+                && entropy_min.is_none()
+                && entropy_max.is_none()
+                && raw_size_min.is_none()
+                && raw_size_max.is_none()
+                && code_xrefs_min.is_none()
+                && has_entry.is_none()
+                && directories_any.is_empty()
+                && directories_none.is_empty();
+            if empty {
+                out.push("pe_section without any property matches every PE".into());
+            }
+        }
         RuleCondition::SuspiciousImportCount { min } if *min == 0 => {
             out.push("min: 0 matches every PE".into());
         }

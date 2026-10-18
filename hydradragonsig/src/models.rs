@@ -386,6 +386,10 @@ pub struct PeSectionInfo {
     pub raw_size: u64,
     pub entropy: f64,
     pub characteristics: u32,
+    #[serde(default)]
+    pub virtual_address: u64,
+    #[serde(default)]
+    pub raw_offset: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -404,6 +408,9 @@ pub struct PeInfo {
     /// Raw value of IMAGE_FILE_HEADER.TimeDateStamp (Unix seconds, little-endian u32).
     /// 0 means the field was absent or the file is not a PE.
     pub time_date_stamp: u32,
+    /// Optional-header data directories as (RVA, size), index = IMAGE_DIRECTORY_ENTRY_*.
+    #[serde(default)]
+    pub data_directories: Vec<(u32, u32)>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

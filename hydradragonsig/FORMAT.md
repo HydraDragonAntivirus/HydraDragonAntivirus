@@ -139,6 +139,38 @@ Imports are stored as `dll!function` (or `dll!ord<N>` for imports by ordinal).
 | `section_entropy` | `min` | Some section's raw data has entropy ≥ `min` (0-8 bits per byte). |
 | `section_name_regex` | `pattern` | The regex matches a section name. |
 | `packed_pe` | | Two or more suspicious sections (entropy ≥ 7.2, `UPX*` / `.packed*` / empty name), a `UPX*` section, or at most 3 sections with one at entropy ≥ 7.4. |
+| `pe_section` | `select`, `name_regex`, `flags_all`, `flags_none`, `entropy_min`, `entropy_max`, `raw_size_min`, `raw_size_max`, `code_xrefs_min`, `has_entry`, `directories_any`, `directories_none`, `directory_share_max` | The chosen section passes every key that is given (see below). |
+
+#### `pe_section`
+
+Describes one section, so file infectors, packers and protectors can be written
+as rules instead of code. `select` picks the section: `any` (default: one
+section must pass), `last` (last in the section table) or `entry` (the one with
+the entry point). Every other key is optional; all given keys must hold.
+
+| Key | Meaning |
+|---|---|
+| `name_regex` | Regex on the section name (the name ends at the first NUL). |
+| `flags_all` / `flags_none` | Characteristics that must all be set / must all be clear: `code`, `initialized_data`, `uninitialized_data`, `discardable`, `not_cached`, `not_paged`, `shared`, `execute`, `read`, `write`. |
+| `entropy_min` / `entropy_max` | Entropy of the section's raw data (0-8). |
+| `raw_size_min` / `raw_size_max` | SizeOfRawData in bytes. |
+| `has_entry` | `true`: the entry point is inside it; `false`: it is not. |
+| `directories_any` | One of these data directories points inside it: `export`, `import`, `resource`, `exception`, `security`, `basereloc`, `debug`, `architecture`, `globalptr`, `tls`, `load_config`, `bound_import`, `iat`, `delay_import`, `clr`. |
+| `directories_none` | None of these data directories points inside it. |
+| `directory_share_max` | With `directories_any`: those directories cover at most this share (0-1) of the section. An infector that appends its body to the section holding a small table (relocations, exception data) leaves a share near 0. |
+| `code_xrefs_min` | At least this many direct near `call` / `jmp` / `jcc` from the other executable sections land inside it (iced-x86 linear sweep, so code reached only through data or after misaligned bytes is not counted). |
+
+Example, an appender that keeps the relocation table in its own writable,
+executable, encrypted last section:
+
+```yaml
+- type: pe_section
+  select: last
+  flags_all: [write, execute]
+  entropy_min: 7.8
+  raw_size_min: 32768
+  directories_any: [basereloc]
+```
 
 Import name matching is a case-insensitive **suffix** match on `dll!function`:
 `VirtualAlloc` matches `kernel32.dll!VirtualAlloc` (and not `VirtualAllocEx`),

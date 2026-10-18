@@ -100,6 +100,7 @@ impl Rule {
                 | RuleCondition::NewImportSet { .. }
                 | RuleCondition::SectionEntropy { .. }
                 | RuleCondition::SectionNameRegex { .. }
+                | RuleCondition::PeSection { .. }
                 | RuleCondition::PackedPe => {
                     if !types.contains(&"pe".to_string()) {
                         types.push("pe".to_string());
@@ -139,6 +140,22 @@ pub enum RuleLogic {
     Any,
     #[serde(alias = "Threshold", alias = "THRESHOLD")]
     Threshold,
+}
+
+/// Which section a `pe_section` condition looks at.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PeSectionSelect {
+    /// Any section (the condition holds when one section passes).
+    #[default]
+    #[serde(alias = "Any", alias = "ANY")]
+    Any,
+    /// The last section in the section table.
+    #[serde(alias = "Last", alias = "LAST")]
+    Last,
+    /// The section that holds the entry point.
+    #[serde(alias = "Entry", alias = "ENTRY")]
+    Entry,
 }
 
 #[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
@@ -292,6 +309,44 @@ pub enum RuleCondition {
     },
     SectionNameRegex {
         pattern: String,
+    },
+    /// Properties of one chosen PE section (see FORMAT.md 5.2): which section
+    /// (`select`), its name, flags, entropy, sizes, code references into it and the
+    /// data directories that point into it. Every given key must hold.
+    PeSection {
+        #[serde(default)]
+        select: PeSectionSelect,
+        #[serde(default)]
+        name_regex: Option<String>,
+        #[serde(default)]
+        flags_all: Vec<String>,
+        #[serde(default)]
+        flags_none: Vec<String>,
+        #[serde(default)]
+        entropy_min: Option<f64>,
+        #[serde(default)]
+        entropy_max: Option<f64>,
+        #[serde(default)]
+        raw_size_min: Option<u64>,
+        #[serde(default)]
+        raw_size_max: Option<u64>,
+        /// Direct `call` / `jmp` (rel32) from the other executable sections into it.
+        #[serde(default)]
+        code_xrefs_min: Option<usize>,
+        /// Holds the entry point.
+        #[serde(default)]
+        has_entry: Option<bool>,
+        /// Data directories pointing into it: export, import, resource, exception,
+        /// security, basereloc, debug, tls, load_config, iat, delay_import, clr.
+        #[serde(default)]
+        directories_any: Vec<String>,
+        /// None of these data directories may point into it.
+        #[serde(default)]
+        directories_none: Vec<String>,
+        /// With `directories_any`: the directories inside it cover at most this share
+        /// (0-1) of the section, i.e. the rest of the section is something else.
+        #[serde(default)]
+        directory_share_max: Option<f64>,
     },
     PackedPe,
 
