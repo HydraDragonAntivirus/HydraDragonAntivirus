@@ -27,6 +27,57 @@ pub const SUSPICIOUS_APIS: &[&str] = &[
     "InternetOpenUrlA", "InternetOpenUrlW",
 ];
 
+/// Mandiant / pefile import hash: MD5 of the comma-joined `dll.function` pairs in import
+/// order, lower case, `.dll` / `.ocx` / `.sys` cut off the DLL name, `ordN` imports named
+/// where pefile names them. `None` without imports. The one implementation: the Multron
+/// server's analyzer and imphash signatures call this too.
+pub fn imphash<'a>(imports: impl IntoIterator<Item = (&'a str, &'a str)>) -> Option<String> {
+    use digest::Digest;
+    let mut parts = Vec::new();
+    for (dll, func) in imports {
+        let lower = dll.to_ascii_lowercase();
+        let base = match lower.rsplit_once('.') {
+            Some((b, e)) if ["dll", "ocx", "sys"].contains(&e) => b.to_string(),
+            _ => lower.clone(),
+        };
+        let func = match func.strip_prefix("ord") {
+            Some(n) if !n.is_empty() && n.chars().all(|c| c.is_ascii_digit()) => {
+                let ord: u32 = n.parse().unwrap_or(0);
+                ordinal_name(&base, ord).map(str::to_string).unwrap_or_else(|| format!("ord{ord}"))
+            }
+            _ => func.to_ascii_lowercase(),
+        };
+        parts.push(format!("{base}.{}", func.to_ascii_lowercase()));
+    }
+    if parts.is_empty() {
+        return None;
+    }
+    Some(hex::encode(md5::Md5::digest(parts.join(",").as_bytes())))
+}
+
+/// Ordinal imports pefile names for the imphash (the common ones).
+fn ordinal_name(dll: &str, ord: u32) -> Option<&'static str> {
+    match (dll, ord) {
+        ("ws2_32" | "wsock32", 1) => Some("accept"),
+        ("ws2_32" | "wsock32", 2) => Some("bind"),
+        ("ws2_32" | "wsock32", 3) => Some("closesocket"),
+        ("ws2_32" | "wsock32", 4) => Some("connect"),
+        ("ws2_32" | "wsock32", 9) => Some("htons"),
+        ("ws2_32" | "wsock32", 11) => Some("inet_addr"),
+        ("ws2_32" | "wsock32", 13) => Some("listen"),
+        ("ws2_32" | "wsock32", 16) => Some("recv"),
+        ("ws2_32" | "wsock32", 19) => Some("send"),
+        ("ws2_32" | "wsock32", 23) => Some("socket"),
+        ("ws2_32" | "wsock32", 52) => Some("gethostbyname"),
+        ("ws2_32" | "wsock32", 115) => Some("wsastartup"),
+        ("ws2_32" | "wsock32", 116) => Some("wsacleanup"),
+        ("oleaut32", 2) => Some("sysallocstring"),
+        ("oleaut32", 6) => Some("sysfreestring"),
+        ("oleaut32", 7) => Some("sysstringlen"),
+        _ => None,
+    }
+}
+
 pub fn scan_pe(bytes: &[u8]) -> Option<PeInfo> {
     let pe = pefile_rs::PE::parse(bytes).ok()?;
 
@@ -112,6 +163,8 @@ pub fn scan_pe(bytes: &[u8]) -> Option<PeInfo> {
         .filter_map(|sym| sym.name.clone())
         .collect();
 
+    let imphash = imphash(imports.iter().filter_map(|s| s.split_once('!')));
+
     Some(PeInfo {
         arch: if pe.is_64bit { "x64".into() } else { "x86".into() },
         is_64: pe.is_64bit,
@@ -125,6 +178,7 @@ pub fn scan_pe(bytes: &[u8]) -> Option<PeInfo> {
         suspicious_sections,
         likely_packed,
         time_date_stamp,
+        imphash,
         data_directories: pe
             .optional_header
             .data_directories
@@ -132,4 +186,22 @@ pub fn scan_pe(bytes: &[u8]) -> Option<PeInfo> {
             .map(|d| (d.virtual_address, d.size))
             .collect(),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::imphash;
+
+    #[test]
+    fn imphash_matches_pefile() {
+        // md5("kernel32.exitprocess,ws2_32.connect,user32.messageboxa"): extension cut,
+        // lower case, ws2_32 ordinal 4 named like pefile does.
+        let got = imphash([("KERNEL32.dll", "ExitProcess"), ("WS2_32.dll", "ord4"), ("user32.DLL", "MessageBoxA")]);
+        assert_eq!(got.as_deref(), Some("680797a9ccfa0d4adffde6422712a36a"));
+    }
+
+    #[test]
+    fn no_imports_no_imphash() {
+        assert_eq!(imphash(std::iter::empty()), None);
+    }
 }

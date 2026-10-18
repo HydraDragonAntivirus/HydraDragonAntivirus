@@ -185,6 +185,7 @@ require the whole function name, or `kernel32.dll!VirtualAlloc` to pin the DLL.
 | `file_size_gte` / `file_size_lte` | `bytes` | Size ≥ / ≤ `bytes`. |
 | `file_entropy` | `min` | Whole-file entropy ≥ `min`. |
 | `hash_sha256` / `hash_md5` | `value` | The file hash equals `value` (case-insensitive). |
+| `imphash_any` | `values` | The PE's import hash is one of `values` (32 hex characters, case-insensitive). Same imphash as pefile / Mandiant and the Multron server's imphash signatures. Every program built the same way shares an imphash, and every .NET program has the same one: combine it with other conditions or check it on clean files first. |
 | `path_regex` | `pattern` | The regex matches the scanned path (as given; memory scans use `memory://<id>`, archive members `archive://<parent>!<member>`). |
 | `feature_gte` | `name`, `value` | A numeric feature is ≥ `value` (section 9). |
 | `feature_lte` | `name`, `value` | A numeric feature is ≤ `value` (section 9), e.g. `pe_import_count` ≤ 10 for a thin stub. |

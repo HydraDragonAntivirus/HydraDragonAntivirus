@@ -272,6 +272,14 @@ struct HookState {
     /// long a decryption loop runs; the old Vec of every single write grew by 16 bytes
     /// per write (millions per second) until the scanner ran out of memory.
     written_pages: HashSet<u64>,
+    /// First address executed from a page this run had written (write-execute):
+    /// self-decrypting / self-modifying code.
+    wx_hit: Option<u64>,
+    /// Map a zeroed page on an unmapped read/write/fetch and continue instead of
+    /// stopping (infector scan: polymorphic junk code dereferences registers that
+    /// pointed at host data in the real process). Bounded by `faults`.
+    map_on_fault: bool,
+    faults: u32,
     /// Section addresses are RVAs; hook addresses are absolute.
     image_base: u64,
     apicall_counter: HashMap<String, u64>,
@@ -298,6 +306,8 @@ pub struct UnpackerEngine {
     pub sections_written: HashMap<String, u64>,
     pub sections_executed: HashMap<String, u64>,
     pub write_targets: Vec<(u64, u64)>,
+    /// First address executed from a page written during this run, if any.
+    pub wx_hit: Option<u64>,
     pub apicall_counter: HashMap<String, u64>,
     pub hook_addr: u64,
     pub stack_addr: u64,
@@ -332,6 +342,7 @@ impl UnpackerEngine {
             sections_written: HashMap::new(),
             sections_executed: HashMap::new(),
             write_targets: Vec::new(),
+            wx_hit: None,
             apicall_counter: HashMap::new(),
             hook_addr: HOOK_ADDR,
             stack_addr: STACK_ADDR,
@@ -352,6 +363,9 @@ impl UnpackerEngine {
                 sections_written: HashMap::new(),
                 sections_executed: HashMap::new(),
                 written_pages: HashSet::new(),
+                wx_hit: None,
+                map_on_fault: false,
+                faults: 0,
                 image_base,
                 apicall_counter: HashMap::new(),
                 hook_addr: HOOK_ADDR,
@@ -571,6 +585,7 @@ impl UnpackerEngine {
         // --- Register hooks ---
         let hook_state = Rc::clone(&self.hook_state);
         let hook_state2 = Rc::clone(&self.hook_state);
+        let hook_state3 = Rc::clone(&self.hook_state);
         // Code hook
         let code_hook = uc
             .add_code_hook(0, u64::MAX, move |uc, addr, _size| {
@@ -613,6 +628,9 @@ impl UnpackerEngine {
                         }
                         if st.unpacker.write_execute_control && st.written_pages.contains(&(addr >> 12)) {
                             log::warn!("Write-execute at {:#x}", addr);
+                            if st.wx_hit.is_none() {
+                                st.wx_hit = Some(addr);
+                            }
                             true
                         } else if st.unpacker.section_hopping_control
                             && !idx.is_some_and(|i| st.unpacker.allowed_sections.iter().any(|n| *n == st.sample_sections[i].name))
@@ -692,7 +710,18 @@ impl UnpackerEngine {
                     | UcHookType::MEM_FETCH_UNMAPPED,
                 0,
                 u64::MAX,
-                move |_uc, _mem_type, addr, _size, _value| {
+                move |uc, _mem_type, addr, _size, _value| {
+                    {
+                        let mut st = hook_state3.borrow_mut();
+                        if st.map_on_fault && st.faults < 512 {
+                            st.faults += 1;
+                            drop(st);
+                            let page = addr & !0xfff;
+                            if uc.mem_map(page, 0x1000, Prot::ALL).is_ok() {
+                                return true;
+                            }
+                        }
+                    }
                     log::error!("Invalid memory access at {:#x}", addr);
                     false
                 },
@@ -716,12 +745,38 @@ impl UnpackerEngine {
     // ------------------------------------------------------------------
 
     pub fn emu(&mut self) -> UnpackerResult<()> {
+        let ep = entrypoint(&self.sample.opt_header);
+        self.emu_from(ep, 30 * SECOND_SCALE, 0)
+    }
+
+    /// Stop on write-execute (self-modifying code) and/or on leaving the
+    /// allowed sections. Call after `init_uc`, before `emu` / `emu_from`.
+    pub fn set_controls(&mut self, write_execute: bool, section_hopping: bool) {
+        let mut hs = self.hook_state.borrow_mut();
+        hs.unpacker.write_execute_control = write_execute;
+        hs.unpacker.section_hopping_control = section_hopping;
+    }
+
+    /// Stop once execution reaches `end` or beyond (the packer configs stop at
+    /// image base + 0x10000; an appended virus body lies far past that).
+    pub fn set_end_addr(&mut self, end: u64) {
+        self.hook_state.borrow_mut().unpacker.endaddr = end;
+    }
+
+    /// Map zeroed pages on unmapped accesses instead of stopping (at most 512).
+    pub fn set_map_on_fault(&mut self, on: bool) {
+        self.hook_state.borrow_mut().map_on_fault = on;
+    }
+
+    /// Emulate from `start` (absolute address) for at most `timeout_us`
+    /// microseconds and `count` instructions (0 = no limit).
+    pub fn emu_from(&mut self, start: u64, timeout_us: u64, count: usize) -> UnpackerResult<()> {
         let uc = self
             .uc
             .as_mut()
             .ok_or_else(|| UnpackerError::EmulatorError("engine not initialized".into()))?;
 
-        let ep = entrypoint(&self.sample.opt_header);
+        let ep = start;
         let end_addr = self.sample.base_addr + self.sample.virtualmemorysize;
 
         // Sync hook state from engine fields
@@ -736,7 +791,7 @@ impl UnpackerEngine {
             hs.start_time = self.start_time;
         }
 
-        let result = uc.emu_start(ep, end_addr, 30 * SECOND_SCALE, 0);
+        let result = uc.emu_start(ep, end_addr, timeout_us, count);
 
         // Sync back results
         {
@@ -755,6 +810,7 @@ impl UnpackerEngine {
                 }
             }
             self.write_targets = ranges;
+            self.wx_hit = hs.wx_hit;
             self.apicall_counter = hs.apicall_counter.clone();
         }
 

@@ -97,6 +97,7 @@ impl Rule {
                 | RuleCondition::DllAny { .. }
                 | RuleCondition::DllRegex { .. }
                 | RuleCondition::SuspiciousImportCount { .. }
+                | RuleCondition::ImphashAny { .. }
                 | RuleCondition::NewImportSet { .. }
                 | RuleCondition::SectionEntropy { .. }
                 | RuleCondition::SectionNameRegex { .. }
@@ -369,6 +370,10 @@ pub enum RuleCondition {
     },
     HashMd5 {
         value: String,
+    },
+    /// The PE's import hash (Mandiant / pefile imphash) is one of these.
+    ImphashAny {
+        values: Vec<String>,
     },
     FeatureGte {
         name: String,

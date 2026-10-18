@@ -816,53 +816,12 @@ pub fn pe_imphash(data: &[u8]) -> Option<(String, usize, bool)> {
     Some((imphash(&pe.imports)?, pe.import_count, pe.is_dotnet))
 }
 
-/// Mandiant/pefile imphash: md5 of "dll.func" pairs, lowercase, extension stripped.
+/// Mandiant/pefile imphash (hydradragonsig's implementation, so the analyzer, the
+/// imphash signatures and HydraDragonSig `imphash_any` rules give the same value).
 fn imphash(imports: &[ImportDll]) -> Option<String> {
-    let mut parts = Vec::new();
-    for imp in imports {
-        let lower = imp.dll.to_ascii_lowercase();
-        let base = match lower.rsplit_once('.') {
-            Some((b, e)) if ["dll", "ocx", "sys"].contains(&e) => b.to_string(),
-            _ => lower.clone(),
-        };
-        for f in &imp.functions {
-            let func = match f.strip_prefix("ord") {
-                Some(n) if n.chars().all(|c| c.is_ascii_digit()) => {
-                    let ord: u32 = n.parse().unwrap_or(0);
-                    ordinal_name(&base, ord).map(str::to_string).unwrap_or_else(|| format!("ord{ord}"))
-                }
-                _ => f.to_ascii_lowercase(),
-            };
-            parts.push(format!("{base}.{}", func.to_ascii_lowercase()));
-        }
-    }
-    if parts.is_empty() {
-        return None;
-    }
-    Some(hex::encode(md5(parts.join(",").as_bytes())))
-}
-
-/// Ordinal lookups pefile uses for imphash (the common ones).
-fn ordinal_name(dll: &str, ord: u32) -> Option<&'static str> {
-    match (dll, ord) {
-        ("ws2_32" | "wsock32", 1) => Some("accept"),
-        ("ws2_32" | "wsock32", 2) => Some("bind"),
-        ("ws2_32" | "wsock32", 3) => Some("closesocket"),
-        ("ws2_32" | "wsock32", 4) => Some("connect"),
-        ("ws2_32" | "wsock32", 9) => Some("htons"),
-        ("ws2_32" | "wsock32", 11) => Some("inet_addr"),
-        ("ws2_32" | "wsock32", 13) => Some("listen"),
-        ("ws2_32" | "wsock32", 16) => Some("recv"),
-        ("ws2_32" | "wsock32", 19) => Some("send"),
-        ("ws2_32" | "wsock32", 23) => Some("socket"),
-        ("ws2_32" | "wsock32", 52) => Some("gethostbyname"),
-        ("ws2_32" | "wsock32", 115) => Some("wsastartup"),
-        ("ws2_32" | "wsock32", 116) => Some("wsacleanup"),
-        ("oleaut32", 2) => Some("sysallocstring"),
-        ("oleaut32", 6) => Some("sysfreestring"),
-        ("oleaut32", 7) => Some("sysstringlen"),
-        _ => None,
-    }
+    hydradragonsig::scanner::pe::imphash(
+        imports.iter().flat_map(|i| i.functions.iter().map(move |f| (i.dll.as_str(), f.as_str()))),
+    )
 }
 
 // ---------------------------------------------------------------- API indicators

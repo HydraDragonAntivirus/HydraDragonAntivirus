@@ -51,6 +51,7 @@ pub const CONDITION_KEYS: &[(&str, &[&str])] = &[
     ("file_type", &["values"]),
     ("hash_sha256", &["value"]),
     ("hash_md5", &["value"]),
+    ("imphash_any", &["values"]),
     ("feature_gte", &["name", "value"]),
     ("feature_lte", &["name", "value"]),
     ("has_parent", &[]),
@@ -364,6 +365,12 @@ fn check_condition(cond: &RuleCondition, rules: &[Rule], own_id: &str, known_ids
         }
         RuleCondition::HashSha256 { value } if !hex_len(value.trim(), 64) => out.push("sha256 must be 64 hex characters".into()),
         RuleCondition::HashMd5 { value } if !hex_len(value.trim(), 32) => out.push("md5 must be 32 hex characters".into()),
+        RuleCondition::ImphashAny { values } => {
+            list_problems("values", values, None, &mut out);
+            for v in values.iter().filter(|v| !hex_len(v.trim(), 32)) {
+                out.push(format!("imphash `{v}` must be 32 hex characters"));
+            }
+        }
         RuleCondition::FeatureGte { name, .. }
         | RuleCondition::FeatureLte { name, .. }
         | RuleCondition::FeatureDeltaGte { name, .. }
@@ -466,7 +473,7 @@ mod tests {
         match ctype {
             "string_contains" | "hash_sha256" | "hash_md5" => "        value: x\n",
             "string_regex" | "import_regex" | "dll_regex" | "section_name_regex" | "path_regex" | "byte_pattern" => "        pattern: x\n",
-            "string_set" | "file_type" => "        values: [x]\n",
+            "string_set" | "file_type" | "imphash_any" => "        values: [x]\n",
             "native_signature" => "        atoms: []\n        expression: x\n",
             "suspicious_import_count" | "file_entropy" | "section_entropy" => "        min: 1\n",
             "file_size_gte" | "file_size_lte" => "        bytes: 1\n",

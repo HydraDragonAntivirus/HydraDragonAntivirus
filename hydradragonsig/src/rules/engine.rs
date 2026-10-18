@@ -1304,6 +1304,7 @@ fn rule_signature_atom_count(rule: &Rule) -> usize {
             | RuleCondition::ImportAll { names }
             | RuleCondition::ImportSet { names, .. }
             | RuleCondition::DllAny { names } => names.len(),
+            RuleCondition::ImphashAny { values } => values.len(),
             _ => 1,
         })
         .sum()
@@ -1536,6 +1537,7 @@ fn evaluate_rule_with_matches(
             | RuleCondition::DllAny { .. }
             | RuleCondition::DllRegex { .. }
             | RuleCondition::SuspiciousImportCount { .. }
+            | RuleCondition::ImphashAny { .. }
             | RuleCondition::SectionEntropy { .. }
             | RuleCondition::SectionNameRegex { .. }
             | RuleCondition::PeSection { .. }
@@ -1992,6 +1994,13 @@ fn evaluate_condition(
             .md5
             .eq_ignore_ascii_case(value)
             .then(|| "md5 hash matched".to_string()),
+        RuleCondition::ImphashAny { values } => {
+            let h = report.pe.as_ref()?.imphash.as_deref()?;
+            values
+                .iter()
+                .any(|v| v.trim().eq_ignore_ascii_case(h))
+                .then(|| format!("imphash_any matched {h}"))
+        }
         RuleCondition::FeatureGte { name, value } => {
             let current = report.features.get(name)?.as_f64()?;
             (current >= *value).then(|| format!("feature {}={} >= {}", name, current, value))

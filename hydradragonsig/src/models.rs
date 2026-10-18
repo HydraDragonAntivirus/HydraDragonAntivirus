@@ -408,6 +408,9 @@ pub struct PeInfo {
     /// Raw value of IMAGE_FILE_HEADER.TimeDateStamp (Unix seconds, little-endian u32).
     /// 0 means the field was absent or the file is not a PE.
     pub time_date_stamp: u32,
+    /// Import hash (Mandiant / pefile), lower-case hex; None without imports.
+    #[serde(default)]
+    pub imphash: Option<String>,
     /// Optional-header data directories as (RVA, size), index = IMAGE_DIRECTORY_ENTRY_*.
     #[serde(default)]
     pub data_directories: Vec<(u32, u32)>,

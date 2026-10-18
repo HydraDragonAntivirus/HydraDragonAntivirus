@@ -1741,6 +1741,68 @@ impl StaticEngine {
             }
         }
 
+        // 6b. Classic file infectors (generic decryption). Emulate the control
+        // transfer into the trailing section (entry point there, or a host
+        // `call`/`jmp rel32` patched to it = EPO) until the body writes a page and
+        // executes it. EPO + self-decryption is an infector; entry point in the tail
+        // with the host code left intact is suspicious (protectors do it too). The
+        // decrypted body is scanned like any other object, so a family signature
+        // written for the decrypted bytes matches every infected copy.
+        if is_pe_candidate {
+            if let Some(f) = hydradragonunicorn::infector::find_self_decrypting_body(data) {
+                let is64 = data
+                    .get(0x3c..0x40)
+                    .map(|b| u32::from_le_bytes([b[0], b[1], b[2], b[3]]) as usize)
+                    .and_then(|o| data.get(o + 24..o + 26))
+                    .map_or(false, |m| m == [0x0b, 0x02]);
+                let plat = if is64 { "Win64" } else { "Win32" };
+                let hit = if f.from_epo {
+                    Some((format!("Virus.{plat}.Generic.EPO.SelfDecrypting"), 1.0f32))
+                } else if f.host_code_intact {
+                    Some((format!("Virus.{plat}.Generic.Appender.SelfDecrypting"), 0.70f32))
+                } else {
+                    None
+                };
+                if let Some((name, score)) = hit {
+                    detections.push(DetectionItem {
+                        layer: "Emulation".to_string(),
+                        name,
+                        score: Some(score),
+                        details: Some(format!(
+                            "control transfer at {:#x} ({}) into the trailing section; code executed at {:#x} from a page it wrote; decrypted {} bytes at {:#x}",
+                            f.transfer_from,
+                            if f.from_epo { "patched host call/jmp" } else { "entry point" },
+                            f.wx_addr,
+                            f.body.len(),
+                            f.body_va
+                        )),
+                    });
+                    max_score = max_score.max(score);
+                }
+                if !f.body.is_empty() {
+                    let obj = ScanObject::new(
+                        format!("{target_name}.decrypted.bin"),
+                        format!("{target_name} -> [Emulation:Decrypted@{:#x}]", f.body_va),
+                        f.body,
+                        1,
+                        "EmuDecrypted",
+                    )
+                    .with_parent(target_name, data);
+                    let extracted = self.scan_object(&obj);
+                    max_score = max_score.max(extracted.max_threat_score);
+                    for d in &extracted.detections {
+                        detections.push(DetectionItem {
+                            layer: format!("Emulation_Decrypted_{}", d.layer),
+                            name: format!("Decrypted:{}", d.name),
+                            score: d.score,
+                            details: d.details.clone(),
+                        });
+                    }
+                    extracted_objects.push(extracted);
+                }
+            }
+        }
+
         // 7. Heuristic: Trailing Null Bytes — PE files ONLY. Applies to any
         // non-APK buffer today, which false-positives on ordinary
         // preallocated/zero-filled files (sparse installers, LevelDB, sparse

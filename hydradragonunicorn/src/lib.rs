@@ -17,6 +17,7 @@ pub mod error;
 pub mod extract;
 pub mod filetype;
 pub mod fs;
+pub mod infector;
 pub mod module;
 pub mod sality;
 pub mod scanner;
