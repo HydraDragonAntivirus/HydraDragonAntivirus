@@ -477,7 +477,9 @@ fn extract_to_memory(data: &[u8], relevant_only: bool) -> Result<Vec<ExtractedEn
 //     compressible content (sparse files, repeated-byte images, logs).
 pub(crate) const MAX_DECOMPRESSED_SIZE: usize = 200_000_000;
 const BOMB_RATIO: usize = 1000;
-const MIN_RATIO_CHECK_SIZE: usize = 10_000_000;
+// 100 MB: sparse disk images (Ventoy's 32 MB FAT image packs to 5.7 KB, ratio
+// 5800) are normal; a bomb only matters once it costs real memory.
+const MIN_RATIO_CHECK_SIZE: usize = 100_000_000;
 
 /// User-toggleable from settings — disabling removes all decompression-bomb
 /// caps above, at the cost of allowing unbounded extraction time/memory on a
@@ -1256,9 +1258,9 @@ mod tests {
     #[test]
     fn bomb_detection_rejects_high_ratio() {
         setup_bomb_detection(true);
-        let small = vec![0u8; 16];
-        let big = vec![0u8; 16_001_000];
-        assert!(is_decompression_bomb(small.len(), big.len()));
+        assert!(is_decompression_bomb(16, 100_001_000));
+        // A 32 MB sparse disk image from 5.7 KB (Ventoy) is not a bomb.
+        assert!(!is_decompression_bomb(5_724, 33_554_432));
     }
 
     #[test]

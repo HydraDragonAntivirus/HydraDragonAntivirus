@@ -116,7 +116,12 @@ pub fn detect_suspicious_filename(filename: &str) -> FilenameObfuscation {
     }
 
     let parts: Vec<&str> = leaf.split('.').collect();
-    if parts.len() > 5 {
+    // Many dots alone are normal (versioned package names such as
+    // "Microsoft.WindowsStore_12010.1001.113.0_neutral_~_8wekyb3d8bbwe.Appx.aria2"):
+    // the name must still end in a risky extension (program, script, macro
+    // document, disk image, archive), not just carry one in the middle.
+    let final_ext = extension_of(leaf).to_ascii_lowercase();
+    if parts.len() > 5 && is_known_extension(&final_ext) {
         let known: Vec<String> = parts[1..]
             .iter()
             .map(|p| format!(".{}", p.to_ascii_lowercase()))
@@ -378,6 +383,28 @@ pub fn inspect_pe_rva_trick(data: &[u8]) -> Option<String> {
         return Some(format!("implausible NumberOfSections={num_sections}"));
     }
     let sec_off = opt + size_of_optional;
+    // A debug-symbol image (objcopy --only-keep-debug, "foo.exe.debug") keeps the
+    // section table but no code bytes: every executable section has no raw data.
+    // Nothing on disk can run, so an entry point there is not a trick.
+    let mut exec_on_disk = false;
+    let mut any_exec = false;
+    for i in 0..num_sections {
+        let s = sec_off + i * 40;
+        if s + 40 > data.len() {
+            break;
+        }
+        let raw_size = read_u32(data, s + 16)?;
+        let chars = read_u32(data, s + 36)?;
+        if chars & 0x2000_0020 != 0 {
+            any_exec = true;
+            if raw_size > 0 {
+                exec_on_disk = true;
+            }
+        }
+    }
+    if any_exec && !exec_on_disk {
+        return None;
+    }
     let mut in_virtual = false;
     let mut in_raw = false;
     for i in 0..num_sections {
@@ -663,6 +690,40 @@ mod tests {
     fn clean_name_is_not_suspicious() {
         let det = detect_suspicious_filename("readme.txt");
         assert!(!det.suspicious());
+    }
+
+    #[test]
+    fn versioned_package_name_is_not_multi_ext() {
+        let det = detect_suspicious_filename(
+            "Microsoft.WindowsStore_12010.1001.113.0_neutral_~_8wekyb3d8bbwe.Appx.aria2",
+        );
+        assert!(!det.multiple_extensions);
+        let det = detect_suspicious_filename("invoice.2024.10.pdf.doc.exe");
+        assert!(det.multiple_extensions);
+        let det = detect_suspicious_filename("scan.2024.10.pdf.docx.iso");
+        assert!(det.multiple_extensions);
+    }
+
+    #[test]
+    fn debug_symbol_image_is_not_rva_trick() {
+        // .text with virtual size but no raw data, EP inside it (objcopy --only-keep-debug).
+        let mut pe = vec![0u8; 0x200];
+        pe[0] = b'M';
+        pe[1] = b'Z';
+        pe[0x3c] = 0x80;
+        pe[0x80..0x84].copy_from_slice(b"PE\0\0");
+        pe[0x86] = 1;
+        pe[0x80 + 20] = 0xe0;
+        pe[0x80 + 24] = 0x0b;
+        pe[0x80 + 25] = 0x01;
+        pe[0x80 + 24 + 16..0x80 + 24 + 20].copy_from_slice(&0x1400u32.to_le_bytes());
+        pe[0x80 + 24 + 56..0x80 + 24 + 60].copy_from_slice(&0x10000u32.to_le_bytes());
+        pe[0x80 + 24 + 92..0x80 + 24 + 96].copy_from_slice(&16u32.to_le_bytes());
+        let sec = 0x80 + 24 + 0xe0;
+        pe[sec + 8..sec + 12].copy_from_slice(&0x5000u32.to_le_bytes());
+        pe[sec + 12..sec + 16].copy_from_slice(&0x1000u32.to_le_bytes());
+        pe[sec + 36..sec + 40].copy_from_slice(&0x6000_0020u32.to_le_bytes());
+        assert_eq!(inspect_pe_rva_trick(&pe), None);
     }
 
     #[test]
