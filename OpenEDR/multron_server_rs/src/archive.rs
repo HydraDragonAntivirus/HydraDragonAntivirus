@@ -34,8 +34,10 @@ use serde::{Deserialize, Serialize};
 use crate::config::app_dir;
 
 /// Files directly in the server folder that are mirrored.
-pub const MIRROR_FILES: [&str; 6] = [
+pub const MIRROR_FILES: [&str; 8] = [
     "threat_insights.jsonl",
+    "verdict_changes.jsonl",
+    "verdict_changes_backfill.jsonl",
     "multron_cache.jsonl",
     "tlsh_index.jsonl",
     "multron_events.ecs.jsonl",
@@ -43,8 +45,9 @@ pub const MIRROR_FILES: [&str; 6] = [
     "sample_api_keys.txt",
 ];
 /// Append-only line databases: added to in the archive, never replaced (see the module docs).
-pub const LOG_FILES: [&str; 5] = [
+pub const LOG_FILES: [&str; 6] = [
     "threat_insights.jsonl",
+    "verdict_changes.jsonl",
     "multron_cache.jsonl",
     "tlsh_index.jsonl",
     "multron_events.ecs.jsonl",

@@ -17,6 +17,7 @@ mod imphash_sigs;
 mod ip_bans;
 mod missing_files;
 mod naming;
+mod verdict_history;
 mod reports;
 mod folder_wl;
 mod fp_ignore;
@@ -326,6 +327,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 /// Kept-file and review-queue upkeep at start (legacy layouts, human verdicts,
 /// duplicates). After a seamless-update takeover it runs in the background.
 fn startup_upkeep(engine: &Arc<EngineAdapter>, ti: &Arc<threat_intel::ThreatIntelStore>) {
+    // One-off: verdict history from the existing append-only logs (background).
+    verdict_history::backfill_if_missing();
     engine.sort_legacy_kept(|sha| ti.get(sha).map(|i| i.verdict));
     // Kept files follow human verdicts (e.g. bulk whitelists made by older builds).
     let queued = ti.sync_review_queue(&|s| engine.is_kept(s));

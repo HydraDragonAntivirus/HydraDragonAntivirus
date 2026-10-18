@@ -1601,6 +1601,7 @@ async fn handle_dashboard_insights_hash(
             "insight": insight,
             "review": app.threat_intel.reviews.get(&clean).map(|r| r.to_dashboard_json()),
             "virustotal": crate::human_review::virustotal_url(&clean),
+            "history": crate::verdict_history::get(&clean),
         }))
     } else {
         Json(serde_json::json!({
@@ -1609,6 +1610,7 @@ async fn handle_dashboard_insights_hash(
             "sha256": clean,
             "review": app.threat_intel.reviews.get(&clean).map(|r| r.to_dashboard_json()),
             "virustotal": crate::human_review::virustotal_url(&clean),
+            "history": crate::verdict_history::get(&clean),
             "message": "Hash has not been observed in VirusKov telemetry",
         }))
     }

@@ -359,8 +359,10 @@ impl ThreatIntelStore {
 
         let now_str = Utc::now().to_rfc3339();
 
+        let old_verdict: Option<String>;
         let updated_insight = {
             let mut guard = self.map.write().unwrap();
+            old_verdict = guard.get(&sha_bytes).map(|e| e.verdict.clone());
             let entry = guard.entry(sha_bytes).or_insert_with(|| ThreatInsight {
                 sha256: sha256_hex.to_lowercase(),
                 first_seen: now_str.clone(),
@@ -423,6 +425,12 @@ impl ThreatIntelStore {
 
             entry.clone()
         };
+        // History: a new verdict (a first "unknown" placeholder is not one).
+        if old_verdict.as_deref() != Some(updated_insight.verdict.as_str())
+            && !(old_verdict.is_none() && updated_insight.verdict == "unknown")
+        {
+            crate::verdict_history::record(&updated_insight.sha256, "engine", old_verdict.as_deref(), &updated_insight.verdict, updated_insight.threat_name.as_deref(), "scan", "");
+        }
 
         if let Some(writer) = &self.writer {
             let _ = writer.send(WriterMsg::Item(updated_insight));
@@ -504,9 +512,10 @@ impl ThreatIntelStore {
         let updated = {
             let mut guard = self.map.write().unwrap();
             let Some(entry) = guard.get_mut(&sha_bytes) else { return };
-            entry.verdict = verdict.to_string();
+            let old = std::mem::replace(&mut entry.verdict, verdict.to_string());
             entry.threat_name = threat.map(str::to_string);
             entry.score = score;
+            crate::verdict_history::record(&entry.sha256, "engine", Some(&old), verdict, threat, "rescan", "");
             entry.clone()
         };
         if let Some(writer) = &self.writer {

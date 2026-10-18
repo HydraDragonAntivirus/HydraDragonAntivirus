@@ -150,7 +150,87 @@ pub struct StringsInfo {
     pub crypto_wallets: Vec<String>,
     /// First strings in file order (both ASCII and UTF-16LE), for a quick look.
     pub sample: Vec<String>,
+    /// Strings that matched a STRING_RULES keyword: (rule id, keyword, string).
+    pub keyword_hits: Vec<KeywordHit>,
 }
+
+#[derive(Debug, Clone, Serialize)]
+pub struct KeywordHit {
+    pub rule: &'static str,
+    pub keyword: &'static str,
+    pub string: String,
+}
+
+/// Aggressive keyword checks over every extracted string (ASCII and UTF-16LE),
+/// learned from files VirusKovAlyzer reviews let through: activators, cracks,
+/// cheat loaders, FRP/iCloud bypass tools, offer downloaders, homepage hijackers,
+/// proxyware, stealer targets and Defender tampering. They only raise indicators
+/// (the analyst still decides); a file with one of them is not "no medium/high
+/// indicators". Keywords are lower case and matched case-insensitively. Plain "keygen"
+/// is left out on purpose: ssh-keygen ships with Git and OpenSSH.
+/// (severity, id, label, keywords)
+pub const STRING_RULES: &[(&str, &str, &str, &[&str])] = &[
+    ("high", "str_activator", "Unlicensed Windows/Office activator", &[
+        "get.activated.win", "massgrave", "massgrave.dev", "kms_vl_all", "kmspico", "kmsauto", "kms38",
+        "hwid_activation", "ohook_activation", "microsoft-activation-scripts", "slmgr /skms", "slmgr.vbs /skms",
+        "aact.exe", "kmstools",
+    ]),
+    ("high", "str_offer_downloader", "Pay-per-install offer downloader", &[
+        "r=offer_execution", "offer_execution_fail", "r=offer_exists", "&d=inno&", "offer_accepted", "offer_declined",
+        "offerid=", "&offer_id=", "installcore", "opencandy", "{tmp}\\eld0.exe",
+    ]),
+    ("high", "str_homepage_hijack", "Browser start page / search hijack", &[
+        "internet explorer\\main\\start page", "\\main\\start page", "\\main\\search page",
+        "homepage_is_newtabpage", "default_search_provider_data", "restore_on_startup",
+        "wz123.com",
+    ]),
+    ("high", "str_proxyware", "Proxyware / bandwidth sharing", &[
+        "microleaves", "worldproxypool", "honeygain", "pawns.app", "iproyal", "packetstream", "peer2profit",
+        "earnapp", "luminati.io", "brightdata", "bright sdk", "proxyrack", "repocket", "traffmonetizer",
+    ]),
+    ("high", "str_stealer_targets", "Browser / wallet / messenger data paths (stealer)", &[
+        "\\local storage\\leveldb", "\\login data", "\\web data", "wallet.dat", "\\exodus\\exodus.wallet",
+        "\\atomic\\local storage", "nkbihfbeogaeaoehlefnkodbefgpgknn", "\\telegram desktop\\tdata",
+        "discord.com/api/webhooks", "api.telegram.org/bot", "\\electrum\\wallets",
+    ]),
+    ("high", "str_defender_tamper", "Turns off or excludes Microsoft Defender", &[
+        "add-mppreference -exclusionpath", "add-mppreference -exclusionprocess", "set-mppreference -disablerealtimemonitoring",
+        "disableantispyware\" /t reg_dword /d 1", "disablerealtimemonitoring\" /t reg_dword /d 1", "-disableioavprotection $true",
+    ]),
+    ("high", "str_anti_forensics", "Clears event logs / USN journal / free space", &[
+        "wevtutil cl ", "wevtutil.exe cl ", "clear-eventlog -logname", "fsutil usn deletejournal", "cipher /w:",
+        "remove-item -path $env:windir\\system32\\winevt",
+    ]),
+    ("high", "str_destructive", "Destroys the system or user data", &[
+        "format c: /", "del /f /s /q c:\\", "del /s /f /q c:\\", "rd /s /q c:\\windows", "rmdir /s /q c:\\windows",
+        "takeown /f c:\\windows\\system32", "icacls c:\\windows\\system32", "bootstatuspolicy ignoreallfailures",
+        "bcdedit /delete", "bootsect /nt60 all /mbr", "diskpart /s",
+    ]),
+    ("low", "str_raw_disk", "Raw disk / volume access (MBR, boot sector, wipers; also Windows and disk tools)", &[
+        "\\\\.\\physicaldrive", "\\\\.\\harddisk", "\\device\\harddisk", "\\\\.\\globalroot\\device",
+        "\\\\?\\globalroot\\device", "\\\\.\\c:", "\\\\.\\physicalmemory", "\\device\\physicalmemory",
+    ]),
+    ("medium", "str_crack", "Crack / keygen / patched software", &[
+        "pre-patched", "keygen by", "\\keygen\\", "[keygen]", "cracked by", "patched by", "crack by", "\\crack\\", "getintopc",
+        "serial generator", "license bypass", "loader by", "repack by", "anti-crack",
+    ]),
+    ("medium", "str_cheat_loader", "Game cheat loader / injector", &[
+        "injecting...", "load_product", "c_loader@loader", "manualmap", "manual map", "kdmapper", "dll injector",
+        "aimbot", "wallhack", "esp_enabled", "triggerbot",
+    ]),
+    ("medium", "str_device_unlock", "Phone FRP / iCloud / MDM bypass tool", &[
+        "frp bypass", "frp reset", "remove frp", "samfrp", "frp unlock", "google account lock", "icloud bypass",
+        "mdm bypass", "iremoval", "checkm8", "unlock tool", "bypass frp",
+    ]),
+    ("medium", "str_download_exec", "Downloads and runs code in memory", &[
+        "| iex", "|iex", "irm http", "iwr http", "downloadstring(", "invoke-expression (new-object",
+        "-urlcache -split -f http", "bitsadmin /transfer", "mshta http", "mshta vbscript",
+    ]),
+    ("medium", "str_bundler", "Bundled adware / PUA installer", &[
+        "drpsu", "driverpack solution", "driverpack.io", "drp.su", "internet-start.net", "searcherbar", "supported by advertising",
+        "the offers listed below", "optional offer", "sponsored software",
+    ]),
+];
 
 // ---------------------------------------------------------------- entry point
 
@@ -170,7 +250,7 @@ pub fn analyze(data: &[u8], file_name: &str) -> FileReport {
             detail: format!("Whole-file entropy {entropy:.2}: compressed or encrypted content"),
         });
     }
-    string_indicators(&strings, &mut indicators);
+    string_indicators(&strings, !is_rule_text(file_name), &mut indicators);
     if let Some(p) = &pe {
         api_indicators(&p.imports, &mut indicators);
     }
@@ -832,6 +912,16 @@ fn push_unique(v: &mut Vec<String>, s: &str) {
 
 fn classify(s: &str, out: &mut StringsInfo) {
     let low = s.to_ascii_lowercase();
+    for (_, rule, _, keywords) in STRING_RULES {
+        if out.keyword_hits.len() >= MAX_STRINGS_PER_KIND {
+            break;
+        }
+        if let Some(k) = keywords.iter().find(|k| low.contains(**k)) {
+            if !out.keyword_hits.iter().any(|h| h.rule == *rule && h.string == s) {
+                out.keyword_hits.push(KeywordHit { rule, keyword: k, string: s.chars().take(300).collect() });
+            }
+        }
+    }
     for scheme in ["http://", "https://", "ftp://", "ws://", "wss://"] {
         if let Some(p) = low.find(scheme) {
             let url: String = s[p..].chars().take_while(|c| !c.is_whitespace() && !"\"'<>`".contains(*c)).take(300).collect();
@@ -936,7 +1026,14 @@ pub fn extract_strings(data: &[u8]) -> StringsInfo {
     out
 }
 
-fn string_indicators(s: &StringsInfo, ind: &mut Vec<Indicator>) {
+/// Detection rule / signature text (YARA, Sigma, Snort, ...): it names the very
+/// strings STRING_RULES look for, so those keyword checks are skipped for it.
+fn is_rule_text(file_name: &str) -> bool {
+    let n = file_name.to_ascii_lowercase();
+    [".yar", ".yara", ".yml", ".yaml", ".yms", ".rules", ".ioc", ".sigma"].iter().any(|e| n.ends_with(e))
+}
+
+fn string_indicators(s: &StringsInfo, keyword_rules: bool, ind: &mut Vec<Indicator>) {
     if !s.crypto_wallets.is_empty() {
         ind.push(Indicator { severity: "medium", id: "crypto_wallet", detail: format!("{} cryptocurrency address(es) embedded", s.crypto_wallets.len()) });
     }
@@ -946,6 +1043,17 @@ fn string_indicators(s: &StringsInfo, ind: &mut Vec<Indicator>) {
     }
     if cmd_low.iter().any(|c| c.contains("-encodedcommand") || c.contains("frombase64string")) {
         ind.push(Indicator { severity: "medium", id: "encoded_powershell", detail: "Encoded or base64-decoded PowerShell".into() });
+    }
+    for (sev, rule, label, _) in STRING_RULES.iter().filter(|_| keyword_rules) {
+        let mut kws: Vec<&str> = Vec::new();
+        for h in s.keyword_hits.iter().filter(|h| h.rule == *rule) {
+            if !kws.contains(&h.keyword) {
+                kws.push(h.keyword);
+            }
+        }
+        if !kws.is_empty() {
+            ind.push(Indicator { severity: sev, id: rule, detail: format!("{label}: {}", kws.join(", ")) });
+        }
     }
     if s.registry.iter().any(|r| r.to_ascii_lowercase().contains("currentversion\\run")) {
         ind.push(Indicator { severity: "low", id: "run_key", detail: "References a Run key (autostart)".into() });
@@ -1067,4 +1175,31 @@ pub fn sha1(data: &[u8]) -> [u8; 20] {
         out[i * 4..i * 4 + 4].copy_from_slice(&v.to_be_bytes());
     }
     out
+}
+
+#[cfg(test)]
+mod string_rule_tests {
+    use super::*;
+
+    #[test]
+    fn keyword_rules_raise_indicators_ascii_and_wide() {
+        let mut data = b"MZ....irm https://get.activated.win | iex....".to_vec();
+        for c in "Software\\Microsoft\\Internet Explorer\\Main\\Start Page".encode_utf16() {
+            data.extend_from_slice(&c.to_le_bytes());
+        }
+        data.extend_from_slice(&[0, 0]);
+        let r = analyze(&data, "a.bin");
+        let ids: Vec<&str> = r.indicators.iter().map(|i| i.id).collect();
+        assert!(ids.contains(&"str_activator"), "{ids:?}");
+        assert!(ids.contains(&"str_download_exec"), "{ids:?}");
+        assert!(ids.contains(&"str_homepage_hijack"), "{ids:?}");
+    }
+
+    #[test]
+    fn rule_files_and_ssh_keygen_stay_quiet() {
+        let rule = b"rule x { strings: $a = \"get.activated.win\" condition: $a }";
+        assert!(!analyze(rule, "x.yar").indicators.iter().any(|i| i.id.starts_with("str_")));
+        let git = b"....usr/bin/ssh-keygen.exe....";
+        assert!(!analyze(git, "git.bin").indicators.iter().any(|i| i.id == "str_crack"));
+    }
 }

@@ -120,11 +120,52 @@ pub async fn handle_open(State(app): State<Arc<AppState>>, Json(b): Json<OpenBod
     open_doc(&app, name, source, data).await
 }
 
+/// URL model score at or above which an embedded URL is listed (the URL scanner's
+/// malicious threshold).
+const URL_ML_THRESHOLD: f32 = 0.9;
+
+/// Scores the URLs the analyzer found with the URL scanner's ML model and adds an
+/// INFO indicator for the ones it calls malicious: a possible C2 / payload link.
+/// Info only, never a verdict: ad-block filter lists (uBlock Origin, EasyList),
+/// hosts files and security tools carry thousands of malicious URLs on purpose.
+/// Returns every scored URL (highest first) for the report.
+fn url_ml_indicator(eng: &crate::engine_adapter::EngineAdapter, report: &mut crate::analyzer::FileReport) -> Vec<serde_json::Value> {
+    if report.strings.urls.is_empty() {
+        return Vec::new();
+    }
+    let Some(mut scores) = eng.url_ml_scores(&report.strings.urls) else { return Vec::new() };
+    scores.sort_by(|a, b| b.1.total_cmp(&a.1));
+    let flagged: Vec<String> = scores
+        .iter()
+        .filter(|(_, p)| *p >= URL_ML_THRESHOLD)
+        .take(10)
+        .map(|(u, p)| format!("{u} ({p:.2})"))
+        .collect();
+    let n = scores.iter().filter(|(_, p)| *p >= URL_ML_THRESHOLD).count();
+    if n > 0 {
+        report.indicators.push(crate::analyzer::Indicator {
+            severity: "info",
+            id: "url_ml",
+            detail: format!(
+                "URL model flags {n} of {} embedded URL(s) as malicious, possible C2 / payload link (info only: filter lists such as uBlock Origin / EasyList and hosts files contain many): {}",
+                scores.len(),
+                flagged.join(", ")
+            ),
+        });
+    }
+    scores
+        .into_iter()
+        .map(|(u, p)| serde_json::json!({ "url": u, "score": (p * 1000.0).round() / 1000.0, "flagged": p >= URL_ML_THRESHOLD }))
+        .collect()
+}
+
 async fn open_doc(app: &Arc<AppState>, name: String, source: String, data: Vec<u8>) -> Response {
     let data = Arc::new(data);
-    let (d2, n2) = (Arc::clone(&data), name.clone());
-    let report = match tokio::task::spawn_blocking(move || {
-        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| crate::analyzer::analyze(&d2, &n2))).ok()
+    let (d2, n2, eng) = (Arc::clone(&data), name.clone(), Arc::clone(&app.engine));
+    let (report, url_ml) = match tokio::task::spawn_blocking(move || {
+        let mut report = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| crate::analyzer::analyze(&d2, &n2))).ok()?;
+        let url_ml = url_ml_indicator(&eng, &mut report);
+        Some((report, url_ml))
     })
     .await
     {
@@ -147,6 +188,7 @@ async fn open_doc(app: &Arc<AppState>, name: String, source: String, data: Vec<u
         "source": source,
         "size": data.len(),
         "report": report,
+        "url_ml": url_ml,
         "engine": insight.as_ref().map(|i| serde_json::json!({
             "verdict": i.verdict, "threat": i.threat_name, "seen": i.seen_count,
             "first_seen": i.first_seen, "last_seen": i.last_seen, "file_names": i.file_names, "folders": i.folders, "full_folders": i.full_folders, "sightings": i.sightings,

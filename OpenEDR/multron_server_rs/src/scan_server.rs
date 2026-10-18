@@ -757,6 +757,7 @@ async fn handle_hash_insights(
             }
 
             let review = server.threat_intel.reviews.get(&sha_clean);
+            let sha_hist = sha_clean.clone();
             let human = review.as_ref().map(|r| r.to_public_json());
             let human_verdict = review.as_ref().filter(|r| r.is_completed()).and_then(|r| r.verdict.clone());
             let human_threat = review.as_ref().filter(|r| r.is_completed()).and_then(|r| r.threat_name.clone());
@@ -769,6 +770,7 @@ async fn handle_hash_insights(
                     // Final verdict: the human one when an analyst has answered.
                     "verdict": human_verdict.clone().unwrap_or_else(|| insight.verdict.clone()),
                     "verdict_source": if human_verdict.is_some() { "human" } else { "engine" },
+                    "history": crate::verdict_history::public_json(&crate::verdict_history::get(&sha_hist)),
                     "engine_verdict": insight.verdict,
                     "human_analysis": human,
                     "virustotal": vt,
@@ -808,6 +810,7 @@ async fn handle_hash_insights(
                     "sha256": sha_clean,
                     "verdict": human_verdict.clone().unwrap_or_else(|| "unknown".into()),
                     "verdict_source": if human_verdict.is_some() { "human" } else { "engine" },
+                    "history": crate::verdict_history::public_json(&crate::verdict_history::get(&sha_hist)),
                     "human_analysis": human,
                     "virustotal": vt,
                     "seen_count": 0,
@@ -2356,6 +2359,7 @@ async fn handle_file_report(
         return json_response(StatusCode::NOT_FOUND, serde_json::json!({"status": "not_found", "sha256": sha, "virustotal": crate::human_review::virustotal_url(&sha)}), "no-store");
     }
     let human_verdict = review.as_ref().filter(|r| r.is_completed()).and_then(|r| r.verdict.clone());
+    let sha_hist = sha.to_ascii_lowercase();
     let engine_verdict = insight.as_ref().map(|i| i.verdict.clone()).unwrap_or_else(|| "unknown".into());
     let verdict = human_verdict.clone().unwrap_or_else(|| engine_verdict.clone());
     // A human verdict replaces the engine name too (clean review -> no threat name).
@@ -2370,6 +2374,7 @@ async fn handle_file_report(
             "sha256": sha,
             "verdict": verdict,
             "verdict_source": if human_verdict.is_some() { "human" } else { "engine" },
+                    "history": crate::verdict_history::public_json(&crate::verdict_history::get(&sha_hist)),
             "engine_verdict": engine_verdict,
             "classification": classification_json(&verdict, threat_name.as_deref()),
             "threat_name": threat_name,

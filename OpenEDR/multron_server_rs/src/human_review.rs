@@ -439,6 +439,8 @@ impl HumanReviewStore {
                 deleted: false,
             });
             let requested = parse_time(&r.requested_at).unwrap_or(now);
+            let previous = r.is_completed().then(|| r.verdict.clone()).flatten();
+            crate::verdict_history::record(&r.sha256, "human", previous.as_deref(), &verdict, threat_name.as_deref(), "analyst", analyst.trim());
             r.status = ReviewStatus::Completed;
             r.verdict = Some(verdict);
             r.threat_name = threat_name;
@@ -536,6 +538,9 @@ impl HumanReviewStore {
         let removed = self.map.write().unwrap().remove(&sha);
         self.removed.write().unwrap().insert(sha);
         if let Some(mut r) = removed {
+            if let Some(v) = r.verdict.as_deref().filter(|_| r.is_completed()) {
+                crate::verdict_history::record(&r.sha256, "human", Some(v), "removed", None, "analyst", &r.analyst);
+            }
             r.deleted = true;
             self.persist(&r);
             true

@@ -811,6 +811,17 @@ impl EngineAdapter {
                 .is_some_and(|e| e.read().map(|g| g.benign_whitelist_loaded()).unwrap_or(false))
     }
 
+    /// URL model probability for each URL; None when the engine or the URL model is
+    /// not loaded. ML only (no whitelist, no CIDR rules).
+    pub fn url_ml_scores(&self, urls: &[String]) -> Option<Vec<(String, f32)>> {
+        let engine = self.engine.get()?;
+        let guard = engine.read().ok()?;
+        if !guard.url_model_loaded() {
+            return None;
+        }
+        Some(urls.iter().filter_map(|u| guard.predict_url_raw(u).map(|p| (u.clone(), p))).collect())
+    }
+
     /// Full URL Threat Inspection through OpenEDR Static Engine.
     pub fn inspect_url(
         &self,
