@@ -96,6 +96,12 @@ It contains low-level system components and experimental security drivers that r
 - ⚠️ **GitHub Pages Demo**: [https://hydradragonantivirus.github.io/HydraDragonAntivirus/](https://hydradragonantivirus.github.io/HydraDragonAntivirus/)  
   *(**Notice**: The GitHub Pages deployment is outdated and currently broken. The Multron Server backend, dashboard, WebSocket protocols, and detection engines are under rapid active development and updated constantly, causing the static GitHub Pages site to be out of sync.)*
 
+## Analyst Signatures
+
+The analyst signatures used by the VirusKov / Multron server (`analyst_signatures/`: HydraDragonSig, YARA and ClamAV rules written during manual analysis) are **not published in this repository for now**. They change constantly as new samples are reviewed, so a public snapshot would be out of date almost immediately.
+
+If you need them, ask (see [Contact](#contact)) and we will send a copy as it is at that time, with the understanding that it will not be the current version.
+
 ## One Man Project
 
 - HydraDragon is a three-year independent open-source antivirus/EDR project built primarily by one developer.
