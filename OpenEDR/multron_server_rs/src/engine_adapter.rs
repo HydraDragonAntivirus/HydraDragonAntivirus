@@ -418,6 +418,11 @@ impl EngineAdapter {
         if let Some(t) = hydradragonsig_type(data) {
             return Some(t);
         }
+        // Electron .asar has no ClamAV type (it lands in html/ because of its JSON
+        // header): use the extractor's detection, the same one that unpacks it.
+        if hydradragonextractor::detect_format(data) == Some("asar") {
+            return Some("asar".to_string());
+        }
         let engine = self.engine.get()?.read().ok()?;
         type_folder(&engine.clamav_file_type(data)?)
     }

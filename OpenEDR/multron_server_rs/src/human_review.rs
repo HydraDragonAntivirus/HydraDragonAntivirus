@@ -393,7 +393,7 @@ impl HumanReviewStore {
         analyst: &str,
     ) -> Result<HumanReview, String> {
         let sha = parse_sha(sha_hex).ok_or("invalid sha256")?;
-        let verdict = verdict.trim().to_ascii_lowercase();
+        let mut verdict = verdict.trim().to_ascii_lowercase();
         if !VERDICTS.contains(&verdict.as_str()) {
             return Err("verdict must be malicious, suspicious or clean".into());
         }
@@ -406,6 +406,14 @@ impl HumanReviewStore {
             }
             None => None,
         };
+        // Adware / PUA / HackTool / Riskware are greyware: always the suspicious verdict
+        // (and folder), never malicious.
+        if verdict == "malicious" {
+            let cat = threat_name.as_deref().and_then(|t| t.split('.').next()).unwrap_or("");
+            if ["Adware", "PUA", "HackTool", "Riskware"].iter().any(|g| g.eq_ignore_ascii_case(cat)) {
+                verdict = "suspicious".into();
+            }
+        }
         let now = Utc::now();
         let review = {
             let mut g = self.map.write().unwrap();
