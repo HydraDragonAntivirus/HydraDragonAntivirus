@@ -41,6 +41,8 @@ const UPLOAD_WINDOW_FACTOR: usize = 4;
 /// files the server answers with `need_upload`. Version 2 clients (scan only) still work.
 pub const PROTOCOL_VERSION: i32 = 3;
 const MIN_PROTOCOL_VERSION: i32 = 2;
+const REPORT_BURST: f64 = 20.0;
+const REPORTS_PER_SEC: f64 = 0.2;
 
 #[derive(Debug, Deserialize)]
 struct ClientMessage {
@@ -72,6 +74,8 @@ struct ClientMessage {
     /// Bytes on the wire when `encoding` is set; `size` stays the original size.
     #[serde(default)]
     pub csize: i64,
+    #[serde(default)]
+    pub note: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -1130,6 +1134,7 @@ async fn session_loop(
             // Seamless update in progress: scans go on; the connection is moved to the
             // new version in a few seconds (reconnect when it closes).
             "updating": server.updating(),
+            "features": ["report_fp", "report_fn"],
         }),
     );
 
@@ -1147,6 +1152,7 @@ async fn session_loop(
     let check_rate = || server.limits.checks_per_sec() as f64;
     let mut msg_bucket = Bucket::full(msg_rate() * 2.0);
     let mut check_bucket = Bucket::full(check_rate() * 2.0);
+    let mut report_bucket = Bucket::full(REPORT_BURST);
     let flood = |what: &str| {
         server.limiter.strike(&session.address);
         send_error(out, None, &format!("too many {what}, slow down"));
@@ -1215,6 +1221,13 @@ async fn session_loop(
                     }
                     Err(err) => send_error(out, Some(msg.id), &err),
                 }
+            }
+            "report_fp" | "report_fn" => {
+                if !report_bucket.take(1.0, REPORT_BURST, REPORTS_PER_SEC) {
+                    send_error(out, Some(msg.id), "too many reports, try again in a few minutes");
+                    continue;
+                }
+                handle_verdict_report(server, session, out, &msg, msg.r#type == "report_fn");
             }
             other => {
                 server.limiter.strike(&session.address);
@@ -1881,6 +1894,84 @@ fn send_json<T: Serialize>(tx: &Out, v: &T) {
 
 fn send_error(tx: &Out, id: Option<i64>, msg: &str) {
     send_json(tx, &ErrorMessage { r#type: "error", id, message: msg });
+}
+
+fn handle_verdict_report(server: &Arc<ScanServer>, session: &Arc<SessionHandle>, out: &Out, msg: &ClientMessage, false_negative: bool) {
+    let (source, label) = if false_negative {
+        (crate::human_review::FN_SOURCE, "False-negative report")
+    } else {
+        (crate::human_review::FP_SOURCE, "False-positive report")
+    };
+    let id = Some(msg.id);
+    let Some(sha) = valid_sha(&msg.sha256) else {
+        send_error(out, id, "invalid sha256");
+        return;
+    };
+    let reply = |r: &crate::human_review::HumanReview, on_server: bool| {
+        send_json(
+            out,
+            &serde_json::json!({
+                "type": "report_result",
+                "id": msg.id,
+                "sha256": r.sha256,
+                "status": r.stage(),
+                "verdict": r.verdict,
+                "threat_name": r.threat_name,
+                "note": r.note,
+                "requested_at": r.requested_at,
+                "file_on_server": on_server,
+            }),
+        );
+    };
+    let on_server = server.engine.is_kept(&sha);
+    if let Some(done) = server.threat_intel.reviews.completed(&sha) {
+        reply(&done, on_server);
+        return;
+    }
+    let Some(insight) = server.threat_intel.get(&sha) else {
+        send_error(out, id, "scan the file first; only files seen by VirusKov can be reported");
+        return;
+    };
+    let detected = insight.verdict == "malicious" || insight.verdict == "suspicious";
+    if false_negative && detected {
+        send_error(out, id, "this file is already detected; only files the engine did not detect can be reported as false negatives");
+        return;
+    }
+    if !false_negative && !detected {
+        send_error(out, id, "only files detected as malicious or suspicious can be reported as false positives");
+        return;
+    }
+    let name: String = msg.name.trim().chars().take(260).collect();
+    let name = if name.is_empty() { insight.file_names.first().cloned().unwrap_or_default() } else { name };
+    match server.threat_intel.reviews.report_user_verdict(
+        &sha,
+        source,
+        label,
+        Some(&insight.verdict),
+        if name.is_empty() { None } else { Some(name.as_str()) },
+        &msg.note,
+    ) {
+        Ok((r, _)) => {
+            reply(&r, on_server);
+            server.events.add(Event {
+                seq: 0,
+                time: Utc::now(),
+                kind: "info".to_string(),
+                session: Some(session.id),
+                client: Some(session.address.clone()),
+                verdict: Some(insight.verdict.clone()),
+                file: if name.is_empty() { None } else { Some(name.clone()) },
+                size: None,
+                ms: None,
+                threat: None,
+                detail: None,
+                sha256: Some(sha.clone()),
+                message: Some(format!("{}: {}", label.to_lowercase(), if name.is_empty() { &sha } else { &name })),
+                origin_type: None,
+            });
+        }
+        Err(e) => send_error(out, id, &e),
+    }
 }
 
 /// Merge two independent per-source URL reports: the server-fetched copy vs the

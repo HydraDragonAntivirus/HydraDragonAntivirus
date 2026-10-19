@@ -28,6 +28,10 @@ pub const VERDICTS: [&str; 3] = ["malicious", "suspicious", "clean"];
 /// decides. Malicious is included so engine false positives get a human look too.
 pub const AUTO_QUEUE_VERDICTS: [&str; 4] = ["malicious", "suspicious", "unknown", "possible_clean"];
 
+pub const FP_SOURCE: &str = "false_positive";
+pub const FN_SOURCE: &str = "false_negative";
+pub const REPORT_COMMENT_MAX: usize = 500;
+
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum ReviewStatus {
@@ -39,7 +43,8 @@ pub enum ReviewStatus {
 pub struct HumanReview {
     pub sha256: String,
     pub status: ReviewStatus,
-    /// "auto" (engine could not decide), "user" (asked on the website) or "analyst".
+    /// "auto" (engine could not decide), "user" (asked on the website), "false_positive" /
+    /// "false_negative" (reported from a client) or "analyst".
     #[serde(default)]
     pub source: String,
     pub requested_at: String,
@@ -380,6 +385,63 @@ impl HumanReviewStore {
         };
         self.persist(&review);
         Ok(review)
+    }
+
+    pub fn report_user_verdict(
+        &self,
+        sha_hex: &str,
+        source: &str,
+        label: &str,
+        engine_verdict: Option<&str>,
+        file_name: Option<&str>,
+        comment: &str,
+    ) -> Result<(HumanReview, bool), String> {
+        let sha = parse_sha(sha_hex).ok_or("invalid sha256")?;
+        let comment: String = comment.trim().chars().filter(|c| !c.is_control() || *c == '\n').take(REPORT_COMMENT_MAX).collect();
+        let line = if comment.is_empty() { String::new() } else { format!("{label}: {comment}") };
+        let review = {
+            let mut g = self.map.write().unwrap();
+            if let Some(existing) = g.get_mut(&sha) {
+                if existing.is_completed() {
+                    return Ok((existing.clone(), false));
+                }
+                existing.source = source.to_string();
+                if !line.is_empty() && !existing.internal_note.contains(&line) {
+                    if !existing.internal_note.is_empty() {
+                        existing.internal_note.push('\n');
+                    }
+                    existing.internal_note.push_str(&line);
+                }
+                existing.clone()
+            } else {
+                let r = HumanReview {
+                    sha256: sha_hex.to_lowercase(),
+                    status: ReviewStatus::Pending,
+                    source: source.to_string(),
+                    requested_at: Utc::now().to_rfc3339(),
+                    engine_verdict: engine_verdict.map(str::to_string),
+                    file_name: file_name.map(|n| n.chars().take(260).collect()),
+                    verdict: None,
+                    threat_name: None,
+                    note: String::new(),
+                    internal_note: line,
+                    analyst: String::new(),
+                    reviewed_at: None,
+                    response_secs: None,
+                    started_at: None,
+                    started_by: String::new(),
+                    timed: false,
+                    wait_secs: None,
+                    analysis_secs: None,
+                    deleted: false,
+                };
+                g.insert(sha, r.clone());
+                self.removed.write().unwrap().remove(&sha);
+                r
+            }
+        };
+        self.persist(&review);
+        Ok((review, true))
     }
 
     /// Analyst verdict. Works for queued hashes and for hashes reviewed directly.
