@@ -448,6 +448,32 @@ pub enum RuleCondition {
         signatures: Vec<UnpackerSignature>,
     },
 
+    // --- Emulation trace (ScanReport::behavior, filled by the caller's emulator) ---
+    /// One of these APIs was called while the sample was emulated.
+    EmulatedApiAny {
+        names: Vec<String>,
+    },
+    /// A string argument of a call to `api` matches `pattern`.
+    EmulatedArgRegex {
+        api: String,
+        pattern: String,
+    },
+    /// The steps were called in this order (other calls may come in between),
+    /// all inside a window of `within` calls when given.
+    EmulatedSequence {
+        steps: Vec<EmulatedStep>,
+        #[serde(default)]
+        within: Option<usize>,
+    },
+    /// `api` was called at least `min` times (`distinct`: with at least `min`
+    /// different argument lists, e.g. WriteFile to that many files).
+    EmulatedCountGte {
+        api: String,
+        min: usize,
+        #[serde(default)]
+        distinct: bool,
+    },
+
     /// Perceptual image hash (pHash) of the scanned file. Matches when the file
     /// decodes as an image and its 64-bit pHash is within `max_distance` bits of
     /// any of `hashes`, so a resized or re-encoded copy of the same artwork still
@@ -498,6 +524,29 @@ pub enum RuleCondition {
         #[serde(default)]
         idb_groups: Vec<String>,
     },
+}
+
+/// One step of an `emulated_sequence` condition.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EmulatedStep {
+    /// API name, case-insensitive; `CreateFileW|CopyFileW` accepts either.
+    pub api: String,
+    /// Regex one string argument of the call must match.
+    #[serde(default)]
+    pub pattern: Option<String>,
+}
+
+impl RuleCondition {
+    /// The condition reads the emulation trace (`ScanReport::behavior`).
+    pub fn is_emulated(&self) -> bool {
+        matches!(
+            self,
+            RuleCondition::EmulatedApiAny { .. }
+                | RuleCondition::EmulatedArgRegex { .. }
+                | RuleCondition::EmulatedSequence { .. }
+                | RuleCondition::EmulatedCountGte { .. }
+        )
+    }
 }
 
 /// One packer signature: a display name plus the byte pattern that identifies it.

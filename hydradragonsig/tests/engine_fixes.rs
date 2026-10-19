@@ -363,3 +363,87 @@ fn unreadable_archive_member_does_not_stop_the_scan() {
     assert!(report.findings.iter().any(|f| f.rule_id == "R"));
 }
 
+
+fn with_trace(calls: &[(&str, &[&str])]) -> ScanOptions {
+    let trace = hydradragonsig::models::BehaviorTrace {
+        calls: calls
+            .iter()
+            .map(|(api, args)| hydradragonsig::models::ApiCall {
+                api: api.to_string(),
+                args: args.iter().map(|a| a.to_string()).collect(),
+                ret: 1,
+            })
+            .collect(),
+        ..Default::default()
+    };
+    ScanOptions { behavior: Some(trace), ..ScanOptions::default() }
+}
+
+#[test]
+fn emulated_conditions_need_a_trace() {
+    let set = one("      - type: emulated_api_any\n        names: [WinHttpSendRequest]\n");
+    assert!(scan(&set, b"WinHttpSendRequest").is_empty(), "strings are not a trace");
+    assert_eq!(scan_with(&set, b"x", with_trace(&[("winhttpsendrequest", &["0x4"])])), vec!["R"]);
+    assert!(scan_with(&set, b"x", with_trace(&[("Sleep", &["0x3e8"])])).is_empty());
+}
+
+#[test]
+fn emulated_arg_regex_reads_string_arguments() {
+    let set = one("      - type: emulated_arg_regex\n        api: CreateProcessW|WinExec\n        pattern: '(?i)vssadmin.+delete\\s+shadows'\n");
+    let hit = with_trace(&[("CreateProcessW", &["0x0", "cmd /c vssadmin.exe Delete Shadows /all /quiet"])]);
+    assert_eq!(scan_with(&set, b"x", hit), vec!["R"]);
+    let other_api = with_trace(&[("CreateFileW", &["vssadmin delete shadows"])]);
+    assert!(scan_with(&set, b"x", other_api).is_empty());
+}
+
+#[test]
+fn emulated_sequence_keeps_order_and_window() {
+    let cond = "      - type: emulated_sequence\n        steps:\n          - api: CreateFileW\n            pattern: '(?i)\\\\Login Data$'\n          - api: ReadFile\n          - api: WinHttpSendRequest\n";
+    let set = one(cond);
+    let in_order: &[(&str, &[&str])] = &[
+        ("GetTickCount", &[]),
+        ("CreateFileW", &["C:\\Users\\u\\AppData\\Local\\Google\\Chrome\\User Data\\Default\\Login Data", "0x80000000"]),
+        ("Sleep", &["0x10"]),
+        ("ReadFile", &["0x100", "C:\\...\\Login Data"]),
+        ("WinHttpSendRequest", &["0xcafe"]),
+    ];
+    assert_eq!(scan_with(&set, b"x", with_trace(in_order)), vec!["R"]);
+    let wrong_order: &[(&str, &[&str])] = &[
+        ("WinHttpSendRequest", &["0xcafe"]),
+        ("CreateFileW", &["C:\\x\\Login Data"]),
+        ("ReadFile", &["0x100"]),
+    ];
+    assert!(scan_with(&set, b"x", with_trace(wrong_order)).is_empty());
+    let wrong_file: &[(&str, &[&str])] = &[("CreateFileW", &["C:\\x\\notes.txt"]), ("ReadFile", &[]), ("WinHttpSendRequest", &[])];
+    assert!(scan_with(&set, b"x", with_trace(wrong_file)).is_empty());
+    // Same calls, but the steps span 4 calls and the window allows 2.
+    let set = one(&format!("{cond}        within: 2\n"));
+    assert!(scan_with(&set, b"x", with_trace(in_order)).is_empty());
+    let set = one(&format!("{cond}        within: 3\n"));
+    assert_eq!(scan_with(&set, b"x", with_trace(in_order)), vec!["R"]);
+}
+
+#[test]
+fn emulated_count_gte_counts_calls_or_distinct_arguments() {
+    let many: Vec<(&str, &[&str])> = (0..60).map(|_| ("FindNextFileW", &["0x10"][..])).collect();
+    let set = one("      - type: emulated_count_gte\n        api: FindNextFileW\n        min: 50\n");
+    assert_eq!(scan_with(&set, b"x", with_trace(&many)), vec!["R"]);
+    let set = one("      - type: emulated_count_gte\n        api: FindNextFileW\n        min: 2\n        distinct: true\n");
+    assert!(scan_with(&set, b"x", with_trace(&many)).is_empty(), "all calls have the same arguments");
+    let two: &[(&str, &[&str])] = &[("WriteFile", &["a.doc"]), ("WriteFile", &["b.xls"]), ("WriteFile", &["a.doc"])];
+    let set = one("      - type: emulated_count_gte\n        api: WriteFile\n        min: 2\n        distinct: true\n");
+    assert_eq!(scan_with(&set, b"x", with_trace(two)), vec!["R"]);
+}
+
+#[test]
+fn emulated_conditions_are_validated() {
+    let set = RuleSet::from_yaml_str(
+        "rules:\n  - id: R\n    title: t\n    severity: low\n    conditions:\n      - type: emulated_sequence\n        steps: [{api: 'A|', pattern: '('}, {api: B, colour: red}]\n        within: 0\n",
+    )
+    .unwrap();
+    let w = set.warnings().join("\n");
+    assert!(w.contains("empty API name"), "{w}");
+    assert!(w.contains("invalid regex"), "{w}");
+    assert!(w.contains("unknown key `colour`"), "{w}");
+    assert!(w.contains("within 0"), "{w}");
+}

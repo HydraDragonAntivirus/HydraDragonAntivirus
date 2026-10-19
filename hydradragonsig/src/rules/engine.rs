@@ -758,7 +758,7 @@ impl RuleSet {
     /// Loads a rule file and its `!include`s. Load warnings are printed to stderr
     /// and kept in [`Self::warnings`].
     pub fn from_yaml_file(path: &Path) -> Result<Self> {
-        let mut ruleset = Self::from_yaml_file_recursive(path, 0)?;
+        let mut ruleset = Self::from_yaml_file_recursive(path, 0, &std::collections::HashSet::new())?;
         for w in &ruleset.warnings {
             eprintln!("[HydraDragonSig] Warning: {}: {w}", path.display());
         }
@@ -766,7 +766,9 @@ impl RuleSet {
         Ok(ruleset)
     }
 
-    fn from_yaml_file_recursive(path: &Path, depth: u32) -> Result<Self> {
+    /// `known_ids`: rules loaded before this file (earlier includes of the including
+    /// file), so a `rule_match` on a rule from an earlier sibling include is valid.
+    fn from_yaml_file_recursive(path: &Path, depth: u32, known_ids: &std::collections::HashSet<String>) -> Result<Self> {
         if depth > 20 {
             anyhow::bail!(
                 "Max recursion depth (20) reached! Possible circular include: {}",
@@ -795,7 +797,9 @@ impl RuleSet {
                     let include_path = parent.join(include_path_str);
 
                     if include_path.exists() {
-                        match Self::from_yaml_file_recursive(&include_path, depth + 1) {
+                        let mut known = known_ids.clone();
+                        known.extend(combined_rules.rules.iter().map(|r| r.id.clone()));
+                        match Self::from_yaml_file_recursive(&include_path, depth + 1, &known) {
                             Ok(sub_rules) => {
                                 combined_rules.extend(sub_rules);
                             }
@@ -826,7 +830,8 @@ impl RuleSet {
             .join("\n");
 
         if !filtered_content.trim().is_empty() {
-            let known: std::collections::HashSet<String> = combined_rules.rules.iter().map(|r| r.id.clone()).collect();
+            let mut known = known_ids.clone();
+            known.extend(combined_rules.rules.iter().map(|r| r.id.clone()));
             let current_rules = Self::from_yaml_str_after(&filtered_content, &known)?;
             combined_rules.extend(current_rules);
         }
@@ -846,6 +851,12 @@ impl RuleSet {
 
     pub fn rules(&self) -> &[Rule] {
         &self.rules
+    }
+
+    /// Some rule reads the emulation trace (`emulated_*` conditions): callers only
+    /// need to run the emulator when this is true.
+    pub fn needs_behavior(&self) -> bool {
+        self.rules.iter().any(|r| r.conditions.iter().any(RuleCondition::is_emulated))
     }
 
     /// Drops the rules whose `id` is in `ids` (false-positive ignore lists, like
@@ -1072,6 +1083,9 @@ fn cannot_match(rule: &Rule, rule_idx: usize, report: &ScanReport, matches: &Rul
     if size_fails {
         return true;
     }
+    if report.behavior.is_none() && rule.conditions.iter().any(RuleCondition::is_emulated) {
+        return true;
+    }
     if !matches.indexed {
         return false;
     }
@@ -1116,6 +1130,14 @@ fn warm_rule_caches(rule: &Rule) {
             }
             RuleCondition::PeSection { name_regex: Some(pattern), .. } => {
                 let _ = cached_regex(pattern);
+            }
+            RuleCondition::EmulatedArgRegex { pattern, .. } => {
+                let _ = cached_regex(pattern);
+            }
+            RuleCondition::EmulatedSequence { steps, .. } => {
+                for pattern in steps.iter().filter_map(|st| st.pattern.as_deref()) {
+                    let _ = cached_regex(pattern);
+                }
             }
             RuleCondition::StringSet {
                 values,
@@ -1305,6 +1327,8 @@ fn rule_signature_atom_count(rule: &Rule) -> usize {
             | RuleCondition::ImportSet { names, .. }
             | RuleCondition::DllAny { names } => names.len(),
             RuleCondition::ImphashAny { values } => values.len(),
+            RuleCondition::EmulatedApiAny { names } => names.len(),
+            RuleCondition::EmulatedSequence { steps, .. } => steps.len(),
             _ => 1,
         })
         .sum()
@@ -2009,6 +2033,35 @@ fn evaluate_condition(
             let current = report.features.get(name)?.as_f64()?;
             (current <= *value).then(|| format!("feature {}={} <= {}", name, current, value))
         }
+        RuleCondition::EmulatedApiAny { names } => {
+            let trace = report.behavior.as_ref()?;
+            let call = trace.calls.iter().find(|c| names.iter().any(|n| api_matches(n, &c.api)))?;
+            Some(format!("emulated call {}", describe_call(call)))
+        }
+        RuleCondition::EmulatedArgRegex { api, pattern } => {
+            let trace = report.behavior.as_ref()?;
+            let re = cached_regex(pattern)?;
+            trace.calls.iter().find_map(|c| {
+                (api_matches(api, &c.api) && c.args.iter().any(|a| re.is_match(a)))
+                    .then(|| format!("emulated call {} matches /{}/", describe_call(c), pattern))
+            })
+        }
+        RuleCondition::EmulatedSequence { steps, within } => {
+            let trace = report.behavior.as_ref()?;
+            emulated_sequence(&trace.calls, steps, *within)
+        }
+        RuleCondition::EmulatedCountGte { api, min, distinct } => {
+            let trace = report.behavior.as_ref()?;
+            let calls = trace.calls.iter().filter(|c| api_matches(api, &c.api));
+            let count = if *distinct {
+                calls.map(|c| c.args.as_slice()).collect::<std::collections::HashSet<_>>().len()
+            } else {
+                calls.count()
+            };
+            (count >= *min).then(|| {
+                format!("emulated {api} called {count} time(s){} >= {min}", if *distinct { " with distinct arguments" } else { "" })
+            })
+        }
         RuleCondition::HasParent => {
             let parent = report.parent.as_ref()?;
             Some(format!("scanned as child of `{}`", parent.identifier))
@@ -2243,6 +2296,67 @@ fn evaluate_condition(
 }
 
 /// Parse a 64-bit dHash written as 16 hex characters.
+/// `spec` is an API name or `A|B|C` alternatives, compared case-insensitively.
+fn api_matches(spec: &str, api: &str) -> bool {
+    spec.split('|').any(|n| n.trim().eq_ignore_ascii_case(api))
+}
+
+fn describe_call(call: &crate::models::ApiCall) -> String {
+    let args: Vec<String> = call.args.iter().map(|a| truncate_for_evidence(a, 120)).collect();
+    format!("{}({})", call.api, args.join(", "))
+}
+
+/// The steps occur in order in `calls` (other calls may come in between), spanning
+/// at most `within` calls from the first step to the last when given.
+fn emulated_sequence(
+    calls: &[crate::models::ApiCall],
+    steps: &[EmulatedStep],
+    within: Option<usize>,
+) -> Option<String> {
+    if steps.is_empty() {
+        return None;
+    }
+    // An invalid regex (reported at load time) never matches.
+    let mut regexes: Vec<Option<Arc<Regex>>> = Vec::with_capacity(steps.len());
+    for st in steps {
+        regexes.push(match st.pattern.as_deref() {
+            Some(p) => Some(cached_regex(p)?),
+            None => None,
+        });
+    }
+    let step_hits = |i: usize, call: &crate::models::ApiCall| {
+        api_matches(&steps[i].api, &call.api)
+            && regexes[i].as_ref().map_or(true, |re| call.args.iter().any(|a| re.is_match(a)))
+    };
+    // Earliest-match greedy scan: optimal for "in order" without a window. With a
+    // window every possible first step is tried, each bounded by the window.
+    for start in 0..calls.len() {
+        if !step_hits(0, &calls[start]) {
+            continue;
+        }
+        let mut found = vec![start];
+        for (k, call) in calls.iter().enumerate().skip(start + 1) {
+            if found.len() == steps.len() {
+                break;
+            }
+            if within.is_some_and(|w| k - start > w) {
+                break;
+            }
+            if step_hits(found.len(), call) {
+                found.push(k);
+            }
+        }
+        if found.len() == steps.len() {
+            let parts: Vec<String> = found.iter().map(|&k| format!("#{k} {}", describe_call(&calls[k]))).collect();
+            return Some(format!("emulated sequence: {}", parts.join(" -> ")));
+        }
+        if within.is_none() {
+            return None;
+        }
+    }
+    None
+}
+
 fn parse_dhash(raw: &str) -> Result<u64, String> {
     let trimmed = raw.trim();
     let hex = trimmed.strip_prefix("dhash#").unwrap_or(trimmed);

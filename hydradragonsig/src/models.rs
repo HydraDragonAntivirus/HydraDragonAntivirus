@@ -559,6 +559,45 @@ impl ParentInfo {
     }
 }
 
+/// One Windows API call seen while emulating a sample (Unicorn trace mode).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ApiCall {
+    /// Function name as imported / resolved, e.g. `CreateFileW`.
+    pub api: String,
+    /// Arguments in call order: strings read from emulated memory as text,
+    /// everything else as `0x`-hex.
+    pub args: Vec<String>,
+    /// Value the stub returned.
+    pub ret: u64,
+}
+
+/// What an emulated sample did, in call order. Filled by the emulator
+/// (`hydradragonunicorn` trace mode, run by `openedr_static`); HydraDragonSig only
+/// reads it through the `emulated_*` conditions and never runs code itself.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BehaviorTrace {
+    /// Every traced call, in order (bounded by the emulator's call budget).
+    pub calls: Vec<ApiCall>,
+    /// Paths opened for reading / read from.
+    #[serde(default)]
+    pub files_read: Vec<String>,
+    /// Paths created, written, moved to or copied to.
+    #[serde(default)]
+    pub files_written: Vec<String>,
+    /// Hosts, URLs and socket addresses the sample contacted.
+    #[serde(default)]
+    pub network_targets: Vec<String>,
+    /// Command lines it started.
+    #[serde(default)]
+    pub processes: Vec<String>,
+    /// Registry keys / values it opened, read or set.
+    #[serde(default)]
+    pub registry: Vec<String>,
+    /// A budget (calls, instructions, trace size) ended the run early.
+    #[serde(default)]
+    pub truncated: bool,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ScanReport {
     pub path: PathBuf,
@@ -603,6 +642,11 @@ pub struct ScanReport {
     /// The file this buffer came from (unpacked dump, extracted member), when known.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub parent: Option<ParentInfo>,
+
+    /// API calls recorded while the sample was emulated, when the caller ran the
+    /// emulator (`ScanOptions::behavior`). The `emulated_*` conditions read it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub behavior: Option<BehaviorTrace>,
 }
 
 impl Default for ScanReport {
@@ -633,6 +677,7 @@ impl Default for ScanReport {
             threat_name: None,
             mitre_techniques: Vec::new(),
             parent: None,
+            behavior: None,
         }
     }
 }

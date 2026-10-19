@@ -436,6 +436,7 @@ fn main() -> Result<()> {
             },
             None => None,
         },
+        behavior: None,
     };
 
     let use_sequential_files = cli.no_parallel_files || cli.stop_scan_on_detection;

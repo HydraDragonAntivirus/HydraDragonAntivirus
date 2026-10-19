@@ -137,53 +137,129 @@ rules:
                  "ZwUnmapViewOfSection", "CreateRemoteThread", "NtCreateThreadEx",
                  "NtResumeThread", "QueueUserAPC"]
 
-  - id: HG-CAP-RANSOM
-    title: "Helper: recovery destruction commands"
+  # HG-CAP-RANSOM (recovery inhibition) lives in ransomware_rules.yaml with the other
+  # ransomware steps; file_rules.yaml includes that file first.
+
+  # ---- Stealer: target categories (one private rule each) ----
+  # A category is never enough alone: browsers carry their own (and importer) store
+  # names, Bitcoin Core carries wallet.dat, Steam carries loginusers.vdf.
+
+  - id: HG-STL-BROWSER
+    title: "Helper: credential / cookie stores of several browsers"
+    severity: info
+    private: true
+    logic: all
+    conditions:
+      - type: string_set
+        min: 2
+        nocase: true
+        ascii: true
+        wide: true
+        decoded: true
+        values: ["Login Data", "Web Data", 'Network\Cookies', "logins.json", "key4.db",
+                 "key3.db", "cookies.sqlite", "signons.sqlite", "formhistory.sqlite",
+                 "Login Data For Account"]
+      - type: string_set
+        min: 2
+        nocase: true
+        ascii: true
+        wide: true
+        decoded: true
+        values: ['Google\Chrome', 'Microsoft\Edge', 'BraveSoftware\Brave-Browser',
+                 'Opera Software\Opera', 'Yandex\YandexBrowser', 'Mozilla\Firefox',
+                 'Vivaldi\User Data', 'Chromium\User Data', 'Epic Privacy Browser',
+                 'CentBrowser', 'Comodo\Dragon', 'Torch\User Data', 'Kometa\User Data',
+                 'Orbitum\User Data', 'Amigo\User Data', '7Star\7Star', 'Sputnik\Sputnik',
+                 'uCozMedia\Uran', 'Waterfox', 'CocCoc\Browser',
+                 'Iridium\User Data']
+
+  - id: HG-STL-WALLET
+    title: "Helper: crypto wallet files / wallet extension ids"
     severity: info
     private: true
     conditions:
+      - type: string_set
+        min: 2
+        nocase: true
+        ascii: true
+        wide: true
+        decoded: true
+        values: ["wallet.dat", 'Exodus\exodus.wallet', 'Electrum\wallets', 'atomic\Local Storage',
+                 'Ethereum\keystore', 'Coinomi\Coinomi', 'com.liberty.jaxx', 'Guarda\Local Storage',
+                 'Bitcoin\wallets', 'Monero\wallets', 'Electrum-LTC', 'WalletWasabi',
+                 'Ledger Live', 'Local Extension Settings\',
+                 "nkbihfbeogaeaoehlefnkodbefgpgknn", "ejbalbakoplchlghecdalmeeeajnimhm",
+                 "bfnaelmomeimhlpmgjnjophhpkkoljpa", "fhbohimaelbohpjbbldcngcnapndodjp",
+                 "hnfanknocfeofbddgcijnmhnfnkdnaad", "ibnejdfjmmkpcnlpebklmnkoeoihofec",
+                 "fnjhmkhhmkbjkkabndcnnogagogbneec", "dmkamcknogkgcdfhhbddcghachkejeap",
+                 "egjidjbpglichdcondbcbdnbeeppgdph", "aholpfdialjgjfhomihkjbmgjidlcdno",
+                 "ffnbelfdoeiohenkjibnmadjiehjhajb", "hpglfhgfnhbgpjdenjgmdgoeiappafln",
+                 "aiifbnbfobpmeekipheeijimdpnlpgpp", "cjelfplplebdjjenllpjcblmjkfcffne"]
+
+  - id: HG-STL-MESSENGER
+    title: "Helper: messenger / game / FTP session and token stores"
+    severity: info
+    private: true
+    conditions:
+      - type: string_set
+        min: 2
+        nocase: true
+        ascii: true
+        wide: true
+        decoded: true
+        values: ['discord\Local Storage\leveldb', 'discordcanary', 'discordptb', 'Lightcord',
+                 "dQw4w9WgXcQ:", '[\w-]{24}\.[\w-]{6}\.[\w-]{27}', 'mfa\.[\w-]{84}',
+                 'Telegram Desktop\tdata', 'tdata\key_datas', "loginusers.vdf",
+                 'Steam\config', "ssfn*", 'Growtopia\save.dat',
+                 '.minecraft\launcher_accounts', 'Battle.net\Battle.net.config']
+
+  - id: HG-STL-MAILFTP
+    title: "Helper: mail / FTP / VPN client credential stores"
+    severity: info
+    private: true
+    conditions:
+      - type: string_set
+        min: 2
+        nocase: true
+        ascii: true
+        wide: true
+        decoded: true
+        values: ['Aerofox\Foxmail', 'Foxmail\V3.1', "IncrediMail", 'Thunderbird\Profiles',
+                 'Mailbird\Store', 'The Bat!', 'Claws-mail', "ClawsMail", 'Pocomail',
+                 'Windows Mail\Local Folders', 'Outlook\Profiles', 'eM Client',
+                 'FileZilla\recentservers.xml', 'FileZilla\sitemanager.xml', "CoreFTP",
+                 "FTP Navigator", "FTPGetter", "FtpCommander", 'SmartFTP\Client 2.0',
+                 'Martin Prikryl\WinSCP 2\Sessions', 'Pidgin\accounts.xml',
+                 'OpenVPN Connect\profiles', 'NordVPN\NordVPN.exe']
+
+  # Two target categories: the credential-collection part of a stealer.
+  - id: HG-CAP-STEALER
+    title: "Helper: credential stores of two different kinds (browser / wallet / messenger / mail-FTP)"
+    severity: info
+    private: true
+    conditions:
+      - type: rule_match
+        min: 2
+        ids: [HG-STL-BROWSER, HG-STL-WALLET, HG-STL-MESSENGER, HG-STL-MAILFTP]
+
+  - id: HG-STL-DECRYPT
+    title: "Helper: browser secret decryption (DPAPI / os_crypt key / sqlite queries)"
+    severity: info
+    private: true
+    logic: any
+    conditions:
+      - type: import_any
+        names: ["!CryptUnprotectData"]
       - type: string_set
         min: 1
         nocase: true
         ascii: true
         wide: true
         decoded: true
-        values: ["vssadmin delete shadows", "vssadmin.exe delete shadows",
-                 "shadowcopy delete", "wbadmin delete catalog",
-                 "recoveryenabled no", "bootstatuspolicy ignoreallfailures",
-                 "resize shadowstorage"]
-
-  - id: HG-CAP-CRYPTO-WALK
-    title: "Helper: file encryption primitives + directory walk"
-    severity: info
-    private: true
-    logic: all
-    conditions:
-      - type: import_any
-        names: ["!CryptEncrypt", "!BCryptEncrypt", "!CryptGenKey", "!CryptImportKey",
-                "!BCryptGenerateSymmetricKey"]
-      - type: import_any
-        names: ["!FindFirstFileW", "!FindFirstFileExW", "!FindFirstFileA"]
-      - type: import_any
-        names: ["!MoveFileExW", "!MoveFileW", "!SetFileInformationByHandle", "!WriteFile"]
-
-  - id: HG-CAP-STEALER
-    title: "Helper: browser / wallet / messenger credential paths"
-    severity: info
-    private: true
-    conditions:
-      - type: string_set
-        min: 4
-        nocase: true
-        ascii: true
-        wide: true
-        decoded: true
-        values: ['\Google\Chrome\User Data', '\Microsoft\Edge\User Data',
-                 '\BraveSoftware\Brave-Browser', '\Mozilla\Firefox\Profiles',
-                 "Login Data", "Local State", "encrypted_key", "logins.json", "key4.db",
-                 "wallet.dat", '\Exodus\', '\Electrum\wallets', '\atomic\Local Storage',
-                 '\Telegram Desktop\tdata', '\discord\Local Storage\leveldb',
-                 "nkbihfbeogaeaoehlefnkodbefgpgknn"]
+        values: ["CryptUnprotectData", "encrypted_key", "app_bound_encrypted_key", "os_crypt",
+                 "password_value", "encrypted_value", "FROM moz_cookies", "FROM logins",
+                 "sqlite3_prepare_v2", "PK11SDR_Decrypt", "BCRYPT_CHAIN_MODE_GCM",
+                 "ChainingModeGCM", "crypt32.dll"]
 
   - id: HG-CAP-EXFIL
     title: "Helper: bot / webhook exfiltration endpoints"
@@ -198,6 +274,29 @@ rules:
         decoded: true
         values: ["api.telegram.org/bot", "discord.com/api/webhooks",
                  "discordapp.com/api/webhooks", "pastebin.com/raw/"]
+
+  - id: HG-STL-EXFIL
+    title: "Helper: a way out (bot / webhook endpoint, HTTP / SMTP / FTP / socket send)"
+    severity: info
+    private: true
+    logic: any
+    conditions:
+      - type: rule_match
+        ids: [HG-CAP-EXFIL]
+      - type: import_any
+        names: ["!WinHttpSendRequest", "!WinHttpConnect", "!HttpSendRequestA", "!HttpSendRequestW",
+                "!InternetConnectA", "!InternetConnectW", "!InternetOpenUrlA", "!InternetOpenUrlW",
+                "ws2_32.dll!send", "ws2_32.dll!connect", "ws2_32.dll!WSASend",
+                "ws2_32.dll!ord4", "ws2_32.dll!ord19", "wsock32.dll!ord4", "wsock32.dll!ord19"]
+      # .NET / dynamically resolved upload.
+      - type: string_set
+        min: 1
+        ascii: true
+        wide: true
+        values: ["MultipartFormDataContent", "UploadData", "UploadFile", "UploadValues",
+                 "WinHttpSendRequest", "HttpSendRequestA", "HttpSendRequestW",
+                 "multipart/form-data; boundary=", "SmtpClient", "FtpWebRequest",
+                 "winhttp.dll", "wininet.dll"]
 
   - id: HG-CAP-DEFENSE-OFF
     title: "Helper: disables Defender / security tools"
@@ -278,18 +377,7 @@ rules:
   # C) VERDICT RULES
   # ================================================================
 
-  # Ransom: recovery destruction + encryption / directory walk. No obfuscation needed.
-  - id: HDS-GEN-RANSOM-001
-    title: "Generic ransomware (recovery wipe + file encryption)"
-    severity: critical
-    verdict: malware
-    confidence: 95
-    score: 95
-    family: "Ransom.Win32.Generic.A"
-    logic: all
-    conditions:
-      - type: rule_match
-        ids: [HG-CAP-RANSOM, HG-CAP-CRYPTO-WALK]
+  # Ransomware verdicts: RANSOM_0001 / RANSOM_0002 in ransomware_rules.yaml.
 
   # Crypter: encoded second PE + (packer / dynamic resolution / injection / anti-analysis)
   - id: HDS-GEN-CRYPTER-001
@@ -325,21 +413,50 @@ rules:
         min: 1
         ids: [HG-CAP-INJECT, HG-CAP-DEFENSE-OFF, HG-CAP-ANTI-ANALYSIS, HG-CAP-DOWNLOAD-EXEC]
 
-  # Stealer: credential paths + exfiltration endpoint, packer or anti-analysis
+  # Stealer: two kinds of credential store + secret decryption + a way out.
+  # One category, or paths alone, never match.
   - id: HDS-GEN-STEALER-001
     title: "Generic info stealer"
     severity: high
     verdict: malware
     confidence: 90
     score: 85
-    family: "Trojan-PSW.Win32.Stealer.Gen"
+    family: "Stealer.Win32.Generic"
+    tags: [stealer, credential-access]
+    mitre:
+      - id: T1555.003
+        name: "Credentials from Password Stores: Credentials from Web Browsers"
+        tactic: Credential Access
+      - id: T1041
+        name: "Exfiltration Over C2 Channel"
+        tactic: Exfiltration
     logic: all
     conditions:
       - type: rule_match
-        ids: [HG-CAP-STEALER]
-      - type: rule_match
-        min: 1
-        ids: [HG-CAP-EXFIL, HG-OBF-PACKED, HG-CAP-ANTI-ANALYSIS]
+        ids: [HG-CAP-STEALER, HG-STL-DECRYPT, HG-STL-EXFIL]
+
+  # Emulation (Unicorn trace mode, ScanReport::behavior): a browser / wallet /
+  # messenger store opened and then something sent out. Extra score only: never
+  # malware on its own; a packed stealer's unpacked dump is scanned with the static
+  # rule above as well. Without a trace this rule never matches.
+  - id: HDS-GEN-STEALER-EMU-001
+    title: "Emulation: credential store read, then data sent"
+    severity: medium
+    verdict: suspicious
+    confidence: 70
+    score: 40
+    family: "Generic.Win32.StealerBehavior"
+    tags: [stealer, emulation]
+    mitre:
+      - id: T1555.003
+        name: "Credentials from Password Stores: Credentials from Web Browsers"
+        tactic: Credential Access
+    conditions:
+      - type: emulated_sequence
+        steps:
+          - api: "CreateFileW|CreateFileA|CopyFileW|CopyFileA|CopyFileExW|NtCreateFile"
+            pattern: '(?i)(\\Login Data|\\Web Data|\\Cookies|logins\.json|key[34]\.db|cookies\.sqlite|wallet\.dat|\\tdata\\|\\Local Storage\\leveldb|\\Local Extension Settings\\|loginusers\.vdf|recentservers\.xml)'
+          - api: "WinHttpSendRequest|WinHttpWriteData|HttpSendRequestW|HttpSendRequestA|InternetWriteFile|InternetOpenUrlW|InternetOpenUrlA|send|WSASend"
 
   # The core generic rule: obfuscation + at least 2 different malicious capabilities
   - id: HDS-GEN-PE-001

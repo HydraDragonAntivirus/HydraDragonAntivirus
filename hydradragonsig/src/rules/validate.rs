@@ -23,6 +23,7 @@ const ATOM_KEYS: &[&str] = &[
 ];
 const SCOPE_KEYS: &[&str] = &["start", "end"];
 const UNPACKER_KEYS: &[&str] = &["name", "pattern"];
+const STEP_KEYS: &[&str] = &["api", "pattern"];
 
 /// Keys of every condition type (besides `type`).
 pub const CONDITION_KEYS: &[(&str, &[&str])] = &[
@@ -65,6 +66,10 @@ pub const CONDITION_KEYS: &[(&str, &[&str])] = &[
     ("unpacker_any", &["signatures"]),
     ("image_fuzzy_hash_any", &["hashes", "max_distance"]),
     ("pe_icon_any", &["dhash", "dhash_max_distance", "phash", "phash_max_distance", "idb", "idb_groups"]),
+    ("emulated_api_any", &["names"]),
+    ("emulated_arg_regex", &["api", "pattern"]),
+    ("emulated_sequence", &["steps", "within"]),
+    ("emulated_count_gte", &["api", "min", "distinct"]),
 ];
 
 /// Values accepted by `file_type` conditions.
@@ -131,6 +136,9 @@ pub fn unknown_keys(yaml: &str) -> Vec<String> {
             }
             for sig in cond.get("signatures").and_then(|v| v.as_sequence()).into_iter().flatten() {
                 check_keys(sig, UNPACKER_KEYS, &format!("{cat} signature"), &mut out);
+            }
+            for step in cond.get("steps").and_then(|v| v.as_sequence()).into_iter().flatten() {
+                check_keys(step, STEP_KEYS, &format!("{cat} step"), &mut out);
             }
         }
     }
@@ -210,6 +218,13 @@ fn list_problems<T: AsRef<str>>(what: &str, items: &[T], min: Option<usize>, out
             out.push(format!("min {m} is larger than the {} entries: never matches", items.len()));
         }
     }
+}
+
+/// An emulated-API name: `CreateFileW` or `CreateFileW|CopyFileW`.
+fn api_problem(api: &str) -> Option<String> {
+    api.split('|')
+        .any(|n| n.trim().is_empty())
+        .then(|| format!("empty API name in `{api}`"))
 }
 
 fn hex_len(value: &str, len: usize) -> bool {
@@ -410,6 +425,33 @@ fn check_condition(cond: &RuleCondition, rules: &[Rule], own_id: &str, known_ids
                 }
             }
         }
+        RuleCondition::EmulatedApiAny { names } => list_problems("names", names, None, &mut out),
+        RuleCondition::EmulatedArgRegex { api, pattern } => {
+            out.extend(api_problem(api));
+            out.extend(regex_problem(pattern));
+        }
+        RuleCondition::EmulatedSequence { steps, within } => {
+            if steps.is_empty() {
+                out.push("empty `steps` list: never matches".into());
+            }
+            for (i, st) in steps.iter().enumerate() {
+                out.extend(api_problem(&st.api).map(|e| format!("step {}: {e}", i + 1)));
+                if let Some(p) = &st.pattern {
+                    out.extend(regex_problem(p).map(|e| format!("step {}: {e}", i + 1)));
+                }
+            }
+            if let Some(w) = within {
+                if *w + 1 < steps.len() {
+                    out.push(format!("within {w} is shorter than the {} steps: never matches", steps.len()));
+                }
+            }
+        }
+        RuleCondition::EmulatedCountGte { api, min, .. } => {
+            out.extend(api_problem(api));
+            if *min == 0 {
+                out.push("min: 0 always holds".into());
+            }
+        }
         RuleCondition::UnpackerAny { signatures } => {
             if signatures.is_empty() {
                 out.push("empty `signatures` list: never matches".into());
@@ -485,6 +527,9 @@ mod tests {
             "unpacker_any" => "        signatures: []\n",
             "image_fuzzy_hash_any" => "        hashes: []\n",
             "packed_pe" | "env_reference" | "pe_icon_any" | "has_parent" => "",
+            "emulated_arg_regex" => "        api: x\n        pattern: x\n",
+            "emulated_sequence" => "        steps: [{api: x}]\n",
+            "emulated_count_gte" => "        api: x\n        min: 1\n",
             _ => "        names: [x]\n",
         }
     }

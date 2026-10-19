@@ -7,7 +7,7 @@ pub mod utils;
 
 use anyhow::{Context, Result};
 use models::{
-    ArchiveMemberResult, CoreData, CoreInitOptions, Finding, MemoryScanContext, ParentInfo,
+    ArchiveMemberResult, BehaviorTrace, CoreData, CoreInitOptions, Finding, MemoryScanContext, ParentInfo,
     ScanReport, ScanResultCode, UnpackConfig, Verdict,
 };
 use rules::{aggregate_verdict, RuleEvalOptions, RuleSet};
@@ -36,6 +36,9 @@ pub struct ScanOptions {
     /// conditions; `None` for ordinary scans. Archive members get their
     /// archive as parent automatically.
     pub parent: Option<ParentInfo>,
+    /// API trace of the buffer from an emulator run (see `models::BehaviorTrace`).
+    /// Enables the `emulated_*` conditions; `None` means they never match.
+    pub behavior: Option<BehaviorTrace>,
 }
 
 impl Default for ScanOptions {
@@ -52,6 +55,7 @@ impl Default for ScanOptions {
             core_options: CoreInitOptions::default(),
             unpack_config: UnpackConfig::default(),
             parent: None,
+            behavior: None,
         }
     }
 }
@@ -158,6 +162,7 @@ fn finalize_scan_context(
     let bytes = std::mem::take(&mut ctx.bytes);
     let mut report = report::build_report(ctx);
     report.parent = options.parent.clone();
+    report.behavior = options.behavior.clone();
     evaluate_rules(&mut report, &bytes, rules, options);
     // Strings / PE data may have been loaded lazily by the rules.
     report::refresh_features(&mut report);

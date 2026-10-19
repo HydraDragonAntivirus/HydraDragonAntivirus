@@ -1,0 +1,315 @@
+name: Ransomware Detection Rules
+version: "2.0"
+# Generic ransomware: no family strings, only the steps file-encrypting ransomware has
+# to take, each one a private helper rule:
+#
+#   HG-CAP-RANSOM        recovery inhibition (shadow copies, boot recovery, backup catalog)
+#   HG-RANSOM-WALK       drive / directory enumeration (or the usual skip-folder list)
+#   HG-RANSOM-CRYPTO     encryption APIs or embedded cipher constants / RSA public keys
+#   HG-RANSOM-NOTE       ransom-note text: two note phrases AND a payment / contact channel
+#   HG-RANSOM-RENAME     rename / move APIs AND a ransom note file name or locker extension
+#
+# Verdicts:
+#   RANSOM_0001  malware:    recovery inhibition + 2 other steps, or
+#                            encryption + enumeration + (note or rename)
+#   RANSOM_0002  suspicious: recovery inhibition alone (admin / cleanup scripts use it too)
+#
+# No step is enough alone: security tools (removal tools, backup agents, archivers,
+# disk encryption) carry crypto + enumeration but never a ransom note, and the
+# recovery-inhibition commands also live in Windows' own tools and admin scripts.
+# Trusted signed files never reach these rules (the engine's trusted-signer fast path).
+rules:
+
+  # ================================================================
+  # Steps (private)
+  # ================================================================
+
+  # Referenced by generic_pe_rules.yaml (HDS-GEN-PE-SUSP-001, unpacked-payload rules).
+  - id: HG-CAP-RANSOM
+    title: "Helper: recovery inhibition commands"
+    severity: info
+    private: true
+    logic: any
+    conditions:
+      - type: string_set
+        min: 1
+        nocase: true
+        ascii: true
+        wide: true
+        decoded: true
+        values: ["vssadmin delete shadows", "vssadmin.exe delete shadows",
+                 "delete shadows /all", "shadowcopy delete", "shadowcopy where",
+                 "wbadmin delete catalog", "wbadmin delete systemstatebackup",
+                 "wbadmin delete backup", "recoveryenabled no",
+                 "bootstatuspolicy ignoreallfailures", "resize shadowstorage /for"]
+      # PowerShell / WMI form: Get-WmiObject Win32_Shadowcopy | ForEach-Object { $_.Delete() }
+      - type: string_set
+        min: 1
+        regex: true
+        decoded: true
+        values: ['(?i)win32_shadowcopy.{0,160}(\.delete\(|remove-(wmi|cim)object)',
+                 '(?i)(get-wmiobject|gwmi|get-ciminstance)\s+win32_shadowcopy']
+
+  - id: HG-RANSOM-WALK-IMPORTS
+    title: "Helper: directory walk + drive / share enumeration imports"
+    severity: info
+    private: true
+    logic: all
+    conditions:
+      - type: import_any
+        names: ["!FindFirstFileW", "!FindFirstFileExW", "!FindFirstFileA", "!FindFirstFileExA",
+                "!NtQueryDirectoryFile"]
+      - type: import_any
+        names: ["!GetLogicalDrives", "!GetLogicalDriveStringsW", "!GetLogicalDriveStringsA",
+                "!GetDriveTypeW", "!GetDriveTypeA", "!NetShareEnum", "!WNetOpenEnumW",
+                "!WNetEnumResourceW"]
+
+  - id: HG-RANSOM-WALK
+    title: "Helper: drive / directory enumeration"
+    severity: info
+    private: true
+    logic: any
+    conditions:
+      - type: rule_match
+        ids: [HG-RANSOM-WALK-IMPORTS]
+      # Dynamic resolution / .NET: the API names are strings, not imports.
+      - type: string_set
+        min: 3
+        ascii: true
+        wide: true
+        values: ["FindFirstFileW", "FindNextFileW", "GetLogicalDrives", "GetDriveTypeW",
+                 "GetLogicalDriveStringsW", "EnumerateFiles", "GetDirectories", "GetDrives",
+                 "EnumerateDirectories"]
+      # Folders an encryptor skips so the machine still boots.
+      - type: string_set
+        min: 4
+        nocase: true
+        ascii: true
+        wide: true
+        decoded: true
+        values: ["$Recycle.Bin", "System Volume Information", "$WINDOWS.~BT", "$Windows.~WS",
+                 "Windows.old", "MSOCache", "PerfLogs", "Tor Browser", "Program Files (x86)",
+                 "Boot", "ProgramData", "All Users"]
+
+  - id: HG-RANSOM-CRYPTO
+    title: "Helper: encryption APIs or embedded cipher constants / public key"
+    severity: info
+    private: true
+    logic: any
+    conditions:
+      - type: import_set
+        min: 2
+        names:
+          # advapi32
+          - "!CryptAcquireContextA"
+          - "!CryptAcquireContextW"
+          - "!CryptGenKey"
+          - "!CryptEncrypt"
+          - "!CryptHashData"
+          - "!CryptExportKey"
+          - "!CryptImportKey"
+          - "!CryptCreateHash"
+          - "!CryptSetKeyParam"
+          - "!CryptDeriveKey"
+          - "!CryptGenRandom"
+          - "!SystemFunction036"
+          # bcrypt
+          - "!BCryptOpenAlgorithmProvider"
+          - "!BCryptGenerateKeyPair"
+          - "!BCryptEncrypt"
+          - "!BCryptImportKey"
+          - "!BCryptImportKeyPair"
+          - "!BCryptExportKey"
+          - "!BCryptDeriveKey"
+          - "!BCryptFinalizeKeyPair"
+          - "!BCryptGenerateSymmetricKey"
+          - "!BCryptSetProperty"
+          - "!BCryptSecretAgreement"
+          - "!BCryptGenRandom"
+          # ncrypt
+          - "!NCryptEncrypt"
+          - "!NCryptImportKey"
+          - "!NCryptCreatePersistedKey"
+          - "!NCryptExportKey"
+          - "!NCryptSecretAgreement"
+          - "!NCryptDeriveKey"
+          - "!NCryptFinalizeKey"
+          # ntdll
+          - "!RtlEncryptMemory"
+      # .NET / dynamically resolved crypto.
+      - type: string_set
+        min: 2
+        ascii: true
+        wide: true
+        values: ["RijndaelManaged", "AesCryptoServiceProvider", "AesManaged", "CreateEncryptor",
+                 "RSACryptoServiceProvider", "BCryptEncrypt", "CryptEncrypt", "CryptImportKey",
+                 "CryptGenKey"]
+      # ChaCha20 / Salsa20 sigma constant.
+      - type: string_set
+        min: 1
+        ascii: true
+        values: ["expand 32-byte k", "expand 16-byte k"]
+      # AES forward S-box (first 16 bytes).
+      - type: byte_pattern
+        pattern: "{ 63 7C 77 7B F2 6B 6F C5 30 01 67 2B FE D7 AB 76 }"
+      # Embedded RSA public keys: CryptoAPI PUBLICKEYBLOB (CALG_RSA_KEYX, "RSA1"),
+      # BCRYPT_RSAKEY_BLOB "RSA1" with 2048 / 4096 bit modulus and a 3-byte exponent.
+      - type: byte_set
+        min: 1
+        patterns: ["{ 06 02 00 00 00 A4 00 00 52 53 41 31 }",
+                   "{ 52 53 41 31 00 08 00 00 03 00 00 00 }",
+                   "{ 52 53 41 31 00 10 00 00 03 00 00 00 }"]
+      # PEM / XML RSA public keys (2048 / 4096 bit SubjectPublicKeyInfo base64 prefix).
+      - type: string_set
+        min: 1
+        ascii: true
+        wide: true
+        values: ["MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA",
+                 "MIICIjANBgkqhkiG9w0BAQEFAAOCAg8AMIICCgKCAgEA",
+                 "<RSAKeyValue><Modulus>", "BEGIN RSA PUBLIC KEY"]
+
+  - id: HG-RANSOM-NOTE
+    title: "Helper: ransom note text with a payment / contact channel"
+    severity: info
+    private: true
+    logic: all
+    conditions:
+      - type: string_set
+        min: 2
+        nocase: true
+        ascii: true
+        wide: true
+        decoded: true
+        values: ["your files have been encrypted", "your files are encrypted",
+                 "files have been encrypted", "files were encrypted", "has been encrypted",
+                 "all your files", "decrypt your files", "recover your files",
+                 "restore your files", "files will be decrypted", "decrypt 1 file",
+                 "decrypt one file", "pay the ransom", "your company is fully",
+                 "your network has been", "Install TOR Browser", "Download Tor",
+                 "Decryption ID", "decryption key", "do not rename encrypted",
+                 "do not try to decrypt"]
+      - type: string_set
+        min: 1
+        nocase: true
+        ascii: true
+        wide: true
+        decoded: true
+        values: [".onion", "bitcoin", "BTC wallet", "monero", "torproject.org",
+                 "@protonmail", "@onionmail", "@tutanota", "@cock.li", "qtox", "Tox ID",
+                 "personal ID", "Decryption ID", "decryptor"]
+
+  - id: HG-RANSOM-RENAME
+    title: "Helper: rename APIs + ransom note file name or locker extension"
+    severity: info
+    private: true
+    logic: all
+    conditions:
+      - type: import_any
+        names: ["!MoveFileExW", "!MoveFileW", "!MoveFileExA", "!MoveFileA",
+                "!MoveFileWithProgressW", "!SetFileInformationByHandle"]
+      - type: string_set
+        min: 1
+        nocase: true
+        ascii: true
+        wide: true
+        decoded: true
+        values: ["HOW_TO_RECOVER", "HOW_TO_DECRYPT", "HOW-TO-DECRYPT", "RESTORE_FILES",
+                 "RESTORE-MY-FILES", "README_FOR_DECRYPT", "DECRYPT_INSTRUCTIONS",
+                 "RECOVER-FILES", "_readme.txt", "!!!READ_ME!!!", "READ_ME_TO_DECRYPT",
+                 ".locked", ".lockbit"]
+
+  - id: HG-RANSOM-INHIBIT-PLUS
+    title: "Helper: recovery inhibition with two other ransomware steps"
+    severity: info
+    private: true
+    logic: all
+    conditions:
+      - type: rule_match
+        ids: [HG-CAP-RANSOM]
+      - type: rule_match
+        min: 2
+        ids: [HG-RANSOM-CRYPTO, HG-RANSOM-WALK, HG-RANSOM-NOTE, HG-RANSOM-RENAME]
+
+  - id: HG-RANSOM-ENCRYPT-CHAIN
+    title: "Helper: encryption + enumeration + note or rename"
+    severity: info
+    private: true
+    logic: all
+    conditions:
+      - type: rule_match
+        ids: [HG-RANSOM-CRYPTO, HG-RANSOM-WALK]
+      - type: rule_match
+        min: 1
+        ids: [HG-RANSOM-NOTE, HG-RANSOM-RENAME]
+
+  # ================================================================
+  # Verdicts
+  # ================================================================
+
+  - id: RANSOM_0001
+    title: "Generic ransomware (encryption chain or recovery inhibition)"
+    description: >
+      Recovery inhibition together with two other ransomware steps, or file
+      encryption together with drive / directory enumeration and a ransom note or
+      locker rename. Each step alone is common in benign software; the chain is not.
+    severity: critical
+    verdict: malware
+    confidence: 90
+    family: Ransom.Win32.Generic
+    score: 99
+    tags: [ransomware, encryption, recovery-inhibition]
+    mitre:
+      - id: T1486
+        name: Data Encrypted for Impact
+        tactic: Impact
+      - id: T1490
+        name: Inhibit System Recovery
+        tactic: Impact
+    conditions:
+      - type: rule_match
+        min: 1
+        ids: [HG-RANSOM-INHIBIT-PLUS, HG-RANSOM-ENCRYPT-CHAIN]
+
+  - id: RANSOM_0002
+    title: "Recovery inhibition commands"
+    description: >
+      Deletes shadow copies / the backup catalog or disables boot recovery. Ransomware
+      does this before encrypting, but so do some admin and cleanup scripts: suspicious.
+    severity: medium
+    verdict: suspicious
+    confidence: 60
+    family: Generic.Win32.RecoveryInhibit
+    score: 40
+    tags: [ransomware, recovery-inhibition]
+    mitre:
+      - id: T1490
+        name: Inhibit System Recovery
+        tactic: Impact
+    conditions:
+      - type: rule_match
+        ids: [HG-CAP-RANSOM]
+
+  # Emulation (Unicorn trace mode, ScanReport::behavior): the encryption chain or a
+  # recovery-inhibition command line seen while emulating. Extra score only, never
+  # malware on its own; without a trace this rule never matches.
+  - id: RANSOM_0003
+    title: "Emulation: walk -> encrypt -> rename, or recovery inhibition started"
+    severity: medium
+    verdict: suspicious
+    confidence: 70
+    family: Generic.Win32.RansomBehavior
+    score: 40
+    tags: [ransomware, emulation]
+    mitre:
+      - id: T1486
+        name: Data Encrypted for Impact
+        tactic: Impact
+    conditions:
+      - type: emulated_sequence
+        steps:
+          - api: "FindFirstFileW|FindFirstFileExW|FindNextFileW|FindFirstFileA|FindNextFileA"
+          - api: "CryptEncrypt|BCryptEncrypt|NCryptEncrypt"
+          - api: "MoveFileExW|MoveFileW|MoveFileExA|MoveFileA|SetFileInformationByHandle"
+      - type: emulated_arg_regex
+        api: "CreateProcessW|CreateProcessA|ShellExecuteW|ShellExecuteA|ShellExecuteExW|WinExec"
+        pattern: '(?i)(vssadmin.{0,40}delete\s+shadows|shadowcopy\s+delete|wbadmin.{0,20}delete\s+(catalog|systemstatebackup)|recoveryenabled\s+no|bootstatuspolicy\s+ignoreallfailures|win32_shadowcopy)'
