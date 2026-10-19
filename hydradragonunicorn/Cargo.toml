@@ -47,6 +47,9 @@ sevenz-rust2 = { version = "0.20", features = ["brotli", "deflate", "lz4", "zstd
 hydradragonextractor = { path = "../hydradragonextractor" }
 vmpunpacker = { path = "../vmpunpacker" }
 pefile-rs = { path = "../pefile-rs" }
+# Shared model types: the trace mode fills hydradragonsig::models::BehaviorTrace
+# directly, so the `emulated_*` rule conditions read it without conversion.
+hydradragonsig = { path = "../hydradragonsig", default-features = false }
 
 [dev-dependencies]
 tempfile = "3.27.0"
