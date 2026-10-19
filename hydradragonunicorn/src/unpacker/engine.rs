@@ -298,6 +298,7 @@ struct HookState {
     dllname_to_functionlist: HashMap<String, Vec<(String, u64)>>,
     api_state: ApiState,
     behavior_trace: BehaviorTrace,
+    trace_bytes: usize,
 }
 
 // ---------------------------------------------------------------------------
@@ -393,8 +394,13 @@ impl UnpackerEngine {
                 trace_mode,
                 is_64,
                 dllname_to_functionlist,
-                api_state: ApiState::default(),
+                api_state: ApiState {
+                    image_base,
+                    is_64,
+                    ..ApiState::default()
+                },
                 behavior_trace: BehaviorTrace::default(),
+                trace_bytes: 0,
             })),
         }
     }
@@ -618,6 +624,10 @@ impl UnpackerEngine {
             let mut hs = self.hook_state.borrow_mut();
             hs.dllname_to_functionlist = self.sample.dllname_to_functionlist.clone();
             hs.is_64 = is_64;
+            hs.api_state.is_64 = is_64;
+            for (name, base, _) in &dll_bases {
+                hs.api_state.dll_bases.insert(name.clone(), *base);
+            }
         }
 
         // --- Register hooks ---
@@ -649,12 +659,12 @@ impl UnpackerEngine {
                     let st = &mut *guard;
                     if addr >= st.hook_addr && addr < st.hook_addr + 0x100000 {
                         // API call via a patched IAT entry.
-                        let api_name = apicalls::resolve_api_name(
-                            &st.apicall_counter,
+                        let (api_name_opt, dll_name_opt) = apicalls::resolve_api_and_dll(
                             addr,
                             &st.dllname_to_functionlist,
-                        )
-                        .unwrap_or_else(|| format!("UnknownHook_{:#x}", addr));
+                        );
+                        let api_name = api_name_opt.unwrap_or_else(|| format!("UnknownHook_{:#x}", addr));
+                        let norm = apicalls::normalize_api_name(&api_name);
 
                         match st.apicall_counter.get_mut(&api_name) {
                             Some(c) => *c += 1,
@@ -667,18 +677,12 @@ impl UnpackerEngine {
                             log::info!("API call: {}", api_name);
                             true
                         } else {
-                            const MAX_TRACE_CALLS: usize = 2000;
-                            if st.behavior_trace.calls.len() >= MAX_TRACE_CALLS {
-                                st.behavior_trace.truncated = true;
-                                log::info!("Trace call budget reached ({}), stopping emulation cleanly", MAX_TRACE_CALLS);
-                                true
-                            } else {
-                                let spec = apicalls::get_api_spec(&api_name);
+                            let spec = apicalls::get_api_spec(&api_name);
                                 let is_64 = st.is_64;
                                 let hook_addr_base = st.hook_addr;
 
                                 let (ret_addr, raw_args, pop_size, can_continue) = if !is_64 {
-                                    // x86 stdcall
+                                    // x86 calling convention
                                     if let Ok(esp) = uc.reg_read(RegisterX86::ESP as i32) {
                                         let mut ret_buf = [0u8; 4];
                                         let ret = if uc.mem_read(esp, &mut ret_buf).is_ok() {
@@ -695,7 +699,7 @@ impl UnpackerEngine {
                                                     (count, true)
                                                 } else {
                                                     // Indeterminate push count: safe stop to prevent stack corruption
-                                                    log::warn!("Indeterminate argument count for x86 stdcall API {}; stopping emulation safely", api_name);
+                                                    log::warn!("Indeterminate argument count for x86 API {}; stopping emulation safely", api_name);
                                                     (0, false)
                                                 }
                                             }
@@ -715,7 +719,10 @@ impl UnpackerEngine {
                                                 };
                                                 args.push(val);
                                             }
-                                            (ret, args, 4 + (arg_count as u64) * 4, true)
+                                            // Handle __cdecl (caller cleans stack, only pop return address) vs __stdcall
+                                            let is_cdecl = apicalls::is_cdecl_api(&api_name, dll_name_opt.as_deref());
+                                            let pop = if is_cdecl { 4 } else { 4 + (arg_count as u64) * 4 };
+                                            (ret, args, pop, true)
                                         }
                                     } else {
                                         (0, Vec::new(), 0, false)
@@ -755,52 +762,58 @@ impl UnpackerEngine {
                                     }
                                 };
 
-                                if !can_continue || ret_addr == 0 || (ret_addr >= hook_addr_base && ret_addr < hook_addr_base + 0x100000) {
+                                let string_specs = spec.map(|s| s.string_args).unwrap_or(&[]);
+                                let is_wide_hint = api_name.ends_with('w') || api_name.ends_with('W');
+                                let mut formatted_args = Vec::with_capacity(raw_args.len());
+                                let mut detected_strings = Vec::new();
+
+                                for (idx, &arg_val) in raw_args.iter().enumerate() {
+                                    let str_val = if let Some(&(_, str_type)) = string_specs.iter().find(|(i, _)| *i == idx) {
+                                        match str_type {
+                                            apicalls::StringType::Ansi => apicalls::read_ansi_string(uc, arg_val, 512),
+                                            apicalls::StringType::Wide => apicalls::read_wide_string(uc, arg_val, 512),
+                                        }
+                                    } else if norm == "readfile" || norm == "writefile" || norm == "send" || norm == "recv" {
+                                        // Do NOT probe string on raw file/network data buffers
+                                        None
+                                    } else {
+                                        apicalls::probe_string_arg(uc, arg_val, is_wide_hint)
+                                    };
+
+                                    if let Some(ref s) = str_val {
+                                        detected_strings.push(s.clone());
+                                        // Bound argument string length in trace (512 characters)
+                                        if s.len() > 512 {
+                                            let mut tr: String = s.chars().take(509).collect();
+                                            tr.push_str("...");
+                                            formatted_args.push(tr);
+                                        } else {
+                                            formatted_args.push(s.clone());
+                                        }
+                                    } else {
+                                        formatted_args.push(format!("{:#x}", arg_val));
+                                    }
+                                }
+
+                                // Check process termination APIs:
+                                // Only halt emulation if terminating the current process ((target_h & 0xFFFFFFFF) == 0xFFFFFFFF || target_h == u64::MAX).
+                                // In Windows, NULL handle (0) is invalid (ERROR_INVALID_HANDLE) and cannot terminate the process; emulation continues.
+                                let is_terminate = norm == "terminateprocess";
+                                let target_h = raw_args.first().copied().unwrap_or(0);
+                                let is_self_termination = !is_terminate || (target_h & 0xFFFFFFFF) == 0xFFFFFFFF || target_h == u64::MAX;
+
+                                if norm == "exitprocess" || norm == "corlexitprocess" || norm == "exitthread" || (is_terminate && is_self_termination) {
+                                    st.behavior_trace.calls.push(ApiCall {
+                                        api: api_name.clone(),
+                                        args: formatted_args.clone(),
+                                        ret: 0,
+                                    });
+                                    log::info!("API [trace]: {} called -> terminating emulation cleanly", api_name);
+                                    true
+                                } else if !can_continue || ret_addr == 0 || (ret_addr >= hook_addr_base && ret_addr < hook_addr_base + 0x100000) {
                                     log::warn!("Cannot continue from return address {:#x} for API {}, stopping emulation", ret_addr, api_name);
                                     true
                                 } else {
-                                    let string_specs = spec.map(|s| s.string_args).unwrap_or(&[]);
-                                    let is_wide_hint = api_name.ends_with('w') || api_name.ends_with('W');
-                                    let mut formatted_args = Vec::with_capacity(raw_args.len());
-                                    let mut detected_strings = Vec::new();
-
-                                    for (idx, &arg_val) in raw_args.iter().enumerate() {
-                                        let str_val = if let Some(&(_, str_type)) = string_specs.iter().find(|(i, _)| *i == idx) {
-                                            match str_type {
-                                                apicalls::StringType::Ansi => apicalls::read_ansi_string(uc, arg_val, 512),
-                                                apicalls::StringType::Wide => apicalls::read_wide_string(uc, arg_val, 512),
-                                            }
-                                        } else {
-                                            apicalls::probe_string_arg(uc, arg_val, is_wide_hint)
-                                        };
-
-                                        if let Some(ref s) = str_val {
-                                            detected_strings.push(s.clone());
-                                            formatted_args.push(s.clone());
-                                        } else {
-                                            formatted_args.push(format!("{:#x}", arg_val));
-                                        }
-                                    }
-
-                                    let norm = apicalls::normalize_api_name(&api_name);
-                                    for s in &detected_strings {
-                                        if norm.starts_with("createfile") || norm.starts_with("readfile") || norm.starts_with("findfirstfile") {
-                                            st.behavior_trace.files_read.push(s.clone());
-                                        } else if norm.starts_with("writefile")
-                                            || norm.starts_with("deletefile")
-                                            || norm.starts_with("movefile")
-                                            || norm.starts_with("copyfile")
-                                        {
-                                            st.behavior_trace.files_written.push(s.clone());
-                                        } else if norm.starts_with("reg") {
-                                            st.behavior_trace.registry.push(s.clone());
-                                        } else if norm.starts_with("createprocess") || norm.starts_with("shellexecute") || norm.starts_with("winexec") {
-                                            st.behavior_trace.processes.push(s.clone());
-                                        } else if norm.starts_with("winhttp") || norm.starts_with("internet") || norm.starts_with("urldownload") || norm.contains("addr") || norm.contains("host") {
-                                            st.behavior_trace.network_targets.push(s.clone());
-                                        }
-                                    }
-
                                     // Execute stub logic with dllname_to_functionlist
                                     let ret_val = apicalls::handle_api_call(
                                         uc,
@@ -810,12 +823,109 @@ impl UnpackerEngine {
                                         &mut st.dllname_to_functionlist,
                                     );
 
-                                    // Record trace entry
-                                    st.behavior_trace.calls.push(ApiCall {
-                                        api: api_name.clone(),
-                                        args: formatted_args.clone(),
-                                        ret: ret_val,
-                                    });
+                                    // Categorize behavior trace with deduplication
+                                    const MAX_CATEGORY_ITEMS: usize = 5000;
+                                    if norm.starts_with("createfile") {
+                                        if let Some((p, is_write)) = st.api_state.file_handles.get(&ret_val) {
+                                            if *is_write {
+                                                if !st.behavior_trace.files_written.contains(p) && st.behavior_trace.files_written.len() < MAX_CATEGORY_ITEMS {
+                                                    st.behavior_trace.files_written.push(p.clone());
+                                                }
+                                            } else {
+                                                if !st.behavior_trace.files_read.contains(p) && st.behavior_trace.files_read.len() < MAX_CATEGORY_ITEMS {
+                                                    st.behavior_trace.files_read.push(p.clone());
+                                                }
+                                            }
+                                        }
+                                    } else if norm == "readfile" {
+                                        let h = raw_args.first().copied().unwrap_or(0);
+                                        if let Some((p, _)) = st.api_state.file_handles.get(&h) {
+                                            if !st.behavior_trace.files_read.contains(p) && st.behavior_trace.files_read.len() < MAX_CATEGORY_ITEMS {
+                                                st.behavior_trace.files_read.push(p.clone());
+                                            }
+                                        }
+                                    } else if norm == "writefile" {
+                                        let h = raw_args.first().copied().unwrap_or(0);
+                                        if let Some((p, _)) = st.api_state.file_handles.get(&h) {
+                                            if !st.behavior_trace.files_written.contains(p) && st.behavior_trace.files_written.len() < MAX_CATEGORY_ITEMS {
+                                                st.behavior_trace.files_written.push(p.clone());
+                                            }
+                                        }
+                                    } else if norm == "connect" || norm == "wsaconnect" {
+                                        let sockaddr_ptr = raw_args.get(1).copied().unwrap_or(0);
+                                        let namelen = raw_args.get(2).copied().unwrap_or(16) as usize;
+                                        if let Some((ip, port)) = apicalls::parse_sockaddr(uc, sockaddr_ptr, namelen) {
+                                            let endpoint = apicalls::format_endpoint(&st.api_state, ip, port);
+                                            if !st.behavior_trace.network_targets.contains(&endpoint) && st.behavior_trace.network_targets.len() < MAX_CATEGORY_ITEMS {
+                                                st.behavior_trace.network_targets.push(endpoint.clone());
+                                            }
+                                            if formatted_args.len() > 1 {
+                                                formatted_args[1] = format!("{:#x} ({})", sockaddr_ptr, endpoint);
+                                            }
+                                        }
+                                    } else if norm.starts_with("getaddrinfo") {
+                                        // Only add the resolved hostname (node name) to network_targets, NOT the service/port string
+                                        let node_ptr = raw_args.get(0).copied().unwrap_or(0);
+                                        let node_name = if norm.ends_with('w') {
+                                            apicalls::read_wide_string(uc, node_ptr, 512)
+                                        } else {
+                                            apicalls::read_ansi_string(uc, node_ptr, 512)
+                                        };
+                                        if let Some(node) = node_name {
+                                            if !st.behavior_trace.network_targets.contains(&node) && st.behavior_trace.network_targets.len() < MAX_CATEGORY_ITEMS {
+                                                st.behavior_trace.network_targets.push(node);
+                                            }
+                                        }
+                                    } else {
+                                        for s in &detected_strings {
+                                            if norm.starts_with("findfirstfile") {
+                                                if !st.behavior_trace.files_read.contains(s) && st.behavior_trace.files_read.len() < MAX_CATEGORY_ITEMS {
+                                                    st.behavior_trace.files_read.push(s.clone());
+                                                }
+                                            } else if norm.starts_with("deletefile")
+                                                || norm.starts_with("movefile")
+                                                || norm.starts_with("copyfile")
+                                            {
+                                                if !st.behavior_trace.files_written.contains(s) && st.behavior_trace.files_written.len() < MAX_CATEGORY_ITEMS {
+                                                    st.behavior_trace.files_written.push(s.clone());
+                                                }
+                                            } else if norm.starts_with("reg") {
+                                                if !st.behavior_trace.registry.contains(s) && st.behavior_trace.registry.len() < MAX_CATEGORY_ITEMS {
+                                                    st.behavior_trace.registry.push(s.clone());
+                                                }
+                                            } else if norm.starts_with("createprocess")
+                                                || norm.starts_with("shellexecute")
+                                                || norm.starts_with("winexec")
+                                            {
+                                                if !st.behavior_trace.processes.contains(s) && st.behavior_trace.processes.len() < MAX_CATEGORY_ITEMS {
+                                                    st.behavior_trace.processes.push(s.clone());
+                                                }
+                                            } else if norm.starts_with("winhttp")
+                                                || norm.starts_with("internet")
+                                                || norm.starts_with("urldownload")
+                                                || norm.starts_with("gethostbyname")
+                                            {
+                                                if !st.behavior_trace.network_targets.contains(s) && st.behavior_trace.network_targets.len() < MAX_CATEGORY_ITEMS {
+                                                    st.behavior_trace.network_targets.push(s.clone());
+                                                }
+                                            }
+                                        }
+                                    }
+
+                                    // Record trace entry (bounded by call count and total payload budget)
+                                    const MAX_TRACE_CALLS: usize = 20_000;
+                                    const MAX_TRACE_BYTES: usize = 2 * 1024 * 1024; // 2 MB budget
+                                    let call_size = api_name.len() + formatted_args.iter().map(|s| s.len()).sum::<usize>() + 16;
+                                    if st.behavior_trace.calls.len() >= MAX_TRACE_CALLS || st.trace_bytes + call_size > MAX_TRACE_BYTES {
+                                        st.behavior_trace.truncated = true;
+                                    } else {
+                                        st.trace_bytes += call_size;
+                                        st.behavior_trace.calls.push(ApiCall {
+                                            api: api_name.clone(),
+                                            args: formatted_args.clone(),
+                                            ret: ret_val,
+                                        });
+                                    }
 
                                     log::info!(
                                         "API [trace]: {}({}) -> {:#x}",
@@ -842,7 +952,6 @@ impl UnpackerEngine {
                                     false // Continue emulation from return address!
                                 }
                             }
-                        }
                     } else {
                         let idx = section_index(&st.sample_sections, st.image_base, addr);
                         if let Some(i) = idx {

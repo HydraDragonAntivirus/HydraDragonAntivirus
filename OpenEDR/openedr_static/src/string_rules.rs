@@ -64,6 +64,21 @@ impl PeStringRules {
         self.ruleset.as_ref().map(|r| r.rules().len()).unwrap_or(0)
     }
 
+    /// Returns true if at least one loaded rule requires an emulation trace (emulated_* conditions).
+    pub fn needs_behavior(&self) -> bool {
+        self.ruleset.as_ref().map_or(false, |r| r.needs_behavior())
+    }
+
+    /// Checks if a specific rule contains emulated_* behavior conditions.
+    pub fn is_emulated_rule(&self, rule_id: &str) -> bool {
+        self.ruleset.as_ref().map_or(false, |rs| {
+            rs.rules()
+                .iter()
+                .find(|r| r.id == rule_id)
+                .map_or(false, |r| r.conditions.iter().any(hydradragonsig::rules::RuleCondition::is_emulated))
+        })
+    }
+
     /// Evaluate loaded rules over extracted strings. `is_pe` tags the file
     /// for `FileType` conditions (no other classification is done here).
     /// `is_apk` tags Android packages (APK/ZIP/DEX) the same way.

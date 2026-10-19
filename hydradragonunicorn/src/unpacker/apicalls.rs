@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use unicorn_engine::Unicorn;
+use unicorn_engine::{Prot, Unicorn};
 
 /// String argument encoding type.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -77,8 +77,8 @@ api_specs! {
     "regqueryvaluew"(4, [ (1, Wide) ]) -> 0;
     "regqueryvalueexa"(6, [ (1, Ansi) ]) -> 0;
     "regqueryvalueexw"(6, [ (1, Wide) ]) -> 0;
-    "regsetvaluea"(5, [ (1, Ansi), (4, Ansi) ]) -> 0;
-    "regsetvaluew"(5, [ (1, Wide), (4, Wide) ]) -> 0;
+    "regsetvaluea"(5, [ (1, Ansi), (3, Ansi) ]) -> 0;
+    "regsetvaluew"(5, [ (1, Wide), (3, Wide) ]) -> 0;
     "regsetvalueexa"(6, [ (1, Ansi) ]) -> 0;
     "regsetvalueexw"(6, [ (1, Wide) ]) -> 0;
     "regdeletekeya"(2, [ (1, Ansi) ]) -> 0;
@@ -100,7 +100,7 @@ api_specs! {
     "openprocess"(3) -> 0x1020;
     "terminateprocess"(2) -> 1;
     "exitprocess"(1) -> 0;
-    "getcurrentprocess"(0) -> 0xFFFFFFFF;
+    "getcurrentprocess"(0) -> 0xFFFFFFFFFFFFFFFFu64;
     "getcurrentprocessid"(0) -> 1234;
 
     // --- Network APIs ---
@@ -126,10 +126,12 @@ api_specs! {
     "wsacleanup"(0) -> 0;
     "socket"(3) -> 0x5000;
     "connect"(3) -> 0;
+    "wsaconnect"(7) -> 0;
     "send"(4) -> 1;
     "recv"(4) -> 0;
     "closesocket"(1) -> 0;
     "getaddrinfo"(4, [ (0, Ansi) ]) -> 0;
+    "getaddrinfow"(4, [ (0, Wide) ]) -> 0;
     "freeaddrinfo"(1) -> 0;
     "gethostbyname"(1, [ (0, Ansi) ]) -> 0;
 
@@ -163,10 +165,10 @@ api_specs! {
     "checkremotedebuggerpresent"(2) -> 1;
 
     // --- Module & Memory APIs ---
-    "loadlibrarya"(1, [ (0, Ansi) ]) -> 0x7F000000;
-    "loadlibraryw"(1, [ (0, Wide) ]) -> 0x7F000000;
-    "loadlibraryexa"(3, [ (0, Ansi) ]) -> 0x7F000000;
-    "loadlibraryexw"(3, [ (0, Wide) ]) -> 0x7F000000;
+    "loadlibrarya"(1, [ (0, Ansi) ]) -> 0x50000000;
+    "loadlibraryw"(1, [ (0, Wide) ]) -> 0x50000000;
+    "loadlibraryexa"(3, [ (0, Ansi) ]) -> 0x50000000;
+    "loadlibraryexw"(3, [ (0, Wide) ]) -> 0x50000000;
     "freelibrary"(1) -> 1;
     "getprocaddress"(2, [ (1, Ansi) ]) -> 0x7F080000;
     "getmodulehandlea"(1, [ (0, Ansi) ]) -> 0x400000;
@@ -175,7 +177,8 @@ api_specs! {
     "getmodulehandleexw"(3, [ (1, Wide) ]) -> 1;
     "getmodulefilenamea"(3) -> 12;
     "getmodulefilenamew"(3) -> 12;
-    "virtualalloc"(4) -> 0x300000;
+    "virtualalloc"(4) -> 0x20000000;
+    "virtualallocex"(5) -> 0x20000000;
     "virtualfree"(3) -> 1;
     "virtualprotect"(4) -> 1;
     "getlasterror"(0) -> 0;
@@ -205,13 +208,24 @@ pub fn get_api_spec(api_name: &str) -> Option<&'static ApiStubSpec> {
     API_STUB_TABLE.iter().find(|spec| spec.name == normalized)
 }
 
-/// State kept across emulated API calls (handle generation, search iterations, simulated ticks, dynamic hooks).
+/// State kept across emulated API calls (handle generation, search iterations, simulated ticks, dynamic hooks, mapped buffers).
 #[derive(Debug, Clone)]
 pub struct ApiState {
     pub next_file_handle: u64,
     pub next_hook_addr: u64,
+    pub next_alloc_addr: u64,
+    pub image_base: u64,
+    pub dll_bases: HashMap<String, u64>,
     pub find_handles: HashMap<u64, u32>,
+    pub file_handles: HashMap<u64, (String, bool)>,
     pub simulated_tick_count: u64,
+    pub is_64: bool,
+    pub dns_cache: HashMap<String, [u8; 4]>,
+    pub ip_to_host: HashMap<[u8; 4], String>,
+    pub next_fake_ip_index: usize,
+    pub net_stub_base: u64,
+    pub net_stub_offset: u64,
+    pub net_stub_mapped: u64,
 }
 
 impl Default for ApiState {
@@ -219,10 +233,146 @@ impl Default for ApiState {
         Self {
             next_file_handle: 0x1000,
             next_hook_addr: 0x7F080000,
+            next_alloc_addr: 0x20000000,
+            image_base: 0x400000,
+            dll_bases: HashMap::new(),
             find_handles: HashMap::new(),
+            file_handles: HashMap::new(),
             simulated_tick_count: 100_000,
+            is_64: false,
+            dns_cache: HashMap::new(),
+            ip_to_host: HashMap::new(),
+            next_fake_ip_index: 0,
+            net_stub_base: 0x78000000,
+            net_stub_offset: 0,
+            net_stub_mapped: 0,
         }
     }
+}
+
+impl ApiState {
+    /// Resolves a hostname to a unique RFC 5737 TEST-NET address (TEST-NET-1, TEST-NET-2, TEST-NET-3)
+    /// or extended private range (10.200.x.y) without rollover or overwriting previous host mappings,
+    /// recording both hostname -> IP and IP -> hostname so `connect()` calls can map
+    /// the socket address back to the original domain name.
+    pub fn resolve_or_assign_fake_ip(&mut self, host: &str) -> [u8; 4] {
+        let clean = host.trim().trim_end_matches('.').to_ascii_lowercase();
+        if let Some(&ip) = self.dns_cache.get(&clean) {
+            return ip;
+        }
+        let idx = self.next_fake_ip_index;
+        self.next_fake_ip_index += 1;
+
+        let fake_ip = if idx < 254 {
+            // RFC 5737 TEST-NET-1: 192.0.2.1 .. 192.0.2.254
+            [192, 0, 2, (idx + 1) as u8]
+        } else if idx < 508 {
+            // RFC 5737 TEST-NET-2: 198.51.100.1 .. 198.51.100.254
+            [198, 51, 100, (idx - 254 + 1) as u8]
+        } else if idx < 762 {
+            // RFC 5737 TEST-NET-3: 203.0.113.1 .. 203.0.113.254
+            [203, 0, 113, (idx - 508 + 1) as u8]
+        } else {
+            // Extended private range (10.200.x.y) to prevent collision or rollover
+            let ext_idx = idx - 762;
+            let subnet = ((ext_idx / 254) % 250) as u8;
+            let host_num = ((ext_idx % 254) + 1) as u8;
+            [10, 200, subnet, host_num]
+        };
+
+        self.dns_cache.insert(clean.clone(), fake_ip);
+        self.ip_to_host.insert(fake_ip, clean);
+        fake_ip
+    }
+}
+
+/// Allocates memory from the dedicated network stub region (0x78000000..0x7F000000), avoiding 64KB padding per call.
+/// Maps 64KB pages on demand and never wraps around or overwrites previous structures.
+/// Returns 0 on allocation or mapping failure.
+pub fn alloc_net_stub(uc: &mut Unicorn<'_, ()>, api_state: &mut ApiState, size: usize) -> u64 {
+    let aligned = (size + 15) & !15;
+    let needed_end = api_state.net_stub_offset + (aligned as u64);
+
+    // Map additional 64KB pages on demand if needed
+    while needed_end > api_state.net_stub_mapped {
+        let map_addr = api_state.net_stub_base + api_state.net_stub_mapped;
+        // Safety bound: do not collide with HOOK_ADDR at 0x7F000000
+        if map_addr >= 0x7F000000 {
+            log::warn!("Network stub pool exhausted (reached HOOK_ADDR limit)");
+            return 0;
+        }
+        if uc.mem_map(map_addr, 0x10000, Prot::ALL).is_err() {
+            log::warn!("Failed to mem_map network stub page at {:#x}", map_addr);
+            return 0;
+        }
+        api_state.net_stub_mapped += 0x10000;
+    }
+
+    let addr = api_state.net_stub_base + api_state.net_stub_offset;
+    api_state.net_stub_offset += aligned as u64;
+    addr
+}
+
+/// Parses a sockaddr_in structure at `addr`, returning (IPv4 bytes, port) if family == AF_INET (2).
+pub fn parse_sockaddr(uc: &Unicorn<'_, ()>, addr: u64, len: usize) -> Option<([u8; 4], u16)> {
+    if addr < 0x10000 || len < 8 {
+        return None;
+    }
+    let mut buf = [0u8; 8];
+    if uc.mem_read(addr, &mut buf).is_err() {
+        return None;
+    }
+    let family = u16::from_le_bytes([buf[0], buf[1]]);
+    if family == 2 {
+        // AF_INET: family (2 bytes), port (2 bytes BE), IPv4 (4 bytes)
+        let port = u16::from_be_bytes([buf[2], buf[3]]);
+        let ip = [buf[4], buf[5], buf[6], buf[7]];
+        Some((ip, port))
+    } else {
+        None
+    }
+}
+
+/// Formats an IP:port endpoint, translating known synthetic IPs back to their original hostnames.
+pub fn format_endpoint(api_state: &ApiState, ip: [u8; 4], port: u16) -> String {
+    if let Some(host) = api_state.ip_to_host.get(&ip) {
+        format!("{}:{}", host, port)
+    } else {
+        format!("{}.{}.{}.{}:{}", ip[0], ip[1], ip[2], ip[3], port)
+    }
+}
+
+/// Matches a requested DLL name against loaded DLL bases (case-insensitive, optional .dll extension, path stripped).
+pub fn find_dll_base(dll_bases: &HashMap<String, u64>, name: &str) -> Option<u64> {
+    let mut clean = name.trim().to_ascii_lowercase();
+    if let Some(pos) = clean.rfind('\\') {
+        clean = clean[pos + 1..].to_string();
+    }
+    if let Some(pos) = clean.rfind('/') {
+        clean = clean[pos + 1..].to_string();
+    }
+    for (k, &base) in dll_bases {
+        let k_lower = k.to_ascii_lowercase();
+        if k_lower == clean || k_lower.trim_end_matches(".dll") == clean.trim_end_matches(".dll") {
+            return Some(base);
+        }
+    }
+    None
+}
+
+/// Maps hooked API addresses to resolved function names and their enclosing DLL.
+pub fn resolve_api_and_dll(
+    addr: u64,
+    dllname_to_functionlist: &HashMap<String, Vec<(String, u64)>>,
+) -> (Option<String>, Option<String>) {
+    for (dll, functions) in dllname_to_functionlist {
+        for (name, hook_addr) in functions {
+            if *hook_addr == addr {
+                return (Some(name.clone()), Some(dll.clone()));
+            }
+        }
+    }
+    (None, None)
 }
 
 /// Maps hooked API addresses to resolved function names.
@@ -231,19 +381,42 @@ pub fn resolve_api_name(
     addr: u64,
     dllname_to_functionlist: &HashMap<String, Vec<(String, u64)>>,
 ) -> Option<String> {
-    for (_dll, functions) in dllname_to_functionlist {
-        for (name, hook_addr) in functions {
-            if *hook_addr == addr {
-                return Some(name.clone());
-            }
+    resolve_api_and_dll(addr, dllname_to_functionlist).0
+}
+
+/// Determines if an API uses the __cdecl calling convention (where caller cleans stack on x86)
+/// rather than __stdcall (where callee cleans stack).
+pub fn is_cdecl_api(api_name: &str, dll_name: Option<&str>) -> bool {
+    let norm = normalize_api_name(api_name);
+    if norm == "wsprintfa"
+        || norm == "wsprintfw"
+        || norm == "sprintf"
+        || norm == "snprintf"
+        || norm == "sscanf"
+        || norm == "printf"
+        || norm == "snwprintf"
+        || norm == "swprintf"
+        || norm == "scanf"
+    {
+        return true;
+    }
+    if let Some(dll) = dll_name {
+        let d = dll.to_ascii_lowercase();
+        if d.starts_with("msvcrt")
+            || d.starts_with("ucrtbase")
+            || d.starts_with("api-ms-win-crt-")
+            || d.starts_with("vcruntime")
+            || d.starts_with("crtdll")
+        {
+            return true;
         }
     }
-    None
+    false
 }
 
 /// Reads a null-terminated ANSI C-string from Unicorn memory (up to 512 bytes).
 pub fn read_ansi_string(uc: &Unicorn<'_, ()>, addr: u64, max_len: usize) -> Option<String> {
-    if addr == 0 {
+    if addr < 0x10000 || addr > 0x7FFFFFFF_FFFF {
         return None;
     }
     let limit = max_len.min(512);
@@ -260,7 +433,7 @@ pub fn read_ansi_string(uc: &Unicorn<'_, ()>, addr: u64, max_len: usize) -> Opti
 
 /// Reads a null-terminated UTF-16LE wide string from Unicorn memory (up to 512 characters).
 pub fn read_wide_string(uc: &Unicorn<'_, ()>, addr: u64, max_len: usize) -> Option<String> {
-    if addr == 0 {
+    if addr < 0x10000 || addr > 0x7FFFFFFF_FFFF {
         return None;
     }
     let limit = max_len.min(512);
@@ -418,17 +591,19 @@ pub fn guess_default_return(api_name: &str) -> u64 {
         0x1000 // Fake HANDLE
     } else if norm.starts_with("gettickcount") || norm.contains("time") {
         100_000
+    } else if norm.starts_with("virtualalloc") {
+        0x20000000
     } else {
         0
     }
 }
 
-/// Writes a simulated WIN32_FIND_DATAW structure to the specified memory buffer.
-fn write_fake_find_data_w(uc: &mut Unicorn<'_, ()>, addr: u64, filename: &str) -> bool {
-    if addr == 0 {
+/// Writes a simulated WIN32_FIND_DATAA structure to the specified memory buffer (320 bytes).
+pub fn write_fake_find_data_a(uc: &mut Unicorn<'_, ()>, addr: u64, filename: &str) -> bool {
+    if addr < 0x10000 {
         return false;
     }
-    // WIN32_FIND_DATAW:
+    // WIN32_FIND_DATAA: 320 bytes
     // dwFileAttributes: DWORD (offset 0) -> 0x80 (FILE_ATTRIBUTE_NORMAL)
     // ftCreationTime: FILETIME (offset 4)
     // ftLastAccessTime: FILETIME (offset 12)
@@ -437,7 +612,24 @@ fn write_fake_find_data_w(uc: &mut Unicorn<'_, ()>, addr: u64, filename: &str) -
     // nFileSizeLow: DWORD (offset 32) -> 1024
     // dwReserved0: DWORD (offset 36)
     // dwReserved1: DWORD (offset 40)
-    // cFileName: WCHAR[260] (offset 44)
+    // cFileName: CHAR[260] (offset 44)
+    let mut data = vec![0u8; 320];
+    data[0..4].copy_from_slice(&0x80u32.to_le_bytes());
+    data[32..36].copy_from_slice(&1024u32.to_le_bytes());
+
+    let bytes = filename.as_bytes();
+    let copy_len = bytes.len().min(259);
+    data[44..44 + copy_len].copy_from_slice(&bytes[..copy_len]);
+
+    uc.mem_write(addr, &data).is_ok()
+}
+
+/// Writes a simulated WIN32_FIND_DATAW structure to the specified memory buffer (592 bytes).
+pub fn write_fake_find_data_w(uc: &mut Unicorn<'_, ()>, addr: u64, filename: &str) -> bool {
+    if addr < 0x10000 {
+        return false;
+    }
+    // WIN32_FIND_DATAW: 592 bytes
     let mut data = vec![0u8; 592];
     data[0..4].copy_from_slice(&0x80u32.to_le_bytes());
     data[32..36].copy_from_slice(&1024u32.to_le_bytes());
@@ -467,6 +659,24 @@ pub fn handle_api_call(
         "createfilea" | "createfilew" => {
             let handle = api_state.next_file_handle;
             api_state.next_file_handle = api_state.next_file_handle.wrapping_add(4);
+
+            let path_arg = args.get(0).copied().unwrap_or(0);
+            let path = if norm.ends_with('w') {
+                read_wide_string(uc, path_arg, 512)
+            } else {
+                read_ansi_string(uc, path_arg, 512)
+            };
+
+            let desired_access = args.get(1).copied().unwrap_or(0);
+            let creation_disposition = args.get(4).copied().unwrap_or(0);
+            // GENERIC_WRITE = 0x40000000, FILE_WRITE_DATA = 0x2, CREATE_NEW = 1, CREATE_ALWAYS = 2, TRUNCATE_EXISTING = 5
+            let is_write = (desired_access & 0x40000002 != 0)
+                || (creation_disposition == 1 || creation_disposition == 2 || creation_disposition == 5);
+
+            if let Some(p) = path {
+                api_state.file_handles.insert(handle, (p, is_write));
+            }
+
             handle
         }
         "readfile" => {
@@ -479,7 +689,7 @@ pub fn handle_api_call(
                 let zeros = vec![0u8; zero_len];
                 let _ = uc.mem_write(buf_addr, &zeros);
             }
-            if read_ptr != 0 {
+            if read_ptr >= 0x10000 {
                 let _ = uc.mem_write(read_ptr, &to_read.to_le_bytes());
             }
             1 // TRUE
@@ -488,30 +698,56 @@ pub fn handle_api_call(
             let to_write = args.get(2).copied().unwrap_or(0) as u32;
             let written_ptr = args.get(3).copied().unwrap_or(0);
 
-            if written_ptr != 0 {
+            if written_ptr >= 0x10000 {
                 let _ = uc.mem_write(written_ptr, &to_write.to_le_bytes());
             }
             1 // TRUE
         }
-        "findfirstfilew" | "findfirstfilea" => {
+        "findfirstfilea" => {
             let find_handle = api_state.next_file_handle;
             api_state.next_file_handle = api_state.next_file_handle.wrapping_add(4);
             api_state.find_handles.insert(find_handle, 0);
 
             let find_data_ptr = args.get(1).copied().unwrap_or(0);
-            if find_data_ptr != 0 {
+            if find_data_ptr >= 0x10000 {
+                let _ = write_fake_find_data_a(uc, find_data_ptr, "sample_1.dll");
+            }
+            find_handle
+        }
+        "findfirstfilew" => {
+            let find_handle = api_state.next_file_handle;
+            api_state.next_file_handle = api_state.next_file_handle.wrapping_add(4);
+            api_state.find_handles.insert(find_handle, 0);
+
+            let find_data_ptr = args.get(1).copied().unwrap_or(0);
+            if find_data_ptr >= 0x10000 {
                 let _ = write_fake_find_data_w(uc, find_data_ptr, "sample_1.dll");
             }
             find_handle
         }
-        "findnextfilew" | "findnextfilea" => {
+        "findnextfilea" => {
             let find_handle = args.get(0).copied().unwrap_or(0);
             let find_data_ptr = args.get(1).copied().unwrap_or(0);
             let count = api_state.find_handles.entry(find_handle).or_insert(0);
             *count += 1;
 
             if *count == 1 {
-                if find_data_ptr != 0 {
+                if find_data_ptr >= 0x10000 {
+                    let _ = write_fake_find_data_a(uc, find_data_ptr, "sample_2.dat");
+                }
+                1 // TRUE: second file found
+            } else {
+                0 // FALSE: ERROR_NO_MORE_FILES (cleanly terminates search loop)
+            }
+        }
+        "findnextfilew" => {
+            let find_handle = args.get(0).copied().unwrap_or(0);
+            let find_data_ptr = args.get(1).copied().unwrap_or(0);
+            let count = api_state.find_handles.entry(find_handle).or_insert(0);
+            *count += 1;
+
+            if *count == 1 {
+                if find_data_ptr >= 0x10000 {
                     let _ = write_fake_find_data_w(uc, find_data_ptr, "sample_2.dat");
                 }
                 1 // TRUE: second file found
@@ -582,7 +818,9 @@ pub fn handle_api_call(
         "shellexecuteexa" | "shellexecuteexw" => 1,
         "winexec" => 32,
         "openprocess" => 0x1020,
-        "terminateprocess" => 1,
+        "terminateprocess" => if args.first().copied().unwrap_or(0) == 0 { 0 } else { 1 },
+        "exitprocess" => 0,
+        "getcurrentprocess" => 0xFFFFFFFFFFFFFFFFu64,
 
         // --- Network ---
         "winhttpopen" => 0x3000,
@@ -596,9 +834,128 @@ pub fn handle_api_call(
         "urldownloadtofilea" | "urldownloadtofilew" => 0,
         "wsastartup" => 0,
         "socket" => 0x5000,
-        "connect" | "closesocket" => 0,
+        "connect" | "wsaconnect" | "closesocket" => 0,
         "send" => 1,
         "recv" => 0,
+        "freeaddrinfo" => 0,
+        "getaddrinfo" | "getaddrinfow" => {
+            let node_ptr = args.get(0).copied().unwrap_or(0);
+            let service_ptr = args.get(1).copied().unwrap_or(0);
+            let pp_result = args.get(3).copied().unwrap_or(0);
+
+            let node_name = if norm.ends_with('w') {
+                read_wide_string(uc, node_ptr, 512)
+            } else {
+                read_ansi_string(uc, node_ptr, 512)
+            };
+
+            let port = if service_ptr >= 0x10000 {
+                let serv_str = if norm.ends_with('w') {
+                    read_wide_string(uc, service_ptr, 32)
+                } else {
+                    read_ansi_string(uc, service_ptr, 32)
+                };
+                match serv_str.as_deref().map(|s| s.trim().to_ascii_lowercase()) {
+                    Some(ref s) if s == "https" => 443,
+                    Some(ref s) if s == "http" => 80,
+                    Some(ref s) if s == "ftp" => 21,
+                    Some(ref s) if s == "ssh" => 22,
+                    Some(ref s) if s == "dns" || s == "domain" => 53,
+                    Some(ref s) => s.parse::<u16>().unwrap_or(80),
+                    None => 80,
+                }
+            } else {
+                80
+            };
+
+            let fake_ip = if let Some(ref name) = node_name {
+                api_state.resolve_or_assign_fake_ip(name)
+            } else {
+                [192, 0, 2, 1]
+            };
+
+            if pp_result >= 0x10000 {
+                let is_64 = api_state.is_64;
+                // Allocate sockaddr_in (16 bytes)
+                let sockaddr_addr = alloc_net_stub(uc, api_state, 16);
+                let ai_size = if is_64 { 48 } else { 32 };
+                let ai_addr = alloc_net_stub(uc, api_state, ai_size);
+                if sockaddr_addr >= 0x10000 && ai_addr >= 0x10000 {
+                    let mut sa_buf = [0u8; 16];
+                    sa_buf[0..2].copy_from_slice(&2u16.to_le_bytes()); // AF_INET
+                    sa_buf[2..4].copy_from_slice(&port.to_be_bytes()); // sin_port (big-endian)
+                    sa_buf[4..8].copy_from_slice(&fake_ip);            // sin_addr
+                    let _ = uc.mem_write(sockaddr_addr, &sa_buf);
+
+                    let mut ai_buf = vec![0u8; ai_size];
+                    ai_buf[4..8].copy_from_slice(&2u32.to_le_bytes()); // ai_family = AF_INET (2)
+                    ai_buf[8..12].copy_from_slice(&1u32.to_le_bytes()); // ai_socktype = SOCK_STREAM (1)
+                    ai_buf[12..16].copy_from_slice(&6u32.to_le_bytes()); // ai_protocol = IPPROTO_TCP (6)
+                    if is_64 {
+                        ai_buf[0x10..0x18].copy_from_slice(&16u64.to_le_bytes()); // ai_addrlen = 16
+                        ai_buf[0x20..0x28].copy_from_slice(&sockaddr_addr.to_le_bytes()); // ai_addr
+                        let _ = uc.mem_write(ai_addr, &ai_buf);
+                        let _ = uc.mem_write(pp_result, &ai_addr.to_le_bytes());
+                    } else {
+                        ai_buf[0x10..0x14].copy_from_slice(&16u32.to_le_bytes()); // ai_addrlen = 16
+                        ai_buf[0x18..0x1C].copy_from_slice(&(sockaddr_addr as u32).to_le_bytes()); // ai_addr
+                        let _ = uc.mem_write(ai_addr, &ai_buf);
+                        let _ = uc.mem_write(pp_result, &(ai_addr as u32).to_le_bytes());
+                    }
+                }
+            }
+            0 // STATUS_SUCCESS
+        }
+        "gethostbyname" => {
+            let name_ptr = args.get(0).copied().unwrap_or(0);
+            let name = read_ansi_string(uc, name_ptr, 512);
+            let fake_ip = if let Some(ref n) = name {
+                api_state.resolve_or_assign_fake_ip(n)
+            } else {
+                [192, 0, 2, 1]
+            };
+
+            let is_64 = api_state.is_64;
+            // 1. IP buffer (4 bytes)
+            let ip_addr = alloc_net_stub(uc, api_state, 16);
+            let ptr_size = if is_64 { 8 } else { 4 };
+            let addr_list_addr = alloc_net_stub(uc, api_state, ptr_size * 2);
+            let host_str_addr = alloc_net_stub(uc, api_state, 16);
+            let hostent_size = if is_64 { 32 } else { 16 };
+            let hostent_addr = alloc_net_stub(uc, api_state, hostent_size);
+
+            if ip_addr < 0x10000 || addr_list_addr < 0x10000 || host_str_addr < 0x10000 || hostent_addr < 0x10000 {
+                return 0;
+            }
+
+            let _ = uc.mem_write(ip_addr, &fake_ip);
+            if is_64 {
+                let mut list_buf = [0u8; 16];
+                list_buf[0..8].copy_from_slice(&ip_addr.to_le_bytes());
+                let _ = uc.mem_write(addr_list_addr, &list_buf);
+            } else {
+                let mut list_buf = [0u8; 8];
+                list_buf[0..4].copy_from_slice(&(ip_addr as u32).to_le_bytes());
+                let _ = uc.mem_write(addr_list_addr, &list_buf);
+            }
+
+            let _ = uc.mem_write(host_str_addr, b"fakehost\0");
+
+            let mut he_buf = vec![0u8; hostent_size];
+            if is_64 {
+                he_buf[0..8].copy_from_slice(&host_str_addr.to_le_bytes());
+                he_buf[0x10..0x12].copy_from_slice(&2u16.to_le_bytes());
+                he_buf[0x12..0x14].copy_from_slice(&4u16.to_le_bytes());
+                he_buf[0x18..0x20].copy_from_slice(&addr_list_addr.to_le_bytes());
+            } else {
+                he_buf[0..4].copy_from_slice(&(host_str_addr as u32).to_le_bytes());
+                he_buf[0x08..0x0A].copy_from_slice(&2u16.to_le_bytes());
+                he_buf[0x0A..0x0C].copy_from_slice(&4u16.to_le_bytes());
+                he_buf[0x0C..0x10].copy_from_slice(&(addr_list_addr as u32).to_le_bytes());
+            }
+            let _ = uc.mem_write(hostent_addr, &he_buf);
+            hostent_addr
+        }
 
         // --- Crypto ---
         "cryptacquirecontexta" | "cryptacquirecontextw" => 1,
@@ -608,15 +965,140 @@ pub fn handle_api_call(
         | "bcryptgenrandom" | "bcryptencrypt" | "bcryptdecrypt" => 0, // STATUS_SUCCESS
 
         // --- Module & Memory ---
-        "loadlibrarya" | "loadlibraryw" | "loadlibraryexa" | "loadlibraryexw" => 0x7F000000,
+        "loadlibrarya" | "loadlibraryw" | "loadlibraryexa" | "loadlibraryexw" => {
+            let lib_name_arg = args.get(0).copied().unwrap_or(0);
+            let name = if norm.ends_with('w') {
+                read_wide_string(uc, lib_name_arg, 512)
+            } else {
+                read_ansi_string(uc, lib_name_arg, 512)
+            };
+            if let Some(ref n) = name {
+                if let Some(base) = find_dll_base(&api_state.dll_bases, n) {
+                    return base;
+                }
+            }
+            // If the DLL is not preloaded in dll_bases, map a valid dummy PE header at 0x50000000
+            // so that manual PE header checks (e.g. `cmp word ptr [eax], 'MZ'`) succeed without faults.
+            let fallback_base = 0x50000000u64;
+            let mut test_byte = [0u8; 1];
+            if uc.mem_read(fallback_base, &mut test_byte).is_err() {
+                if uc.mem_map(fallback_base, 0x1000, Prot::ALL).is_ok() {
+                    let mut pe_hdr = vec![0u8; 0x1000];
+                    pe_hdr[0..2].copy_from_slice(b"MZ");
+                    pe_hdr[0x3C..0x40].copy_from_slice(&0x80u32.to_le_bytes()); // e_lfanew = 0x80
+                    pe_hdr[0x80..0x84].copy_from_slice(b"PE\0\0"); // PE signature
+                    let _ = uc.mem_write(fallback_base, &pe_hdr);
+                }
+            }
+            fallback_base
+        }
         "freelibrary" => 1,
-        "getmodulehandlea" | "getmodulehandlew" => 0x400000,
+        "getmodulehandlea" | "getmodulehandlew" => {
+            let mod_name_arg = args.get(0).copied().unwrap_or(0);
+            if mod_name_arg == 0 {
+                api_state.image_base
+            } else {
+                let name = if norm.ends_with('w') {
+                    read_wide_string(uc, mod_name_arg, 512)
+                } else {
+                    read_ansi_string(uc, mod_name_arg, 512)
+                };
+                if let Some(ref n) = name {
+                    if let Some(base) = find_dll_base(&api_state.dll_bases, n) {
+                        base
+                    } else {
+                        // In Win32, GetModuleHandle returns NULL (0) if the module is not found
+                        0
+                    }
+                } else {
+                    api_state.image_base
+                }
+            }
+        }
         "getmodulehandleexa" | "getmodulehandleexw" => 1,
         "getmodulefilenamea" | "getmodulefilenamew" => 12,
-        "virtualalloc" => 0x300000,
-        "virtualfree" | "virtualprotect" => 1,
+        "virtualalloc" => {
+            let req_addr = args.get(0).copied().unwrap_or(0);
+            let raw_size = args.get(1).copied().unwrap_or(0x1000);
+            // Cap allocation size to 64MB and avoid overflow across FFI boundary
+            let size = raw_size.min(64 * 1024 * 1024).max(0x1000);
+            let page_aligned = size.saturating_add(0xFFF) & !0xFFF;
+
+            if req_addr >= 0x10000 {
+                let target = req_addr & !0xFFF;
+                for offset in (0..page_aligned).step_by(0x1000) {
+                    let page_addr = target.saturating_add(offset);
+                    let mut test = [0u8; 1];
+                    if uc.mem_read(page_addr, &mut test).is_err() {
+                        if uc.mem_map(page_addr, 0x1000, Prot::ALL).is_err() {
+                            return 0;
+                        }
+                    } else {
+                        let _ = uc.mem_protect(page_addr, 0x1000, Prot::ALL);
+                    }
+                }
+                target
+            } else {
+                let addr = api_state.next_alloc_addr;
+                // Guard against upper bound collision with HOOK_ADDR (0x7F000000) or DLL regions
+                if addr.saturating_add(page_aligned) >= 0x70000000 {
+                    return 0; // Out of memory
+                }
+                if uc.mem_map(addr, page_aligned, Prot::ALL).is_err() {
+                    return 0;
+                }
+                api_state.next_alloc_addr = addr.saturating_add(page_aligned).saturating_add(0x10000);
+                addr
+            }
+        }
+        "virtualallocex" => {
+            let req_addr = args.get(1).copied().unwrap_or(0);
+            let raw_size = args.get(2).copied().unwrap_or(0x1000);
+            let size = raw_size.min(64 * 1024 * 1024).max(0x1000);
+            let page_aligned = size.saturating_add(0xFFF) & !0xFFF;
+
+            if req_addr >= 0x10000 {
+                let target = req_addr & !0xFFF;
+                for offset in (0..page_aligned).step_by(0x1000) {
+                    let page_addr = target.saturating_add(offset);
+                    let mut test = [0u8; 1];
+                    if uc.mem_read(page_addr, &mut test).is_err() {
+                        if uc.mem_map(page_addr, 0x1000, Prot::ALL).is_err() {
+                            return 0;
+                        }
+                    } else {
+                        let _ = uc.mem_protect(page_addr, 0x1000, Prot::ALL);
+                    }
+                }
+                target
+            } else {
+                let addr = api_state.next_alloc_addr;
+                if addr.saturating_add(page_aligned) >= 0x70000000 {
+                    return 0;
+                }
+                if uc.mem_map(addr, page_aligned, Prot::ALL).is_err() {
+                    return 0;
+                }
+                api_state.next_alloc_addr = addr.saturating_add(page_aligned).saturating_add(0x10000);
+                addr
+            }
+        }
+        "virtualfree" => 1,
+        "virtualprotect" => {
+            let old_protect_ptr = args.get(3).copied().unwrap_or(0);
+            if old_protect_ptr >= 0x10000 {
+                let _ = uc.mem_write(old_protect_ptr, &0x40u32.to_le_bytes()); // PAGE_EXECUTE_READWRITE
+            }
+            1
+        }
         "isdebuggerpresent" => 0,
-        "checkremotedebuggerpresent" => 1,
+        "checkremotedebuggerpresent" => {
+            let pb_debugger_present = args.get(1).copied().unwrap_or(0);
+            if pb_debugger_present >= 0x10000 {
+                let _ = uc.mem_write(pb_debugger_present, &0u32.to_le_bytes()); // FALSE
+            }
+            1
+        }
         "getlasterror" | "setlasterror" => 0,
 
         // --- Fallback ---
@@ -781,4 +1263,220 @@ mod tests {
         let estimated = estimate_x86_stdcall_arg_count(&uc, ret_addr);
         assert_eq!(estimated, Some(3));
     }
+
+    #[test]
+    fn test_virtualalloc_mapping_and_out_pointers() {
+        let mut uc = Unicorn::new(Arch::X86, Mode::MODE_32).expect("Unicorn new");
+        let mut state = ApiState::default();
+        let mut dll_map = HashMap::new();
+
+        // VirtualAlloc with NULL req_addr
+        let alloc_addr = handle_api_call(&mut uc, "VirtualAlloc", &[0, 0x1000, 0x1000, 0x40], &mut state, &mut dll_map);
+        assert!(alloc_addr >= 0x10000);
+        // Verify mapped by writing and reading
+        let test_payload = b"MZ\x90\x00PACKED_SHELLCODE";
+        assert!(uc.mem_write(alloc_addr, test_payload).is_ok());
+        let mut read_back = vec![0u8; test_payload.len()];
+        assert!(uc.mem_read(alloc_addr, &mut read_back).is_ok());
+        assert_eq!(read_back, test_payload);
+
+        // VirtualProtect old_protect out pointer
+        let old_protect_ptr = alloc_addr + 0x100;
+        let ret_vp = handle_api_call(&mut uc, "VirtualProtect", &[alloc_addr, 0x1000, 0x20, old_protect_ptr], &mut state, &mut dll_map);
+        assert_eq!(ret_vp, 1);
+        let mut old_prot_buf = [0u8; 4];
+        assert!(uc.mem_read(old_protect_ptr, &mut old_prot_buf).is_ok());
+        assert_eq!(u32::from_le_bytes(old_prot_buf), 0x40);
+
+        // CheckRemoteDebuggerPresent out pointer
+        let dbg_ptr = alloc_addr + 0x200;
+        // Pre-fill with 1 (TRUE) to ensure it gets cleared to 0 (FALSE)
+        uc.mem_write(dbg_ptr, &1u32.to_le_bytes()).unwrap();
+        let ret_dbg = handle_api_call(&mut uc, "CheckRemoteDebuggerPresent", &[0xFFFFFFFF, dbg_ptr], &mut state, &mut dll_map);
+        assert_eq!(ret_dbg, 1);
+        let mut dbg_buf = [0u8; 4];
+        assert!(uc.mem_read(dbg_ptr, &mut dbg_buf).is_ok());
+        assert_eq!(u32::from_le_bytes(dbg_buf), 0);
+    }
+
+    #[test]
+    fn test_cdecl_detection_and_find_data_structures() {
+        let mut uc = Unicorn::new(Arch::X86, Mode::MODE_32).expect("Unicorn new");
+        let mem = 0x40000u64;
+        uc.mem_map(mem, 0x1000, Prot::ALL).expect("mem_map");
+
+        // Cdecl check
+        assert!(is_cdecl_api("wsprintfA", None));
+        assert!(is_cdecl_api("wsprintfW", None));
+        assert!(is_cdecl_api("sprintf", None));
+        assert!(is_cdecl_api("_snprintf", None));
+        assert!(is_cdecl_api("strlen", Some("msvcrt.dll")));
+        assert!(is_cdecl_api("malloc", Some("ucrtbase.dll")));
+        assert!(is_cdecl_api("memcpy", Some("api-ms-win-crt-string-l1-1-0.dll")));
+        assert!(!is_cdecl_api("CreateFileW", Some("kernel32.dll")));
+        assert!(!is_cdecl_api("VirtualAlloc", Some("kernel32.dll")));
+
+        // FindDataA (320 bytes)
+        assert!(write_fake_find_data_a(&mut uc, mem, "payload.exe"));
+        let mut buf_a = [0u8; 320];
+        assert!(uc.mem_read(mem, &mut buf_a).is_ok());
+        assert_eq!(u32::from_le_bytes([buf_a[0], buf_a[1], buf_a[2], buf_a[3]]), 0x80);
+        let filename_a = String::from_utf8_lossy(&buf_a[44..44 + 11]);
+        assert_eq!(filename_a, "payload.exe");
+
+        // FindDataW (592 bytes)
+        let mem_w = mem + 0x400;
+        assert!(write_fake_find_data_w(&mut uc, mem_w, "payload.exe"));
+        let mut buf_w = [0u8; 592];
+        assert!(uc.mem_read(mem_w, &mut buf_w).is_ok());
+        assert_eq!(u32::from_le_bytes([buf_w[0], buf_w[1], buf_w[2], buf_w[3]]), 0x80);
+    }
+
+    #[test]
+    fn test_module_handles_and_alloc_safety() {
+        let mut uc = Unicorn::new(Arch::X86, Mode::MODE_32).expect("Unicorn new");
+        let mut state = ApiState::default();
+        let mut dll_map = HashMap::new();
+        state.dll_bases.insert("kernel32.dll".to_string(), 0x7B000000);
+        state.dll_bases.insert("ntdll.dll".to_string(), 0x7C000000);
+
+        // find_dll_base matching
+        assert_eq!(find_dll_base(&state.dll_bases, "kernel32.dll"), Some(0x7B000000));
+        assert_eq!(find_dll_base(&state.dll_bases, "KERNEL32"), Some(0x7B000000));
+        assert_eq!(find_dll_base(&state.dll_bases, "C:\\Windows\\System32\\ntdll.dll"), Some(0x7C000000));
+        assert_eq!(find_dll_base(&state.dll_bases, "unknown.dll"), None);
+
+        // GetModuleHandle(NULL) returns image_base
+        let h_null = handle_api_call(&mut uc, "GetModuleHandleA", &[0], &mut state, &mut dll_map);
+        assert_eq!(h_null, state.image_base);
+
+        // VirtualAlloc with huge/overflowing size is capped and doesn't panic
+        let huge_alloc = handle_api_call(&mut uc, "VirtualAlloc", &[0, u64::MAX, 0x1000, 0x40], &mut state, &mut dll_map);
+        assert!(huge_alloc >= 0x10000);
+
+        // LoadLibrary for unknown DLL maps dummy PE header with MZ signature at 0x50000000
+        let h_dyn = handle_api_call(&mut uc, "LoadLibraryA", &[0], &mut state, &mut dll_map);
+        assert_eq!(h_dyn, 0x50000000);
+        let mut mz_buf = [0u8; 2];
+        assert!(uc.mem_read(0x50000000, &mut mz_buf).is_ok());
+        assert_eq!(&mz_buf, b"MZ");
+    }
+
+    #[test]
+    fn test_network_stubs_dns_and_sockaddr() {
+        let mut uc = Unicorn::new(Arch::X86, Mode::MODE_32).expect("Unicorn new");
+        let mut state = ApiState::default();
+        let mut dll_map = HashMap::new();
+
+        // 1. DNS Cache and RFC 5737 TEST-NET assignment
+        let ip1 = state.resolve_or_assign_fake_ip("c2.evil.com");
+        assert_eq!(ip1, [192, 0, 2, 1]);
+        let ip2 = state.resolve_or_assign_fake_ip("download.evil.com");
+        assert_eq!(ip2, [192, 0, 2, 2]);
+        // Same domain returns same IP
+        assert_eq!(state.resolve_or_assign_fake_ip("C2.EVIL.COM"), [192, 0, 2, 1]);
+
+        // Multi-subnet rollover resistance across TEST-NET blocks:
+        // Advance to TEST-NET-2 (index 254)
+        state.next_fake_ip_index = 254;
+        let ip_net2 = state.resolve_or_assign_fake_ip("net2.evil.com");
+        assert_eq!(ip_net2, [198, 51, 100, 1]);
+        // Advance to TEST-NET-3 (index 508)
+        state.next_fake_ip_index = 508;
+        let ip_net3 = state.resolve_or_assign_fake_ip("net3.evil.com");
+        assert_eq!(ip_net3, [203, 0, 113, 1]);
+        // Advance to extended private range (index 762)
+        state.next_fake_ip_index = 762;
+        let ip_priv = state.resolve_or_assign_fake_ip("priv.evil.com");
+        assert_eq!(ip_priv, [10, 200, 0, 1]);
+        // Verify original ip1 mapping was NOT overwritten
+        assert_eq!(state.ip_to_host.get(&ip1).map(|s| s.as_str()), Some("c2.evil.com"));
+
+        // 2. sockaddr_in parsing and endpoint formatting
+        let sa_addr = 0x35000u64;
+        uc.mem_map(sa_addr, 0x1000, Prot::ALL).expect("mem_map");
+        let mut sa = [0u8; 16];
+        sa[0..2].copy_from_slice(&2u16.to_le_bytes()); // AF_INET
+        sa[2..4].copy_from_slice(&443u16.to_be_bytes()); // port 443
+        sa[4..8].copy_from_slice(&ip1); // 192.0.2.1
+        uc.mem_write(sa_addr, &sa).expect("mem_write");
+
+        let parsed = parse_sockaddr(&uc, sa_addr, 16);
+        assert_eq!(parsed, Some(([192, 0, 2, 1], 443)));
+        let ep = format_endpoint(&state, [192, 0, 2, 1], 443);
+        assert_eq!(ep, "c2.evil.com:443");
+
+        // Unknown IP formats numerically
+        let ep_raw = format_endpoint(&state, [10, 0, 0, 1], 80);
+        assert_eq!(ep_raw, "10.0.0.1:80");
+
+        // 3. getaddrinfo with "https" service string resolves to port 443
+        let pp_result = 0x36000u64;
+        uc.mem_map(pp_result, 0x1000, Prot::ALL).expect("mem_map");
+        let node_name_addr = 0x37000u64;
+        uc.mem_map(node_name_addr, 0x1000, Prot::ALL).expect("mem_map");
+        uc.mem_write(node_name_addr, b"api.victim.com\0").expect("mem_write");
+        let svc_name_addr = 0x38000u64;
+        uc.mem_map(svc_name_addr, 0x1000, Prot::ALL).expect("mem_map");
+        uc.mem_write(svc_name_addr, b"https\0").expect("mem_write");
+
+        let res_ai = handle_api_call(
+            &mut uc,
+            "getaddrinfo",
+            &[node_name_addr, svc_name_addr, 0, pp_result],
+            &mut state,
+            &mut dll_map,
+        );
+        assert_eq!(res_ai, 0); // STATUS_SUCCESS
+
+        let mut res_ai_ptr_buf = [0u8; 4];
+        assert!(uc.mem_read(pp_result, &mut res_ai_ptr_buf).is_ok());
+        let ai_addr = u32::from_le_bytes(res_ai_ptr_buf) as u64;
+        // Verify allocated in 0x78000000 region
+        assert!(ai_addr >= 0x78000000 && ai_addr < 0x7F000000);
+
+        // Read ai_addr field inside addrinfo (offset 0x18 in 32-bit)
+        let mut sa_ptr_buf = [0u8; 4];
+        assert!(uc.mem_read(ai_addr + 0x18, &mut sa_ptr_buf).is_ok());
+        let sa_ptr = u32::from_le_bytes(sa_ptr_buf) as u64;
+        assert!(sa_ptr >= 0x78000000 && sa_ptr < 0x7F000000);
+
+        // Verify sockaddr_in family = 2 and port is 443 (big-endian)
+        let mut resolved_sa = [0u8; 8];
+        assert!(uc.mem_read(sa_ptr, &mut resolved_sa).is_ok());
+        assert_eq!(u16::from_le_bytes([resolved_sa[0], resolved_sa[1]]), 2);
+        assert_eq!(u16::from_be_bytes([resolved_sa[2], resolved_sa[3]]), 443);
+
+        // 4. gethostbyname returns non-null hostent pointer in 0x78000000 region
+        let he_addr = handle_api_call(
+            &mut uc,
+            "gethostbyname",
+            &[node_name_addr],
+            &mut state,
+            &mut dll_map,
+        );
+        assert!(he_addr >= 0x78000000 && he_addr < 0x7F000000);
+        // Read h_addr_list pointer at offset 0x0C in 32-bit
+        let mut addr_list_ptr_buf = [0u8; 4];
+        assert!(uc.mem_read(he_addr + 0x0C, &mut addr_list_ptr_buf).is_ok());
+        let addr_list_ptr = u32::from_le_bytes(addr_list_ptr_buf) as u64;
+        // Read in_addr pointer at addr_list[0]
+        let mut in_addr_ptr_buf = [0u8; 4];
+        assert!(uc.mem_read(addr_list_ptr, &mut in_addr_ptr_buf).is_ok());
+        let in_addr_ptr = u32::from_le_bytes(in_addr_ptr_buf) as u64;
+        let mut ip_bytes = [0u8; 4];
+        assert!(uc.mem_read(in_addr_ptr, &mut ip_bytes).is_ok());
+        assert_eq!(ip_bytes, state.resolve_or_assign_fake_ip("api.victim.com"));
+
+        // 5. TerminateProcess(0) returns 0 (failure)
+        let term_res = handle_api_call(
+            &mut uc,
+            "TerminateProcess",
+            &[0, 1],
+            &mut state,
+            &mut dll_map,
+        );
+        assert_eq!(term_res, 0);
+    }
 }
+

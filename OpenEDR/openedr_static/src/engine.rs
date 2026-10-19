@@ -1201,7 +1201,7 @@ impl StaticEngine {
             &mut obj_detections,
             &mut obj_max_score,
             object.parent.as_ref(),
-            object.behavior.as_ref(),
+            None,
         );
 
         // PE-specific heuristics on the extracted object
@@ -1699,8 +1699,9 @@ impl StaticEngine {
         if should_unpack {
             eprintln!("[unicorn] initiating PE CPU emulation for: {}", target_name);
             if let Ok(sample) = hydradragonunicorn::unpacker::engine::Sample::from_bytes(data) {
+                let trace_enabled = self.string_rules.needs_behavior();
                 let mut unpacker = hydradragonunicorn::unpacker::engine::UnpackerEngine::new(sample, "memory")
-                    .with_trace_mode(true);
+                    .with_trace_mode(trace_enabled);
                 if unpacker.init_uc().is_ok() {
                     let emu_start = std::time::Instant::now();
                     let emu_res = unpacker.emu();
@@ -1719,8 +1720,7 @@ impl StaticEngine {
                                 1,
                                 "UnpackedPE",
                             )
-                            .with_parent(target_name, data)
-                            .with_behavior(trace.clone());
+                            .with_parent(target_name, data);
                             let extracted = self.scan_object(&obj);
 
                             max_score = max_score.max(extracted.max_threat_score);
@@ -1759,6 +1759,9 @@ impl StaticEngine {
                             None,
                             Some(trace),
                         ) {
+                            if !self.string_rules.is_emulated_rule(&hit.rule) {
+                                continue;
+                            }
                             let name = if hit.rule.is_empty() {
                                 "HydraSig.EmulatedMatch".to_string()
                             } else {
@@ -2025,11 +2028,58 @@ impl StaticEngine {
                         // Also check if child entry itself is a packed PE: run Unicorn once if packed
                         if entry.data.starts_with(b"MZ") && entry.data.len() >= 0x1000 {
                             if let Ok(sub_sample) = hydradragonunicorn::unpacker::engine::Sample::from_bytes(&entry.data) {
+                                let sub_trace_enabled = self.string_rules.needs_behavior();
                                 let mut sub_unpacker = hydradragonunicorn::unpacker::engine::UnpackerEngine::new(sub_sample, "memory")
-                                    .with_trace_mode(true);
+                                    .with_trace_mode(sub_trace_enabled);
                                 if sub_unpacker.init_uc().is_ok() {
                                     let _ = sub_unpacker.emu();
                                     let sub_trace = sub_unpacker.behavior_trace();
+                                    if !sub_trace.calls.is_empty() {
+                                        let capped: &[u8] = if entry.data.len() > 16 * 1024 * 1024 {
+                                            &entry.data[..16 * 1024 * 1024]
+                                        } else {
+                                            &entry.data
+                                        };
+                                        let strings = pe_strings::extract_strings(capped);
+                                        let entry_sha256 = {
+                                            let mut h = Sha256::new();
+                                            h.update(&entry.data);
+                                            hex::encode(h.finalize())
+                                        };
+                                        for hit in self.string_rules.scan_bytes_with_behavior(
+                                            &entry.data,
+                                            &entry.name,
+                                            &entry_sha256,
+                                            &strings,
+                                            true,
+                                            false,
+                                            10,
+                                            None,
+                                            Some(sub_trace),
+                                        ) {
+                                            if !self.string_rules.is_emulated_rule(&hit.rule) {
+                                                continue;
+                                            }
+                                            let name = if hit.rule.is_empty() {
+                                                "HydraSig.EmulatedMatch".to_string()
+                                            } else {
+                                                hit.rule.clone()
+                                            };
+                                            let mut details = hit.title.clone();
+                                            if let Some(ev) = hit.evidence.first() {
+                                                details.push_str(" | ");
+                                                details.push_str(&ev.chars().take(120).collect::<String>());
+                                            }
+                                            let score = hit.score as f32 / 100.0;
+                                            detections.push(DetectionItem {
+                                                layer: "Archive_Emulation_Trace_HydraSig".to_string(),
+                                                name: format!("Archive:{}:Emulation:{}", entry.name, name),
+                                                score: Some(score),
+                                                details: Some(details),
+                                            });
+                                            max_score = max_score.max(score);
+                                        }
+                                    }
                                     if let Ok(sub_dumped) = sub_unpacker.dump_bytes() {
                                         if !sub_dumped.is_empty() && sub_dumped != entry.data {
                                             let sub_obj = ScanObject::new(
@@ -2039,8 +2089,7 @@ impl StaticEngine {
                                                 2,
                                                 "UnpackedPE",
                                             )
-                                            .with_parent(entry.name.clone(), &entry.data)
-                                            .with_behavior(sub_trace.clone());
+                                            .with_parent(entry.name.clone(), &entry.data);
                                             let sub_extracted = self.scan_object(&sub_obj);
                                             max_score = max_score.max(sub_extracted.max_threat_score);
                                             for d in &sub_extracted.detections {
