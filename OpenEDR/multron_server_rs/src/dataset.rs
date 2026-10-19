@@ -272,6 +272,9 @@ struct Entry {
     added: u64,
     /// Display name of its folder (statistics), if the folder has one.
     group: Option<Arc<str>>,
+    /// Remembered from `dataset_index.jsonl` while its folder is not reachable (another
+    /// PC, the cloud server): counted, never moved, removed or used as a move target.
+    offline: bool,
 }
 
 /// Line of `dataset_index.jsonl` (digest cache).
@@ -500,7 +503,7 @@ impl Dataset {
                 continue;
             }
             entries.retain(|e| {
-                if !e.ours {
+                if !e.ours || e.offline {
                     return true;
                 }
                 let len = std::fs::metadata(&e.path).map(|m| m.len()).unwrap_or(0);
@@ -601,6 +604,7 @@ impl Dataset {
                     source: Source::Own,
                     added: a.added,
                     group: Some(group),
+                    offline: true,
                 });
             }
             let mut count_hash = |entries: &[Entry]| {
@@ -837,6 +841,33 @@ impl Dataset {
             // name win), so its files are not counted twice.
             let nested = self.paths.nested_in(platform, label, &dir);
             let group: Option<Arc<str>> = self.paths.name_of(platform, label, &dir).map(Arc::from);
+            if !dir.is_dir() {
+                // Not reachable (on another PC, or this is the cloud server): its files
+                // stay counted by hash from the digest cache, and their cache lines stay.
+                let mut remembered = 0u64;
+                for (p, (s, m, h)) in &cache {
+                    let path = PathBuf::from(p);
+                    if !is_inside(&path, &dir) || nested.iter().any(|n| is_inside(&path, n)) || *s == 0 || h == EMPTY_SHA256 {
+                        continue;
+                    }
+                    fresh.push(CacheLine { p: p.clone(), s: *s, m: *m, h: h.clone() });
+                    let ours = is_ours(&path, h);
+                    map.entry(h.clone()).or_default().push(Entry {
+                        platform,
+                        label,
+                        path,
+                        ours,
+                        source,
+                        added: *m,
+                        group: group.clone(),
+                        offline: true,
+                    });
+                    self.indexed_files.fetch_add(1, Ordering::Relaxed);
+                    remembered += 1;
+                }
+                eprintln!("[dataset] {} is not reachable: {remembered} remembered files stay counted (never moved or removed)", dir.display());
+                continue;
+            }
             for path in walk_files(&dir, &nested) {
                 let Ok(meta) = std::fs::metadata(&path) else { continue };
                 let size = meta.len();
@@ -862,7 +893,7 @@ impl Dataset {
                 };
                 fresh.push(CacheLine { p: key, s: size, m: mtime, h: sha.clone() });
                 let ours = is_ours(&path, &sha);
-                map.entry(sha).or_default().push(Entry { platform, label, path, ours, source, added, group: group.clone() });
+                map.entry(sha).or_default().push(Entry { platform, label, path, ours, source, added, group: group.clone(), offline: false });
                 let n = self.indexed_files.fetch_add(1, Ordering::Relaxed) + 1;
                 if n % 20_000 == 0 {
                     eprintln!("[dataset] indexing: {n} files ({hashed} hashed)");
@@ -950,16 +981,17 @@ impl Dataset {
         let mut moved = 0;
         let mut index = self.index.lock().unwrap();
         let Some(entries) = index.get_mut(&sha) else { return 0 };
-        entries.retain(|e| e.path.exists());
+        entries.retain(|e| e.offline || e.path.exists());
         let mut i = 0;
         while i < entries.len() {
-            if entries[i].label != label.other() {
+            // Files of unreachable folders keep their label until their folder is back.
+            if entries[i].label != label.other() || entries[i].offline {
                 i += 1;
                 continue;
             }
             let platform = entries[i].platform;
             // Already under the verdict's label: this copy is a duplicate.
-            if let Some(k) = entries.iter().position(|x| x.platform == platform && x.label == label) {
+            if let Some(k) = entries.iter().position(|x| x.platform == platform && x.label == label && !x.offline) {
                 let (dup, original) = (entries[i].path.clone(), entries[k].path.clone());
                 let backup = match self.to_backup(platform, label.other(), &dup, &sha) {
                     Ok(b) => b,
@@ -1058,8 +1090,10 @@ impl Dataset {
             }
             for platform in Platform::ALL {
                 for label in Label::ALL {
-                    let mut same: Vec<usize> =
-                        (0..entries.len()).filter(|&i| entries[i].platform == platform && entries[i].label == label).collect();
+                    // Remembered files of unreachable folders are never moved.
+                    let mut same: Vec<usize> = (0..entries.len())
+                        .filter(|&i| entries[i].platform == platform && entries[i].label == label && !entries[i].offline)
+                        .collect();
                     if same.len() < 2 {
                         continue;
                     }
@@ -1111,14 +1145,17 @@ impl Dataset {
     }
 
     /// Where a file goes for a human verdict: same platform and label, the folder with
-    /// the same display name first, else the first own folder, else the first folder.
+    /// the same display name first, else the first own folder, else the first folder;
+    /// only folders that exist here.
     fn human_target(&self, platform: Platform, label: Label, group: Option<&str>) -> Option<(PathBuf, Source, Option<Arc<str>>)> {
         let l = self.paths.list(platform, label);
         let folders: Vec<(&PathBuf, Source, Option<&String>)> = l
             .0
             .iter()
             .enumerate()
-            .filter(|(_, (p, _))| !p.as_os_str().is_empty())
+            // Only folders that are here: an unreachable one (another PC, the cloud
+            // server) is never created by a move.
+            .filter(|(_, (p, _))| !p.as_os_str().is_empty() && p.is_dir())
             .map(|(i, (p, s))| (p, *s, l.1.get(i).and_then(|n| n.as_ref())))
             .collect();
         let pick = group
@@ -1732,6 +1769,33 @@ mod tests {
         assert_eq!(log.lines().filter(|l| l.contains("\"action\":\"duplicate_removed\"")).count(), 3);
         assert!(log.contains("Trojan.A.vir") && log.contains("duplicate_of"));
         assert_eq!(counts(&ds.public_stats(&[]).unwrap(), "windows", "malware"), (2, 1, 0, 3));
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn unreachable_folders_stay_counted_and_untouched() {
+        let (root, ds) = setup_sources("offline");
+        let (a, b) = (pe(60), pe(61));
+        std::fs::write(root.join("mal_own").join("a.vir"), &a).unwrap();
+        std::fs::write(root.join("mal_own").join("b.vir"), &b).unwrap();
+        ds.build_index();
+        assert_eq!(counts(&ds.public_stats(&[]).unwrap(), "windows", "malware").3, 2);
+        // The folder goes away (another PC / the cloud server); a copy of b shows up in
+        // a reachable folder of the same label.
+        std::fs::rename(root.join("mal_own"), root.join("moved_away")).unwrap();
+        std::fs::write(root.join("mal_pub").join("b_copy.vir"), &b).unwrap();
+        let paths = ds.paths.clone();
+        let again = Dataset::new(paths.clone(), root.join("state"));
+        again.build_index();
+        assert_eq!(counts(&again.public_stats(&[]).unwrap(), "windows", "malware").3, 2, "a and b still counted");
+        assert!(root.join("mal_pub").join("b_copy.vir").exists(), "a remembered file never makes a reachable one a duplicate");
+        // A human verdict never moves a remembered file, and never creates its folder.
+        assert_eq!(again.apply_human_verdict(&sha(&a), Label::Clean), 0);
+        assert!(!root.join("mal_own").exists());
+        // Still remembered after another start (the cache keeps the lines).
+        let third = Dataset::new(paths, root.join("state"));
+        third.build_index();
+        assert_eq!(counts(&third.public_stats(&[]).unwrap(), "windows", "malware").3, 2);
         let _ = std::fs::remove_dir_all(&root);
     }
 
