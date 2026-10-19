@@ -81,8 +81,34 @@ impl PeStringRules {
         cap: usize,
         parent: Option<&ParentInfo>,
     ) -> Vec<Hit> {
+        self.scan_bytes_with_behavior(
+            data,
+            target_name,
+            sha256_hex,
+            strings,
+            is_pe,
+            is_apk,
+            cap,
+            parent,
+            None,
+        )
+    }
+
+    /// Evaluate loaded rules over extracted strings and emulated behavior trace.
+    pub fn scan_bytes_with_behavior(
+        &self,
+        data: &[u8],
+        target_name: &str,
+        sha256_hex: &str,
+        strings: &[String],
+        is_pe: bool,
+        is_apk: bool,
+        cap: usize,
+        parent: Option<&ParentInfo>,
+        behavior: Option<&hydradragonsig::models::BehaviorTrace>,
+    ) -> Vec<Hit> {
         let rs = match self.ruleset.as_ref() {
-            Some(rs) if !strings.is_empty() && cap > 0 => rs,
+            Some(rs) if (!strings.is_empty() || behavior.is_some()) && cap > 0 => rs,
             _ => return Vec::new(),
         };
         // The PE is parsed and the entropy computed by hydradragonsig only when a
@@ -176,6 +202,7 @@ impl PeStringRules {
             threat_name: None,
             mitre_techniques: Vec::new(),
             parent: parent.cloned(),
+            behavior: behavior.cloned(),
         };
         let options = RuleEvalOptions {
             profile_rules: false,

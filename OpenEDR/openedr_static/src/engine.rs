@@ -1042,6 +1042,7 @@ impl StaticEngine {
         detections: &mut Vec<DetectionItem>,
         max_score: &mut f32,
         parent: Option<&hydradragonsig::models::ParentInfo>,
+        behavior: Option<&hydradragonsig::models::BehaviorTrace>,
     ) {
         if bytes.is_empty() {
             return;
@@ -1089,7 +1090,7 @@ impl StaticEngine {
             *max_score = max_score.max(score);
         }
 
-        // 3. HydraDragonSig (strings + PE imports/exports/sections)
+        // 3. HydraDragonSig (strings + PE imports/exports/sections + behavior trace)
         let capped: &[u8] = if bytes.len() > 16 * 1024 * 1024 {
             &bytes[..16 * 1024 * 1024]
         } else {
@@ -1101,7 +1102,7 @@ impl StaticEngine {
             hasher.update(bytes);
             hex::encode(hasher.finalize())
         };
-        for hit in self.string_rules.scan_bytes(
+        for hit in self.string_rules.scan_bytes_with_behavior(
             bytes,
             name,
             &sha256_hex,
@@ -1110,6 +1111,7 @@ impl StaticEngine {
             false,
             10,
             parent,
+            behavior,
         ) {
             let rule_name = if hit.rule.is_empty() {
                 "HydraSig.Match".to_string()
@@ -1199,6 +1201,7 @@ impl StaticEngine {
             &mut obj_detections,
             &mut obj_max_score,
             object.parent.as_ref(),
+            object.behavior.as_ref(),
         );
 
         // PE-specific heuristics on the extracted object
@@ -1696,12 +1699,14 @@ impl StaticEngine {
         if should_unpack {
             eprintln!("[unicorn] initiating PE CPU emulation for: {}", target_name);
             if let Ok(sample) = hydradragonunicorn::unpacker::engine::Sample::from_bytes(data) {
-                let mut unpacker = hydradragonunicorn::unpacker::engine::UnpackerEngine::new(sample, "memory");
+                let mut unpacker = hydradragonunicorn::unpacker::engine::UnpackerEngine::new(sample, "memory")
+                    .with_trace_mode(true);
                 if unpacker.init_uc().is_ok() {
                     let emu_start = std::time::Instant::now();
                     let emu_res = unpacker.emu();
                     let emu_ms = emu_start.elapsed().as_millis();
                     eprintln!("[unicorn] emulation ended for {} in {} ms (status: {:?})", target_name, emu_ms, emu_res);
+                    let trace = unpacker.behavior_trace();
                     if let Ok(dumped) = unpacker.dump_bytes() {
                         if !dumped.is_empty() && dumped != data {
                             eprintln!("[unicorn] successfully unpacked {} bytes payload for {}", dumped.len(), target_name);
@@ -1714,7 +1719,8 @@ impl StaticEngine {
                                 1,
                                 "UnpackedPE",
                             )
-                            .with_parent(target_name, data);
+                            .with_parent(target_name, data)
+                            .with_behavior(trace.clone());
                             let extracted = self.scan_object(&obj);
 
                             max_score = max_score.max(extracted.max_threat_score);
@@ -1732,6 +1738,46 @@ impl StaticEngine {
                         }
                     } else {
                         eprintln!("[unicorn] dump_bytes failed for {}", target_name);
+                    }
+
+                    // If trace mode recorded API calls, evaluate HydraSig emulated_* conditions directly
+                    if !trace.calls.is_empty() {
+                        let capped: &[u8] = if data.len() > 16 * 1024 * 1024 {
+                            &data[..16 * 1024 * 1024]
+                        } else {
+                            data
+                        };
+                        let strings = pe_strings::extract_strings(capped);
+                        for hit in self.string_rules.scan_bytes_with_behavior(
+                            data,
+                            target_name,
+                            &sha256_hex,
+                            &strings,
+                            true,
+                            false,
+                            10,
+                            None,
+                            Some(trace),
+                        ) {
+                            let name = if hit.rule.is_empty() {
+                                "HydraSig.EmulatedMatch".to_string()
+                            } else {
+                                hit.rule.clone()
+                            };
+                            let mut details = hit.title.clone();
+                            if let Some(ev) = hit.evidence.first() {
+                                details.push_str(" | ");
+                                details.push_str(&ev.chars().take(120).collect::<String>());
+                            }
+                            let score = hit.score as f32 / 100.0;
+                            detections.push(DetectionItem {
+                                layer: "Emulation_Trace_HydraSig".to_string(),
+                                name,
+                                score: Some(score),
+                                details: Some(details),
+                            });
+                            max_score = max_score.max(score);
+                        }
                     }
                 } else {
                     eprintln!("[unicorn] init_uc failed for {}", target_name);
@@ -1979,9 +2025,11 @@ impl StaticEngine {
                         // Also check if child entry itself is a packed PE: run Unicorn once if packed
                         if entry.data.starts_with(b"MZ") && entry.data.len() >= 0x1000 {
                             if let Ok(sub_sample) = hydradragonunicorn::unpacker::engine::Sample::from_bytes(&entry.data) {
-                                let mut sub_unpacker = hydradragonunicorn::unpacker::engine::UnpackerEngine::new(sub_sample, "memory");
+                                let mut sub_unpacker = hydradragonunicorn::unpacker::engine::UnpackerEngine::new(sub_sample, "memory")
+                                    .with_trace_mode(true);
                                 if sub_unpacker.init_uc().is_ok() {
                                     let _ = sub_unpacker.emu();
+                                    let sub_trace = sub_unpacker.behavior_trace();
                                     if let Ok(sub_dumped) = sub_unpacker.dump_bytes() {
                                         if !sub_dumped.is_empty() && sub_dumped != entry.data {
                                             let sub_obj = ScanObject::new(
@@ -1991,7 +2039,8 @@ impl StaticEngine {
                                                 2,
                                                 "UnpackedPE",
                                             )
-                                            .with_parent(entry.name.clone(), &entry.data);
+                                            .with_parent(entry.name.clone(), &entry.data)
+                                            .with_behavior(sub_trace.clone());
                                             let sub_extracted = self.scan_object(&sub_obj);
                                             max_score = max_score.max(sub_extracted.max_threat_score);
                                             for d in &sub_extracted.detections {

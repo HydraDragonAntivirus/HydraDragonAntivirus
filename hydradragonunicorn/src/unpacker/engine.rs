@@ -9,9 +9,11 @@ use unicorn_engine::unicorn_const::{
 };
 use unicorn_engine::{RegisterARM, RegisterARM64, RegisterX86, UcHookId, Unicorn};
 
+use crate::unpacker::apicalls::{self, ApiState};
 use crate::unpacker::error::{UnpackerError, UnpackerResult};
 use crate::unpacker::kernel_structs::{Peb, Peb64, PebLdrData, PebLdrData64, Teb, Teb64};
 use crate::unpacker::packers::{self, UnpackerConfig};
+use hydradragonsig::models::{ApiCall, BehaviorTrace};
 use vmpunpacker;
 
 // ---------------------------------------------------------------------------
@@ -291,6 +293,11 @@ struct HookState {
     log_mem_read: bool,
     log_mem_write: bool,
     log_apicalls: bool,
+    trace_mode: bool,
+    is_64: bool,
+    dllname_to_functionlist: HashMap<String, Vec<(String, u64)>>,
+    api_state: ApiState,
+    behavior_trace: BehaviorTrace,
 }
 
 // ---------------------------------------------------------------------------
@@ -319,6 +326,8 @@ pub struct UnpackerEngine {
     pub log_mem_read: bool,
     pub log_mem_write: bool,
     pub log_apicalls: bool,
+    pub trace_mode: bool,
+    pub behavior_trace: BehaviorTrace,
 
     uc: Option<Unicorn<'static, ()>>,
     hook_ids: Vec<UcHookId>,
@@ -332,6 +341,9 @@ impl UnpackerEngine {
         let sections = sample.sections.clone();
         let unpacker = sample.unpacker.clone();
         let image_base = sample.base_addr;
+        let trace_mode = unpacker.trace_mode;
+        let is_64 = PeArch::from_pe(sample.pe_header.machine, sample.opt_header.magic).is_64();
+        let dllname_to_functionlist = sample.dllname_to_functionlist.clone();
 
         Self {
             sample,
@@ -354,6 +366,8 @@ impl UnpackerEngine {
             log_mem_read: false,
             log_mem_write: false,
             log_apicalls: false,
+            trace_mode,
+            behavior_trace: BehaviorTrace::default(),
             uc: None,
             hook_ids: Vec::new(),
             hook_state: Rc::new(RefCell::new(HookState {
@@ -376,8 +390,27 @@ impl UnpackerEngine {
                 log_mem_read: false,
                 log_mem_write: false,
                 log_apicalls: false,
+                trace_mode,
+                is_64,
+                dllname_to_functionlist,
+                api_state: ApiState::default(),
+                behavior_trace: BehaviorTrace::default(),
             })),
         }
+    }
+
+    pub fn with_trace_mode(mut self, trace_mode: bool) -> Self {
+        self.trace_mode = trace_mode;
+        self.hook_state.borrow_mut().trace_mode = trace_mode;
+        self
+    }
+
+    pub fn behavior_trace(&self) -> &BehaviorTrace {
+        &self.behavior_trace
+    }
+
+    pub fn api_trace(&self) -> &[ApiCall] {
+        &self.behavior_trace.calls
     }
 
     // ------------------------------------------------------------------
@@ -581,6 +614,11 @@ impl UnpackerEngine {
 
         // --- Store imported function info & patch IAT with hook addresses ---
         self.parse_and_patch_imports(&mut uc, image_base)?;
+        {
+            let mut hs = self.hook_state.borrow_mut();
+            hs.dllname_to_functionlist = self.sample.dllname_to_functionlist.clone();
+            hs.is_64 = is_64;
+        }
 
         // --- Register hooks ---
         let hook_state = Rc::clone(&self.hook_state);
@@ -611,10 +649,200 @@ impl UnpackerEngine {
                     let st = &mut *guard;
                     if addr >= st.hook_addr && addr < st.hook_addr + 0x100000 {
                         // API call via a patched IAT entry.
-                        if let Some(api_name) = resolve_hook_name(&st.apicall_counter, addr) {
-                            log::info!("API call: {}", api_name);
+                        let api_name = apicalls::resolve_api_name(
+                            &st.apicall_counter,
+                            addr,
+                            &st.dllname_to_functionlist,
+                        )
+                        .unwrap_or_else(|| format!("UnknownHook_{:#x}", addr));
+
+                        match st.apicall_counter.get_mut(&api_name) {
+                            Some(c) => *c += 1,
+                            None => {
+                                st.apicall_counter.insert(api_name.clone(), 1);
+                            }
                         }
-                        true
+
+                        if !st.trace_mode {
+                            log::info!("API call: {}", api_name);
+                            true
+                        } else {
+                            const MAX_TRACE_CALLS: usize = 2000;
+                            if st.behavior_trace.calls.len() >= MAX_TRACE_CALLS {
+                                st.behavior_trace.truncated = true;
+                                log::info!("Trace call budget reached ({}), stopping emulation cleanly", MAX_TRACE_CALLS);
+                                true
+                            } else {
+                                let spec = apicalls::get_api_spec(&api_name);
+                                let is_64 = st.is_64;
+                                let hook_addr_base = st.hook_addr;
+
+                                let (ret_addr, raw_args, pop_size, can_continue) = if !is_64 {
+                                    // x86 stdcall
+                                    if let Ok(esp) = uc.reg_read(RegisterX86::ESP as i32) {
+                                        let mut ret_buf = [0u8; 4];
+                                        let ret = if uc.mem_read(esp, &mut ret_buf).is_ok() {
+                                            u32::from_le_bytes(ret_buf) as u64
+                                        } else {
+                                            0
+                                        };
+
+                                        let (arg_count, can_pop) = match spec {
+                                            Some(s) => (s.arg_count, true),
+                                            None => {
+                                                // Unknown API: attempt call-site disassembly to count pushed arguments
+                                                if let Some(count) = apicalls::estimate_x86_stdcall_arg_count(uc, ret) {
+                                                    (count, true)
+                                                } else {
+                                                    // Indeterminate push count: safe stop to prevent stack corruption
+                                                    log::warn!("Indeterminate argument count for x86 stdcall API {}; stopping emulation safely", api_name);
+                                                    (0, false)
+                                                }
+                                            }
+                                        };
+
+                                        if !can_pop {
+                                            (ret, Vec::new(), 0, false)
+                                        } else {
+                                            let mut args = Vec::with_capacity(arg_count);
+                                            for i in 0..arg_count {
+                                                let arg_addr = esp + 4 * (i as u64 + 1);
+                                                let mut arg_buf = [0u8; 4];
+                                                let val = if uc.mem_read(arg_addr, &mut arg_buf).is_ok() {
+                                                    u32::from_le_bytes(arg_buf) as u64
+                                                } else {
+                                                    0
+                                                };
+                                                args.push(val);
+                                            }
+                                            (ret, args, 4 + (arg_count as u64) * 4, true)
+                                        }
+                                    } else {
+                                        (0, Vec::new(), 0, false)
+                                    }
+                                } else {
+                                    // x64 MS ABI (caller cleans stack)
+                                    if let Ok(rsp) = uc.reg_read(RegisterX86::RSP as i32) {
+                                        let mut ret_buf = [0u8; 8];
+                                        let ret = if uc.mem_read(rsp, &mut ret_buf).is_ok() {
+                                            u64::from_le_bytes(ret_buf)
+                                        } else {
+                                            0
+                                        };
+                                        let arg_count = spec.map(|s| s.arg_count).unwrap_or(4);
+                                        let mut args = Vec::with_capacity(arg_count);
+                                        for i in 0..arg_count {
+                                            let val = match i {
+                                                0 => uc.reg_read(RegisterX86::RCX as i32).unwrap_or(0),
+                                                1 => uc.reg_read(RegisterX86::RDX as i32).unwrap_or(0),
+                                                2 => uc.reg_read(RegisterX86::R8 as i32).unwrap_or(0),
+                                                3 => uc.reg_read(RegisterX86::R9 as i32).unwrap_or(0),
+                                                _ => {
+                                                    let arg_addr = rsp + 0x28 + (i as u64 - 4) * 8;
+                                                    let mut arg_buf = [0u8; 8];
+                                                    if uc.mem_read(arg_addr, &mut arg_buf).is_ok() {
+                                                        u64::from_le_bytes(arg_buf)
+                                                    } else {
+                                                        0
+                                                    }
+                                                }
+                                            };
+                                            args.push(val);
+                                        }
+                                        (ret, args, 8, true)
+                                    } else {
+                                        (0, Vec::new(), 0, false)
+                                    }
+                                };
+
+                                if !can_continue || ret_addr == 0 || (ret_addr >= hook_addr_base && ret_addr < hook_addr_base + 0x100000) {
+                                    log::warn!("Cannot continue from return address {:#x} for API {}, stopping emulation", ret_addr, api_name);
+                                    true
+                                } else {
+                                    let string_specs = spec.map(|s| s.string_args).unwrap_or(&[]);
+                                    let is_wide_hint = api_name.ends_with('w') || api_name.ends_with('W');
+                                    let mut formatted_args = Vec::with_capacity(raw_args.len());
+                                    let mut detected_strings = Vec::new();
+
+                                    for (idx, &arg_val) in raw_args.iter().enumerate() {
+                                        let str_val = if let Some(&(_, str_type)) = string_specs.iter().find(|(i, _)| *i == idx) {
+                                            match str_type {
+                                                apicalls::StringType::Ansi => apicalls::read_ansi_string(uc, arg_val, 512),
+                                                apicalls::StringType::Wide => apicalls::read_wide_string(uc, arg_val, 512),
+                                            }
+                                        } else {
+                                            apicalls::probe_string_arg(uc, arg_val, is_wide_hint)
+                                        };
+
+                                        if let Some(ref s) = str_val {
+                                            detected_strings.push(s.clone());
+                                            formatted_args.push(s.clone());
+                                        } else {
+                                            formatted_args.push(format!("{:#x}", arg_val));
+                                        }
+                                    }
+
+                                    let norm = apicalls::normalize_api_name(&api_name);
+                                    for s in &detected_strings {
+                                        if norm.starts_with("createfile") || norm.starts_with("readfile") || norm.starts_with("findfirstfile") {
+                                            st.behavior_trace.files_read.push(s.clone());
+                                        } else if norm.starts_with("writefile")
+                                            || norm.starts_with("deletefile")
+                                            || norm.starts_with("movefile")
+                                            || norm.starts_with("copyfile")
+                                        {
+                                            st.behavior_trace.files_written.push(s.clone());
+                                        } else if norm.starts_with("reg") {
+                                            st.behavior_trace.registry.push(s.clone());
+                                        } else if norm.starts_with("createprocess") || norm.starts_with("shellexecute") || norm.starts_with("winexec") {
+                                            st.behavior_trace.processes.push(s.clone());
+                                        } else if norm.starts_with("winhttp") || norm.starts_with("internet") || norm.starts_with("urldownload") || norm.contains("addr") || norm.contains("host") {
+                                            st.behavior_trace.network_targets.push(s.clone());
+                                        }
+                                    }
+
+                                    // Execute stub logic with dllname_to_functionlist
+                                    let ret_val = apicalls::handle_api_call(
+                                        uc,
+                                        &api_name,
+                                        &raw_args,
+                                        &mut st.api_state,
+                                        &mut st.dllname_to_functionlist,
+                                    );
+
+                                    // Record trace entry
+                                    st.behavior_trace.calls.push(ApiCall {
+                                        api: api_name.clone(),
+                                        args: formatted_args.clone(),
+                                        ret: ret_val,
+                                    });
+
+                                    log::info!(
+                                        "API [trace]: {}({}) -> {:#x}",
+                                        api_name,
+                                        formatted_args.join(", "),
+                                        ret_val
+                                    );
+
+                                    // Fix stack and set instruction pointer to return address
+                                    if !is_64 {
+                                        let _ = uc.reg_write(RegisterX86::EAX as i32, ret_val & 0xFFFFFFFF);
+                                        if let Ok(esp) = uc.reg_read(RegisterX86::ESP as i32) {
+                                            let _ = uc.reg_write(RegisterX86::ESP as i32, esp + pop_size);
+                                        }
+                                        let _ = uc.reg_write(RegisterX86::EIP as i32, ret_addr);
+                                    } else {
+                                        let _ = uc.reg_write(RegisterX86::RAX as i32, ret_val);
+                                        if let Ok(rsp) = uc.reg_read(RegisterX86::RSP as i32) {
+                                            let _ = uc.reg_write(RegisterX86::RSP as i32, rsp + pop_size);
+                                        }
+                                        let _ = uc.reg_write(RegisterX86::RIP as i32, ret_addr);
+                                    }
+
+                                    false // Continue emulation from return address!
+                                }
+                            }
+                        }
                     } else {
                         let idx = section_index(&st.sample_sections, st.image_base, addr);
                         if let Some(i) = idx {
@@ -788,6 +1016,7 @@ impl UnpackerEngine {
             hs.log_mem_read = self.log_mem_read;
             hs.log_mem_write = self.log_mem_write;
             hs.log_apicalls = self.log_apicalls;
+            hs.trace_mode = self.trace_mode;
             hs.start_time = self.start_time;
         }
 
@@ -812,6 +1041,7 @@ impl UnpackerEngine {
             self.write_targets = ranges;
             self.wx_hit = hs.wx_hit;
             self.apicall_counter = hs.apicall_counter.clone();
+            self.behavior_trace = hs.behavior_trace.clone();
         }
 
         match result {
@@ -1294,15 +1524,6 @@ fn section_index(sections: &[Section], image_base: u64, addr: u64) -> Option<usi
     })
 }
 
-fn resolve_hook_name(
-    apicall_counter: &HashMap<String, u64>,
-    addr: u64,
-) -> Option<String> {
-    // This will be populated by WinApiCalls in the future.
-    // For now, return None to indicate unknown hook address.
-    let _ = (apicall_counter, addr);
-    None
-}
 
 /// Parse PE headers from an in-memory byte slice (no disk I/O, zero external dependencies).
 pub fn parse_pe_bytes(

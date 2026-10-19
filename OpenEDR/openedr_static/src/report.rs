@@ -75,6 +75,8 @@ pub struct ScanObject {
     /// The file this object came from (packed original of an unpacked PE).
     /// HydraDragonSig rules compare the object with it.
     pub parent: Option<hydradragonsig::models::ParentInfo>,
+    /// Emulated behavior trace from dynamic unpacker (API calls, files, registry, etc.).
+    pub behavior: Option<hydradragonsig::models::BehaviorTrace>,
 }
 
 impl ScanObject {
@@ -92,12 +94,19 @@ impl ScanObject {
             depth,
             origin_type: origin_type.into(),
             parent: None,
+            behavior: None,
         }
     }
 
     /// Attach the parent summary built from the bytes this object came out of.
     pub fn with_parent(mut self, identifier: impl Into<String>, parent_bytes: &[u8]) -> Self {
         self.parent = Some(hydradragonsig::models::ParentInfo::from_bytes(identifier, parent_bytes));
+        self
+    }
+
+    /// Attach the emulated behavior trace recorded during Unicorn unpacking.
+    pub fn with_behavior(mut self, behavior: hydradragonsig::models::BehaviorTrace) -> Self {
+        self.behavior = Some(behavior);
         self
     }
 }

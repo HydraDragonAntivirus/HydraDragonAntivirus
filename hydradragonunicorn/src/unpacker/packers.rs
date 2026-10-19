@@ -67,6 +67,14 @@ pub struct UnpackerConfig {
     pub secs: Vec<Section>,
     pub dumper_type: DumperType,
     pub allocated_chunks: Vec<(u64, u64)>,
+    pub trace_mode: bool,
+}
+
+impl UnpackerConfig {
+    pub fn with_trace_mode(mut self, enabled: bool) -> Self {
+        self.trace_mode = enabled;
+        self
+    }
 }
 
 // Type aliases matching the re-exports in mod.rs
@@ -105,6 +113,7 @@ pub fn create_default_unpacker(secs: &[SectionHeader], base_addr: u64, ep: u64) 
         secs: to_sections(secs),
         dumper_type: DumperType::Default,
         allocated_chunks: vec![],
+        trace_mode: false,
     }
 }
 
@@ -128,6 +137,7 @@ pub fn create_automatic_default_unpacker(
         secs: to_sections(secs),
         dumper_type: DumperType::Default,
         allocated_chunks: vec![],
+        trace_mode: false,
     }
 }
 
@@ -147,6 +157,7 @@ pub fn create_upx_unpacker(secs: &[SectionHeader], base_addr: u64, ep: u64) -> U
         secs: to_sections(secs),
         dumper_type: DumperType::Default,
         allocated_chunks: vec![],
+        trace_mode: false,
     }
 }
 
@@ -166,6 +177,7 @@ pub fn create_petite_unpacker(secs: &[SectionHeader], base_addr: u64, ep: u64) -
         secs: to_sections(secs),
         dumper_type: DumperType::PEtite,
         allocated_chunks: vec![],
+        trace_mode: false,
     }
 }
 
@@ -185,6 +197,7 @@ pub fn create_aspack_unpacker(secs: &[SectionHeader], base_addr: u64, ep: u64) -
         secs: to_sections(secs),
         dumper_type: DumperType::Default,
         allocated_chunks: vec![],
+        trace_mode: false,
     }
 }
 
@@ -204,6 +217,7 @@ pub fn create_fsg_unpacker(secs: &[SectionHeader], base_addr: u64, ep: u64) -> U
         secs: to_sections(secs),
         dumper_type: DumperType::Default,
         allocated_chunks: vec![],
+        trace_mode: false,
     }
 }
 
@@ -223,6 +237,7 @@ pub fn create_yzpack_unpacker(secs: &[SectionHeader], base_addr: u64, ep: u64) -
         secs: to_sections(secs),
         dumper_type: DumperType::YZPack,
         allocated_chunks: vec![],
+        trace_mode: false,
     }
 }
 
@@ -242,6 +257,7 @@ pub fn create_mew_unpacker(secs: &[SectionHeader], base_addr: u64, ep: u64) -> U
         secs: to_sections(secs),
         dumper_type: DumperType::MEW,
         allocated_chunks: vec![],
+        trace_mode: false,
     }
 }
 
@@ -265,6 +281,7 @@ pub fn create_vmprotect_unpacker(
         secs: to_sections(secs),
         dumper_type: DumperType::Default,
         allocated_chunks: vec![],
+        trace_mode: false,
     }
 }
 
@@ -284,6 +301,7 @@ pub fn create_mpress_unpacker(secs: &[SectionHeader], base_addr: u64, ep: u64) -
         secs: to_sections(secs),
         dumper_type: DumperType::Default,
         allocated_chunks: vec![],
+        trace_mode: false,
     }
 }
 
@@ -307,6 +325,7 @@ pub fn create_pecompact_unpacker(
         secs: to_sections(secs),
         dumper_type: DumperType::Default,
         allocated_chunks: vec![],
+        trace_mode: false,
     }
 }
 
@@ -326,6 +345,7 @@ pub fn create_upack_unpacker(secs: &[SectionHeader], base_addr: u64, ep: u64) ->
         secs: to_sections(secs),
         dumper_type: DumperType::Default,
         allocated_chunks: vec![],
+        trace_mode: false,
     }
 }
 
