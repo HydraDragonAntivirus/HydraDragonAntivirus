@@ -72,6 +72,10 @@ pub fn get(sha: &str) -> Option<Missing> {
 
 /// Error text for "this file is not kept on the server".
 pub fn explain(sha: &str) -> String {
+    if let Some(a) = crate::archived::get(sha) {
+        let kind = if a.kind.is_empty() { String::new() } else { format!(", {}", a.kind) };
+        return format!("this file is not kept on the server: archived to {} ({}{kind})", a.group, a.category);
+    }
     match get(sha) {
         Some(m) if m.reason == "offloaded" => format!("this file is not kept on the server: moved by offload to {} ({})", m.detail, m.at),
         Some(m) if m.reason == "quota" => format!("this file is not kept on the server: dropped at upload, keep quota full ({}, {})", m.detail, m.at),

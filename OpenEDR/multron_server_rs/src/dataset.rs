@@ -335,6 +335,19 @@ pub struct UserFile {
 /// Group name of the files users sent in `PublicStats::groups` (the site translates it).
 pub const USERS_GROUP: &str = "@users";
 
+/// One file of an archive folder (`archived.rs`): counted like a file of an own dataset
+/// folder named `group`, also after it was deleted from disk.
+#[derive(Debug, Clone)]
+pub struct ArchivedSample {
+    /// SHA-256, any case.
+    pub sha256: String,
+    pub platform: Platform,
+    pub label: Label,
+    /// When it arrived in the archive folder (Unix seconds).
+    pub added: u64,
+    pub group: String,
+}
+
 impl UserFile {
     /// From a threat-intel record: effective verdict (human first) and file names.
     pub fn new(sha256: &str, verdict: &str, names: &[String], first_seen: &str) -> Self {
@@ -534,6 +547,7 @@ impl Dataset {
 
     /// Public counts per platform and label (None until the index is ready). `users`:
     /// every file users sent, counted as "users_only" where no dataset folder has it.
+    #[cfg(test)]
     pub fn public_stats(&self, users: &[UserFile]) -> Option<PublicStats> {
         if !self.ready.load(Ordering::Relaxed) {
             return None;
@@ -541,12 +555,26 @@ impl Dataset {
         Some(self.public_stats_at(now_secs(), users))
     }
 
+    /// `public_stats` with the files of the archive folders counted as own files.
+    pub fn public_stats_with(&self, users: &[UserFile], archived: &[ArchivedSample]) -> Option<PublicStats> {
+        if !self.ready.load(Ordering::Relaxed) {
+            return None;
+        }
+        Some(self.public_stats_full(now_secs(), users, archived))
+    }
+
+    #[cfg(test)]
+    fn public_stats_at(&self, now: u64, users: &[UserFile]) -> PublicStats {
+        self.public_stats_full(now, users, &[])
+    }
+
     /// Every hash is counted once per filter: "own_only" when all its files in the
     /// filter are in own folders, "public_only" when all are in public folders, "both"
     /// otherwise. A hash's day is the earliest arrival of its files in the filter.
     /// A hash users sent that is in no dataset folder of the filter is "users_only"
-    /// (day: first seen); all of them also form the `USERS_GROUP` group.
-    fn public_stats_at(&self, now: u64, users: &[UserFile]) -> PublicStats {
+    /// (day: first seen); all of them also form the `USERS_GROUP` group. Archive-folder
+    /// files count as files of an own folder named after their group.
+    fn public_stats_full(&self, now: u64, users: &[UserFile], archived: &[ArchivedSample]) -> PublicStats {
         const PLATFORMS: [Option<Platform>; 4] =
             [None, Some(Platform::Windows), Some(Platform::Android), Some(Platform::JavaScript)];
         const LABELS: [Option<Label>; 3] = [None, Some(Label::Malware), Some(Label::Clean)];
@@ -556,7 +584,26 @@ impl Dataset {
         let mut gacc: BTreeMap<Arc<str>, Vec<(u64, Vec<u64>)>> = BTreeMap::new();
         {
             let index = self.index.lock().unwrap();
-            for entries in index.values() {
+            // Archive-folder files as entries of own folders (no path: never moved).
+            let mut extra: HashMap<String, Vec<Entry>> = HashMap::new();
+            let mut names: HashMap<&str, Arc<str>> = HashMap::new();
+            for a in archived {
+                let sha = a.sha256.to_ascii_uppercase();
+                if sha == EMPTY_SHA256 {
+                    continue;
+                }
+                let group = Arc::clone(names.entry(a.group.as_str()).or_insert_with(|| Arc::from(a.group.as_str())));
+                extra.entry(sha).or_default().push(Entry {
+                    platform: a.platform,
+                    label: a.label,
+                    path: PathBuf::new(),
+                    ours: false,
+                    source: Source::Own,
+                    added: a.added,
+                    group: Some(group),
+                });
+            }
+            let mut count_hash = |entries: &[Entry]| {
                 // Named groups: earliest arrival per platform x label, per group.
                 let mut gcells: Vec<(Arc<str>, [u64; 6])> = Vec::new();
                 for e in entries {
@@ -633,6 +680,17 @@ impl Dataset {
                         }
                     }
                 }
+            };
+            for (sha, entries) in index.iter() {
+                match extra.get(sha) {
+                    Some(x) => count_hash(&[entries.as_slice(), x.as_slice()].concat()),
+                    None => count_hash(entries),
+                }
+            }
+            for (sha, x) in &extra {
+                if !index.contains_key(sha) {
+                    count_hash(x);
+                }
             }
             // Files users sent. Several records of one hash count once.
             let mut seen: std::collections::HashSet<String> = std::collections::HashSet::with_capacity(users.len());
@@ -642,7 +700,7 @@ impl Dataset {
                 if sha == EMPTY_SHA256 || !seen.insert(sha.clone()) {
                     continue;
                 }
-                let entries = index.get(&sha);
+                let entries: Vec<&Entry> = index.get(&sha).into_iter().chain(extra.get(&sha)).flatten().collect();
                 let day = u.added / 86_400;
                 let day = (first..=today).contains(&day).then(|| (day - first) as usize);
                 for (pi, pf) in PLATFORMS.iter().enumerate() {
@@ -658,9 +716,8 @@ impl Dataset {
                         if let Some(d) = day {
                             g.1[d] += 1;
                         }
-                        let in_dataset = entries.is_some_and(|es| {
-                            es.iter().any(|e| pf.is_none_or(|x| x == e.platform) && lf.is_none_or(|x| x == e.label))
-                        });
+                        let in_dataset =
+                            entries.iter().any(|e| pf.is_none_or(|x| x == e.platform) && lf.is_none_or(|x| x == e.label));
                         if in_dataset {
                             continue;
                         }
@@ -1210,7 +1267,7 @@ fn is_ours(path: &Path, sha_upper: &str) -> bool {
     path.file_stem().and_then(|s| s.to_str()).is_some_and(|s| s.eq_ignore_ascii_case(sha_upper))
 }
 
-fn sha256_file(path: &Path) -> Option<String> {
+pub(crate) fn sha256_file(path: &Path) -> Option<String> {
     use hex::ToHex;
     use sha2::Digest;
     let mut f = std::fs::File::open(path).ok()?;
@@ -1229,7 +1286,7 @@ fn sha256_file(path: &Path) -> Option<String> {
 /// Regular files under `dir` (not following links), skipping our `.part` temp files.
 /// Files under `dir`. Folders whose name starts with `.` (`.cache`, `.git`, ...) and the
 /// `skip` folders (configured folders nested in this one) are not entered.
-fn walk_files(dir: &Path, skip: &[PathBuf]) -> Vec<PathBuf> {
+pub(crate) fn walk_files(dir: &Path, skip: &[PathBuf]) -> Vec<PathBuf> {
     let mut out = Vec::new();
     let mut stack = vec![dir.to_path_buf()];
     while let Some(d) = stack.pop() {
@@ -1556,6 +1613,30 @@ mod tests {
         assert_eq!(st.groups[USERS_GROUP]["windows"]["malware"].total, 2);
         assert_eq!(platform_of_name("Setup.EXE"), Some(Platform::Windows));
         assert_eq!(platform_of_name("readme"), None);
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn archived_files_count_as_own_once_and_stay_after_deletion() {
+        let (root, ds) = setup_sources("archived");
+        let (a, b) = (pe(40), pe(41));
+        std::fs::write(root.join("clean_own").join("a.exe"), &a).unwrap();
+        ds.build_index();
+        let now = now_secs();
+        let first_seen = chrono::DateTime::from_timestamp(now as i64, 0).unwrap().to_rfc3339();
+        let arch = |sha: String| ArchivedSample { sha256: sha, platform: Platform::Windows, label: Label::Clean, added: now, group: r"usbdosyalar\clean".into() };
+        // a is also in the own clean folder; b exists only in the archive index (deleted from disk).
+        let archived = vec![arch(sha(&a)), arch(sha(&b).to_ascii_lowercase())];
+        // Both were uploaded by users too: counted once, not as users_only.
+        let users = vec![
+            UserFile::new(&sha(&a), "clean", &["a.exe".into()], &first_seen),
+            UserFile::new(&sha(&b), "clean", &["b.exe".into()], &first_seen),
+        ];
+        let st = ds.public_stats_full(now, &users, &archived);
+        let c = &st.cells["windows"]["clean"];
+        assert_eq!((c.counts.own_only, c.counts.users_only, c.total), (2, 0, 2));
+        assert_eq!(st.groups[r"usbdosyalar\clean"]["windows"]["clean"].total, 2);
+        assert_eq!(st.groups[r"usbdosyalar\clean"]["all"]["all"].total, 2);
         let _ = std::fs::remove_dir_all(&root);
     }
 

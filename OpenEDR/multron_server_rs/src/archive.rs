@@ -238,10 +238,20 @@ impl Mirror {
         // Samples already in the archive, by SHA-256: a file that moved to another
         // category here is moved there too instead of being copied again.
         let mut archived = index_samples(&target.join("multron_incoming"));
+        // Samples moved by hand from the archive's work folder to an archive folder
+        // (its kept_archived.jsonl, or this server's): never copied back.
+        let moved_out = crate::archived::archived_in(&target);
         let mut lost = false;
         for (src, rel) in jobs {
             if self.stop.load(Ordering::Relaxed) {
                 break;
+            }
+            if let Some(sha) = rel.strip_prefix("multron_incoming/").and_then(sample_sha) {
+                if let Some(cat) = category_of(Path::new(&rel)) {
+                    if moved_out.contains(&(sha.clone(), cat.to_string())) || crate::archived::is_archived(&sha, cat) {
+                        continue;
+                    }
+                }
             }
             self.stats.lock().unwrap().current = rel.clone();
             let dst = target.join(&rel);

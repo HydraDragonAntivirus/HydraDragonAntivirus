@@ -527,6 +527,20 @@ async fn kept_counts_cached(engine: &Arc<EngineAdapter>) -> serde_json::Value {
     v
 }
 
+/// Files moved to the archive folders (`archived.rs`), refreshed at most every 30 s.
+static ARCHIVED_CACHE: std::sync::Mutex<Option<(std::time::Instant, serde_json::Value)>> = std::sync::Mutex::new(None);
+
+async fn archived_counts_cached() -> serde_json::Value {
+    if let Some((t, v)) = ARCHIVED_CACHE.lock().unwrap().as_ref() {
+        if t.elapsed() < std::time::Duration::from_secs(30) {
+            return v.clone();
+        }
+    }
+    let v = tokio::task::spawn_blocking(crate::archived::counts).await.unwrap_or_default();
+    *ARCHIVED_CACHE.lock().unwrap() = Some((std::time::Instant::now(), v.clone()));
+    v
+}
+
 /// Everything the dashboard header shows: engine status, listener, settings, connected
 /// clients, all-time telemetry counts, kept-file counts, queue and memory figures, and
 /// the event log since `since` (sequence number).
@@ -556,6 +570,7 @@ async fn handle_state(
         "humanVerdicts": rstats.completed,
         "humanQueue": rstats.pending,
         "kept": kept_counts_cached(&app.engine).await,
+        "archived": archived_counts_cached().await,
     });
 
     let srv = &app.scan_server;

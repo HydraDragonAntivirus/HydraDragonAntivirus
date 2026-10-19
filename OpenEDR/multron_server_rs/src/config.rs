@@ -195,6 +195,12 @@ pub struct CliArgs {
     #[arg(long, default_value = "")]
     pub archive_mirror: String,
 
+    /// Remember every file of the archive folders in archived_dirs.json (kept files moved
+    /// there by hand) in kept_archived.jsonl, then exit. A normal start does the same in
+    /// the background.
+    #[arg(long)]
+    pub index_archived: bool,
+
     /// Seamless update (started by Multron Updater next to the running server): load the
     /// engine and the data while the running server keeps scanning ("getting updated"
     /// mode), then take its ports over in a few seconds. Without a running server this

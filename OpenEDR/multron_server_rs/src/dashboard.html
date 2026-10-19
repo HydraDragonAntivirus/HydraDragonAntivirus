@@ -467,7 +467,7 @@
       <div class="stat"><div class="v" id="aClean" style="color:var(--green)">0</div><div class="l">Clean</div></div>
       <div class="stat"><div class="v" id="aHuman">0</div><div class="l">Human verdicts</div></div>
       <div class="stat"><div class="v" id="aQueue">0</div><div class="l">Human queue</div></div>
-      <div class="stat" style="grid-column:span 3"><div class="v" id="aKept" style="font-size:15px;line-height:1.6">—</div><div class="l">Files kept on disk in multron_incoming, by verdict (a human verdict wins)</div></div>
+      <div class="stat" style="grid-column:span 3"><div class="v" id="aKept" style="font-size:15px;line-height:1.6">—</div><div class="v" id="aArchived" style="font-size:14px;line-height:1.6;margin-top:6px" hidden></div><div class="l">Files kept on disk in multron_incoming, by verdict (a human verdict wins); archived files stay counted after they are moved or deleted</div></div>
     </div>
     <div class="feedbar" style="margin-bottom:-6px"><h2 style="margin:0">This session</h2><span class="hint" style="margin:0">since the server started</span></div>
     <div class="stats">
@@ -1224,6 +1224,15 @@ window.sigKey = (list) => list && list.length ? `${list[0].layer}: ${list[0].nam
       const names = { unknown: "Unknown", possible_clean: "Possible clean", suspicious: "Suspicious", malicious: "Malicious", clean: "Clean", xorfilter_clean: "XOR-filter clean (to verify)", xorfilter_malicious: "XOR-filter malicious (to verify)" };
       const gb = (x) => x >= 0.01 ? Number(x).toFixed(2) + " GB" : (x * 1024).toFixed(1) + " MB";
       $("aKept").innerHTML = Object.keys(names).filter(c => k[c]).map(c => `<span style="white-space:nowrap">${names[c]}: <b>${n(k[c].files)}</b> files (${gb(k[c].gb)})</span>`).join(" &nbsp;|&nbsp; ");
+      // Moved by hand to archive folders (archived_dirs.json): still counted, by type.
+      const ar = at.archived || [];
+      const escA = (s) => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+      $("aArchived").hidden = ar.length === 0;
+      $("aArchived").innerHTML = ar.map(g => {
+        const types = (g.types || []).slice(0, 12).map(([t, c]) => `${escA(t)} ${n(c)}`).join(" · ");
+        const more = (g.types || []).length > 12 ? ` · +${g.types.length - 12} types` : "";
+        return `<div>Archived to <b>${escA(g.name)}</b> (${escA(names[g.category] || g.category)}): <b>${n(g.files)}</b> files (${gb(g.gb)})<div class="hint" style="margin:2px 0 0">${types}${more}</div></div>`;
+      }).join("");
     }
 
     const tbody = $("clients");

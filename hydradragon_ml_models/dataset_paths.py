@@ -24,9 +24,11 @@ Which `dataset_paths.json` is used, first found:
   3. `dataset_paths.json` next to these scripts
   4. `dataset_paths.json` next to a locally built multron_server (target/release, debug)
   5. `dataset_paths.json` of the deployed server (C:\\viruskov_archive, or MULTRON_DIR)
-Benign data also includes the server's sorted clean uploads,
-multron_incoming\\clean\\{javascript | pe32, pe64, msexe | apk} (read only;
-MULTRON_INCOMING_TRAIN=0 leaves them out).
+Benign data also includes the archived clean uploads: the folders of
+`archived_dirs.json` (category "clean") next to the dataset_paths.json or the deployed
+server, default usbdosyalar\\clean, type folders {javascript | pe32, pe64, msexe | apk}
+(read only; ARCHIVED_CLEAN_TRAIN=0 leaves them out). The server's own multron_incoming
+is not read: the deployed folder is an archive now.
 `--malicious` / `--benign` on the command line (one or more folders each) override it.
 
 Files are de-duplicated by CONTENT (SHA-256) across all folders of a platform: a file
@@ -57,14 +59,17 @@ _BELGELER = r"C:\Users\semae\OneDrive\Belgeler"
 # Folder of the deployed multron_server.exe (its dataset_paths.json is used when no
 # other one is found). Override with the MULTRON_DIR environment variable.
 SERVER_DIR = os.environ.get("MULTRON_DIR", r"C:\viruskov_archive")
-# Type folders of multron_incoming/clean ("Sort multron_incoming by file type" names:
-# HydraDragonSig first, then ClamAV) read as benign data for each platform. Set
-# MULTRON_INCOMING_TRAIN=0 to leave them out.
-INCOMING_CLEAN_TYPES: Dict[str, List[str]] = {
+# Type folders of the archived clean uploads ("Sort multron_incoming by file type"
+# names: HydraDragonSig first, then ClamAV; the same list as PLATFORM_KINDS in
+# multron_server_rs/src/archived.rs) read as benign data for each platform. Set
+# ARCHIVED_CLEAN_TRAIN=0 to leave them out.
+ARCHIVED_CLEAN_TYPES: Dict[str, List[str]] = {
     "windows_clean": ["pe32", "pe64", "msexe"],
     "android_clean": ["apk"],
     "javascript_clean": ["javascript"],
 }
+# Archive folder of the clean uploads when no archived_dirs.json names one.
+DEFAULT_ARCHIVED_CLEAN = _BELGELER + r"\usbdosyalar\clean"
 # The real folders on the training PC (used for keys missing from dataset_paths.json).
 DEFAULT_FOLDERS: Dict[str, List[str]] = {
     "windows_malware": [_BELGELER + r"\usbdosyalar\datamaliciousorder"],
@@ -123,6 +128,26 @@ def parse_folder_list(value) -> List[Tuple[str, str]]:
     return out
 
 
+def archived_clean_dirs(config_path: Optional[str]) -> List[str]:
+    """Archive folders of clean uploads: the entries with category "clean" of the
+    `archived_dirs.json` next to the dataset_paths.json, else next to the deployed
+    server, else DEFAULT_ARCHIVED_CLEAN."""
+    places = [os.path.dirname(config_path)] if config_path else []
+    places.append(SERVER_DIR)
+    for d in places:
+        p = os.path.join(d, "archived_dirs.json")
+        if not os.path.isfile(p):
+            continue
+        with open(p, encoding="utf-8-sig") as fh:
+            raw = json.load(fh)
+        if not isinstance(raw, list):
+            raise SystemExit(f"{p}: expected a JSON array")
+        return [e["path"] for e in raw
+                if isinstance(e, dict) and isinstance(e.get("path"), str)
+                and str(e.get("category") or "clean").lower() == "clean"]
+    return [DEFAULT_ARCHIVED_CLEAN]
+
+
 def load_config(path: Optional[str]) -> Dict[str, List[Tuple[str, str]]]:
     """Every key of dataset_paths.json (missing keys: the default folders)."""
     raw = {}
@@ -134,15 +159,16 @@ def load_config(path: Optional[str]) -> Dict[str, List[Tuple[str, str]]]:
     out = {}
     for key, folders in DEFAULT_FOLDERS.items():
         out[key] = parse_folder_list(raw[key]) if key in raw else [(f, "own") for f in folders]
-    # The server's clean uploads, sorted by type (multron_incoming/clean/<type>/): every
-    # clean-verdict sample there is benign training data too. Read only, never changed.
-    if os.environ.get("MULTRON_INCOMING_TRAIN", "1") != "0":
-        clean_root = os.path.join(SERVER_DIR, "multron_incoming", "clean")
-        for key, types in INCOMING_CLEAN_TYPES.items():
-            for t in types:
-                d = os.path.join(clean_root, t)
-                if os.path.isdir(d) and all(_key(d) != _key(p) for p, _ in out[key]):
-                    out[key].append((d, "own"))
+    # The archived clean uploads, sorted by type (<archive>/<type>/): every clean-verdict
+    # sample there is benign training data too (fewer false positives). Read only, never
+    # changed; de-duplicated by SHA-256 with the other folders in collect().
+    if os.environ.get("ARCHIVED_CLEAN_TRAIN", os.environ.get("MULTRON_INCOMING_TRAIN", "1")) != "0":
+        for clean_root in archived_clean_dirs(path):
+            for key, types in ARCHIVED_CLEAN_TYPES.items():
+                for t in types:
+                    d = os.path.join(clean_root, t)
+                    if os.path.isdir(d) and all(_key(d) != _key(p) for p, _ in out[key]):
+                        out[key].append((d, "own"))
     return out
 
 

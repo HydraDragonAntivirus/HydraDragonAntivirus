@@ -130,6 +130,18 @@ this order:
 Without one, the real folders of the table in section 1 are used. Keys missing from the
 file fall back to those folders too.
 
+Benign data also includes the **archived clean uploads**: kept clean files moved by hand
+out of the server's `multron_incoming\clean` into an archive folder, named in
+`archived_dirs.json` next to `dataset_paths.json` (default
+`usbdosyalar\clean`). Its type folders are read as benign: `pe32`, `pe64`, `msexe` →
+`windows_clean`, `javascript` → `javascript_clean`, `apk` → `android_clean`
+(`ARCHIVED_CLEAN_TRAIN=0` leaves them out). The server's own `multron_incoming` is not
+read for training. The server remembers every archived file by SHA-256 in
+`kept_archived.jsonl` (`multron_server --index-archived`, or in the background at
+start): those files are not kept in `multron_incoming` again, the archive mirror does not
+copy them back, and the dashboard and the public dataset statistics keep counting them
+after they are deleted from the archive folder.
+
 ```powershell
 cd hydradragon_ml_models
 python train_pe_lgbm.py --dataset-paths "C:\multron\dataset_paths.json"

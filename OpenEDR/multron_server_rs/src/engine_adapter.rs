@@ -1109,6 +1109,14 @@ impl EngineAdapter {
         let is_possible_clean = res.verdict == "possible_clean";
         let category = KeptFile::category_for_result(res);
         let is_xorfilter = category.starts_with("xorfilter_");
+        // Moved by hand to an archive folder under this category (archived_dirs.json):
+        // remembered there, never stored here again.
+        if crate::archived::is_archived(sha, category) {
+            if let Some(p) = temp {
+                let _ = std::fs::remove_file(p);
+            }
+            return;
+        }
 
         let (used, limit) = if category == "clean" {
             (&self.kept_clean_bytes, self.keep_clean_limit_bytes)

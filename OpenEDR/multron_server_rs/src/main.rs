@@ -12,6 +12,7 @@ mod analyst_engine;
 mod analyzer;
 mod alyzer;
 mod archive;
+mod archived;
 mod human_review;
 mod imphash_sigs;
 mod ip_bans;
@@ -55,6 +56,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     args.enforce_limits();
     args.archive = args.archive || config::archive_in_settings();
     config::set_archive(args.archive);
+    if args.index_archived {
+        let dirs = archived::configured_dirs();
+        if dirs.is_empty() {
+            return Err(format!("--index-archived: no folders in {}", app_dir().join(archived::CONFIG_FILE).display()).into());
+        }
+        let (added, seen) = archived::index_dirs(&dirs);
+        eprintln!("[archived] {added} new of {seen} files remembered in {}", app_dir().join(archived::INDEX_FILE).display());
+        return Ok(());
+    }
     let ui_addr: SocketAddr = args
         .ui
         .parse()
@@ -87,6 +97,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let standby = handoff_from.is_some();
     if !standby {
         uptime::start();
+        if !args.archive {
+            archived::start();
+        }
     }
     if args.archive {
         eprintln!("[archive] read-only archive server: data comes from the main server's mirror in {}", app_dir().display());
@@ -178,6 +191,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let lines = tokio::task::block_in_place(|| follow.catch_up(&threat_intel));
         engine.after_takeover();
         uptime::start();
+        if !args.archive {
+            archived::start();
+        }
         eprintln!("[handoff] took over from pid {old_pid} ({lines} new lines read, {} ms since the hand-over started)", switch.elapsed().as_millis());
     }
 

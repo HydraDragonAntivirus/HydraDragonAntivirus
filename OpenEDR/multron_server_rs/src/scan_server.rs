@@ -2760,7 +2760,7 @@ fn cached_dataset_stats(server: &ScanServer) -> serde_json::Value {
     }
     let v = match server.engine.dataset.get() {
         None => serde_json::json!({ "status": "success", "enabled": false, "ready": false }),
-        Some(ds) => match ds.public_stats(&server.threat_intel.user_files()) {
+        Some(ds) => match ds.public_stats_with(&server.threat_intel.user_files(), &crate::archived::dataset_samples()) {
             None => serde_json::json!({ "status": "success", "enabled": true, "ready": false }),
             Some(st) => serde_json::json!({
                 "status": "success",
