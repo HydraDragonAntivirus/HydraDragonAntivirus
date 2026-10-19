@@ -1,3 +1,6 @@
+# Cache chunks PE machine learning joblib model files
+/hydradragon_ml_models/cache_chunks_pe
+
 # TLSH Smart Whitelist 
 OpenMalwareScannerPortable/tlsh_signatures/tlsh_whitelist_refs.jsonl
 

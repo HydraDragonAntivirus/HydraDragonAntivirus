@@ -74,6 +74,18 @@ def dump_features(args):
     mal, ben = dataset_paths.collect(args, "javascript", max_per_class=args.max_samples_per_class)
     lists = []
     for name, files in (("js_malicious.lst", mal), ("js_benign.lst", ben)):
+        # js_feature_dump reads UTF-8 lists: a name with a lone UTF-16 surrogate (valid
+        # on Windows) cannot be written there or opened from it.
+        ok = []
+        for f in files:
+            try:
+                f.encode("utf-8")
+                ok.append(f)
+            except UnicodeEncodeError:
+                pass
+        if len(ok) < len(files):
+            print(f"[*] {name}: {len(files) - len(ok)} files skipped (name not valid Unicode)", flush=True)
+        files = ok
         path = os.path.join(BASE_DIR, name)
         with open(path, "w", encoding="utf-8") as fh:
             fh.write("\n".join(files) + "\n")

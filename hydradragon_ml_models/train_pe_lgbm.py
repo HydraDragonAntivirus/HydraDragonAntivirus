@@ -353,6 +353,7 @@ def parse_args():
     parser.add_argument("--balance", action="store_true", help="Old behaviour: undersample both classes to 50/50 (default: use ALL samples)")
     parser.add_argument("--max-benign-ratio", type=float, default=0.0, help="Cap benign at N x malicious (0 = no cap, e.g. 4 = at most 4 benign per malicious)")
     parser.add_argument("--target-fpr", type=float, default=0.001, help="Pick the threshold so at most this share of held-out benign is flagged (0.001 = 0.1%%)")
+    parser.add_argument("--no-sync", action="store_true", help="Do not copy pe_trees.bin into the engine model folders")
     return parser.parse_args()
 
 def collect_features_batch(file_batch, executor):
@@ -537,10 +538,16 @@ def main():
     print(f"[*] Exporting standard binary tree bundle: {args.output_bin}...")
     export_standard_tree_bundle(clf, args.output_bin)
 
-    openedr_dest = os.path.normpath(os.path.join(os.path.dirname(__file__), "..", "OpenEDR", "openedr_static", "models", "pe_trees.bin"))
-    if os.path.exists(os.path.dirname(openedr_dest)):
-        shutil.copy2(args.output_bin, openedr_dest)
-        print(f"[+] Successfully synced tree model to engine: {openedr_dest}")
+    if args.no_sync:
+        print(f"[*] --no-sync: {args.output_bin} not copied into the engine model folders")
+        return
+    repo_root = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
+    for models_dir in [os.path.join(repo_root, "OpenEDR", "openedr_static", "models"),
+                       os.path.join(repo_root, "OpenMalwareScannerPortable", "models")]:
+        if os.path.isdir(models_dir):
+            dest = os.path.join(models_dir, "pe_trees.bin")
+            shutil.copy2(args.output_bin, dest)
+            print(f"[+] Successfully synced tree model to engine: {dest}")
 
 if __name__ == "__main__":
     main()

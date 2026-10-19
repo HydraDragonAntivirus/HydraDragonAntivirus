@@ -292,7 +292,9 @@ class HashCache:
             return
         with open(HASH_CACHE, "a", encoding="utf-8") as fh:
             for c in self.new:
-                fh.write(json.dumps(c, ensure_ascii=False) + "\n")
+                # ASCII escapes: Windows file names can hold lone UTF-16 surrogates, which
+                # UTF-8 cannot encode; json.loads restores them exactly.
+                fh.write(json.dumps(c) + "\n")
         self.new = []
 
 
@@ -359,7 +361,7 @@ def collect(args, platform: str, keep: Optional[Callable[[str], bool]] = None, m
         both = {h for _, h in mal} & {h for _, h in ben}
         if both:
             conflicts = len(both)
-            with open(CONFLICTS_FILE, "w", encoding="utf-8") as fh:
+            with open(CONFLICTS_FILE, "w", encoding="utf-8", errors="backslashreplace") as fh:
                 fh.write("# Same content under both labels; left out of training. Fix the label in the dataset.\n")
                 for label, rows in (("malicious", mal), ("benign", ben)):
                     for p, h in rows:
