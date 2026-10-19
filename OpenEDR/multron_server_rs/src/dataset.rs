@@ -439,6 +439,25 @@ impl Dataset {
     /// `dataset_paths.json` next to the server; None when absent, empty or on the
     /// read-only archive server. Starts the background indexer.
     pub fn load() -> Option<Arc<Self>> {
+        let ds = Arc::new(Self::from_config()?);
+        let bg = Arc::clone(&ds);
+        let _ = std::thread::Builder::new().name("dataset-index".into()).spawn(move || bg.build_index());
+        Some(ds)
+    }
+
+    /// Indexes the folders of `dataset_paths.json` now and writes `dataset_index.jsonl`
+    /// (`--index-archived`). False when there is no usable dataset_paths.json.
+    pub fn index_now() -> bool {
+        match Self::from_config() {
+            Some(ds) => {
+                ds.build_index();
+                true
+            }
+            None => false,
+        }
+    }
+
+    fn from_config() -> Option<Self> {
         if crate::config::is_archive() {
             return None;
         }
@@ -453,10 +472,7 @@ impl Dataset {
             }
         };
         eprintln!("[dataset] ML dataset folders from {}", path.display());
-        let ds = Arc::new(Self::new(paths, crate::config::app_dir()));
-        let bg = Arc::clone(&ds);
-        let _ = std::thread::Builder::new().name("dataset-index".into()).spawn(move || bg.build_index());
-        Some(ds)
+        Some(Self::new(paths, crate::config::app_dir()))
     }
 
     fn new(paths: DatasetPaths, state_dir: PathBuf) -> Self {

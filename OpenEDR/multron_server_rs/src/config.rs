@@ -195,9 +195,10 @@ pub struct CliArgs {
     #[arg(long, default_value = "")]
     pub archive_mirror: String,
 
-    /// Remember every file of the archive folders in archived_dirs.json (kept files moved
-    /// there by hand) in kept_archived.jsonl, then exit. A normal start does the same in
-    /// the background.
+    /// Index only, then exit: every file of the archive folders in archived_dirs.json
+    /// (kept_archived.jsonl) and of the ML dataset folders in dataset_paths.json
+    /// (dataset_index.jsonl), so both can be copied to a server that does not have the
+    /// folders. A normal start does the same in the background.
     #[arg(long)]
     pub index_archived: bool,
 

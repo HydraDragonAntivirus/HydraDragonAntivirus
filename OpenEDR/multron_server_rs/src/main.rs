@@ -59,10 +59,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     if args.index_archived {
         let dirs = archived::configured_dirs();
         if dirs.is_empty() {
-            return Err(format!("--index-archived: no folders in {}", app_dir().join(archived::CONFIG_FILE).display()).into());
+            eprintln!("[archived] no folders in {}", app_dir().join(archived::CONFIG_FILE).display());
+        } else {
+            let (added, seen) = archived::index_dirs(&dirs);
+            eprintln!("[archived] {added} new of {seen} files remembered in {}", app_dir().join(archived::INDEX_FILE).display());
         }
-        let (added, seen) = archived::index_dirs(&dirs);
-        eprintln!("[archived] {added} new of {seen} files remembered in {}", app_dir().join(archived::INDEX_FILE).display());
+        if !dataset::Dataset::index_now() {
+            eprintln!("[dataset] no usable {}", dataset::config_path().display());
+        }
         return Ok(());
     }
     let ui_addr: SocketAddr = args
