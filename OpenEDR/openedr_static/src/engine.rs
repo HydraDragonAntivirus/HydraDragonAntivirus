@@ -32,11 +32,6 @@ pub const PE_TREE_THRESHOLD: f32 = 0.9095;
 /// false positives in the 0.75-0.84 suspicious range on minified/bundled JS files.
 pub const JS_TREE_THRESHOLD: f32 = 0.90;
 
-/// Generic whole-buffer ML fallback threshold. Fires only when every other
-/// layer (ClamAV/YARA/HydraSig/PE/JS/APK ML) found nothing, so keep it at the
-/// Malicious cutoff to hold FPR down. Retune on generic retrain.
-pub const GENERIC_TREE_THRESHOLD: f32 = 0.85;
-
 /// One signature match explained for the analyst view (`StaticEngine::explain_matches`).
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct MatchExplain {
@@ -393,7 +388,7 @@ impl StaticEngine {
         diagnostics::log(
             "engine-status",
             &format!(
-                "base={}; clam_dir_exists={}; clam_loaded={}; yara_dir={}; yara_loaded={}; yara_rule_bundles={}; models_dir={}; pe_model_file={}; pe_loaded={}; js_model_file={}; js_loaded={}; url_model_file={}; url_loaded={}; apk_model_file={}; apk_loaded={}; generic_model_file={}; generic_loaded={}; generic_used_for_file_verdict={}; signer_dir={}; signer_counts={}/{}/{}; benign_whitelist={}; url_whitelist_file={}; url_whitelist_loaded={}; registry_rules={}; registry_patterns={}; string_rules={}; hayabusa_dir={}; hayabusa_loaded={}; url_rules_file={}; url_rules={}; url_unwhitelisted_hosts={}; cidr_dir={}; cidr_counts={}/{}/{}/{}",
+                "base={}; clam_dir_exists={}; clam_loaded={}; yara_dir={}; yara_loaded={}; yara_rule_bundles={}; models_dir={}; pe_model_file={}; pe_loaded={}; js_model_file={}; js_loaded={}; url_model_file={}; url_loaded={}; apk_model_file={}; apk_loaded={}; signer_dir={}; signer_counts={}/{}/{}; benign_whitelist={}; url_whitelist_file={}; url_whitelist_loaded={}; registry_rules={}; registry_patterns={}; string_rules={}; hayabusa_dir={}; hayabusa_loaded={}; url_rules_file={}; url_rules={}; url_unwhitelisted_hosts={}; cidr_dir={}; cidr_counts={}/{}/{}/{}",
                 base.display(),
                 database_dir.is_dir(),
                 clam.is_loaded(),
@@ -409,9 +404,6 @@ impl StaticEngine {
                 ml.url_loaded(),
                 models_dir.join("apk_trees.bin").is_file(),
                 ml.apk_loaded(),
-                models_dir.join("generic_trees.bin").is_file(),
-                ml.generic_loaded(),
-                ml.generic_used_for_file_verdict(),
                 signers_dir.display(),
                 signers.pattern_counts().0,
                 signers.pattern_counts().1,
@@ -1669,11 +1661,6 @@ impl StaticEngine {
                 }
             }
         }
-
-        // Note: Generic_ML fallback has been decommissioned from issuing direct malware verdicts
-        // to prevent false positives on raw binary blobs, ELF binaries, and non-PE data files.
-        // Specialized ML engines (PE, JS, APK) handle their respective formats, while YARA-X,
-        // HydraSig, and ClamAV provide exact high-confidence detection across all file types.
 
         // 6. Unicorn PE CPU Emulation & Unpacker (Tier 3: Conditional Generic Dynamic Unpacking)
         let is_pe_candidate = is_pe && data.len() >= 0x1000;
