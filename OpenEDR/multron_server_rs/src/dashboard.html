@@ -370,6 +370,16 @@
         of a blacklist digest
       </label>
       <div class="hint">Lower is stricter (fewer false positives, fewer variants caught). Default 10; 20 already flagged clean signed drivers. Applies to new scans at once; files scanned before keep their cached verdict until they are rescanned. Analyst TLSH signatures keep their own limit.</div>
+      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:12px">
+        ML thresholds:
+        <label style="display:flex;gap:4px;align-items:center">PE <input id="mlPe" type="number" min="0.5" max="0.9999" step="0.005" style="width:90px"></label>
+        <label style="display:flex;gap:4px;align-items:center">JS <input id="mlJs" type="number" min="0.5" max="0.9999" step="0.005" style="width:90px"></label>
+        <label style="display:flex;gap:4px;align-items:center">APK <input id="mlApk" type="number" min="0.5" max="0.9999" step="0.005" style="width:90px"></label>
+        <button class="ghost" id="mlSave">Save</button>
+        <button class="ghost" id="mlReset">Defaults</button>
+        <span class="hint" id="mlMsg" style="margin:0"></span>
+      </div>
+      <div class="hint">A file whose model probability is at least the threshold is flagged by that model. Higher flags fewer files (fewer false positives, more misses). Defaults: <span id="mlDefaults">PE 0.90, JS 0.90, APK 0.80</span>; train_pe_lgbm.py prints a calibrated PE value for each new model. Needs an analyst key. Applies to new scans at once; files scanned before keep their cached verdict until they are rescanned.</div>
       <label style="display:flex;gap:8px;align-items:center;margin-top:12px">
         <input type="checkbox" id="keepPossibleClean" style="width:auto">
         Keep <b>possible clean</b> files (TLSH smart whitelist) in <code>multron_incoming/possible_clean/</code>
@@ -1171,6 +1181,13 @@ window.sigKey = (list) => list && list.length ? `${list[0].layer}: ${list[0].nam
       limits.append(el("span", null, k), el("span", null, String(v)));
     }
     if (document.activeElement !== $("keepPossibleClean")) $("keepPossibleClean").checked = !!l.keepPossibleClean;
+    if (l.mlThresholds) {
+      for (const [id, k] of [["mlPe", "pe"], ["mlJs", "js"], ["mlApk", "apk"]]) {
+        if (document.activeElement !== $(id) && !$(id).dataset.dirty) $(id).value = Number(l.mlThresholds[k]).toFixed(4);
+      }
+      const d = l.mlThresholds.defaults || {};
+      $("mlDefaults").textContent = `PE ${d.pe}, JS ${d.js}, APK ${d.apk}`;
+    }
     if (l.tlshBlacklistDistances && document.activeElement !== $("tlshBlacklistDist")) {
       const sel = $("tlshBlacklistDist");
       if (sel.options.length !== l.tlshBlacklistDistances.length) sel.innerHTML = l.tlshBlacklistDistances.map(d => `<option value="${d}">${d}</option>`).join("");
@@ -1668,6 +1685,17 @@ window.sigKey = (list) => list && list.length ? `${list[0].layer}: ${list[0].nam
     try { await post("/api/tlsh-blacklist-distance", { distance: +e.target.value }); }
     catch (err) { alert(err.message); }
   };
+  for (const id of ["mlPe", "mlJs", "mlApk"]) $(id).oninput = () => { $(id).dataset.dirty = "1"; };
+  const mlSend = async (body) => {
+    try {
+      const r = await post("/api/ml-thresholds", body);
+      for (const id of ["mlPe", "mlJs", "mlApk"]) delete $(id).dataset.dirty;
+      $("mlPe").value = r.pe.toFixed(4); $("mlJs").value = r.js.toFixed(4); $("mlApk").value = r.apk.toFixed(4);
+      $("mlMsg").textContent = "Saved.";
+    } catch (err) { $("mlMsg").textContent = "Error: " + err.message; }
+  };
+  $("mlSave").onclick = () => mlSend({ pe: +$("mlPe").value, js: +$("mlJs").value, apk: +$("mlApk").value });
+  $("mlReset").onclick = () => mlSend({ pe: null, js: null, apk: null });
   $("keepPossibleClean").onchange = async (e) => {
     try { await post("/api/keep-possible-clean", { enabled: e.target.checked }); }
     catch (_) { e.target.checked = !e.target.checked; }

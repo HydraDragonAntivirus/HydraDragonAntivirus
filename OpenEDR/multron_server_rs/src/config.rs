@@ -327,6 +327,14 @@ pub struct SavedSettings {
     /// (dashboard; `similarity::TLSH_BLACKLIST_DISTANCES`).
     #[serde(default = "default_tlsh_blacklist_dist")]
     pub tlsh_blacklist_max_dist: u32,
+    /// ML decision thresholds (dashboard): a file whose model probability is at least
+    /// this is flagged. None = the engine default (PE 0.90, JS 0.90, APK 0.80).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ml_pe_threshold: Option<f32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ml_js_threshold: Option<f32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ml_apk_threshold: Option<f32>,
     /// Limits edited in the dashboard; None until they are changed there once.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub limits: Option<crate::limits::LimitSettings>,
@@ -353,6 +361,9 @@ impl Default for SavedSettings {
             lzma_low_disk: false,
             low_disk_gb: 15,
             tlsh_blacklist_max_dist: default_tlsh_blacklist_dist(),
+            ml_pe_threshold: None,
+            ml_js_threshold: None,
+            ml_apk_threshold: None,
             limits: None,
         }
     }

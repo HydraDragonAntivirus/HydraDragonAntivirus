@@ -1,4 +1,5 @@
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::Instant;
 use sha2::{Sha256, Digest as Sha256Digest};
 
@@ -23,14 +24,48 @@ use crate::yara::YaraScanner;
 /// Web parity (`openedr_web/src/engine.rs::APK_TREE_THRESHOLD`).
 pub const APK_TREE_THRESHOLD: f32 = 0.8;
 
-/// PE tree-model decision threshold, calibrated by train_pe_lgbm.py (0.1 % FPR on held-out
-/// benign) for the model trained on all benign data. Was 0.90 to eliminate false positives
-/// on non-standard compilers/tools (MinGW DWARF sections, PyInstaller/decompilers, Lazarus).
-pub const PE_TREE_THRESHOLD: f32 = 0.9095;
+/// Default PE tree-model decision threshold (the Malicious cut-off). train_pe_lgbm.py
+/// prints a calibrated value for each new model (0.1 % FPR on held-out benign); the
+/// server sets the one in use with `set_ml_thresholds`.
+pub const PE_TREE_THRESHOLD: f32 = 0.90;
 
 /// JS tree-model decision threshold. Set to 0.90 (Malicious cutoff) to eliminate
 /// false positives in the 0.75-0.84 suspicious range on minified/bundled JS files.
 pub const JS_TREE_THRESHOLD: f32 = 0.90;
+
+// Thresholds in use (f32 bits): the defaults above until `set_ml_thresholds` changes them.
+static PE_THRESHOLD_BITS: AtomicU32 = AtomicU32::new(PE_TREE_THRESHOLD.to_bits());
+static JS_THRESHOLD_BITS: AtomicU32 = AtomicU32::new(JS_TREE_THRESHOLD.to_bits());
+static APK_THRESHOLD_BITS: AtomicU32 = AtomicU32::new(APK_TREE_THRESHOLD.to_bits());
+
+/// Lowest and highest threshold `set_ml_thresholds` accepts.
+pub const ML_THRESHOLD_RANGE: (f32, f32) = (0.50, 0.9999);
+
+/// ML thresholds in use: a file whose probability is at least this is flagged.
+pub fn pe_tree_threshold() -> f32 {
+    f32::from_bits(PE_THRESHOLD_BITS.load(Ordering::Relaxed))
+}
+
+pub fn js_tree_threshold() -> f32 {
+    f32::from_bits(JS_THRESHOLD_BITS.load(Ordering::Relaxed))
+}
+
+pub fn apk_tree_threshold() -> f32 {
+    f32::from_bits(APK_THRESHOLD_BITS.load(Ordering::Relaxed))
+}
+
+/// Sets the PE / JS / APK ML thresholds for every scan from now on (None = the
+/// default). Values are clamped to `ML_THRESHOLD_RANGE`; returns the ones in use.
+pub fn set_ml_thresholds(pe: Option<f32>, js: Option<f32>, apk: Option<f32>) -> (f32, f32, f32) {
+    let put = |cell: &AtomicU32, v: Option<f32>, default: f32| {
+        let v = v.filter(|x| x.is_finite()).unwrap_or(default).clamp(ML_THRESHOLD_RANGE.0, ML_THRESHOLD_RANGE.1);
+        cell.store(v.to_bits(), Ordering::Relaxed);
+    };
+    put(&PE_THRESHOLD_BITS, pe, PE_TREE_THRESHOLD);
+    put(&JS_THRESHOLD_BITS, js, JS_TREE_THRESHOLD);
+    put(&APK_THRESHOLD_BITS, apk, APK_TREE_THRESHOLD);
+    (pe_tree_threshold(), js_tree_threshold(), apk_tree_threshold())
+}
 
 /// One signature match explained for the analyst view (`StaticEngine::explain_matches`).
 #[derive(Debug, Clone, serde::Serialize)]
@@ -874,7 +909,7 @@ impl StaticEngine {
             }
             if buf.starts_with(b"MZ") && pefile_rs::PE::parse(&buf).is_ok() {
                 if let Some(prob) = self.ml.predict_pe(&buf) {
-                    if prob >= PE_TREE_THRESHOLD {
+                    if prob >= pe_tree_threshold() {
                         report.detections.push(DetectionItem {
                             layer: "Memory_ML".to_string(),
                             name: "Memory.PE.HighConfidence".to_string(),
@@ -1008,9 +1043,9 @@ impl StaticEngine {
         // ML: probability and the features that moved the score, when the model
         // flagged the file (same thresholds as the scan).
         let ml = if is_pe {
-            self.ml.explain_pe(data).map(|e| (e, "MalwareNet.PE.HighConfidence", PE_TREE_THRESHOLD, "PE tree ensemble (65 header/section/code features)"))
+            self.ml.explain_pe(data).map(|e| (e, "MalwareNet.PE.HighConfidence", pe_tree_threshold(), "PE tree ensemble (65 header/section/code features)"))
         } else if is_js_content(data) {
-            std::str::from_utf8(data).ok().and_then(|src| self.ml.explain_js(src)).map(|e| (e, "MalwareNet.JS.HighConfidence", JS_TREE_THRESHOLD, "JavaScript tree ensemble (51 AST/lexical features)"))
+            std::str::from_utf8(data).ok().and_then(|src| self.ml.explain_js(src)).map(|e| (e, "MalwareNet.JS.HighConfidence", js_tree_threshold(), "JavaScript tree ensemble (51 AST/lexical features)"))
         } else {
             None
         };
@@ -1133,7 +1168,7 @@ impl StaticEngine {
         // 4. ML (PE / JS)
         if is_pe {
             if let Some(prob) = self.ml.predict_pe(bytes) {
-                if prob >= PE_TREE_THRESHOLD {
+                if prob >= pe_tree_threshold() {
                     let det_name = if origin_prefix.is_empty() {
                         "MalwareNet.PE.HighConfidence".to_string()
                     } else {
@@ -1151,7 +1186,7 @@ impl StaticEngine {
         } else if is_js {
             if let Ok(source) = std::str::from_utf8(bytes) {
                 if let Some(prob) = self.ml.predict_js(source) {
-                    if prob >= JS_TREE_THRESHOLD {
+                    if prob >= js_tree_threshold() {
                         let det_name = if origin_prefix.is_empty() {
                             "MalwareNet.JS.HighConfidence".to_string()
                         } else {
@@ -1478,7 +1513,7 @@ impl StaticEngine {
         if is_apk_file {
             if let Some(feats) = apk::apk_tree_features(data) {
                 if let Some(prob) = self.ml.predict_apk(&feats) {
-                    if prob >= APK_TREE_THRESHOLD {
+                    if prob >= apk_tree_threshold() {
                         detections.push(DetectionItem {
                             layer: "APK_ML".to_string(),
                             name: "MalwareNet.APK.HighConfidence".to_string(),
@@ -1635,7 +1670,7 @@ impl StaticEngine {
         if !is_apk_file {
             if is_pe {
                 if let Some(prob) = self.ml.predict_pe(data) {
-                    if prob >= PE_TREE_THRESHOLD {
+                    if prob >= pe_tree_threshold() {
                         detections.push(DetectionItem {
                             layer: "PE_ML".to_string(),
                             name: "MalwareNet.PE.HighConfidence".to_string(),
@@ -1648,7 +1683,7 @@ impl StaticEngine {
             } else if is_js {
                 if let Ok(source) = std::str::from_utf8(data) {
                     if let Some(prob) = self.ml.predict_js(source) {
-                        if prob >= JS_TREE_THRESHOLD {
+                        if prob >= js_tree_threshold() {
                             detections.push(DetectionItem {
                                 layer: "JS_ML".to_string(),
                                 name: "MalwareNet.JS.HighConfidence".to_string(),
@@ -2224,7 +2259,7 @@ impl StaticEngine {
         if let Some(body) = page_content {
             // 1. JS ML tree prediction on scripts/content
             if let Some(js_prob) = self.ml.predict_js(body) {
-                if js_prob >= JS_TREE_THRESHOLD {
+                if js_prob >= js_tree_threshold() {
                     report.detections.push(crate::url_rules::UrlRuleHit {
                         rule_id: "CONTENT_JS_ML_MALWARE".to_string(),
                         title: "MalwareNet JS Tree Classification".to_string(),

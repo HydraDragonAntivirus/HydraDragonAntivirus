@@ -109,6 +109,7 @@ impl AppState {
         }
         engine.compress_low_disk.store(settings.lzma_low_disk, std::sync::atomic::Ordering::Relaxed);
         settings.tlsh_blacklist_max_dist = crate::similarity::set_blacklist_max_dist(settings.tlsh_blacklist_max_dist);
+        openedr_static::engine::set_ml_thresholds(settings.ml_pe_threshold, settings.ml_js_threshold, settings.ml_apk_threshold);
         scan_server.rescan.after_reload.store(settings.rescan_after_reload, std::sync::atomic::Ordering::Relaxed);
         if !cfg.offload_dir.trim().is_empty() {
             settings.offload_target = cfg.offload_dir.trim().to_string();
@@ -241,6 +242,9 @@ impl AppState {
             s.keep_clean = g.keep_clean;
             s.lzma_low_disk = g.lzma_low_disk;
             s.tlsh_blacklist_max_dist = g.tlsh_blacklist_max_dist;
+            s.ml_pe_threshold = g.ml_pe_threshold;
+            s.ml_js_threshold = g.ml_js_threshold;
+            s.ml_apk_threshold = g.ml_apk_threshold;
             s.rescan_after_reload = g.rescan_after_reload;
             s.offload_target = g.offload_target.clone();
             s.offload_auto = g.offload_auto;
@@ -331,6 +335,7 @@ pub fn dashboard_router(state: Arc<AppState>) -> Router {
         .route("/api/handoff/release", post(handle_handoff_release))
         .route("/api/keep-possible-clean", post(handle_keep_possible_clean))
         .route("/api/tlsh-blacklist-distance", post(handle_tlsh_blacklist_distance))
+        .route("/api/ml-thresholds", post(handle_ml_thresholds))
         .route("/api/keep-clean", post(handle_keep_clean))
         .route("/api/keep-all-unique", post(handle_keep_all_unique))
         .route("/api/collect-xorfilter", post(handle_collect_xorfilter))
@@ -423,11 +428,12 @@ fn is_local_host(host: &str) -> bool {
 /// Dashboard calls that write human verdicts or change what decides a verdict (rules,
 /// FP lists, company lists, bans): with `analyst_keys.txt` in place they need a valid
 /// `X-Multron-Analyst-Key` (see `human_review::analyst_keys`).
-const ANALYST_PATHS: [&str; 16] = [
+const ANALYST_PATHS: [&str; 17] = [
     "/api/review", "/api/review/start", "/api/review/release", "/api/review/delete",
     "/api/reviews/bulk", "/api/reviews/requeue", "/api/signatures", "/api/signatures/delete",
     "/api/imphash-signatures", "/api/imphash-signatures/delete",
     "/api/fp/ignore", "/api/fp/unignore", "/api/companies", "/api/rules", "/api/bans/add", "/api/bans/remove",
+    "/api/ml-thresholds",
 ];
 
 /// The analyst a request was made by: the owner of its `X-Multron-Analyst-Key`.
@@ -624,6 +630,16 @@ async fn handle_state(
             "compressLowDisk": app.engine.compress_low_disk.load(std::sync::atomic::Ordering::Relaxed),
             "lowDiskThresholdGB": app.engine.low_disk_threshold_bytes / (1024 * 1024 * 1024),
             "tlshBlacklistMaxDist": crate::similarity::blacklist_max_dist(),
+            "mlThresholds": {
+                "pe": openedr_static::engine::pe_tree_threshold(),
+                "js": openedr_static::engine::js_tree_threshold(),
+                "apk": openedr_static::engine::apk_tree_threshold(),
+                "defaults": {
+                    "pe": openedr_static::engine::PE_TREE_THRESHOLD,
+                    "js": openedr_static::engine::JS_TREE_THRESHOLD,
+                    "apk": openedr_static::engine::APK_TREE_THRESHOLD,
+                },
+            },
             "tlshBlacklistDistances": crate::similarity::TLSH_BLACKLIST_DISTANCES,
         },
         "editableLimits": srv.limits.get(),
@@ -745,6 +761,29 @@ async fn handle_tlsh_blacklist_distance(State(app): State<Arc<AppState>>, Json(b
     app.save_settings().await;
     info_event(&app, format!("TLSH blacklist distance: {d} or less flags a file"));
     (StatusCode::OK, Json(serde_json::json!({ "ok": true, "distance": d })))
+}
+
+#[derive(Deserialize)]
+struct MlThresholdsBody {
+    pe: Option<f32>,
+    js: Option<f32>,
+    apk: Option<f32>,
+}
+
+/// PE / JS / APK ML thresholds (null = the engine default; clamped to 0.50 - 0.9999).
+/// Lower flags more files. Applies to new scans at once and is saved to
+/// multron_server.json; verdicts already cached stay until those files are rescanned.
+async fn handle_ml_thresholds(State(app): State<Arc<AppState>>, Json(b): Json<MlThresholdsBody>) -> impl IntoResponse {
+    let (pe, js, apk) = openedr_static::engine::set_ml_thresholds(b.pe, b.js, b.apk);
+    {
+        let mut s = app.settings.write().await;
+        s.ml_pe_threshold = b.pe.map(|_| pe);
+        s.ml_js_threshold = b.js.map(|_| js);
+        s.ml_apk_threshold = b.apk.map(|_| apk);
+    }
+    app.save_settings().await;
+    info_event(&app, format!("ML thresholds: PE {pe:.4}, JS {js:.4}, APK {apk:.4}"));
+    (StatusCode::OK, Json(serde_json::json!({ "ok": true, "pe": pe, "js": js, "apk": apk })))
 }
 
 #[derive(Deserialize)]
