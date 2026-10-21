@@ -354,7 +354,92 @@ def parse_args():
     parser.add_argument("--max-benign-ratio", type=float, default=0.0, help="Cap benign at N x malicious (0 = no cap, e.g. 4 = at most 4 benign per malicious)")
     parser.add_argument("--target-fpr", type=float, default=0.001, help="Pick the threshold so at most this share of held-out benign is flagged (0.001 = 0.1%%)")
     parser.add_argument("--no-sync", action="store_true", help="Do not copy pe_trees.bin into the engine model folders")
-    return parser.parse_args()
+    parser.add_argument("--features", choices=("v1", "v2"), default="v1",
+                        help="v1: the 65 shell features (default). v2: shell + what an archive / installer holds "
+                             "or a packed PE unpacks to + combined ASCII / UTF-16 strings, from pe_feature_dump "
+                             "(openedr_static ml/pe_combined.rs); its own chunk folder and output names, never synced "
+                             "(the engine does not compute v2 yet)")
+    args = parser.parse_args()
+    if args.features == "v2":
+        if args.chunk_dir == "cache_chunks_pe":
+            args.chunk_dir = "cache_chunks_pe_v2"
+        if args.output_bin == "pe_trees.bin":
+            args.output_bin = "pe_trees_v2.bin"
+        if args.output_onnx == "pe_model.onnx":
+            args.output_onnx = "pe_model_v2.onnx"
+    return args
+
+# ------------------------------------------------------------------ v2 (pe_feature_dump)
+
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+PE_DUMP_EXE = os.path.join(BASE_DIR, "pe_feature_dump", "target", "release", "pe_feature_dump.exe")
+# unicorn.dll for the unpacker in pe_feature_dump.
+UNICORN_DIR = os.path.normpath(os.path.join(BASE_DIR, "..", "OpenMalwareScannerPortable"))
+# Feature names of the chunks being trained (v2: read from pe_feature_dump's header).
+TRAIN_FEATURE_NAMES = list(FEATURE_NAMES)
+
+
+CRASH_LOG = os.path.join(BASE_DIR, "pe_feature_dump_crashes.txt")
+
+
+def _dump_v2(files, chunk_dir):
+    """pe_feature_dump --v2 over `files`: (rows, names), or None when the process died
+    (a crash inside the emulator cannot be caught in-process)."""
+    import csv
+    import subprocess
+    lst = os.path.join(chunk_dir, "_batch.lst")
+    out = os.path.join(chunk_dir, "_batch.csv")
+    with open(lst, "w", encoding="utf-8") as fh:
+        fh.write("\n".join(files) + "\n")
+    env = dict(os.environ, PATH=UNICORN_DIR + os.pathsep + os.environ.get("PATH", ""), UC_IGNORE_REG_BREAK="1")
+    code = subprocess.run([PE_DUMP_EXE, "--v2", "@" + lst, out], env=env,
+                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode
+    os.remove(lst)
+    if code != 0:
+        if os.path.exists(out):
+            os.remove(out)
+        return None
+    with open(out, newline="", encoding="utf-8") as fh:
+        rd = csv.reader(fh)
+        names = next(rd)[1:]
+        rows = [[float(v) for v in r[1:]] for r in rd]
+    os.remove(out)
+    return rows, names
+
+
+def collect_features_v2(file_batch, chunk_dir):
+    """v2 vectors of a batch with pe_feature_dump (the engine's own extractor). Returns
+    (rows, names); files it rejects (not a PE) are left out. When the tool dies on the
+    batch it is split in halves until the files that crash it are found; those are
+    skipped and listed in pe_feature_dump_crashes.txt (emulator bugs to fix)."""
+    if not os.path.isfile(PE_DUMP_EXE):
+        sys.exit(f"{PE_DUMP_EXE} not found: build it with `cargo build --release` in pe_feature_dump")
+    ok = []
+    for f in file_batch:
+        try:
+            f.encode("utf-8")
+            ok.append(f)
+        except UnicodeEncodeError:
+            pass  # a UTF-8 list cannot hold the name (lone UTF-16 surrogate)
+    rows, names, crashed = [], None, []
+    todo = [ok]
+    while todo:
+        part = todo.pop()
+        if not part:
+            continue
+        r = _dump_v2(part, chunk_dir)
+        if r is not None:
+            rows.extend(r[0])
+            names = names or r[1]
+        elif len(part) == 1:
+            crashed.append(part[0])
+        else:
+            todo += [part[len(part) // 2:], part[:len(part) // 2]]
+    if crashed:
+        with open(CRASH_LOG, "a", encoding="utf-8") as fh:
+            fh.write("\n".join(crashed) + "\n")
+        print(f"  [!] {len(crashed)} files crash pe_feature_dump; skipped (listed in {CRASH_LOG})", flush=True)
+    return rows, names
 
 def collect_features_batch(file_batch, executor):
     features = []
@@ -368,7 +453,7 @@ def collect_features_batch(file_batch, executor):
             pass
     return features
 
-def extract_chunks_to_disk(file_list, executor, label_name, label_val, chunk_dir, chunk_size):
+def extract_chunks_to_disk(file_list, executor, label_name, label_val, chunk_dir, chunk_size, features="v1"):
     os.makedirs(chunk_dir, exist_ok=True)
     total_files = len(file_list)
     print(f"[*] Extracting {label_name} PEs ({total_files} files) into chunks of {chunk_size} to {chunk_dir}...")
@@ -379,23 +464,37 @@ def extract_chunks_to_disk(file_list, executor, label_name, label_val, chunk_dir
     chunk_idx = 0
     total_valid = 0
     
+    # v2: a chunk also depends on the pe_feature_dump build (its emulator / extractor).
+    tool = []
+    if features == "v2" and os.path.isfile(PE_DUMP_EXE):
+        st = os.stat(PE_DUMP_EXE)
+        tool = [f"pe_feature_dump size={st.st_size} mtime={int(st.st_mtime)}"]
+
     for i in range(0, total_files, chunk_size):
         chunk_files = file_list[i : i + chunk_size]
         chunk_path = os.path.join(chunk_dir, f"{prefix}{chunk_idx:04d}.joblib")
         names.append(os.path.basename(chunk_path))
 
-        # Reused only when built from exactly these files (folders added or changed -> rebuilt).
-        if manifest.is_current(chunk_path, chunk_files):
+        # Reused only when built from exactly these files (folders added or changed -> rebuilt)
+        # and, for v2, by the same pe_feature_dump build.
+        if manifest.is_current(chunk_path, chunk_files + tool):
             print(f"  [>] Chunk {chunk_idx:04d} already exists on disk for the same files, skipping.")
             chunk_idx += 1
             continue
             
-        feats = collect_features_batch(chunk_files, executor)
+        names_v2 = None
+        if features == "v2":
+            feats, names_v2 = collect_features_v2(chunk_files, chunk_dir)
+        else:
+            feats = collect_features_batch(chunk_files, executor)
         if feats:
             X_chunk = np.array(feats, dtype=np.float32)
             y_chunk = np.full(len(feats), label_val, dtype=np.int32)
-            joblib.dump({"X": X_chunk, "y": y_chunk}, chunk_path, compress=3)
-            manifest.record(chunk_path, chunk_files)
+            data = {"X": X_chunk, "y": y_chunk}
+            if names_v2:
+                data["names"] = names_v2
+            joblib.dump(data, chunk_path, compress=3)
+            manifest.record(chunk_path, chunk_files + tool)
             total_valid += len(feats)
             print(f"  [+] Saved {chunk_path}: {len(feats)} valid samples (Processed {min(i + chunk_size, total_files)}/{total_files})")
         else:
@@ -423,11 +522,16 @@ def load_chunks(chunk_dir, balance=False, max_benign_ratio=0.0):
         raise RuntimeError(f"No PE chunk files found in {chunk_dir}")
 
     print(f"[*] Found {len(chunk_files)} chunk files in {chunk_dir}.")
+    global TRAIN_FEATURE_NAMES
     X_mal_list, X_ben_list = [], []
     for cf in chunk_files:
         data = joblib.load(cf)
         if len(data["y"]) == 0:
             continue
+        if "names" in data:  # v2 chunks carry pe_feature_dump's feature names
+            if TRAIN_FEATURE_NAMES != list(FEATURE_NAMES) and TRAIN_FEATURE_NAMES != list(data["names"]):
+                raise RuntimeError(f"{cf}: other feature names than the earlier chunks (rebuild {chunk_dir})")
+            TRAIN_FEATURE_NAMES = list(data["names"])
         (X_mal_list if data["y"][0] == 1 else X_ben_list).append(data["X"])
     if not X_mal_list or not X_ben_list:
         raise RuntimeError(f"Need both Malicious and Benign chunks in {chunk_dir} to train!")
@@ -483,8 +587,8 @@ def main():
         print(f"[+] Discovered {len(mal_files)} malicious PEs and {len(ben_files)} benign PEs.")
         
         with ProcessPoolExecutor(max_workers=args.workers) as executor:
-            extract_chunks_to_disk(mal_files, executor, "MALICIOUS", 1, args.chunk_dir, args.chunk_size)
-            extract_chunks_to_disk(ben_files, executor, "BENIGN", 0, args.chunk_dir, args.chunk_size)
+            extract_chunks_to_disk(mal_files, executor, "MALICIOUS", 1, args.chunk_dir, args.chunk_size, args.features)
+            extract_chunks_to_disk(ben_files, executor, "BENIGN", 0, args.chunk_dir, args.chunk_size, args.features)
 
     if args.extract_only:
         print("[+] Feature extraction finished. Exiting as --extract-only was specified.")
@@ -523,13 +627,13 @@ def main():
     report("default 0.50", y_test, prob_test, 0.50)
     report("engine PE_TREE_THRESHOLD 0.90", y_test, prob_test, 0.90)
     report(f"calibrated (target FPR {args.target_fpr * 100:.3f}%)", y_test, prob_test, thr)
-    print(f"\n[!] Set PE_TREE_THRESHOLD = {thr:.4f} in OpenEDR/openedr_static/src/engine.rs for this model.")
+    print(f"\n[!] Set the PE threshold to {thr:.4f} for this model (dashboard: ML thresholds).")
     with open(os.path.splitext(args.output_bin)[0] + "_threshold.json", "w") as f:
         json.dump({"pe_tree_threshold": round(thr, 4), "target_fpr": args.target_fpr}, f)
     print("=" * 89)
 
     print(f"[*] Converting LightGBM model to ONNX: {args.output_onnx}...")
-    initial_type = [("float_input", FloatTensorType([None, len(FEATURE_NAMES)]))]
+    initial_type = [("float_input", FloatTensorType([None, X.shape[1]]))]
     onnx_model = onnxmltools.convert_lightgbm(clf, initial_types=initial_type, target_opset=14)
     with open(args.output_onnx, "wb") as f:
         f.write(onnx_model.SerializeToString())
@@ -538,6 +642,10 @@ def main():
     print(f"[*] Exporting standard binary tree bundle: {args.output_bin}...")
     export_standard_tree_bundle(clf, args.output_bin)
 
+    if args.features == "v2":
+        print(f"[!] v2 model ({X.shape[1]} features): {args.output_bin} is not copied into the engine model folders, "
+              "the engine still computes the 65 v1 features.")
+        return
     if args.no_sync:
         print(f"[*] --no-sync: {args.output_bin} not copied into the engine model folders")
         return

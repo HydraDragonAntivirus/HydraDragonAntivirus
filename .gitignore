@@ -1,5 +1,9 @@
+# System32 DLLs for emulation
+/hydradragonunicorn/DLLs
+
 # Cache chunks PE machine learning joblib model files
 /hydradragon_ml_models/cache_chunks_pe
+/hydradragon_ml_models/cache_chunks_pe_v2
 
 # TLSH Smart Whitelist 
 OpenMalwareScannerPortable/tlsh_signatures/tlsh_whitelist_refs.jsonl

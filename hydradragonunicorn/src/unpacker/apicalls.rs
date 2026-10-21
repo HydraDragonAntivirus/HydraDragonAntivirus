@@ -163,6 +163,10 @@ api_specs! {
     "sleepex"(2) -> 0;
     "isdebuggerpresent"(0) -> 0;
     "checkremotedebuggerpresent"(2) -> 1;
+    "addvectoredexceptionhandler"(2) -> 1;
+    "rtladdvectoredexceptionhandler"(2) -> 1;
+    "removevectoredexceptionhandler"(1) -> 1;
+    "rtlremovevectoredexceptionhandler"(1) -> 1;
 
     // --- Module & Memory APIs ---
     "loadlibrarya"(1, [ (0, Ansi) ]) -> 0x50000000;

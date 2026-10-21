@@ -3,3 +3,4 @@ dataset_hash_cache.jsonl
 dataset_label_conflicts.txt
 js_malicious.lst
 js_benign.lst
+pe_feature_dump_crashes.txt

@@ -1,0 +1,18 @@
+[package]
+name = "pe_feature_dump"
+version = "0.1.0"
+edition = "2024"
+description = "Writes PE ML features with the exact OpenEDR/openedr_static extractor, for train_pe_lgbm.py"
+
+[dependencies]
+# The engine itself: the features train_pe_lgbm.py learns from are the ones it computes
+# at scan time (no second extractor to drift from it).
+openedr_static = { path = "../../OpenEDR/openedr_static" }
+# Only for `--show` diagnostics (the features themselves come from openedr_static).
+hydradragonunicorn = { path = "../../hydradragonunicorn" }
+hydradragonextractor = { path = "../../hydradragonextractor" }
+env_logger = "0.11"
+rayon = "1.11"
+
+[profile.release]
+opt-level = 3
