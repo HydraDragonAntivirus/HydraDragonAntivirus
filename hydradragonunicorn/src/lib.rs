@@ -11,6 +11,10 @@
 //
 // Nothing in this crate touches the existing hydradragonav scanner.
 
+/// The Unicorn bindings this crate is built with (register ids for callers that drive
+/// `UnpackerEngine::unicorn_mut`).
+pub use unicorn_engine;
+
 pub mod disinfect;
 pub mod emulator;
 pub mod error;

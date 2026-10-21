@@ -28,6 +28,8 @@ use super::pe_features::extract_pe_features;
 const MIN_STRING: usize = crate::pe_strings::MIN_LEN;
 /// Instructions the unpacker may run on one file (deterministic bound).
 pub const UNPACK_MAX_INSTRUCTIONS: usize = 20_000_000;
+/// Instructions executed in the image before a fault for the dump to count as unpacked.
+pub const UNPACK_MIN_PROGRESS: u64 = 10_000;
 /// Safety stop for a file that runs very slowly per instruction (microseconds).
 const UNPACK_TIMEOUT_US: u64 = 20_000_000;
 /// Inner bytes looked at (all extracted members together).
@@ -179,10 +181,11 @@ pub fn inner_of(data: &[u8]) -> Inner {
 /// runs through every stage: API calls are answered by the trace-mode stubs instead of
 /// ending the run (a packer allocates memory before it unpacks), there is no stop on
 /// the first write-execute or at the packer configs' end address, so the run ends at
-/// the instruction budget, an exit or a fault. Only when the stub really ran: it ended
-/// without a fault and wrote into the image; a stub that crashes at its first
-/// instructions leaves the packed image as it was, which must not pass for unpacked
-/// code.
+/// the instruction budget, an exit or a fault. Only when the stub really ran: it wrote
+/// into the image and either ended without a fault or ran at least
+/// `UNPACK_MIN_PROGRESS` instructions in the image before the fault (unpacked programs
+/// often fault later, on a stubbed API; a stub that crashes at its first instructions
+/// leaves the packed image as it was, which must not pass for unpacked code).
 fn unpack(data: &[u8]) -> Option<Vec<u8>> {
     use hydradragonunicorn::unpacker::engine::{entrypoint, Sample, UnpackerEngine};
     let sample = Sample::from_bytes(data).ok()?;
@@ -191,9 +194,23 @@ fn unpack(data: &[u8]) -> Option<Vec<u8>> {
     eng.init_uc().ok()?;
     eng.set_controls(false, false);
     eng.set_end_addr(u64::MAX);
-    eng.emu_from(ep, UNPACK_TIMEOUT_US, UNPACK_MAX_INSTRUCTIONS).ok()?;
-    if eng.write_targets.is_empty() {
+    let ran = eng.emu_from(ep, UNPACK_TIMEOUT_US, UNPACK_MAX_INSTRUCTIONS);
+    let progress: u64 = eng.sections_executed.values().sum();
+    if eng.write_targets.is_empty() || (ran.is_err() && progress < UNPACK_MIN_PROGRESS) {
         return None;
+    }
+    // The dump's entry point is the instruction pointer at the end of the run. A run that
+    // ended by jumping to 0 (a stubbed API returned a null pointer) would write 0 minus
+    // the image base there; keep the file's own entry point instead.
+    let (base, size) = (eng.sample.base_addr, eng.sample.virtualmemorysize);
+    let is_64 = eng.sample.opt_header.magic == 0x20b;
+    if let Some(uc) = eng.unicorn_mut() {
+        use hydradragonunicorn::unicorn_engine::RegisterX86;
+        let pc = if is_64 { RegisterX86::RIP } else { RegisterX86::EIP };
+        let ip = uc.reg_read(pc as i32).unwrap_or(0);
+        if ip < base || ip >= base + size {
+            let _ = uc.reg_write(pc as i32, ep);
+        }
     }
     let dumped = eng.dump_bytes().ok()?;
     (!dumped.is_empty() && dumped != data).then_some(dumped)
