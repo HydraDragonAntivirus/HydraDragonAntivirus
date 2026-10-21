@@ -76,6 +76,8 @@ struct ClientMessage {
     pub csize: i64,
     #[serde(default)]
     pub note: String,
+    #[serde(default)]
+    pub status: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -319,6 +321,7 @@ pub struct SessionHandle {
     pub uploads: AtomicI64,
     pub in_flight: AtomicUsize,
     pub abort_tx: mpsc::Sender<()>,
+    pub end_status: RwLock<Option<String>>,
 }
 
 impl ScanServer {
@@ -447,6 +450,10 @@ impl ScanServer {
             .route(
                 "/api/v1/disinfect",
                 post(handle_disinfect).route_layer(DefaultBodyLimit::max(DISINFECT_MAX_BYTES)),
+            )
+            .route(
+                "/api/v1/client-disinfect",
+                post(handle_client_disinfect).route_layer(DefaultBodyLimit::max(DISINFECT_MAX_BYTES)),
             )
             .route("/api/v1/restore/:sha256", get(handle_restore_download))
             .route("/api/v1/reviews/request/:sha256", post(handle_review_request))
@@ -995,6 +1002,7 @@ async fn handle_socket(socket: WebSocket, server: Arc<ScanServer>, client_ip: St
         uploads: AtomicI64::new(0),
         in_flight: AtomicUsize::new(0),
         abort_tx,
+        end_status: RwLock::new(None),
     });
 
     server
@@ -1014,8 +1022,14 @@ async fn handle_socket(socket: WebSocket, server: Arc<ScanServer>, client_ip: St
     server.release_ip(&client_ip);
     server.sessions.write().await.remove(&session_id);
 
+    let ending = match session_handle.end_status.read().await.as_deref() {
+        Some("completed") => "finished",
+        Some("cancelled") => "cancelled by user",
+        _ => "connection dropped",
+    };
     let mut msg = format!(
-        "{} file(s) answered, {} uploaded",
+        "{}: {} file(s) answered, {} uploaded",
+        ending,
         session_handle.scanned.load(Ordering::Relaxed),
         session_handle.uploads.load(Ordering::Relaxed)
     );
@@ -1228,6 +1242,14 @@ async fn session_loop(
                     continue;
                 }
                 handle_verdict_report(server, session, out, &msg, msg.r#type == "report_fn");
+            }
+            "session_end" => {
+                let status = match msg.status.as_str() {
+                    "completed" => "completed",
+                    "cancelled" | "canceled" => "cancelled",
+                    _ => "completed",
+                };
+                *session.end_status.write().await = Some(status.to_string());
             }
             other => {
                 server.limiter.strike(&session.address);
@@ -2692,22 +2714,45 @@ async fn handle_disinfect(
     if let Err(resp) = require_sample_key(&server, addr, &headers) {
         return resp;
     }
-    if body.is_empty() {
-        return json_response(StatusCode::BAD_REQUEST, serde_json::json!({"status": "error", "error": "empty body: send the file"}), "no-store");
+    let path = disinfect_path(&headers, &q);
+    disinfect_response(Arc::clone(&server), q.download, path, body).await
+}
+
+async fn handle_client_disinfect(
+    ConnectInfo(addr): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
+    State(server): State<Arc<ScanServer>>,
+    Query(q): Query<DisinfectQuery>,
+    body: axum::body::Bytes,
+) -> Response {
+    let ip = extract_client_ip(addr, &headers);
+    if let Err(retry) = server.rest_limiter.check(&ip, None) {
+        return json_response(StatusCode::TOO_MANY_REQUESTS, serde_json::json!({"status": "error", "retry_after_seconds": retry}), "no-store");
     }
-    let path = headers
+    let path = disinfect_path(&headers, &q);
+    disinfect_response(Arc::clone(&server), q.download, path, body).await
+}
+
+fn disinfect_path(headers: &HeaderMap, q: &DisinfectQuery) -> String {
+    headers
         .get("x-file-path")
         .and_then(|v| v.to_str().ok())
         .map(str::to_string)
         .or(q.path.clone())
-        .unwrap_or_default();
+        .unwrap_or_default()
+}
+
+async fn disinfect_response(server: Arc<ScanServer>, download: Option<String>, path: String, body: axum::body::Bytes) -> Response {
+    if body.is_empty() {
+        return json_response(StatusCode::BAD_REQUEST, serde_json::json!({"status": "error", "error": "empty body: send the file"}), "no-store");
+    }
     let ti = Arc::clone(&server.threat_intel);
     let engine = Arc::clone(&server.engine);
     let res = tokio::task::spawn_blocking(move || crate::disinfect::run(&ti, &engine, &body, &path)).await;
     let Ok((report, repaired, generic)) = res else {
         return json_response(StatusCode::INTERNAL_SERVER_ERROR, serde_json::json!({"status": "error", "error": "disinfection failed"}), "no-store");
     };
-    if q.download.as_deref() == Some("repaired") {
+    if download.as_deref() == Some("repaired") {
         let Some(bytes) = repaired else {
             return json_response(
                 StatusCode::NOT_FOUND,
@@ -2728,7 +2773,7 @@ async fn handle_disinfect(
         )
             .into_response();
     }
-    if q.download.as_deref() == Some("generic") {
+    if download.as_deref() == Some("generic") {
         // Generic repair (signature ranges / clean-relative diff): never recommended,
         // the header says so too.
         let Some(bytes) = generic else {
