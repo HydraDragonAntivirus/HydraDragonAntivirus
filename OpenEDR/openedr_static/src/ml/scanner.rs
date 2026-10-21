@@ -10,6 +10,9 @@ pub const MASTER_FEATURE_COUNT: usize = 8;
 
 pub struct MlScanner {
     pe_trees: Option<TreeEnsembleModel>,
+    /// v2 PE model (`pe_trees_v2.bin`, `pe_combined` vector: shell + unpacked /
+    /// extracted content + strings + .NET kind). Used instead of `pe_trees` when present.
+    pe_v2_trees: Option<TreeEnsembleModel>,
     js_trees: Option<TreeEnsembleModel>,
     url_trees: Option<TreeEnsembleModel>,
     apk_trees: Option<TreeEnsembleModel>,
@@ -19,12 +22,14 @@ pub struct MlScanner {
 impl MlScanner {
     pub fn new(models_dir: &Path) -> Self {
         let pe_trees = TreeEnsembleModel::from_bin_file(&models_dir.join("pe_trees.bin"));
+        let pe_v2_trees = TreeEnsembleModel::from_bin_file(&models_dir.join("pe_trees_v2.bin"));
         let js_trees = TreeEnsembleModel::from_bin_file(&models_dir.join("js_trees.bin"));
         let url_trees = TreeEnsembleModel::from_bin_file(&models_dir.join("url_trees.bin"));
         let apk_trees = TreeEnsembleModel::from_bin_file(&models_dir.join("apk_trees.bin"));
 
         Self {
             pe_trees,
+            pe_v2_trees,
             js_trees,
             url_trees,
             apk_trees,
@@ -52,6 +57,10 @@ impl MlScanner {
     }
 
     pub fn predict_pe(&self, data: &[u8]) -> Option<f32> {
+        if let Some(trees) = self.pe_v2_trees.as_ref() {
+            let arr = super::pe_combined::extract_pe_features_v2(data)?;
+            return Some(trees.predict_probability(&arr));
+        }
         let trees = self.pe_trees.as_ref()?;
         let features = pe_features::extract_pe_features(data)?;
         let arr = features.to_array();
@@ -61,9 +70,24 @@ impl MlScanner {
     /// Why the PE model scored this file: probability and every feature with its
     /// value and contribution to the log-odds, strongest first.
     pub fn explain_pe(&self, data: &[u8]) -> Option<MlExplanation> {
+        if let Some(trees) = self.pe_v2_trees.as_ref() {
+            let arr = super::pe_combined::extract_pe_features_v2(data)?;
+            return Some(MlExplanation::new(trees.explain(&arr), &arr, super::pe_combined::pe_v2_feature_names_static()));
+        }
         let trees = self.pe_trees.as_ref()?;
         let arr = pe_features::extract_pe_features(data)?.to_array();
         Some(MlExplanation::new(trees.explain(&arr), &arr, &super::features::PeFeatureVector::NAMES))
+    }
+
+    /// Features of the PE model in use (145 for v2, 65 for v1; 0 when none is loaded).
+    pub fn pe_feature_count(&self) -> usize {
+        if self.pe_v2_trees.is_some() {
+            super::pe_combined::PE_V2_FEATURE_COUNT
+        } else if self.pe_trees.is_some() {
+            super::features::PeFeatureVector::NAMES.len()
+        } else {
+            0
+        }
     }
 
     /// Same as [`Self::explain_pe`] for the JavaScript model.
@@ -99,7 +123,7 @@ impl MlScanner {
     }
 
     pub fn pe_loaded(&self) -> bool {
-        self.pe_trees.is_some()
+        self.pe_trees.is_some() || self.pe_v2_trees.is_some()
     }
 
     pub fn js_loaded(&self) -> bool {
@@ -122,6 +146,7 @@ impl MlScanner {
 
     pub fn is_loaded(&self) -> bool {
         self.pe_trees.is_some()
+            || self.pe_v2_trees.is_some()
             || self.js_trees.is_some()
             || self.url_trees.is_some()
             || self.apk_trees.is_some()

@@ -425,7 +425,7 @@ impl StaticEngine {
         diagnostics::log(
             "engine-status",
             &format!(
-                "base={}; clam_dir_exists={}; clam_loaded={}; yara_dir={}; yara_loaded={}; yara_rule_bundles={}; models_dir={}; pe_model_file={}; pe_loaded={}; js_model_file={}; js_loaded={}; url_model_file={}; url_loaded={}; apk_model_file={}; apk_loaded={}; signer_dir={}; signer_counts={}/{}/{}; benign_whitelist={}; url_whitelist_file={}; url_whitelist_loaded={}; registry_rules={}; registry_patterns={}; string_rules={}; hayabusa_dir={}; hayabusa_loaded={}; url_rules_file={}; url_rules={}; url_unwhitelisted_hosts={}; cidr_dir={}; cidr_counts={}/{}/{}/{}",
+                "base={}; clam_dir_exists={}; clam_loaded={}; yara_dir={}; yara_loaded={}; yara_rule_bundles={}; models_dir={}; pe_model_file={}; pe_v2_model_file={}; pe_loaded={}; js_model_file={}; js_loaded={}; url_model_file={}; url_loaded={}; apk_model_file={}; apk_loaded={}; signer_dir={}; signer_counts={}/{}/{}; benign_whitelist={}; url_whitelist_file={}; url_whitelist_loaded={}; registry_rules={}; registry_patterns={}; string_rules={}; hayabusa_dir={}; hayabusa_loaded={}; url_rules_file={}; url_rules={}; url_unwhitelisted_hosts={}; cidr_dir={}; cidr_counts={}/{}/{}/{}",
                 base.display(),
                 database_dir.is_dir(),
                 clam.is_loaded(),
@@ -434,6 +434,7 @@ impl StaticEngine {
                 yara.rule_count(),
                 models_dir.display(),
                 models_dir.join("pe_trees.bin").is_file(),
+                models_dir.join("pe_trees_v2.bin").is_file(),
                 ml.pe_loaded(),
                 models_dir.join("js_trees.bin").is_file(),
                 ml.js_loaded(),
@@ -1045,15 +1046,16 @@ impl StaticEngine {
         // ML: probability and the features that moved the score, when the model
         // flagged the file (same thresholds as the scan).
         let ml = if is_pe {
-            self.ml.explain_pe(data).map(|e| (e, "MalwareNet.PE.HighConfidence", pe_tree_threshold(), "PE tree ensemble (65 header/section/code features)"))
+            let kind = format!("PE tree ensemble ({} features)", self.ml.pe_feature_count());
+            self.ml.explain_pe(data).map(|e| (e, "MalwareNet.PE.HighConfidence", pe_tree_threshold(), kind))
         } else if is_js_content(data) {
-            std::str::from_utf8(data).ok().and_then(|src| self.ml.explain_js(src)).map(|e| (e, "MalwareNet.JS.HighConfidence", js_tree_threshold(), "JavaScript tree ensemble (51 AST/lexical features)"))
+            std::str::from_utf8(data).ok().and_then(|src| self.ml.explain_js(src)).map(|e| (e, "MalwareNet.JS.HighConfidence", js_tree_threshold(), "JavaScript tree ensemble (51 AST/lexical features)".to_string()))
         } else {
             None
         };
         if let Some((e, rule, threshold, kind)) = ml {
             if e.probability >= threshold {
-                out.push(ml_explain(rule, kind, threshold, &e));
+                out.push(ml_explain(rule, &kind, threshold, &e));
             }
         }
         out

@@ -299,6 +299,12 @@ pub fn extract_pe_features_v2(data: &[u8]) -> Option<[f32; PE_V2_FEATURE_COUNT]>
     Some(v)
 }
 
+/// `pe_v2_feature_names`, built once (the ML explanation keeps `&'static str` names).
+pub fn pe_v2_feature_names_static() -> &'static [&'static str] {
+    static NAMES: std::sync::OnceLock<Vec<&'static str>> = std::sync::OnceLock::new();
+    NAMES.get_or_init(|| pe_v2_feature_names().into_iter().map(|s| &*Box::leak(s.into_boxed_str())).collect())
+}
+
 /// Names in `extract_pe_features_v2` order.
 pub fn pe_v2_feature_names() -> Vec<String> {
     let strings = ["ascii_strings", "utf16_strings", "ascii_unicode_ratio"];

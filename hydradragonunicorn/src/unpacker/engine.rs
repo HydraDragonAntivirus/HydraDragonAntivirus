@@ -1200,10 +1200,7 @@ impl UnpackerEngine {
             .map_err(|e| UnpackerError::EmulatorError(format!("mem_map hook: {:?}", e)))?;
 
         // --- Load system DLLs ---
-        let dll_dir = {
-            let crate_root = Path::new(env!("CARGO_MANIFEST_DIR"));
-            crate_root.join("DLLs")
-        };
+        let dll_dir = system_dll_dir();
 
         let dll_names = ["kernel32.dll", "ntdll.dll", "KernelBase.dll"];
         let mut dll_bases: Vec<(String, u64, u32)> = Vec::new();
@@ -2296,6 +2293,26 @@ fn get_memory_mapped_image(data: &[u8], sections: &[Section], virtual_size: u64,
         }
     }
     image
+}
+
+/// Folder of the system DLLs mapped into the emulator (kernel32, ntdll, KernelBase), the
+/// first that exists of: `HYDRADRAGON_DLLS`, `DLLs` next to the running executable (a
+/// deployed scanner or server), `DLLs` in this crate's source folder (development).
+/// The same folder must be used for training (pe_feature_dump) and scanning, or the
+/// emulated payloads differ.
+pub fn system_dll_dir() -> std::path::PathBuf {
+    let has_dlls = |d: &Path| d.join("kernel32.dll").is_file();
+    if let Some(d) = std::env::var_os("HYDRADRAGON_DLLS").map(std::path::PathBuf::from) {
+        if has_dlls(&d) {
+            return d;
+        }
+    }
+    if let Some(d) = std::env::current_exe().ok().and_then(|e| e.parent().map(|p| p.join("DLLs"))) {
+        if has_dlls(&d) {
+            return d;
+        }
+    }
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("DLLs")
 }
 
 /// Maps a system DLL at its image base. A DLL of the other bitness (an x86 kernel32 for
