@@ -103,7 +103,7 @@ fn unpack_trace(bytes: &[u8]) {
         Err(e) => return println!("unpack: Sample::from_bytes failed: {e}"),
     };
     let ep = entrypoint(&sample.opt_header);
-    let mut eng = UnpackerEngine::new(sample, "memory");
+    let mut eng = UnpackerEngine::new(sample, "memory").with_trace_mode(true);
     if let Err(e) = eng.init_uc() {
         return println!("unpack: init_uc failed: {e}");
     }

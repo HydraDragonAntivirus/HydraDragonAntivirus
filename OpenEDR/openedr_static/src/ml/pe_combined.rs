@@ -175,18 +175,19 @@ pub fn inner_of(data: &[u8]) -> Inner {
     Inner::none()
 }
 
-/// The image `hydradragonunicorn` dumps after emulating from the entry point. Only when
-/// the stub really ran: the emulation ended without a fault (at an API call or the
-/// budget) and wrote into the image; a stub that crashes at its first instructions
-/// leaves the packed image as it was, which must not pass for unpacked code. Runs through every stage of the stub (no stop on the first
-/// write-execute or at the packer configs' end address) until the first call into an
-/// imported API, which is where unpacked code starts using the system, or the
-/// instruction budget.
+/// The image `hydradragonunicorn` dumps after emulating from the entry point. The stub
+/// runs through every stage: API calls are answered by the trace-mode stubs instead of
+/// ending the run (a packer allocates memory before it unpacks), there is no stop on
+/// the first write-execute or at the packer configs' end address, so the run ends at
+/// the instruction budget, an exit or a fault. Only when the stub really ran: it ended
+/// without a fault and wrote into the image; a stub that crashes at its first
+/// instructions leaves the packed image as it was, which must not pass for unpacked
+/// code.
 fn unpack(data: &[u8]) -> Option<Vec<u8>> {
     use hydradragonunicorn::unpacker::engine::{entrypoint, Sample, UnpackerEngine};
     let sample = Sample::from_bytes(data).ok()?;
     let ep = entrypoint(&sample.opt_header);
-    let mut eng = UnpackerEngine::new(sample, "memory");
+    let mut eng = UnpackerEngine::new(sample, "memory").with_trace_mode(true);
     eng.init_uc().ok()?;
     eng.set_controls(false, false);
     eng.set_end_addr(u64::MAX);
