@@ -799,7 +799,10 @@ pub fn apk_tree_features(apk: &[u8]) -> Option<[f32; APK_TREE_FEATURE_COUNT]> {
 // ---------------------------------------------------------------------------
 
 /// True for APKs: `.apk` extension, or a ZIP whose central directory holds
-/// `AndroidManifest.xml` / `*.dex` / `lib/*.so` entries.
+/// `AndroidManifest.xml` at its root together with code (`*.dex` or `lib/*.so`).
+/// The manifest is what makes an APK: a JAR built with the Android SDK carries
+/// `classes.dex` (dexed library), and JARs with native code carry `lib/*.so`, but
+/// neither has a root `AndroidManifest.xml` (JARs have `META-INF/MANIFEST.MF`).
 pub fn is_apk(data: &[u8], name: &str) -> bool {
     let lower = name.to_ascii_lowercase();
     if lower.ends_with(".apk") {
@@ -811,16 +814,13 @@ pub fn is_apk(data: &[u8], name: &str) -> bool {
     let Some(entries) = parse_central_dir(data) else {
         return false;
     };
+    let (mut manifest, mut code) = (false, false);
     for e in &entries {
         let l = e.name.to_ascii_lowercase();
-        if l == "androidmanifest.xml" || l.ends_with(".dex") {
-            return true;
-        }
-        if l.starts_with("lib/") && l.ends_with(".so") {
-            return true;
-        }
+        manifest |= l == "androidmanifest.xml";
+        code |= l.ends_with(".dex") || (l.starts_with("lib/") && l.ends_with(".so"));
     }
-    false
+    manifest && code
 }
 
 #[derive(Debug, Clone)]
@@ -1078,6 +1078,19 @@ pub(crate) mod test_helpers {
         assert!(is_apk(b"PK junk", "app.apk"));
         assert!(!is_apk(b"MZ fake pe", "app.exe"));
         assert!(!is_apk(b"hello world", "notes.txt"));
+    }
+
+    #[test]
+    fn jars_with_dex_or_native_code_are_not_apks() {
+        // Library JAR dexed by the Android SDK (d8): classes.dex, a JAR manifest.
+        let dexed = stored_zip(&[("META-INF/MANIFEST.MF", b"Manifest-Version: 1.0\n"), ("classes.dex", b"dex\n")]);
+        assert!(!is_apk(&dexed, "library.jar"));
+        // JAR shipping a JNI library.
+        let jni = stored_zip(&[("META-INF/MANIFEST.MF", b"Manifest-Version: 1.0\n"), ("lib/x86_64/libfoo.so", b"\x7fELF")]);
+        assert!(!is_apk(&jni, "native.jar"));
+        // An APK renamed to .jar is still an APK (manifest + code).
+        let apk = stored_zip(&[("AndroidManifest.xml", b"hello"), ("classes.dex", b"dex\n")]);
+        assert!(is_apk(&apk, "renamed.jar"));
     }
 
     #[test]
