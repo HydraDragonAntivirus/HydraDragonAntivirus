@@ -216,8 +216,59 @@ fn unpack(data: &[u8]) -> Option<Vec<u8>> {
     (!dumped.is_empty() && dumped != data).then_some(dumped)
 }
 
-/// Shell 65 + shell strings 3 + inner 65 + inner strings 3 + meta 4 + combined strings 3.
-pub const PE_V2_FEATURE_COUNT: usize = 65 + 3 + 65 + 3 + 4 + 3;
+/// What kind of .NET image a PE is, from its CLR header (data directory 14) and the
+/// metadata it points to: 0 = not .NET, or a CLR header whose metadata is not there
+/// (no `BSJB` root: not a real managed image); 1 = IL only (`COMIMAGE_FLAGS_ILONLY`);
+/// 2 = mixed mode (C++/CLI: managed metadata plus native code).
+pub fn dotnet_kind(data: &[u8]) -> u8 {
+    let rd16 = |o: usize| data.get(o..o + 2).map(|b| u16::from_le_bytes([b[0], b[1]]) as usize);
+    let rd32 = |o: usize| data.get(o..o + 4).map(|b| u32::from_le_bytes([b[0], b[1], b[2], b[3]]) as usize);
+    let kind = || -> Option<u8> {
+        if data.get(..2)? != b"MZ" {
+            return None;
+        }
+        let pe = rd32(0x3c)?;
+        if data.get(pe..pe + 4)? != b"PE\0\0" {
+            return None;
+        }
+        let sections = rd16(pe + 6)?;
+        let opt = pe + 24;
+        let opt_size = rd16(pe + 20)?;
+        let dirs = match rd16(opt)? {
+            0x10b => opt + 96,
+            0x20b => opt + 112,
+            _ => return None,
+        };
+        let count = rd32(dirs - 4)?;
+        if count <= 14 {
+            return None;
+        }
+        let (clr_rva, clr_size) = (rd32(dirs + 14 * 8)?, rd32(dirs + 14 * 8 + 4)?);
+        if clr_rva == 0 || clr_size < 0x48 {
+            return None;
+        }
+        let table = opt + opt_size;
+        let to_off = |rva: usize| -> Option<usize> {
+            (0..sections).find_map(|i| {
+                let s = table + i * 40;
+                let (vsize, va, raw_size, raw) = (rd32(s + 8)?, rd32(s + 12)?, rd32(s + 16)?, rd32(s + 20)?);
+                (rva >= va && rva < va + vsize.max(raw_size)).then(|| raw + (rva - va))
+            })
+        };
+        let cor = to_off(clr_rva)?;
+        let (md_rva, flags) = (rd32(cor + 8)?, rd32(cor + 16)?);
+        let md = to_off(md_rva)?;
+        if data.get(md..md + 4)? != b"BSJB" {
+            return None;
+        }
+        Some(if flags & 0x1 != 0 { 1 } else { 2 })
+    };
+    kind().unwrap_or(0)
+}
+
+/// Shell 65 + shell strings 3 + inner 65 + inner strings 3 + meta 4 + combined strings 3
+/// + shell / inner `dotnet_kind`.
+pub const PE_V2_FEATURE_COUNT: usize = 65 + 3 + 65 + 3 + 4 + 3 + 2;
 
 /// The v2 vector of `data`; None when the file is not a PE the v1 extractor reads.
 pub fn extract_pe_features_v2(data: &[u8]) -> Option<[f32; PE_V2_FEATURE_COUNT]> {
@@ -244,6 +295,7 @@ pub fn extract_pe_features_v2(data: &[u8]) -> Option<[f32; PE_V2_FEATURE_COUNT]>
         if data.is_empty() { 0.0 } else { (inner.bytes as f32 / data.len() as f32).ln_1p() },
     ]);
     put(&shell_strings.add(inner.strings).features());
+    put(&[dotnet_kind(data) as f32, inner.pe.as_deref().map_or(0.0, |p| dotnet_kind(p) as f32)]);
     Some(v)
 }
 
@@ -257,6 +309,7 @@ pub fn pe_v2_feature_names() -> Vec<String> {
     n.extend(strings.iter().map(|s| format!("inner_{s}")));
     n.extend(["inner_source", "inner_is_pe", "inner_members", "inner_size_ratio"].map(String::from));
     n.extend(strings.iter().map(|s| format!("combined_{s}")));
+    n.extend(["shell_is_dotnet", "inner_is_dotnet"].map(String::from));
     n
 }
 
@@ -277,6 +330,37 @@ mod tests {
         let f = s.features();
         assert!((f[2] - 0.5).abs() < 1e-6);
         assert_eq!(StringCounts::default().features(), [0.0, 0.0, 0.0]);
+    }
+
+    #[test]
+    fn dotnet_kind_needs_real_metadata() {
+        assert_eq!(dotnet_kind(b"not a pe"), 0);
+        // Minimal PE32: one section at RVA 0x1000 / file 0x200, CLR header there,
+        // metadata root right after it.
+        let mut d = vec![0u8; 0x400];
+        d[..2].copy_from_slice(b"MZ");
+        d[0x3c..0x40].copy_from_slice(&0x40u32.to_le_bytes());
+        d[0x40..0x44].copy_from_slice(b"PE\0\0");
+        d[0x46..0x48].copy_from_slice(&1u16.to_le_bytes()); // sections
+        d[0x54..0x56].copy_from_slice(&0xe0u16.to_le_bytes()); // optional header size
+        let opt = 0x58;
+        d[opt..opt + 2].copy_from_slice(&0x10bu16.to_le_bytes());
+        d[opt + 92..opt + 96].copy_from_slice(&16u32.to_le_bytes()); // NumberOfRvaAndSizes
+        let clr = opt + 96 + 14 * 8;
+        d[clr..clr + 4].copy_from_slice(&0x1000u32.to_le_bytes());
+        d[clr + 4..clr + 8].copy_from_slice(&0x48u32.to_le_bytes());
+        let sec = opt + 0xe0;
+        d[sec + 8..sec + 12].copy_from_slice(&0x200u32.to_le_bytes()); // VirtualSize
+        d[sec + 12..sec + 16].copy_from_slice(&0x1000u32.to_le_bytes()); // VirtualAddress
+        d[sec + 16..sec + 20].copy_from_slice(&0x200u32.to_le_bytes()); // SizeOfRawData
+        d[sec + 20..sec + 24].copy_from_slice(&0x200u32.to_le_bytes()); // PointerToRawData
+        d[0x208..0x20c].copy_from_slice(&0x1048u32.to_le_bytes()); // metadata RVA
+        d[0x210..0x214].copy_from_slice(&1u32.to_le_bytes()); // ILONLY
+        assert_eq!(dotnet_kind(&d), 0, "no BSJB root: not a managed image");
+        d[0x248..0x24c].copy_from_slice(b"BSJB");
+        assert_eq!(dotnet_kind(&d), 1);
+        d[0x210..0x214].copy_from_slice(&0u32.to_le_bytes());
+        assert_eq!(dotnet_kind(&d), 2, "metadata without ILONLY: mixed mode");
     }
 
     #[test]
