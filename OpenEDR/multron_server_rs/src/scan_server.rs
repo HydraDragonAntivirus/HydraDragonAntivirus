@@ -1742,10 +1742,12 @@ pub fn apply_analyst_tlsh(ti: &crate::threat_intel::ThreatIntelStore, data: &[u8
 }
 
 /// TLSH blacklist digests with a virus name (`tlsh_signatures/tlsh_blacklist*.txt`,
-/// `T1…:<file name>:<virus name>`,
-/// see `similarity`): same limits as analyst TLSH signatures — only raises unknown /
-/// possible_clean / suspicious results, never an engine-clean file or one an analyst
-/// marked clean.
+/// `T1…:<file name>:<virus name>`, see `similarity`): information only. A match never
+/// changes the verdict; it is noted as `tlsh_blacklist_info` in the result for the
+/// analyst. TLSH is too coarse to decide on its own: a clean host is a few points
+/// from its copy infected by a prepender (Neshta), and the blacklist has no analyst
+/// behind each digest. Same files as before get the note: unknown / possible_clean /
+/// suspicious results that no analyst marked clean.
 pub fn apply_tlsh_blacklist(ti: &crate::threat_intel::ThreatIntelStore, data: &[u8], res: &mut ResultMessage) {
     if !matches!(res.verdict.as_str(), "unknown" | "possible_clean" | "suspicious") {
         return;
@@ -1754,24 +1756,15 @@ pub fn apply_tlsh_blacklist(ti: &crate::threat_intel::ThreatIntelStore, data: &[
         return;
     }
     let Some(m) = ti.similarity.blacklist_match(data) else { return };
-    let before = res.verdict.clone();
-    crate::engine_adapter::apply_analyst_hit(
-        res,
-        &crate::analyst_engine::AnalystHit { engine: "tlsh_blacklist", name: m.threat.clone(), verdict: "malicious" },
-    );
-    if res.verdict == before {
-        return;
-    }
-    let detail = format!(
-        "TLSH blacklist: {} — distance {} to {}{}",
+    let info = format!(
+        "TLSH blacklist (info only): {} — distance {} to {}{}",
         m.threat,
         m.distance,
         m.tlsh,
         if m.file.is_empty() { String::new() } else { format!(" ({})", m.file) }
     );
-    res.detail = Some(detail.clone());
     if let Some(o) = res.antivirus.as_mut().and_then(|a| a.as_object_mut()) {
-        o.insert("detail".into(), serde_json::json!(detail));
+        o.insert("tlsh_blacklist_info".into(), serde_json::json!(info));
     }
 }
 

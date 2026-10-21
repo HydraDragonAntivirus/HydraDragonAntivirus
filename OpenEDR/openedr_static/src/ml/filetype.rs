@@ -177,18 +177,11 @@ fn has(data: &[u8], pat: &[u8]) -> bool {
     data.windows(pat.len()).any(|w| w == pat)
 }
 
-/// APK = ZIP carrying AndroidManifest.xml (+ dex or native lib), checked in
-/// the first/last 1 MB where local headers and central directory live.
+/// APK = ZIP with `AndroidManifest.xml` at its root and code (`*.dex` / `lib/*.so`),
+/// read from the ZIP entries (`apk::is_apk`). A byte search for those names took
+/// Android build-tool JARs, whose classes hold them as strings, for APKs.
 fn is_apk(data: &[u8]) -> bool {
-    const W: usize = 1 << 20;
-    let head = &data[..data.len().min(W)];
-    let tail = &data[data.len().saturating_sub(W)..];
-    let manifest = has(head, b"AndroidManifest.xml") || has(tail, b"AndroidManifest.xml");
-    if !manifest {
-        return false;
-    }
-    let dex = has(head, b"classes.dex") || has(tail, b"classes.dex");
-    manifest && (dex || has(head, b"lib/") || has(tail, b"lib/"))
+    crate::apk::is_apk(data, "")
 }
 
 fn printable_ratio(sample: &[u8]) -> f32 {
@@ -504,12 +497,17 @@ mod tests {
 
     #[test]
     fn apk_needs_manifest_plus_content() {
-        let mut apk = b"PK\x03\x04".to_vec();
-        apk.extend_from_slice(b"AndroidManifest.xml");
-        apk.extend_from_slice(b"classes.dex");
+        use crate::apk::test_helpers::stored_zip;
+        let apk = stored_zip(&[("AndroidManifest.xml", b"\x03\x00\x08\x00"), ("classes.dex", b"dex\n")]);
         let r = detect(&apk);
         assert_eq!(r.file_type, "CL_TYPE_APK");
         assert_eq!(r.apk_result.as_deref(), Some("valid"));
+        // The names only as strings inside a class (Android build-tool JAR): not an APK.
+        let tool = stored_zip(&[
+            ("META-INF/MANIFEST.MF", b"Manifest-Version: 1.0\n"),
+            ("com/android/build/Packager.class", b"\xca\xfe\xba\xbe AndroidManifest.xml classes.dex"),
+        ]);
+        assert_eq!(detect(&tool).file_type, "CL_TYPE_ZIP");
     }
 
     #[test]

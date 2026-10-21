@@ -8,8 +8,10 @@
 //!   `{"tlsh":"T1…","file_name":"…","virus":"Category.Platform.Family","sha256":"…","size":N}`
 //!   (`tlsh_builder blacklist` writes this). A file the engine did not detect that is
 //!   within `blacklist_max_dist()` (dashboard setting, default 10) of a digest (and, when `size` is known, within
-//!   `ANALYST_TLSH_SIZE_FACTOR` of its size) is flagged malicious with that virus name
-//!   (made `Category.Platform.Family` by `naming::threat_from_name` when it is not).
+//!   `ANALYST_TLSH_SIZE_FACTOR` of its size) gets that virus name as information only
+//!   (`tlsh_blacklist_info` in the result, `scan_server::apply_tlsh_blacklist`); the
+//!   verdict is not changed (a clean host is a few points from its prepender-infected
+//!   copy, e.g. Neshta).
 //!   Plain lines are read too: `T1…:<file name>:<virus name>`, abuse.ch tlsh_db
 //!   `T1…:<virus name>`; a digest without a virus name (or `n/a`) only shows up in
 //!   "similar files".

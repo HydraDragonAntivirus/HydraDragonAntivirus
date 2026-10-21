@@ -657,46 +657,45 @@ fn inspect_binary_formats(data: &[u8]) -> BinaryFormatValidation {
     validation
 }
 
+/// An APK is a ZIP with `AndroidManifest.xml` at its root and code (`*.dex` or
+/// `lib/*.so`). A readable ZIP is judged by its entries only: JARs built with the
+/// Android SDK carry `classes.dex`, and Android build-tool JARs (Gradle plugin, d8)
+/// hold the strings `AndroidManifest.xml` / `classes.dex` in their classes, but none of
+/// them has a root manifest, so they are not APKs. Only a ZIP that cannot be read
+/// falls back to the raw `AndroidManifest.xml` marker (broken / tampered APK).
 fn inspect_apk_bytes(data: &[u8]) -> FormatValidation {
     if !looks_like_zip(data) {
         return FormatValidation::NotDetected;
     }
-
-    let has_apk_marker = contains_bytes(data, b"AndroidManifest.xml")
-        || contains_bytes(data, b"classes.dex")
-        || contains_bytes(data, b"classes2.dex");
-
-    if !has_apk_marker {
-        return FormatValidation::NotDetected;
-    }
-
-    let cursor = Cursor::new(data);
-    let Ok(mut archive) = ZipArchive::new(cursor) else {
-        return if has_apk_marker {
+    let unreadable = || {
+        if contains_bytes(data, b"AndroidManifest.xml") {
             FormatValidation::Broken
         } else {
             FormatValidation::NotDetected
-        };
+        }
+    };
+
+    let cursor = Cursor::new(data);
+    let Ok(mut archive) = ZipArchive::new(cursor) else {
+        return unreadable();
     };
 
     let mut has_android_manifest = false;
-    let mut has_dex = false;
+    let mut has_code = false;
     for index in 0..archive.len() {
         let Ok(file) = archive.by_index(index) else {
-            return FormatValidation::Broken;
+            return unreadable();
         };
-        let name = file.name();
-        if name == "AndroidManifest.xml" {
+        let lower = file.name().to_ascii_lowercase();
+        if lower == "androidmanifest.xml" {
             has_android_manifest = true;
-        } else if name == "classes.dex" || (name.starts_with("classes") && name.ends_with(".dex")) {
-            has_dex = true;
+        } else if lower.ends_with(".dex") || (lower.starts_with("lib/") && lower.ends_with(".so")) {
+            has_code = true;
         }
     }
 
-    if has_android_manifest {
+    if has_android_manifest && has_code {
         FormatValidation::Valid
-    } else if has_apk_marker || has_dex {
-        FormatValidation::Broken
     } else {
         FormatValidation::NotDetected
     }
@@ -964,6 +963,37 @@ mod tests {
         let mut der = vec![0x30, 0x82, 0x00, 0x04];
         der.extend_from_slice(&[2, 2, 1, 1]);
         assert_eq!(ty(&der), "der");
+    }
+
+    fn zip_of(entries: &[(&str, &[u8])]) -> Vec<u8> {
+        use std::io::Write;
+        let mut w = zip::ZipWriter::new(Cursor::new(Vec::new()));
+        for (name, data) in entries {
+            w.start_file(*name, zip::write::SimpleFileOptions::default()).unwrap();
+            w.write_all(data).unwrap();
+        }
+        w.finish().unwrap().into_inner()
+    }
+
+    #[test]
+    fn android_sdk_jars_are_not_apks() {
+        let jar_mf: &[u8] = b"Manifest-Version: 1.0\n";
+        // Library JAR dexed by d8.
+        let dexed = zip_of(&[("META-INF/MANIFEST.MF", jar_mf), ("classes.dex", b"dex\n")]);
+        let info = classify_bytes_only(&dexed);
+        assert!(!info.is_apk && !info.is_broken_apk);
+        assert!(info.is_jar);
+        // Android build-tool JAR: the APK names only as strings inside a class.
+        let tool = zip_of(&[
+            ("META-INF/MANIFEST.MF", jar_mf),
+            ("com/android/build/Packager.class", b"\xca\xfe\xba\xbe AndroidManifest.xml classes.dex"),
+        ]);
+        let info = classify_bytes_only(&tool);
+        assert!(!info.is_apk && !info.is_broken_apk);
+        assert_eq!(info.primary, "jar");
+        // A real APK, whatever it is named.
+        let apk = zip_of(&[("AndroidManifest.xml", b"\x03\x00\x08\x00"), ("classes.dex", b"dex\n")]);
+        assert!(classify_bytes_only(&apk).is_apk);
     }
 
     #[test]

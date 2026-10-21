@@ -365,11 +365,11 @@
       <div class="hint">Moves each kept file into a folder named after its file type: the HydraDragonSig type first (<code>javascript</code>, <code>powershell</code>, <code>batch</code>, <code>vbs</code>, <code>python</code>, <code>pe32</code>/<code>pe64</code>, <code>elf64</code>, <code>apk</code>, <code>jar</code>, <code>dex</code>, <code>pdf</code>, <code>zip</code>, ...), then the ClamAV type (hydradragonclamav <code>.ftm</code> magic: <code>rar</code>, <code>html</code>, <code>text_ascii</code>, ...) where HydraDragonSig only says text or archive. The content decides, never the file name; <code>.xz</code> files are unpacked to check. Files of unknown type stay in the category folder. New files are sorted this way when they are kept.</div>
       <div class="hint">Moves the copies the server wrote into the ML dataset folders (<code>&lt;SHA256&gt;.exe</code> etc.) whose file is in <code>multron_incoming/</code> to a backup folder next to the dataset folder (<code>deleted_from_data2_pe</code>, ...). Nothing is deleted; training never reads the backup folders. <code>multron_incoming</code> keeps the file with its telemetry; your own and public dataset files are never touched. Logged in <code>dataset_moves.jsonl</code>.</div>
       <label style="display:flex;gap:8px;align-items:center;margin-top:12px">
-        TLSH blacklist: flag files within distance
+        TLSH blacklist: note (info only) files within distance
         <select id="tlshBlacklistDist" style="width:auto"></select>
         of a blacklist digest
       </label>
-      <div class="hint">Lower is stricter (fewer false positives, fewer variants caught). Default 10; 20 already flagged clean signed drivers. Applies to new scans at once; files scanned before keep their cached verdict until they are rescanned. Analyst TLSH signatures keep their own limit.</div>
+      <div class="hint">Information only: a match never changes the verdict, it is noted in the result (<code>tlsh_blacklist_info</code>) and shown in the TLSH neighbours. TLSH alone is too coarse to decide (a clean host is a few points from its Neshta-infected copy). Default 10. Analyst TLSH signatures (from human malicious verdicts) still decide, with their own limit.</div>
       <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:12px">
         ML thresholds:
         <label style="display:flex;gap:4px;align-items:center">PE <input id="mlPe" type="number" min="0.5" max="0.9999" step="0.005" style="width:90px"></label>
