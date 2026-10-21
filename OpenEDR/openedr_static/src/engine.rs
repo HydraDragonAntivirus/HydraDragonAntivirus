@@ -101,11 +101,13 @@ pub const MALICIOUS_SCORE: f32 = 0.85;
 /// so a PUA hit alone gives Suspicious / PUA; another malicious layer still wins.
 pub const CLAM_PUA_SCORE: f32 = 0.60;
 
-/// YARA-X hit score: 0.95, or `CLAM_PUA_SCORE` for rules named `PUA_*` / `PUA.*`
-/// (potentially unwanted or vulnerable software, e.g. the LOLDrivers rules), so they
+/// YARA-X hit score: 0.95, or `CLAM_PUA_SCORE` for potentially unwanted rules
+/// (dual-use tools, adware, vulnerable drivers such as the LOLDrivers rules), so they
 /// give Suspicious / PUA instead of Malicious.
 fn yara_score(name: &str) -> f32 {
-    if name.get(..4).is_some_and(|p| p.eq_ignore_ascii_case("PUA_") || p.eq_ignore_ascii_case("PUA.")) {
+    // PUA by a name part anywhere (`PUA_`, `…_Hacktool_…`, `…_PUA_VULN_…`) or by the
+    // rule's metadata (`rule_category = "greyware_tool_keyword"`), see `yara::is_pua_rule`.
+    if crate::yara::is_pua_rule(name) {
         CLAM_PUA_SCORE
     } else {
         0.95

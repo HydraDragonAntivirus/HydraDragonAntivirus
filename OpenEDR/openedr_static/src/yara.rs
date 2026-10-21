@@ -1,5 +1,101 @@
+use std::collections::HashMap;
 use std::path::Path;
-use yara_x::{Compiler, Rules, Scanner};
+use std::sync::{OnceLock, RwLock};
+use yara_x::{Compiler, MetaValue, Rules, Scanner};
+
+/// Name parts that mark a rule as potentially unwanted rather than malware (dual-use
+/// and grey tools: Process Hacker, adware bundles, vulnerable drivers, ...). A part is
+/// a `_` / `.` / `-` separated segment, compared case-insensitively, anywhere in the name
+/// (`SIGNATURE_BASE_PUA_VULN_Driver_…`, `ELASTIC_Windows_Hacktool_Processhacker_…`).
+const PUA_NAME_PARTS: [&str; 7] = ["pua", "pup", "hacktool", "greyware", "grayware", "riskware", "adware"];
+
+/// Phrases in a rule's metadata values that mark it as potentially unwanted
+/// (`rule_category = "greyware_tool_keyword"`, `description = "Detects … Hacktool …"`).
+const PUA_META_PHRASES: [&str; 8] = [
+    "greyware", "grayware", "potentially unwanted", "hacktool", "hack tool", "riskware", "adware", "pua_",
+];
+
+/// Offensive tools used in real intrusions (credential theft, C2, lateral movement):
+/// their rules stay Malicious even when filed as hacktool / greyware. Matched in the
+/// rule name and metadata values, lower case, with `_` `.` `-` and spaces removed
+/// (`CobaltStrike`, `Cobalt_Strike`, `Cobalt Strike`).
+const OFFENSIVE_TOOLS: [&str; 19] = [
+    "mimikatz", "katz", "cobaltstrike", "lazagne", "rubeus", "kekeo", "sharphound", "bloodhound", "impacket",
+    "metasploit", "meterpreter", "sliver", "bruteratel", "havoc", "nanodump", "lsassy", "powersploit", "potato",
+    "printspoofer",
+];
+
+/// PUA decision of every loaded rule whose name or metadata says potentially unwanted
+/// or names an offensive tool, by identifier (filled as rule sets load).
+fn decided() -> &'static RwLock<HashMap<String, bool>> {
+    static MAP: OnceLock<RwLock<HashMap<String, bool>>> = OnceLock::new();
+    MAP.get_or_init(|| RwLock::new(HashMap::new()))
+}
+
+/// Named `PUA_*` / `PUA.*` by its author: always potentially unwanted.
+fn explicit_pua(name: &str) -> bool {
+    name.get(..4).is_some_and(|p| p.eq_ignore_ascii_case("PUA_") || p.eq_ignore_ascii_case("PUA."))
+}
+
+/// The rule name marks it potentially unwanted (see `PUA_NAME_PARTS`).
+pub fn is_pua_name(name: &str) -> bool {
+    name.split(['_', '.', '-']).any(|p| PUA_NAME_PARTS.iter().any(|k| p.eq_ignore_ascii_case(k)))
+}
+
+/// `text` names an offensive tool (see `OFFENSIVE_TOOLS`).
+fn names_offensive_tool(text: &str) -> bool {
+    let t: String = text.chars().filter(|c| !matches!(c, '_' | '.' | '-' | ' ')).collect::<String>().to_ascii_lowercase();
+    OFFENSIVE_TOOLS.iter().any(|k| t.contains(k))
+}
+
+/// The rule is potentially unwanted (Suspicious / PUA, not Malicious): named `PUA_*`,
+/// or marked potentially unwanted by a name part or its metadata and not naming an
+/// offensive tool.
+pub fn is_pua_rule(name: &str) -> bool {
+    if explicit_pua(name) {
+        return true;
+    }
+    if let Some(d) = decided().read().ok().and_then(|m| m.get(name).copied()) {
+        return d;
+    }
+    is_pua_name(name) && !names_offensive_tool(name)
+}
+
+fn meta_strings<'a>(rule: &'a yara_x::Rule) -> impl Iterator<Item = (&'a str, String)> + 'a {
+    rule.metadata().filter_map(|(key, value)| match value {
+        MetaValue::String(v) => Some((key, v.to_ascii_lowercase())),
+        _ => None,
+    })
+}
+
+fn meta_says_pua(rule: &yara_x::Rule) -> bool {
+    meta_strings(rule).any(|(key, v)| {
+        PUA_META_PHRASES.iter().any(|p| v.contains(p))
+            // A value or key that is just the word: `category = "PUA"`, `pup = "…"`.
+            || v.split(|c: char| !c.is_ascii_alphanumeric()).any(|t| t == "pua" || t == "pup")
+            || key.eq_ignore_ascii_case("pua")
+    })
+}
+
+/// Records the PUA decision of every rule in `rules` that is marked potentially unwanted
+/// (name or metadata) or names an offensive tool.
+fn note_pua_rules(rules: &Rules) {
+    let mut found: Vec<(String, bool)> = Vec::new();
+    for rule in rules.iter() {
+        let name = rule.identifier();
+        let marked = is_pua_name(name) || meta_says_pua(&rule);
+        if !marked {
+            continue;
+        }
+        let offensive = names_offensive_tool(name) || meta_strings(&rule).any(|(_, v)| names_offensive_tool(&v));
+        found.push((name.to_string(), explicit_pua(name) || !offensive));
+    }
+    if !found.is_empty() {
+        if let Ok(mut m) = decided().write() {
+            m.extend(found);
+        }
+    }
+}
 
 pub struct YaraScanner {
     rules: Vec<Rules>,
@@ -43,6 +139,9 @@ impl YaraScanner {
         if source_count > 0 {
             let compiled = compiler.build();
             loaded_rules.push(compiled);
+        }
+        for r in &loaded_rules {
+            note_pua_rules(r);
         }
 
         Self { rules: loaded_rules, ignored: crate::string_rules::read_ignore_lists(rules_dir) }
@@ -144,6 +243,7 @@ impl YaraScanner {
     pub fn load_yrc(&mut self, data: &[u8]) -> bool {
         match Rules::deserialize(data) {
             Ok(r) => {
+                note_pua_rules(&r);
                 self.rules.push(r);
                 true
             }
@@ -158,7 +258,9 @@ impl YaraScanner {
         if compiler.add_source(src).is_err() {
             return false;
         }
-        self.rules.push(compiler.build());
+        let r = compiler.build();
+        note_pua_rules(&r);
+        self.rules.push(r);
         true
     }
 
@@ -169,5 +271,59 @@ impl YaraScanner {
 
     pub fn rule_count(&self) -> usize {
         self.rules.len()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn pua_by_name_part_anywhere() {
+        assert!(is_pua_name("PUA_Win_Tool"));
+        assert!(is_pua_name("SIGNATURE_BASE_PUA_VULN_Driver_Wj_Kprocesshacker_C725"));
+        assert!(is_pua_name("ELASTIC_Windows_Hacktool_Processhacker_3D01069E"));
+        assert!(is_pua_name("hacktool_win_processhacker"));
+        assert!(!is_pua_name("Trojan_Win32_Remcos"));
+        assert!(!is_pua_name("Puamba_Stealer"), "a part, not a substring");
+    }
+
+    #[test]
+    fn offensive_tools_stay_malicious() {
+        assert!(!is_pua_rule("ELASTIC_Windows_Hacktool_Mimikatz_1388212A"));
+        assert!(!is_pua_rule("BINARYALERT_Hacktool_Windows_Cobaltstrike_Postexploitation"));
+        assert!(is_pua_rule("ELASTIC_Windows_Hacktool_Processhacker_3D01069E"));
+        assert!(is_pua_rule("PUA_Win_Mimikatz_Test"), "named PUA_ by its author");
+    }
+
+    #[test]
+    fn pua_by_metadata_when_the_name_says_nothing() {
+        let mut y = YaraScanner { rules: Vec::new(), ignored: Default::default() };
+        assert!(y.add_source(
+            r#"
+            rule processhacker_kw_test {
+              meta:
+                tool          = "processhacker"
+                rule_category = "greyware_tool_keyword"
+              strings: $a = "kprocesshacker"
+              condition: $a
+            }
+            rule greytool_c2_test {
+              meta:
+                description = "Detects the Cobalt Strike greyware loader"
+              strings: $a = "beacon_c2_test"
+              condition: $a
+            }
+            rule remcos_test {
+              meta:
+                description = "Detects Remcos RAT"
+              strings: $a = "Remcos"
+              condition: $a
+            }"#
+        ));
+        assert!(is_pua_rule("processhacker_kw_test"));
+        assert!(!is_pua_rule("remcos_test"));
+        assert!(!is_pua_rule("greytool_c2_test"), "metadata names an offensive tool");
+        assert_eq!(y.scan_bytes(b"..kprocesshacker.."), vec!["processhacker_kw_test".to_string()]);
     }
 }
