@@ -297,9 +297,8 @@ See the [LICENSE](./LICENSE) file for more information.
 - **Password:** infected
 
 ## Machine Learning Training Guide
-- PE model training, including the shell-independent model for successfully unpacked
-  files, is documented in [hydradragon_ml_models/TRAINING_GUIDE.md](hydradragon_ml_models/TRAINING_GUIDE.md).
-- The dedicated inner model is trained with `python train_pe_lgbm.py --features v2 --inner-only`.
+- PE model training, including separate models for successfully unpacked content and
+  files that did not unpack, is documented in [hydradragon_ml_models/TRAINING_GUIDE.md](hydradragon_ml_models/TRAINING_GUIDE.md).
 
 ## Guide to compiling from source
 - Build documentation is being split into component pages.

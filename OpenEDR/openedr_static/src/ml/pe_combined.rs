@@ -270,17 +270,30 @@ pub fn dotnet_kind(data: &[u8]) -> u8 {
 /// + shell / inner `dotnet_kind`.
 pub const PE_V2_FEATURE_COUNT: usize = 65 + 3 + 65 + 3 + 4 + 3 + 2;
 pub const PE_INNER_FEATURE_COUNT: usize = 65 + 3 + 1;
+pub const PE_SHELL_FEATURE_COUNT: usize = 65 + 3 + 1;
+
+/// Shell-only feature set for files whose content was not successfully unpacked.
+pub fn pe_v2_shell_model_features(v: &[f32; PE_V2_FEATURE_COUNT]) -> [f32; PE_SHELL_FEATURE_COUNT] {
+    let mut out = [0.0; PE_SHELL_FEATURE_COUNT];
+    out[..68].copy_from_slice(&v[..68]);
+    out[68] = v[143];
+    out
+}
 
 /// Features for the dedicated successfully-unpacked PE model. No shell, combined,
 /// or shell-relative values are included.
 pub fn extract_unpacked_inner_features(data: &[u8]) -> Option<[f32; PE_INNER_FEATURE_COUNT]> {
     let v = extract_pe_features_v2(data)?;
-    if v[136] != InnerSource::Unpacked as u8 as f32 || v[137] != 1.0 { return None; }
+    (v[136] == InnerSource::Unpacked as u8 as f32 && v[137] == 1.0)
+        .then(|| extract_unpacked_inner_features_from_v2(&v))
+}
+
+pub fn extract_unpacked_inner_features_from_v2(v: &[f32; PE_V2_FEATURE_COUNT]) -> [f32; PE_INNER_FEATURE_COUNT] {
     let mut out = [0.0; PE_INNER_FEATURE_COUNT];
     out[..65].copy_from_slice(&v[68..133]);
     out[65..68].copy_from_slice(&v[133..136]);
     out[68] = v[144];
-    Some(out)
+    out
 }
 
 pub fn pe_inner_feature_names_static() -> &'static [&'static str] {
@@ -288,6 +301,15 @@ pub fn pe_inner_feature_names_static() -> &'static [&'static str] {
     NAMES.get_or_init(|| {
         let mut names: Vec<String> = PeFeatureVector::NAMES.iter().map(|s| format!("inner_{s}")).collect();
         names.extend(["inner_ascii_strings", "inner_utf16_strings", "inner_ascii_unicode_ratio", "inner_is_dotnet"].map(String::from));
+        names.into_iter().map(|s| &*Box::leak(s.into_boxed_str())).collect()
+    })
+}
+
+pub fn pe_shell_feature_names_static() -> &'static [&'static str] {
+    static NAMES: std::sync::OnceLock<Vec<&'static str>> = std::sync::OnceLock::new();
+    NAMES.get_or_init(|| {
+        let mut names: Vec<String> = PeFeatureVector::NAMES.iter().map(|s| format!("shell_{s}")).collect();
+        names.extend(["shell_ascii_strings", "shell_utf16_strings", "shell_ascii_unicode_ratio", "shell_is_dotnet"].map(String::from));
         names.into_iter().map(|s| &*Box::leak(s.into_boxed_str())).collect()
     })
 }

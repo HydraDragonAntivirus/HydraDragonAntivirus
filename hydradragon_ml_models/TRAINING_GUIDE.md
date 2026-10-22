@@ -23,10 +23,11 @@ cd ..
 
 ## Train the unpacked-content model
 
-Run from `hydradragon_ml_models`:
+Run from `hydradragon_ml_models` to train both sides of the inference split:
 
 ```powershell
 python train_pe_lgbm.py --features v2 --inner-only
+python train_pe_lgbm.py --features v2 --not-unpacked-only
 ```
 
 This extracts v2 features into `cache_chunks_pe_v2`, then trains from samples where
@@ -42,10 +43,20 @@ and portable scanner model folders when present. The scanner uses this model for
 successfully unpacked inner PEs. If the inner model is absent, it does not substitute
 the shell model for that sample, avoiding a shell-driven ML verdict.
 
+The second command trains the complementary shell-only model from samples without a
+successfully unpacked parseable inner PE. It uses only the outer PE structure, shell
+strings, and shell .NET marker; inner and combined features are excluded. It writes
+`pe_trees_shell.bin`, `pe_model_shell.onnx`, and `pe_trees_shell_threshold.json`, then
+syncs the tree bundle to both scanner model folders. At scan time, a parseable
+unpacked inner PE selects `pe_trees_inner.bin`; otherwise the scanner selects
+`pe_trees_shell.bin` when available. The combined v2 model remains a compatibility
+fallback for installations that have not yet trained the shell-only model.
+
 To reuse already extracted v2 chunks and skip feature extraction:
 
 ```powershell
 python train_pe_lgbm.py --features v2 --inner-only --train-only
+python train_pe_lgbm.py --features v2 --not-unpacked-only --train-only
 ```
 
 Use `--chunk-dir PATH` if the cached chunks are elsewhere. If you only want to create
@@ -64,8 +75,8 @@ model's training set.
 
 - `python train_pe_lgbm.py` trains the legacy 65-feature shell model.
 - `python train_pe_lgbm.py --features v2` trains the combined shell/inner model for
-  analysis and experimentation. The dedicated inner-only scanner path is trained with
-  the additional `--inner-only` option above.
+  analysis and compatibility. For inference, train both specialized models with
+  `--inner-only` and `--not-unpacked-only` as shown above.
 
 See `dataset_paths.py --help` and `python train_pe_lgbm.py --help` for dataset and
 training options.

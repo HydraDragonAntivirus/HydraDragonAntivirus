@@ -360,6 +360,8 @@ def parse_args():
                              "(openedr_static ml/pe_combined.rs); uses its own chunk folder and output names")
     parser.add_argument("--inner-only", action="store_true",
                         help="Train a dedicated model only from successfully unpacked inner PEs in v2 chunks")
+    parser.add_argument("--not-unpacked-only", action="store_true",
+                        help="Train a shell-only model from v2 samples without a successfully unpacked inner PE")
     args = parser.parse_args()
     if args.features == "v2":
         if args.chunk_dir == "cache_chunks_pe":
@@ -368,13 +370,16 @@ def parse_args():
             args.output_bin = "pe_trees_v2.bin"
         if args.output_onnx == "pe_model.onnx":
             args.output_onnx = "pe_model_v2.onnx"
-    if args.inner_only:
+    if args.inner_only and args.not_unpacked_only:
+        parser.error("--inner-only and --not-unpacked-only are mutually exclusive")
+    if args.inner_only or args.not_unpacked_only:
         if args.features != "v2":
-            parser.error("--inner-only requires --features v2")
+            parser.error("--inner-only and --not-unpacked-only require --features v2")
+        suffix = "inner" if args.inner_only else "shell"
         if args.output_bin == "pe_trees_v2.bin":
-            args.output_bin = "pe_trees_inner.bin"
+            args.output_bin = f"pe_trees_{suffix}.bin"
         if args.output_onnx == "pe_model_v2.onnx":
-            args.output_onnx = "pe_model_inner.onnx"
+            args.output_onnx = f"pe_model_{suffix}.onnx"
     return args
 
 # ------------------------------------------------------------------ v2 (pe_feature_dump)
@@ -518,7 +523,7 @@ def extract_chunks_to_disk(file_list, executor, label_name, label_val, chunk_dir
     print(f"[+] Total {label_name} PE samples extracted: {total_valid}")
     return total_valid
 
-def load_chunks(chunk_dir, balance=False, max_benign_ratio=0.0, inner_only=False):
+def load_chunks(chunk_dir, balance=False, max_benign_ratio=0.0, inner_only=False, not_unpacked_only=False):
     """Load every feature chunk. By default ALL samples are used (benign > malicious is
     fine and lowers false positives); `balance` restores the old 50/50 undersampling.
     Exact duplicate feature rows are removed, and rows that occur in BOTH classes
@@ -540,16 +545,22 @@ def load_chunks(chunk_dir, balance=False, max_benign_ratio=0.0, inner_only=False
             if TRAIN_FEATURE_NAMES != list(FEATURE_NAMES) and TRAIN_FEATURE_NAMES != list(data["names"]):
                 raise RuntimeError(f"{cf}: other feature names than the earlier chunks (rebuild {chunk_dir})")
             TRAIN_FEATURE_NAMES = list(data["names"])
-        if inner_only:
+        if inner_only or not_unpacked_only:
             names = data.get("names")
             if not names:
                 raise RuntimeError(f"{cf}: --inner-only needs v2 chunks with feature names; rebuild with --features v2")
-            # Keep only the extracted PE's 65 structural features, its strings and
-            # managed-code marker. Do not train on shell, combined, or ratio fields.
-            selected = list(range(names.index("inner_size_of_optional_header"), names.index("inner_size_of_optional_header") + 65))
-            selected += [names.index(f"inner_{n}") for n in ("ascii_strings", "utf16_strings", "ascii_unicode_ratio", "is_dotnet")]
             source_i, is_pe_i = names.index("inner_source"), names.index("inner_is_pe")
-            mask = (data["X"][:, source_i] == 1.0) & (data["X"][:, is_pe_i] == 1.0)
+            unpacked = (data["X"][:, source_i] == 1.0) & (data["X"][:, is_pe_i] == 1.0)
+            if inner_only:
+                # Inner PE structure + inner strings + inner .NET marker only.
+                selected = list(range(names.index("inner_size_of_optional_header"), names.index("inner_size_of_optional_header") + 65))
+                selected += [names.index(f"inner_{n}") for n in ("ascii_strings", "utf16_strings", "ascii_unicode_ratio", "is_dotnet")]
+                mask = unpacked
+            else:
+                # Outer PE structure + shell strings + shell .NET marker only.
+                selected = list(range(names.index("shell_size_of_optional_header"), names.index("shell_size_of_optional_header") + 65))
+                selected += [names.index(f"shell_{n}") for n in ("ascii_strings", "utf16_strings", "ascii_unicode_ratio", "is_dotnet")]
+                mask = ~unpacked
             if not np.any(mask):
                 continue
             data_X = data["X"][mask][:, selected]
@@ -618,7 +629,7 @@ def main():
         return
 
     X, y = load_chunks(args.chunk_dir, balance=args.balance, max_benign_ratio=args.max_benign_ratio,
-                       inner_only=args.inner_only)
+                       inner_only=args.inner_only, not_unpacked_only=args.not_unpacked_only)
 
     # 70 % train, 15 % validation (threshold), 15 % test (final numbers).
     X_train, X_rest, y_train, y_rest = train_test_split(X, y, test_size=0.30, random_state=42, stratify=y)
@@ -666,7 +677,7 @@ def main():
     print(f"[*] Exporting standard binary tree bundle: {args.output_bin}...")
     export_standard_tree_bundle(clf, args.output_bin)
 
-    if args.inner_only:
+    if args.inner_only or args.not_unpacked_only:
         if args.no_sync:
             print(f"[*] --no-sync: {args.output_bin} not copied into engine model folders")
             return
@@ -674,9 +685,10 @@ def main():
         for models_dir in [os.path.join(repo_root, "OpenEDR", "openedr_static", "models"),
                            os.path.join(repo_root, "OpenMalwareScannerPortable", "models")]:
             if os.path.isdir(models_dir):
-                dest = os.path.join(models_dir, "pe_trees_inner.bin")
+                model_name = "pe_trees_inner.bin" if args.inner_only else "pe_trees_shell.bin"
+                dest = os.path.join(models_dir, model_name)
                 shutil.copy2(args.output_bin, dest)
-                print(f"[+] Successfully synced inner-only tree model to engine: {dest}")
+                print(f"[+] Successfully synced {model_name} to engine: {dest}")
         return
     if args.features == "v2":
         print(f"[!] v2 model ({X.shape[1]} features): {args.output_bin} is not copied into the engine model folders, "
