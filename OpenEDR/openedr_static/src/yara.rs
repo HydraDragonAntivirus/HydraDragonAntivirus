@@ -17,7 +17,9 @@ const PUA_META_PHRASES: [&str; 8] = [
 ];
 
 /// Name parts of indicator / heuristic rules (`SUSP_…`, `INDICATOR_SUSPICIOUS_…`): they
-/// describe something odd, not a malware family, and give Suspicious.
+/// describe something odd, not a malware family, and give Suspicious. By name only:
+/// metadata saying "suspicious" also covers malware family rules whose description starts
+/// "Detects suspicious …" (Andromeda, the Shamoon RawDisk agent, CrashOverride).
 const SUSPICIOUS_NAME_PARTS: [&str; 2] = ["susp", "suspicious"];
 
 /// Offensive tools used in real intrusions (credential theft, C2, lateral movement):
@@ -108,17 +110,13 @@ fn meta_says_pua(rule: &yara_x::Rule) -> bool {
     })
 }
 
-fn meta_says_suspicious(rule: &yara_x::Rule) -> bool {
-    meta_strings(rule).any(|(key, v)| v.contains("suspicious") || key.to_ascii_lowercase().contains("suspicious"))
-}
-
 /// Records the class of every rule in `rules` that has a PUA or suspicious mark.
 fn note_rule_classes(rules: &Rules) {
     let mut found: Vec<(String, RuleClass)> = Vec::new();
     for rule in rules.iter() {
         let name = rule.identifier();
         let pua = is_pua_name(name) || meta_says_pua(&rule);
-        let suspicious = has_name_part(name, &SUSPICIOUS_NAME_PARTS) || meta_says_suspicious(&rule);
+        let suspicious = has_name_part(name, &SUSPICIOUS_NAME_PARTS);
         if !(pua || suspicious) {
             continue;
         }

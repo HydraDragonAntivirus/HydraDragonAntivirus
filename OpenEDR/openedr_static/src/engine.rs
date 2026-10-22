@@ -101,16 +101,19 @@ pub const MALICIOUS_SCORE: f32 = 0.85;
 /// so a PUA hit alone gives Suspicious / PUA; another malicious layer still wins.
 pub const CLAM_PUA_SCORE: f32 = 0.60;
 
-/// YARA-X hit score: 0.95, or `CLAM_PUA_SCORE` for potentially unwanted rules
-/// (dual-use tools, adware, vulnerable drivers such as the LOLDrivers rules), so they
-/// give Suspicious / PUA instead of Malicious.
+/// YARA-X score of an indicator / heuristic rule (`SUSP_…`, `INDICATOR_SUSPICIOUS_…`,
+/// or metadata saying suspicious): the Suspicious cut-off.
+const YARA_SUSPICIOUS_SCORE: f32 = 0.50;
+
+/// YARA-X hit score by the rule's class (`yara::rule_class`: name parts and metadata):
+/// 0.95 for malware, `CLAM_PUA_SCORE` for potentially unwanted rules (dual-use tools,
+/// adware, vulnerable drivers such as the LOLDrivers rules) and `YARA_SUSPICIOUS_SCORE`
+/// for indicator rules, so those give PUA / Suspicious instead of Malicious.
 fn yara_score(name: &str) -> f32 {
-    // PUA by a name part anywhere (`PUA_`, `…_Hacktool_…`, `…_PUA_VULN_…`) or by the
-    // rule's metadata (`rule_category = "greyware_tool_keyword"`), see `yara::is_pua_rule`.
-    if crate::yara::is_pua_rule(name) {
-        CLAM_PUA_SCORE
-    } else {
-        0.95
+    match crate::yara::rule_class(name) {
+        crate::yara::RuleClass::Pua => CLAM_PUA_SCORE,
+        crate::yara::RuleClass::Suspicious => YARA_SUSPICIOUS_SCORE,
+        crate::yara::RuleClass::Malware => 0.95,
     }
 }
 
@@ -2256,9 +2259,9 @@ impl StaticEngine {
             // 2. YARA-X rules on page content
             let yara_hits = self.yara.scan_bytes(body.as_bytes());
             for hit in yara_hits {
-                // `PUA_*` rules: Suspicious / PUA, same as for files (see `yara_score`).
-                let pua = yara_score(&hit) < 0.85;
-                let (severity, score) = if pua { ("Suspicious", (CLAM_PUA_SCORE * 100.0) as u32) } else { ("Malicious", 95) };
+                // PUA / indicator rules: Suspicious, same as for files (see `yara_score`).
+                let s = yara_score(&hit);
+                let (severity, score) = if s < MALICIOUS_SCORE { ("Suspicious", (s * 100.0) as u32) } else { ("Malicious", 95) };
                 report.detections.push(crate::url_rules::UrlRuleHit {
                     rule_id: "CONTENT_YARA_SIGNATURE".to_string(),
                     title: format!("YARA Match: {}", hit),
@@ -2267,12 +2270,12 @@ impl StaticEngine {
                     details: format!("Page content matched YARA rule: {}", hit),
                 });
                 report.risk_score = report.risk_score.max(score);
-                if !pua {
+                if s >= MALICIOUS_SCORE {
                     report.verdict = "Malicious".to_string();
                     report.verdict_reason = format!("Content Decision (Malicious): Page content matched YARA signature ({}).", hit);
                 } else if report.verdict != "Malicious" {
                     report.verdict = "Suspicious".to_string();
-                    report.verdict_reason = format!("Content Decision (Suspicious / PUA): Page content matched PUA YARA rule ({}).", hit);
+                    report.verdict_reason = format!("Content Decision (Suspicious / PUA): Page content matched a PUA / indicator YARA rule ({}).", hit);
                 }
             }
         }
