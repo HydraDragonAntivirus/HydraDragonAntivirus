@@ -1235,19 +1235,6 @@ impl StaticEngine {
             None,
         );
 
-        // PE-specific heuristics on the extracted object
-        if object.bytes.starts_with(b"MZ") && pefile_rs::PE::parse(&object.bytes).is_ok() {
-            if let Some(detail) = hydradragonextractor::heuristics::inspect_pe_rva_trick(&object.bytes) {
-                obj_detections.push(DetectionItem {
-                    layer: "Heuristic_PE".to_string(),
-                    name: "HEUR:Win32.Susp.PE.RVATrick".to_string(),
-                    score: Some(0.90),
-                    details: Some(detail),
-                });
-                obj_max_score = obj_max_score.max(0.90);
-            }
-        }
-
         let verdict = if obj_max_score >= 0.85 {
             "Malicious"
         } else if obj_max_score >= 0.50 || !obj_detections.is_empty() {
@@ -2014,17 +2001,6 @@ impl StaticEngine {
                 details: Some(hit.details),
             });
             max_score = max_score.max(hit.score);
-        }
-        if data.starts_with(b"MZ") {
-            if let Some(detail) = hydradragonextractor::heuristics::inspect_pe_rva_trick(data) {
-                detections.push(DetectionItem {
-                    layer: "Heuristic_PE".to_string(),
-                    name: "HEUR:Win32.Susp.PE.RVATrick".to_string(),
-                    score: Some(0.90),
-                    details: Some(detail),
-                });
-                max_score = max_score.max(0.90);
-            }
         }
 
         // 10. Archive Recursive Extraction & Zip Bomb Detection

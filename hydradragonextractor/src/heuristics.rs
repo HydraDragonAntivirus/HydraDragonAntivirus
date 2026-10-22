@@ -144,7 +144,6 @@ struct ZipCdEntry {
     encrypted: bool,
     uncompressed_size: u64,
     is_dir: bool,
-    local_header_offset: u64,
 }
 
 fn read_u16(data: &[u8], off: usize) -> Option<u16> {
@@ -205,7 +204,6 @@ fn parse_zip_cd(data: &[u8]) -> Option<Vec<ZipCdEntry>> {
         let name_len = read_u16(data, cursor + 28)? as usize;
         let extra_len = read_u16(data, cursor + 30)? as usize;
         let comment_len = read_u16(data, cursor + 32)? as usize;
-        let local_off = read_u32(data, cursor + 42)? as u64;
         let name_start = cursor + 46;
         let name_end = name_start.saturating_add(name_len);
         let name_bytes = data.get(name_start..name_end)?;
@@ -218,7 +216,6 @@ fn parse_zip_cd(data: &[u8]) -> Option<Vec<ZipCdEntry>> {
             encrypted,
             uncompressed_size: uncompressed,
             is_dir,
-            local_header_offset: local_off,
         });
         cursor = name_end
             .saturating_add(extra_len)
@@ -288,11 +285,6 @@ fn inspect_zip(data: &[u8]) -> Vec<ArchiveHeuristic> {
                 entry_name: Some(e.name.clone()),
             });
         }
-        if !e.encrypted {
-            if let Some(trick) = inspect_stored_pe_rva(data, e) {
-                out.push(trick);
-            }
-        }
     }
 
     if single_encrypted_zip_yara(data) {
@@ -311,144 +303,10 @@ fn inspect_zip(data: &[u8]) -> Vec<ArchiveHeuristic> {
     out
 }
 
-fn inspect_stored_pe_rva(data: &[u8], entry: &ZipCdEntry) -> Option<ArchiveHeuristic> {
-    let local = entry.local_header_offset as usize;
-    if data.get(local..local + 4) != Some(&b"PK\x03\x04"[..]) {
-        return None;
-    }
-    let flags = read_u16(data, local + 6)?;
-    if flags & ZIP_ENCRYPT_FLAG != 0 {
-        return None;
-    }
-    let method = read_u16(data, local + 8)?;
-    if method != 0 {
-        return None;
-    }
-    let name_len = read_u16(data, local + 26)? as usize;
-    let extra_len = read_u16(data, local + 28)? as usize;
-    let start = local.saturating_add(30).saturating_add(name_len).saturating_add(extra_len);
-    let slice = data.get(start..)?;
-    let pe = if slice.len() > 2 * 1024 * 1024 {
-        &slice[..2 * 1024 * 1024]
-    } else {
-        slice
-    };
-    let detail = inspect_pe_rva_trick(pe)?;
-    Some(ArchiveHeuristic {
-        name: "HEUR:Win32.Susp.PE.RVATrick",
-        score: 0.90,
-        details: format!("{} in ZIP member '{}'", detail, entry.name),
-        entry_name: Some(entry.name.clone()),
-    })
-}
-
-pub fn inspect_pe_rva_trick(data: &[u8]) -> Option<String> {
-    if data.len() < 0x40 || data[0] != b'M' || data[1] != b'Z' {
-        return None;
-    }
-    let e_lfanew = read_u32(data, 0x3c)? as usize;
-    if e_lfanew < 0x40 || e_lfanew.saturating_add(24) > data.len() {
-        return None;
-    }
-    if data.get(e_lfanew..e_lfanew + 4) != Some(&b"PE\0\0"[..]) {
-        return None;
-    }
-    let num_sections = read_u16(data, e_lfanew + 6)? as usize;
-    let size_of_optional = read_u16(data, e_lfanew + 20)? as usize;
-    let opt = e_lfanew + 24;
-    if opt + 18 > data.len() {
-        return None;
-    }
-    let magic = read_u16(data, opt)?;
-    if magic != 0x10b && magic != 0x20b {
-        return None;
-    }
-    let ep_rva = read_u32(data, opt + 16)?;
-    let size_of_image = if magic == 0x10b {
-        read_u32(data, opt + 56)?
-    } else {
-        read_u32(data, opt + 56)?
-    };
-    let num_rva = if magic == 0x10b {
-        read_u32(data, opt + 92).unwrap_or(16)
-    } else {
-        read_u32(data, opt + 108).unwrap_or(16)
-    };
-    if num_rva == 0 && ep_rva != 0 {
-        return Some(format!(
-            "NumberOfRvaAndSizes is 0 but AddressOfEntryPoint is 0x{ep_rva:x}"
-        ));
-    }
-    if num_sections == 0 || num_sections > 96 {
-        return Some(format!("implausible NumberOfSections={num_sections}"));
-    }
-    let sec_off = opt + size_of_optional;
-    // A debug-symbol image (objcopy --only-keep-debug, "foo.exe.debug") keeps the
-    // section table but no code bytes: every executable section has no raw data.
-    // Nothing on disk can run, so an entry point there is not a trick.
-    let mut exec_on_disk = false;
-    let mut any_exec = false;
-    for i in 0..num_sections {
-        let s = sec_off + i * 40;
-        if s + 40 > data.len() {
-            break;
-        }
-        let raw_size = read_u32(data, s + 16)?;
-        let chars = read_u32(data, s + 36)?;
-        if chars & 0x2000_0020 != 0 {
-            any_exec = true;
-            if raw_size > 0 {
-                exec_on_disk = true;
-            }
-        }
-    }
-    if any_exec && !exec_on_disk {
-        return None;
-    }
-    let mut in_virtual = false;
-    let mut in_raw = false;
-    for i in 0..num_sections {
-        let s = sec_off + i * 40;
-        if s + 40 > data.len() {
-            break;
-        }
-        let vs = read_u32(data, s + 8)?;
-        let va = read_u32(data, s + 12)?;
-        let raw_size = read_u32(data, s + 16)?;
-        let span = vs.max(raw_size);
-        if ep_rva >= va && ep_rva < va.saturating_add(span) {
-            in_virtual = true;
-            let delta = ep_rva - va;
-            if delta < raw_size {
-                in_raw = true;
-            }
-        }
-    }
-    if ep_rva != 0 && ep_rva >= size_of_image && size_of_image != 0 {
-        return Some(format!(
-            "AddressOfEntryPoint RVA 0x{ep_rva:x} is past SizeOfImage 0x{size_of_image:x} (overlay EP)"
-        ));
-    }
-    if ep_rva != 0 && !in_virtual {
-        return Some(format!(
-            "AddressOfEntryPoint RVA 0x{ep_rva:x} is outside all sections"
-        ));
-    }
-    if in_virtual && !in_raw {
-        return Some(format!(
-            "AddressOfEntryPoint RVA 0x{ep_rva:x} lands in virtual-only section padding"
-        ));
-    }
-    // No "EP in a non-executable section" check: signed drivers (ASMedia
-    // asmtxhci.sys / asmthub3.sys, EP in .rdata) and small hand-made DLLs
-    // (code in .data) do this and run fine, so it was a false positive source.
-    None
-}
-
 fn inspect_7z(data: &[u8]) -> Vec<ArchiveHeuristic> {
     let mut out = Vec::new();
     let mut cursor = Cursor::new(data);
-    let Ok(mut reader) =
+    let Ok(reader) =
         sevenz_rust2::ArchiveReader::new(&mut cursor, sevenz_rust2::Password::from(""))
     else {
         return out;
@@ -510,19 +368,6 @@ fn inspect_7z(data: &[u8]) -> Vec<ArchiveHeuristic> {
             entry_name: Some(files[0].0.clone()),
         });
     }
-    let bait = files.iter().find(|(_, e, _)| !*e).map(|(n, _, _)| n.as_str());
-    if let Some(name) = bait {
-        if let Ok(buf) = reader.read_file(name) {
-            if let Some(detail) = inspect_pe_rva_trick(&buf) {
-                out.push(ArchiveHeuristic {
-                    name: "HEUR:Win32.Susp.PE.RVATrick",
-                    score: 0.90,
-                    details: format!("{detail} in 7z member '{name}'"),
-                    entry_name: Some(name.to_string()),
-                });
-            }
-        }
-    }
     out
 }
 
@@ -542,14 +387,6 @@ fn inspect_tar(data: &[u8]) -> Vec<ArchiveHeuristic> {
                     "TAR {} bytes contains '{}' of {} bytes",
                     archive_len, e.name, e.size_real
                 ),
-                entry_name: Some(e.name.clone()),
-            });
-        }
-        if let Some(detail) = inspect_pe_rva_trick(&e.data) {
-            out.push(ArchiveHeuristic {
-                name: "HEUR:Win32.Susp.PE.RVATrick",
-                score: 0.90,
-                details: format!("{} in TAR member '{}'", detail, e.name),
                 entry_name: Some(e.name.clone()),
             });
         }
@@ -705,28 +542,6 @@ mod tests {
     }
 
     #[test]
-    fn debug_symbol_image_is_not_rva_trick() {
-        // .text with virtual size but no raw data, EP inside it (objcopy --only-keep-debug).
-        let mut pe = vec![0u8; 0x200];
-        pe[0] = b'M';
-        pe[1] = b'Z';
-        pe[0x3c] = 0x80;
-        pe[0x80..0x84].copy_from_slice(b"PE\0\0");
-        pe[0x86] = 1;
-        pe[0x80 + 20] = 0xe0;
-        pe[0x80 + 24] = 0x0b;
-        pe[0x80 + 25] = 0x01;
-        pe[0x80 + 24 + 16..0x80 + 24 + 20].copy_from_slice(&0x1400u32.to_le_bytes());
-        pe[0x80 + 24 + 56..0x80 + 24 + 60].copy_from_slice(&0x10000u32.to_le_bytes());
-        pe[0x80 + 24 + 92..0x80 + 24 + 96].copy_from_slice(&16u32.to_le_bytes());
-        let sec = 0x80 + 24 + 0xe0;
-        pe[sec + 8..sec + 12].copy_from_slice(&0x5000u32.to_le_bytes());
-        pe[sec + 12..sec + 16].copy_from_slice(&0x1000u32.to_le_bytes());
-        pe[sec + 36..sec + 40].copy_from_slice(&0x6000_0020u32.to_le_bytes());
-        assert_eq!(inspect_pe_rva_trick(&pe), None);
-    }
-
-    #[test]
     fn excessive_spaces_detected() {
         let name = format!("photo{}.exe", " ".repeat(12));
         let det = detect_suspicious_filename(&name);
@@ -765,30 +580,5 @@ mod tests {
             hits.iter().any(|h| h.name.contains("RLO")),
             "{hits:?}"
         );
-    }
-
-    #[test]
-    fn pe_ep_outside_sections_is_rva_trick() {
-        let mut pe = vec![0u8; 0x200];
-        pe[0] = b'M';
-        pe[1] = b'Z';
-        pe[0x3c] = 0x80;
-        pe[0x80..0x84].copy_from_slice(b"PE\0\0");
-        pe[0x86] = 1;
-        pe[0x80 + 20] = 0xe0;
-        pe[0x80 + 24] = 0x0b;
-        pe[0x80 + 25] = 0x01;
-        let ep = 0x00ff_0000u32;
-        pe[0x80 + 24 + 16..0x80 + 24 + 20].copy_from_slice(&ep.to_le_bytes());
-        pe[0x80 + 24 + 56..0x80 + 24 + 60].copy_from_slice(&0x1000u32.to_le_bytes());
-        let sec = 0x80 + 24 + 0xe0;
-        if sec + 40 <= pe.len() {
-            pe[sec + 12..sec + 16].copy_from_slice(&0x1000u32.to_le_bytes());
-            pe[sec + 8..sec + 12].copy_from_slice(&0x200u32.to_le_bytes());
-            pe[sec + 16..sec + 20].copy_from_slice(&0x200u32.to_le_bytes());
-            pe[sec + 36..sec + 40].copy_from_slice(&0x6000_0020u32.to_le_bytes());
-        }
-        let hit = inspect_pe_rva_trick(&pe);
-        assert!(hit.is_some(), "expected RVA trick, got {hit:?}");
     }
 }
