@@ -233,6 +233,14 @@ ML kararları `.ign2` listelerinden **etkilenmez**. Sıra:
 `open` / `alyzer/scan` çıktısındaki ML açıklaması, skoru hangi özelliklerin yukarı ittiğini
 gösterir. Bilinen FP kalıpları:
 
+- **Paketli dosya kabuğu / açılmış payload çelişkisi:** Raporun `extracted_objects` alanında
+  `origin_type = "UnpackedPE"` olan iç PE `Clean` iken üst dosyanın tespitleri zararlı diyorsa,
+  `Unpack_Analysis / PossibleFalsePositive.PackedShellOnly` notu görünür. Bu, kabuk tespitinin
+  olası FP olduğuna dair analizci uyarısıdır; üst dosyanın verdict'ini otomatik olarak `clean`
+  yapmaz. İç PE'nin temiz tarandığını doğrula, üst dosyanın hangi katmanda yakalandığını
+  (`detections[].layer`, `name`, `details`) incele ve kanıt yeterliyse dosyaya §3.1'deki gibi
+  tekil `clean` kararı ver. Unpack sonucu yoksa veya iç PE de tespit aldıysa bu uyarı üretilmez.
+
 - **Paketli/elle yazılmış küçük araçlar** (az import, IAT girdisi yok, yüksek entropi): model
   packer kabuğuna tepki verir. Örnek: GRC ValiDrive (PECompact).
 - **.NET uygulamaları** (tek import `mscoree.dll`, 8 baytlık IAT): her .NET exe'si dışarıdan aynı

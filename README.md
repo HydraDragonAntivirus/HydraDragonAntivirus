@@ -297,8 +297,9 @@ See the [LICENSE](./LICENSE) file for more information.
 - **Password:** infected
 
 ## Machine Learning Training Guide
-- Install malicious (datamaliciousorder) and benign (data2) database, then install requirements.txt from train.py and just run train.py with the same folder as datamaliciousorder and data2.
-- Then delete results.pkl and rename ml_definitions.pkl to results.pkl to consolidate the pickled data.
+- PE model training, including the shell-independent model for successfully unpacked
+  files, is documented in [hydradragon_ml_models/TRAINING_GUIDE.md](hydradragon_ml_models/TRAINING_GUIDE.md).
+- The dedicated inner model is trained with `python train_pe_lgbm.py --features v2 --inner-only`.
 
 ## Guide to compiling from source
 - Build documentation is being split into component pages.

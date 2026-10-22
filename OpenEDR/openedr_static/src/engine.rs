@@ -1693,6 +1693,9 @@ impl StaticEngine {
 
         // 6. Unicorn PE CPU Emulation & Unpacker (Tier 3: Conditional Generic Dynamic Unpacking)
         let is_pe_candidate = is_pe && data.len() >= 0x1000;
+        // Preserve the packed file's own score before combining it with child
+        // objects, so a clean unpacked payload can be reported as an FP review hint.
+        let parent_score_before_unpack = max_score;
         let should_unpack = is_pe_candidate && (max_score < 0.95) && {
             if let Ok(pe) = pefile_rs::PE::parse(data) {
                 let has_packer_section = pe.sections.iter().any(|s| {
@@ -1746,6 +1749,14 @@ impl StaticEngine {
                                     name: format!("Unpacked:{}", d.name),
                                     score: d.score,
                                     details: d.details.clone(),
+                                });
+                            }
+                            if parent_score_before_unpack >= 0.85 && extracted.verdict == "Clean" {
+                                detections.push(DetectionItem {
+                                    layer: "Unpack_Analysis".to_string(),
+                                    name: "PossibleFalsePositive.PackedShellOnly".to_string(),
+                                    score: None,
+                                    details: Some("The packed file triggered a malicious-level detection, but the successfully unpacked PE had no detections. Possible false positive; the original verdict is retained for review.".to_string()),
                                 });
                             }
                             extracted_objects.push(extracted);

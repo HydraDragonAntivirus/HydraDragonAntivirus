@@ -269,7 +269,31 @@ pub fn dotnet_kind(data: &[u8]) -> u8 {
 /// Shell 65 + shell strings 3 + inner 65 + inner strings 3 + meta 4 + combined strings 3
 /// + shell / inner `dotnet_kind`.
 pub const PE_V2_FEATURE_COUNT: usize = 65 + 3 + 65 + 3 + 4 + 3 + 2;
+pub const PE_INNER_FEATURE_COUNT: usize = 65 + 3 + 1;
 
+/// Features for the dedicated successfully-unpacked PE model. No shell, combined,
+/// or shell-relative values are included.
+pub fn extract_unpacked_inner_features(data: &[u8]) -> Option<[f32; PE_INNER_FEATURE_COUNT]> {
+    let v = extract_pe_features_v2(data)?;
+    if v[136] != InnerSource::Unpacked as u8 as f32 || v[137] != 1.0 { return None; }
+    let mut out = [0.0; PE_INNER_FEATURE_COUNT];
+    out[..65].copy_from_slice(&v[68..133]);
+    out[65..68].copy_from_slice(&v[133..136]);
+    out[68] = v[144];
+    Some(out)
+}
+
+pub fn pe_inner_feature_names_static() -> &'static [&'static str] {
+    static NAMES: std::sync::OnceLock<Vec<&'static str>> = std::sync::OnceLock::new();
+    NAMES.get_or_init(|| {
+        let mut names: Vec<String> = PeFeatureVector::NAMES.iter().map(|s| format!("inner_{s}")).collect();
+        names.extend(["inner_ascii_strings", "inner_utf16_strings", "inner_ascii_unicode_ratio", "inner_is_dotnet"].map(String::from));
+        names.into_iter().map(|s| &*Box::leak(s.into_boxed_str())).collect()
+    })
+}
+
+/// Remove outer-file influence from ML scoring when the inner PE was unpacked.
+/// The raw feature extractor remains unchanged for diagnostics and training data.
 /// The v2 vector of `data`; None when the file is not a PE the v1 extractor reads.
 pub fn extract_pe_features_v2(data: &[u8]) -> Option<[f32; PE_V2_FEATURE_COUNT]> {
     let shell = extract_pe_features(data)?.to_array();
