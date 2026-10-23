@@ -18,10 +18,13 @@ on:
     branches: [ "development-version" ]
   schedule:
     - cron: '23 22 * * 5'
+    - cron: '17 3 * * *'
+  workflow_dispatch:
 
 jobs:
   analyze:
     name: Analyze (${{ matrix.language }})
+    if: github.event_name != 'schedule' || github.event.schedule == '23 22 * * 5'
     # Runner size impacts CodeQL analysis time. To learn more, please see:
     #   - https://gh.io/recommended-hardware-resources-for-running-codeql
     #   - https://gh.io/supported-runners-and-hardware-resources
@@ -59,8 +62,6 @@ jobs:
           build-mode: none
         - language: ruby
           build-mode: none
-        - language: rust
-          build-mode: none
         # CodeQL supports the following values keywords for 'language': 'actions', 'c-cpp', 'csharp', 'go', 'java-kotlin', 'javascript-typescript', 'python', 'ruby', 'rust', 'swift'
         # Use `c-cpp` to analyze code written in C, C++ or both
         # Use 'java-kotlin' to analyze code written in Java, Kotlin or both
@@ -95,6 +96,11 @@ jobs:
       with:
         languages: ${{ matrix.language }}
         build-mode: ${{ matrix.build-mode }}
+        config: |
+          paths-ignore:
+            - hayabusa
+            - hydradragonunicorn
+            - unicorn-engine-sys
         # If you wish to specify custom queries, you can do so here or in a config file.
         # By default, queries listed here will override any specified in a config file.
         # Prefix the list here with "+" to use these queries and those in the config file.
@@ -123,3 +129,43 @@ jobs:
       uses: github/codeql-action/analyze@v3
       with:
         category: "/language:${{matrix.language}}"
+
+  analyze-rust:
+    name: Analyze (rust)
+    if: github.event_name == 'workflow_dispatch' || github.event.schedule == '17 3 * * *'
+    runs-on: windows-2022
+    permissions:
+      security-events: write
+      packages: read
+      actions: read
+      contents: read
+
+    steps:
+    - name: Enable Git long paths
+      run: git config --global core.longpaths true
+
+    - name: Checkout repository
+      uses: actions/checkout@v6
+      with:
+        fetch-depth: 0
+        sparse-checkout: |
+          /*
+          !**/doc/html/**
+          !**/doc/pdf/**
+        sparse-checkout-cone-mode: false
+
+    - name: Initialize CodeQL
+      uses: github/codeql-action/init@v3
+      with:
+        languages: rust
+        build-mode: none
+        config: |
+          paths-ignore:
+            - hayabusa
+            - hydradragonunicorn
+            - unicorn-engine-sys
+
+    - name: Perform CodeQL Analysis
+      uses: github/codeql-action/analyze@v3
+      with:
+        category: "/language:rust"
