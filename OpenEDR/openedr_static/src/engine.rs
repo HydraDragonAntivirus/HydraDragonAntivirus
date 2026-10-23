@@ -2031,7 +2031,7 @@ impl StaticEngine {
             }
         }
 
-        // 9. Archive heuristics (encrypted bait, RLO names, PE RVA tricks)
+        // 9. Archive heuristics (encrypted bait, RLO names)
         for hit in hydradragonextractor::heuristics::inspect_archive(data) {
             detections.push(DetectionItem {
                 layer: "Heuristic_Archive".to_string(),
