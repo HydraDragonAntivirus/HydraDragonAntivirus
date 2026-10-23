@@ -392,20 +392,19 @@ impl ThreatIntelStore {
             }
             entry.last_seen = now_str;
 
-            // Upgrade verdict if a better analysis emerged. A placeholder "unknown"
-            // (recorded by `check` before the upload) is replaced by any real verdict,
-            // so files that turn out clean leave the unknown bucket.
-            let rank = |v: &str| match v {
-                "malicious" => 3,
-                "suspicious" => 2,
-                "clean" => 2,
-                "possible_clean" => 1,
-                _ => 0,
-            };
-            if rank(verdict) > rank(&entry.verdict) {
+            // The latest real verdict wins, lower ones too: once malicious stayed malicious
+            // before, so a false positive fixed in the engine (or a file now PUA /
+            // suspicious) kept counting as malicious for every hash that was not kept here
+            // to rescan. "unknown" (the `check` placeholder before the upload, scans
+            // answered by a human verdict, scans that could not decide) never replaces a
+            // real verdict, and any real verdict replaces it.
+            if verdict != "unknown" && verdict != entry.verdict {
                 entry.verdict = verdict.to_string();
+                entry.threat_name = threat.map(str::to_string);
+                entry.score = score;
+            } else if verdict == entry.verdict {
                 if let Some(t) = threat {
-                    entry.threat_name = Some(t.to_string());
+                    entry.threat_name.get_or_insert_with(|| t.to_string());
                 }
                 entry.score = score.max(entry.score);
             }
