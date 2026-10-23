@@ -109,6 +109,8 @@ impl VerdictCache {
             let Ok(l) = serde_json::from_str::<Line>(&line) else { continue };
             let Some(sha) = parse_sha(&l.s) else { continue };
             if now - l.v.at > self.ttl_for(&l.v.verdict) {
+                // A later expired line (a `forget` tombstone) drops the older one too.
+                g.map.remove(&sha);
                 continue;
             }
             if g.map.insert(sha, l.v).is_none() {
@@ -136,6 +138,8 @@ impl VerdictCache {
             let Ok(l) = serde_json::from_str::<Line>(line) else { continue };
             let Some(sha) = parse_sha(&l.s) else { continue };
             if now - l.v.at > self.ttl_for(&l.v.verdict) {
+                // A later expired line (a `forget` tombstone) drops the older one too.
+                g.map.remove(&sha);
                 continue;
             }
             if g.map.insert(sha, l.v).is_none() {
@@ -202,6 +206,19 @@ impl VerdictCache {
         while g.order.len() > self.max {
             if let Some(old) = g.order.pop_front() {
                 g.map.remove(&old);
+            }
+        }
+    }
+
+    /// Drops one verdict, also from the file after a restart (an expired tombstone line).
+    pub fn forget(&self, sha: &Sha) {
+        if self.inner.lock().unwrap().map.remove(sha).is_none() {
+            return;
+        }
+        if let Some(w) = &self.writer {
+            let line = Line { s: hex::encode_upper(sha), v: CachedVerdict { verdict: "unknown".into(), threat: None, detail: None, score: 0.0, at: 0 } };
+            if let Ok(s) = serde_json::to_string(&line) {
+                let _ = w.send(CacheMsg::Line(s));
             }
         }
     }

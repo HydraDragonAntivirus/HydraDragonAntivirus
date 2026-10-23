@@ -622,6 +622,45 @@ impl ThreatIntelStore {
             .count()
     }
 
+    /// Engine-malicious hashes whose file the server does not have (never kept, dropped by
+    /// the quota, moved away): nothing can rescan them, so a false positive of an older
+    /// engine would be answered and counted as malicious for good. They go back to
+    /// unknown and the next upload is scanned again. A human verdict is left alone.
+    /// Returns the reset hashes (lowercase).
+    pub fn forget_malicious_without_file(&self, has_file: &dyn Fn(&str) -> bool) -> Vec<String> {
+        let todo: Vec<Sha> = {
+            let guard = self.map.read().unwrap();
+            guard
+                .iter()
+                .filter(|(_, i)| i.verdict == "malicious")
+                .filter(|(sha, _)| self.reviews.completed_verdict_raw(sha).is_none())
+                .filter(|(sha, _)| !has_file(&hex::encode_upper(sha)))
+                .map(|(sha, _)| *sha)
+                .collect()
+        };
+        let mut out = Vec::with_capacity(todo.len());
+        for sha in todo {
+            let updated = {
+                let mut guard = self.map.write().unwrap();
+                let Some(entry) = guard.get_mut(&sha) else { continue };
+                if entry.verdict != "malicious" {
+                    continue;
+                }
+                entry.verdict = "unknown".into();
+                crate::verdict_history::record(&entry.sha256, "engine", Some("malicious"), "unknown", None, "no_file", "");
+                entry.threat_name = None;
+                entry.score = 0.0;
+                entry.detections.clear();
+                entry.clone()
+            };
+            out.push(updated.sha256.to_ascii_lowercase());
+            if let Some(writer) = &self.writer {
+                let _ = writer.send(WriterMsg::Item(updated));
+            }
+        }
+        out
+    }
+
     /// Puts files with this engine verdict and no human review into the queue again,
     /// also the ones an analyst removed when `include_removed`. Only files kept on the
     /// server. Returns how many.
