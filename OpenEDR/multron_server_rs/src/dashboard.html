@@ -652,6 +652,8 @@
               <option value="">Source: any</option>
               <option value="auto">Engine (auto)</option>
               <option value="user">Website user</option>
+              <option value="false_positive">False-positive report</option>
+              <option value="false_negative">False-negative report</option>
               <option value="rescan">Rescan</option>
             </select>
           </div>
@@ -808,6 +810,8 @@
           <option value="">Source: any</option>
           <option value="auto">Engine (auto)</option>
           <option value="user">Website user</option>
+          <option value="false_positive">False-positive report</option>
+          <option value="false_negative">False-negative report</option>
           <option value="rescan">Rescan</option>
         </select>
       </div>
@@ -1967,7 +1971,7 @@ window.sigKey = (list) => list && list.length ? `${list[0].layer}: ${list[0].nam
         const folders = [...(r.full_folders || []), ...(r.folders || [])].join("\n");
         html += `<tr class="it${haSel.has(r.sha256) ? " sel" : ""}${haCur === r.sha256 ? " cur" : ""}" data-sha="${r.sha256}">
           <td><input type="checkbox" data-sel="${r.sha256}" ${haSel.has(r.sha256) ? "checked" : ""}></td>
-          <td class="file" title="${haEsc((r.file_names || [haName(r)]).join("\n") + "\n" + r.sha256)}"><b>${haEsc(haName(r) || r.sha256.slice(0, 16) + "…")}</b>${r.source === "user" ? ' <span class="tag t-connect">user</span>' : ""}${r.signer ? `<div class="sgline">${haSigner(r, false)}</div>` : ""}</td>
+          <td class="file" title="${haEsc((r.file_names || [haName(r)]).join("\n") + "\n" + r.sha256)}"><b>${haEsc(haName(r) || r.sha256.slice(0, 16) + "…")}</b>${r.source === "user" ? ' <span class="tag t-connect">user</span>' : r.source === "false_positive" ? ' <span class="tag t-connect">false positive report</span>' : r.source === "false_negative" ? ' <span class="tag t-connect">false negative report</span>' : ""}${r.signer ? `<div class="sgline">${haSigner(r, false)}</div>` : ""}</td>
           <td class="eng" title="${haEsc(r.engine_detail || r.current_threat || "")}">${haVTag(eng)}${haTypeTag(r.classification)}${(r.detections || []).length ? sigChips(r.detections, 3) : r.engine_detail || r.current_threat ? `<div class="engd">${haEsc(r.engine_detail || r.current_threat)}</div>` : ""}</td>
           <td class="num">${r.seen_count || 0}</td>
           <td class="num">${haSize(r.file_size)}</td>

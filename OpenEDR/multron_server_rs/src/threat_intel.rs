@@ -930,12 +930,12 @@ fn start_batch_writer(path: PathBuf) -> mpsc::Sender<WriterMsg> {
                             let _ = done.send(());
                         }
                     }
-                    if buffer.len() >= 512 {
+                    if buffer.len() >= 4096 {
                         break;
                     }
                 }
 
-                if buffer.len() >= 64 || last_flush.elapsed() >= Duration::from_secs(2) {
+                if buffer.len() >= 2048 || last_flush.elapsed() >= Duration::from_secs(2) {
                     flush_insights(&path, &mut buffer);
                     last_flush = std::time::Instant::now();
                 }
@@ -955,13 +955,22 @@ fn flush_insights(path: &Path, buffer: &mut Vec<ThreatInsight>) {
         return;
     }
 
+    let mut last: HashMap<&str, usize> = HashMap::with_capacity(buffer.len());
+    for (i, item) in buffer.iter().enumerate() {
+        last.insert(item.sha256.as_str(), i);
+    }
+    let keep: std::collections::HashSet<usize> = last.into_values().collect();
+
     let Ok(file) = OpenOptions::new().create(true).append(true).open(path) else {
         buffer.clear();
         return;
     };
 
     let mut writer = BufWriter::new(file);
-    for item in buffer.drain(..) {
+    for (i, item) in buffer.drain(..).enumerate() {
+        if !keep.contains(&i) {
+            continue;
+        }
         if let Ok(serialized) = serde_json::to_string(&item) {
             let _ = writeln!(writer, "{}", serialized);
         }

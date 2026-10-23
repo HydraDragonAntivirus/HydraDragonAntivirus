@@ -41,6 +41,8 @@ const UPLOAD_WINDOW_FACTOR: usize = 4;
 /// files the server answers with `need_upload`. Version 2 clients (scan only) still work.
 pub const PROTOCOL_VERSION: i32 = 3;
 const MIN_PROTOCOL_VERSION: i32 = 2;
+const REPORT_BURST: f64 = 20.0;
+const REPORTS_PER_SEC: f64 = 0.2;
 
 #[derive(Debug, Deserialize)]
 struct ClientMessage {
@@ -72,6 +74,10 @@ struct ClientMessage {
     /// Bytes on the wire when `encoding` is set; `size` stays the original size.
     #[serde(default)]
     pub csize: i64,
+    #[serde(default)]
+    pub note: String,
+    #[serde(default)]
+    pub status: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -315,6 +321,7 @@ pub struct SessionHandle {
     pub uploads: AtomicI64,
     pub in_flight: AtomicUsize,
     pub abort_tx: mpsc::Sender<()>,
+    pub end_status: RwLock<Option<String>>,
 }
 
 impl ScanServer {
@@ -443,6 +450,10 @@ impl ScanServer {
             .route(
                 "/api/v1/disinfect",
                 post(handle_disinfect).route_layer(DefaultBodyLimit::max(DISINFECT_MAX_BYTES)),
+            )
+            .route(
+                "/api/v1/client-disinfect",
+                post(handle_client_disinfect).route_layer(DefaultBodyLimit::max(DISINFECT_MAX_BYTES)),
             )
             .route("/api/v1/restore/:sha256", get(handle_restore_download))
             .route("/api/v1/reviews/request/:sha256", post(handle_review_request))
@@ -898,11 +909,32 @@ fn public_type_stats(mut v: serde_json::Value) -> serde_json::Value {
 }
 
 /// Public telemetry totals for the website statistics page.
+fn cached_intel_stats(server: &ScanServer) -> crate::threat_intel::ThreatIntelStats {
+    static CACHE: StdMutex<Option<(std::time::Instant, crate::threat_intel::ThreatIntelStats)>> = StdMutex::new(None);
+    let mut g = CACHE.lock().unwrap();
+    if let Some((t, v)) = g.as_ref() {
+        if t.elapsed() < Duration::from_secs(60) {
+            return v.clone();
+        }
+    }
+    let v = server.threat_intel.stats();
+    *g = Some((std::time::Instant::now(), v.clone()));
+    v
+}
+
 async fn handle_insights_stats(State(server): State<Arc<ScanServer>>) -> Response {
     // No per-IP quota here: the website polls this endpoint, and the 500/day quota of the
     // hash lookups was used up in about an hour, after which the numbers froze.
-    let stats = server.threat_intel.stats();
-    let absent = cached_absent_unknown(&server).min(stats.unknown_count);
+    let srv = Arc::clone(&server);
+    let Ok((stats, absent, types)) = tokio::task::spawn_blocking(move || {
+        let stats = cached_intel_stats(&srv);
+        let absent = cached_absent_unknown(&srv).min(stats.unknown_count);
+        (stats, absent, cached_type_stats(&srv))
+    })
+    .await
+    else {
+        return StatusCode::SERVICE_UNAVAILABLE.into_response();
+    };
     let response = serde_json::json!({
         "status": "success",
         "engine": ENGINE_NAME,
@@ -910,7 +942,7 @@ async fn handle_insights_stats(State(server): State<Arc<ScanServer>>) -> Respons
         // Public numbers only (no analyst names); the dashboard has the full stats.
         "human_analysis": server.threat_intel.reviews.public_stats(),
         // Malicious + suspicious files by malware type (all time and last 7 days).
-        "types": public_type_stats(cached_type_stats(&server)),
+        "types": public_type_stats(types),
         "telemetry": {
             // Unknown hashes without a file on the server are not counted.
             "total_unique_hashes": stats.total_unique_hashes - absent,
@@ -991,6 +1023,7 @@ async fn handle_socket(socket: WebSocket, server: Arc<ScanServer>, client_ip: St
         uploads: AtomicI64::new(0),
         in_flight: AtomicUsize::new(0),
         abort_tx,
+        end_status: RwLock::new(None),
     });
 
     server
@@ -1010,8 +1043,14 @@ async fn handle_socket(socket: WebSocket, server: Arc<ScanServer>, client_ip: St
     server.release_ip(&client_ip);
     server.sessions.write().await.remove(&session_id);
 
+    let ending = match session_handle.end_status.read().await.as_deref() {
+        Some("completed") => "finished",
+        Some("cancelled") => "cancelled by user",
+        _ => "connection dropped",
+    };
     let mut msg = format!(
-        "{} file(s) answered, {} uploaded",
+        "{}: {} file(s) answered, {} uploaded",
+        ending,
         session_handle.scanned.load(Ordering::Relaxed),
         session_handle.uploads.load(Ordering::Relaxed)
     );
@@ -1124,12 +1163,14 @@ async fn session_loop(
             "engine": ENGINE_NAME,
             "pipeline": pipeline,
             "checkBatch": server.limits.max_check_batch(),
+            "checksPerSec": server.limits.checks_per_sec(),
             "maxMB": server.limits.max_mb(),
             // Compressed uploads the client may use (it falls back to raw otherwise).
             "encodings": ["br"],
             // Seamless update in progress: scans go on; the connection is moved to the
             // new version in a few seconds (reconnect when it closes).
             "updating": server.updating(),
+            "features": ["report_fp", "report_fn"],
         }),
     );
 
@@ -1147,6 +1188,7 @@ async fn session_loop(
     let check_rate = || server.limits.checks_per_sec() as f64;
     let mut msg_bucket = Bucket::full(msg_rate() * 2.0);
     let mut check_bucket = Bucket::full(check_rate() * 2.0);
+    let mut report_bucket = Bucket::full(REPORT_BURST);
     let flood = |what: &str| {
         server.limiter.strike(&session.address);
         send_error(out, None, &format!("too many {what}, slow down"));
@@ -1189,7 +1231,13 @@ async fn session_loop(
                 if !check_bucket.take(msg.items.len().max(1) as f64, check_rate() * 2.0, check_rate()) {
                     return flood("hash checks");
                 }
-                handle_check(server, session, out, msg.items, server.limits.max_bytes())?
+                let items = msg.items;
+                let max_bytes = server.limits.max_bytes();
+                if tokio::runtime::Handle::current().runtime_flavor() == tokio::runtime::RuntimeFlavor::MultiThread {
+                    tokio::task::block_in_place(|| handle_check(server, session, out, items, max_bytes))?
+                } else {
+                    handle_check(server, session, out, items, max_bytes)?
+                }
             }
             "scan" => {
                 if server.maintenance() {
@@ -1215,6 +1263,21 @@ async fn session_loop(
                     }
                     Err(err) => send_error(out, Some(msg.id), &err),
                 }
+            }
+            "report_fp" | "report_fn" => {
+                if !report_bucket.take(1.0, REPORT_BURST, REPORTS_PER_SEC) {
+                    send_error(out, Some(msg.id), "too many reports, try again in a few minutes");
+                    continue;
+                }
+                handle_verdict_report(server, session, out, &msg, msg.r#type == "report_fn");
+            }
+            "session_end" => {
+                let status = match msg.status.as_str() {
+                    "completed" => "completed",
+                    "cancelled" | "canceled" => "cancelled",
+                    _ => "completed",
+                };
+                *session.end_status.write().await = Some(status.to_string());
             }
             other => {
                 server.limiter.strike(&session.address);
@@ -1881,6 +1944,84 @@ fn send_json<T: Serialize>(tx: &Out, v: &T) {
 
 fn send_error(tx: &Out, id: Option<i64>, msg: &str) {
     send_json(tx, &ErrorMessage { r#type: "error", id, message: msg });
+}
+
+fn handle_verdict_report(server: &Arc<ScanServer>, session: &Arc<SessionHandle>, out: &Out, msg: &ClientMessage, false_negative: bool) {
+    let (source, label) = if false_negative {
+        (crate::human_review::FN_SOURCE, "False-negative report")
+    } else {
+        (crate::human_review::FP_SOURCE, "False-positive report")
+    };
+    let id = Some(msg.id);
+    let Some(sha) = valid_sha(&msg.sha256) else {
+        send_error(out, id, "invalid sha256");
+        return;
+    };
+    let reply = |r: &crate::human_review::HumanReview, on_server: bool| {
+        send_json(
+            out,
+            &serde_json::json!({
+                "type": "report_result",
+                "id": msg.id,
+                "sha256": r.sha256,
+                "status": r.stage(),
+                "verdict": r.verdict,
+                "threat_name": r.threat_name,
+                "note": r.note,
+                "requested_at": r.requested_at,
+                "file_on_server": on_server,
+            }),
+        );
+    };
+    let on_server = server.engine.is_kept(&sha);
+    if let Some(done) = server.threat_intel.reviews.completed(&sha) {
+        reply(&done, on_server);
+        return;
+    }
+    let Some(insight) = server.threat_intel.get(&sha) else {
+        send_error(out, id, "scan the file first; only files seen by VirusKov can be reported");
+        return;
+    };
+    let detected = insight.verdict == "malicious" || insight.verdict == "suspicious";
+    if false_negative && detected {
+        send_error(out, id, "this file is already detected; only files the engine did not detect can be reported as false negatives");
+        return;
+    }
+    if !false_negative && !detected {
+        send_error(out, id, "only files detected as malicious or suspicious can be reported as false positives");
+        return;
+    }
+    let name: String = msg.name.trim().chars().take(260).collect();
+    let name = if name.is_empty() { insight.file_names.first().cloned().unwrap_or_default() } else { name };
+    match server.threat_intel.reviews.report_user_verdict(
+        &sha,
+        source,
+        label,
+        Some(&insight.verdict),
+        if name.is_empty() { None } else { Some(name.as_str()) },
+        &msg.note,
+    ) {
+        Ok((r, _)) => {
+            reply(&r, on_server);
+            server.events.add(Event {
+                seq: 0,
+                time: Utc::now(),
+                kind: "info".to_string(),
+                session: Some(session.id),
+                client: Some(session.address.clone()),
+                verdict: Some(insight.verdict.clone()),
+                file: if name.is_empty() { None } else { Some(name.clone()) },
+                size: None,
+                ms: None,
+                threat: None,
+                detail: None,
+                sha256: Some(sha.clone()),
+                message: Some(format!("{}: {}", label.to_lowercase(), if name.is_empty() { &sha } else { &name })),
+                origin_type: None,
+            });
+        }
+        Err(e) => send_error(out, id, &e),
+    }
 }
 
 /// Merge two independent per-source URL reports: the server-fetched copy vs the
@@ -2601,22 +2742,45 @@ async fn handle_disinfect(
     if let Err(resp) = require_sample_key(&server, addr, &headers) {
         return resp;
     }
-    if body.is_empty() {
-        return json_response(StatusCode::BAD_REQUEST, serde_json::json!({"status": "error", "error": "empty body: send the file"}), "no-store");
+    let path = disinfect_path(&headers, &q);
+    disinfect_response(Arc::clone(&server), q.download, path, body).await
+}
+
+async fn handle_client_disinfect(
+    ConnectInfo(addr): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
+    State(server): State<Arc<ScanServer>>,
+    Query(q): Query<DisinfectQuery>,
+    body: axum::body::Bytes,
+) -> Response {
+    let ip = extract_client_ip(addr, &headers);
+    if let Err(retry) = server.rest_limiter.check(&ip, None) {
+        return json_response(StatusCode::TOO_MANY_REQUESTS, serde_json::json!({"status": "error", "retry_after_seconds": retry}), "no-store");
     }
-    let path = headers
+    let path = disinfect_path(&headers, &q);
+    disinfect_response(Arc::clone(&server), q.download, path, body).await
+}
+
+fn disinfect_path(headers: &HeaderMap, q: &DisinfectQuery) -> String {
+    headers
         .get("x-file-path")
         .and_then(|v| v.to_str().ok())
         .map(str::to_string)
         .or(q.path.clone())
-        .unwrap_or_default();
+        .unwrap_or_default()
+}
+
+async fn disinfect_response(server: Arc<ScanServer>, download: Option<String>, path: String, body: axum::body::Bytes) -> Response {
+    if body.is_empty() {
+        return json_response(StatusCode::BAD_REQUEST, serde_json::json!({"status": "error", "error": "empty body: send the file"}), "no-store");
+    }
     let ti = Arc::clone(&server.threat_intel);
     let engine = Arc::clone(&server.engine);
     let res = tokio::task::spawn_blocking(move || crate::disinfect::run(&ti, &engine, &body, &path)).await;
     let Ok((report, repaired, generic)) = res else {
         return json_response(StatusCode::INTERNAL_SERVER_ERROR, serde_json::json!({"status": "error", "error": "disinfection failed"}), "no-store");
     };
-    if q.download.as_deref() == Some("repaired") {
+    if download.as_deref() == Some("repaired") {
         let Some(bytes) = repaired else {
             return json_response(
                 StatusCode::NOT_FOUND,
@@ -2637,7 +2801,7 @@ async fn handle_disinfect(
         )
             .into_response();
     }
-    if q.download.as_deref() == Some("generic") {
+    if download.as_deref() == Some("generic") {
         // Generic repair (signature ranges / clean-relative diff): never recommended,
         // the header says so too.
         let Some(bytes) = generic else {
