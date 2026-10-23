@@ -372,14 +372,15 @@
       <div class="hint">Information only: a match never changes the verdict, it is noted in the result (<code>tlsh_blacklist_info</code>) and shown in the TLSH neighbours. TLSH alone is too coarse to decide (a clean host is a few points from its Neshta-infected copy). Default 10. Analyst TLSH signatures (from human malicious verdicts) still decide, with their own limit.</div>
       <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:12px">
         ML thresholds:
-        <label style="display:flex;gap:4px;align-items:center">PE <input id="mlPe" type="number" min="0.5" max="0.9999" step="0.005" style="width:90px"></label>
+        <label style="display:flex;gap:4px;align-items:center">PE inner <input id="mlPeInner" type="number" min="0.5" max="0.9999" step="0.005" style="width:90px"></label>
+        <label style="display:flex;gap:4px;align-items:center">PE shell <input id="mlPeShell" type="number" min="0.5" max="0.9999" step="0.005" style="width:90px"></label>
         <label style="display:flex;gap:4px;align-items:center">JS <input id="mlJs" type="number" min="0.5" max="0.9999" step="0.005" style="width:90px"></label>
         <label style="display:flex;gap:4px;align-items:center">APK <input id="mlApk" type="number" min="0.5" max="0.9999" step="0.005" style="width:90px"></label>
         <button class="ghost" id="mlSave">Save</button>
         <button class="ghost" id="mlReset">Defaults</button>
         <span class="hint" id="mlMsg" style="margin:0"></span>
       </div>
-      <div class="hint">A file whose model probability is at least the threshold is flagged by that model. Higher flags fewer files (fewer false positives, more misses). Defaults: <span id="mlDefaults">PE 0.90, JS 0.90, APK 0.80</span>; train_pe_lgbm.py prints a calibrated PE value for each new model. Needs an analyst key. Applies to new scans at once; files scanned before keep their cached verdict until they are rescanned.</div>
+      <div class="hint">A file whose model probability is at least the threshold is flagged. Higher means fewer false positives and more misses. Successfully unpacked PEs use PE inner; files without a parseable unpacked PE use PE shell. Defaults: <span id="mlDefaults">inner 0.95, shell 0.95, JS 0.90, APK 0.80</span>. Needs an analyst key. Applies to new scans; rescan files with cached verdicts.</div>
       <label style="display:flex;gap:8px;align-items:center;margin-top:12px">
         <input type="checkbox" id="keepPossibleClean" style="width:auto">
         Keep <b>possible clean</b> files (TLSH smart whitelist) in <code>multron_incoming/possible_clean/</code>
@@ -1182,11 +1183,11 @@ window.sigKey = (list) => list && list.length ? `${list[0].layer}: ${list[0].nam
     }
     if (document.activeElement !== $("keepPossibleClean")) $("keepPossibleClean").checked = !!l.keepPossibleClean;
     if (l.mlThresholds) {
-      for (const [id, k] of [["mlPe", "pe"], ["mlJs", "js"], ["mlApk", "apk"]]) {
+      for (const [id, k] of [["mlPeInner", "peInner"], ["mlPeShell", "peShell"], ["mlJs", "js"], ["mlApk", "apk"]]) {
         if (document.activeElement !== $(id) && !$(id).dataset.dirty) $(id).value = Number(l.mlThresholds[k]).toFixed(4);
       }
       const d = l.mlThresholds.defaults || {};
-      $("mlDefaults").textContent = `PE ${d.pe}, JS ${d.js}, APK ${d.apk}`;
+      $("mlDefaults").textContent = `inner ${d.peInner}, shell ${d.peShell}, JS ${d.js}, APK ${d.apk}`;
     }
     if (l.tlshBlacklistDistances && document.activeElement !== $("tlshBlacklistDist")) {
       const sel = $("tlshBlacklistDist");
@@ -1685,17 +1686,18 @@ window.sigKey = (list) => list && list.length ? `${list[0].layer}: ${list[0].nam
     try { await post("/api/tlsh-blacklist-distance", { distance: +e.target.value }); }
     catch (err) { alert(err.message); }
   };
-  for (const id of ["mlPe", "mlJs", "mlApk"]) $(id).oninput = () => { $(id).dataset.dirty = "1"; };
+  for (const id of ["mlPeInner", "mlPeShell", "mlJs", "mlApk"]) $(id).oninput = () => { $(id).dataset.dirty = "1"; };
   const mlSend = async (body) => {
     try {
       const r = await post("/api/ml-thresholds", body);
-      for (const id of ["mlPe", "mlJs", "mlApk"]) delete $(id).dataset.dirty;
-      $("mlPe").value = r.pe.toFixed(4); $("mlJs").value = r.js.toFixed(4); $("mlApk").value = r.apk.toFixed(4);
+      for (const id of ["mlPeInner", "mlPeShell", "mlJs", "mlApk"]) delete $(id).dataset.dirty;
+      $("mlPeInner").value = r.peInner.toFixed(4); $("mlPeShell").value = r.peShell.toFixed(4);
+      $("mlJs").value = r.js.toFixed(4); $("mlApk").value = r.apk.toFixed(4);
       $("mlMsg").textContent = "Saved.";
     } catch (err) { $("mlMsg").textContent = "Error: " + err.message; }
   };
-  $("mlSave").onclick = () => mlSend({ pe: +$("mlPe").value, js: +$("mlJs").value, apk: +$("mlApk").value });
-  $("mlReset").onclick = () => mlSend({ pe: null, js: null, apk: null });
+  $("mlSave").onclick = () => mlSend({ peInner: +$("mlPeInner").value, peShell: +$("mlPeShell").value, js: +$("mlJs").value, apk: +$("mlApk").value });
+  $("mlReset").onclick = () => mlSend({ peInner: null, peShell: null, js: null, apk: null });
   $("keepPossibleClean").onchange = async (e) => {
     try { await post("/api/keep-possible-clean", { enabled: e.target.checked }); }
     catch (_) { e.target.checked = !e.target.checked; }

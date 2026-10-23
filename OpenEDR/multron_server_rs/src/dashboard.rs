@@ -109,7 +109,8 @@ impl AppState {
         }
         engine.compress_low_disk.store(settings.lzma_low_disk, std::sync::atomic::Ordering::Relaxed);
         settings.tlsh_blacklist_max_dist = crate::similarity::set_blacklist_max_dist(settings.tlsh_blacklist_max_dist);
-        openedr_static::engine::set_ml_thresholds(settings.ml_pe_threshold, settings.ml_js_threshold, settings.ml_apk_threshold);
+        openedr_static::engine::set_ml_thresholds(settings.ml_js_threshold, settings.ml_apk_threshold);
+        openedr_static::engine::set_pe_route_thresholds(settings.ml_pe_inner_threshold, settings.ml_pe_shell_threshold);
         scan_server.rescan.after_reload.store(settings.rescan_after_reload, std::sync::atomic::Ordering::Relaxed);
         if !cfg.offload_dir.trim().is_empty() {
             settings.offload_target = cfg.offload_dir.trim().to_string();
@@ -242,7 +243,8 @@ impl AppState {
             s.keep_clean = g.keep_clean;
             s.lzma_low_disk = g.lzma_low_disk;
             s.tlsh_blacklist_max_dist = g.tlsh_blacklist_max_dist;
-            s.ml_pe_threshold = g.ml_pe_threshold;
+            s.ml_pe_inner_threshold = g.ml_pe_inner_threshold;
+            s.ml_pe_shell_threshold = g.ml_pe_shell_threshold;
             s.ml_js_threshold = g.ml_js_threshold;
             s.ml_apk_threshold = g.ml_apk_threshold;
             s.rescan_after_reload = g.rescan_after_reload;
@@ -631,11 +633,13 @@ async fn handle_state(
             "lowDiskThresholdGB": app.engine.low_disk_threshold_bytes / (1024 * 1024 * 1024),
             "tlshBlacklistMaxDist": crate::similarity::blacklist_max_dist(),
             "mlThresholds": {
-                "pe": openedr_static::engine::pe_tree_threshold(),
+                "peInner": openedr_static::engine::pe_inner_tree_threshold(),
+                "peShell": openedr_static::engine::pe_shell_tree_threshold(),
                 "js": openedr_static::engine::js_tree_threshold(),
                 "apk": openedr_static::engine::apk_tree_threshold(),
                 "defaults": {
-                    "pe": openedr_static::engine::PE_TREE_THRESHOLD,
+                    "peInner": openedr_static::engine::PE_INNER_TREE_THRESHOLD,
+                    "peShell": openedr_static::engine::PE_SHELL_TREE_THRESHOLD,
                     "js": openedr_static::engine::JS_TREE_THRESHOLD,
                     "apk": openedr_static::engine::APK_TREE_THRESHOLD,
                 },
@@ -765,7 +769,10 @@ async fn handle_tlsh_blacklist_distance(State(app): State<Arc<AppState>>, Json(b
 
 #[derive(Deserialize)]
 struct MlThresholdsBody {
-    pe: Option<f32>,
+    #[serde(rename = "peInner")]
+    pe_inner: Option<f32>,
+    #[serde(rename = "peShell")]
+    pe_shell: Option<f32>,
     js: Option<f32>,
     apk: Option<f32>,
 }
@@ -774,16 +781,18 @@ struct MlThresholdsBody {
 /// Lower flags more files. Applies to new scans at once and is saved to
 /// multron_server.json; verdicts already cached stay until those files are rescanned.
 async fn handle_ml_thresholds(State(app): State<Arc<AppState>>, Json(b): Json<MlThresholdsBody>) -> impl IntoResponse {
-    let (pe, js, apk) = openedr_static::engine::set_ml_thresholds(b.pe, b.js, b.apk);
+    let (js, apk) = openedr_static::engine::set_ml_thresholds(b.js, b.apk);
+    let (pe_inner, pe_shell) = openedr_static::engine::set_pe_route_thresholds(b.pe_inner, b.pe_shell);
     {
         let mut s = app.settings.write().await;
-        s.ml_pe_threshold = b.pe.map(|_| pe);
+        s.ml_pe_inner_threshold = b.pe_inner.map(|_| pe_inner);
+        s.ml_pe_shell_threshold = b.pe_shell.map(|_| pe_shell);
         s.ml_js_threshold = b.js.map(|_| js);
         s.ml_apk_threshold = b.apk.map(|_| apk);
     }
     app.save_settings().await;
-    info_event(&app, format!("ML thresholds: PE {pe:.4}, JS {js:.4}, APK {apk:.4}"));
-    (StatusCode::OK, Json(serde_json::json!({ "ok": true, "pe": pe, "js": js, "apk": apk })))
+    info_event(&app, format!("ML thresholds: PE inner {pe_inner:.4}, PE shell {pe_shell:.4}, JS {js:.4}, APK {apk:.4}"));
+    (StatusCode::OK, Json(serde_json::json!({ "ok": true, "peInner": pe_inner, "peShell": pe_shell, "js": js, "apk": apk })))
 }
 
 #[derive(Deserialize)]

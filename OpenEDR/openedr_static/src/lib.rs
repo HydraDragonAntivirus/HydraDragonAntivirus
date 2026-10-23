@@ -569,7 +569,7 @@ fn take_c_bytes(ptr: *const u8, len: usize) -> Option<Vec<u8>> {
     Some(unsafe { std::slice::from_raw_parts(ptr, len) }.to_vec())
 }
 
-/// Load a tree-model bundle from memory: kind 0=PE, 1=JS, 2=URL, 3=APK (web parity).
+/// Load a tree-model bundle from memory: kind 1=JS, 2=URL, 3=APK, 4=master, 5=PE inner, 6=PE shell.
 /// Returns 1 on success, 0 on parse failure.
 #[unsafe(no_mangle)]
 pub extern "C" fn openedr_static_load_model(kind: u32, data: *const u8, len: usize) -> i32 {

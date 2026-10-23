@@ -24,17 +24,18 @@ use crate::yara::YaraScanner;
 /// Web parity (`openedr_web/src/engine.rs::APK_TREE_THRESHOLD`).
 pub const APK_TREE_THRESHOLD: f32 = 0.8;
 
-/// Default PE tree-model decision threshold (the Malicious cut-off). train_pe_lgbm.py
-/// prints a calibrated value for each new model (0.1 % FPR on held-out benign); the
-/// server sets the one in use with `set_ml_thresholds`.
-pub const PE_TREE_THRESHOLD: f32 = 0.90;
+/// Separate route defaults: shell-only scores need a stricter cutoff because
+/// packer stubs are less representative of the payload than successfully unpacked PEs.
+pub const PE_INNER_TREE_THRESHOLD: f32 = 0.95;
+pub const PE_SHELL_TREE_THRESHOLD: f32 = 0.95;
 
 /// JS tree-model decision threshold. Set to 0.90 (Malicious cutoff) to eliminate
 /// false positives in the 0.75-0.84 suspicious range on minified/bundled JS files.
 pub const JS_TREE_THRESHOLD: f32 = 0.90;
 
-// Thresholds in use (f32 bits): the defaults above until `set_ml_thresholds` changes them.
-static PE_THRESHOLD_BITS: AtomicU32 = AtomicU32::new(PE_TREE_THRESHOLD.to_bits());
+// Thresholds in use (f32 bits): the defaults above until configured.
+static PE_INNER_THRESHOLD_BITS: AtomicU32 = AtomicU32::new(0);
+static PE_SHELL_THRESHOLD_BITS: AtomicU32 = AtomicU32::new(0);
 static JS_THRESHOLD_BITS: AtomicU32 = AtomicU32::new(JS_TREE_THRESHOLD.to_bits());
 static APK_THRESHOLD_BITS: AtomicU32 = AtomicU32::new(APK_TREE_THRESHOLD.to_bits());
 
@@ -42,8 +43,34 @@ static APK_THRESHOLD_BITS: AtomicU32 = AtomicU32::new(APK_TREE_THRESHOLD.to_bits
 pub const ML_THRESHOLD_RANGE: (f32, f32) = (0.50, 0.9999);
 
 /// ML thresholds in use: a file whose probability is at least this is flagged.
-pub fn pe_tree_threshold() -> f32 {
-    f32::from_bits(PE_THRESHOLD_BITS.load(Ordering::Relaxed))
+pub fn pe_inner_tree_threshold() -> f32 {
+    let bits = PE_INNER_THRESHOLD_BITS.load(Ordering::Relaxed);
+    if bits == 0 { PE_INNER_TREE_THRESHOLD } else { f32::from_bits(bits) }
+}
+
+pub fn pe_shell_tree_threshold() -> f32 {
+    let bits = PE_SHELL_THRESHOLD_BITS.load(Ordering::Relaxed);
+    if bits == 0 { PE_SHELL_TREE_THRESHOLD } else { f32::from_bits(bits) }
+}
+
+/// Set route-specific PE cutoffs. `None` restores the route default.
+pub fn set_pe_route_thresholds(inner: Option<f32>, shell: Option<f32>) -> (f32, f32) {
+    let put = |cell: &AtomicU32, v: Option<f32>| {
+        let bits = v.filter(|x| x.is_finite())
+            .map(|x| x.clamp(ML_THRESHOLD_RANGE.0, ML_THRESHOLD_RANGE.1).to_bits())
+            .unwrap_or(0);
+        cell.store(bits, Ordering::Relaxed);
+    };
+    put(&PE_INNER_THRESHOLD_BITS, inner);
+    put(&PE_SHELL_THRESHOLD_BITS, shell);
+    (pe_inner_tree_threshold(), pe_shell_tree_threshold())
+}
+
+fn pe_threshold_for_model(kind: crate::ml::scanner::PeModelKind) -> f32 {
+    match kind {
+        crate::ml::scanner::PeModelKind::Inner => pe_inner_tree_threshold(),
+        crate::ml::scanner::PeModelKind::Shell => pe_shell_tree_threshold(),
+    }
 }
 
 pub fn js_tree_threshold() -> f32 {
@@ -54,17 +81,15 @@ pub fn apk_tree_threshold() -> f32 {
     f32::from_bits(APK_THRESHOLD_BITS.load(Ordering::Relaxed))
 }
 
-/// Sets the PE / JS / APK ML thresholds for every scan from now on (None = the
-/// default). Values are clamped to `ML_THRESHOLD_RANGE`; returns the ones in use.
-pub fn set_ml_thresholds(pe: Option<f32>, js: Option<f32>, apk: Option<f32>) -> (f32, f32, f32) {
+/// Sets the JS / APK ML thresholds for every scan (None = default).
+pub fn set_ml_thresholds(js: Option<f32>, apk: Option<f32>) -> (f32, f32) {
     let put = |cell: &AtomicU32, v: Option<f32>, default: f32| {
         let v = v.filter(|x| x.is_finite()).unwrap_or(default).clamp(ML_THRESHOLD_RANGE.0, ML_THRESHOLD_RANGE.1);
         cell.store(v.to_bits(), Ordering::Relaxed);
     };
-    put(&PE_THRESHOLD_BITS, pe, PE_TREE_THRESHOLD);
     put(&JS_THRESHOLD_BITS, js, JS_TREE_THRESHOLD);
     put(&APK_THRESHOLD_BITS, apk, APK_TREE_THRESHOLD);
-    (pe_tree_threshold(), js_tree_threshold(), apk_tree_threshold())
+    (js_tree_threshold(), apk_tree_threshold())
 }
 
 /// One signature match explained for the analyst view (`StaticEngine::explain_matches`).
@@ -165,7 +190,7 @@ impl StaticEngine {
     /// Initialize the static engine using a root directory containing rule subfolders:
     /// - `database/` for ClamAV
     /// - `yara_rules/` for YARA (.yar, .yara, .yrc)
-    /// - `models/` for ML models (pe_trees.bin, js_trees.bin, url_trees.bin, apk_trees.bin, *.onnx)
+    /// - `models/` for ML models (pe_trees_inner.bin, pe_trees_shell.bin, js_trees.bin, url_trees.bin, apk_trees.bin)
     /// - `signer_rules/` for trusted_signers.yaml, etc.
     /// - `xorfilter_rules/` for benign_sha256.xf (signer+hash benign whitelist)
     ///   and url_whitelist.xf (Tranco 1M domain/IP whitelist for URLs)
@@ -428,7 +453,7 @@ impl StaticEngine {
         diagnostics::log(
             "engine-status",
             &format!(
-                "base={}; clam_dir_exists={}; clam_loaded={}; yara_dir={}; yara_loaded={}; yara_rule_bundles={}; models_dir={}; pe_model_file={}; pe_v2_model_file={}; pe_loaded={}; js_model_file={}; js_loaded={}; url_model_file={}; url_loaded={}; apk_model_file={}; apk_loaded={}; signer_dir={}; signer_counts={}/{}/{}; benign_whitelist={}; url_whitelist_file={}; url_whitelist_loaded={}; registry_rules={}; registry_patterns={}; string_rules={}; hayabusa_dir={}; hayabusa_loaded={}; url_rules_file={}; url_rules={}; url_unwhitelisted_hosts={}; cidr_dir={}; cidr_counts={}/{}/{}/{}",
+                "base={}; clam_dir_exists={}; clam_loaded={}; yara_dir={}; yara_loaded={}; yara_rule_bundles={}; models_dir={}; pe_inner_model_file={}; pe_shell_model_file={}; pe_loaded={}; js_model_file={}; js_loaded={}; url_model_file={}; url_loaded={}; apk_model_file={}; apk_loaded={}; signer_dir={}; signer_counts={}/{}/{}; benign_whitelist={}; url_whitelist_file={}; url_whitelist_loaded={}; registry_rules={}; registry_patterns={}; string_rules={}; hayabusa_dir={}; hayabusa_loaded={}; url_rules_file={}; url_rules={}; url_unwhitelisted_hosts={}; cidr_dir={}; cidr_counts={}/{}/{}/{}",
                 base.display(),
                 database_dir.is_dir(),
                 clam.is_loaded(),
@@ -436,8 +461,8 @@ impl StaticEngine {
                 yara.is_loaded(),
                 yara.rule_count(),
                 models_dir.display(),
-                models_dir.join("pe_trees.bin").is_file(),
-                models_dir.join("pe_trees_v2.bin").is_file(),
+                models_dir.join("pe_trees_inner.bin").is_file(),
+                models_dir.join("pe_trees_shell.bin").is_file(),
                 ml.pe_loaded(),
                 models_dir.join("js_trees.bin").is_file(),
                 ml.js_loaded(),
@@ -588,7 +613,7 @@ impl StaticEngine {
         (false, false)
     }
 
-    /// Runtime model load from bytes: kind 0=PE, 1=JS, 2=URL, 3=APK (web parity).
+    /// Runtime model load from bytes: kind 1=JS, 2=URL, 3=APK, 4=master, 5=PE inner, 6=PE shell.
     pub fn load_model(&mut self, kind: u32, data: &[u8]) -> bool {
         self.ml.load_model_bytes(kind, data)
     }
@@ -914,8 +939,8 @@ impl StaticEngine {
                 report.max_threat_score = report.max_threat_score.max(score);
             }
             if buf.starts_with(b"MZ") && pefile_rs::PE::parse(&buf).is_ok() {
-                if let Some(prob) = self.ml.predict_pe(&buf) {
-                    if prob >= pe_tree_threshold() {
+                if let Some((prob, model_kind)) = self.ml.predict_pe_with_model(&buf) {
+                    if prob >= pe_threshold_for_model(model_kind) {
                         report.detections.push(DetectionItem {
                             layer: "Memory_ML".to_string(),
                             name: "Memory.PE.HighConfidence".to_string(),
@@ -1050,7 +1075,7 @@ impl StaticEngine {
         // flagged the file (same thresholds as the scan).
         let ml = if is_pe {
             let kind = format!("PE tree ensemble ({} features)", self.ml.pe_feature_count());
-            self.ml.explain_pe(data).map(|e| (e, "MalwareNet.PE.HighConfidence", pe_tree_threshold(), kind))
+            self.ml.explain_pe_with_model(data).map(|(e, model_kind)| (e, "MalwareNet.PE.HighConfidence", pe_threshold_for_model(model_kind), kind))
         } else if is_js_content(data) {
             std::str::from_utf8(data).ok().and_then(|src| self.ml.explain_js(src)).map(|e| (e, "MalwareNet.JS.HighConfidence", js_tree_threshold(), "JavaScript tree ensemble (51 AST/lexical features)".to_string()))
         } else {
@@ -1174,8 +1199,8 @@ impl StaticEngine {
 
         // 4. ML (PE / JS)
         if is_pe {
-            if let Some(prob) = self.ml.predict_pe(bytes) {
-                if prob >= pe_tree_threshold() {
+            if let Some((prob, model_kind)) = self.ml.predict_pe_with_model(bytes) {
+                if prob >= pe_threshold_for_model(model_kind) {
                     let det_name = if origin_prefix.is_empty() {
                         "MalwareNet.PE.HighConfidence".to_string()
                     } else {
@@ -1663,8 +1688,8 @@ impl StaticEngine {
 
         if !is_apk_file {
             if is_pe {
-                if let Some(prob) = self.ml.predict_pe(data) {
-                    if prob >= pe_tree_threshold() {
+                if let Some((prob, model_kind)) = self.ml.predict_pe_with_model(data) {
+                    if prob >= pe_threshold_for_model(model_kind) {
                         detections.push(DetectionItem {
                             layer: "PE_ML".to_string(),
                             name: "MalwareNet.PE.HighConfidence".to_string(),

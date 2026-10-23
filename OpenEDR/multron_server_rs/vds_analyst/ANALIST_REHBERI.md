@@ -226,9 +226,16 @@ ML kararları `.ign2` listelerinden **etkilenmez**. Sıra:
 2. Dosyayı ML FP klasörüne koy (eğitimde temiz örnek olarak kullanılır):
    `usbdosyalar\ml_fp_benign\windows` (PE) ya da `...\ml_fp_benign\javascript` (JS).
 3. Model yeniden eğitilince o tür dosyalar düzelir.
-4. Gerekirse eşik: `POST /api/ml-thresholds {"pe": 0.92, "js": null, "apk": null}`
-   (null = varsayılan; PE 0.90, JS 0.90, APK 0.80). Eşiği yükseltmek FP'yi azaltır ama
+4. Gerekirse eşik: `POST /api/ml-thresholds {"peInner": 0.92, "js": null, "apk": null}`
+   (null = varsayılan; inner PE 0.95, shell PE 0.95, JS 0.90, APK 0.80). Eşiği yükseltmek FP'yi azaltır ama
    zararlı kaçırmayı artırır; tek bir dosya için eşik değiştirme.
+
+PE'nin iki açma rotası ayrı eşik kullanır: `peInner` açılmış PE modelini (varsayılan 0.95),
+`peShell` açılmamış örnek modelini (varsayılan 0.95) yönetir. Her iki model ayrı eğitilir;
+eksik model için fallback yapılmaz ve o PE'ye ML skoru verilmez. Örneğin inner eşiğini değiştirmek için:
+`POST /api/ml-thresholds {"peInner": 0.97}`. Dashboard'daki ML thresholds alanları da
+inner ve shell eşiklerini ayrı gösterir; değişiklikler yeni taramalara uygulanır, önbellekteki
+kararlar için rescan gerekir.
 
 `open` / `alyzer/scan` çıktısındaki ML açıklaması, skoru hangi özelliklerin yukarı ittiğini
 gösterir. Bilinen FP kalıpları:
