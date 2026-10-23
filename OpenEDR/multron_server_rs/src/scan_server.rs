@@ -909,11 +909,32 @@ fn public_type_stats(mut v: serde_json::Value) -> serde_json::Value {
 }
 
 /// Public telemetry totals for the website statistics page.
+fn cached_intel_stats(server: &ScanServer) -> crate::threat_intel::ThreatIntelStats {
+    static CACHE: StdMutex<Option<(std::time::Instant, crate::threat_intel::ThreatIntelStats)>> = StdMutex::new(None);
+    let mut g = CACHE.lock().unwrap();
+    if let Some((t, v)) = g.as_ref() {
+        if t.elapsed() < Duration::from_secs(60) {
+            return v.clone();
+        }
+    }
+    let v = server.threat_intel.stats();
+    *g = Some((std::time::Instant::now(), v.clone()));
+    v
+}
+
 async fn handle_insights_stats(State(server): State<Arc<ScanServer>>) -> Response {
     // No per-IP quota here: the website polls this endpoint, and the 500/day quota of the
     // hash lookups was used up in about an hour, after which the numbers froze.
-    let stats = server.threat_intel.stats();
-    let absent = cached_absent_unknown(&server).min(stats.unknown_count);
+    let srv = Arc::clone(&server);
+    let Ok((stats, absent, types)) = tokio::task::spawn_blocking(move || {
+        let stats = cached_intel_stats(&srv);
+        let absent = cached_absent_unknown(&srv).min(stats.unknown_count);
+        (stats, absent, cached_type_stats(&srv))
+    })
+    .await
+    else {
+        return StatusCode::SERVICE_UNAVAILABLE.into_response();
+    };
     let response = serde_json::json!({
         "status": "success",
         "engine": ENGINE_NAME,
@@ -921,7 +942,7 @@ async fn handle_insights_stats(State(server): State<Arc<ScanServer>>) -> Respons
         // Public numbers only (no analyst names); the dashboard has the full stats.
         "human_analysis": server.threat_intel.reviews.public_stats(),
         // Malicious + suspicious files by malware type (all time and last 7 days).
-        "types": public_type_stats(cached_type_stats(&server)),
+        "types": public_type_stats(types),
         "telemetry": {
             // Unknown hashes without a file on the server are not counted.
             "total_unique_hashes": stats.total_unique_hashes - absent,
@@ -1142,6 +1163,7 @@ async fn session_loop(
             "engine": ENGINE_NAME,
             "pipeline": pipeline,
             "checkBatch": server.limits.max_check_batch(),
+            "checksPerSec": server.limits.checks_per_sec(),
             "maxMB": server.limits.max_mb(),
             // Compressed uploads the client may use (it falls back to raw otherwise).
             "encodings": ["br"],
@@ -1209,7 +1231,13 @@ async fn session_loop(
                 if !check_bucket.take(msg.items.len().max(1) as f64, check_rate() * 2.0, check_rate()) {
                     return flood("hash checks");
                 }
-                handle_check(server, session, out, msg.items, server.limits.max_bytes())?
+                let items = msg.items;
+                let max_bytes = server.limits.max_bytes();
+                if tokio::runtime::Handle::current().runtime_flavor() == tokio::runtime::RuntimeFlavor::MultiThread {
+                    tokio::task::block_in_place(|| handle_check(server, session, out, items, max_bytes))?
+                } else {
+                    handle_check(server, session, out, items, max_bytes)?
+                }
             }
             "scan" => {
                 if server.maintenance() {

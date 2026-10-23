@@ -928,18 +928,19 @@ impl EngineAdapter {
         None
     }
 
-    /// An XOR-filter hit whose file is not kept yet: ask for the upload once (this run)
+    /// An XOR-filter hit whose file is not kept yet: ask for the upload until it is kept
     /// so it can be collected and checked; the scan gives it the same verdict.
     fn want_xorfilter_upload(&self, sha_hex: &str) -> bool {
         if !self.collect_xorfilter.load(Ordering::Relaxed) || self.work_dir.is_none() {
             return false;
         }
-        if self.find_kept(&sha_hex.to_ascii_uppercase()).is_some() {
+        if self.is_kept(sha_hex) {
             return false;
         }
         const MAX_REQUESTED: usize = 1_000_000;
+        let key = sha_hex.to_ascii_lowercase();
         let mut g = self.xf_requested.lock().unwrap();
-        g.len() < MAX_REQUESTED && g.insert(sha_hex.to_ascii_lowercase())
+        g.contains(&key) || (g.len() < MAX_REQUESTED && g.insert(key))
     }
 
     /// The XOR-filter verdicts `hash_lookup` gives without the file, applied to a full
