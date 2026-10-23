@@ -71,6 +71,8 @@ pub enum ExtractError {
     OperationFailed { reason: String },
     #[error("decompression bomb detected ({format})")]
     DecompressionBomb { format: &'static str },
+    #[error("output past the size cap ({format})")]
+    TooLarge { format: &'static str },
 }
 
 pub(crate) type Result<T> = std::result::Result<T, ExtractError>;
@@ -475,7 +477,9 @@ fn extract_to_memory(data: &[u8], relevant_only: bool) -> Result<Vec<ExtractedEn
 //     to 1KB is a 100:1 ratio and completely normal, so ratio alone is not
 //     used to flag small buffers; this keeps zero-FP on legitimate highly
 //     compressible content (sparse files, repeated-byte images, logs).
-pub(crate) const MAX_DECOMPRESSED_SIZE: usize = 200_000_000;
+// 200 GB (u64: wasm32's usize cannot hold it). Only a resource cap: a big
+// installer (Telegram's 47 MB Inno setup unpacks past 200 MB) is no bomb.
+pub(crate) const MAX_DECOMPRESSED_SIZE: u64 = 200_000_000_000;
 const BOMB_RATIO: usize = 1000;
 // 100 MB: sparse disk images (Ventoy's 32 MB FAT image packs to 5.7 KB, ratio
 // 5800) are normal; a bomb only matters once it costs real memory.
@@ -494,19 +498,27 @@ pub(crate) fn is_decompression_bomb(compressed_len: usize, decompressed_len: usi
     if !DETECT_BOMBS.load(std::sync::atomic::Ordering::Relaxed) {
         return false;
     }
-    if decompressed_len > MAX_DECOMPRESSED_SIZE {
-        return true;
+    decompressed_len as u64 > MAX_DECOMPRESSED_SIZE || is_ratio_bomb(compressed_len, decompressed_len)
+}
+
+fn is_ratio_bomb(compressed_len: usize, decompressed_len: usize) -> bool {
+    decompressed_len >= MIN_RATIO_CHECK_SIZE && decompressed_len / compressed_len.max(1) > BOMB_RATIO
+}
+
+/// The error for a failed `is_decompression_bomb` check: a bomb only for the
+/// ratio, otherwise the output is merely past the size cap (not a detection).
+pub(crate) fn bomb_error(format: &'static str, compressed_len: usize, decompressed_len: usize) -> ExtractError {
+    if is_ratio_bomb(compressed_len, decompressed_len) {
+        ExtractError::DecompressionBomb { format }
+    } else {
+        ExtractError::TooLarge { format }
     }
-    if decompressed_len < MIN_RATIO_CHECK_SIZE {
-        return false;
-    }
-    let ratio = decompressed_len / compressed_len.max(1);
-    ratio > BOMB_RATIO
 }
 
 /// True if `e` is specifically a decompression-bomb rejection (as opposed to
-/// a corrupt/unsupported archive) — callers use this to surface a bomb as a
-/// detection rather than treating it as an ordinary extraction failure.
+/// a corrupt/unsupported archive or output past the size cap) — callers use
+/// this to surface a bomb as a detection rather than treating it as an
+/// ordinary extraction failure.
 pub fn is_bomb_error(e: &ExtractError) -> bool {
     matches!(e, ExtractError::DecompressionBomb { .. })
 }
@@ -518,7 +530,7 @@ pub(crate) fn decompress_gzip(data: &[u8]) -> Result<Vec<u8>> {
         reason: format!("gzip decompression failed: {e}"),
     })?;
     if is_decompression_bomb(data.len(), out.len()) {
-        return Err(ExtractError::DecompressionBomb { format: "gzip" });
+        return Err(bomb_error("gzip", data.len(), out.len()));
     }
     Ok(out)
 }
@@ -530,7 +542,7 @@ fn decompress_xz(data: &[u8]) -> Result<Vec<u8>> {
         reason: format!("xz decompression failed: {e}"),
     })?;
     if is_decompression_bomb(data.len(), out.len()) {
-        return Err(ExtractError::DecompressionBomb { format: "xz" });
+        return Err(bomb_error("xz", data.len(), out.len()));
     }
     Ok(out)
 }
@@ -542,7 +554,7 @@ fn decompress_bzip2(data: &[u8]) -> Result<Vec<u8>> {
         reason: format!("bzip2 decompression failed: {e}"),
     })?;
     if is_decompression_bomb(data.len(), out.len()) {
-        return Err(ExtractError::DecompressionBomb { format: "bzip2" });
+        return Err(bomb_error("bzip2", data.len(), out.len()));
     }
     Ok(out)
 }
@@ -713,7 +725,8 @@ fn zip_to_memory(data: &[u8], relevant_only: bool) -> Result<Vec<ExtractedEntry>
     let chunk_size = (entries_to_extract.len() + n_threads - 1) / n_threads;
 
     let (tx, rx) = std::sync::mpsc::channel::<Vec<ExtractedEntry>>();
-    let bomb_found = std::sync::atomic::AtomicBool::new(false);
+    // 0 = none, 1 = past the size cap, 2 = ratio bomb (the worst one wins).
+    let bomb_found = std::sync::atomic::AtomicU8::new(0);
     let bomb_found_ref = &bomb_found;
 
     std::thread::scope(|s| {
@@ -727,7 +740,8 @@ fn zip_to_memory(data: &[u8], relevant_only: bool) -> Result<Vec<ExtractedEntry>
                         Err(_) => continue,
                     };
                     if is_decompression_bomb(entry.compressed_size as usize, content.len()) {
-                        bomb_found_ref.store(true, std::sync::atomic::Ordering::Relaxed);
+                        let kind = if is_ratio_bomb(entry.compressed_size as usize, content.len()) { 2 } else { 1 };
+                        bomb_found_ref.fetch_max(kind, std::sync::atomic::Ordering::Relaxed);
                     } else {
                         local.push(ExtractedEntry {
                             name: entry.file_name.clone(),
@@ -743,8 +757,10 @@ fn zip_to_memory(data: &[u8], relevant_only: bool) -> Result<Vec<ExtractedEntry>
         drop(tx);
     });
 
-    if bomb_found.load(std::sync::atomic::Ordering::Relaxed) {
-        return Err(ExtractError::DecompressionBomb { format: "zip" });
+    match bomb_found.load(std::sync::atomic::Ordering::Relaxed) {
+        2 => return Err(ExtractError::DecompressionBomb { format: "zip" }),
+        1 => return Err(ExtractError::TooLarge { format: "zip" }),
+        _ => {}
     }
 
     let mut out = Vec::with_capacity(entries_to_extract.len());
@@ -830,7 +846,7 @@ fn sz_to_memory(data: &[u8]) -> Result<Vec<ExtractedEntry>> {
             reason: format!("7z entry read failed: {e}"),
         })?;
         if is_decompression_bomb(data.len(), content.len()) {
-            return Err(ExtractError::DecompressionBomb { format: "7z" });
+            return Err(bomb_error("7z", data.len(), content.len()));
         }
         if !content.is_empty() {
             out.push(ExtractedEntry {
@@ -893,7 +909,7 @@ fn collect_iso_entries(
                 reason: format!("ISO read failed: {e}"),
             })?;
             if is_decompression_bomb(compressed_len, buf.len()) {
-                return Err(ExtractError::DecompressionBomb { format: "iso" });
+                return Err(bomb_error("iso", compressed_len, buf.len()));
             }
             entries.push(ExtractedEntry {
                 name: child.name.clone(),
@@ -953,11 +969,11 @@ fn cab_read(cabinet: &mut cab::Cabinet<Cursor<&[u8]>>, name: &str, compressed_le
     let reader = cabinet.read_file(name).map_err(map_err)?;
     let mut buf = Vec::new();
     reader
-        .take(MAX_DECOMPRESSED_SIZE as u64 + 1)
+        .take(MAX_DECOMPRESSED_SIZE + 1)
         .read_to_end(&mut buf)
         .map_err(map_err)?;
     if is_decompression_bomb(compressed_len, buf.len()) {
-        return Err(ExtractError::DecompressionBomb { format: "cab" });
+        return Err(bomb_error("cab", compressed_len, buf.len()));
     }
     Ok(buf)
 }
@@ -976,7 +992,7 @@ fn cab_to_memory(data: &[u8]) -> Result<Vec<ExtractedEntry>> {
             Ok(content) => {
                 total += content.len();
                 if is_decompression_bomb(data.len(), total) {
-                    return Err(ExtractError::DecompressionBomb { format: "cab" });
+                    return Err(bomb_error("cab", data.len(), total));
                 }
                 if !content.is_empty() {
                     out.push(ExtractedEntry {
@@ -987,7 +1003,7 @@ fn cab_to_memory(data: &[u8]) -> Result<Vec<ExtractedEntry>> {
                     });
                 }
             }
-            Err(e @ ExtractError::DecompressionBomb { .. }) => return Err(e),
+            Err(e @ (ExtractError::DecompressionBomb { .. } | ExtractError::TooLarge { .. })) => return Err(e),
             // A damaged or Quantum folder: skip its files, keep the others.
             Err(e) => last_err = Some(e),
         }
@@ -1272,7 +1288,7 @@ mod tests {
     #[test]
     fn bomb_detection_disabled_allows_anything() {
         setup_bomb_detection(false);
-        assert!(!is_decompression_bomb(1, MAX_DECOMPRESSED_SIZE + 1));
+        assert!(!is_decompression_bomb(1, MIN_RATIO_CHECK_SIZE * 2));
         setup_bomb_detection(true);
     }
 

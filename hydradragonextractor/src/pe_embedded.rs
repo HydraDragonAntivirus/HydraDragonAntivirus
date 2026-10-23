@@ -4,7 +4,7 @@
 //! where installers and SFX stubs keep their payload.
 
 use crate::{
-    is_decompression_bomb, EntryInfo, ExtractError, ExtractedEntry, Result, MAX_ARCHIVE_ENTRIES,
+    bomb_error, is_decompression_bomb, EntryInfo, ExtractError, ExtractedEntry, Result, MAX_ARCHIVE_ENTRIES,
     RAR15_MAGIC, RAR5_MAGIC, SEVENZ_MAGIC, ZIP_LOCAL_MAGIC,
 };
 
@@ -147,7 +147,7 @@ pub(crate) fn nsis_to_memory(data: &[u8]) -> Result<Vec<ExtractedEntry>> {
         let Ok(file) = file else { continue };
         let Ok(content) = file.decompress() else { continue };
         if is_decompression_bomb(data.len(), content.len()) {
-            return Err(ExtractError::DecompressionBomb { format: "nsis" });
+            return Err(bomb_error("nsis", data.len(), content.len()));
         }
         let name = file
             .name()

@@ -64,7 +64,7 @@ pub fn extract_from_bytes(data: &[u8]) -> Result<Vec<ExtractedEntry>> {
         };
         if crate::is_decompression_bomb(archive_len, data.len()) {
             let _ = std::fs::remove_dir_all(&tmp_dir);
-            return Err(ExtractError::DecompressionBomb { format: "rar" });
+            return Err(crate::bomb_error("rar", archive_len, data.len()));
         }
         out.push(ExtractedEntry {
             name: entry_name,
@@ -188,7 +188,7 @@ pub fn extract_entry(data: &[u8], name: &str) -> crate::Result<Vec<u8>> {
         };
         if crate::is_decompression_bomb(archive_len, extracted.len()) {
             let _ = std::fs::remove_dir_all(&tmp_dir);
-            return Err(crate::ExtractError::DecompressionBomb { format: "rar" });
+            return Err(crate::bomb_error("rar", archive_len, extracted.len()));
         }
         let _ = std::fs::remove_dir_all(&tmp_dir);
         return Ok(extracted);

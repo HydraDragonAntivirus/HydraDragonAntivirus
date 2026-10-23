@@ -7,7 +7,7 @@
 //! `[Icons]` actions. A downloader such as OffLoader keeps its URLs in `[Code]`,
 //! which is compressed inside the installer and invisible to a plain scan.
 
-use crate::{is_decompression_bomb, EntryInfo, ExtractError, ExtractedEntry, Result, MAX_ARCHIVE_ENTRIES};
+use crate::{bomb_error, is_decompression_bomb, EntryInfo, ExtractError, ExtractedEntry, Result, MAX_ARCHIVE_ENTRIES};
 
 /// Name prefix of the entries made from the installer itself (not stored files).
 pub const META_PREFIX: &str = "[inno]/";
@@ -87,7 +87,7 @@ pub(crate) fn inno_to_memory(data: &[u8]) -> Result<Vec<ExtractedEntry>> {
     for (file, content) in inst.extract_files().filter_map(|r| r.ok()) {
         total = total.saturating_add(content.len());
         if is_decompression_bomb(data.len(), total) {
-            return Err(ExtractError::DecompressionBomb { format: "inno" });
+            return Err(bomb_error("inno", data.len(), total));
         }
         let name = if file.destination.is_empty() { file.source.clone() } else { file.destination.clone() };
         out.push(ExtractedEntry {
