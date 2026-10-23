@@ -306,7 +306,24 @@ impl EngineAdapter {
         out
     }
 
+    /// The kept file of `sha_upper`, through the kept index: walking every category
+    /// folder per file made a bulk rescan quadratic in the number of kept files.
+    /// Not in the index (put there by hand, by another build): walks once and remembers it.
     pub fn find_kept(&self, sha_upper: &str) -> Option<KeptFile> {
+        let Some(path) = self.kept_path_of(sha_upper) else {
+            let k = self.find_kept_walk(sha_upper)?;
+            self.kept_index_set(&k.sha256, &k.path);
+            return Some(k);
+        };
+        let cat = category_dir_of(&path).or_else(|| {
+            let parent = path.parent()?.file_name()?.to_str()?;
+            (parent == KeptFile::LEGACY_THREAT_DIR).then_some("malicious")
+        });
+        KeptFile::parse(path, cat)
+    }
+
+    /// `find_kept` by walking the folders (the index missed or is stale).
+    fn find_kept_walk(&self, sha_upper: &str) -> Option<KeptFile> {
         self.list_kept().into_iter().find(|k| k.sha256.eq_ignore_ascii_case(sha_upper))
     }
 
@@ -345,7 +362,7 @@ impl EngineAdapter {
         // Moved (offload, another build) or deleted: look again once.
         idx.remove(&sha);
         drop(g);
-        let k = self.find_kept(&sha)?;
+        let k = self.find_kept_walk(&sha)?;
         self.kept_index_set(&sha, &k.path);
         Some(k.path)
     }
