@@ -372,7 +372,19 @@ pub fn start_bulk_problems(server: &Arc<ScanServer>, categories: &[String], kind
     spawn_bulk(server, files, cats.iter().map(|c| c.to_string()).collect(), label, "bulk")
 }
 
-fn spawn_bulk(server: &Arc<ScanServer>, files: Vec<String>, cats: Vec<String>, label: String, source: &'static str) -> Result<usize, String> {
+/// Upper bound of the bulk-rescan workers.
+const MAX_RESCAN_THREADS: usize = 4;
+
+/// Bulk-rescan workers: half the cores (the other half stays with the client scans),
+/// 1..=MAX_RESCAN_THREADS.
+fn rescan_threads() -> usize {
+    std::thread::available_parallelism().map_or(1, |n| n.get() / 2).clamp(1, MAX_RESCAN_THREADS)
+}
+
+fn spawn_bulk(server: &Arc<ScanServer>, mut files: Vec<String>, cats: Vec<String>, label: String, source: &'static str) -> Result<usize, String> {
+    // One rescan per SHA-256: two workers must not move the same file at once.
+    let mut seen = std::collections::HashSet::new();
+    files.retain(|f| seen.insert(f.to_ascii_uppercase()));
     let bulk = &server.rescan;
     if bulk.running.swap(true, Ordering::SeqCst) {
         return Err("a rescan is already running".into());
@@ -392,27 +404,39 @@ fn spawn_bulk(server: &Arc<ScanServer>, files: Vec<String>, cats: Vec<String>, l
     let srv = Arc::clone(server);
     let spawned = std::thread::Builder::new()
         .name("bulk-rescan".into())
-        .stack_size(64 * 1024 * 1024)
         .spawn(move || {
             let bulk = &srv.rescan;
-            for sha in files {
-                if bulk.stop.load(Ordering::Relaxed) {
-                    break;
-                }
-                // One file at a time, so client scans keep priority on the engine threads.
-                match rescan_logged(&srv, &sha, source, run) {
-                    Ok(c) => {
-                        if c.old_verdict != c.new_verdict {
-                            bulk.changed.fetch_add(1, Ordering::Relaxed);
-                            bulk.push_change(c);
-                        }
+            let next = AtomicUsize::new(0);
+            let files = &files;
+            std::thread::scope(|s| {
+                for i in 0..rescan_threads().min(files.len().max(1)) {
+                    let (srv, next) = (&srv, &next);
+                    let worker = std::thread::Builder::new()
+                        .name(format!("bulk-rescan-{i}"))
+                        .stack_size(64 * 1024 * 1024)
+                        .spawn_scoped(s, move || loop {
+                            if bulk.stop.load(Ordering::Relaxed) {
+                                break;
+                            }
+                            let Some(sha) = files.get(next.fetch_add(1, Ordering::Relaxed)) else { break };
+                            match rescan_logged(srv, sha, source, run) {
+                                Ok(c) => {
+                                    if c.old_verdict != c.new_verdict {
+                                        bulk.changed.fetch_add(1, Ordering::Relaxed);
+                                        bulk.push_change(c);
+                                    }
+                                }
+                                Err(_) => {
+                                    bulk.failed.fetch_add(1, Ordering::Relaxed);
+                                }
+                            }
+                            bulk.done.fetch_add(1, Ordering::Relaxed);
+                        });
+                    if let Err(e) = worker {
+                        srv.log_info(format!("bulk rescan: cannot start worker {i}: {e}"));
                     }
-                    Err(_) => {
-                        bulk.failed.fetch_add(1, Ordering::Relaxed);
-                    }
                 }
-                bulk.done.fetch_add(1, Ordering::Relaxed);
-            }
+            });
             *bulk.finished_at.lock().unwrap() = Some(chrono::Utc::now().to_rfc3339());
             bulk.running.store(false, Ordering::SeqCst);
             srv.log_info(format!(
