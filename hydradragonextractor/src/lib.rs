@@ -480,7 +480,9 @@ fn extract_to_memory(data: &[u8], relevant_only: bool) -> Result<Vec<ExtractedEn
 // 200 GB (u64: wasm32's usize cannot hold it). Only a resource cap: a big
 // installer (Telegram's 47 MB Inno setup unpacks past 200 MB) is no bomb.
 pub(crate) const MAX_DECOMPRESSED_SIZE: u64 = 200_000_000_000;
-const BOMB_RATIO: usize = 1000;
+// LZMA (7z, xz, Inno, NSIS), bzip2 and RAR reach several thousand to one on
+// zeros or padding (1 GB of zeros is ~150 KB of xz), so 10000:1 for every format.
+const BOMB_RATIO: usize = 10_000;
 // 100 MB: sparse disk images (Ventoy's 32 MB FAT image packs to 5.7 KB, ratio
 // 5800) are normal; a bomb only matters once it costs real memory.
 const MIN_RATIO_CHECK_SIZE: usize = 100_000_000;
@@ -1277,6 +1279,8 @@ mod tests {
         assert!(is_decompression_bomb(16, 100_001_000));
         // A 32 MB sparse disk image from 5.7 KB (Ventoy) is not a bomb.
         assert!(!is_decompression_bomb(5_724, 33_554_432));
+        // 1 GB of zeros as xz (~150 KB, ~7000:1) is padding, not a bomb.
+        assert!(!is_decompression_bomb(150_000, 1_000_000_000));
     }
 
     #[test]
