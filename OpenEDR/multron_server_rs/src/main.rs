@@ -15,6 +15,7 @@ mod archive;
 mod archived;
 mod human_review;
 mod imphash_sigs;
+mod yara_classes;
 mod ip_bans;
 mod missing_files;
 mod naming;
@@ -201,6 +202,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         eprintln!("[handoff] took over from pid {old_pid} ({lines} new lines read, {} ms since the hand-over started)", switch.elapsed().as_millis());
     }
 
+    // Analyst YARA rule classes (e.g. RAT_VNC -> suspicious) before the first scan.
+    yara_classes::apply();
     if standby && !args.archive {
         // Upkeep the old server already did at its start: in the background, so the
         // listener comes up at once. Analyst signatures may have changed meanwhile.

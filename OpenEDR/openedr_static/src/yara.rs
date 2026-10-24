@@ -82,7 +82,25 @@ fn classify(explicit: bool, pua: bool, suspicious: bool, offensive: bool) -> Rul
 }
 
 /// What a match of the rule `name` means (uses the metadata seen when it was loaded).
+/// Classes an analyst set by rule name (lower case), e.g. `RAT_VNC` → Suspicious. They
+/// win over the name and the metadata.
+fn analyst_classes() -> &'static RwLock<HashMap<String, RuleClass>> {
+    static MAP: OnceLock<RwLock<HashMap<String, RuleClass>>> = OnceLock::new();
+    MAP.get_or_init(|| RwLock::new(HashMap::new()))
+}
+
+/// Replaces the analyst rule classes (rule name, any case → class).
+pub fn set_analyst_rule_classes(classes: impl IntoIterator<Item = (String, RuleClass)>) {
+    let m: HashMap<String, RuleClass> = classes.into_iter().map(|(n, c)| (n.trim().to_ascii_lowercase(), c)).collect();
+    if let Ok(mut g) = analyst_classes().write() {
+        *g = m;
+    }
+}
+
 pub fn rule_class(name: &str) -> RuleClass {
+    if let Some(c) = analyst_classes().read().ok().and_then(|m| m.get(&name.to_ascii_lowercase()).copied()) {
+        return c;
+    }
     if let Some(c) = decided().read().ok().and_then(|m| m.get(name).copied()) {
         return c;
     }
@@ -319,6 +337,16 @@ mod tests {
         assert!(is_pua_name("hacktool_win_processhacker"));
         assert!(!is_pua_name("Trojan_Win32_Remcos"));
         assert!(!is_pua_name("Puamba_Stealer"), "a part, not a substring");
+    }
+
+    #[test]
+    fn analyst_class_wins_by_rule_name() {
+        assert_eq!(rule_class("RAT_VNC"), RuleClass::Malware);
+        set_analyst_rule_classes([("rat_vnc".to_string(), RuleClass::Suspicious)]);
+        assert_eq!(rule_class("RAT_VNC"), RuleClass::Suspicious, "any case");
+        assert_eq!(rule_class("RAT_VNC_Other"), RuleClass::Malware, "whole name only");
+        set_analyst_rule_classes([]);
+        assert_eq!(rule_class("RAT_VNC"), RuleClass::Malware);
     }
 
     #[test]

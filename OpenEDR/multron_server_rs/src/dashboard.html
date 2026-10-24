@@ -566,6 +566,16 @@
       <button class="primary" id="ihCreate">Create imphash signature</button>
       <div id="ihMsg" class="error"></div>
       <div id="ihList" style="margin-top:8px"></div>
+      <h2 style="margin-top:22px" id="yaraClasses">YARA rule classes</h2>
+      <div class="hint" style="margin-top:0">What a match of a YARA rule means, set by rule name (any case). For rules that flag tools which are not malware by themselves, e.g. <code>RAT_VNC</code> → <b>Suspicious</b>. Wins over the rule's name and metadata (<code>PUA</code>, <code>HKTL</code>, <code>SUSP</code>, <code>greyware</code>). Cached verdicts are dropped at once; files kept here keep their verdict until <b>Rescan kept files</b>.</div>
+      <div class="row2" style="margin-top:8px">
+        <div><label for="ycRule">Rule name</label><input id="ycRule" type="text" spellcheck="false" placeholder="RAT_VNC"></div>
+        <div><label for="ycClass">Class</label><select id="ycClass"><option value="suspicious">Suspicious</option><option value="pua">PUA</option><option value="malware">Malicious</option></select></div>
+      </div>
+      <label for="ycNote">Note</label><input id="ycNote" type="text" spellcheck="false" placeholder="Remote access tool, also used legitimately">
+      <button class="primary" id="ycSave" style="margin-top:8px">Set rule class</button>
+      <div id="ycMsg" class="error"></div>
+      <div id="ycList" style="margin-top:8px"></div>
       <h2 style="margin-top:22px">Company (signer) lists</h2>
       <div class="hint" style="margin-top:0">One Authenticode signer name per line, exactly as in the certificate. <b>Allow</b> makes validly signed files clean (a broken or untrusted signature is ignored). <b>Block</b> marks the signer's files malicious. Analyst ClamAV and HydraDragonSig hits still apply on top; a human hash verdict always wins.</div>
       <div class="row2" style="margin-top:8px">
@@ -2493,6 +2503,37 @@ window.sigKey = (list) => list && list.length ? `${list[0].layer}: ${list[0].nam
     } catch (err) { $("ihMsg").textContent = err.message; }
   };
   ihLoad();
+
+  // Analyst YARA rule classes (rule name -> suspicious / PUA / malicious).
+  const ycLabel = { suspicious: "Suspicious", pua: "PUA", malware: "Malicious" };
+  const ycTag = { suspicious: "t-suspicious", pua: "t-unknown", malware: "t-malicious" };
+  async function ycLoad() {
+    try {
+      const d = await (await fetch("/api/yara-rule-classes", { cache: "no-store" })).json();
+      $("ycList").innerHTML = d.items.length ? `<div style="overflow-x:auto"><table><thead><tr><th>Rule</th><th>Class</th><th>Note</th><th>By</th><th>Added</th><th></th></tr></thead><tbody>${d.items.map(e => `<tr>
+          <td class="mono">${haEsc(e.rule)}</td><td><span class="tag ${ycTag[e.class] || "t-unknown"}">${ycLabel[e.class] || haEsc(e.class)}</span></td>
+          <td>${haEsc(e.note || "")}</td><td>${haEsc(e.analyst || "—")}</td>
+          <td>${e.added ? new Date(e.added).toLocaleString() : ""}</td>
+          <td><button class="ghost" onclick="ycDelete('${haEsc(e.rule)}')">Remove</button></td></tr>`).join("")}</tbody></table></div>`
+        : `<div class="hint">No rule classes set; every rule is judged by its name and metadata.</div>`;
+    } catch (_) {}
+  }
+  window.ycDelete = async (r) => {
+    if (!confirm(`Remove the class of ${r}? Its name and metadata decide again.`)) return;
+    try { await post("/api/yara-rule-classes/delete", { rule: r }); ycLoad(); }
+    catch (err) { $("ycMsg").style.color = ""; $("ycMsg").textContent = err.message; }
+  };
+  $("ycSave").onclick = async () => {
+    $("ycMsg").style.color = ""; $("ycMsg").textContent = "";
+    try {
+      const r = await post("/api/yara-rule-classes", { rule: $("ycRule").value.trim(), class: $("ycClass").value, note: $("ycNote").value.trim() });
+      $("ycMsg").style.color = "var(--green)";
+      $("ycMsg").textContent = `Saved: ${r.item.rule} → ${ycLabel[r.item.class]}. Rescan kept files to update their verdicts.`;
+      $("ycRule").value = ""; $("ycNote").value = "";
+      ycLoad();
+    } catch (err) { $("ycMsg").textContent = err.message; }
+  };
+  ycLoad();
 
   // Retrohunt results of saved signatures.
   const rhOpen = new Set();

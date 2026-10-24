@@ -388,6 +388,8 @@ pub fn dashboard_router(state: Arc<AppState>) -> Router {
         .route("/api/signatures/delete", post(handle_signature_delete))
         .route("/api/imphash-signatures", get(handle_imphash_list).post(handle_imphash_create))
         .route("/api/imphash-signatures/delete", post(handle_imphash_delete))
+        .route("/api/yara-rule-classes", get(handle_yara_classes_list).post(handle_yara_class_set))
+        .route("/api/yara-rule-classes/delete", post(handle_yara_class_delete))
         .route("/api/fp/detections/:sha256", get(handle_fp_detections))
         .route("/api/fp/lists", get(handle_fp_lists))
         .route("/api/fp/ignore", post(handle_fp_ignore))
@@ -429,10 +431,11 @@ fn is_local_host(host: &str) -> bool {
 /// Dashboard calls that write human verdicts or change what decides a verdict (rules,
 /// FP lists, company lists, bans): with `analyst_keys.txt` in place they need a valid
 /// `X-Multron-Analyst-Key` (see `human_review::analyst_keys`).
-const ANALYST_PATHS: [&str; 17] = [
+const ANALYST_PATHS: [&str; 19] = [
     "/api/review", "/api/review/start", "/api/review/release", "/api/review/delete",
     "/api/reviews/bulk", "/api/reviews/requeue", "/api/signatures", "/api/signatures/delete",
     "/api/imphash-signatures", "/api/imphash-signatures/delete",
+    "/api/yara-rule-classes", "/api/yara-rule-classes/delete",
     "/api/fp/ignore", "/api/fp/unignore", "/api/companies", "/api/rules", "/api/bans/add", "/api/bans/remove",
     "/api/ml-thresholds",
 ];
@@ -2429,6 +2432,53 @@ async fn handle_imphash_delete(State(app): State<Arc<AppState>>, Json(b): Json<I
         }
         Ok(false) => (StatusCode::NOT_FOUND, Json(serde_json::json!({ "ok": false, "error": "no such imphash signature" }))).into_response(),
         Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({ "ok": false, "error": e.to_string() }))).into_response(),
+    }
+}
+
+async fn handle_yara_classes_list() -> impl IntoResponse {
+    Json(serde_json::json!({ "ok": true, "items": crate::yara_classes::list() }))
+}
+
+#[derive(Deserialize)]
+struct YaraClassBody {
+    rule: String,
+    /// suspicious, pua or malware.
+    class: String,
+    #[serde(default)]
+    note: String,
+    #[serde(default)]
+    analyst: String,
+}
+
+/// Sets what a match of a YARA rule means (e.g. `RAT_VNC` → suspicious). Cached
+/// verdicts are dropped so files are judged again with it; kept files need a rescan.
+async fn handle_yara_class_set(State(app): State<Arc<AppState>>, who: Option<Extension<AnalystId>>, Json(mut b): Json<YaraClassBody>) -> Response {
+    apply_analyst(&who, &mut b.analyst);
+    match crate::yara_classes::set(&b.rule, &b.class, &b.note, &b.analyst) {
+        Ok(e) => {
+            app.scan_server.cache.invalidate_all();
+            info_event(&app, format!("YARA rule {} -> {} (by {})", e.rule, e.class, if e.analyst.is_empty() { "?" } else { &e.analyst }));
+            Json(serde_json::json!({ "ok": true, "item": e })).into_response()
+        }
+        Err(e) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({ "ok": false, "error": e }))).into_response(),
+    }
+}
+
+#[derive(Deserialize)]
+struct YaraClassDeleteBody {
+    rule: String,
+}
+
+/// Removes an analyst rule class: the rule's own name and metadata decide again.
+async fn handle_yara_class_delete(State(app): State<Arc<AppState>>, Json(b): Json<YaraClassDeleteBody>) -> Response {
+    match crate::yara_classes::remove(&b.rule) {
+        Ok(true) => {
+            app.scan_server.cache.invalidate_all();
+            info_event(&app, format!("YARA rule class of {} removed", b.rule.trim()));
+            Json(serde_json::json!({ "ok": true })).into_response()
+        }
+        Ok(false) => (StatusCode::NOT_FOUND, Json(serde_json::json!({ "ok": false, "error": "no class set for this rule" }))).into_response(),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({ "ok": false, "error": e }))).into_response(),
     }
 }
 
