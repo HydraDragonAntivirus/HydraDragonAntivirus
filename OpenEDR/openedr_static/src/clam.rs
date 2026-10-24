@@ -27,6 +27,17 @@ impl ClamScanner {
         self.engine.is_some()
     }
 
+    pub fn scan_bytes_direct(&self, data: &[u8], file_name: &str) -> Vec<ScanMatch> {
+        let Some(ref engine) = self.engine else {
+            return Vec::new();
+        };
+        let options = ScanOptions::default();
+        if data.len() > options.max_child_size {
+            return Vec::new();
+        }
+        engine.scan_bytes_named(data, file_name, options, &[])
+    }
+
     pub fn scan_bytes(&self, data: &[u8], file_name: &str) -> Vec<ScanMatch> {
         let Some(ref engine) = self.engine else {
             return Vec::new();

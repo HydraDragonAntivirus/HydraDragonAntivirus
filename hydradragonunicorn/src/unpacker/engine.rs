@@ -1852,6 +1852,12 @@ impl UnpackerEngine {
         self.emu_from(ep, 30 * SECOND_SCALE, 0)
     }
 
+    pub fn emu_for(&mut self, limit: std::time::Duration) -> UnpackerResult<()> {
+        let ep = entrypoint(&self.sample.opt_header);
+        let us = (limit.as_micros() as u64).clamp(1, 30 * SECOND_SCALE as u64);
+        self.emu_from(ep, us, 0)
+    }
+
     /// Stop on write-execute (self-modifying code) and/or on leaving the
     /// allowed sections. Call after `init_uc`, before `emu` / `emu_from`.
     pub fn set_controls(&mut self, write_execute: bool, section_hopping: bool) {

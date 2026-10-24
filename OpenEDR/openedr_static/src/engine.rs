@@ -130,6 +130,29 @@ pub const CLAM_PUA_SCORE: f32 = 0.60;
 /// or metadata saying suspicious): the Suspicious cut-off.
 const YARA_SUSPICIOUS_SCORE: f32 = 0.50;
 
+const MEMBER_EMULATION_TIME: std::time::Duration = std::time::Duration::from_secs(5);
+const MEMBER_EMULATION_BUDGET: std::time::Duration = std::time::Duration::from_secs(20);
+const MAX_MEMBER_EMULATIONS: usize = 8;
+const MAX_OBJECT_THREADS: usize = 8;
+const OBJECT_THREAD_STACK: usize = 32 * 1024 * 1024;
+
+fn looks_packed(data: &[u8]) -> bool {
+    let Ok(pe) = pefile_rs::PE::parse(data) else {
+        return false;
+    };
+    let has_packer_section = pe.sections.iter().any(|s| {
+        let name = s.name.to_lowercase();
+        name.contains("upx")
+            || name.contains("aspack")
+            || name.contains("vmp")
+            || name.contains("themida")
+            || name.contains("nsp")
+            || name.contains("pack")
+            || s.get_entropy(data) >= 7.2
+    });
+    has_packer_section || pefile_rs::utils::calculate_entropy(data) >= 7.1
+}
+
 /// YARA-X hit score by the rule's class (`yara::rule_class`: name parts and metadata):
 /// 0.95 for malware, `CLAM_PUA_SCORE` for potentially unwanted rules (dual-use tools,
 /// adware, vulnerable drivers such as the LOLDrivers rules) and `YARA_SUSPICIOUS_SCORE`
@@ -1241,6 +1264,45 @@ impl StaticEngine {
     /// Scan a first-class extracted object (archive member, emulated unpacked PE, overlay, or stripped buffer).
     /// Runs all detection engines (ClamAV, YARA-X, HydraDragonSig, ML and PE heuristics)
     /// on the in-memory bytes and returns an isolated `ExtractedObject`.
+    fn scan_parallel(&self, count: usize, make: impl Fn(usize) -> ScanObject + Sync) -> Vec<ExtractedObject> {
+        let threads = std::thread::available_parallelism()
+            .map_or(1, |n| n.get())
+            .min(MAX_OBJECT_THREADS)
+            .min(count);
+        if threads <= 1 {
+            return (0..count).map(|i| self.scan_object(&make(i))).collect();
+        }
+        let next = std::sync::atomic::AtomicUsize::new(0);
+        let slots: Vec<std::sync::Mutex<Option<ExtractedObject>>> =
+            (0..count).map(|_| std::sync::Mutex::new(None)).collect();
+        std::thread::scope(|scope| {
+            for _ in 0..threads {
+                let _ = std::thread::Builder::new()
+                    .stack_size(OBJECT_THREAD_STACK)
+                    .spawn_scoped(scope, || loop {
+                        let i = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                        if i >= count {
+                            break;
+                        }
+                        let result = self.scan_object(&make(i));
+                        if let Ok(mut slot) = slots[i].lock() {
+                            *slot = Some(result);
+                        }
+                    });
+            }
+        });
+        slots
+            .into_iter()
+            .enumerate()
+            .map(|(i, slot)| {
+                slot.into_inner()
+                    .ok()
+                    .flatten()
+                    .unwrap_or_else(|| self.scan_object(&make(i)))
+            })
+            .collect()
+    }
+
     pub fn scan_object(&self, object: &ScanObject) -> ExtractedObject {
         let mut obj_detections = Vec::new();
         let mut obj_max_score = 0.0f32;
@@ -1608,7 +1670,11 @@ impl StaticEngine {
         // 3. ClamAV Engine (native-only; skipped for APKs — APKs use YARA/HydraSig/ML above
         // plus the generic archive rescan below via hydradragonextractor).
         if !is_apk_file {
-            let clam_matches = self.clam.scan_bytes(data, target_name);
+            let clam_matches = if hydradragonextractor::detect_format(data).is_some() {
+                self.clam.scan_bytes_direct(data, target_name)
+            } else {
+                self.clam.scan_bytes(data, target_name)
+            };
             for m in clam_matches {
                 let score = clam_score(&m.name);
                 detections.push(DetectionItem {
@@ -1721,24 +1787,7 @@ impl StaticEngine {
         // Preserve the packed file's own score before combining it with child
         // objects, so a clean unpacked payload can be reported as an FP review hint.
         let parent_score_before_unpack = max_score;
-        let should_unpack = is_pe_candidate && (max_score < 0.95) && {
-            if let Ok(pe) = pefile_rs::PE::parse(data) {
-                let has_packer_section = pe.sections.iter().any(|s| {
-                    let name = s.name.to_lowercase();
-                    name.contains("upx")
-                        || name.contains("aspack")
-                        || name.contains("vmp")
-                        || name.contains("themida")
-                        || name.contains("nsp")
-                        || name.contains("pack")
-                        || s.get_entropy(data) >= 7.2
-                });
-                let is_high_entropy = pefile_rs::utils::calculate_entropy(data) >= 7.1;
-                has_packer_section || is_high_entropy
-            } else {
-                false
-            }
-        };
+        let should_unpack = is_pe_candidate && (max_score < 0.95) && looks_packed(data);
 
         if should_unpack {
             eprintln!("[unicorn] initiating PE CPU emulation for: {}", target_name);
@@ -2046,16 +2095,18 @@ impl StaticEngine {
         if hydradragonextractor::detect_format(data).is_some() {
             match hydradragonextractor::extract_archive_from_bytes(data, false) {
                 Ok(entries) => {
-                    for entry in entries {
-                        let obj = ScanObject::new(
-                            entry.name.clone(),
-                            format!("{target_name} -> {}", entry.name),
-                            entry.data.clone(),
+                    let mut member_emulations = 0usize;
+                    let mut member_emulation_time = std::time::Duration::ZERO;
+                    let scanned = self.scan_parallel(entries.len(), |i| {
+                        ScanObject::new(
+                            entries[i].name.clone(),
+                            format!("{target_name} -> {}", entries[i].name),
+                            entries[i].data.clone(),
                             1,
                             "ArchiveMember",
-                        );
-                        let extracted = self.scan_object(&obj);
-
+                        )
+                    });
+                    for (entry, extracted) in entries.into_iter().zip(scanned) {
                         max_score = max_score.max(extracted.max_threat_score);
                         for d in &extracted.detections {
                             detections.push(DetectionItem {
@@ -2067,13 +2118,23 @@ impl StaticEngine {
                         }
 
                         // Also check if child entry itself is a packed PE: run Unicorn once if packed
-                        if entry.data.starts_with(b"MZ") && entry.data.len() >= 0x1000 {
+                        if entry.data.starts_with(b"MZ")
+                            && entry.data.len() >= 0x1000
+                            && member_emulations < MAX_MEMBER_EMULATIONS
+                            && member_emulation_time < MEMBER_EMULATION_BUDGET
+                            && looks_packed(&entry.data)
+                        {
                             if let Ok(sub_sample) = hydradragonunicorn::unpacker::engine::Sample::from_bytes(&entry.data) {
                                 let sub_trace_enabled = self.string_rules.needs_behavior();
                                 let mut sub_unpacker = hydradragonunicorn::unpacker::engine::UnpackerEngine::new(sub_sample, "memory")
                                     .with_trace_mode(sub_trace_enabled);
                                 if sub_unpacker.init_uc().is_ok() {
-                                    let _ = sub_unpacker.emu();
+                                    member_emulations += 1;
+                                    let emu_start = Instant::now();
+                                    let limit = MEMBER_EMULATION_TIME
+                                        .min(MEMBER_EMULATION_BUDGET.saturating_sub(member_emulation_time));
+                                    let _ = sub_unpacker.emu_for(limit);
+                                    member_emulation_time += emu_start.elapsed();
                                     let sub_trace = sub_unpacker.behavior_trace();
                                     if !sub_trace.calls.is_empty() {
                                         let capped: &[u8] = if entry.data.len() > 16 * 1024 * 1024 {
