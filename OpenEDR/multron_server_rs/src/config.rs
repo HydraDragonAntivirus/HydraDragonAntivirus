@@ -129,7 +129,8 @@ pub struct CliArgs {
     #[arg(long)]
     pub no_keep_unknown: bool,
 
-    /// Disk space for kept files in GB; no more are kept above it
+    /// No longer used: kept files have no quota, only the low-disk threshold stops
+    /// keeping. Accepted so old start scripts keep working.
     #[arg(long, default_value_t = 20)]
     pub keep_unknown_gb: u64,
 

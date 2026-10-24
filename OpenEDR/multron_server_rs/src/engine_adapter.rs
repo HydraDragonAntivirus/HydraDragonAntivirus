@@ -109,7 +109,6 @@ pub struct EngineAdapter {
     /// LZMA2-compress kept files when space runs low (dashboard toggle, off by default).
     pub compress_low_disk: AtomicBool,
     pub low_disk_threshold_bytes: u64,
-    keep_limit_bytes: u64,
     kept_bytes: AtomicU64,
     pub keep_clean_limit_bytes: u64,
     pub kept_clean_bytes: AtomicU64,
@@ -130,7 +129,7 @@ impl EngineAdapter {
         work_dir: Option<PathBuf>,
         whitelist_enabled: bool,
         keep_unknown: bool,
-        keep_unknown_gb: u64,
+        _keep_unknown_gb: u64,
         keep_threats: bool,
         keep_clean: bool,
         keep_clean_gb: u64,
@@ -169,7 +168,6 @@ impl EngineAdapter {
             dataset,
             compress_low_disk: AtomicBool::new(compress_low_disk),
             low_disk_threshold_bytes: low_disk_gb * 1024 * 1024 * 1024,
-            keep_limit_bytes: keep_unknown_gb * 1024 * 1024 * 1024,
             kept_bytes: AtomicU64::new(kept.0),
             keep_clean_limit_bytes: keep_clean_gb * 1024 * 1024 * 1024,
             kept_clean_bytes: AtomicU64::new(kept.2),
@@ -642,21 +640,6 @@ impl EngineAdapter {
         sub_u64(used, len);
         dec_i64(&self.kept_files);
         Some(len)
-    }
-
-    /// What is short of room. Only the disk: the keep quotas no longer drop files (they
-    /// are kept past it while the disk has room), so a full quota is no reason to move
-    /// samples off this server. The disk counts when free space is under the low-disk
-    /// threshold; with `until_relieved` the mark is the threshold + 25 %, so an
-    /// automatic move does not stop right at the edge.
-    pub fn storage_pressure(&self, until_relieved: bool) -> Pressure {
-        let Some(dir) = self.work_dir.as_ref() else { return Pressure::default() };
-        let threshold = if until_relieved { self.low_disk_threshold_bytes + self.low_disk_threshold_bytes / 4 } else { self.low_disk_threshold_bytes };
-        Pressure {
-            clean: false,
-            shared: false,
-            disk: get_available_disk_space_bytes(dir).is_some_and(|free| free <= threshold),
-        }
     }
 
     /// Moves old-style `<prefix><SHA256>_<name>` files from the work folder root into the
@@ -1228,33 +1211,6 @@ impl EngineAdapter {
         if let Some(p) = temp {
             let _ = std::fs::remove_file(p);
         }
-    }
-}
-
-/// See `EngineAdapter::storage_pressure`.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub struct Pressure {
-    /// Clean quota (`--keep-clean-gb`).
-    pub clean: bool,
-    /// Shared quota of the other categories (`--keep-unknown-gb`).
-    pub shared: bool,
-    /// Free disk space.
-    pub disk: bool,
-}
-
-impl Pressure {
-    pub fn any(&self) -> bool {
-        self.clean || self.shared || self.disk
-    }
-
-    /// Whether moving a file of `category` helps.
-    pub fn helped_by(&self, category: &str) -> bool {
-        self.disk || if category == "clean" { self.clean } else { self.shared }
-    }
-
-    /// Still short of room in any of the resources that were short at the start.
-    pub fn still(&self, start: &Pressure) -> bool {
-        (start.clean && self.clean) || (start.shared && self.shared) || (start.disk && self.disk)
     }
 }
 

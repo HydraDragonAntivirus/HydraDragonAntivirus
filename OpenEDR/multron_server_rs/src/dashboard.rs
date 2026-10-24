@@ -130,7 +130,6 @@ impl AppState {
             scan_server.set_maintenance("maintenance");
             eprintln!("[maintenance] still on from before the restart (turn it off in the dashboard)");
         }
-        scan_server.offload.auto.store(settings.offload_auto, std::sync::atomic::Ordering::Relaxed);
 
         // Limits saved from the dashboard win over the command-line defaults.
         if let Some(saved) = settings.limits.take() {
@@ -1252,8 +1251,6 @@ async fn handle_mirror_stop(State(app): State<Arc<AppState>>) -> Response {
 struct OffloadConfigBody {
     #[serde(default)]
     target: String,
-    #[serde(default)]
-    auto: bool,
 }
 
 /// Sets the folder kept files are moved to (another disk / network share) and whether

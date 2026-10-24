@@ -16,7 +16,7 @@ use std::sync::{Arc, Mutex, RwLock};
 
 use sha2::{Digest, Sha256};
 
-use crate::engine_adapter::{EngineAdapter, KeptFile, Pressure};
+use crate::engine_adapter::{EngineAdapter, KeptFile};
 
 /// Move order: the first category goes first.
 const MOVE_ORDER: [&str; 7] =
@@ -26,8 +26,6 @@ const MOVE_ORDER: [&str; 7] =
 pub struct Offload {
     /// Target folder; empty = off.
     pub target: RwLock<String>,
-    /// Move automatically when space runs low.
-    pub auto: AtomicBool,
     running: AtomicBool,
     stop: AtomicBool,
     total: AtomicUsize,
@@ -56,7 +54,6 @@ impl Offload {
     pub fn status(&self) -> serde_json::Value {
         serde_json::json!({
             "target": self.target(),
-            "auto": self.auto.load(Ordering::Relaxed),
             "running": self.is_running(),
             "reason": *self.reason.lock().unwrap(),
             "total": self.total.load(Ordering::Relaxed),
@@ -139,13 +136,9 @@ fn move_one(engine: &EngineAdapter, target: &Path, k: &KeptFile) -> Result<u64, 
     Ok(freed)
 }
 
-/// What to move: every kept file of `categories` (by hand), or the oldest files until
-/// there is room again (automatic).
+/// What to move: every kept file of `categories` (by hand; there is no automatic move).
 pub enum Mode {
     Categories(Vec<String>),
-    /// Started because of this pressure; only files that relieve it are moved, until
-    /// it is gone.
-    UntilRelieved(Pressure),
 }
 
 /// Starts moving in the background. Returns how many files are candidates.
@@ -160,20 +153,6 @@ pub fn start(engine: &Arc<EngineAdapter>, off: &Arc<Offload>, mode: Mode, log: i
             }
             files.retain(|k| cats.contains(&k.category));
             format!("by hand: {}", cats.join(", "))
-        }
-        Mode::UntilRelieved(p) => {
-            files.retain(|k| p.helped_by(k.category));
-            let mut why = Vec::new();
-            if p.disk {
-                why.push("low disk space");
-            }
-            if p.clean {
-                why.push("clean quota 80 % full");
-            }
-            if p.shared {
-                why.push("keep quota 80 % full");
-            }
-            format!("automatic: {}", why.join(", "))
         }
     };
     if off.running.swap(true, Ordering::SeqCst) {
@@ -196,10 +175,6 @@ pub fn start(engine: &Arc<EngineAdapter>, off: &Arc<Offload>, mode: Mode, log: i
     *off.reason.lock().unwrap() = reason.clone();
     *off.started_at.lock().unwrap() = Some(chrono::Utc::now().to_rfc3339());
     *off.finished_at.lock().unwrap() = None;
-    let started_by = match mode {
-        Mode::UntilRelieved(p) => Some(p),
-        Mode::Categories(_) => None,
-    };
     log(format!("moving kept files to {} ({reason}): {n} candidates", target.display()));
     let (eng, o) = (Arc::clone(engine), Arc::clone(off));
     let spawned = std::thread::Builder::new().name("offload".into()).spawn(move || {
@@ -207,16 +182,6 @@ pub fn start(engine: &Arc<EngineAdapter>, off: &Arc<Offload>, mode: Mode, log: i
         for (_, _, k) in dated {
             if o.stop.load(Ordering::Relaxed) {
                 break;
-            }
-            if let Some(start) = started_by {
-                let now = eng.storage_pressure(true);
-                if !now.still(&start) {
-                    break;
-                }
-                // e.g. the clean quota is fine again but the shared one is not: skip clean files.
-                if !now.helped_by(k.category) {
-                    continue;
-                }
             }
             match move_one(&eng, &target, &k) {
                 Ok(freed) => {
@@ -287,18 +252,5 @@ mod tests {
         assert!(work.join("clean").join(format!("{bad}_b.exe")).exists());
         assert!(!target.join("clean").join(format!("{bad}_b.exe.part")).exists());
         let _ = std::fs::remove_dir_all(&base);
-    }
-
-    #[test]
-    fn pressure_targets_the_full_quota() {
-        let clean_only = Pressure { clean: true, shared: false, disk: false };
-        assert!(clean_only.helped_by("clean"));
-        assert!(!clean_only.helped_by("unknown"));
-        let disk = Pressure { clean: false, shared: false, disk: true };
-        assert!(disk.helped_by("unknown") && disk.helped_by("clean"));
-        // Shared quota still at 70 % does not keep a clean-quota move going.
-        let now = Pressure { clean: false, shared: true, disk: false };
-        assert!(!now.still(&clean_only));
-        assert!(MOVE_ORDER[0] == "clean" && MOVE_ORDER[MOVE_ORDER.len() - 1] == "unknown");
     }
 }
