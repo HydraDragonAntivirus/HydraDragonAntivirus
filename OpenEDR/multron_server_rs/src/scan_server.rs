@@ -2197,6 +2197,13 @@ pub async fn execute_url_scan(
     if url_trimmed.is_empty() {
         return Err("URL cannot be empty".to_string());
     }
+    // Web addresses only: file://, ftp://, ... are not something to scan (a bare
+    // `example.com` or `host:8080` has no "://" and is read as https).
+    if let Some((scheme, _)) = url_trimmed.split_once("://") {
+        if !scheme.eq_ignore_ascii_case("http") && !scheme.eq_ignore_ascii_case("https") {
+            return Err("invalid URL: only http:// and https:// addresses can be scanned".to_string());
+        }
+    }
 
     // Step 1: PyFunceble-style asynchronous liveness check (DNS / Host resolution)
     let (dns_code, _) = crate::liveness::check_liveness(url_trimmed).await;

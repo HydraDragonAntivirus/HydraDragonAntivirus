@@ -153,10 +153,22 @@ pub async fn fetch_page_content_safe(raw_url: &str) -> Option<(u16, String)> {
     };
     let path = if path_and_query.is_empty() { "/" } else { &path_and_query };
 
-    let addr = format!("{}:{}", host, port);
+    // SSRF guard: anyone can ask for a URL, so the server must not reach its own
+    // loopback, the LAN or cloud metadata. Every resolved address has to be public,
+    // and the connection goes to the address checked here (no second lookup that a
+    // DNS rebind could answer differently).
+    let addrs: Vec<std::net::SocketAddr> =
+        tokio::time::timeout(Duration::from_millis(1500), lookup_host(format!("{}:{}", host, port)))
+            .await
+            .ok()?
+            .ok()?
+            .collect();
+    if addrs.is_empty() || !addrs.iter().all(|a| is_public_ip(a.ip())) {
+        return None;
+    }
     let mut stream = tokio::time::timeout(
         Duration::from_millis(2000),
-        tokio::net::TcpStream::connect(&addr),
+        tokio::net::TcpStream::connect(addrs[0]),
     )
     .await
     .ok()?
@@ -189,4 +201,40 @@ pub async fn fetch_page_content_safe(raw_url: &str) -> Option<(u16, String)> {
         .and_then(|c| c.parse::<u16>().ok())
         .unwrap_or(0);
     Some((status, text))
+}
+
+/// Globally routable unicast address (`IpAddr::is_global` is unstable). Loopback,
+/// private, CGNAT, link-local (cloud metadata 169.254.169.254), multicast, reserved
+/// and documentation ranges are refused; IPv4-mapped IPv6 is judged as IPv4.
+pub fn is_public_ip(ip: IpAddr) -> bool {
+    match ip {
+        IpAddr::V4(v4) => {
+            let o = v4.octets();
+            !(v4.is_unspecified()
+                || v4.is_loopback()
+                || v4.is_private()
+                || v4.is_link_local()
+                || v4.is_broadcast()
+                || v4.is_documentation()
+                || v4.is_multicast()
+                || o[0] == 0
+                || (o[0] == 100 && (o[1] & 0xc0) == 64) // 100.64.0.0/10 CGNAT
+                || (o[0] == 192 && o[1] == 0 && o[2] == 0) // 192.0.0.0/24 IETF
+                || (o[0] == 198 && (o[1] & 0xfe) == 18) // 198.18.0.0/15 benchmarking
+                || o[0] >= 240) // 240.0.0.0/4 reserved
+        }
+        IpAddr::V6(v6) => {
+            if let Some(v4) = v6.to_ipv4_mapped() {
+                return is_public_ip(IpAddr::V4(v4));
+            }
+            let s = v6.segments();
+            !(v6.is_unspecified()
+                || v6.is_loopback()
+                || v6.is_multicast()
+                || (s[0] & 0xfe00) == 0xfc00 // fc00::/7 unique local
+                || (s[0] & 0xffc0) == 0xfe80 // fe80::/10 link-local
+                || (s[0] == 0x2001 && s[1] == 0x0db8) // documentation
+                || (s[0] == 0x0064 && s[1] == 0xff9b)) // 64:ff9b::/96 NAT64 (embeds IPv4)
+        }
+    }
 }

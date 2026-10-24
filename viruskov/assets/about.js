@@ -226,6 +226,11 @@
       body: { tr: 'viruskov.com\'u 2026\'da teknik ve altyapı desteğiyle hayata geçiren dost.', en: 'Brought viruskov.com to life in 2026 with technical and infrastructure support.' }
     },
     {
+      name: 'Hacımurad',
+      role: { tr: 'Pentester · güvenlik', en: 'Pentester · security' },
+      body: { tr: 'Ekim 2026\'da api.viruskov.com\'daki URL tarama ucunda SSRF açığını bulup bildiren pentester.', en: 'Pentester who found and reported an SSRF flaw in the api.viruskov.com URL scan endpoint in October 2026.' }
+    },
+    {
       name: 'blackbanner.exe',
       role: { tr: 'İlk yol arkadaşı', en: 'Earliest companion' },
       body: { tr: '11 Mayıs 2023\'ten itibaren Discord\'da fikir ve sohbet paylaşılan ilk arkadaş.', en: 'The first friend to share ideas and late-night conversations on Discord, from 11 May 2023.' }
