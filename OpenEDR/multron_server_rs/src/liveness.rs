@@ -96,9 +96,9 @@ pub async fn check_liveness(raw_url: &str) -> (i32, String) {
         return (LIVENESS_UNKNOWN, "UNKNOWN".to_string());
     }
 
-    // Direct IP Address check
-    if clean_host.parse::<IpAddr>().is_ok() {
-        return (LIVENESS_ACTIVE, "ACTIVE".to_string());
+    // Direct IP Address check: nothing to resolve, only the port can answer.
+    if let Ok(ip) = clean_host.parse::<IpAddr>() {
+        return probe_port(&[std::net::SocketAddr::new(ip, port)]).await;
     }
 
     // Domain DNS lookup with timeout (PyFunceble emulation)
@@ -106,11 +106,14 @@ pub async fn check_liveness(raw_url: &str) -> (i32, String) {
     let resolution_timeout = Duration::from_millis(1500);
 
     match tokio::time::timeout(resolution_timeout, lookup_host(&addr_str)).await {
-        Ok(Ok(mut addrs)) => {
-            if addrs.next().is_some() {
-                (LIVENESS_ACTIVE, "ACTIVE".to_string())
-            } else {
+        Ok(Ok(addrs)) => {
+            let addrs: Vec<std::net::SocketAddr> = addrs.collect();
+            if addrs.is_empty() {
                 (LIVENESS_INACTIVE, "INACTIVE".to_string())
+            } else {
+                // Resolving is not being up: an IP or a domain whose server refuses or
+                // never answers is as dead as NXDOMAIN.
+                probe_port(&addrs).await
             }
         }
         Ok(Err(err)) => {
@@ -201,6 +204,21 @@ pub async fn fetch_page_content_safe(raw_url: &str) -> Option<(u16, String)> {
         .and_then(|c| c.parse::<u16>().ok())
         .unwrap_or(0);
     Some((status, text))
+}
+
+/// TCP connect to the URL's port: ACTIVE when any address accepts, INACTIVE when all
+/// refuse or time out. Never toward loopback / LAN / metadata (SSRF guard, see
+/// `is_public_ip`): those stay UNKNOWN, there is nothing to learn about them from here.
+async fn probe_port(addrs: &[std::net::SocketAddr]) -> (i32, String) {
+    if !addrs.iter().all(|a| is_public_ip(a.ip())) {
+        return (LIVENESS_UNKNOWN, "UNKNOWN".to_string());
+    }
+    for a in addrs.iter().take(2) {
+        if let Ok(Ok(_)) = tokio::time::timeout(Duration::from_millis(2000), tokio::net::TcpStream::connect(a)).await {
+            return (LIVENESS_ACTIVE, "ACTIVE".to_string());
+        }
+    }
+    (LIVENESS_INACTIVE, "INACTIVE".to_string())
 }
 
 /// Globally routable unicast address (`IpAddr::is_global` is unstable). Loopback,

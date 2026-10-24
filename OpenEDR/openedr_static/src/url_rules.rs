@@ -603,7 +603,9 @@ pub fn match_deterministic_rules(&self, raw_url: &str) -> Vec<String> {
         let mut fp_mitigated = false;
 
         let has_malicious_rule = detections.iter().any(|d| d.severity == "Malicious");
-        let has_suspicious_rule = detections.iter().any(|d| d.severity == "Suspicious");
+        // The model's own hit (pushed above as Suspicious for 0.50-0.90) is not a rule:
+        // counting it made every mid-range ML score Suspicious, against the policy below.
+        let has_suspicious_rule = detections.iter().any(|d| d.severity == "Suspicious" && d.rule_id != "LIGHTGBM_URL_MODEL");
 
         if has_malicious_rule && !is_whitelisted {
             verdict = "Malicious";
