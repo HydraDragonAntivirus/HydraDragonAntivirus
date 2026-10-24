@@ -177,8 +177,9 @@ pub struct CliArgs {
     #[arg(long)]
     pub no_compress_low_disk: bool,
 
-    /// Free disk threshold in GB below which incoming files are compressed with LZMA2 max (default: 15)
-    #[arg(long, default_value_t = 15)]
+    /// Free disk space in GB kept for the system: below it new files are not kept (or
+    /// compressed when --compress-low-disk is on) and the automatic offload starts (default: 5)
+    #[arg(long, default_value_t = 5)]
     pub low_disk_gb: u64,
 
     /// Archive server: read-only copy of the main server. Serves file pages, the API and
@@ -268,7 +269,7 @@ fn default_true() -> bool {
 }
 
 fn default_low_disk_gb() -> u64 {
-    15
+    5
 }
 
 fn default_tlsh_blacklist_dist() -> u32 {
@@ -361,7 +362,7 @@ impl Default for SavedSettings {
             maintenance: false,
             archive: false,
             lzma_low_disk: false,
-            low_disk_gb: 15,
+            low_disk_gb: 5,
             tlsh_blacklist_max_dist: default_tlsh_blacklist_dist(),
             ml_pe_inner_threshold: None,
             ml_pe_shell_threshold: None,

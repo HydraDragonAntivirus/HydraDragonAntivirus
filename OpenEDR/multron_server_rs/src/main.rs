@@ -242,8 +242,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             });
         }
         let srv = Arc::clone(&scan_server);
-        crate::offload::spawn_watcher(Arc::clone(&engine), Arc::clone(&scan_server.offload), move |m| srv.log_info(m));
-        let srv = Arc::clone(&scan_server);
         scan_server.mirror.set_work_dir(engine.work_dir().map(|p| p.to_path_buf()));
         let ti = Arc::clone(&threat_intel);
         scan_server.mirror.set_verdict_lookup(Arc::new(move |sha: &str| {

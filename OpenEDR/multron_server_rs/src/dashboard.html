@@ -405,7 +405,7 @@
         <input type="checkbox" id="compressLowDisk" style="width:auto">
         Compress new kept files with LZMA2 (<code>.xz</code>) when space runs low
       </label>
-      <div class="hint">Off by default. When on, a file kept while free disk space is under <span id="lowDiskGb">15</span> GB or a keep quota is 80 % full is stored as <code>.xz</code> (smaller, slower to rescan). Saved in multron_server.json; <code>--compress-low-disk</code> / <code>--no-compress-low-disk</code> override it at start.</div>
+      <div class="hint">Off by default. When on, a file kept while free disk space is under <span id="lowDiskGb">5</span> GB is stored as <code>.xz</code> (smaller, slower to rescan). Saved in multron_server.json; <code>--compress-low-disk</code> / <code>--no-compress-low-disk</code> override it at start.</div>
       <h2 style="margin-top:18px">Rescan kept files</h2>
       <div class="hint">Moved to <a href="#humanAnalysis" onclick="document.querySelector('#haTabs button[data-tab=Rescan]').click()" style="color:var(--accent)">Human analysis &rarr; Rescan tab</a></div>
       <h2 style="margin-top:18px">Move kept files to another disk</h2>
@@ -415,10 +415,6 @@
         <input id="ofTarget" type="text" placeholder="\\MAINPC\multron_archive or E:\multron_archive">
         <button class="ghost" id="ofSave">Save</button>
       </div>
-      <label style="display:flex;gap:8px;align-items:center;margin-top:8px">
-        <input type="checkbox" id="ofAuto" style="width:auto">
-        Move automatically when free space drops under the low-disk threshold or a keep quota is 80 % full, until there is room (clean first, then possible clean, malicious, suspicious, unknown last; oldest first)
-      </label>
       <div style="display:flex;gap:14px;flex-wrap:wrap;margin-top:8px">
         <label style="display:flex;gap:6px;align-items:center"><input type="checkbox" class="ofCat" value="unknown" checked style="width:auto"> Unknown</label>
         <label style="display:flex;gap:6px;align-items:center"><input type="checkbox" class="ofCat" value="possible_clean" checked style="width:auto"> Possible clean</label>
@@ -1546,7 +1542,6 @@ window.sigKey = (list) => list && list.length ? `${list[0].layer}: ${list[0].nam
 
   function renderOffload(o) {
     if (document.activeElement !== $("ofTarget") && !$("ofTarget").dataset.dirty) $("ofTarget").value = o.target || "";
-    if (document.activeElement !== $("ofAuto")) $("ofAuto").checked = !!o.auto;
     $("ofStart").disabled = !!o.running || !o.target;
     $("ofStop").hidden = !o.running;
     if (o.startedAt && !$("ofMsg").dataset.hold) {
@@ -1619,7 +1614,7 @@ window.sigKey = (list) => list && list.length ? `${list[0].layer}: ${list[0].nam
     $("ofMsg").style.color = "";
     $("ofMsg").textContent = "Checking the folder…";
     try {
-      await post("/api/offload/config", { target: $("ofTarget").value.trim(), auto: $("ofAuto").checked });
+      await post("/api/offload/config", { target: $("ofTarget").value.trim() });
       delete $("ofTarget").dataset.dirty;
       $("ofMsg").style.color = "var(--green)";
       $("ofMsg").textContent = $("ofTarget").value.trim() ? "Saved; the folder is reachable and writable." : "Moving is off.";
@@ -1627,7 +1622,6 @@ window.sigKey = (list) => list && list.length ? `${list[0].layer}: ${list[0].nam
     setTimeout(() => { delete $("ofMsg").dataset.hold; }, 4000);
   };
   $("ofSave").onclick = ofSave;
-  $("ofAuto").onchange = ofSave;
   $("ofStart").onclick = async () => {
     const categories = [...document.querySelectorAll(".ofCat:checked")].map(c => c.value);
     if (!categories.length) { $("ofMsg").textContent = "Pick at least one category."; return; }

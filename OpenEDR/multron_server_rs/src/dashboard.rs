@@ -1271,14 +1271,14 @@ async fn handle_offload_config(State(app): State<Arc<AppState>>, Json(b): Json<O
     }
     let off = &app.scan_server.offload;
     *off.target.write().unwrap() = target.clone();
-    off.auto.store(b.auto && !target.is_empty(), std::sync::atomic::Ordering::Relaxed);
     {
         let mut g = app.settings.write().await;
         g.offload_target = target.clone();
-        g.offload_auto = b.auto && !target.is_empty();
+        // Never automatic: kept files move only when started by hand.
+        g.offload_auto = false;
     }
     app.save_settings().await;
-    info_event(&app, format!("move target: {} (automatic: {})", if target.is_empty() { "off" } else { &target }, if b.auto { "on" } else { "off" }));
+    info_event(&app, format!("move target: {}", if target.is_empty() { "off" } else { &target }));
     Json(serde_json::json!({ "ok": true, "offload": off.status() })).into_response()
 }
 

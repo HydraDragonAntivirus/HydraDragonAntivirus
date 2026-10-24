@@ -78,7 +78,7 @@ pub fn explain(sha: &str) -> String {
     }
     match get(sha) {
         Some(m) if m.reason == "offloaded" => format!("this file is not kept on the server: moved by offload to {} ({})", m.detail, m.at),
-        Some(m) if m.reason == "quota" => format!("this file is not kept on the server: dropped at upload, keep quota full ({}, {})", m.detail, m.at),
+        Some(m) if m.reason == "quota" => format!("this file is not kept on the server: dropped at upload, disk low ({}, {})", m.detail, m.at),
         Some(m) => format!("this file is not kept on the server ({}: {})", m.reason, m.detail),
         None => "this file is not kept on the server: never uploaded (the client sent only the hash) or deleted".to_string(),
     }

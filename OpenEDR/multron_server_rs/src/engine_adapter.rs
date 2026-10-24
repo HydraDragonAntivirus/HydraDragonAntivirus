@@ -644,18 +644,17 @@ impl EngineAdapter {
         Some(len)
     }
 
-    /// What is short of room: (clean quota, shared quota, disk). A quota counts when it is
-    /// at least 80 % full and the disk when free space is under the low-disk threshold;
-    /// with `until_relieved` the marks are 60 % and the threshold + 25 %, so an automatic
-    /// move does not stop right at the edge.
+    /// What is short of room. Only the disk: the keep quotas no longer drop files (they
+    /// are kept past it while the disk has room), so a full quota is no reason to move
+    /// samples off this server. The disk counts when free space is under the low-disk
+    /// threshold; with `until_relieved` the mark is the threshold + 25 %, so an
+    /// automatic move does not stop right at the edge.
     pub fn storage_pressure(&self, until_relieved: bool) -> Pressure {
         let Some(dir) = self.work_dir.as_ref() else { return Pressure::default() };
-        let (num, den) = if until_relieved { (6, 10) } else { (8, 10) };
-        let over = |used: &AtomicU64, limit: u64| limit > 0 && used.load(Ordering::Relaxed) >= limit * num / den;
         let threshold = if until_relieved { self.low_disk_threshold_bytes + self.low_disk_threshold_bytes / 4 } else { self.low_disk_threshold_bytes };
         Pressure {
-            clean: over(&self.kept_clean_bytes, self.keep_clean_limit_bytes),
-            shared: over(&self.kept_bytes, self.keep_limit_bytes),
+            clean: false,
+            shared: false,
             disk: get_available_disk_space_bytes(dir).is_some_and(|free| free <= threshold),
         }
     }
@@ -1136,11 +1135,7 @@ impl EngineAdapter {
             return;
         }
 
-        let (used, limit) = if category == "clean" {
-            (&self.kept_clean_bytes, self.keep_clean_limit_bytes)
-        } else {
-            (&self.kept_bytes, self.keep_limit_bytes)
-        };
+        let used = if category == "clean" { &self.kept_clean_bytes } else { &self.kept_bytes };
         let wanted = !data.is_empty()
             && (self.keep_all_unique.load(Ordering::Relaxed)
                 || (is_xorfilter && self.collect_xorfilter.load(Ordering::Relaxed))
@@ -1148,16 +1143,19 @@ impl EngineAdapter {
                 || (self.keep_unknown && is_unknown)
                 || (is_clean && self.keep_clean.load(Ordering::Relaxed) && is_pe_or_apk(data, name))
                 || (self.keep_possible_clean.load(Ordering::Relaxed) && is_possible_clean));
-        let should_keep = wanted && used.load(Ordering::Relaxed) + size <= limit;
+        // No quota: the samples are the dataset, a counter must not throw them away.
+        // Dropped only when the disk itself is down to the low-disk threshold (kept when
+        // the free space cannot be read). `used` / `limit` are only shown in the dashboard.
+        let disk_room = self
+            .work_dir
+            .as_ref()
+            .and_then(|d| get_available_disk_space_bytes(d))
+            .map_or(true, |free| free > self.low_disk_threshold_bytes.saturating_add(size));
+        let should_keep = wanted && disk_room;
         if wanted && !should_keep && self.kept_path_of(sha).is_none() {
             // Used to be dropped silently: say so, and remember why the file is missing.
-            let detail = format!(
-                "{category}, {} KB, quota {} / {} MB",
-                size / 1024,
-                used.load(Ordering::Relaxed) / 1_048_576,
-                limit / 1_048_576
-            );
-            eprintln!("[kept] not kept, keep quota full: {sha} {name} ({detail})");
+            let detail = format!("{category}, {} KB, free disk space under {} GB", size / 1024, self.low_disk_threshold_bytes / (1024 * 1024 * 1024));
+            eprintln!("[kept] not kept, disk low: {sha} {name} ({detail})");
             crate::missing_files::record(sha, "quota", detail);
         }
 
@@ -1186,12 +1184,7 @@ impl EngineAdapter {
                 };
                 let _ = std::fs::create_dir_all(&cat_dir);
                 let low_disk = self.compress_low_disk.load(Ordering::Relaxed)
-                    && is_disk_space_low(
-                        dir,
-                        used.load(Ordering::Relaxed),
-                        limit,
-                        self.low_disk_threshold_bytes,
-                    );
+                    && is_disk_space_low(dir, self.low_disk_threshold_bytes);
 
                 if low_disk {
                     // PC has low disk space: compress with LZMA2 Max (Preset 9) into .xz
@@ -2014,10 +2007,8 @@ fn get_available_disk_space_bytes(_dir: &Path) -> Option<u64> {
     None
 }
 
-fn is_disk_space_low(dir: &Path, kept_bytes: u64, keep_limit_bytes: u64, low_disk_threshold_bytes: u64) -> bool {
-    if keep_limit_bytes > 0 && kept_bytes >= (keep_limit_bytes * 8) / 10 {
-        return true;
-    }
+/// Free space under the low-disk threshold (a full keep quota does not count).
+fn is_disk_space_low(dir: &Path, low_disk_threshold_bytes: u64) -> bool {
     if let Some(free_bytes) = get_available_disk_space_bytes(dir) {
         if free_bytes <= low_disk_threshold_bytes {
             return true;

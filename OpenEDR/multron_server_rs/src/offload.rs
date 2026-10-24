@@ -1,6 +1,6 @@
 //! Moving kept files (multron_incoming) to another disk or a network share, e.g. the
 //! main PC on the same network (`\\MAINPC\multron_archive`) or an external drive.
-//! Automatic when this disk runs low or a keep quota is 80 % full, or by hand from the
+//! Only by hand from the
 //! dashboard for chosen categories. Least useful files go first: clean, then possible
 //! clean, malicious, suspicious and unknown last (unknown files are the ones rescans
 //! after engine updates settle); oldest first inside a category.
@@ -252,20 +252,6 @@ pub fn start(engine: &Arc<EngineAdapter>, off: &Arc<Offload>, mode: Mode, log: i
         return Err(format!("cannot start the move thread: {e}"));
     }
     Ok(n)
-}
-
-/// Checks once a minute whether an automatic move is needed.
-pub fn spawn_watcher(engine: Arc<EngineAdapter>, off: Arc<Offload>, log: impl Fn(String) + Send + Sync + Clone + 'static) {
-    let _ = std::thread::Builder::new().name("offload-watch".into()).spawn(move || loop {
-        std::thread::sleep(std::time::Duration::from_secs(60));
-        if !off.auto.load(Ordering::Relaxed) || off.is_running() || off.target().trim().is_empty() {
-            continue;
-        }
-        let p = engine.storage_pressure(false);
-        if p.any() {
-            let _ = start(&engine, &off, Mode::UntilRelieved(p), log.clone());
-        }
-    });
 }
 
 #[cfg(test)]
