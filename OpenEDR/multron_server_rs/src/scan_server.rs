@@ -2204,6 +2204,11 @@ pub async fn execute_url_scan(
             return Err("invalid URL: only http:// and https:// addresses can be scanned".to_string());
         }
     }
+    // Loopback, LAN, cloud metadata and other reserved addresses are not judged: a
+    // "clean" for 169.254.169.254 was a verdict about nothing anyone can visit.
+    if crate::liveness::is_internal_target(url_trimmed) {
+        return Err("internal or reserved address: not scanned".to_string());
+    }
 
     // Step 1: PyFunceble-style asynchronous liveness check (DNS / Host resolution)
     let (dns_code, _) = crate::liveness::check_liveness(url_trimmed).await;
@@ -2327,8 +2332,30 @@ pub async fn execute_url_scan(
     Ok(ecs)
 }
 
+/// URL scans running at once from the public HTTP API. Each one can wait on DNS, a
+/// connect and a fetch (seconds); without a cap a burst of requests tied up the
+/// server's workers until it stopped answering.
+const MAX_HTTP_URL_SCANS: usize = 8;
+
+/// Admission for a public URL scan: the per-IP REST quota (the other public endpoints
+/// had it, the URL scan did not), then a free slot. The permit is held until the scan
+/// ends.
+fn url_scan_gate(server: &ScanServer, addr: SocketAddr, headers: &HeaderMap) -> Result<tokio::sync::SemaphorePermit<'static>, Response> {
+    static SLOTS: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(MAX_HTTP_URL_SCANS);
+    let ip = extract_client_ip(addr, headers);
+    let key = headers.get("x-api-key").and_then(|v| v.to_str().ok());
+    if let Err(retry) = server.rest_limiter.check(&ip, key) {
+        return Err(json_response(StatusCode::TOO_MANY_REQUESTS, serde_json::json!({"status": "error", "retry_after_seconds": retry}), "no-store"));
+    }
+    SLOTS.try_acquire().map_err(|_| {
+        json_response(StatusCode::SERVICE_UNAVAILABLE, serde_json::json!({"status": "error", "error": "busy: too many URL scans at once, retry in a few seconds"}), "no-store")
+    })
+}
+
 /// Scans a URL (JSON body, `url`) and returns the ECS result.
 async fn handle_scan_url(
+    ConnectInfo(addr): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
     State(server): State<Arc<ScanServer>>,
     axum::Json(req): axum::Json<UrlScanRequest>,
 ) -> Response {
@@ -2339,6 +2366,10 @@ async fn handle_scan_url(
         )
             .into_response();
     }
+    let _permit = match url_scan_gate(&server, addr, &headers) {
+        Ok(p) => p,
+        Err(r) => return r,
+    };
     match execute_url_scan(&server, &req.url, req.content.as_deref(), req.content_status).await {
         Ok(ecs_val) => (StatusCode::OK, axum::Json(ecs_val)).into_response(),
         Err(err) => (
@@ -2350,6 +2381,8 @@ async fn handle_scan_url(
 
 /// Same as POST, with `?url=`.
 async fn handle_scan_url_get(
+    ConnectInfo(addr): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
     State(server): State<Arc<ScanServer>>,
     axum::extract::Query(query): axum::extract::Query<UrlScanQuery>,
 ) -> Response {
@@ -2360,6 +2393,10 @@ async fn handle_scan_url_get(
         )
             .into_response();
     }
+    let _permit = match url_scan_gate(&server, addr, &headers) {
+        Ok(p) => p,
+        Err(r) => return r,
+    };
     match execute_url_scan(&server, &query.url, None, None).await {
         Ok(ecs_val) => (StatusCode::OK, axum::Json(ecs_val)).into_response(),
         Err(err) => (

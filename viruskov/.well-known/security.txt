@@ -1,0 +1,5 @@
+Contact: mailto:viruskov@viruskov.com
+Expires: 2027-10-25T00:00:00.000Z
+Preferred-Languages: tr, en
+Canonical: https://viruskov.com/.well-known/security.txt
+Policy: https://github.com/HydraDragonAntivirus/HydraDragonAntivirus/blob/development-version/SECURITY.md
