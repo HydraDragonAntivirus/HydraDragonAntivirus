@@ -1080,7 +1080,8 @@ impl EngineAdapter {
             Some(crate::analyst_engine::CompanyDecision::Allow(company)) => apply_company_allow(&mut res, &company),
             None => {}
         }
-        // Analyst ClamAV / HydraDragonSig signatures can only raise the verdict.
+        // Analyst ClamAV / HydraDragonSig signatures can only raise the verdict, and
+        // never over an allow-listed signer (see `apply_analyst_hit`).
         for hit in self.analyst.scan(data, name) {
             apply_analyst_hit(&mut res, &hit);
         }
@@ -1443,7 +1444,13 @@ pub fn apply_analyst_hit(res: &mut ResultMessage, hit: &crate::analyst_engine::A
     if !res.detections.contains(&d) {
         res.detections.insert(0, d);
     }
-    if verdict_rank(hit.verdict) <= verdict_rank(&res.verdict) {
+    // A file validly signed by a trusted signer stays as the engine judged it: an
+    // allow-listed company (analyst list) or a publisher of `signer_rules/
+    // trusted_signers.yaml` with a valid signature (`SignerSummary::trusted`). No analyst
+    // layer (signatures, TLSH, imphash) overrides that; the match is still listed above.
+    // Only the company block-list and a human verdict on the hash decide otherwise.
+    let trusted_signer = is_company_allowed(res) || res.signer.as_ref().is_some_and(|s| s.trusted);
+    if (trusted_signer && hit.engine != "company_blocklist") || verdict_rank(hit.verdict) <= verdict_rank(&res.verdict) {
         return;
     }
     let detail = format!("Analyst signature ({}): {}", hit.engine, hit.name);
@@ -1482,11 +1489,21 @@ pub fn apply_analyst_hit(res: &mut ResultMessage, hit: &crate::analyst_engine::A
 /// Allow-listed, validly signed company: the engine verdict becomes clean. Analyst
 /// ClamAV/HydraDragonSig hits are applied afterwards and can still raise it again.
 fn apply_company_allow(res: &mut ResultMessage, company: &str) {
-    if res.verdict == "clean" {
-        return;
-    }
-    let detail = format!("Trusted company (analyst allow-list): {company}; engine said {}", res.verdict);
-    mark_clean(res, detail, "analyst/company_allowlist");
+    // Marked even when the engine already said clean: the analyst layers after it
+    // (`apply_analyst_hit`) must see that the signer is trusted.
+    let detail = if res.verdict == "clean" {
+        format!("Trusted company (analyst allow-list): {company}")
+    } else {
+        format!("Trusted company (analyst allow-list): {company}; engine said {}", res.verdict)
+    };
+    mark_clean(res, detail, COMPANY_ALLOW_RULESET);
+}
+
+const COMPANY_ALLOW_RULESET: &str = "analyst/company_allowlist";
+
+/// Clean because the file is validly signed by a company on the analyst allow-list.
+pub fn is_company_allowed(res: &ResultMessage) -> bool {
+    res.rule.as_ref().and_then(|r| r["ruleset"].as_str()) == Some(COMPANY_ALLOW_RULESET)
 }
 
 /// Rewrites a result as clean (keeps the ECS fields the clients read in sync).

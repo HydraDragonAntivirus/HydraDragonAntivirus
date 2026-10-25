@@ -577,7 +577,7 @@
       <div id="ycMsg" class="error"></div>
       <div id="ycList" style="margin-top:8px"></div>
       <h2 style="margin-top:22px">Company (signer) lists</h2>
-      <div class="hint" style="margin-top:0">One Authenticode signer name per line, exactly as in the certificate. <b>Allow</b> makes validly signed files clean (a broken or untrusted signature is ignored). <b>Block</b> marks the signer's files malicious. Analyst ClamAV and HydraDragonSig hits still apply on top; a human hash verdict always wins.</div>
+      <div class="hint" style="margin-top:0">One Authenticode signer name per line, exactly as in the certificate. <b>Allow</b> makes validly signed files clean (a broken or untrusted signature is ignored). <b>Block</b> marks the signer's files malicious. Nothing overrides an allowed signer, nor a valid signature of a publisher in signer_rules/trusted_signers.yaml: analyst ClamAV / HydraDragonSig, TLSH and imphash matches are listed but do not change the verdict. Only the block-list and a human hash verdict decide otherwise.</div>
       <div class="row2" style="margin-top:8px">
         <div><label for="coAllow">Allow-list</label><textarea id="coAllow" spellcheck="false" placeholder="Microsoft Corporation" style="min-height:140px; font-family:Consolas, monospace; font-size:12px;"></textarea></div>
         <div><label for="coBlock">Block-list</label><textarea id="coBlock" spellcheck="false" placeholder="Shady Software Ltd" style="min-height:140px; font-family:Consolas, monospace; font-size:12px;"></textarea></div>
