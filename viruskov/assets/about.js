@@ -189,8 +189,8 @@
     },
     {
       name: 'Hacımurad',
-      role: { tr: 'Dost · destek', en: 'Friend · support' },
-      body: { tr: 'Ramiz aracılığıyla tanışılan; projenin büyümesinde ve motivasyonun korunmasında hep yanında olan dost.', en: 'Met through Ramiz; a constant presence in keeping the project growing and motivated.' },
+      role: { tr: 'Dost · destek · pentester', en: 'Friend · support · pentester' },
+      body: { tr: 'Ramiz aracılığıyla tanışılan; projenin büyümesinde ve motivasyonun korunmasında hep yanında olan dost. Ekim 2026\'da api.viruskov.com\'daki URL tarama ucunda SSRF açığını bulup bildirdi.', en: 'Met through Ramiz; a constant presence in keeping the project growing and motivated. Found and reported an SSRF flaw in the api.viruskov.com URL scan endpoint in October 2026.' },
       links: [{ href: 'https://github.com/hyron0145', tr: 'GitHub', en: 'GitHub' }]
     },
     {
@@ -224,11 +224,6 @@
       name: 'Benan',
       role: { tr: 'Web altyapısı', en: 'Web infrastructure' },
       body: { tr: 'viruskov.com\'u 2026\'da teknik ve altyapı desteğiyle hayata geçiren dost.', en: 'Brought viruskov.com to life in 2026 with technical and infrastructure support.' }
-    },
-    {
-      name: 'Hacımurad',
-      role: { tr: 'Pentester · güvenlik', en: 'Pentester · security' },
-      body: { tr: 'Ekim 2026\'da api.viruskov.com\'daki URL tarama ucunda SSRF açığını bulup bildiren pentester.', en: 'Pentester who found and reported an SSRF flaw in the api.viruskov.com URL scan endpoint in October 2026.' }
     },
     {
       name: 'blackbanner.exe',
