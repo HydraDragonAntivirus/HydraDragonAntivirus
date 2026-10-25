@@ -680,6 +680,40 @@ pub fn write_fake_find_data_w(uc: &mut Unicorn<'_, ()>, addr: u64, filename: &st
 }
 
 /// Executes stub emulation logic for a resolved Windows API.
+/// Makes `[target, target + len)` readable, writable and executable for a
+/// VirtualAlloc at a given address: unmapped pages are mapped and mapped ones get the
+/// protection, each as runs of consecutive pages (one mem_map / mem_protect per run).
+/// A page at a time made a 64 MB request 16384 calls; every protect splits Unicorn's
+/// regions, so a sample calling VirtualAlloc again and again over its own image spent
+/// minutes inside the API hook, where the run's time limit cannot stop it. False when
+/// a run cannot be mapped.
+fn map_pages_at(uc: &mut Unicorn<'_, ()>, target: u64, len: u64) -> bool {
+    // (start, mapped) of the run being collected.
+    let mut run: Option<(u64, bool)> = None;
+    for offset in (0..len).step_by(0x1000).chain(std::iter::once(len)) {
+        let page_addr = target.saturating_add(offset);
+        let mapped = if offset < len {
+            let mut test = [0u8; 1];
+            Some(uc.mem_read(page_addr, &mut test).is_ok())
+        } else {
+            None // end: close the last run
+        };
+        if let Some((start, was_mapped)) = run {
+            if mapped == Some(was_mapped) {
+                continue;
+            }
+            let run_len = page_addr - start;
+            if was_mapped {
+                let _ = uc.mem_protect(start, run_len, Prot::ALL);
+            } else if uc.mem_map(start, run_len, Prot::ALL).is_err() {
+                return false;
+            }
+        }
+        run = mapped.map(|m| (page_addr, m));
+    }
+    true
+}
+
 pub fn handle_api_call(
     uc: &mut Unicorn<'_, ()>,
     api_name: &str,
@@ -1061,16 +1095,8 @@ pub fn handle_api_call(
 
             if req_addr >= 0x10000 {
                 let target = req_addr & !0xFFF;
-                for offset in (0..page_aligned).step_by(0x1000) {
-                    let page_addr = target.saturating_add(offset);
-                    let mut test = [0u8; 1];
-                    if uc.mem_read(page_addr, &mut test).is_err() {
-                        if uc.mem_map(page_addr, 0x1000, Prot::ALL).is_err() {
-                            return 0;
-                        }
-                    } else {
-                        let _ = uc.mem_protect(page_addr, 0x1000, Prot::ALL);
-                    }
+                if !map_pages_at(uc, target, page_aligned) {
+                    return 0;
                 }
                 target
             } else {
@@ -1094,16 +1120,8 @@ pub fn handle_api_call(
 
             if req_addr >= 0x10000 {
                 let target = req_addr & !0xFFF;
-                for offset in (0..page_aligned).step_by(0x1000) {
-                    let page_addr = target.saturating_add(offset);
-                    let mut test = [0u8; 1];
-                    if uc.mem_read(page_addr, &mut test).is_err() {
-                        if uc.mem_map(page_addr, 0x1000, Prot::ALL).is_err() {
-                            return 0;
-                        }
-                    } else {
-                        let _ = uc.mem_protect(page_addr, 0x1000, Prot::ALL);
-                    }
+                if !map_pages_at(uc, target, page_aligned) {
+                    return 0;
                 }
                 target
             } else {
