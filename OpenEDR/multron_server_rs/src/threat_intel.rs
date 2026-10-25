@@ -291,15 +291,13 @@ impl ThreatIntelStore {
         let target_path = persistence_file.unwrap_or_else(|| app_dir().join("threat_insights.jsonl"));
 
         if target_path.exists() {
-            if let Ok(file) = File::open(&target_path) {
-                let reader = BufReader::new(file);
-                for line in reader.lines().map_while(Result::ok) {
-                    if let Ok(item) = serde_json::from_str::<ThreatInsight>(&line) {
-                        if let Some(sha_bytes) = parse_sha(&item.sha256) {
-                            initial_map.insert(sha_bytes, item);
-                        }
-                    }
+            let started = std::time::Instant::now();
+            match load_latest_insights(&target_path) {
+                Ok(m) => {
+                    eprintln!("[telemetry] {} hashes loaded from threat_insights.jsonl in {:.1} s", m.len(), started.elapsed().as_secs_f64());
+                    initial_map = m;
                 }
+                Err(e) => eprintln!("[telemetry] reading {} failed: {e}", target_path.display()),
             }
         }
 
@@ -922,6 +920,114 @@ impl ThreatIntelStore {
     }
 }
 
+/// The SHA-256 of an insight line without parsing it: the writer puts `sha256` first,
+/// so a line starts with `{"sha256":"<64 hex>"`. `None` for any other shape.
+fn line_sha_fast(line: &[u8]) -> Option<Sha> {
+    const PREFIX: &[u8] = b"{\"sha256\":\"";
+    let hex = line.strip_prefix(PREFIX)?.get(..64)?;
+    (line.get(PREFIX.len() + 64) == Some(&b'"')).then_some(())?;
+    parse_sha(std::str::from_utf8(hex).ok()?)
+}
+
+/// The SHA-256 of an insight line: the fast prefix, else the `sha256` field parsed.
+fn line_sha(line: &[u8]) -> Option<Sha> {
+    #[derive(Deserialize)]
+    struct OnlySha {
+        sha256: String,
+    }
+    line_sha_fast(line).or_else(|| parse_sha(&serde_json::from_slice::<OnlySha>(line).ok()?.sha256))
+}
+
+/// Calls `f(offset, line)` for every line of `path` (line without its line break).
+fn for_each_line(path: &Path, mut f: impl FnMut(u64, &[u8])) -> std::io::Result<()> {
+    let mut r = BufReader::with_capacity(8 << 20, File::open(path)?);
+    let mut buf = Vec::with_capacity(64 * 1024);
+    let mut offset = 0u64;
+    loop {
+        buf.clear();
+        let n = r.read_until(b'\n', &mut buf)?;
+        if n == 0 {
+            return Ok(());
+        }
+        let line = buf.strip_suffix(b"\n").unwrap_or(&buf);
+        let line = line.strip_suffix(b"\r").unwrap_or(line);
+        f(offset, line);
+        offset += n as u64;
+    }
+}
+
+/// The last valid entry of every hash in `threat_insights.jsonl`, the same result as
+/// parsing every line in order and keeping the last one that parses, without parsing
+/// every line: the file is append-only and every update writes the whole entry again,
+/// so most lines are superseded (6.5 GB to parse at each start). The file is only read.
+///
+/// 1. one pass finds the offset of each hash's last line from the line prefix alone;
+/// 2. a second pass takes those lines and parses them on all cores;
+/// 3. a hash whose last line does not parse (cut short by a crash) gets its lines
+///    parsed in order, keeping the last valid one, as before.
+fn load_latest_insights(path: &Path) -> std::io::Result<HashMap<Sha, ThreatInsight>> {
+    let mut last: HashMap<Sha, u64> = HashMap::new();
+    for_each_line(path, |off, line| {
+        if let Some(sha) = line_sha(line) {
+            last.insert(sha, off);
+        }
+    })?;
+
+    let mut wanted: std::collections::HashSet<u64> = last.values().copied().collect();
+    let mut lines: Vec<Vec<u8>> = Vec::with_capacity(wanted.len());
+    for_each_line(path, |off, line| {
+        if wanted.remove(&off) {
+            lines.push(line.to_vec());
+        }
+    })?;
+
+    let threads = std::thread::available_parallelism().map_or(4, |n| n.get()).clamp(1, 16);
+    let chunk = lines.len().div_ceil(threads).max(1);
+    let parsed: Vec<Vec<Result<ThreatInsight, Option<Sha>>>> = std::thread::scope(|s| {
+        let handles: Vec<_> = lines
+            .chunks(chunk)
+            .map(|part| {
+                s.spawn(move || {
+                    part.iter()
+                        .map(|l| serde_json::from_slice::<ThreatInsight>(l).map_err(|_| line_sha(l)))
+                        .collect::<Vec<_>>()
+                })
+            })
+            .collect();
+        handles.into_iter().map(|h| h.join().unwrap_or_default()).collect()
+    });
+    drop(lines);
+
+    let mut map = HashMap::with_capacity(last.len());
+    let mut broken: std::collections::HashSet<Sha> = std::collections::HashSet::new();
+    for r in parsed.into_iter().flatten() {
+        match r {
+            Ok(item) => match parse_sha(&item.sha256) {
+                Some(sha) => {
+                    map.insert(sha, item);
+                }
+                None => {}
+            },
+            Err(Some(sha)) => {
+                broken.insert(sha);
+            }
+            Err(None) => {}
+        }
+    }
+    if !broken.is_empty() {
+        for_each_line(path, |_, line| {
+            if line_sha(line).is_some_and(|s| broken.contains(&s)) {
+                if let Ok(item) = serde_json::from_slice::<ThreatInsight>(line) {
+                    if let Some(sha) = parse_sha(&item.sha256) {
+                        map.insert(sha, item);
+                    }
+                }
+            }
+        })?;
+    }
+    Ok(map)
+}
+
 /// Message to the insight writer: a line, or "write everything now and tell me".
 enum WriterMsg {
     Item(ThreatInsight),
@@ -1091,6 +1197,75 @@ pub fn sanitize_folder(folder: &str) -> Option<String> {
         }
     }
     Some(f)
+}
+
+#[cfg(test)]
+mod load_tests {
+    use super::*;
+
+    /// The old loader: parse every line in order, the last valid one wins.
+    fn load_every_line(path: &Path) -> HashMap<Sha, ThreatInsight> {
+        let mut m = HashMap::new();
+        for line in BufReader::new(File::open(path).unwrap()).lines().map_while(Result::ok) {
+            if let Ok(item) = serde_json::from_str::<ThreatInsight>(&line) {
+                if let Some(sha) = parse_sha(&item.sha256) {
+                    m.insert(sha, item);
+                }
+            }
+        }
+        m
+    }
+
+    fn line(sha: char, verdict: &str, seen: u64) -> String {
+        format!(r#"{{"sha256":"{}","first_seen":"a","last_seen":"b","seen_count":{seen},"verdict":"{verdict}","file_names":[],"score":0.0}}"#, sha.to_string().repeat(64))
+    }
+
+    fn same(a: &HashMap<Sha, ThreatInsight>, b: &HashMap<Sha, ThreatInsight>) {
+        assert_eq!(a.len(), b.len());
+        for (k, v) in a {
+            assert_eq!(serde_json::to_string(v).unwrap(), serde_json::to_string(&b[k]).unwrap());
+        }
+    }
+
+    #[test]
+    fn latest_lines_equal_parsing_every_line() {
+        let dir = std::env::temp_dir().join(format!("ti_load_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let p = dir.join("threat_insights.jsonl");
+        let reordered = r#"{"verdict":"clean","sha256":"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc","first_seen":"a","last_seen":"b","seen_count":7,"file_names":[],"score":0.0}"#;
+        let body = [
+            line('a', "unknown", 1),
+            line('b', "clean", 1),
+            line('a', "malicious", 2),
+            "not json".to_string(),
+            reordered.to_string(),
+            line('b', "suspicious", 3),
+            // Cut short (crash while writing): the earlier valid line of `b` must win.
+            line('b', "clean", 9)[..40].to_string(),
+        ]
+        .join("\r\n");
+        std::fs::write(&p, body).unwrap();
+        let fast = load_latest_insights(&p).unwrap();
+        same(&fast, &load_every_line(&p));
+        assert_eq!(fast[&parse_sha(&"b".repeat(64)).unwrap()].verdict, "suspicious");
+        assert_eq!(fast[&parse_sha(&"c".repeat(64)).unwrap()].seen_count, 7);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The real file: `TI_FILE=...\threat_insights.jsonl cargo test --release -- --ignored real_file`.
+    #[test]
+    #[ignore]
+    fn real_file_loads_the_same() {
+        let Some(p) = std::env::var_os("TI_FILE") else { return };
+        let p = PathBuf::from(p);
+        let t = std::time::Instant::now();
+        let fast = load_latest_insights(&p).unwrap();
+        let fast_s = t.elapsed();
+        let t = std::time::Instant::now();
+        let slow = load_every_line(&p);
+        eprintln!("fast {:?}, every line {:?}, {} hashes", fast_s, t.elapsed(), fast.len());
+        same(&fast, &slow);
+    }
 }
 
 #[cfg(test)]
