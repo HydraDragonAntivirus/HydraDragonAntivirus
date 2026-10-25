@@ -550,9 +550,10 @@ def load_chunks(chunk_dir, balance=False, max_benign_ratio=0.0, inner_only=False
             if not names:
                 raise RuntimeError(f"{cf}: --inner-only needs v2 chunks with feature names; rebuild with --features v2")
             source_i, is_pe_i = names.index("inner_source"), names.index("inner_is_pe")
-            # Content: unpacked (1) or not packed, its own image (4); the content model
-            # learns both alike. The shell model keeps the rest (emulator failed, ...).
-            unpacked = np.isin(data["X"][:, source_i], (1.0, 4.0)) & (data["X"][:, is_pe_i] == 1.0)
+            # Content: unpacked (1), the PE an installer / archive holds (2) or not
+            # packed, its own image (4), all as memory images; the content model learns
+            # them alike. The shell model keeps the rest (emulator failed, ...).
+            unpacked = np.isin(data["X"][:, source_i], (1.0, 2.0, 4.0)) & (data["X"][:, is_pe_i] == 1.0)
             if inner_only:
                 # Inner PE structure + inner strings + inner .NET marker only.
                 selected = list(range(names.index("inner_size_of_optional_header"), names.index("inner_size_of_optional_header") + 65))

@@ -50,10 +50,12 @@ pub enum InnerSource {
 }
 
 impl InnerSource {
-    /// The inner part is the program's code as it runs (unpacked, or not packed): the
-    /// content model judges it.
+    /// The inner part is the program's code as it runs (unpacked, not packed, or the
+    /// program an installer / archive holds): the content model judges it.
     pub fn is_content(v: f32) -> bool {
-        v == InnerSource::Unpacked as u8 as f32 || v == InnerSource::Image as u8 as f32
+        v == InnerSource::Unpacked as u8 as f32
+            || v == InnerSource::Image as u8 as f32
+            || v == InnerSource::Extracted as u8 as f32
     }
 }
 
@@ -120,8 +122,8 @@ pub struct Inner {
     pub source: InnerSource,
     /// Extracted members (0 when unpacked or none).
     pub members: usize,
-    /// The PE the inner features describe: the largest extracted PE member, or the
-    /// unpacked image.
+    /// The PE the inner features describe, as a memory image after emulation: of the
+    /// largest extracted PE member, or of the file itself (unpacked or not packed).
     pub pe: Option<Vec<u8>>,
     /// Strings of every extracted member (or of the unpacked image).
     pub strings: StringCounts,
@@ -175,7 +177,11 @@ pub fn inner_of(data: &[u8]) -> Inner {
                         best = Some(&e.data);
                     }
                 }
-                inner.pe = best.map(<[u8]>::to_vec);
+                // The largest PE member is the program the installer / archive holds:
+                // content, like an unpacked payload. Taken as its memory image after
+                // emulation, the same way as every other content image, so the content
+                // model never sees "raw file vs dump" as a difference between sources.
+                inner.pe = best.filter(|b| should_unpack(b)).and_then(|b| emulate(b)?.dump.clone());
                 return inner;
             }
         }
