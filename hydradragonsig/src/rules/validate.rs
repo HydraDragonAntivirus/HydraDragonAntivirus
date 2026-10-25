@@ -75,7 +75,7 @@ pub const CONDITION_KEYS: &[(&str, &[&str])] = &[
 /// Values accepted by `file_type` conditions.
 pub const FILE_TYPES: &[&str] = &[
     "pe", "exe", "dll", "sys", "pe32", "pe64", "broken_pe", "elf", "elf32", "elf64", "broken_elf", "macho", "mach_o",
-    "broken_macho", "apk", "android", "broken_apk", "zip", "archive", "7z", "rar", "gzip", "gz", "tar", "asar", "jar",
+    "broken_macho", "apk", "android", "broken_apk", "pe_no_code", "zip", "archive", "7z", "rar", "gzip", "gz", "tar", "asar", "jar",
     "java", "dex", "java_class", "class", "text", "plain", "plain_text", "txt", "script", "powershell", "ps1", "batch",
     "bat", "cmd", "javascript", "js", "vbs", "python", "py", "shell", "pdf", "office", "openxml", "ole", "compound",
     "microsoft_compound", "binary", "unknown", "broken", "broken_executable",

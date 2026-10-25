@@ -102,6 +102,37 @@ api_specs! {
     "exitprocess"(1) -> 0;
     "getcurrentprocess"(0) -> 0xFFFFFFFFFFFFFFFFu64;
     "getcurrentprocessid"(0) -> 1234;
+    // CRT start-up (security cookie): no arguments, so the call site has no pushes to
+    // count and the run used to stop here as "indeterminate argument count".
+    "getcurrentthreadid"(0) -> 1236;
+    "getcurrentthread"(0) -> 0xFFFFFFFFFFFFFFFEu64;
+    "getsystemtimeasfiletime"(1) -> 0;
+    // Start-up calls that stopped the run for lack of an argument count (the most
+    // frequent stops over clean and malicious samples). Plain values only.
+    "initializecriticalsectionex"(3) -> 1;
+    "seterrormode"(1) -> 0;
+    "getprocessheap"(0) -> 0x150000;
+    "getversion"(0) -> 0x23F00206;
+    "createeventw"(4) -> 0x1100;
+    "createeventa"(4) -> 0x1104;
+    "etweventunregister"(1) -> 0;
+    // CRT (cdecl, see `is_cdecl_api`): no initializer table run, no app type. Keys are
+    // normalized names: leading underscores are dropped (`normalize_api_name`).
+    "initterm"(2) -> 0;
+    "set_app_type"(1) -> 0;
+    "cexit"(0) -> 0;
+    // Fiber / thread local storage: a slot index, empty slots.
+    "flsalloc"(1) -> 1;
+    "flsgetvalue"(1) -> 0;
+    "flssetvalue"(2) -> 1;
+    "tlsalloc"(0) -> 1;
+    "tlsgetvalue"(1) -> 0;
+    "tlssetvalue"(2) -> 1;
+    // Succeeds with the caller's zeroed version structure.
+    "getversionexw"(1) -> 1;
+    "getversionexa"(1) -> 1;
+    // Previous top-level filter: none.
+    "setunhandledexceptionfilter"(1) -> 0;
 
     // --- Network APIs ---
     "winhttpopen"(5, [ (0, Wide) ]) -> 0x3000;

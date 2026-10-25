@@ -132,7 +132,8 @@ fn show(path: &str) {
         InnerSource::None => "none",
         InnerSource::Unpacked => "unpacked by hydradragonunicorn",
         InnerSource::Extracted => "extracted by hydradragonextractor",
-        InnerSource::UnpackFailed => "packed, unpacking gave nothing usable",
+        InnerSource::UnpackFailed => "the emulator failed the run before it unpacked anything",
+        InnerSource::Image => "not packed: its own memory image after the run",
     };
     println!(
         "inner: {source}; members {}; inner PE {}; {} bytes; strings ascii {} / utf16 {}",

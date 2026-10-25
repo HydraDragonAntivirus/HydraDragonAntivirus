@@ -65,7 +65,7 @@ impl MlScanner {
     pub fn predict_pe_with_model(&self, data: &[u8]) -> Option<(f32, PeModelKind)> {
         // Route strictly to the model matching the observed feature domain.
         let raw = super::pe_combined::extract_pe_features_v2(data)?;
-        if raw[136] == super::pe_combined::InnerSource::Unpacked as u8 as f32 && raw[137] == 1.0 {
+        if super::pe_combined::InnerSource::is_content(raw[136]) && raw[137] == 1.0 {
             let inner = super::pe_combined::extract_unpacked_inner_features_from_v2(&raw);
             return self.pe_inner_trees.as_ref().map(|m| (m.predict_probability(&inner), PeModelKind::Inner));
         }
@@ -82,7 +82,7 @@ impl MlScanner {
 
     pub fn explain_pe_with_model(&self, data: &[u8]) -> Option<(MlExplanation, PeModelKind)> {
         let raw = super::pe_combined::extract_pe_features_v2(data)?;
-        if raw[136] == super::pe_combined::InnerSource::Unpacked as u8 as f32 && raw[137] == 1.0 {
+        if super::pe_combined::InnerSource::is_content(raw[136]) && raw[137] == 1.0 {
             let arr = super::pe_combined::extract_unpacked_inner_features_from_v2(&raw);
             let trees = self.pe_inner_trees.as_ref()?;
             return Some((MlExplanation::new(trees.explain(&arr), &arr, super::pe_combined::pe_inner_feature_names_static()), PeModelKind::Inner));

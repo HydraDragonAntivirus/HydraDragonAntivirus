@@ -30,6 +30,8 @@ struct BinaryFormatValidation {
     pe_type: Option<String>,
     elf_type: Option<String>,
     broken_type: Option<String>,
+    /// A valid PE without code (see `pe_has_code`).
+    pe_no_code: bool,
 }
 
 pub fn classify_path(path: &Path) -> Result<FileTypeInfo> {
@@ -134,6 +136,7 @@ pub fn known_file_type_aliases() -> &'static [&'static str] {
         "broken",
         "broken_executable",
         "broken_apk",
+        "pe_no_code",
     ]
 }
 
@@ -149,6 +152,10 @@ fn apply_binary_validation(info: &mut FileTypeInfo, validation: BinaryFormatVali
         FormatValidation::Valid => {
             info.is_pe = true;
             push_tag(info, "pe");
+            if validation.pe_no_code {
+                // A tag only: still a valid pe32 / pe64, not a broken one.
+                push_tag(info, "pe_no_code");
+            }
             match validation.pe_type.as_deref() {
                 Some("PE64") => {
                     info.is_pe64 = true;
@@ -633,6 +640,7 @@ fn inspect_binary_formats(data: &[u8]) -> BinaryFormatValidation {
     if let Some(pe_type) = pe_file_type(data) {
         validation.pe = FormatValidation::Valid;
         validation.pe_type = Some(pe_type);
+        validation.pe_no_code = pe_has_code(data) == Some(false);
     } else if has_pe_magic(data) {
         validation.pe = FormatValidation::Broken;
         validation.broken_type = Some("PE".to_string());
@@ -795,6 +803,29 @@ fn pe_file_type(data: &[u8]) -> Option<String> {
         0x10b | 0x107 => Some("PE32".to_string()),
         _ => Some("PE".to_string()),
     }
+}
+
+/// Whether a PE has code: an entry point or at least one executable section
+/// (`IMAGE_SCN_MEM_EXECUTE`). `Some(false)` for resource-only DLLs such as `.mui`
+/// files: valid PEs Windows loads as data, with nothing to run. `None` when the
+/// headers cannot be read that far.
+fn pe_has_code(data: &[u8]) -> Option<bool> {
+    const IMAGE_SCN_MEM_EXECUTE: u32 = 0x2000_0000;
+    let pe = read_u32_le(data, 0x3c)? as usize;
+    let sections = read_u16_le(data, pe.checked_add(6)?)? as usize;
+    let opt_size = read_u16_le(data, pe.checked_add(20)?)? as usize;
+    let opt = pe.checked_add(24)?;
+    if read_u32_le(data, opt.checked_add(16)?)? != 0 {
+        return Some(true);
+    }
+    let table = opt.checked_add(opt_size)?;
+    for i in 0..sections.min(96) {
+        let flags = read_u32_le(data, table.checked_add(i * 40 + 36)?)?;
+        if flags & IMAGE_SCN_MEM_EXECUTE != 0 {
+            return Some(true);
+        }
+    }
+    Some(false)
 }
 
 fn elf_file_type(data: &[u8]) -> Option<String> {
@@ -963,6 +994,33 @@ mod tests {
         let mut der = vec![0x30, 0x82, 0x00, 0x04];
         der.extend_from_slice(&[2, 2, 1, 1]);
         assert_eq!(ty(&der), "der");
+    }
+
+    /// PE32 with one section: entry point `ep`, section characteristics `flags`.
+    fn pe_with(ep: u32, flags: u32) -> Vec<u8> {
+        let mut d = vec![0u8; 0x400];
+        d[0..2].copy_from_slice(b"MZ");
+        d[0x3c..0x40].copy_from_slice(&0x80u32.to_le_bytes());
+        d[0x80..0x84].copy_from_slice(b"PE  ");
+        d[0x86..0x88].copy_from_slice(&1u16.to_le_bytes()); // sections
+        d[0x94..0x96].copy_from_slice(&0xe0u16.to_le_bytes()); // optional header size
+        d[0x98..0x9a].copy_from_slice(&0x10bu16.to_le_bytes());
+        d[0xa8..0xac].copy_from_slice(&ep.to_le_bytes());
+        let sec = 0x98 + 0xe0;
+        d[sec..sec + 5].copy_from_slice(b".rsrc");
+        d[sec + 36..sec + 40].copy_from_slice(&flags.to_le_bytes());
+        d
+    }
+
+    #[test]
+    fn pe_without_code_is_tagged_not_broken() {
+        let mui = classify_bytes_only(&pe_with(0, 0x4000_0040));
+        assert_eq!(mui.primary, "pe32");
+        assert!(!mui.is_broken_executable);
+        assert!(mui.matches_type("pe_no_code"));
+        // DllMain-less DLL that runs from its exports: executable section, has code.
+        assert!(!classify_bytes_only(&pe_with(0, 0x6000_0020)).matches_type("pe_no_code"));
+        assert!(!classify_bytes_only(&pe_with(0x1000, 0x4000_0040)).matches_type("pe_no_code"));
     }
 
     fn zip_of(entries: &[(&str, &[u8])]) -> Vec<u8> {

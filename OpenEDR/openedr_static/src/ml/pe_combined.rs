@@ -28,8 +28,6 @@ use super::pe_features::extract_pe_features;
 const MIN_STRING: usize = crate::pe_strings::MIN_LEN;
 /// Instructions the unpacker may run on one file (deterministic bound).
 pub const UNPACK_MAX_INSTRUCTIONS: usize = 20_000_000;
-/// Instructions executed in the image before a fault for the dump to count as unpacked.
-pub const UNPACK_MIN_PROGRESS: u64 = 10_000;
 /// Safety stop for a file that runs very slowly per instruction (microseconds).
 const UNPACK_TIMEOUT_US: u64 = 20_000_000;
 /// Inner bytes looked at (all extracted members together).
@@ -41,9 +39,22 @@ pub enum InnerSource {
     None = 0,
     Unpacked = 1,
     Extracted = 2,
-    /// Packed, but the emulation crashed or wrote nothing: no inner part. Kept apart
-    /// from `None` so a failed unpack never looks like an unpacked clean image.
+    /// The emulator failed the run (fault, or an API it could not return from) before
+    /// the program ran code it had written: packed or not is unknown.
     UnpackFailed = 3,
+    /// Not packed: the run ended cleanly and never ran code it had written, so the
+    /// program is its own content. Its memory image after the run is the inner part,
+    /// dumped the same way as an unpacked image, so the content model sees unpacked
+    /// and not packed programs alike (not "dump = packed").
+    Image = 4,
+}
+
+impl InnerSource {
+    /// The inner part is the program's code as it runs (unpacked, or not packed): the
+    /// content model judges it.
+    pub fn is_content(v: f32) -> bool {
+        v == InnerSource::Unpacked as u8 as f32 || v == InnerSource::Image as u8 as f32
+    }
 }
 
 /// Printable ASCII runs and UTF-16LE runs of at least `MIN_STRING` characters.
@@ -124,17 +135,25 @@ impl Inner {
     }
 }
 
-/// Packed enough to unpack: the same test as the engine's dynamic unpacking (a packer
-/// section name or a section of entropy 7.2 and up, or the whole file at 7.1 and up).
-pub fn should_unpack(data: &[u8]) -> bool {
-    if data.len() < 0x1000 {
-        return false;
-    }
+/// The PE has code: an entry point, or at least one executable section. A PE with
+/// neither (`.mui` and other resource-only DLLs) does nothing; the PE model is neither
+/// trained on it nor asked about it (`extract_pe_features_v2` gives `None`), as it would
+/// only learn "no code = clean". A DLL without DllMain that runs from its exports has
+/// executable sections and stays in. Signatures, YARA and ClamAV still scan it all.
+pub fn has_code(data: &[u8]) -> bool {
+    const IMAGE_SCN_MEM_EXECUTE: u32 = 0x2000_0000;
     let Ok(pe) = pefile_rs::PE::parse(data) else { return false };
-    pe.sections.iter().any(|s| {
-        let name = s.name.to_lowercase();
-        ["upx", "aspack", "vmp", "themida", "nsp", "pack"].iter().any(|k| name.contains(k)) || s.get_entropy(data) >= 7.2
-    }) || pefile_rs::utils::calculate_entropy(data) >= 7.1
+    pe.optional_header.address_of_entry_point != 0 || pe.sections.iter().any(|s| s.characteristics & IMAGE_SCN_MEM_EXECUTE != 0)
+}
+
+/// Every PE big enough to have a packer stub is emulated: whether it was packed is
+/// decided by what the code did (`unpack`), not guessed from section names or entropy,
+/// which missed packers they did not list (PECompact, MPRESS, Enigma, ...) and took
+/// compressed resources for packing.
+pub fn should_unpack(data: &[u8]) -> bool {
+    // Entry point 0: a resource-only DLL (`.mui` and the like). There is no code; the
+    // emulator would run the MZ header as instructions.
+    data.len() >= 0x1000 && pefile_rs::PE::parse(data).is_ok_and(|pe| pe.optional_header.address_of_entry_point != 0)
 }
 
 /// What is inside `data`: extracted members of an archive / installer first, else the
@@ -162,12 +181,17 @@ pub fn inner_of(data: &[u8]) -> Inner {
         }
     }
     if should_unpack(data) {
-        let Some(image) = unpack(data) else {
-            return Inner { source: InnerSource::UnpackFailed, ..Inner::none() };
+        // Unpacked (ran code it had written), not packed (ran cleanly without: its own
+        // image) or failed (the emulator stopped it first: unknown).
+        let Some(emu) = emulate(data) else {
+            return Inner::none();
+        };
+        let Some(image) = emu.dump.clone() else {
+            return if emu.failed { Inner { source: InnerSource::UnpackFailed, ..Inner::none() } } else { Inner::none() };
         };
         let d = &image[..image.len().min(INNER_MAX_BYTES)];
         return Inner {
-            source: InnerSource::Unpacked,
+            source: if emu.unpacked { InnerSource::Unpacked } else { InnerSource::Image },
             members: 0,
             strings: StringCounts::of(d),
             bytes: d.len(),
@@ -177,28 +201,74 @@ pub fn inner_of(data: &[u8]) -> Inner {
     Inner::none()
 }
 
-/// The image `hydradragonunicorn` dumps after emulating from the entry point. The stub
+/// The image `hydradragonunicorn` dumps after emulating from the entry point (`dump`). The stub
 /// runs through every stage: API calls are answered by the trace-mode stubs instead of
 /// ending the run (a packer allocates memory before it unpacks), there is no stop on
 /// the first write-execute or at the packer configs' end address, so the run ends at
-/// the instruction budget, an exit or a fault. Only when the stub really ran: it wrote
-/// into the image and either ended without a fault or ran at least
-/// `UNPACK_MIN_PROGRESS` instructions in the image before the fault (unpacked programs
-/// often fault later, on a stubbed API; a stub that crashes at its first instructions
-/// leaves the packed image as it was, which must not pass for unpacked code).
-fn unpack(data: &[u8]) -> Option<Vec<u8>> {
+/// the instruction budget, an exit or a fault. Only when the program unpacked itself: it
+/// executed code from a page of its image that it had written in this run (the
+/// definition of a packer or crypter stub). A program that only writes data never does,
+/// and a stub that crashes before reaching its payload has not run it either.
+///
+/// One emulation of a PE: that image (`dump`), the API calls it made and whether the
+/// emulator failed the run.
+#[derive(Debug)]
+pub struct Emulation {
+    /// The memory image after the run: unpacked, or the program itself when it is not
+    /// packed. `None` when the emulator failed the run.
+    pub dump: Option<Vec<u8>>,
+    /// The program ran code it had written (`dump` is an unpacked payload).
+    pub unpacked: bool,
+    pub trace: hydradragonsig::models::BehaviorTrace,
+    /// The emulator failed the run (fault, or an API it could not return from) before
+    /// the program unpacked anything: packed or not is unknown.
+    pub failed: bool,
+}
+
+thread_local! {
+    /// The last emulation on this thread with its input: the ML features and the
+    /// engine's unpack step look at the same file one after the other, so it is
+    /// emulated once, not twice.
+    static LAST_EMULATION: std::cell::RefCell<Option<(Vec<u8>, std::rc::Rc<Emulation>)>> = const { std::cell::RefCell::new(None) };
+}
+
+/// Emulates `data` from its entry point once per file (see `LAST_EMULATION`). `None`
+/// when it is not a PE the emulator can load.
+pub fn emulate(data: &[u8]) -> Option<std::rc::Rc<Emulation>> {
+    if let Some(hit) = LAST_EMULATION.with(|c| c.borrow().as_ref().filter(|(d, _)| d.as_slice() == data).map(|(_, e)| e.clone())) {
+        return Some(hit);
+    }
+    let e = std::rc::Rc::new(run_emulation(data)?);
+    LAST_EMULATION.with(|c| *c.borrow_mut() = Some((data.to_vec(), e.clone())));
+    Some(e)
+}
+
+/// Drops the cached emulation (the engine calls it when a file is done).
+pub fn forget_emulation() {
+    LAST_EMULATION.with(|c| *c.borrow_mut() = None);
+}
+
+fn run_emulation(data: &[u8]) -> Option<Emulation> {
     use hydradragonunicorn::unpacker::engine::{entrypoint, Sample, UnpackerEngine};
+    if !should_unpack(data) {
+        return None;
+    }
     let sample = Sample::from_bytes(data).ok()?;
     let ep = entrypoint(&sample.opt_header);
     let mut eng = UnpackerEngine::new(sample, "memory").with_trace_mode(true);
     eng.init_uc().ok()?;
     eng.set_controls(false, false);
     eng.set_end_addr(u64::MAX);
-    let ran = eng.emu_from(ep, UNPACK_TIMEOUT_US, UNPACK_MAX_INSTRUCTIONS);
-    let progress: u64 = eng.sections_executed.values().sum();
-    if eng.write_targets.is_empty() || (ran.is_err() && progress < UNPACK_MIN_PROGRESS) {
-        return None;
-    }
+    let _ = eng.emu_from(ep, UNPACK_TIMEOUT_US, UNPACK_MAX_INSTRUCTIONS);
+    let trace = eng.behavior_trace().clone();
+    let unpacked = eng.wx_hit.is_some();
+    let failed = !unpacked && !eng.end.is_clean();
+    let dump = if failed { None } else { dump_image(&mut eng, ep) };
+    Some(Emulation { dump, unpacked, trace, failed })
+}
+
+/// The image after the run, when the program ran code it had written.
+fn dump_image(eng: &mut hydradragonunicorn::unpacker::engine::UnpackerEngine, ep: u64) -> Option<Vec<u8>> {
     // The dump's entry point is the instruction pointer at the end of the run. A run that
     // ended by jumping to 0 (a stubbed API returned a null pointer) would write 0 minus
     // the image base there; keep the file's own entry point instead.
@@ -213,7 +283,7 @@ fn unpack(data: &[u8]) -> Option<Vec<u8>> {
         }
     }
     let dumped = eng.dump_bytes().ok()?;
-    (!dumped.is_empty() && dumped != data).then_some(dumped)
+    (!dumped.is_empty()).then_some(dumped)
 }
 
 /// What kind of .NET image a PE is, from its CLR header (data directory 14) and the
@@ -284,7 +354,7 @@ pub fn pe_v2_shell_model_features(v: &[f32; PE_V2_FEATURE_COUNT]) -> [f32; PE_SH
 /// or shell-relative values are included.
 pub fn extract_unpacked_inner_features(data: &[u8]) -> Option<[f32; PE_INNER_FEATURE_COUNT]> {
     let v = extract_pe_features_v2(data)?;
-    (v[136] == InnerSource::Unpacked as u8 as f32 && v[137] == 1.0)
+    (InnerSource::is_content(v[136]) && v[137] == 1.0)
         .then(|| extract_unpacked_inner_features_from_v2(&v))
 }
 
@@ -316,8 +386,12 @@ pub fn pe_shell_feature_names_static() -> &'static [&'static str] {
 
 /// Remove outer-file influence from ML scoring when the inner PE was unpacked.
 /// The raw feature extractor remains unchanged for diagnostics and training data.
-/// The v2 vector of `data`; None when the file is not a PE the v1 extractor reads.
+/// The v2 vector of `data`; None when the file is not a PE the v1 extractor reads or a
+/// PE without code (`has_code`).
 pub fn extract_pe_features_v2(data: &[u8]) -> Option<[f32; PE_V2_FEATURE_COUNT]> {
+    if !has_code(data) {
+        return None;
+    }
     let shell = extract_pe_features(data)?.to_array();
     let shell_strings = StringCounts::of(data);
     let inner = inner_of(data);

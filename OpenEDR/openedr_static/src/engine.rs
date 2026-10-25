@@ -136,23 +136,6 @@ const MAX_MEMBER_EMULATIONS: usize = 8;
 const MAX_OBJECT_THREADS: usize = 8;
 const OBJECT_THREAD_STACK: usize = 32 * 1024 * 1024;
 
-fn looks_packed(data: &[u8]) -> bool {
-    let Ok(pe) = pefile_rs::PE::parse(data) else {
-        return false;
-    };
-    let has_packer_section = pe.sections.iter().any(|s| {
-        let name = s.name.to_lowercase();
-        name.contains("upx")
-            || name.contains("aspack")
-            || name.contains("vmp")
-            || name.contains("themida")
-            || name.contains("nsp")
-            || name.contains("pack")
-            || s.get_entropy(data) >= 7.2
-    });
-    has_packer_section || pefile_rs::utils::calculate_entropy(data) >= 7.1
-}
-
 /// YARA-X hit score by the rule's class (`yara::rule_class`: name parts and metadata):
 /// 0.95 for malware, `CLAM_PUA_SCORE` for potentially unwanted rules (dual-use tools,
 /// adware, vulnerable drivers such as the LOLDrivers rules) and `YARA_SUSPICIOUS_SCORE`
@@ -1787,22 +1770,22 @@ impl StaticEngine {
         // Preserve the packed file's own score before combining it with child
         // objects, so a clean unpacked payload can be reported as an FP review hint.
         let parent_score_before_unpack = max_score;
-        let should_unpack = is_pe_candidate && (max_score < 0.95) && looks_packed(data);
+        // Every PE is emulated (not only ones whose section names or entropy look
+        // packed); the dump is used only when the program ran code it had written.
+        let should_unpack = is_pe_candidate && (max_score < 0.95);
 
         if should_unpack {
-            eprintln!("[unicorn] initiating PE CPU emulation for: {}", target_name);
-            if let Ok(sample) = hydradragonunicorn::unpacker::engine::Sample::from_bytes(data) {
-                let trace_enabled = self.string_rules.needs_behavior();
-                let mut unpacker = hydradragonunicorn::unpacker::engine::UnpackerEngine::new(sample, "memory")
-                    .with_trace_mode(trace_enabled);
-                if unpacker.init_uc().is_ok() {
-                    let emu_start = std::time::Instant::now();
-                    let emu_res = unpacker.emu();
-                    let emu_ms = emu_start.elapsed().as_millis();
-                    eprintln!("[unicorn] emulation ended for {} in {} ms (status: {:?})", target_name, emu_ms, emu_res);
-                    let trace = unpacker.behavior_trace();
-                    if let Ok(dumped) = unpacker.dump_bytes() {
-                        if !dumped.is_empty() && dumped != data {
+            // The same bounded run as the ML features (`pe_combined::emulate`), done once
+            // per file: when the PE model already looked inside, this is a cache hit.
+            let emu_start = std::time::Instant::now();
+            if let Some(emu) = crate::ml::pe_combined::emulate(data) {
+                eprintln!("[unicorn] emulation for {} in {} ms", target_name, emu_start.elapsed().as_millis());
+                {
+                    let trace = &emu.trace;
+                    // Scanned as a payload only when the program unpacked itself; a not
+                    // packed program's image is the file it already is.
+                    if let Some(dumped) = emu.dump.clone().filter(|_| emu.unpacked) {
+                        {
                             eprintln!("[unicorn] successfully unpacked {} bytes payload for {}", dumped.len(), target_name);
                             // The packed original is the parent: rules can see which
                             // APIs the shell hid (crypter by diff).
@@ -1834,11 +1817,7 @@ impl StaticEngine {
                                 });
                             }
                             extracted_objects.push(extracted);
-                        } else {
-                            eprintln!("[unicorn] memory dump matches original or empty for {}", target_name);
                         }
-                    } else {
-                        eprintln!("[unicorn] dump_bytes failed for {}", target_name);
                     }
 
                     // If trace mode recorded API calls, evaluate HydraSig emulated_* conditions directly
@@ -1883,13 +1862,13 @@ impl StaticEngine {
                             max_score = max_score.max(score);
                         }
                     }
-                } else {
-                    eprintln!("[unicorn] init_uc failed for {}", target_name);
                 }
             } else {
-                eprintln!("[unicorn] Sample::from_bytes parse failed for {}", target_name);
+                eprintln!("[unicorn] {} not emulated (no entry point, or the emulator cannot load it)", target_name);
             }
         }
+        // Done with this file's emulation: do not keep its bytes in the per-thread cache.
+        crate::ml::pe_combined::forget_emulation();
 
         // 6b. Classic file infectors (generic decryption). Emulate the control
         // transfer into the trailing section (entry point there, or a host
@@ -2119,10 +2098,9 @@ impl StaticEngine {
 
                         // Also check if child entry itself is a packed PE: run Unicorn once if packed
                         if entry.data.starts_with(b"MZ")
-                            && entry.data.len() >= 0x1000
+                            && crate::ml::pe_combined::should_unpack(&entry.data)
                             && member_emulations < MAX_MEMBER_EMULATIONS
                             && member_emulation_time < MEMBER_EMULATION_BUDGET
-                            && looks_packed(&entry.data)
                         {
                             if let Ok(sub_sample) = hydradragonunicorn::unpacker::engine::Sample::from_bytes(&entry.data) {
                                 let sub_trace_enabled = self.string_rules.needs_behavior();
@@ -2182,7 +2160,7 @@ impl StaticEngine {
                                             max_score = max_score.max(score);
                                         }
                                     }
-                                    if let Ok(sub_dumped) = sub_unpacker.dump_bytes() {
+                                    if let Some(Ok(sub_dumped)) = sub_unpacker.wx_hit.map(|_| sub_unpacker.dump_bytes()) {
                                         if !sub_dumped.is_empty() && sub_dumped != entry.data {
                                             let sub_obj = ScanObject::new(
                                                 format!("{}.unpacked.bin", entry.name),
