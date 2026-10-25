@@ -945,7 +945,10 @@ impl StaticEngine {
                 report.max_threat_score = report.max_threat_score.max(score);
             }
             if buf.starts_with(b"MZ") && pefile_rs::PE::parse(&buf).is_ok() {
-                if let Some((prob, model_kind)) = self.ml.predict_pe_with_model(&buf) {
+                let predicted = self.ml.predict_pe_with_model(&buf);
+                // No unpack step follows here: drop the emulation the model cached.
+                crate::ml::pe_combined::forget_emulation();
+                if let Some((prob, model_kind)) = predicted {
                     if prob >= pe_threshold_for_model(model_kind) {
                         report.detections.push(DetectionItem {
                             layer: "Memory_ML".to_string(),
@@ -1081,7 +1084,9 @@ impl StaticEngine {
         // flagged the file (same thresholds as the scan).
         let ml = if is_pe {
             let kind = format!("PE tree ensemble ({} features)", self.ml.pe_feature_count());
-            self.ml.explain_pe_with_model(data).map(|(e, model_kind)| (e, "MalwareNet.PE.HighConfidence", pe_threshold_for_model(model_kind), kind))
+            let explained = self.ml.explain_pe_with_model(data);
+            crate::ml::pe_combined::forget_emulation();
+            explained.map(|(e, model_kind)| (e, "MalwareNet.PE.HighConfidence", pe_threshold_for_model(model_kind), kind))
         } else if is_js_content(data) {
             std::str::from_utf8(data).ok().and_then(|src| self.ml.explain_js(src)).map(|e| (e, "MalwareNet.JS.HighConfidence", js_tree_threshold(), "JavaScript tree ensemble (51 AST/lexical features)".to_string()))
         } else {
@@ -1205,7 +1210,9 @@ impl StaticEngine {
 
         // 4. ML (PE / JS)
         if is_pe {
-            if let Some((prob, model_kind)) = self.ml.predict_pe_with_model(bytes) {
+            let predicted = self.ml.predict_pe_with_model(bytes);
+            crate::ml::pe_combined::forget_emulation();
+            if let Some((prob, model_kind)) = predicted {
                 if prob >= pe_threshold_for_model(model_kind) {
                     let det_name = if origin_prefix.is_empty() {
                         "MalwareNet.PE.HighConfidence".to_string()

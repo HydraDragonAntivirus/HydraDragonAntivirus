@@ -235,6 +235,9 @@ thread_local! {
     /// The last emulation on this thread with its input: the ML features and the
     /// engine's unpack step look at the same file one after the other, so it is
     /// emulated once, not twice.
+    /// Every caller that emulates without the unpack step right after must call
+    /// `forget_emulation`: the entry holds a copy of the file, its dump and trace, and
+    /// a thread that keeps one per worker held gigabytes.
     static LAST_EMULATION: std::cell::RefCell<Option<(Vec<u8>, std::rc::Rc<Emulation>)>> = const { std::cell::RefCell::new(None) };
 }
 
