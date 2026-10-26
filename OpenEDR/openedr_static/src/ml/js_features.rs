@@ -641,7 +641,37 @@ impl<'a> Visit<'a> for RegexSpans {
     }
 }
 
+/// Largest script that is deobfuscated before its features are taken.
+const MAX_DEOBFUSCATE_BYTES: usize = 1 << 20;
+
+/// The script with its static obfuscation undone (`hydradragonjsdeob`: P.A.C.K.E.R.,
+/// constant folding, string concatenation, `atob` / `fromCharCode`, proxies, dead
+/// code), when that changed anything; `None` keeps the file as it is. A packed clean
+/// script (Trend Micro HouseCall's packed UI strings) otherwise looks like malware to
+/// the model: `eval`, a regex built at run time, one long line. Only when something
+/// was undone, because the output is re-printed: using it for every file would erase
+/// the layout features (line lengths, whitespace) of the unobfuscated ones too.
+fn deobfuscated(source: &str) -> Option<String> {
+    if source.len() > MAX_DEOBFUSCATE_BYTES {
+        return None;
+    }
+    let packed = hydradragonjsdeob::packer::unpack_all(source).is_some();
+    let r = std::panic::catch_unwind(|| hydradragonjsdeob::engine::api::JSDeobfuscator::new().max_iterations(20).deobfuscate(source))
+        .ok()?
+        .ok()?;
+    (packed || r.modifications > 0).then_some(r.code)
+}
+
+/// The same for training (`js_feature_dump`) and scanning: features of the
+/// deobfuscated script when there is one (`deobfuscated`), of the file otherwise.
 pub fn extract_js_features(source: &str) -> Option<JsFeatureVector> {
+    match deobfuscated(source) {
+        Some(code) => extract_js_features_of(&code).or_else(|| extract_js_features_of(source)),
+        None => extract_js_features_of(source),
+    }
+}
+
+fn extract_js_features_of(source: &str) -> Option<JsFeatureVector> {
     if max_bracket_depth(source.as_bytes()) > MAX_NESTING {
         return None;
     }

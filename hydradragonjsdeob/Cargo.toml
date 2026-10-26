@@ -1,0 +1,21 @@
+[package]
+name = "hydradragonjsdeob"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85.0"
+license = "Apache-2.0"
+description = "Static JavaScript deobfuscation for HydraDragon / VirusKov (from JS-Deobfuscator 2.0.0 by GnU-Chan, Apache-2.0)"
+
+[lib]
+name = "hydradragonjsdeob"
+path = "src/lib.rs"
+
+[dependencies]
+# AST & parsing: the OXC version openedr_static uses.
+oxc = { version = "0.153.0", features = ["full"] }
+oxc_traverse = "0.153.0"
+serde_json = "1.0.149"
+thiserror = "2.0.18"
+tracing = "0.1.44"
+rustc-hash = "2.1.2"
+base64 = "0.22.1"

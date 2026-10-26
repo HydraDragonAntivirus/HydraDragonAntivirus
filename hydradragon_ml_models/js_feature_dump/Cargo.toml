@@ -13,6 +13,8 @@ oxc_allocator = "0.153.0"
 oxc_span = "0.153.0"
 oxc_ast_visit = "0.153.0"
 rayon = "1.11"
+# js_features.rs deobfuscates scripts before taking features (same as the engine).
+hydradragonjsdeob = { path = "../../hydradragonjsdeob" }
 
 [profile.release]
 opt-level = 3
