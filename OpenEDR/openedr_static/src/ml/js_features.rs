@@ -934,7 +934,7 @@ mod tests {
         assert!(first.contains("http://example.invalid/x"), "{first}");
         // The second ask (the engine's object scan after the ML features) is the cached result.
         assert!(std::rc::Rc::ptr_eq(&first, &deobfuscated(packed).unwrap()));
-        assert_eq!(deobfuscated("var a = 1;\nconsole.log(a);\n"), None);
+        assert_eq!(deobfuscated("console.log(document.title);\n"), None);
     }
 
     #[test]
