@@ -336,6 +336,17 @@ struct HookState {
     apicall_counter: HashMap<String, u64>,
     hook_addr: u64,
     start_time: Instant,
+    /// End of the run's time limit (all SEH re-runs of one `emu_from` together),
+    /// checked in the block hook instead of Unicorn's own timer (see `emu_from`).
+    deadline: Option<Instant>,
+    /// Instruction budget of the run (0 = none) and instructions run so far, counted
+    /// per block in the block hook instead of Unicorn's `count`, which adds a code hook
+    /// on every instruction and halved the emulation speed.
+    insn_budget: u64,
+    insn_count: u64,
+    /// Instructions of each (block address, size), decoded once.
+    block_insns: HashMap<(u64, u32), u32>,
+    blocks_seen: u32,
     sample_sections: Vec<Section>,
     unpacker: UnpackerConfig,
     log_instr: bool,
@@ -1057,6 +1068,11 @@ impl UnpackerEngine {
                 apicall_counter: HashMap::new(),
                 hook_addr: HOOK_ADDR,
                 start_time: Instant::now(),
+                deadline: None,
+                insn_budget: 0,
+                insn_count: 0,
+                block_insns: HashMap::new(),
+                blocks_seen: 0,
                 sample_sections: sections,
                 unpacker,
                 log_instr: false,
@@ -1752,7 +1768,22 @@ impl UnpackerEngine {
                     let mut guard = hook_state4.borrow_mut();
                     let st = &mut *guard;
                     let end = addr + (size as u64).max(1);
-                    if addr >= st.unpacker.endaddr || st.breakpoints.iter().any(|&b| b >= addr && b < end) {
+                    st.blocks_seen = st.blocks_seen.wrapping_add(1);
+                    let out_of_time = st.blocks_seen & 255 == 0 && st.deadline.is_some_and(|d| Instant::now() >= d);
+                    let out_of_budget = st.insn_budget > 0 && {
+                        let n = match st.block_insns.get(&(addr, size)) {
+                            Some(&n) => n,
+                            None => {
+                                let n = count_block_insns(uc, addr, size, st.is_64);
+                                st.block_insns.insert((addr, size), n);
+                                n
+                            }
+                        };
+                        let spent = st.insn_count >= st.insn_budget;
+                        st.insn_count += n as u64;
+                        spent
+                    };
+                    if out_of_time || out_of_budget || addr >= st.unpacker.endaddr || st.breakpoints.iter().any(|&b| b >= addr && b < end) {
                         true
                     } else if addr >= st.hook_addr && addr < st.hook_addr + 0x100000 {
                         false // API stubs: the code hook handles them
@@ -1967,13 +1998,28 @@ impl UnpackerEngine {
             hs.log_apicalls = self.log_apicalls;
             hs.trace_mode = self.trace_mode;
             hs.start_time = self.start_time;
+            // Unicorn's own time limit starts a timer thread at every emu_start that
+            // polls with usleep(2) and is joined at the end: on Windows each sleep is a
+            // scheduler tick (~15 ms), so every run cost at least 15-30 ms and every
+            // SEH re-run as much again (a 2 KB DLL with 32 exceptions took a second).
+            // The limit is checked in the block hook instead, for the whole run.
+            hs.deadline = (timeout_us > 0).then(|| Instant::now() + std::time::Duration::from_micros(timeout_us));
+            hs.blocks_seen = 0;
+            // The instruction budget, for the whole run like the time limit.
+            hs.insn_budget = count as u64;
+            hs.insn_count = 0;
             hs.api_end = None;
         }
 
         let mut run_from = ep;
-        let mut result;
+        let mut result: Result<(), uc_error> = Ok(());
+        let mut first = true;
         loop {
-            result = uc.emu_start(run_from, end_addr, timeout_us, count);
+            // An SEH re-run starts only while the run's time is not used up.
+            if !std::mem::take(&mut first) && self.hook_state.borrow().deadline.is_some_and(|d| Instant::now() >= d) {
+                break;
+            }
+            result = uc.emu_start(run_from, end_addr, 0, 0);
             let x64 = self.hook_state.borrow().is_64;
             let sentinel = if x64 { uc.reg_read(RegisterX86::RIP as i32).unwrap_or(0) == SEH64_RETURN_ADDR } else { uc.reg_read(RegisterX86::EIP as i32).unwrap_or(0) == SEH_RETURN_ADDR };
             if sentinel {
@@ -2558,6 +2604,22 @@ fn setup_ldr_entries(
 }
 
 /// Index of the section that holds `addr` (an absolute address in the emulated image).
+/// Instructions in the basic block at `addr` (`size` bytes), decoded from the
+/// emulator's memory. At least 1; x86 / x64 only (other code: one per 4 bytes).
+fn count_block_insns(uc: &Unicorn<'_, ()>, addr: u64, size: u32, is_64: bool) -> u32 {
+    let mut buf = vec![0u8; size as usize];
+    if size == 0 || uc.mem_read(addr, &mut buf).is_err() {
+        return (size / 4).max(1);
+    }
+    let mut dec = iced_x86::Decoder::with_ip(if is_64 { 64 } else { 32 }, &buf, addr, iced_x86::DecoderOptions::NONE);
+    let mut n = 0u32;
+    while dec.can_decode() {
+        let _ = dec.decode();
+        n += 1;
+    }
+    n.max(1)
+}
+
 fn section_index(sections: &[Section], image_base: u64, addr: u64) -> Option<usize> {
     let rva = addr.checked_sub(image_base)?;
     sections.iter().position(|s| {

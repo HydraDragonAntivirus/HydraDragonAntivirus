@@ -229,21 +229,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     if args.archive {
         crate::archive::spawn_reloader(Arc::clone(&scan_server));
     } else {
-        // Without a work folder nothing is kept: every verdict would look file-less.
-        if engine.work_dir().is_some() {
-            let srv = Arc::clone(&scan_server);
-            let _ = std::thread::Builder::new().name("forget-fileless".into()).spawn(move || {
-                let gone = srv.threat_intel.forget_malicious_without_file(&|s| srv.engine.is_kept(s) || archived::get(s).is_some());
-                for sha in &gone {
-                    if let Some(b) = crate::cache::parse_sha(sha) {
-                        srv.cache.forget(&b);
-                    }
-                }
-                if !gone.is_empty() {
-                    eprintln!("[telemetry] {} malicious hashes without a file on the server set back to unknown", gone.len());
-                }
-            });
-        }
         let srv = Arc::clone(&scan_server);
         scan_server.mirror.set_work_dir(engine.work_dir().map(|p| p.to_path_buf()));
         let ti = Arc::clone(&threat_intel);
