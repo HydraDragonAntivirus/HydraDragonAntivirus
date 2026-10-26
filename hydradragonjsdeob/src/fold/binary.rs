@@ -23,7 +23,8 @@ pub fn try_fold<'a>(
 
     let result = match bin.operator {
         // Arithmetic
-        BinaryOperator::Addition => Some(ops::add(&left, &right)),
+        BinaryOperator::Addition => Some(ops::add(&left, &right))
+            .filter(|v| !matches!(v, JsValue::String(s) if s.len() > crate::value::MAX_STRING_LEN)),
         BinaryOperator::Subtraction => Some(ops::sub(&left, &right)),
         BinaryOperator::Multiplication => Some(ops::mul(&left, &right)),
         BinaryOperator::Division => {

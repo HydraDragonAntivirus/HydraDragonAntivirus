@@ -43,6 +43,9 @@ pub fn try_fold<'a>(
             result.push_str(&to_string(&expression_values[i]));
         }
     }
+    if result.len() > crate::value::MAX_STRING_LEN {
+        return None;
+    }
 
     *expr = create::make_string(&result, &ctx.ast);
     Some(1)

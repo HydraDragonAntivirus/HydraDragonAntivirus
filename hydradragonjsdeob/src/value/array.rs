@@ -38,6 +38,8 @@ fn join(this: &[JsValue], args: &[JsValue]) -> Option<JsValue> {
         JsValue::Null | JsValue::Undefined => String::new(),
         other => to_string(other),
     }).collect();
+    let len = parts.iter().map(String::len).sum::<usize>() + sep.len().saturating_mul(parts.len());
+    if len > super::MAX_STRING_LEN { return None; }
     Some(JsValue::String(parts.join(&sep)))
 }
 

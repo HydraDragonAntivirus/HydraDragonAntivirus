@@ -168,21 +168,26 @@ fn substr(this: &str, args: &[JsValue]) -> Option<JsValue> {
 fn repeat(this: &str, args: &[JsValue]) -> Option<JsValue> {
     let count = arg_int(args, 0, 0);
     if !(0..=10_000).contains(&count) { return None; }
+    if this.len().saturating_mul(count as usize) > super::MAX_STRING_LEN { return None; }
     Some(JsValue::String(this.repeat(count as usize)))
 }
 
 fn pad_start(this: &str, args: &[JsValue]) -> Option<JsValue> {
-    let target_len = arg_int(args, 0, 0) as usize;
+    // A negative length pads nothing (it must not wrap to a huge `usize`).
+    let target_len = arg_int(args, 0, 0).max(0) as usize;
     let fill = arg_str(args, 1).unwrap_or_else(|| " ".to_string());
     if this.len() >= target_len || fill.is_empty() { return Some(JsValue::String(this.to_string())); }
+    if target_len > super::MAX_STRING_LEN { return None; }
     let padding: String = fill.chars().cycle().take(target_len - this.len()).collect();
     Some(JsValue::String(format!("{padding}{this}")))
 }
 
 fn pad_end(this: &str, args: &[JsValue]) -> Option<JsValue> {
-    let target_len = arg_int(args, 0, 0) as usize;
+    // A negative length pads nothing (it must not wrap to a huge `usize`).
+    let target_len = arg_int(args, 0, 0).max(0) as usize;
     let fill = arg_str(args, 1).unwrap_or_else(|| " ".to_string());
     if this.len() >= target_len || fill.is_empty() { return Some(JsValue::String(this.to_string())); }
+    if target_len > super::MAX_STRING_LEN { return None; }
     let padding: String = fill.chars().cycle().take(target_len - this.len()).collect();
     Some(JsValue::String(format!("{this}{padding}")))
 }
@@ -197,6 +202,7 @@ fn concat(this: &str, args: &[JsValue]) -> Option<JsValue> {
     let mut result = this.to_string();
     for arg in args {
         result.push_str(&super::coerce::to_string(arg));
+        if result.len() > super::MAX_STRING_LEN { return None; }
     }
     Some(JsValue::String(result))
 }
@@ -266,6 +272,13 @@ mod tests {
     #[test]
     fn test_trim() {
         assert_eq!(call("  hi  ", "trim", &[]), Some(s("hi")));
+    }
+
+    #[test]
+    fn test_huge_results_are_not_folded() {
+        assert_eq!(call("x", "padStart", &[n(-1.0), s("ab")]), Some(s("x")));
+        assert_eq!(call("x", "padEnd", &[n(2147483647.0)]), None);
+        assert_eq!(call(&"y".repeat(1000), "repeat", &[n(10_000.0)]), None);
     }
 
     #[test]

@@ -24,6 +24,10 @@ pub mod runtime;
 ///
 /// For zero-copy extraction within a single traversal, use
 /// `ast::extract::string()`, `ast::extract::number()` etc. instead.
+/// Longest string a fold may produce. `"x".repeat(n)`, `padStart(n)` and concatenation
+/// chains can ask for any length; past this the expression is left as it is.
+pub const MAX_STRING_LEN: usize = 1 << 20;
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum JsValue {
     Number(f64),
