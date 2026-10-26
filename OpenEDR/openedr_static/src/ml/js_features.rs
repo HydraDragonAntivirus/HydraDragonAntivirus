@@ -651,10 +651,34 @@ const MAX_DEOBFUSCATE_BYTES: usize = 1 << 20;
 /// the model: `eval`, a regex built at run time, one long line. Only when something
 /// was undone, because the output is re-printed: using it for every file would erase
 /// the layout features (line lengths, whitespace) of the unobfuscated ones too.
-fn deobfuscated(source: &str) -> Option<String> {
+/// The engine also scans the result as an object of its own (signatures written for
+/// the readable code), so the last answer is kept per thread (`LAST_DEOBFUSCATED`).
+pub fn deobfuscated(source: &str) -> Option<std::rc::Rc<str>> {
     if source.len() > MAX_DEOBFUSCATE_BYTES {
         return None;
     }
+    let key = {
+        use std::hash::{Hash, Hasher};
+        let mut h = std::hash::DefaultHasher::new();
+        source.hash(&mut h);
+        (h.finish(), source.len())
+    };
+    if let Some(hit) = LAST_DEOBFUSCATED.with_borrow(|last| last.as_ref().filter(|(k, _)| *k == key).map(|(_, r)| r.clone())) {
+        return hit;
+    }
+    let result = deobfuscate(source).map(std::rc::Rc::from);
+    LAST_DEOBFUSCATED.set(Some((key, result.clone())));
+    result
+}
+
+thread_local! {
+    /// The last script deobfuscated on this thread, by hash and length of the source:
+    /// the ML features and the engine's scan of the deobfuscated object ask for the same
+    /// file one after the other. One entry, the size of one script.
+    static LAST_DEOBFUSCATED: std::cell::RefCell<Option<((u64, usize), Option<std::rc::Rc<str>>)>> = const { std::cell::RefCell::new(None) };
+}
+
+fn deobfuscate(source: &str) -> Option<String> {
     let packed = hydradragonjsdeob::packer::unpack_all(source).is_some();
     let r = std::panic::catch_unwind(|| hydradragonjsdeob::engine::api::JSDeobfuscator::new().max_iterations(20).deobfuscate(source))
         .ok()?
@@ -902,6 +926,16 @@ fn analyze_lines(source: &str) -> (f32, f32, f32, f32, f32, f32) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn deobfuscated_once_per_script() {
+        let packed = r#"eval(function(p,a,c,k,e,d){e=function(c){return c.toString(36)};while(c--){if(k[c]){p=p.replace(new RegExp('\\b'+e(c)+'\\b','g'),k[c])}}return p}('0 1=\'2\';',3,3,'var|url|http://example.invalid/x'.split('|'),0,{}))"#;
+        let first = deobfuscated(packed).expect("packed script is unpacked");
+        assert!(first.contains("http://example.invalid/x"), "{first}");
+        // The second ask (the engine's object scan after the ML features) is the cached result.
+        assert!(std::rc::Rc::ptr_eq(&first, &deobfuscated(packed).unwrap()));
+        assert_eq!(deobfuscated("var a = 1;\nconsole.log(a);\n"), None);
+    }
 
     #[test]
     fn test_plain_text_returns_none() {

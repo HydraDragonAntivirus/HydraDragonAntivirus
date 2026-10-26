@@ -159,6 +159,9 @@ fn clam_score(name: &str) -> f32 {
 
 /// Canonical EICAR SHA-256 (standard test file). Web had a typo variant;
 /// both are accepted, plus a prefix check so any EICAR build flags.
+/// `ScanObject::origin_type` of a script's deobfuscated form (`scan_deobfuscated_js`).
+const DEOBFUSCATED_JS: &str = "DeobfuscatedJS";
+
 const EICAR_SHA256: &str = "275a021bbfb6489e54d471899f7db9d1663fc695ec2fe2a2c4538aabf651fd0f";
 const EICAR_SHA256_WEB_VARIANT: &str =
     "275a021bbfb6489e7341ac665a24224100c9e6029d5b2b6150d9933f3a9d541";
@@ -1315,6 +1318,14 @@ impl StaticEngine {
             None,
         );
 
+        // A script inside an archive (or other object) is also scanned deobfuscated; not
+        // the deobfuscated object itself again.
+        if object.origin_type != DEOBFUSCATED_JS {
+            if let Some(deob) = self.scan_deobfuscated_js(&object.bytes, &object.name, object.depth + 1) {
+                merge_deobfuscated(&deob, &mut obj_detections, &mut obj_max_score);
+            }
+        }
+
         let verdict = if obj_max_score >= 0.85 {
             "Malicious"
         } else if obj_max_score >= 0.50 || !obj_detections.is_empty() {
@@ -1334,6 +1345,26 @@ impl StaticEngine {
             max_threat_score: obj_max_score,
             detections: obj_detections,
         }
+    }
+
+    /// The deobfuscated form of a script (`js_features::deobfuscated`: P.A.C.K.E.R.,
+    /// folded strings, decoded `atob` / `fromCharCode`, ...), scanned as an object of its
+    /// own so signatures see the code the obfuscation hid. `None` when `bytes` is not
+    /// JavaScript or nothing was undone.
+    fn scan_deobfuscated_js(&self, bytes: &[u8], name: &str, depth: u32) -> Option<ExtractedObject> {
+        if !is_js_content(bytes) {
+            return None;
+        }
+        let code = crate::ml::js_features::deobfuscated(std::str::from_utf8(bytes).ok()?)?;
+        let obj = ScanObject::new(
+            format!("{name}.deobfuscated.js"),
+            format!("{name} -> [JS:Deobfuscated]"),
+            code.as_bytes().to_vec(),
+            depth,
+            DEOBFUSCATED_JS,
+        )
+        .with_parent(name, bytes);
+        Some(self.scan_object(&obj))
     }
 
     fn scan_bytes_internal(
@@ -1769,6 +1800,14 @@ impl StaticEngine {
                         }
                     }
                 }
+            }
+        }
+
+        // 5b. Deobfuscated JavaScript, scanned as an object of its own.
+        if is_js && !is_apk_file {
+            if let Some(deob) = self.scan_deobfuscated_js(data, target_name, 1) {
+                merge_deobfuscated(&deob, &mut detections, &mut max_score);
+                extracted_objects.push(deob);
             }
         }
 
@@ -2501,6 +2540,19 @@ fn ml_explain(rule: &str, kind: &str, threshold: f32, e: &crate::ml::scanner::Ml
         view: None,
         evidence: e.features.iter().filter(|f| f.contribution > 0.0).take(10).map(|f| format!("{}={} ({:+.2})", f.name, fmt(f.value), f.contribution)).collect(),
         ranges: Vec::new(),
+    }
+}
+
+/// The detections of a script's deobfuscated object, added to the script's own.
+fn merge_deobfuscated(deob: &ExtractedObject, detections: &mut Vec<DetectionItem>, max_score: &mut f32) {
+    *max_score = max_score.max(deob.max_threat_score);
+    for d in &deob.detections {
+        detections.push(DetectionItem {
+            layer: format!("JS_Deobfuscated_{}", d.layer),
+            name: format!("Deobfuscated:{}", d.name),
+            score: d.score,
+            details: d.details.clone(),
+        });
     }
 }
 
