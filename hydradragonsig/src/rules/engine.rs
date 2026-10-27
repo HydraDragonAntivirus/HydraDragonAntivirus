@@ -1332,7 +1332,8 @@ fn rule_signature_atom_count(rule: &Rule) -> usize {
             RuleCondition::PeAnchorPattern { patterns, .. }
             | RuleCondition::SectorPattern { patterns, .. } => patterns.len().max(1),
             RuleCondition::ResourceMatch { data_patterns, .. } => data_patterns.len().max(1),
-            RuleCondition::ResourceHashAny { values } => values.len().max(1),
+            RuleCondition::ResourceHashAny { values }
+            | RuleCondition::ExportHashAny { values } => values.len().max(1),
             RuleCondition::Clsid { guids, .. } => guids.len().max(1),
             RuleCondition::FeatureBounds { bounds, .. } => bounds.len().max(1),
             _ => 1,
@@ -1578,9 +1579,15 @@ fn evaluate_rule_with_matches(
             | RuleCondition::VersionInfo { .. }
             | RuleCondition::ResourceMatch { .. }
             | RuleCondition::ResourceHashAny { .. }
-            | RuleCondition::ResourcesAbsent => view.ensure_pe(report, bytes),
-            RuleCondition::HashSha256 { .. } | RuleCondition::HashMd5 { .. } => {
-                if report.hashes.sha256.is_empty() && !bytes.is_empty() {
+            | RuleCondition::ResourcesAbsent
+            | RuleCondition::PeSectionsSummary { .. }
+            | RuleCondition::ExportHashAny { .. }
+            | RuleCondition::PeTimestamp { .. } => view.ensure_pe(report, bytes),
+            RuleCondition::HashSha256 { .. }
+            | RuleCondition::HashMd5 { .. }
+            | RuleCondition::HashSha1 { .. }
+            | RuleCondition::HashCrc32 { .. } => {
+                if (report.hashes.sha256.is_empty() || report.hashes.sha1.is_empty()) && !bytes.is_empty() {
                     report.hashes = crate::utils::hash::hashes(bytes);
                 }
             }
@@ -2025,13 +2032,32 @@ fn evaluate_condition(
         RuleCondition::HashSha256 { value } => report
             .hashes
             .sha256
-            .eq_ignore_ascii_case(value)
+            .eq_ignore_ascii_case(value.trim())
             .then(|| "sha256 hash matched".to_string()),
         RuleCondition::HashMd5 { value } => report
             .hashes
             .md5
-            .eq_ignore_ascii_case(value)
+            .eq_ignore_ascii_case(value.trim())
             .then(|| "md5 hash matched".to_string()),
+        RuleCondition::HashSha1 { value } => {
+            let got = if report.hashes.sha1.is_empty() {
+                crate::utils::hash::sha1_hex(bytes)
+            } else {
+                report.hashes.sha1.clone()
+            };
+            got.eq_ignore_ascii_case(value.trim())
+                .then(|| "sha1 hash matched".to_string())
+        }
+        RuleCondition::HashCrc32 { value } => {
+            let clean = value.trim().trim_start_matches("0x").trim_start_matches("0X");
+            let got = if report.hashes.crc32.is_empty() {
+                crate::utils::hash::crc32_hex(bytes)
+            } else {
+                report.hashes.crc32.clone()
+            };
+            got.eq_ignore_ascii_case(clean)
+                .then(|| format!("crc32 hash matched {got}"))
+        }
         RuleCondition::ImphashAny { values } => {
             let h = report.pe.as_ref()?.imphash.as_deref()?;
             values
@@ -2720,6 +2746,55 @@ fn evaluate_condition(
                 )
             })
         }
+        RuleCondition::PeSectionsSummary { .. } => {
+            super::pe_section::evaluate_sections_summary(cond, report.pe.as_ref()?, bytes)
+        }
+        RuleCondition::ExportHashAny { values } => {
+            super::pe_section::evaluate_export_hash_any(values, report.pe.as_ref()?, bytes)
+        }
+        RuleCondition::PeTimestamp { value, hex, min, max } => {
+            let ts = report.pe.as_ref()?.time_date_stamp;
+            if value.is_some_and(|want| ts != want)
+                || min.is_some_and(|lo| ts < lo)
+                || max.is_some_and(|hi| ts > hi)
+            {
+                return None;
+            }
+            if let Some(hex_str) = hex {
+                let clean = hex_str.trim().trim_start_matches("0x").trim_start_matches("0X");
+                let want = u32::from_str_radix(clean, 16).ok()?;
+                if ts != want {
+                    return None;
+                }
+            }
+            Some(format!("pe_timestamp 0x{ts:08x} ({ts})"))
+        }
+        RuleCondition::FileTimestamp {
+            equals,
+            after,
+            before,
+            raw_hex,
+            age_days_min,
+            age_days_max,
+        } => super::system_windows::file_timestamp_evidence(
+            &report.path,
+            equals.as_deref(),
+            after.as_deref(),
+            before.as_deref(),
+            raw_hex.as_deref(),
+            *age_days_min,
+            *age_days_max,
+        ),
+        RuleCondition::FileAttributes {
+            spec,
+            required,
+            forbidden,
+        } => super::system_windows::file_attributes_evidence(
+            &report.path,
+            spec.as_deref(),
+            required,
+            forbidden,
+        ),
     }
 }
 
@@ -4931,7 +5006,8 @@ fn resolve_path_template(template: &str) -> String {
 /// Check whether `actual_path` matches the `required` path template.
 /// Supports `%VAR%` placeholders. Comparison is case-insensitive on Windows.
 fn path_matches_required(actual_path: &std::path::Path, required: &str) -> bool {
-    let resolved = resolve_path_template(required);
+    let expanded = super::system_windows::expand_windows_vars(required);
+    let resolved = resolve_path_template(&expanded);
     let resolved = resolved.replace('/', "\\").trim_end_matches('\\').to_string();
     let actual = actual_path.to_string_lossy().replace('/', "\\").trim_end_matches('\\').to_string();
     actual.eq_ignore_ascii_case(&resolved)

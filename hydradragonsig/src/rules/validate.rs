@@ -48,8 +48,10 @@ pub const CONDITION_KEYS: &[(&str, &[&str])] = &[
     ("section_entropy", &["min"]),
     ("section_name_regex", &["pattern"]),
     ("pe_section", &[
-        "select", "name_regex", "flags_all", "flags_none", "entropy_min", "entropy_max", "raw_size_min",
-        "raw_size_max", "code_xrefs_min", "has_entry", "directories_any", "directories_none", "directory_share_max",
+        "select", "index", "name", "name_regex", "flags_all", "flags_none", "characteristics", "entropy_min", "entropy_max",
+        "raw_size", "raw_size_min", "raw_size_max", "raw_offset", "virtual_address", "virtual_size", "virtual_size_min",
+        "virtual_size_max", "md5", "sha1", "sha256", "crc32", "code_xrefs_min", "has_entry", "directories_any",
+        "directories_none", "directory_share_max",
     ]),
     ("packed_pe", &[]),
     ("env_reference", &["min"]),
@@ -57,6 +59,8 @@ pub const CONDITION_KEYS: &[(&str, &[&str])] = &[
     ("file_type", &["values"]),
     ("hash_sha256", &["value"]),
     ("hash_md5", &["value"]),
+    ("hash_sha1", &["value"]),
+    ("hash_crc32", &["value"]),
     ("imphash_any", &["values"]),
     ("feature_gte", &["name", "value"]),
     ("feature_lte", &["name", "value"]),
@@ -90,6 +94,14 @@ pub const CONDITION_KEYS: &[(&str, &[&str])] = &[
     ("sector_pattern", &["device", "lba", "count", "patterns", "min", "excludes"]),
     ("path_glob", &["pattern"]),
     ("feature_bounds", &["bounds", "min"]),
+    ("pe_sections_summary", &[
+        "total_raw_size", "total_raw_size_min", "total_raw_size_max", "md5", "sha1", "sha256", "crc32",
+        "count", "count_min", "count_max",
+    ]),
+    ("export_hash_any", &["values"]),
+    ("pe_timestamp", &["value", "hex", "min", "max"]),
+    ("file_timestamp", &["equals", "after", "before", "raw_hex", "age_days_min", "age_days_max"]),
+    ("file_attributes", &["spec", "required", "forbidden"]),
 ];
 
 /// Values accepted by `file_type` conditions.
@@ -319,13 +331,26 @@ fn check_condition(cond: &RuleCondition, rules: &[Rule], own_id: &str, known_ids
         | RuleCondition::SectionNameRegex { pattern }
         | RuleCondition::PathRegex { pattern } => out.extend(regex_problem(pattern)),
         RuleCondition::PeSection {
+            index,
+            name,
             name_regex,
             flags_all,
             flags_none,
+            characteristics,
             entropy_min,
             entropy_max,
+            raw_size,
             raw_size_min,
             raw_size_max,
+            raw_offset,
+            virtual_address,
+            virtual_size,
+            virtual_size_min,
+            virtual_size_max,
+            md5,
+            sha1,
+            sha256,
+            crc32,
             code_xrefs_min,
             has_entry,
             directories_any,
@@ -335,6 +360,21 @@ fn check_condition(cond: &RuleCondition, rules: &[Rule], own_id: &str, known_ids
         } => {
             if let Some(p) = name_regex {
                 out.extend(regex_problem(p));
+            }
+            if let Some(m) = md5 && !hex_len(m.trim(), 32) {
+                out.push("pe_section md5 must be 32 hex characters".into());
+            }
+            if let Some(s) = sha1 && !hex_len(s.trim(), 40) {
+                out.push("pe_section sha1 must be 40 hex characters".into());
+            }
+            if let Some(s) = sha256 && !hex_len(s.trim(), 64) {
+                out.push("pe_section sha256 must be 64 hex characters".into());
+            }
+            if let Some(c) = crc32 {
+                let clean = c.trim().trim_start_matches("0x").trim_start_matches("0X");
+                if !hex_len(clean, 8) {
+                    out.push("pe_section crc32 must be 8 hex characters".into());
+                }
             }
             for f in flags_all.iter().chain(flags_none) {
                 if super::pe_section::flag_value(f).is_none() {
@@ -363,13 +403,26 @@ fn check_condition(cond: &RuleCondition, rules: &[Rule], own_id: &str, known_ids
             if code_xrefs_min == &Some(0) {
                 out.push("code_xrefs_min: 0 always holds".into());
             }
-            let empty = name_regex.is_none()
+            let empty = index.is_none()
+                && name.is_none()
+                && name_regex.is_none()
                 && flags_all.is_empty()
                 && flags_none.is_empty()
+                && characteristics.is_none()
                 && entropy_min.is_none()
                 && entropy_max.is_none()
+                && raw_size.is_none()
                 && raw_size_min.is_none()
                 && raw_size_max.is_none()
+                && raw_offset.is_none()
+                && virtual_address.is_none()
+                && virtual_size.is_none()
+                && virtual_size_min.is_none()
+                && virtual_size_max.is_none()
+                && md5.is_none()
+                && sha1.is_none()
+                && sha256.is_none()
+                && crc32.is_none()
                 && code_xrefs_min.is_none()
                 && has_entry.is_none()
                 && directories_any.is_empty()
@@ -403,6 +456,13 @@ fn check_condition(cond: &RuleCondition, rules: &[Rule], own_id: &str, known_ids
         }
         RuleCondition::HashSha256 { value } if !hex_len(value.trim(), 64) => out.push("sha256 must be 64 hex characters".into()),
         RuleCondition::HashMd5 { value } if !hex_len(value.trim(), 32) => out.push("md5 must be 32 hex characters".into()),
+        RuleCondition::HashSha1 { value } if !hex_len(value.trim(), 40) => out.push("sha1 must be 40 hex characters".into()),
+        RuleCondition::HashCrc32 { value } => {
+            let clean = value.trim().trim_start_matches("0x").trim_start_matches("0X");
+            if !hex_len(clean, 8) {
+                out.push("crc32 must be 8 hex characters".into());
+            }
+        }
         RuleCondition::ImphashAny { values } => {
             list_problems("values", values, None, &mut out);
             for v in values.iter().filter(|v| !hex_len(v.trim(), 32)) {
@@ -709,6 +769,105 @@ fn check_condition(cond: &RuleCondition, rules: &[Rule], own_id: &str, known_ids
                 }
             }
         }
+        RuleCondition::PeSectionsSummary {
+            total_raw_size,
+            total_raw_size_min,
+            total_raw_size_max,
+            md5,
+            sha1,
+            sha256,
+            crc32,
+            count,
+            count_min,
+            count_max,
+        } => {
+            if total_raw_size.is_none()
+                && total_raw_size_min.is_none()
+                && total_raw_size_max.is_none()
+                && md5.is_none()
+                && sha1.is_none()
+                && sha256.is_none()
+                && crc32.is_none()
+                && count.is_none()
+                && count_min.is_none()
+                && count_max.is_none()
+            {
+                out.push("pe_sections_summary needs at least one filter".into());
+            }
+            if let Some(m) = md5 && !hex_len(m.trim(), 32) {
+                out.push("pe_sections_summary md5 must be 32 hex characters".into());
+            }
+            if let Some(s) = sha1 && !hex_len(s.trim(), 40) {
+                out.push("pe_sections_summary sha1 must be 40 hex characters".into());
+            }
+            if let Some(s) = sha256 && !hex_len(s.trim(), 64) {
+                out.push("pe_sections_summary sha256 must be 64 hex characters".into());
+            }
+            if let Some(c) = crc32 {
+                let clean = c.trim().trim_start_matches("0x").trim_start_matches("0X");
+                if !hex_len(clean, 8) {
+                    out.push("pe_sections_summary crc32 must be 8 hex characters".into());
+                }
+            }
+        }
+        RuleCondition::ExportHashAny { values } => {
+            list_problems("values", values, None, &mut out);
+            for v in values.iter().filter(|v| !hex_len(v.trim(), 32)) {
+                out.push(format!("export hash `{v}` must be 32 hex characters"));
+            }
+        }
+        RuleCondition::PeTimestamp { value, hex, min, max } => {
+            if value.is_none() && hex.is_none() && min.is_none() && max.is_none() {
+                out.push("pe_timestamp needs `value`, `hex`, `min` or `max`".into());
+            }
+            if let Some(h) = hex {
+                let clean = h.trim().trim_start_matches("0x").trim_start_matches("0X");
+                if u32::from_str_radix(clean, 16).is_err() {
+                    out.push(format!("invalid pe_timestamp hex `{h}`"));
+                }
+            }
+        }
+        RuleCondition::FileTimestamp {
+            equals,
+            after,
+            before,
+            raw_hex,
+            age_days_min,
+            age_days_max,
+        } => {
+            if equals.is_none()
+                && after.is_none()
+                && before.is_none()
+                && raw_hex.is_none()
+                && age_days_min.is_none()
+                && age_days_max.is_none()
+            {
+                out.push("file_timestamp needs at least one constraint".into());
+            }
+            if let Some(h) = raw_hex {
+                let clean = h.trim().trim_start_matches("0x").trim_start_matches("0X");
+                if u32::from_str_radix(clean, 16).is_err() {
+                    out.push(format!("invalid file_timestamp raw_hex `{h}`"));
+                }
+            }
+        }
+        RuleCondition::FileAttributes {
+            spec,
+            required,
+            forbidden,
+        } => {
+            if spec.is_none() && required.is_empty() && forbidden.is_empty() {
+                out.push("file_attributes needs `spec`, `required` or `forbidden`".into());
+            }
+            if let Some(s) = spec && super::system_windows::parse_attr_spec(s).is_none() {
+                out.push(format!("invalid file_attributes spec `{s}` (use e.g. `A+D-H-L-R-S-`)"));
+            }
+            for f in required.iter().chain(forbidden) {
+                if super::system_windows::attr_flag_value(f).is_none() {
+                    out.push(format!("unknown file attribute `{f}`"));
+                }
+            }
+        }
         _ => {}
     }
     out
@@ -731,9 +890,9 @@ mod tests {
 
     fn sample_fields(ctype: &str) -> &'static str {
         match ctype {
-            "string_contains" | "hash_sha256" | "hash_md5" => "        value: x\n",
+            "string_contains" | "hash_sha256" | "hash_md5" | "hash_sha1" | "hash_crc32" => "        value: x\n",
             "string_regex" | "import_regex" | "dll_regex" | "section_name_regex" | "path_regex" | "byte_pattern" | "path_glob" => "        pattern: x\n",
-            "string_set" | "file_type" | "imphash_any" | "resource_hash_any" => "        values: [x]\n",
+            "string_set" | "file_type" | "imphash_any" | "resource_hash_any" | "export_hash_any" => "        values: [x]\n",
             "native_signature" => "        atoms: []\n        expression: x\n",
             "suspicious_import_count" | "file_entropy" | "section_entropy" => "        min: 1\n",
             "file_size_gte" | "file_size_lte" => "        bytes: 1\n",
@@ -745,7 +904,7 @@ mod tests {
             "rule_match" => "        ids: [x]\n",
             "unpacker_any" => "        signatures: []\n",
             "image_fuzzy_hash_any" => "        hashes: []\n",
-            "packed_pe" | "env_reference" | "pe_icon_any" | "has_parent" | "pe_section" | "not_mz" | "authenticode" | "version_info" | "resource_match" | "resources_absent" | "hosts_entry" => "",
+            "packed_pe" | "env_reference" | "pe_icon_any" | "has_parent" | "pe_section" | "not_mz" | "authenticode" | "version_info" | "resource_match" | "resources_absent" | "hosts_entry" | "pe_sections_summary" | "pe_timestamp" | "file_timestamp" | "file_attributes" => "",
             "registry_key" | "registry_value" => "        key: HKLM\\\\Software\n",
             "clsid" => "        guids: [x]\n",
             "sector_pattern" => "        device: physical0\n        patterns: [4D5A]\n",

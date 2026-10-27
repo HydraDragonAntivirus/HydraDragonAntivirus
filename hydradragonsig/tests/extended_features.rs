@@ -531,3 +531,76 @@ rules:
     let report = scan_bytes(b"probe", &rules, &ScanOptions::default());
     assert_eq!(report.findings.len(), 1);
 }
+
+#[test]
+fn section_hashes_summary_crc32_sha1_and_file_metadata_conditions() {
+    let mut pe = build_test_pe(true, false, None);
+    // Set IMAGE_FILE_HEADER.TimeDateStamp at PE + 8 (0x88) to 0x5D5B7417
+    pe[0x88..0x8C].copy_from_slice(&0x5D5B_7417u32.to_le_bytes());
+
+    let file_sha1 = hydradragonsig::utils::hash::sha1_hex(&pe);
+    let file_crc32 = hydradragonsig::utils::hash::crc32_hex(&pe);
+    let text_slice = &pe[0x200..0x400];
+    let text_md5 = hydradragonsig::utils::hash::md5_hex(text_slice);
+    let text_crc32 = hydradragonsig::utils::hash::crc32_hex(text_slice);
+    let all_sections_slice = &pe[0x200..0x600];
+    let sections_md5 = hydradragonsig::utils::hash::md5_hex(all_sections_slice);
+    let sections_crc32 = hydradragonsig::utils::hash::crc32_hex(all_sections_slice);
+
+    let dir = std::env::temp_dir().join(format!("hydradragonsig_meta_test_{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let sample_path = dir.join("sample_client.exe");
+    std::fs::write(&sample_path, &pe).unwrap();
+
+    let yaml = format!(
+        r#"
+rules:
+  - id: TEST-EXTENDED-PE-AND-META
+    title: "PE section index/hash, sections summary, export hash, crc32/sha1 and file metadata"
+    severity: high
+    verdict: malware
+    score: 90
+    logic: all
+    conditions:
+      - type: hash_sha1
+        value: "{file_sha1}"
+      - type: hash_crc32
+        value: "{file_crc32}"
+      - type: pe_timestamp
+        hex: "5D5B7417"
+      - type: pe_section
+        index: 0
+        name: ".text"
+        raw_offset: 0x200
+        raw_size: 512
+        virtual_address: 0x1000
+        virtual_size: 0x200
+        characteristics: 0x60000020
+        md5: "{text_md5}"
+        crc32: "{text_crc32}"
+      - type: pe_sections_summary
+        count: 2
+        total_raw_size: 1024
+        md5: "{sections_md5}"
+        crc32: "{sections_crc32}"
+      - type: export_hash_any
+        values:
+          - "D41D8CD98F00B204E9800998ECF8427E"
+      - type: file_timestamp
+        age_days_max: 1
+      - type: file_attributes
+        spec: "A+D-H-L-R-S-"
+"#
+    );
+
+    let rules = RuleSet::from_yaml_str_strict(&yaml).expect("valid rules");
+    let report = scan_path(&sample_path, &rules, &ScanOptions::default()).expect("scan_path ok");
+    let ids: Vec<&str> = report.findings.iter().map(|f| f.rule_id.as_str()).collect();
+    assert!(
+        ids.contains(&"TEST-EXTENDED-PE-AND-META"),
+        "expected TEST-EXTENDED-PE-AND-META in {ids:?}"
+    );
+
+    let _ = std::fs::remove_dir_all(&dir);
+}

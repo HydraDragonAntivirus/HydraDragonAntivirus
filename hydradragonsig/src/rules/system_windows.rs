@@ -29,15 +29,44 @@ const VAR_ALIASES: &[(&str, &str)] = &[
     ("STARTUP", "%APPDATA%\\Microsoft\\Windows\\Start Menu\\Programs\\Startup"),
 ];
 
-/// `%VAR%` replacement using the process environment, plus standard path aliases
-/// that have no environment twin. Unknown variables are kept verbatim so globs
-/// stay deterministic.
+const BRACKET_ALIASES: &[(&str, &str)] = &[
+    ("<$PROFILE>", "%USERPROFILE%"),
+    ("<$WINDIR>", "%SystemRoot%"),
+    ("<$SYSDIR>", "%SystemRoot%\\System32"),
+    ("<$SYSWOW>", "%SystemRoot%\\SysWOW64"),
+    ("<$APPDATA>", "%APPDATA%"),
+    ("<$LOCALAPPDATA>", "%LOCALAPPDATA%"),
+    ("<$LOCALSETTINGS>", "%LOCALAPPDATA%"),
+    ("<$PROGRAMFILES>", "%ProgramFiles%"),
+    ("<$COMMONPROGRAMFILES>", "%CommonProgramFiles%"),
+    ("<$DESKTOP>", "%USERPROFILE%\\Desktop"),
+    ("<$COMMONDESKTOP>", "%PUBLIC%\\Desktop"),
+    ("<$PERSONAL>", "%USERPROFILE%\\Documents"),
+    ("<$STARTUP>", "%APPDATA%\\Microsoft\\Windows\\Start Menu\\Programs\\Startup"),
+    ("<$COMMONSTARTUP>", "%ProgramData%\\Microsoft\\Windows\\Start Menu\\Programs\\Startup"),
+    ("<$PROGRAMS>", "%APPDATA%\\Microsoft\\Windows\\Start Menu\\Programs"),
+    ("<$COMMONPROGRAMS>", "%ProgramData%\\Microsoft\\Windows\\Start Menu\\Programs"),
+    ("<$TEMP>", "%TEMP%"),
+    ("<$TEMPLATES>", "%APPDATA%\\Microsoft\\Windows\\Templates"),
+    ("<$SYSDRIVE>", "%SystemDrive%"),
+];
+
+/// `%VAR%` and `<$VAR>` replacement using the process environment, plus standard
+/// path aliases that have no environment twin. Unknown variables are kept
+/// verbatim so globs stay deterministic.
 pub fn expand_windows_vars(text: &str) -> String {
     let mut base = text.to_string();
+    if base.contains("<$") {
+        for (tag, replacement) in BRACKET_ALIASES {
+            if base.to_ascii_uppercase().contains(tag) {
+                base = replace_case_insensitive(&base, tag, replacement);
+            }
+        }
+    }
     for (alias, value) in VAR_ALIASES {
         let needle = format!("%{alias}%");
-        if base.contains(&needle) {
-            base = base.replace(&needle, value);
+        if base.to_ascii_uppercase().contains(&needle) {
+            base = replace_case_insensitive(&base, &needle, value);
         }
     }
     let mut out = String::with_capacity(base.len());
@@ -72,6 +101,21 @@ pub fn expand_windows_vars(text: &str) -> String {
             }
         }
     }
+    out
+}
+
+fn replace_case_insensitive(haystack: &str, needle_upper: &str, replacement: &str) -> String {
+    let upper = haystack.to_ascii_uppercase();
+    let mut out = String::with_capacity(haystack.len());
+    let mut last = 0usize;
+    while let Some(rel) = upper[last..].find(needle_upper) {
+        let start = last + rel;
+        let end = start + needle_upper.len();
+        out.push_str(&haystack[last..start]);
+        out.push_str(replacement);
+        last = end;
+    }
+    out.push_str(&haystack[last..]);
     out
 }
 
@@ -1024,6 +1068,225 @@ fn read_sectors(device: &str, lba: u64, count: u32) -> Option<Vec<u8>> {
     (filled > 0).then(|| aligned[..filled].to_vec())
 }
 
+// ---------------------------------------------------------------------------
+// File attributes & file timestamp conditions
+// ---------------------------------------------------------------------------
+
+pub const FILE_ATTRIBUTE_READONLY: u32 = 0x0000_0001;
+pub const FILE_ATTRIBUTE_HIDDEN: u32 = 0x0000_0002;
+pub const FILE_ATTRIBUTE_SYSTEM: u32 = 0x0000_0004;
+pub const FILE_ATTRIBUTE_DIRECTORY: u32 = 0x0000_0010;
+pub const FILE_ATTRIBUTE_ARCHIVE: u32 = 0x0000_0020;
+pub const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x0000_0400;
+
+pub fn attr_flag_value(name: &str) -> Option<u32> {
+    match name.trim().to_ascii_lowercase().as_str() {
+        "a" | "archive" => Some(FILE_ATTRIBUTE_ARCHIVE),
+        "d" | "dir" | "directory" => Some(FILE_ATTRIBUTE_DIRECTORY),
+        "h" | "hidden" => Some(FILE_ATTRIBUTE_HIDDEN),
+        "l" | "link" | "reparse" | "reparse_point" => Some(FILE_ATTRIBUTE_REPARSE_POINT),
+        "r" | "readonly" | "read_only" => Some(FILE_ATTRIBUTE_READONLY),
+        "s" | "system" => Some(FILE_ATTRIBUTE_SYSTEM),
+        _ => None,
+    }
+}
+
+/// Parse a compact attribute specification like `"A+D-H-L-R-S-"` into `(req_mask, forbid_mask)`.
+pub fn parse_attr_spec(spec: &str) -> Option<(u32, u32)> {
+    let mut req = 0u32;
+    let mut forbid = 0u32;
+    let bytes = spec.trim().as_bytes();
+    if bytes.is_empty() || bytes.len() % 2 != 0 {
+        return None;
+    }
+    let mut idx = 0usize;
+    while idx + 1 < bytes.len() {
+        let code = bytes[idx] as char;
+        let op = bytes[idx + 1] as char;
+        let bit = match code.to_ascii_uppercase() {
+            'A' => FILE_ATTRIBUTE_ARCHIVE,
+            'D' => FILE_ATTRIBUTE_DIRECTORY,
+            'H' => FILE_ATTRIBUTE_HIDDEN,
+            'L' => FILE_ATTRIBUTE_REPARSE_POINT,
+            'R' => FILE_ATTRIBUTE_READONLY,
+            'S' => FILE_ATTRIBUTE_SYSTEM,
+            _ => return None,
+        };
+        match op {
+            '+' => req |= bit,
+            '-' => forbid |= bit,
+            _ => return None,
+        }
+        idx += 2;
+    }
+    Some((req, forbid))
+}
+
+pub fn check_attr_mask(
+    attrs: u32,
+    spec: Option<&str>,
+    required: &[String],
+    forbidden: &[String],
+) -> Option<String> {
+    let mut req_mask = 0u32;
+    let mut forbid_mask = 0u32;
+    if let Some(s) = spec {
+        let (r, f) = parse_attr_spec(s)?;
+        req_mask |= r;
+        forbid_mask |= f;
+    }
+    for name in required {
+        req_mask |= attr_flag_value(name)?;
+    }
+    for name in forbidden {
+        forbid_mask |= attr_flag_value(name)?;
+    }
+    if req_mask == 0 && forbid_mask == 0 {
+        return None;
+    }
+    if (attrs & req_mask) != req_mask || (attrs & forbid_mask) != 0 {
+        return None;
+    }
+    Some(format!(
+        "file_attributes attrs=0x{attrs:04x} (required=0x{req_mask:04x}, forbidden=0x{forbid_mask:04x})"
+    ))
+}
+
+pub fn file_attributes_evidence(
+    path: &std::path::Path,
+    spec: Option<&str>,
+    required: &[String],
+    forbidden: &[String],
+) -> Option<String> {
+    let meta = std::fs::metadata(path).ok()?;
+    #[cfg(windows)]
+    let attrs = {
+        use std::os::windows::fs::MetadataExt;
+        meta.file_attributes()
+    };
+    #[cfg(not(windows))]
+    let attrs = {
+        let mut mask = FILE_ATTRIBUTE_ARCHIVE;
+        if meta.is_dir() {
+            mask |= FILE_ATTRIBUTE_DIRECTORY;
+        }
+        if meta.permissions().readonly() {
+            mask |= FILE_ATTRIBUTE_READONLY;
+        }
+        mask
+    };
+    check_attr_mask(attrs, spec, required, forbidden)
+}
+
+/// Compute the 32-bit packed DOS date/time word (`((year-1980)<<25)|...`).
+pub fn dos_packed_timestamp(
+    year: i32,
+    month: u32,
+    day: u32,
+    hour: u32,
+    minute: u32,
+    second: u32,
+) -> u32 {
+    let y = (year - 1980).clamp(0, 127) as u32;
+    let date = (y << 9) | ((month & 0x0F) << 5) | (day & 0x1F);
+    let time = ((hour & 0x1F) << 11) | ((minute & 0x3F) << 5) | ((second / 2) & 0x1F);
+    (date << 16) | time
+}
+
+fn parse_datetime_utc(text: &str) -> Option<i64> {
+    use chrono::{NaiveDate, NaiveDateTime, TimeZone, Utc};
+    let trimmed = text.trim();
+    if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(trimmed) {
+        return Some(dt.timestamp());
+    }
+    if let Ok(ndt) = NaiveDateTime::parse_from_str(trimmed, "%Y-%m-%d %H:%M:%S") {
+        return Some(Utc.from_utc_datetime(&ndt).timestamp());
+    }
+    if let Ok(nd) = NaiveDate::parse_from_str(trimmed, "%Y-%m-%d") {
+        let ndt = nd.and_hms_opt(0, 0, 0)?;
+        return Some(Utc.from_utc_datetime(&ndt).timestamp());
+    }
+    None
+}
+
+pub fn file_timestamp_evidence(
+    path: &std::path::Path,
+    equals: Option<&str>,
+    after: Option<&str>,
+    before: Option<&str>,
+    raw_hex: Option<&str>,
+    age_days_min: Option<u64>,
+    age_days_max: Option<u64>,
+) -> Option<String> {
+    use chrono::{Datelike, Timelike};
+    let mtime = std::fs::metadata(path).ok()?.modified().ok()?;
+    let dt_utc: chrono::DateTime<chrono::Utc> = mtime.into();
+    let dt_local: chrono::DateTime<chrono::Local> = mtime.into();
+    let unix_secs = dt_utc.timestamp();
+
+    let fmt_utc = dt_utc.format("%Y-%m-%d %H:%M:%S").to_string();
+    let fmt_local = dt_local.format("%Y-%m-%d %H:%M:%S").to_string();
+
+    if let Some(eq) = equals {
+        let eq_trim = eq.trim();
+        let matches_str = fmt_utc == eq_trim || fmt_local == eq_trim;
+        let matches_ts = parse_datetime_utc(eq_trim).is_some_and(|want| want == unix_secs);
+        if !matches_str && !matches_ts {
+            return None;
+        }
+    }
+    if let Some(after_s) = after {
+        let min_ts = parse_datetime_utc(after_s)?;
+        if unix_secs < min_ts {
+            return None;
+        }
+    }
+    if let Some(before_s) = before {
+        let max_ts = parse_datetime_utc(before_s)?;
+        if unix_secs > max_ts {
+            return None;
+        }
+    }
+    if let Some(hex_str) = raw_hex {
+        let clean = hex_str.trim().trim_start_matches("0x").trim_start_matches("0X");
+        let want = u32::from_str_radix(clean, 16).ok()?;
+        let dos_utc = dos_packed_timestamp(
+            dt_utc.year(),
+            dt_utc.month(),
+            dt_utc.day(),
+            dt_utc.hour(),
+            dt_utc.minute(),
+            dt_utc.second(),
+        );
+        let dos_local = dos_packed_timestamp(
+            dt_local.year(),
+            dt_local.month(),
+            dt_local.day(),
+            dt_local.hour(),
+            dt_local.minute(),
+            dt_local.second(),
+        );
+        let unix_u32 = unix_secs as u32;
+        if want != dos_utc && want != dos_local && want != unix_u32 {
+            return None;
+        }
+    }
+    if age_days_min.is_some() || age_days_max.is_some() {
+        let elapsed_secs = std::time::SystemTime::now()
+            .duration_since(mtime)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        let age_days = elapsed_secs / 86_400;
+        if age_days_min.is_some_and(|min| age_days < min) {
+            return None;
+        }
+        if age_days_max.is_some_and(|max| age_days > max) {
+            return None;
+        }
+    }
+    Some(format!("file_timestamp mtime={fmt_utc} (unix={unix_secs})"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1032,6 +1295,14 @@ mod tests {
     fn glob_composition() {
         assert!(glob_match("123.123.*", "123.123.3.4"));
         assert!(!glob_match("10.*", "192.168.0.1"));
+    }
+
+    #[test]
+    fn attr_spec_and_dos_timestamp() {
+        // 2026-10-27 14:32:46 -> DOS packed 0x5D5B7417
+        assert_eq!(dos_packed_timestamp(2026, 10, 27, 14, 32, 46), 0x5D5B_7417);
+        assert!(check_attr_mask(FILE_ATTRIBUTE_ARCHIVE, Some("A+D-H-L-R-S-"), &[], &[]).is_some());
+        assert!(check_attr_mask(FILE_ATTRIBUTE_ARCHIVE | FILE_ATTRIBUTE_HIDDEN, Some("A+D-H-L-R-S-"), &[], &[]).is_none());
     }
 
     #[test]
@@ -1054,6 +1325,8 @@ mod tests {
         assert!(expanded.ends_with("\\x") && !expanded.contains('%'), "got {expanded}");
         let sys = expand_windows_vars("%SYSDIR%");
         assert!(sys.ends_with("System32") || sys.ends_with("SYSWOW"), "got {sys}");
+        let profile = expand_windows_vars("<$PROFILE>\\Downloads\\client_built.exe");
+        assert!(profile.ends_with("\\Downloads\\client_built.exe") && !profile.contains("<$"));
     }
 
     #[test]

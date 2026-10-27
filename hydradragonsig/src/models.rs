@@ -232,6 +232,10 @@ impl Verdict {
 pub struct Hashes {
     pub sha256: String,
     pub md5: String,
+    #[serde(default)]
+    pub sha1: String,
+    #[serde(default)]
+    pub crc32: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -112,7 +112,10 @@ impl Rule {
                 | RuleCondition::VersionInfo { .. }
                 | RuleCondition::ResourceMatch { .. }
                 | RuleCondition::ResourceHashAny { .. }
-                | RuleCondition::ResourcesAbsent => {
+                | RuleCondition::ResourcesAbsent
+                | RuleCondition::PeSectionsSummary { .. }
+                | RuleCondition::ExportHashAny { .. }
+                | RuleCondition::PeTimestamp { .. } => {
                     if !types.contains(&"pe".to_string()) {
                         types.push("pe".to_string());
                     }
@@ -330,20 +333,54 @@ pub enum RuleCondition {
     PeSection {
         #[serde(default)]
         select: PeSectionSelect,
+        /// Optional 0-based section table index (`sectionindex=0..N`).
+        #[serde(default)]
+        index: Option<usize>,
+        /// Exact section name (e.g. `.text`, `.rsrc`, `/4`, `/19`).
+        #[serde(default)]
+        name: Option<String>,
         #[serde(default)]
         name_regex: Option<String>,
         #[serde(default)]
         flags_all: Vec<String>,
         #[serde(default)]
         flags_none: Vec<String>,
+        /// Exact `Characteristics` 32-bit field (e.g. `0x60000020`).
+        #[serde(default)]
+        characteristics: Option<u32>,
         #[serde(default)]
         entropy_min: Option<f64>,
         #[serde(default)]
         entropy_max: Option<f64>,
+        /// Exact `SizeOfRawData` (`size[section]` / `physicalsize[section]`).
+        #[serde(default)]
+        raw_size: Option<u64>,
         #[serde(default)]
         raw_size_min: Option<u64>,
         #[serde(default)]
         raw_size_max: Option<u64>,
+        /// Exact `PointerToRawData` (`physicaladdress[section]`).
+        #[serde(default)]
+        raw_offset: Option<u64>,
+        /// Exact `VirtualAddress` (`virtualaddress[section]`).
+        #[serde(default)]
+        virtual_address: Option<u64>,
+        /// Exact `VirtualSize` (`virtualsize[section]`).
+        #[serde(default)]
+        virtual_size: Option<u64>,
+        #[serde(default)]
+        virtual_size_min: Option<u64>,
+        #[serde(default)]
+        virtual_size_max: Option<u64>,
+        /// Hashes of the section's raw byte slice (`md5[section]`, etc.).
+        #[serde(default)]
+        md5: Option<String>,
+        #[serde(default)]
+        sha1: Option<String>,
+        #[serde(default)]
+        sha256: Option<String>,
+        #[serde(default)]
+        crc32: Option<String>,
         /// Direct `call` / `jmp` (rel32) from the other executable sections into it.
         #[serde(default)]
         code_xrefs_min: Option<usize>,
@@ -382,6 +419,12 @@ pub enum RuleCondition {
         value: String,
     },
     HashMd5 {
+        value: String,
+    },
+    HashSha1 {
+        value: String,
+    },
+    HashCrc32 {
         value: String,
     },
     /// The PE's import hash (Mandiant / pefile imphash) is one of these.
@@ -691,6 +734,76 @@ pub enum RuleCondition {
         bounds: Vec<FeatureBound>,
         #[serde(default)]
         min: Option<usize>,
+    },
+
+    /// Aggregate properties over all PE sections in table order:
+    /// total raw size (`size[sections]`), concatenated raw section hashes
+    /// (`md5[sections]`, `crc32[sections]`, `sha1`, `sha256`) and section count.
+    PeSectionsSummary {
+        #[serde(default)]
+        total_raw_size: Option<u64>,
+        #[serde(default)]
+        total_raw_size_min: Option<u64>,
+        #[serde(default)]
+        total_raw_size_max: Option<u64>,
+        #[serde(default)]
+        md5: Option<String>,
+        #[serde(default)]
+        sha1: Option<String>,
+        #[serde(default)]
+        sha256: Option<String>,
+        #[serde(default)]
+        crc32: Option<String>,
+        #[serde(default)]
+        count: Option<usize>,
+        #[serde(default)]
+        count_min: Option<usize>,
+        #[serde(default)]
+        count_max: Option<usize>,
+    },
+
+    /// Match the PE export table hash (`md5[exports]`).
+    ExportHashAny {
+        values: Vec<String>,
+    },
+
+    /// Match `IMAGE_FILE_HEADER.TimeDateStamp` by exact integer, hex string or bounds.
+    PeTimestamp {
+        #[serde(default)]
+        value: Option<u32>,
+        #[serde(default)]
+        hex: Option<String>,
+        #[serde(default)]
+        min: Option<u32>,
+        #[serde(default)]
+        max: Option<u32>,
+    },
+
+    /// Match the file's modification timestamp, raw DOS/Unix hex timestamp (`timestampraw[file]`)
+    /// or age in days (`age[file]`).
+    FileTimestamp {
+        #[serde(default)]
+        equals: Option<String>,
+        #[serde(default)]
+        after: Option<String>,
+        #[serde(default)]
+        before: Option<String>,
+        #[serde(default)]
+        raw_hex: Option<String>,
+        #[serde(default)]
+        age_days_min: Option<u64>,
+        #[serde(default)]
+        age_days_max: Option<u64>,
+    },
+
+    /// Match file attributes (`attribs=A+D-H-L-R-S-` or explicit `required`/`forbidden` flags).
+    FileAttributes {
+        #[serde(default)]
+        spec: Option<String>,
+        #[serde(default)]
+        required: Vec<String>,
+        #[serde(default)]
+        forbidden: Vec<String>,
     },
 }
 
