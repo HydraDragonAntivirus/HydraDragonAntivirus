@@ -505,6 +505,11 @@ impl ThreatIntelStore {
     /// Sets the engine verdict after a rescan with the current engine (may lower it,
     /// unlike `record`). Not a sighting. A completed human review still overrides it.
     pub fn set_engine_verdict(&self, sha256_hex: &str, verdict: &str, threat: Option<&str>, score: f64) {
+        self.set_engine_verdict_from(sha256_hex, verdict, threat, score, "rescan");
+    }
+
+    /// `set_engine_verdict` with the source written to the verdict history.
+    pub fn set_engine_verdict_from(&self, sha256_hex: &str, verdict: &str, threat: Option<&str>, score: f64, source: &str) {
         let Some(sha_bytes) = parse_sha(sha256_hex) else { return };
         let updated = {
             let mut guard = self.map.write().unwrap();
@@ -512,7 +517,7 @@ impl ThreatIntelStore {
             let old = std::mem::replace(&mut entry.verdict, verdict.to_string());
             entry.threat_name = threat.map(str::to_string);
             entry.score = score;
-            crate::verdict_history::record(&entry.sha256, "engine", Some(&old), verdict, threat, "rescan", "");
+            crate::verdict_history::record(&entry.sha256, "engine", Some(&old), verdict, threat, source, "");
             entry.clone()
         };
         if let Some(writer) = &self.writer {
@@ -831,6 +836,17 @@ impl ThreatIntelStore {
             })
         };
         serde_json::json!({ "all": out(all), "recent": out(recent), "recent_days": recent_days })
+    }
+
+    /// SHA-256 (upper-case hex) of every hash the engine called malicious and no analyst
+    /// has answered (a completed human review is the verdict and stays as it is).
+    pub fn engine_malicious_hashes(&self) -> Vec<String> {
+        let guard = self.map.read().unwrap();
+        guard
+            .iter()
+            .filter(|(sha, item)| item.verdict == "malicious" && self.reviews.completed_verdict_raw(sha).is_none())
+            .map(|(sha, _)| hex::encode_upper(sha))
+            .collect()
     }
 
     /// SHA-256 (upper-case hex) of every hash whose final verdict (human first) is

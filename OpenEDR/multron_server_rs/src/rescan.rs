@@ -346,6 +346,70 @@ pub fn kept_audit(server: &Arc<ScanServer>) -> serde_json::Value {
     })
 }
 
+/// Engine-malicious hashes (no analyst verdict) whose file is not kept here: a rescan
+/// cannot check them again, so their old verdict stays in the statistics and is still
+/// given to clients that send the hash. Upper-case hex.
+fn unkept_malicious(server: &Arc<ScanServer>) -> Vec<String> {
+    let kept: std::collections::HashSet<String> =
+        server.engine.list_kept().into_iter().map(|k| k.sha256.to_ascii_uppercase()).collect();
+    server.threat_intel.engine_malicious_hashes().into_iter().filter(|s| !kept.contains(s)).collect()
+}
+
+/// Why the file of `sha` is not here (`missing_files::explain` in short).
+fn unkept_reason(sha: &str) -> &'static str {
+    if crate::archived::get(sha).is_some() {
+        return "archived";
+    }
+    match crate::missing_files::get(sha).map(|m| m.reason) {
+        Some(r) if r == "offloaded" => "offloaded",
+        Some(r) if r == "quota" => "quota",
+        Some(_) => "other",
+        None => "hash_only",
+    }
+}
+
+/// `unkept_malicious` with a count per reason. With `apply`, their engine verdict becomes
+/// unknown (written to the telemetry and the verdict history as "unkept"; nothing is
+/// deleted) and their cached verdict is dropped, so the next client that has the file
+/// uploads it and it is scanned with the current engine. Dashboard button only.
+pub fn unkept_malicious_report(server: &Arc<ScanServer>, apply: bool) -> serde_json::Value {
+    let shas = unkept_malicious(server);
+    let mut reasons: std::collections::BTreeMap<&'static str, usize> = std::collections::BTreeMap::new();
+    for sha in &shas {
+        *reasons.entry(unkept_reason(sha)).or_default() += 1;
+    }
+    let sample: Vec<serde_json::Value> = shas
+        .iter()
+        .take(500)
+        .map(|sha| {
+            let item = server.threat_intel.get(sha);
+            serde_json::json!({
+                "sha256": sha.to_ascii_lowercase(),
+                "file_name": item.as_ref().and_then(|i| i.file_names.first().cloned()).unwrap_or_default(),
+                "threat": item.and_then(|i| i.threat_name),
+                "reason": unkept_reason(sha),
+            })
+        })
+        .collect();
+    let mut uncached = 0;
+    if apply {
+        for sha in &shas {
+            server.threat_intel.set_engine_verdict_from(sha, "unknown", None, 0.0, "unkept");
+        }
+        let set: std::collections::HashSet<_> = shas.iter().filter_map(|s| parse_sha(s)).collect();
+        uncached = server.cache.forget(&set);
+        server.log_info(format!("{} malicious hashes without a kept file set to unknown ({uncached} cached verdicts dropped)", shas.len()));
+    }
+    serde_json::json!({
+        "ok": true,
+        "applied": apply,
+        "count": shas.len(),
+        "reasons": reasons,
+        "uncached": uncached,
+        "items": sample,
+    })
+}
+
 /// Rescans the duplicate and/or not-listed kept files of `categories` (one rescan per
 /// SHA-256). `kinds`: "duplicate", "not_listed" (empty = both).
 pub fn start_bulk_problems(server: &Arc<ScanServer>, categories: &[String], kinds: &[String]) -> Result<usize, String> {

@@ -22,7 +22,7 @@
 //! every machine.
 
 use super::features::PeFeatureVector;
-use super::pe_features::extract_pe_features;
+use super::pe_features::{extract_pe_features, extract_pe_mimicry, PeMimicryMetrics};
 
 /// Strings shorter than this are not counted (`pe_strings::MIN_LEN`).
 const MIN_STRING: usize = crate::pe_strings::MIN_LEN;
@@ -346,16 +346,21 @@ pub fn dotnet_kind(data: &[u8]) -> u8 {
 }
 
 /// Shell 65 + shell strings 3 + inner 65 + inner strings 3 + meta 4 + combined strings 3
-/// + shell / inner `dotnet_kind`.
-pub const PE_V2_FEATURE_COUNT: usize = 65 + 3 + 65 + 3 + 4 + 3 + 2;
-pub const PE_INNER_FEATURE_COUNT: usize = 65 + 3 + 1;
-pub const PE_SHELL_FEATURE_COUNT: usize = 65 + 3 + 1;
+/// + shell / inner `dotnet_kind` + shell / inner `PeMimicryMetrics` (last, so the earlier
+/// positions stay where they were).
+pub const PE_V2_FEATURE_COUNT: usize = 65 + 3 + 65 + 3 + 4 + 3 + 2 + 2 * PeMimicryMetrics::LEN;
+pub const PE_INNER_FEATURE_COUNT: usize = 65 + 3 + 1 + PeMimicryMetrics::LEN;
+pub const PE_SHELL_FEATURE_COUNT: usize = 65 + 3 + 1 + PeMimicryMetrics::LEN;
+/// Where the shell / inner `PeMimicryMetrics` start in the v2 vector.
+const SHELL_MIMICRY: usize = 145;
+const INNER_MIMICRY: usize = SHELL_MIMICRY + PeMimicryMetrics::LEN;
 
 /// Shell-only feature set for files whose content was not successfully unpacked.
 pub fn pe_v2_shell_model_features(v: &[f32; PE_V2_FEATURE_COUNT]) -> [f32; PE_SHELL_FEATURE_COUNT] {
     let mut out = [0.0; PE_SHELL_FEATURE_COUNT];
     out[..68].copy_from_slice(&v[..68]);
     out[68] = v[143];
+    out[69..].copy_from_slice(&v[SHELL_MIMICRY..INNER_MIMICRY]);
     out
 }
 
@@ -372,6 +377,7 @@ pub fn extract_unpacked_inner_features_from_v2(v: &[f32; PE_V2_FEATURE_COUNT]) -
     out[..65].copy_from_slice(&v[68..133]);
     out[65..68].copy_from_slice(&v[133..136]);
     out[68] = v[144];
+    out[69..].copy_from_slice(&v[INNER_MIMICRY..]);
     out
 }
 
@@ -380,6 +386,7 @@ pub fn pe_inner_feature_names_static() -> &'static [&'static str] {
     NAMES.get_or_init(|| {
         let mut names: Vec<String> = PeFeatureVector::NAMES.iter().map(|s| format!("inner_{s}")).collect();
         names.extend(["inner_ascii_strings", "inner_utf16_strings", "inner_ascii_unicode_ratio", "inner_is_dotnet"].map(String::from));
+        names.extend(PeMimicryMetrics::NAMES.iter().map(|s| format!("inner_{s}")));
         names.into_iter().map(|s| &*Box::leak(s.into_boxed_str())).collect()
     })
 }
@@ -389,6 +396,7 @@ pub fn pe_shell_feature_names_static() -> &'static [&'static str] {
     NAMES.get_or_init(|| {
         let mut names: Vec<String> = PeFeatureVector::NAMES.iter().map(|s| format!("shell_{s}")).collect();
         names.extend(["shell_ascii_strings", "shell_utf16_strings", "shell_ascii_unicode_ratio", "shell_is_dotnet"].map(String::from));
+        names.extend(PeMimicryMetrics::NAMES.iter().map(|s| format!("shell_{s}")));
         names.into_iter().map(|s| &*Box::leak(s.into_boxed_str())).collect()
     })
 }
@@ -425,6 +433,9 @@ pub fn extract_pe_features_v2(data: &[u8]) -> Option<[f32; PE_V2_FEATURE_COUNT]>
     ]);
     put(&shell_strings.add(inner.strings).features());
     put(&[dotnet_kind(data) as f32, inner.pe.as_deref().map_or(0.0, |p| dotnet_kind(p) as f32)]);
+    let mimicry = |d: &[u8]| extract_pe_mimicry(d).unwrap_or_default().to_array();
+    put(&mimicry(data));
+    put(&inner.pe.as_deref().map_or([0.0; PeMimicryMetrics::LEN], mimicry));
     Some(v)
 }
 
@@ -445,6 +456,8 @@ pub fn pe_v2_feature_names() -> Vec<String> {
     n.extend(["inner_source", "inner_is_pe", "inner_members", "inner_size_ratio"].map(String::from));
     n.extend(strings.iter().map(|s| format!("combined_{s}")));
     n.extend(["shell_is_dotnet", "inner_is_dotnet"].map(String::from));
+    n.extend(PeMimicryMetrics::NAMES.iter().map(|s| format!("shell_{s}")));
+    n.extend(PeMimicryMetrics::NAMES.iter().map(|s| format!("inner_{s}")));
     n
 }
 
@@ -500,7 +513,13 @@ mod tests {
 
     #[test]
     fn names_match_the_vector() {
-        assert_eq!(pe_v2_feature_names().len(), PE_V2_FEATURE_COUNT);
+        let names = pe_v2_feature_names();
+        assert_eq!(names.len(), PE_V2_FEATURE_COUNT);
+        assert_eq!(names[143], "shell_is_dotnet");
+        assert_eq!(names[SHELL_MIMICRY], "shell_code_to_import_ratio");
+        assert_eq!(names[INNER_MIMICRY], "inner_code_to_import_ratio");
+        assert_eq!(pe_shell_feature_names_static().len(), PE_SHELL_FEATURE_COUNT);
+        assert_eq!(pe_inner_feature_names_static().len(), PE_INNER_FEATURE_COUNT);
         assert!(extract_pe_features_v2(b"not a pe").is_none());
     }
 }

@@ -523,6 +523,12 @@ def extract_chunks_to_disk(file_list, executor, label_name, label_val, chunk_dir
     print(f"[+] Total {label_name} PE samples extracted: {total_valid}")
     return total_valid
 
+# pe_features.rs PeMimicryMetrics::NAMES (shell_ / inner_ at the end of the v2 vector;
+# chunks dumped before they existed simply lack them).
+PE_MIMICRY_NAMES = ("code_to_import_ratio", "compiler_dissonance_flag",
+                    "non_standard_section_entropy_max", "fake_debug_directory_flag")
+
+
 def load_chunks(chunk_dir, balance=False, max_benign_ratio=0.0, inner_only=False, not_unpacked_only=False):
     """Load every feature chunk. By default ALL samples are used (benign > malicious is
     fine and lowers false positives); `balance` restores the old 50/50 undersampling.
@@ -558,11 +564,13 @@ def load_chunks(chunk_dir, balance=False, max_benign_ratio=0.0, inner_only=False
                 # Inner PE structure + inner strings + inner .NET marker only.
                 selected = list(range(names.index("inner_size_of_optional_header"), names.index("inner_size_of_optional_header") + 65))
                 selected += [names.index(f"inner_{n}") for n in ("ascii_strings", "utf16_strings", "ascii_unicode_ratio", "is_dotnet")]
+                selected += [names.index(f"inner_{n}") for n in PE_MIMICRY_NAMES if f"inner_{n}" in names]
                 mask = unpacked
             else:
                 # Outer PE structure + shell strings + shell .NET marker only.
                 selected = list(range(names.index("shell_size_of_optional_header"), names.index("shell_size_of_optional_header") + 65))
                 selected += [names.index(f"shell_{n}") for n in ("ascii_strings", "utf16_strings", "ascii_unicode_ratio", "is_dotnet")]
+                selected += [names.index(f"shell_{n}") for n in PE_MIMICRY_NAMES if f"shell_{n}" in names]
                 mask = ~unpacked
             if not np.any(mask):
                 continue

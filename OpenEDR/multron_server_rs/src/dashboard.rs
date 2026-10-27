@@ -349,6 +349,7 @@ pub fn dashboard_router(state: Arc<AppState>) -> Router {
         .route("/api/rescan/bulk", get(handle_rescan_status).post(handle_rescan_bulk))
         .route("/api/rescan/stop", post(handle_rescan_stop))
         .route("/api/rescan/audit", get(handle_rescan_audit).post(handle_rescan_audit_bulk))
+        .route("/api/rescan/unkept-malicious", get(handle_unkept_malicious).post(handle_unkept_malicious_apply))
         .route("/api/rescan/log", get(handle_rescan_log))
         .route("/api/kept/info/:sha256", get(handle_kept_info))
         .route("/api/reviews/requeue", post(handle_reviews_requeue))
@@ -972,6 +973,24 @@ async fn handle_rescan_bulk(State(app): State<Arc<AppState>>, Json(b): Json<Bulk
 async fn handle_rescan_audit(State(app): State<Arc<AppState>>) -> impl IntoResponse {
     let srv = Arc::clone(&app.scan_server);
     let v = tokio::task::spawn_blocking(move || crate::rescan::kept_audit(&srv))
+        .await
+        .unwrap_or_else(|e| serde_json::json!({ "ok": false, "error": e.to_string() }));
+    Json(v)
+}
+
+/// Engine-malicious hashes without a kept file (a rescan cannot reach them), per reason.
+async fn handle_unkept_malicious(State(app): State<Arc<AppState>>) -> impl IntoResponse {
+    let srv = Arc::clone(&app.scan_server);
+    let v = tokio::task::spawn_blocking(move || crate::rescan::unkept_malicious_report(&srv, false))
+        .await
+        .unwrap_or_else(|e| serde_json::json!({ "ok": false, "error": e.to_string() }));
+    Json(v)
+}
+
+/// Sets them to unknown (the dashboard button; never automatic). Nothing is deleted.
+async fn handle_unkept_malicious_apply(State(app): State<Arc<AppState>>) -> impl IntoResponse {
+    let srv = Arc::clone(&app.scan_server);
+    let v = tokio::task::spawn_blocking(move || crate::rescan::unkept_malicious_report(&srv, true))
         .await
         .unwrap_or_else(|e| serde_json::json!({ "ok": false, "error": e.to_string() }));
     Json(v)

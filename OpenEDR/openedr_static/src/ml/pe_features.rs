@@ -34,11 +34,14 @@ fn ln1p(x: f32) -> f32 {
 // Lenient Pure-Rust PE Parser matching Python pefile
 #[derive(Debug, Clone, Default)]
 struct DataDir {
+    virtual_address: u32,
     size: u32,
 }
 
 #[derive(Debug, Clone, Default)]
 struct Section {
+    name: [u8; 8],
+    virtual_size: u32,
     virtual_address: u32,
     size_of_raw_data: u32,
     pointer_to_raw_data: u32,
@@ -154,8 +157,9 @@ fn parse_pe_lenient(data: &[u8]) -> Option<ParsedPe> {
                 for i in 0..count {
                     let cur = dd_start + i * 8;
                     if cur + 8 <= data.len() {
+                        let virtual_address = u32::from_le_bytes([data[cur], data[cur + 1], data[cur + 2], data[cur + 3]]);
                         let size = u32::from_le_bytes([data[cur + 4], data[cur + 5], data[cur + 6], data[cur + 7]]);
-                        pe.data_dirs.push(DataDir { size });
+                        pe.data_dirs.push(DataDir { virtual_address, size });
                     }
                 }
             }
@@ -202,8 +206,9 @@ fn parse_pe_lenient(data: &[u8]) -> Option<ParsedPe> {
                 for i in 0..count {
                     let cur = dd_start + i * 8;
                     if cur + 8 <= data.len() {
+                        let virtual_address = u32::from_le_bytes([data[cur], data[cur + 1], data[cur + 2], data[cur + 3]]);
                         let size = u32::from_le_bytes([data[cur + 4], data[cur + 5], data[cur + 6], data[cur + 7]]);
-                        pe.data_dirs.push(DataDir { size });
+                        pe.data_dirs.push(DataDir { virtual_address, size });
                     }
                 }
             }
@@ -217,11 +222,16 @@ fn parse_pe_lenient(data: &[u8]) -> Option<ParsedPe> {
         if cur + 40 > data.len() {
             break;
         }
+        let mut name = [0u8; 8];
+        name.copy_from_slice(&data[cur..cur + 8]);
+        let virtual_size = u32::from_le_bytes([data[cur + 8], data[cur + 9], data[cur + 10], data[cur + 11]]);
         let virtual_address = u32::from_le_bytes([data[cur + 12], data[cur + 13], data[cur + 14], data[cur + 15]]);
         let size_of_raw_data = u32::from_le_bytes([data[cur + 16], data[cur + 17], data[cur + 18], data[cur + 19]]);
         let pointer_to_raw_data = u32::from_le_bytes([data[cur + 20], data[cur + 21], data[cur + 22], data[cur + 23]]);
 
         pe.sections.push(Section {
+            name,
+            virtual_size,
             virtual_address,
             size_of_raw_data,
             pointer_to_raw_data,
@@ -503,4 +513,177 @@ pub fn extract_pe_features(bytes: &[u8]) -> Option<PeFeatureVector> {
 
 fn detect_rich_header(bytes: &[u8]) -> bool {
     bytes.windows(4).any(|w| w == b"Rich")
+}
+
+/// Values that contradict each other in a PE made to look ordinary (part of the v2 vector,
+/// for the shell and for the inner image). Each one is a mismatch between two things the
+/// file states, not a single flag the author can simply clear.
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct PeMimicryMetrics {
+    /// ln(1 + size_of_code) / (1 + import descriptors): much code that imports almost
+    /// nothing (resolves its APIs itself or is packed).
+    pub code_to_import_ratio: f32,
+    /// 1 when a Rich header is there but its checksum does not match the DOS header and
+    /// stub it was computed over (copied from another file or written by hand).
+    pub compiler_dissonance_flag: f32,
+    /// Highest entropy of a section without a standard compiler / linker name (0 if none).
+    pub non_standard_section_entropy_max: f32,
+    /// 1 when the debug directory is declared but cannot be read, or a CodeView entry
+    /// holds no RSDS / NB10 record with a `.pdb` path.
+    pub fake_debug_directory_flag: f32,
+}
+
+impl PeMimicryMetrics {
+    pub const LEN: usize = 4;
+    pub const NAMES: [&'static str; 4] =
+        ["code_to_import_ratio", "compiler_dissonance_flag", "non_standard_section_entropy_max", "fake_debug_directory_flag"];
+
+    pub fn to_array(&self) -> [f32; 4] {
+        [
+            self.code_to_import_ratio,
+            self.compiler_dissonance_flag,
+            self.non_standard_section_entropy_max,
+            self.fake_debug_directory_flag,
+        ]
+    }
+}
+
+/// Section names compilers and linkers emit (MSVC, MinGW, Delphi, Go, NSIS stub, Windows).
+const STANDARD_SECTIONS: &[&[u8]] = &[
+    b".text", b".data", b".rdata", b".rsrc", b".reloc", b".pdata", b".xdata", b".idata", b".edata",
+    b".tls", b".bss", b".CRT", b".didat", b".gfids", b".giats", b".00cfg", b".sxdata", b".textbss",
+    b".orpc", b".retplne", b".voltbl", b".fptable", b".debug", b".code", b".itext", b".rodata",
+    b".ndata", b".crt", b".eh_fram", b".buildid", b".symtab", b".gehcont", b".gxfg", b".wixburn",
+    b"CODE", b"DATA", b"BSS", b"INIT", b"PAGE",
+    // Windows' own build (System32): forwarder thunks, mutable read-only data, CFG / XFG.
+    b"fothk", b".mrdata", b"RT", b"SCPCFG", b"SCPCFGFP", b"SCPCFGNP", b"SCPCFGES", b".a64xrm", b".hexpthk",
+];
+
+pub fn extract_pe_mimicry(bytes: &[u8]) -> Option<PeMimicryMetrics> {
+    let pe = parse_pe_lenient(bytes)?;
+    let imp = pe.data_dirs.get(1).map_or(0, |d| d.size);
+    let imports_count = if imp >= 20 { (imp / 20) as f32 } else { 0.0 };
+
+    let non_standard_section_entropy_max = pe
+        .sections
+        .iter()
+        .filter(|s| {
+            let n = &s.name[..s.name.iter().position(|&b| b == 0).unwrap_or(8)];
+            !STANDARD_SECTIONS.contains(&n)
+        })
+        .map(|s| {
+            let start = s.pointer_to_raw_data as usize;
+            let end = start.saturating_add(s.size_of_raw_data as usize).min(bytes.len());
+            shannon_entropy(bytes.get(start..end).unwrap_or(&[]))
+        })
+        .fold(0.0f32, f32::max);
+
+    Some(PeMimicryMetrics {
+        code_to_import_ratio: ln1p(pe.size_of_code as f32) / (1.0 + imports_count),
+        compiler_dissonance_flag: rich_checksum_mismatch(bytes) as u8 as f32,
+        non_standard_section_entropy_max,
+        fake_debug_directory_flag: fake_debug_directory(bytes, &pe) as u8 as f32,
+    })
+}
+
+fn rd32(d: &[u8], o: usize) -> Option<u32> {
+    Some(u32::from_le_bytes(d.get(o..o.checked_add(4)?)?.try_into().ok()?))
+}
+
+/// The Rich header sits between the DOS stub and the PE header: "DanS", three zero
+/// dwords and (comp id, count) pairs, all XORed with a key, then "Rich" and the key. The
+/// linker makes the key a checksum of the DOS header + stub (e_lfanew left out) and the
+/// entries, so a header copied from another file or edited no longer matches. False when
+/// there is no Rich header (`has_rich_header` covers that).
+fn rich_checksum_mismatch(bytes: &[u8]) -> bool {
+    let Some(e_lfanew) = rd32(bytes, 0x3c) else { return false };
+    let end = (e_lfanew as usize).min(bytes.len());
+    if end < 0x48 {
+        return false;
+    }
+    let Some(rich) = (0x40..end.saturating_sub(7)).step_by(4).find(|&o| &bytes[o..o + 4] == b"Rich") else {
+        return false;
+    };
+    let Some(key) = rd32(bytes, rich + 4) else { return false };
+    let Some(dans) = (0x40..rich).step_by(4).rev().find(|&o| rd32(bytes, o).map(|v| v ^ key) == Some(0x536e_6144)) else {
+        return true; // "Rich" and a key with no "DanS" start: not a header a linker wrote
+    };
+    let mut sum = dans as u32;
+    for (i, &b) in bytes[..dans].iter().enumerate() {
+        if !(0x3c..0x40).contains(&i) {
+            sum = sum.wrapping_add((b as u32).rotate_left(i as u32));
+        }
+    }
+    let mut o = dans + 16;
+    while o + 8 <= rich {
+        let (id, count) = (rd32(bytes, o).unwrap_or(0) ^ key, rd32(bytes, o + 4).unwrap_or(0) ^ key);
+        sum = sum.wrapping_add(id.rotate_left(count & 0x1f));
+        o += 8;
+    }
+    sum != key
+}
+
+/// Offset in `bytes` of `rva` (raw layout, or a memory image where the two are the same).
+fn rva_to_offset(pe: &ParsedPe, rva: u32) -> Option<usize> {
+    pe.sections
+        .iter()
+        .find(|s| rva >= s.virtual_address && rva - s.virtual_address < s.virtual_size.max(s.size_of_raw_data))
+        .map(|s| s.pointer_to_raw_data as usize + (rva - s.virtual_address) as usize)
+        .or_else(|| (rva < pe.size_of_headers).then_some(rva as usize))
+}
+
+fn fake_debug_directory(bytes: &[u8], pe: &ParsedPe) -> bool {
+    let Some(dir) = pe.data_dirs.get(6).filter(|d| d.size > 0) else { return false };
+    let Some(base) = rva_to_offset(pe, dir.virtual_address).filter(|&o| o.saturating_add(28) <= bytes.len()) else {
+        return true; // declared, but not in the file
+    };
+    let codeview_ok = |at: usize, size: usize| -> bool {
+        let Some(rec) = bytes.get(at..at.saturating_add(size)) else { return false };
+        let path = match rec.get(..4) {
+            Some(b"RSDS") => &rec[24.min(rec.len())..],
+            Some(b"NB10") => &rec[16.min(rec.len())..],
+            _ => return false,
+        };
+        let path = &path[..path.iter().position(|&b| b == 0).unwrap_or(path.len())];
+        path.len() > 4 && path.iter().all(|&b| b >= 0x20) && path[path.len() - 4..].eq_ignore_ascii_case(b".pdb")
+    };
+    (0..(dir.size as usize / 28).min(16)).any(|i| {
+        let e = base + i * 28;
+        if rd32(bytes, e + 12) != Some(2) {
+            return false; // only CodeView entries carry a PDB path
+        }
+        let size = rd32(bytes, e + 16).unwrap_or(0) as usize;
+        let by_ptr = rd32(bytes, e + 24).is_some_and(|p| codeview_ok(p as usize, size));
+        let by_rva = rd32(bytes, e + 20).and_then(|r| rva_to_offset(pe, r)).is_some_and(|o| codeview_ok(o, size));
+        !(by_ptr || by_rva)
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Linker-built system files: Rich checksum and CodeView record are genuine; one
+    /// changed byte in the DOS stub breaks the checksum.
+    #[test]
+    fn mimicry_on_linker_built_files() {
+        let dir = std::path::Path::new(r"C:\Windows\System32");
+        let mut seen = 0;
+        for f in ["notepad.exe", "kernel32.dll", "cmd.exe", "ntdll.dll"] {
+            let Ok(bytes) = std::fs::read(dir.join(f)) else { continue };
+            seen += 1;
+            let m = extract_pe_mimicry(&bytes).expect("PE");
+            assert_eq!(m.compiler_dissonance_flag, 0.0, "{f}: Rich checksum");
+            assert_eq!(m.fake_debug_directory_flag, 0.0, "{f}: CodeView");
+            assert!(m.code_to_import_ratio > 0.0, "{f}");
+            assert_eq!(m.non_standard_section_entropy_max, 0.0, "{f}: only standard section names");
+            let mut forged = bytes.clone();
+            forged[0x4e] ^= 1; // "This program cannot be run in DOS mode" text
+            assert_eq!(extract_pe_mimicry(&forged).unwrap().compiler_dissonance_flag, 1.0, "{f}: edited stub");
+        }
+        if seen == 0 {
+            eprintln!("no System32 files, skipped");
+        }
+        assert_eq!(extract_pe_mimicry(b"MZ not a pe"), None);
+    }
 }

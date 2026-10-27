@@ -109,6 +109,9 @@ impl VerdictCache {
             let Ok(l) = serde_json::from_str::<Line>(&line) else { continue };
             let Some(sha) = parse_sha(&l.s) else { continue };
             if now - l.v.at > self.ttl_for(&l.v.verdict) {
+                // The last line of a hash wins: an expired one drops an older live one
+                // too (a newer unknown verdict, or a `forget`), instead of reviving it.
+                g.map.remove(&sha);
                 continue;
             }
             if g.map.insert(sha, l.v).is_none() {
@@ -136,6 +139,9 @@ impl VerdictCache {
             let Ok(l) = serde_json::from_str::<Line>(line) else { continue };
             let Some(sha) = parse_sha(&l.s) else { continue };
             if now - l.v.at > self.ttl_for(&l.v.verdict) {
+                // The last line of a hash wins: an expired one drops an older live one
+                // too (a newer unknown verdict, or a `forget`), instead of reviving it.
+                g.map.remove(&sha);
                 continue;
             }
             if g.map.insert(sha, l.v).is_none() {
@@ -206,6 +212,29 @@ impl VerdictCache {
         }
     }
 
+    /// Drops the verdicts of `shas`, so the next query of each scans the file again
+    /// instead of answering from the cache. An expired line goes after the old one in the
+    /// file, so a restart does not bring them back (`load` keeps the last line of a hash).
+    /// Returns how many were cached.
+    pub fn forget(&self, shas: &std::collections::HashSet<Sha>) -> usize {
+        let n = {
+            let mut g = self.inner.lock().unwrap();
+            let before = g.map.len();
+            g.map.retain(|s, _| !shas.contains(s));
+            g.order.retain(|s| !shas.contains(s));
+            before - g.map.len()
+        };
+        if let Some(w) = &self.writer {
+            for sha in shas {
+                let v = CachedVerdict { verdict: "unknown".into(), threat: None, detail: None, score: 0.0, at: 0 };
+                if let Ok(s) = serde_json::to_string(&Line { s: hex::encode_upper(sha), v }) {
+                    let _ = w.send(CacheMsg::Line(s));
+                }
+            }
+        }
+        n
+    }
+
     /// Makes every verdict cached so far a miss (files get rescanned with the new rules).
     /// In memory only: entries already on disk come back after a process restart, the
     /// same as before this feature existed.
@@ -259,4 +288,35 @@ pub fn now_secs() -> i64 {
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs() as i64)
         .unwrap_or(0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn verdict(v: &str, at: i64) -> CachedVerdict {
+        CachedVerdict { verdict: v.into(), threat: None, detail: None, score: 0.0, at }
+    }
+
+    /// A forgotten verdict stays gone after a restart, and an expired last line does not
+    /// bring back an older live one.
+    #[test]
+    fn forget_survives_restart() {
+        let path = std::env::temp_dir().join(format!("multron_cache_forget_{}.jsonl", std::process::id()));
+        let _ = std::fs::remove_file(&path);
+        let (a, b) = ([1u8; 32], [2u8; 32]);
+        {
+            let c = VerdictCache::new(1000, 30, 24, Some(path.clone()));
+            c.put(a, verdict("malicious", now_secs()));
+            c.put(b, verdict("malicious", now_secs()));
+            assert_eq!(c.forget(&[a].into_iter().collect()), 1);
+            assert!(c.get(&a).is_none());
+            assert!(c.flush(Duration::from_secs(5)));
+        }
+        let c = VerdictCache::new(1000, 30, 24, Some(path.clone()));
+        assert!(c.get(&a).is_none(), "forgotten verdict came back after a restart");
+        assert_eq!(c.get(&b).unwrap().verdict, "malicious");
+        drop(c);
+        let _ = std::fs::remove_file(&path);
+    }
 }

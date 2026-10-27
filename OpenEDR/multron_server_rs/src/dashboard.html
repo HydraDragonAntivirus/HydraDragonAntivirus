@@ -1032,6 +1032,19 @@
           <div class="tablewrap" style="max-height:300px"><table><thead><tr><th>SHA-256</th><th>File</th><th>Folders</th><th class="num">Copies</th><th>Problem</th></tr></thead><tbody id="auRows"></tbody></table></div>
         </div>
       </div>
+      <div class="rs-audit">
+        <div class="feedbar" style="margin:0">
+          <b style="font-size:13px">Malicious without a kept file</b>
+          <span class="spacer"></span>
+          <button class="ghost" id="umCheck">Find</button>
+          <button class="ghost" id="umRun" disabled>Make unknown</button>
+        </div>
+        <div class="hint" style="margin:4px 0 8px">Hashes the engine called malicious (no analyst verdict) whose file is not in multron_incoming: only the hash was sent, the file was dropped at upload (quota), offloaded or archived. A rescan cannot check them, so the old verdict stays in the statistics and is given to clients that send the hash. <b>Make unknown</b> sets their engine verdict to unknown and drops their cached verdict, so the file is scanned again when a client uploads it. Nothing is deleted; the change is in the verdict history.</div>
+        <div id="umBody" hidden>
+          <div class="hint" id="umInfo" style="margin:6px 0"></div>
+          <div class="tablewrap" style="max-height:300px"><table><thead><tr><th>SHA-256</th><th>File</th><th>Threat</th><th>Why no file</th></tr></thead><tbody id="umRows"></tbody></table></div>
+        </div>
+      </div>
       <div class="rs-prog" id="rsProgWrap" hidden><div class="rs-bar"><div id="rsBar"></div></div><div class="hint" id="rsStatus" style="margin:4px 0 0"></div></div>
       <div class="ha-toolbar rs-toolbar">
         <input id="rsSearch" type="search" placeholder="Search file name, SHA-256, threat or engine…">
@@ -1544,6 +1557,34 @@ window.sigKey = (list) => list && list.length ? `${list[0].layer}: ${list[0].nam
     if (!categories.length || !kinds.length) { $("auInfo").textContent = "Pick at least one category and one problem."; return; }
     try { const r = await post("/api/rescan/audit", { categories, kinds }); $("rsStatus").textContent = `Started: ${r.queued} files queued (${kinds.join(" + ").replace("_", " ")}: ${categories.join(", ")}).`; $("auInfo").textContent = `Rescan started for ${r.queued} file(s); progress is shown below.`; }
     catch (e) { $("auInfo").textContent = e.message; }
+  };
+  // Engine-malicious hashes without a kept file: find, then set to unknown on request.
+  const umWhy = { hash_only: "hash only", quota: "dropped (quota)", offloaded: "offloaded", archived: "archived", other: "other" };
+  function umShow(d) {
+    const parts = Object.entries(d.reasons).map(([r, n]) => `${n.toLocaleString()} ${umWhy[r] || r}`).join(", ");
+    $("umInfo").textContent = d.applied
+      ? `${d.count.toLocaleString()} set to unknown (${d.uncached.toLocaleString()} cached verdicts dropped).`
+      : d.count ? `${d.count.toLocaleString()} malicious without a kept file: ${parts}${d.count > d.items.length ? ` (first ${d.items.length} shown)` : ""}.` : "None: every engine-malicious hash has its file here.";
+    $("umRows").innerHTML = d.applied ? "" : d.items.map(i => `<tr><td class="mono" title="${rsEsc(i.sha256)}">${rsEsc(i.sha256.slice(0, 16))}…</td><td class="file">${rsEsc(i.file_name)}</td><td>${rsEsc(i.threat || "")}</td><td>${rsEsc(umWhy[i.reason] || i.reason)}</td></tr>`).join("");
+    $("umRun").disabled = d.applied || !d.count;
+    $("umRun").dataset.count = d.count;
+  }
+  $("umCheck").onclick = async () => {
+    $("umCheck").disabled = true; $("umBody").hidden = false; $("umInfo").textContent = "Looking…";
+    try {
+      const res = await fetch("/api/rescan/unkept-malicious", { cache: "no-store" });
+      const d = await res.json();
+      if (!res.ok || d.ok === false) throw new Error(d.error || res.statusText);
+      umShow(d);
+    } catch (e) { $("umInfo").textContent = e.message; }
+    $("umCheck").disabled = false;
+  };
+  $("umRun").onclick = async () => {
+    const n = Number($("umRun").dataset.count || 0);
+    if (!confirm(`Set ${n.toLocaleString()} malicious hashes without a kept file to unknown? Nothing is deleted.`)) return;
+    $("umRun").disabled = true; $("umInfo").textContent = "Working…";
+    try { umShow(await post("/api/rescan/unkept-malicious")); }
+    catch (e) { $("umInfo").textContent = e.message; $("umRun").disabled = false; }
   };
   $("rsAfterReload").onchange = async (e) => {
     try { await post("/api/rescan/after-reload", { enabled: e.target.checked }); }
