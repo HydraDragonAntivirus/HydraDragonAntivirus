@@ -349,7 +349,7 @@ pub fn dashboard_router(state: Arc<AppState>) -> Router {
         .route("/api/rescan/bulk", get(handle_rescan_status).post(handle_rescan_bulk))
         .route("/api/rescan/stop", post(handle_rescan_stop))
         .route("/api/rescan/audit", get(handle_rescan_audit).post(handle_rescan_audit_bulk))
-        .route("/api/rescan/unkept-malicious", get(handle_unkept_malicious).post(handle_unkept_malicious_apply))
+        .route("/api/rescan/unkept-threats", get(handle_unkept_threats).post(handle_unkept_threats_apply))
         .route("/api/rescan/log", get(handle_rescan_log))
         .route("/api/kept/info/:sha256", get(handle_kept_info))
         .route("/api/reviews/requeue", post(handle_reviews_requeue))
@@ -978,22 +978,38 @@ async fn handle_rescan_audit(State(app): State<Arc<AppState>>) -> impl IntoRespo
     Json(v)
 }
 
-/// Engine-malicious hashes without a kept file (a rescan cannot reach them), per reason.
-async fn handle_unkept_malicious(State(app): State<Arc<AppState>>) -> impl IntoResponse {
+#[derive(Deserialize, Default)]
+struct UnkeptBody {
+    /// "malicious", "suspicious" (empty = both).
+    #[serde(default)]
+    verdicts: Vec<String>,
+}
+
+#[derive(Deserialize, Default)]
+struct UnkeptQuery {
+    /// Comma separated, as `UnkeptBody::verdicts`.
+    #[serde(default)]
+    verdicts: String,
+}
+
+async fn unkept_threats(app: Arc<AppState>, verdicts: Vec<String>, apply: bool) -> Response {
     let srv = Arc::clone(&app.scan_server);
-    let v = tokio::task::spawn_blocking(move || crate::rescan::unkept_malicious_report(&srv, false))
-        .await
-        .unwrap_or_else(|e| serde_json::json!({ "ok": false, "error": e.to_string() }));
-    Json(v)
+    match tokio::task::spawn_blocking(move || crate::rescan::unkept_threats_report(&srv, &verdicts, apply)).await {
+        Ok(Ok(v)) => Json(v).into_response(),
+        Ok(Err(e)) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({ "ok": false, "error": e }))).into_response(),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({ "ok": false, "error": e.to_string() }))).into_response(),
+    }
+}
+
+/// Engine-malicious / suspicious hashes without a kept file (a rescan cannot reach them).
+async fn handle_unkept_threats(State(app): State<Arc<AppState>>, Query(q): Query<UnkeptQuery>) -> Response {
+    let verdicts = q.verdicts.split(',').map(str::trim).filter(|v| !v.is_empty()).map(String::from).collect();
+    unkept_threats(app, verdicts, false).await
 }
 
 /// Sets them to unknown (the dashboard button; never automatic). Nothing is deleted.
-async fn handle_unkept_malicious_apply(State(app): State<Arc<AppState>>) -> impl IntoResponse {
-    let srv = Arc::clone(&app.scan_server);
-    let v = tokio::task::spawn_blocking(move || crate::rescan::unkept_malicious_report(&srv, true))
-        .await
-        .unwrap_or_else(|e| serde_json::json!({ "ok": false, "error": e.to_string() }));
-    Json(v)
+async fn handle_unkept_threats_apply(State(app): State<Arc<AppState>>, Json(b): Json<UnkeptBody>) -> Response {
+    unkept_threats(app, b.verdicts, true).await
 }
 
 #[derive(Deserialize, Default)]

@@ -838,14 +838,15 @@ impl ThreatIntelStore {
         serde_json::json!({ "all": out(all), "recent": out(recent), "recent_days": recent_days })
     }
 
-    /// SHA-256 (upper-case hex) of every hash the engine called malicious and no analyst
-    /// has answered (a completed human review is the verdict and stays as it is).
-    pub fn engine_malicious_hashes(&self) -> Vec<String> {
+    /// (SHA-256 upper-case hex, verdict) of every hash whose engine verdict is one of
+    /// `verdicts` and no analyst has answered (a completed human review is the verdict and
+    /// stays as it is).
+    pub fn engine_verdict_hashes(&self, verdicts: &[&str]) -> Vec<(String, String)> {
         let guard = self.map.read().unwrap();
         guard
             .iter()
-            .filter(|(sha, item)| item.verdict == "malicious" && self.reviews.completed_verdict_raw(sha).is_none())
-            .map(|(sha, _)| hex::encode_upper(sha))
+            .filter(|(sha, item)| verdicts.contains(&item.verdict.as_str()) && self.reviews.completed_verdict_raw(sha).is_none())
+            .map(|(sha, item)| (hex::encode_upper(sha), item.verdict.clone()))
             .collect()
     }
 
