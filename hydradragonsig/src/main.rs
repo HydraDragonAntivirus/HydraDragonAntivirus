@@ -329,6 +329,18 @@ struct Cli {
     /// Do not create .bak copies before rewriting rule files in false-positive mode.
     #[arg(long)]
     fp_remove_no_backup: bool,
+
+    /// Run declarative remediation steps attached to matched rules (dry-run unless --yes is passed).
+    #[arg(long)]
+    remediate: bool,
+
+    /// Apply destructive remediation changes when used with --remediate.
+    #[arg(long)]
+    yes: bool,
+
+    /// Allow `type: command` remediation steps when used with --remediate --yes.
+    #[arg(long)]
+    remediate_allow_commands: bool,
 }
 
 fn main() -> Result<()> {
@@ -533,6 +545,17 @@ fn main() -> Result<()> {
 
     if cli.remove_slow_rules {
         return Ok(());
+    }
+
+    if cli.remediate {
+        run_cli_remediations(
+            &rules,
+            &reports,
+            hydradragonsig::rules::RemediationOptions {
+                apply: cli.yes,
+                allow_commands: cli.remediate_allow_commands,
+            },
+        );
     }
 
     let malware = reports.iter().any(|r| r.verdict == Verdict::Malware);
@@ -1302,5 +1325,55 @@ fn print_pretty(reports: &[hydradragonsig::models::ScanReport]) {
     }
     if detections == 0 {
         println!("{} no detections", "[OK]".green().bold());
+    }
+}
+
+fn run_cli_remediations(
+    rules: &RuleSet,
+    reports: &[hydradragonsig::models::ScanReport],
+    opts: hydradragonsig::rules::RemediationOptions,
+) {
+    let mut matched_paths: HashMap<String, PathBuf> = HashMap::new();
+    for report in reports {
+        for finding in &report.findings {
+            matched_paths
+                .entry(finding.rule_id.clone())
+                .or_insert_with(|| report.path.clone());
+        }
+    }
+    if matched_paths.is_empty() {
+        return;
+    }
+    let tag = if opts.apply {
+        "[REMEDIATE]".red().bold()
+    } else {
+        "[REMEDIATE-DRY-RUN]".yellow().bold()
+    };
+    let mut seen_rules = HashSet::new();
+    for rule in rules.rules() {
+        if rule.remediation.is_empty() || !seen_rules.insert(rule.id.as_str()) {
+            continue;
+        }
+        let Some(scanned_path) = matched_paths.get(&rule.id) else {
+            continue;
+        };
+        let outcomes = hydradragonsig::rules::run_rule_remediations(
+            rule,
+            Some(scanned_path.as_path()),
+            opts,
+        );
+        for out in outcomes {
+            let status = if !opts.apply {
+                "DRY-RUN".yellow()
+            } else if out.success {
+                "OK".green()
+            } else {
+                "FAIL".red()
+            };
+            println!(
+                "{} [{}] rule={} action={}: {}",
+                tag, status, out.rule_id, out.action, out.detail
+            );
+        }
     }
 }

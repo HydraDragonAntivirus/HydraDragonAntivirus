@@ -57,6 +57,7 @@ Keys are case-sensitive and must be spelled exactly. Enum values (`severity`,
 | `threshold` | with `logic: threshold` | | How many conditions must match. |
 | `conditions` | yes | | List of conditions (section 5). A rule without conditions never matches. |
 | `file_path` | no | | Only evaluate the rule for this exact path, e.g. `%SystemRoot%\System32\drivers\etc\hosts`. `%VAR%` is expanded from the scanning machine's environment; the comparison is a full-path, case-insensitive match (no wildcards). |
+| `remediation` | no | `[]` | Declarative remediation actions run when `--remediate` is passed (section 5.9). |
 
 ## 3. Logic
 
@@ -140,6 +141,13 @@ Imports are stored as `dll!function` (or `dll!ord<N>` for imports by ordinal).
 | `section_name_regex` | `pattern` | The regex matches a section name. |
 | `packed_pe` | | Two or more suspicious sections (entropy ≥ 7.2, `UPX*` / `.packed*` / empty name), a `UPX*` section, or at most 3 sections with one at entropy ≥ 7.4. |
 | `pe_section` | `select`, `name_regex`, `flags_all`, `flags_none`, `entropy_min`, `entropy_max`, `raw_size_min`, `raw_size_max`, `code_xrefs_min`, `has_entry`, `directories_any`, `directories_none`, `directory_share_max` | The chosen section passes every key that is given (see below). |
+| `pe_anchor_pattern` | `anchor`, `section`, `offset`, `range`, `count`, `patterns`, `min`, `negate`, `excludes` | Hex pattern(s) (`??`, `!!` non-zero, `4?` nibble) match at `anchor` (`absolute`, `entry`, `section`, `overlay`, `eof`) + signed `offset` (or within `range` bytes, `count` times). `negate: true` inverts the match. |
+| `byte_repeat` | `anchor`, `section`, `offset`, `length`, `min` (default 1) | The first `length` bytes at `anchor` + `offset` repeat at least `min` time(s) elsewhere in the file. |
+| `authenticode` | `signed`, `subject_glob` | Checks whether the PE carries an Authenticode `WIN_CERTIFICATE` (`signed: true|false`) and/or matches a certificate subject CN / O / OU against `subject_glob`. |
+| `version_info` | `fields`, `absent` | `absent: true` matches when no `RT_VERSION` resource exists; `fields` maps `VS_VERSIONINFO` string keys (`CompanyName`, `FileDescription`, `ProductName`, ... or numeric slot indices `0`..`11`) to glob patterns (`%NULL%` matches an empty/missing field; leading `!` negates). |
+| `resource_match` | `type_glob`, `size_min`, `size_max`, `data_patterns`, `min` (default 1) | At least `min` PE resources match the given type/language glob (`RT_RCDATA`, `BINARY`, `0003:0419`, ...), byte size bounds and hex `data_patterns`. |
+| `resource_hash_any` | `values` | Any PE resource's MD5 (32 hex) or SHA-256 (64 hex) is in `values`. |
+| `resources_absent` | | The PE has no resource directory or zero resource data entries. |
 
 #### `pe_section`
 
@@ -187,8 +195,11 @@ require the whole function name, or `kernel32.dll!VirtualAlloc` to pin the DLL.
 | `hash_sha256` / `hash_md5` | `value` | The file hash equals `value` (case-insensitive). |
 | `imphash_any` | `values` | The PE's import hash is one of `values` (32 hex characters, case-insensitive). Same imphash as pefile / Mandiant and the Multron server's imphash signatures. Every program built the same way shares an imphash, and every .NET program has the same one: combine it with other conditions or check it on clean files first. |
 | `path_regex` | `pattern` | The regex matches the scanned path (as given; memory scans use `memory://<id>`, archive members `archive://<parent>!<member>`). |
+| `path_glob` | `pattern` | The wildcard glob (`*`, `**`, `?`, `#` alphanumeric) with `%VAR%` expansion matches the scanned path. |
+| `not_mz` | | The file does not begin with the `MZ` DOS header signature. |
 | `feature_gte` | `name`, `value` | A numeric feature is ≥ `value` (section 9). |
 | `feature_lte` | `name`, `value` | A numeric feature is ≤ `value` (section 9), e.g. `pe_import_count` ≤ 10 for a thin stub. |
+| `feature_bounds` | `bounds: [{feature, min, max}]`, `min` (default all) | At least `min` numeric feature range checks (`min`..=`max`) hold. |
 
 ### 5.4 Bytes
 
@@ -308,6 +319,34 @@ combine the diff with a malicious capability before giving `verdict: malware`.
 
 Icons are shared by many unrelated files (stolen icons, installers): use them as
 one signal next to others, not alone.
+
+### 5.8 System, registry and raw-sector conditions (Windows)
+
+On non-Windows hosts these conditions log a one-time warning and never match.
+
+| Type | Keys | Matches when |
+|---|---|---|
+| `registry_key` | `key`, `recursive` (false), `value_pattern` | The registry key path (with optional glob segments) exists, and when `value_pattern` is set, a value name matching that regex exists in the key (or subtree if `recursive: true`). |
+| `registry_value` | `key`, `recursive` (false), `value_regex`, `data_regex`, `data_hex`, `md5`, `sha256`, `min` (default 1) | At least `min` registry values under `key` pass all supplied filters. |
+| `clsid` | `guids`, `inproc_regex` | Any listed COM `CLSID` is registered under `HKCR\CLSID` or `HKLM\SOFTWARE\Classes\CLSID` (and its `InprocServer32` default value matches `inproc_regex` when set). |
+| `hosts_entry` | `ip`, `host` | A non-comment line in `%SystemRoot%\System32\drivers\etc\hosts` matches the `ip` glob and/or `host` regex. |
+| `sector_pattern` | `device`, `lba` (0), `count` (1, max 64), `patterns`, `min` (default 1), `excludes` | Raw 512-byte sectors read from `device` (`physical0`, `volume:C`, `\\.\PhysicalDrive0`) at `lba` match at least `min` hex patterns and no `excludes`. |
+
+### 5.9 Remediation (`remediation`)
+
+Rules may attach declarative remediation steps executed by the CLI when
+`--remediate` is passed (dry-run by default; pass `--yes` to apply, and
+`--remediate-allow-commands` to permit `command` steps):
+
+| Type | Keys | Action |
+|---|---|---|
+| `file_delete` | `path` (optional) | Delete `path` (with `%VAR%` and glob expansion), or the detected file itself when `path` is omitted. |
+| `text_delete_line` | `path`, `pattern` | Remove lines matching `pattern` (substring or glob) from `path`. |
+| `text_replace` | `path`, `pattern`, `replacement` | Replace `pattern` (substring or line glob) with `replacement` in `path`. |
+| `text_delete_string` | `path`, `pattern` | Remove occurrences of `pattern` from `path`. |
+| `registry_delete_value` | `key`, `value` | Delete registry value `value` under `key` via `reg.exe DELETE`. |
+| `registry_delete_key` | `key` | Delete registry key `key` via `reg.exe DELETE`. |
+| `command` | `program`, `args` | Run an external command (requires `--remediate-allow-commands`). |
 
 ## 6. native_signature
 

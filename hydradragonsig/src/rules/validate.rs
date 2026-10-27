@@ -14,7 +14,7 @@ use std::collections::HashSet;
 const FILE_KEYS: &[&str] = &["name", "version", "rules"];
 const RULE_KEYS: &[&str] = &[
     "id", "title", "description", "severity", "verdict", "confidence", "family", "score", "tags", "mitre", "private",
-    "logic", "threshold", "conditions", "file_path", "required_path",
+    "logic", "threshold", "conditions", "file_path", "required_path", "remediation",
 ];
 const MITRE_KEYS: &[&str] = &["id", "name", "tactic"];
 const ATOM_KEYS: &[&str] = &[
@@ -24,6 +24,7 @@ const ATOM_KEYS: &[&str] = &[
 const SCOPE_KEYS: &[&str] = &["start", "end"];
 const UNPACKER_KEYS: &[&str] = &["name", "pattern"];
 const STEP_KEYS: &[&str] = &["api", "pattern"];
+const BOUND_KEYS: &[&str] = &["feature", "min", "max"];
 
 /// Keys of every condition type (besides `type`).
 pub const CONDITION_KEYS: &[(&str, &[&str])] = &[
@@ -46,6 +47,10 @@ pub const CONDITION_KEYS: &[(&str, &[&str])] = &[
     ("file_size_lte", &["bytes"]),
     ("section_entropy", &["min"]),
     ("section_name_regex", &["pattern"]),
+    ("pe_section", &[
+        "select", "name_regex", "flags_all", "flags_none", "entropy_min", "entropy_max", "raw_size_min",
+        "raw_size_max", "code_xrefs_min", "has_entry", "directories_any", "directories_none", "directory_share_max",
+    ]),
     ("packed_pe", &[]),
     ("env_reference", &["min"]),
     ("path_regex", &["pattern"]),
@@ -70,6 +75,21 @@ pub const CONDITION_KEYS: &[(&str, &[&str])] = &[
     ("emulated_arg_regex", &["api", "pattern"]),
     ("emulated_sequence", &["steps", "within"]),
     ("emulated_count_gte", &["api", "min", "distinct"]),
+    ("pe_anchor_pattern", &["anchor", "section", "offset", "range", "count", "patterns", "min", "negate", "excludes"]),
+    ("byte_repeat", &["anchor", "section", "offset", "length", "min"]),
+    ("not_mz", &[]),
+    ("authenticode", &["signed", "subject_glob"]),
+    ("version_info", &["fields", "absent"]),
+    ("resource_match", &["type_glob", "size_min", "size_max", "data_patterns", "min"]),
+    ("resource_hash_any", &["values"]),
+    ("resources_absent", &[]),
+    ("registry_key", &["key", "recursive", "value_pattern"]),
+    ("registry_value", &["key", "recursive", "value_regex", "data_regex", "data_hex", "md5", "sha256", "min"]),
+    ("clsid", &["guids", "inproc_regex"]),
+    ("hosts_entry", &["ip", "host"]),
+    ("sector_pattern", &["device", "lba", "count", "patterns", "min", "excludes"]),
+    ("path_glob", &["pattern"]),
+    ("feature_bounds", &["bounds", "min"]),
 ];
 
 /// Values accepted by `file_type` conditions.
@@ -139,6 +159,9 @@ pub fn unknown_keys(yaml: &str) -> Vec<String> {
             }
             for step in cond.get("steps").and_then(|v| v.as_sequence()).into_iter().flatten() {
                 check_keys(step, STEP_KEYS, &format!("{cat} step"), &mut out);
+            }
+            for bound in cond.get("bounds").and_then(|v| v.as_sequence()).into_iter().flatten() {
+                check_keys(bound, BOUND_KEYS, &format!("{cat} bound"), &mut out);
             }
         }
     }
@@ -491,6 +514,201 @@ fn check_condition(cond: &RuleCondition, rules: &[Rule], own_id: &str, known_ids
                 }
             }
         }
+        RuleCondition::PeAnchorPattern {
+            anchor,
+            section,
+            patterns,
+            min,
+            excludes,
+            ..
+        } => {
+            if super::pe_anchor::parse_anchor_with_section(anchor, *section).is_none() {
+                out.push(format!("invalid anchor `{anchor}`"));
+            }
+            list_problems("patterns", patterns, *min, &mut out);
+            for p in patterns {
+                if super::pe_anchor::compile(p).is_none() {
+                    out.push(format!("invalid anchor hex pattern `{p}`"));
+                }
+            }
+            for e in excludes {
+                if super::pe_anchor::compile(e).is_none() {
+                    out.push(format!("invalid anchor exclude hex pattern `{e}`"));
+                }
+            }
+        }
+        RuleCondition::ByteRepeat {
+            anchor,
+            section,
+            length,
+            min,
+            ..
+        } => {
+            if super::pe_anchor::parse_anchor_with_section(anchor, *section).is_none() {
+                out.push(format!("invalid anchor `{anchor}`"));
+            }
+            if *length == 0 {
+                out.push("length must be at least 1".into());
+            }
+            if *min == Some(0) {
+                out.push("min: 0 is treated as 1".into());
+            }
+        }
+        RuleCondition::Authenticode {
+            signed,
+            subject_glob,
+        } => {
+            if signed.is_none() && subject_glob.as_deref().is_none_or(|s| s.trim().is_empty()) {
+                out.push("authenticode needs `signed` or `subject_glob`".into());
+            }
+        }
+        RuleCondition::VersionInfo { fields, absent } => {
+            if !*absent && fields.is_empty() {
+                out.push("version_info needs `absent: true` or non-empty `fields`".into());
+            }
+        }
+        RuleCondition::ResourceMatch {
+            type_glob,
+            size_min,
+            size_max,
+            data_patterns,
+            ..
+        } => {
+            if type_glob.as_deref().is_none_or(|s| s.trim().is_empty())
+                && size_min.is_none()
+                && size_max.is_none()
+                && data_patterns.is_empty()
+            {
+                out.push("resource_match needs at least one filter".into());
+            }
+            for p in data_patterns {
+                if super::pe_anchor::compile(p).is_none() {
+                    out.push(format!("invalid resource hex pattern `{p}`"));
+                }
+            }
+        }
+        RuleCondition::ResourceHashAny { values } => {
+            list_problems("values", values, None, &mut out);
+            for v in values {
+                let t = v.trim();
+                if !hex_len(t, 32) && !hex_len(t, 64) {
+                    out.push(format!(
+                        "resource hash `{v}` must be 32 (md5) or 64 (sha256) hex characters"
+                    ));
+                }
+            }
+        }
+        RuleCondition::RegistryKey {
+            key, value_pattern, ..
+        } => {
+            if key.trim().is_empty() {
+                out.push("empty `key`".into());
+            }
+            if let Some(p) = value_pattern {
+                out.extend(regex_problem(p));
+            }
+        }
+        RuleCondition::RegistryValue {
+            key,
+            value_regex,
+            data_regex,
+            md5,
+            sha256,
+            ..
+        } => {
+            if key.trim().is_empty() {
+                out.push("empty `key`".into());
+            }
+            if let Some(p) = value_regex {
+                out.extend(regex_problem(p));
+            }
+            if let Some(p) = data_regex {
+                out.extend(regex_problem(p));
+            }
+            if let Some(m) = md5
+                && !hex_len(m.trim(), 32)
+            {
+                out.push("md5 must be 32 hex characters".into());
+            }
+            if let Some(s) = sha256
+                && !hex_len(s.trim(), 64)
+            {
+                out.push("sha256 must be 64 hex characters".into());
+            }
+        }
+        RuleCondition::Clsid { guids, inproc_regex } => {
+            list_problems("guids", guids, None, &mut out);
+            if let Some(p) = inproc_regex {
+                out.extend(regex_problem(p));
+            }
+        }
+        RuleCondition::HostsEntry { ip, host } => {
+            if ip.as_deref().is_none_or(|s| s.trim().is_empty())
+                && host.as_deref().is_none_or(|s| s.trim().is_empty())
+            {
+                out.push("hosts_entry needs `ip` or `host`".into());
+            }
+            if let Some(h) = host {
+                out.extend(regex_problem(h));
+            }
+        }
+        RuleCondition::SectorPattern {
+            device,
+            patterns,
+            min,
+            excludes,
+            ..
+        } => {
+            if device.trim().is_empty() {
+                out.push("empty `device`".into());
+            }
+            list_problems("patterns", patterns, *min, &mut out);
+            for p in patterns {
+                if super::pe_anchor::compile(p).is_none() {
+                    out.push(format!("invalid sector hex pattern `{p}`"));
+                }
+            }
+            for e in excludes {
+                if super::pe_anchor::compile(e).is_none() {
+                    out.push(format!("invalid sector exclude hex pattern `{e}`"));
+                }
+            }
+        }
+        RuleCondition::PathGlob { pattern } => {
+            if pattern.trim().is_empty() {
+                out.push("empty `pattern`".into());
+            }
+        }
+        RuleCondition::FeatureBounds { bounds, min } => {
+            if bounds.is_empty() {
+                out.push("empty `bounds` list: never matches".into());
+            }
+            if let Some(m) = min
+                && *m > bounds.len()
+            {
+                out.push(format!(
+                    "min {m} is larger than the {} bounds: never matches",
+                    bounds.len()
+                ));
+            }
+            for b in bounds {
+                if !FEATURES.contains(&b.feature.as_str())
+                    && !matches!(
+                        b.feature.as_str(),
+                        "entropy" | "file_entropy" | "size" | "file_size"
+                    )
+                {
+                    out.push(format!(
+                        "unknown feature `{}` (known: {})",
+                        b.feature,
+                        FEATURES.join(", ")
+                    ));
+                }
+                if b.min.is_none() && b.max.is_none() {
+                    out.push(format!("feature `{}` bound needs `min` or `max`", b.feature));
+                }
+            }
+        }
         _ => {}
     }
     out
@@ -514,19 +732,24 @@ mod tests {
     fn sample_fields(ctype: &str) -> &'static str {
         match ctype {
             "string_contains" | "hash_sha256" | "hash_md5" => "        value: x\n",
-            "string_regex" | "import_regex" | "dll_regex" | "section_name_regex" | "path_regex" | "byte_pattern" => "        pattern: x\n",
-            "string_set" | "file_type" | "imphash_any" => "        values: [x]\n",
+            "string_regex" | "import_regex" | "dll_regex" | "section_name_regex" | "path_regex" | "byte_pattern" | "path_glob" => "        pattern: x\n",
+            "string_set" | "file_type" | "imphash_any" | "resource_hash_any" => "        values: [x]\n",
             "native_signature" => "        atoms: []\n        expression: x\n",
             "suspicious_import_count" | "file_entropy" | "section_entropy" => "        min: 1\n",
             "file_size_gte" | "file_size_lte" => "        bytes: 1\n",
             "feature_gte" | "feature_lte" | "parent_feature_gte" | "parent_feature_lte" | "feature_delta_gte" => {
                 "        name: x\n        value: 1\n"
             }
-            "byte_set" => "        patterns: [x]\n",
+            "byte_set" | "pe_anchor_pattern" => "        patterns: [x]\n",
+            "byte_repeat" => "        length: 4\n",
             "rule_match" => "        ids: [x]\n",
             "unpacker_any" => "        signatures: []\n",
             "image_fuzzy_hash_any" => "        hashes: []\n",
-            "packed_pe" | "env_reference" | "pe_icon_any" | "has_parent" => "",
+            "packed_pe" | "env_reference" | "pe_icon_any" | "has_parent" | "pe_section" | "not_mz" | "authenticode" | "version_info" | "resource_match" | "resources_absent" | "hosts_entry" => "",
+            "registry_key" | "registry_value" => "        key: HKLM\\\\Software\n",
+            "clsid" => "        guids: [x]\n",
+            "sector_pattern" => "        device: physical0\n        patterns: [4D5A]\n",
+            "feature_bounds" => "        bounds: [{feature: string_count, min: 1}]\n",
             "emulated_arg_regex" => "        api: x\n        pattern: x\n",
             "emulated_sequence" => "        steps: [{api: x}]\n",
             "emulated_count_gte" => "        api: x\n        min: 1\n",
