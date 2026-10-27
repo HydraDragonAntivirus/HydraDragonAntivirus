@@ -50,7 +50,7 @@ jobs:
         run: git config --global core.longpaths true
 
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           submodules: recursive
           fetch-depth: 0
@@ -73,7 +73,7 @@ jobs:
           Copy-Item OpenEDR/multron_server_rs/target/release/multron_server.exe -Destination OpenMalwareScannerPortable/multron_server.exe -Force
 
       - name: Upload OpenMalwareScannerPortable
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: OpenMalwareScannerPortable
           path: OpenMalwareScannerPortable

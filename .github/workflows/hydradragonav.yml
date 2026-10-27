@@ -24,7 +24,7 @@ jobs:
       - name: Enable long paths
         run: git config --global core.longpaths true
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
       - name: Install Rust toolchain
@@ -38,7 +38,7 @@ jobs:
     steps:
       - name: Enable Git long paths
         run: git config --global core.longpaths true
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
       - name: Build Release

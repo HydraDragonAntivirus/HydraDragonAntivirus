@@ -59,7 +59,7 @@ jobs:
       any: ${{ steps.detect.outputs.any }}
     steps:
     - name: Checkout repository
-      uses: actions/checkout@v6
+      uses: actions/checkout@v7
       with:
         fetch-depth: 0
         sparse-checkout: |
@@ -127,7 +127,7 @@ jobs:
       run: git config --global core.longpaths true
 
     - name: Checkout repository
-      uses: actions/checkout@v6
+      uses: actions/checkout@v7
       with:
         fetch-depth: 0
         sparse-checkout: |
@@ -137,7 +137,7 @@ jobs:
         sparse-checkout-cone-mode: false
 
     - name: Initialize CodeQL
-      uses: github/codeql-action/init@v3
+      uses: github/codeql-action/init@v4
       with:
         languages: ${{ matrix.language }}
         build-mode: none
@@ -146,7 +146,7 @@ jobs:
           ${{ matrix.paths }}
 
     - name: Perform CodeQL Analysis
-      uses: github/codeql-action/analyze@v3
+      uses: github/codeql-action/analyze@v4
       with:
         category: "/language:${{ matrix.language }}/changed"
 
@@ -186,7 +186,7 @@ jobs:
       run: git config --global core.longpaths true
 
     - name: Checkout repository
-      uses: actions/checkout@v6
+      uses: actions/checkout@v7
       with:
         fetch-depth: 0
         sparse-checkout: |
@@ -196,7 +196,7 @@ jobs:
         sparse-checkout-cone-mode: false
 
     - name: Initialize CodeQL
-      uses: github/codeql-action/init@v3
+      uses: github/codeql-action/init@v4
       with:
         languages: ${{ matrix.language }}
         build-mode: ${{ matrix.build-mode }}
@@ -209,6 +209,6 @@ jobs:
             - inspired_rules
 
     - name: Perform CodeQL Analysis
-      uses: github/codeql-action/analyze@v3
+      uses: github/codeql-action/analyze@v4
       with:
         category: "/language:${{ matrix.language }}"
