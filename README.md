@@ -167,13 +167,15 @@ This project does not aim to replace your primary daily antivirus solution.
 
 ### Detection Philosophy
 
-- False positives may occur.
+- **Near-zero false positives come first.** When a detection cannot be made without false positives, we lower the detection rate instead: a clean file flagged as malware is treated as a worse failure than a missed sample. Signatures, machine learning thresholds and heuristics are tuned with this rule.
+- False positives can still happen in rare cases; please report them.
 - The system assumes the machine is in a clean state (not post-infection).
 - The project prioritizes deeper analysis over speed.
 - The goal is long-term detection improvement rather than quick but shallow detection.
 - This does NOT mean the project achieves a 99% detection rate — it reflects the development philosophy only.
 - This antivirus not only uses his best signatures but almost every new signatures. That's why it's heavy.
 - UPDATE: Detection philosophy is highly changed we prefer 90% instant detection instead of 99% very slow detection
+- UPDATE: We now work on the principle of near-zero false positives, lowering the detection rate when that is needed.
 
 ---
 
