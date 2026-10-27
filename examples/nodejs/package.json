@@ -1,4 +1,4 @@
-﻿{
+{
   "name": "openedr-static-sdk-example",
   "version": "1.0.0",
   "description": "OpenEDR Static Antivirus Scanner SDK Example for Node.js",
@@ -7,6 +7,6 @@
     "start": "node index.js"
   },
   "dependencies": {
-    "koffi": "^2.8.9"
+    "koffi": "^3.3.4"
   }
 }
