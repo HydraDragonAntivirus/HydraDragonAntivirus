@@ -307,6 +307,45 @@ p code, li code { background: rgba(255,255,255,0.05); border: 1px solid var(--bo
   .h-lookup-form { flex-direction: column; }
 }
 
+/* ---------------- OPEN-SOURCE LINEAGE ---------------- */
+.h-lineage {
+  list-style: none; margin: 0; padding: 0;
+  display: grid; grid-template-columns: repeat(5, 1fr);
+  gap: 1px; background: var(--border-subtle);
+  border: 1px solid var(--border-subtle); border-radius: var(--vk-radius); overflow: hidden;
+}
+.h-lineage li {
+  background: var(--bg-base); padding: 28px 24px;
+  display: flex; flex-direction: column; gap: 10px;
+  transition: background .2s var(--vk-ease);
+}
+.h-lineage li:hover { background: var(--bg-surface); }
+.h-lineage li.is-peak {
+  background: radial-gradient(90% 120% at 100% 0%, rgba(255,51,68,0.12), transparent 70%), var(--bg-surface);
+}
+.h-lin-k {
+  font-family: var(--font-mono); font-size: 0.68rem; letter-spacing: .08em;
+  text-transform: uppercase; color: var(--text-dim);
+}
+.h-lineage li.is-peak .h-lin-k { color: var(--accent-red); }
+.h-lineage h3 {
+  margin: 0; font-family: var(--font-display); font-weight: 600;
+  font-size: 1.2rem; letter-spacing: -0.02em; color: var(--text-main);
+}
+.h-lineage p {
+  margin: 0; font-size: 0.86rem; line-height: 1.6; color: var(--text-muted); flex: 1;
+}
+.h-lin-badge {
+  align-self: flex-start; margin-top: 8px;
+  font-family: var(--font-mono); font-size: 0.7rem; color: var(--text-muted);
+  border: 1px solid var(--border-strong); border-radius: 6px; padding: 3px 9px;
+}
+.h-lin-badge.is-peak {
+  background: var(--accent-red); border-color: var(--accent-red); color: #fff; font-weight: 600;
+}
+@media (max-width: 1080px) { .h-lineage { grid-template-columns: 1fr 1fr; } }
+@media (max-width: 600px) { .h-lineage { grid-template-columns: 1fr; } }
+
 /* ---------------- EVOLUTION ---------------- */
 .h-phases { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(6, 1fr); position: relative; }
 .h-phases::before { content: ""; position: absolute; left: 0; right: 0; top: 5px; height: 1px; background: var(--border-strong); }

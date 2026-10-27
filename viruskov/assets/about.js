@@ -3,6 +3,7 @@
   'use strict';
 
   var CATS = {
+    openav: { tr: 'Açık Kaynak Tarihi', en: 'Open-Source History' },
     roots: { tr: 'Temeller', en: 'Roots' },
     birth: { tr: 'Doğuş', en: 'Birth' },
     alliances: { tr: 'İttifak', en: 'Alliances' },
@@ -10,6 +11,56 @@
   };
 
   var TIMELINE = [
+    {
+      cat: 'openav', key: true,
+      date: { tr: '2000 – 2002 · 01 / Temel Adım', en: '2000 – 2002 · 01 / Foundation' },
+      title: { tr: 'OpenAntiVirus: şirketlerin ve araştırmacıların ortak açık kaynak girişimi', en: 'OpenAntiVirus: the joint open-source initiative of companies and researchers' },
+      body: {
+        tr: 'Farklı güvenlik şirketlerinin ve bağımsız araştırmacıların güçlerini birleştirip açık kaynak antivirüs motoru (<strong>ScannerDaemon</strong>, <strong>PatternFinder</strong>, <strong>VirusHammer</strong>) kurduğu öncü dönem. İlk açık imza arama mantığı ve topluluk imza veritabanı bu çatı altında doğdu.',
+        en: 'The pioneering era when security companies and independent researchers joined forces to build an open-source antivirus engine (<strong>ScannerDaemon</strong>, <strong>PatternFinder</strong>, <strong>VirusHammer</strong>). The first open signature matcher and community database were born under this roof.'
+      },
+      links: [{ href: 'https://openantivirus.sourceforge.net/', tr: 'openantivirus.org arşivi', en: 'openantivirus.org archive' }]
+    },
+    {
+      cat: 'openav',
+      date: { tr: '2002+ · 02 / İmza Çağı', en: '2002+ · 02 / Signature Era' },
+      title: { tr: 'ClamAV: açık kaynak imza ve sunucu taramasının standardı', en: 'ClamAV: the standard for open-source signature and server scanning' },
+      body: {
+        tr: 'OpenAntiVirus projesinin imza veritabanını devralarak büyüyen <strong>ClamAV</strong>, e-posta ağ geçitleri ve sunucular için hash, bayt dizisi ve arşiv içi imza taramasını standartlaştıran açık kaynak dosya tarayıcısı oldu.',
+        en: 'Growing out of the OpenAntiVirus signature database, <strong>ClamAV</strong> standardised open-source hash, byte-sequence and archive scanning for mail gateways and servers.'
+      },
+      links: [{ href: 'https://www.clamav.net/', tr: 'clamav.net', en: 'clamav.net' }]
+    },
+    {
+      cat: 'openav',
+      date: { tr: '03 / Telemetri Çağı', en: '03 / Telemetry Era' },
+      title: { tr: 'OpenEDR: dosya taramasından uç nokta olay telemetrisine geçiş', en: 'OpenEDR: from file scanning to endpoint event telemetry' },
+      body: {
+        tr: 'Yalnızca statik dosya taramaktan çıkıp çekirdek olay telemetrisi, minifilter dosya/süreç takibi ve uç nokta davranış kaydı toplamaya geçiş yapan açık kaynak EDR girişimi.',
+        en: 'An open-source EDR initiative that moved beyond static file scanning to kernel event telemetry, minifilter file/process monitoring and endpoint behaviour recording.'
+      },
+      links: [{ href: 'https://www.openedr.com/', tr: 'openedr.com', en: 'openedr.com' }]
+    },
+    {
+      cat: 'openav',
+      date: { tr: '2023 – 2025 · 04 / Kernel & Unpack', en: '2023 – 2025 · 04 / Kernel & Unpack' },
+      title: { tr: 'HydraDragon: Ring-0 sürücüler, Unicorn emülasyonu ve çoklu motor', en: 'HydraDragon: Ring-0 drivers, Unicorn emulation and multi-engine core' },
+      body: {
+        tr: 'MBR koruması, <strong>Owlyshield</strong> ve <strong>Sanctum</strong> Ring-0 sürücüleri, Themida/VMProtect unpacker analizi, Unicorn CPU emülasyonu, <strong>HydraDragonSig</strong> kural dili ve hibrit çoklu tarama çekirdeğinin geliştirildiği temel aşama.',
+        en: 'The core stage that built MBR protection, the <strong>Owlyshield</strong> and <strong>Sanctum</strong> Ring-0 drivers, Themida/VMProtect unpacking, Unicorn CPU emulation, the <strong>HydraDragonSig</strong> rule language and the hybrid multi-engine scanner.'
+      },
+      links: [{ href: 'https://github.com/HydraDragonAntivirus/HydraDragonAntivirus', tr: 'hydradragonantivirus', en: 'hydradragonantivirus' }]
+    },
+    {
+      cat: 'openav', key: true,
+      date: { tr: '2026 · 05 / Yeni Nesil Zirve', en: '2026 · 05 / Next-Gen Peak' },
+      title: { tr: 'VIRUSKOV: iki aşamalı ML, davranış kuralları ve bağımsız savunma zirvesi', en: 'VIRUSKOV: two-stage ML, behavioural rules and independent endpoint defence' },
+      body: {
+        tr: 'OpenEDR\'den çok daha gelişmiş; bilinmeyen tehditleri iki aşamalı makine öğrenimi ve <code>MLE_RANSOM_BEHAVIOR</code> gibi çekirdek davranış kurallarıyla yakalayan, BYOVD ve güvenli mod saldırılarını durduran, canlı bulut telemetrisi ve analist masasıyla çalışan bağımsız açık kaynak savunma zirvesi.',
+        en: 'Far beyond OpenEDR: independent open-source endpoint defence that catches unknown threats with two-stage machine learning and kernel behavioural rules such as <code>MLE_RANSOM_BEHAVIOR</code>, blocks BYOVD and safe-mode attacks, and pairs live cloud telemetry with a human analyst desk.'
+      },
+      links: [{ href: 'https://viruskov.com', tr: 'viruskov.com', en: 'viruskov.com' }]
+    },
     {
       cat: 'roots',
       date: { tr: '2019 · Proje öncesi', en: '2019 · Before the project' },
@@ -252,7 +303,7 @@
     var list = document.getElementById('timelineList');
     if (!list) return;
     var q = state.q.toLowerCase();
-    var counts = { all: 0, roots: 0, birth: 0, alliances: 0, kernel: 0 };
+    var counts = { all: 0, openav: 0, roots: 0, birth: 0, alliances: 0, kernel: 0 };
     var html = '';
     TIMELINE.forEach(function (e) {
       var text = [e.date[L], e.title[L], plain(e.body[L]), (e.quotes || []).map(function (x) { return x[L] + ' ' + x.cite; }).join(' '),
