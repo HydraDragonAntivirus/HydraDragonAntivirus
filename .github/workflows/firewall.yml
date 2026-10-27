@@ -39,7 +39,7 @@ jobs:
       - name: Enable Git long paths
         run: git config --global core.longpaths true
         working-directory: .
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
       - name: Cache Cargo
@@ -79,7 +79,7 @@ jobs:
     steps:
       - name: Enable Git long paths
         run: git config --global core.longpaths true
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
       - name: Cache Cargo
@@ -130,7 +130,7 @@ jobs:
     steps:
       - name: Enable Git long paths
         run: git config --global core.longpaths true
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
         with:
