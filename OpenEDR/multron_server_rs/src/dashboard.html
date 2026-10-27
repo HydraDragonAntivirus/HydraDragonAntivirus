@@ -352,6 +352,8 @@
         <input id="uiSearch" type="search" placeholder="URL, host or threat..." style="flex:1; min-width:160px; font-size:11.5px;">
         <select id="uiVerdict">
           <option value="threat">Malicious + suspicious</option>
+          <option value="unreviewed">Waiting for an analyst</option>
+          <option value="reviewed">Reviewed by an analyst</option>
           <option value="malicious">Malicious</option>
           <option value="suspicious">Suspicious</option>
           <option value="all">All listed (also those that turned clean)</option>
@@ -362,9 +364,24 @@
         <span>Malicious:</span><b id="uiMalicious" style="color:var(--red);">—</b>
         <span>Suspicious:</span><b id="uiSuspicious" style="color:var(--orange);">—</b>
         <span>No longer a threat:</span><b id="uiOther">—</b>
+        <span>Reviewed:</span><b id="uiReviewed">—</b>
       </div>
-      <div class="hint" id="uiInfo" style="margin:8px 0 4px">URLs a scan found malicious or suspicious, kept across restarts (url_insights.jsonl). A later scan of the same URL updates it, also when it turns clean.</div>
+      <div class="hint" id="uiInfo" style="margin:8px 0 4px">URLs a scan found malicious or suspicious, kept across restarts (url_insights.jsonl). A later scan of the same URL updates it, also when it turns clean. Click a URL to review it: the analyst verdict is what the list counts and what later scans of the URL answer.</div>
       <div class="tablewrap" style="max-height:340px"><table><thead><tr><th>Verdict</th><th>URL</th><th>Threat</th><th class="num">Seen</th><th>Last seen</th></tr></thead><tbody id="uiRows"></tbody></table></div>
+      <div id="uiReview" hidden style="margin-top:10px;border-top:1px solid var(--border);padding-top:10px">
+        <div class="hint" style="margin-bottom:6px">Analyst review of <b class="mono" id="uiRvUrl" style="word-break:break-all"></b> · engine: <span id="uiRvEngine"></span></div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
+          <select id="uiRvVerdict"><option value="malicious">Malicious</option><option value="suspicious">Suspicious</option><option value="clean">Clean</option></select>
+          <input id="uiRvThreat" type="text" placeholder="Threat name (e.g. Phishing.Web.Generic)" style="flex:1;min-width:160px">
+        </div>
+        <input id="uiRvNote" type="text" placeholder="Note (shown with the verdict)" style="width:100%;margin-top:6px">
+        <div style="display:flex;gap:6px;margin-top:6px;align-items:center">
+          <button class="primary" id="uiRvSave">Save verdict</button>
+          <button class="ghost" id="uiRvRemove">Remove review</button>
+          <button class="ghost" id="uiRvClose">Close</button>
+          <span class="hint" id="uiRvMsg"></span>
+        </div>
+      </div>
     </section>
 
     <section class="card">
@@ -1861,12 +1878,43 @@ window.sigKey = (list) => list && list.length ? `${list[0].layer}: ${list[0].nam
       $("uiMalicious").textContent = (c.malicious || 0).toLocaleString();
       $("uiSuspicious").textContent = (c.suspicious || 0).toLocaleString();
       $("uiOther").textContent = (d.total - (c.malicious || 0) - (c.suspicious || 0)).toLocaleString();
+      $("uiReviewed").textContent = (d.reviewed || 0).toLocaleString();
       const tag = (v) => v === "malicious" ? "t-malicious" : v === "suspicious" ? "t-suspicious" : v === "clean" ? "t-clean" : "t-unknown";
-      $("uiRows").innerHTML = d.items.map(i => `<tr title="${uiEsc(i.reason)}"><td><span class="tag ${tag(i.verdict)}">${uiEsc(i.verdict)}</span></td><td class="file mono" style="word-break:break-all">${uiEsc(i.url)}</td><td>${uiEsc(i.threat || "")}</td><td class="num">${i.seen_count.toLocaleString()}</td><td>${uiEsc(new Date(i.last_seen).toLocaleString())}</td></tr>`).join("")
+      uiItems = new Map(d.items.map(i => [i.url, i]));
+      $("uiRows").innerHTML = d.items.map(i => {
+        const v = i.human_verdict || i.verdict;
+        const who = i.human_verdict ? ` <span class="hint" title="Analyst${i.analyst ? ": " + uiEsc(i.analyst) : ""}; engine: ${uiEsc(i.verdict)}">👤</span>` : "";
+        return `<tr data-url="${uiEsc(i.url)}" style="cursor:pointer" title="${uiEsc(i.human_note || i.reason)}"><td><span class="tag ${tag(v)}">${uiEsc(v)}</span>${who}</td><td class="file mono" style="word-break:break-all">${uiEsc(i.url)}</td><td>${uiEsc(i.human_threat || i.threat || "")}</td><td class="num">${i.seen_count.toLocaleString()}</td><td>${uiEsc(new Date(i.last_seen).toLocaleString())}</td></tr>`;
+      }).join("")
         || `<tr><td colspan="5" class="hint">No URL threats${d.matched === 0 && d.total ? " match" : " yet"}.</td></tr>`;
       if (d.matched > d.items.length) $("uiRows").insertAdjacentHTML("beforeend", `<tr><td colspan="5" class="hint">${d.items.length} of ${d.matched.toLocaleString()} shown; search to narrow.</td></tr>`);
     } catch (e) { $("uiInfo").textContent = e.message; }
   };
+  // Analyst review of one URL: click a row, pick a verdict, save.
+  let uiItems = new Map();
+  $("uiRows").onclick = (e) => {
+    const tr = e.target.closest("tr[data-url]");
+    const i = tr && uiItems.get(tr.dataset.url);
+    if (!i) return;
+    $("uiReview").hidden = false;
+    $("uiRvUrl").textContent = i.url;
+    $("uiRvEngine").textContent = i.verdict + (i.threat ? ` (${i.threat})` : "");
+    $("uiRvVerdict").value = i.human_verdict || (i.verdict === "suspicious" ? "suspicious" : "malicious");
+    $("uiRvThreat").value = i.human_threat || i.threat || "";
+    $("uiRvNote").value = i.human_note || "";
+    $("uiRvMsg").textContent = i.human_verdict ? `Reviewed${i.analyst ? " by " + i.analyst : ""}` : "";
+  };
+  const uiRvSend = async (verdict) => {
+    const url = $("uiRvUrl").textContent;
+    try {
+      await post("/api/url-review", { url, verdict, threat_name: $("uiRvThreat").value, note: $("uiRvNote").value, analyst: haAnalystName() });
+      $("uiRvMsg").textContent = verdict ? `Saved: ${verdict}` : "Review removed; the engine verdict applies.";
+      updateUrlInsights();
+    } catch (err) { $("uiRvMsg").textContent = err.message; }
+  };
+  $("uiRvSave").onclick = () => uiRvSend($("uiRvVerdict").value);
+  $("uiRvRemove").onclick = () => { if (confirm("Remove the analyst review of this URL?")) uiRvSend(""); };
+  $("uiRvClose").onclick = () => { $("uiReview").hidden = true; };
   $("uiSearch").oninput = () => { clearTimeout(uiTimer); uiTimer = setTimeout(updateUrlInsights, 300); };
   $("uiVerdict").onchange = updateUrlInsights;
   setInterval(updateUrlInsights, 10000);

@@ -2241,7 +2241,7 @@ pub async fn execute_url_scan(
     // Single source -> single scan, unchanged behaviour. Both sources ->
     // independent scans; when they differ, YAML difference rules judge it.
     let mut difference_percent: Option<u8> = None;
-    let report = match (page_content, server_content) {
+    let mut report = match (page_content, server_content) {
         (Some(client_body), Some(server_body)) => {
             let pct = content_difference_percent(client_body, server_body);
             difference_percent = Some(pct);
@@ -2288,6 +2288,23 @@ pub async fn execute_url_scan(
         report.risk_score,
         &liveness_str,
     );
+    // An analyst verdict answers instead of the engine (recorded above as it was).
+    let engine_verdict = report.verdict.to_lowercase();
+    let human = crate::url_intel::human(&report.target_url);
+    if let Some((v, _, note)) = &human {
+        report.verdict = match v.as_str() {
+            "malicious" => "Malicious",
+            "suspicious" => "Suspicious",
+            _ => "Clean",
+        }
+        .to_string();
+        report.risk_score = match v.as_str() {
+            "malicious" => 100,
+            "suspicious" => 60,
+            _ => 0,
+        };
+        report.verdict_reason = if note.is_empty() { "Human analysis".to_string() } else { format!("Human analysis: {note}") };
+    }
 
     let detections_json: Vec<serde_json::Value> = report.detections.iter().map(|d| {
         serde_json::json!({
@@ -2318,6 +2335,9 @@ pub async fn execute_url_scan(
         "antivirus": {
             "engine": ENGINE_NAME,
             "verdict": report.verdict.to_lowercase(),
+            "verdict_source": if human.is_some() { "human" } else { "engine" },
+            "engine_verdict": engine_verdict,
+            "human_threat": human.as_ref().and_then(|h| h.1.clone()),
             "reason": report.verdict_reason,
             "risk_score": report.risk_score,
             "fp_mitigated": report.fp_mitigated,

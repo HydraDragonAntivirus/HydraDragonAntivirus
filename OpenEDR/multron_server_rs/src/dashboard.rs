@@ -368,6 +368,7 @@ pub fn dashboard_router(state: Arc<AppState>) -> Router {
         .route("/api/unban", post(handle_unban))
         .route("/api/insights/stats", get(handle_dashboard_insights_stats))
         .route("/api/url-insights", get(handle_url_insights))
+        .route("/api/url-review", post(handle_url_review))
         .route("/api/insights/:sha256", get(handle_dashboard_insights_hash))
         .route("/api/rules", post(handle_rules_reload).route_layer(DefaultBodyLimit::disable()))
         .route("/api/engine/reload", post(handle_engine_reload))
@@ -433,8 +434,8 @@ fn is_local_host(host: &str) -> bool {
 /// Dashboard calls that write human verdicts or change what decides a verdict (rules,
 /// FP lists, company lists, bans): with `analyst_keys.txt` in place they need a valid
 /// `X-Multron-Analyst-Key` (see `human_review::analyst_keys`).
-const ANALYST_PATHS: [&str; 19] = [
-    "/api/review", "/api/review/start", "/api/review/release", "/api/review/delete",
+const ANALYST_PATHS: [&str; 20] = [
+    "/api/review", "/api/review/start", "/api/review/release", "/api/review/delete", "/api/url-review",
     "/api/reviews/bulk", "/api/reviews/requeue", "/api/signatures", "/api/signatures/delete",
     "/api/imphash-signatures", "/api/imphash-signatures/delete",
     "/api/yara-rule-classes", "/api/yara-rule-classes/delete",
@@ -993,6 +994,33 @@ struct UrlInsightsQuery {
 /// URLs a scan found malicious or suspicious (and their later scans), newest first.
 async fn handle_url_insights(Query(q): Query<UrlInsightsQuery>) -> impl IntoResponse {
     Json(crate::url_intel::list(&q.q, &q.verdict, q.limit.unwrap_or(200).min(2000)))
+}
+
+#[derive(Deserialize)]
+struct UrlReviewBody {
+    url: String,
+    /// malicious, suspicious, clean; empty removes the review.
+    #[serde(default)]
+    verdict: String,
+    #[serde(default)]
+    threat_name: String,
+    #[serde(default)]
+    note: String,
+    #[serde(default)]
+    analyst: String,
+}
+
+/// Analyst verdict for a URL of the URL threat list.
+async fn handle_url_review(State(app): State<Arc<AppState>>, who: Option<Extension<AnalystId>>, Json(mut b): Json<UrlReviewBody>) -> Response {
+    apply_analyst(&who, &mut b.analyst);
+    match crate::url_intel::review(&b.url, &b.verdict, Some(b.threat_name.as_str()), &b.note, &b.analyst) {
+        Ok(e) => {
+            let by = if e.analyst.is_empty() { "analyst" } else { e.analyst.as_str() };
+            info_event(&app, format!("URL analysis: {} -> {} by {by}", e.url, e.human_verdict.as_deref().unwrap_or("review removed")));
+            Json(serde_json::json!({ "ok": true, "item": e })).into_response()
+        }
+        Err(e) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({ "error": e }))).into_response(),
+    }
 }
 
 #[derive(Deserialize, Default)]
