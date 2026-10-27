@@ -2990,23 +2990,35 @@ window.sigKey = (list) => list && list.length ? `${list[0].layer}: ${list[0].nam
     const pe = (doc.report || {}).pe;
     if (!pe) { $("vaPanePe").innerHTML = '<div class="hint">Not a PE file.</div>'; return; }
     const entBar = (e) => `<span class="va-ent" style="width:${Math.round(e / 8 * 60)}px;background:${e >= 7.2 ? "var(--red)" : e >= 6.5 ? "var(--orange)" : "var(--green)"}"></span>${e.toFixed(2)}`;
+    const authSubj = (pe.authenticode_subjects || []).length ? `<br><span class="hint" style="margin:0">${pe.authenticode_subjects.map(esc).join(" · ")}</span>` : "";
+    const viEntries = Object.entries(pe.version_info || {});
+    const viHtml = viEntries.length
+      ? `<h3 class="va-h">Version info (${viEntries.length})</h3><div class="tablewrap"><table><thead><tr><th>Field</th><th>Value</th></tr></thead><tbody>${viEntries.map(([k, v]) => `<tr><td class="mono">${esc(k)}</td><td>${esc(v)}${copyBtn(v)}</td></tr>`).join("")}</tbody></table></div>`
+      : "";
+    const resList = pe.resources || [];
+    const resHtml = resList.length
+      ? `<h3 class="va-h">Resources (${resList.length})</h3><div class="tablewrap" style="max-height:320px"><table><thead><tr><th>Type</th><th>Name</th><th class="num">Lang</th><th>Offset</th><th class="num">Size</th><th>CRC-32</th><th>MD5</th><th>SHA-256</th></tr></thead><tbody>${resList.map(r => `<tr><td class="mono">${esc(r.type_label)}</td><td class="mono">${esc(r.name)}</td><td class="num mono">0x${hexN(r.lang_id || 0, 4)}</td><td class="mono"><a href="#" data-go="${r.offset}" data-len="${Math.min(4096, r.size || 1)}" style="color:var(--accent)">0x${hexN(r.offset || 0, 8)}</a></td><td class="num">${(r.size || 0).toLocaleString()}</td><td class="mono">${r.crc32 ? esc(r.crc32) + copyBtn(r.crc32) : "—"}</td><td class="mono">${r.md5 ? esc(r.md5) + copyBtn(r.md5) : "—"}</td><td class="mono" style="font-size:11px">${r.sha256 ? esc(r.sha256.slice(0, 16)) + "…" + copyBtn(r.sha256) : "—"}</td></tr>`).join("")}</tbody></table></div>`
+      : "";
     $("vaPanePe").innerHTML = `<div class="va-grid"><div>${kv([
         ["Format", esc(pe.kind) + (pe.is_dll ? " · DLL" : "") + (pe.is_dotnet ? " · .NET" : "")], ["Machine", `${esc(pe.machine)} (0x${hexN(pe.machine_raw, 4)})`],
-        ["Subsystem", esc(pe.subsystem)], ["Compiled", esc(pe.timestamp_utc || String(pe.timestamp))],
+        ["Subsystem", esc(pe.subsystem)], ["Compiled", `${esc(pe.timestamp_utc || String(pe.timestamp))} (0x${hexN(pe.timestamp || 0, 8)})`],
         ["Entry point", `${esc(pe.entry_point)}${pe.entry_section ? " in " + esc(pe.entry_section) : ""}`], ["Image base", esc(pe.image_base)],
         ["Size of image", `0x${hexN(pe.size_of_image, 1)}`], ["Headers", `0x${hexN(pe.size_of_headers, 1)}`],
         ["Alignment", `section 0x${hexN(pe.section_alignment, 1)} · file 0x${hexN(pe.file_alignment, 1)}`],
       ])}</div><div>${kv([
         ["Characteristics", (pe.characteristics || []).map(esc).join(", ") || "—"], ["DLL characteristics", (pe.dll_characteristics || []).map(esc).join(", ") || "—"],
-        ["Authenticode", pe.has_signature ? "signature block present" : "none"],
+        ["Authenticode", (pe.has_signature ? "signature block present" : "none") + authSubj],
         ["Overlay", pe.overlay_size ? `<a href="#" data-go="${pe.overlay_offset}" style="color:var(--accent)">0x${hexN(pe.overlay_offset, 1)}</a> · ${size(pe.overlay_size)}${pe.overlay_entropy != null ? " · entropy " + pe.overlay_entropy : ""}` : "none"],
-        ["Imports", `${pe.import_count} functions from ${(pe.imports || []).length} DLLs`], ["Exports", `${(pe.exports || []).length}${pe.export_name ? " · " + esc(pe.export_name) : ""}`],
+        ["Imports", `${pe.import_count} functions from ${(pe.imports || []).length} DLLs`],
+        ["Exports", `${(pe.exports || []).length}${pe.export_name ? " · " + esc(pe.export_name) : ""}${pe.exphash ? `<br><span class="hint" style="margin:0">Exphash: <span class="mono">${esc(pe.exphash)}</span>${copyBtn(pe.exphash)}</span>` : ""}`],
+        pe.sections_raw_size ? ["Sections summary", `${pe.sections_raw_size.toLocaleString()} bytes${pe.sections_md5 ? ` · MD5 <span class="mono">${esc(pe.sections_md5)}</span>${copyBtn(pe.sections_md5)}` : ""}${pe.sections_crc32 ? ` · CRC-32 <span class="mono">${esc(pe.sections_crc32)}</span>${copyBtn(pe.sections_crc32)}` : ""}`] : null,
       ])}</div></div>
-      <h3 class="va-h">Sections</h3><div class="tablewrap"><table><thead><tr><th>Name</th><th>VA</th><th class="num">Virtual size</th><th>Raw offset</th><th class="num">Raw size</th><th>Entropy</th><th>Class</th><th>Perms</th><th>Flags</th></tr></thead><tbody>
-      ${(pe.sections || []).map(s => `<tr><td><b>${esc(s.name)}</b></td><td class="mono">${esc(s.virtual_address)}</td><td class="num">${s.virtual_size.toLocaleString()}</td>
+      <h3 class="va-h">Sections</h3><div class="tablewrap"><table><thead><tr><th class="num">#</th><th>Name</th><th>VA</th><th class="num">Virtual size</th><th>Raw offset</th><th class="num">Raw size</th><th>Chars</th><th>MD5</th><th>CRC-32</th><th>Entropy</th><th>Class</th><th>Perms</th><th>Flags</th></tr></thead><tbody>
+      ${(pe.sections || []).map((s, idx) => `<tr><td class="num mono">${s.index ?? idx}</td><td><b>${esc(s.name)}</b></td><td class="mono">${esc(s.virtual_address)}</td><td class="num">${s.virtual_size.toLocaleString()}</td>
         <td class="mono"><a href="#" data-go="${parseInt(s.raw_offset, 16) || 0}" style="color:var(--accent)">${esc(s.raw_offset)}</a></td><td class="num">${s.raw_size.toLocaleString()}</td>
+        <td class="mono">${esc(s.characteristics || "")}</td><td class="mono">${s.md5 ? esc(s.md5) + copyBtn(s.md5) : "—"}</td><td class="mono">${s.crc32 ? esc(s.crc32) + copyBtn(s.crc32) : "—"}</td>
         <td>${entBar(s.entropy)}</td><td>${esc(s.class)}</td><td class="mono">${esc(s.perms)}</td><td style="font-size:11.5px">${(s.flags || []).map(esc).join(", ")}</td></tr>`).join("")}
-      </tbody></table></div>`;
+      </tbody></table></div>${viHtml}${resHtml}`;
   }
 
   // ---------------- imports / exports ----------------

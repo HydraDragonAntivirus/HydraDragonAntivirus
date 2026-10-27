@@ -123,7 +123,7 @@ impl PeStringRules {
         behavior: Option<&hydradragonsig::models::BehaviorTrace>,
     ) -> Vec<Hit> {
         let rs = match self.ruleset.as_ref() {
-            Some(rs) if (!strings.is_empty() || behavior.is_some()) && cap > 0 => rs,
+            Some(rs) if (!data.is_empty() || !strings.is_empty() || behavior.is_some()) && cap > 0 => rs,
             _ => return Vec::new(),
         };
         // The PE is parsed and the entropy computed by hydradragonsig only when a
@@ -144,6 +144,7 @@ impl PeStringRules {
             hashes: Hashes {
                 sha256: sha256_hex.to_string(),
                 md5: String::new(),
+                ..Default::default()
             },
             pe,
             file_type: FileTypeInfo {
@@ -326,10 +327,21 @@ fn evidence_items(line: &str) -> Vec<(String, usize)> {
     items
 }
 
-/// Byte count of a plain hex pattern (`4D 5A ?? 90`, `4d5a`), None when `s` is not one.
+/// Byte count of a plain hex pattern (`4D 5A ?? 90`, `4d5a`, `4D !! 4?`), None when `s` is not one.
 fn hex_pattern_len(s: &str) -> Option<usize> {
-    let tokens = hex_tokens(s)?;
-    (!tokens.is_empty()).then_some(tokens.len())
+    if let Some(tokens) = hex_tokens(s) {
+        return (!tokens.is_empty()).then_some(tokens.len());
+    }
+    let s_clean = s.trim().trim_start_matches('{').trim_end_matches('}').trim();
+    if !s_clean.contains(' ')
+        && !s_clean.contains('?')
+        && !s_clean.contains("!!")
+        && !s_clean.chars().any(|c| c.is_ascii_digit())
+    {
+        return None;
+    }
+    let units = hydradragonsig::rules::pe_anchor::compile(s_clean)?;
+    (!units.is_empty()).then_some(units.len())
 }
 
 fn hex_tokens(s: &str) -> Option<Vec<Option<u8>>> {
@@ -354,9 +366,14 @@ fn hex_tokens(s: &str) -> Option<Vec<Option<u8>>> {
 }
 
 fn hex_pattern_matches(data: &[u8], offset: usize, pattern: &str) -> bool {
-    let Some(tokens) = hex_tokens(pattern) else { return false };
-    let Some(window) = data.get(offset..offset.saturating_add(tokens.len())) else { return false };
-    window.len() == tokens.len() && tokens.iter().zip(window).all(|(t, b)| t.is_none_or(|t| t == *b))
+    if let Some(tokens) = hex_tokens(pattern) {
+        let Some(window) = data.get(offset..offset.saturating_add(tokens.len())) else { return false };
+        return window.len() == tokens.len() && tokens.iter().zip(window).all(|(t, b)| t.is_none_or(|t| t == *b));
+    }
+    let s_clean = pattern.trim().trim_start_matches('{').trim_end_matches('}').trim();
+    let Some(units) = hydradragonsig::rules::pe_anchor::compile(s_clean) else { return false };
+    let Some(window) = data.get(offset..offset.saturating_add(units.len())) else { return false };
+    hydradragonsig::rules::pe_anchor::find_in_range(&units, window) == Some(0)
 }
 
 /// 32 or 64 from the PE optional header magic (0x10b / 0x20b).

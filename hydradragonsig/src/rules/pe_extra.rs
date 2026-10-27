@@ -642,6 +642,67 @@ fn is_name_oid(oid: &[u8]) -> bool {
     matches!(oid, [0x55, 0x04, 0x03] | [0x55, 0x04, 0x0A] | [0x55, 0x04, 0x0B])
 }
 
+/// Parse Authenticode signer subjects, `VS_VERSIONINFO`, and resource blobs in a
+/// single pass for static analysis reports (such as VirusKovAlyzer).
+pub fn inspect_pe_extras(
+    bytes: &[u8],
+) -> Option<(Authenticode, Option<VersionInfo>, Vec<ResourceBlob>)> {
+    let parsed = pefile_rs::PE::parse(bytes).ok()?;
+    let pe = PeInfo {
+        arch: String::new(),
+        is_64: parsed.is_64bit,
+        entry: parsed.optional_header.address_of_entry_point as u64,
+        image_base: parsed.optional_header.image_base,
+        imports: Vec::new(),
+        exports: Vec::new(),
+        dlls: Vec::new(),
+        suspicious_imports: Vec::new(),
+        sections: parsed
+            .sections
+            .iter()
+            .map(|s| crate::models::PeSectionInfo {
+                name: s.name.split('\0').next().unwrap_or("").to_string(),
+                virtual_size: s.virtual_size as u64,
+                raw_size: s.size_of_raw_data as u64,
+                entropy: 0.0,
+                characteristics: s.characteristics,
+                virtual_address: s.virtual_address as u64,
+                raw_offset: s.pointer_to_raw_data as u64,
+            })
+            .collect(),
+        suspicious_sections: Vec::new(),
+        likely_packed: false,
+        time_date_stamp: parsed.file_header.time_date_stamp,
+        imphash: None,
+        data_directories: parsed
+            .optional_header
+            .data_directories
+            .iter()
+            .map(|d| (d.virtual_address, d.size))
+            .collect(),
+    };
+    let auth = authenticode(bytes, &pe).unwrap_or_default();
+    let (ver, blobs) = match parsed.resources.as_ref() {
+        Some(dir) => {
+            let blobs = resource_blobs(&pe, bytes, dir);
+            let ver = blobs
+                .iter()
+                .find(|b| {
+                    b.type_id & 0x7fff_ffff == 14
+                        || b.type_label.eq_ignore_ascii_case("RT_VERSION")
+                })
+                .map(|b| {
+                    let mut info = parse_version_blob(b.data(bytes));
+                    info.present = true;
+                    info
+                });
+            (ver, blobs)
+        }
+        None => (None, Vec::new()),
+    };
+    Some((auth, ver, blobs))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

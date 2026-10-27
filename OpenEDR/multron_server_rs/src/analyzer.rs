@@ -102,26 +102,58 @@ pub struct PeInfo {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub export_name: Option<String>,
     pub exports: Vec<ExportInfo>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub exphash: Option<String>,
+    #[serde(default)]
+    pub sections_raw_size: u64,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub sections_md5: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub sections_crc32: String,
     pub overlay_offset: u64,
     pub overlay_size: u64,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub overlay_entropy: Option<f64>,
     pub has_signature: bool,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub authenticode_subjects: Vec<String>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub version_info: BTreeMap<String, String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub resources: Vec<ResourceReport>,
 }
 
 #[derive(Debug, Clone, Serialize)]
 pub struct SectionInfo {
+    pub index: usize,
     pub name: String,
     pub virtual_address: String,
     pub virtual_size: u32,
     pub raw_offset: String,
     pub raw_size: u32,
+    pub characteristics: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub md5: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub crc32: String,
     pub entropy: f64,
     /// "packed" (>= 7.2) | "dense" (>= 6.5) | "normal"
     pub class: &'static str,
     /// e.g. "R-X", "RW-"
     pub perms: String,
     pub flags: Vec<&'static str>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ResourceReport {
+    pub type_label: String,
+    pub name: String,
+    pub lang_id: u32,
+    pub offset: u64,
+    pub size: u64,
+    pub md5: String,
+    pub sha256: String,
+    pub crc32: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -239,7 +271,7 @@ pub fn analyze(data: &[u8], file_name: &str) -> FileReport {
     let entropy = round2(shannon(data));
     let (file_type, mime) = detect_type(data, file_name);
 
-    let pe = parse_pe(data, &mut indicators);
+    let pe = parse_pe(data, &mut indicators, true);
     let imphash = pe.as_ref().and_then(|p| imphash(&p.imports));
     let strings = extract_strings(data);
 
@@ -302,7 +334,7 @@ pub fn dex_tlsh(data: &[u8]) -> Option<String> {
 pub fn analyze_light(data: &[u8], file_name: &str) -> FileReport {
     let mut indicators = Vec::new();
     let (file_type, mime) = detect_type(data, file_name);
-    let pe = parse_pe(data, &mut indicators);
+    let pe = parse_pe(data, &mut indicators, false);
     let imphash = pe.as_ref().and_then(|p| imphash(&p.imports));
     if let Some(p) = &pe {
         api_indicators(&p.imports, &mut indicators);
@@ -499,7 +531,7 @@ fn subsystem_name(s: u16) -> String {
     }
 }
 
-fn parse_pe(d: &[u8], ind: &mut Vec<Indicator>) -> Option<PeInfo> {
+fn parse_pe(d: &[u8], ind: &mut Vec<Indicator>, full: bool) -> Option<PeInfo> {
     if rd_u16(d, 0)? != 0x5A4D {
         return None;
     }
@@ -545,6 +577,8 @@ fn parse_pe(d: &[u8], ind: &mut Vec<Indicator>) -> Option<PeInfo> {
     let mut secs = Vec::new();
     let mut sections = Vec::new();
     let mut end_of_raw: u64 = size_headers as u64;
+    let mut sections_raw_size: u64 = 0;
+    let mut all_sec_raw: Vec<u8> = Vec::new();
     for i in 0..nsec.min(MAX_SECTIONS) {
         let o = sec_start + i * 40;
         let Some(raw_name) = d.get(o..o + 8) else { break };
@@ -561,6 +595,14 @@ fn parse_pe(d: &[u8], ind: &mut Vec<Indicator>) -> Option<PeInfo> {
         let start = raw_ptr as usize;
         let end = (start + raw_size as usize).min(d.len());
         let ent = if start < end { round2(shannon(&d[start..end])) } else { 0.0 };
+        let (sec_md5, sec_crc32) = if full && start < end && raw_size > 0 {
+            let slice = &d[start..end];
+            all_sec_raw.extend_from_slice(slice);
+            (hex::encode(md5(slice)), format!("{:08X}", crc32(slice)))
+        } else {
+            (String::new(), String::new())
+        };
+        sections_raw_size = sections_raw_size.saturating_add(raw_size as u64);
         if raw_size > 0 {
             end_of_raw = end_of_raw.max(raw_ptr as u64 + raw_size as u64);
         }
@@ -599,17 +641,26 @@ fn parse_pe(d: &[u8], ind: &mut Vec<Indicator>) -> Option<PeInfo> {
 
         secs.push(Sec { va, vsize, raw_ptr, raw_size });
         sections.push(SectionInfo {
+            index: i,
             name,
             virtual_address: format!("0x{va:08X}"),
             virtual_size: vsize,
             raw_offset: format!("0x{raw_ptr:08X}"),
             raw_size,
+            characteristics: format!("0x{sch:08X}"),
+            md5: sec_md5,
+            crc32: sec_crc32,
             entropy: ent,
             class,
             perms: format!("{}{}{}", if r { 'R' } else { '-' }, if w { 'W' } else { '-' }, if x { 'X' } else { '-' }),
             flags,
         });
     }
+    let (sections_md5, sections_crc32) = if full && !all_sec_raw.is_empty() {
+        (hex::encode(md5(&all_sec_raw)), format!("{:08X}", crc32(&all_sec_raw)))
+    } else {
+        (String::new(), String::new())
+    };
 
     // entry section
     let entry_section = secs.iter().position(|s| entry >= s.va && entry < s.va.saturating_add(s.vsize.max(s.raw_size))).map(|i| sections[i].name.clone());
@@ -775,6 +826,60 @@ fn parse_pe(d: &[u8], ind: &mut Vec<Indicator>) -> Option<PeInfo> {
         if is_dotnet { format!("{sub}, .NET") } else { sub.clone() }
     );
 
+    let exphash = if full {
+        let joined: String = exports
+            .iter()
+            .filter_map(|e| (!e.name.is_empty()).then(|| e.name.to_ascii_lowercase()))
+            .collect::<Vec<_>>()
+            .join(",");
+        (!joined.is_empty()).then(|| hex::encode(md5(joined.as_bytes())))
+    } else {
+        None
+    };
+
+    let (authenticode_subjects, version_info, resources) = if full {
+        match hydradragonsig::rules::pe_extra::inspect_pe_extras(d) {
+            Some((auth, ver, blobs)) => {
+                let mut vi = ver.map(|v| {
+                    let mut map = v.fields;
+                    if !map.contains_key("fileversion")
+                        && let Some((a, b, c, d)) = v.file_version
+                    {
+                        map.insert("fileversion".into(), format!("{a}.{b}.{c}.{d}"));
+                    }
+                    if !map.contains_key("productversion")
+                        && let Some((a, b, c, d)) = v.product_version
+                    {
+                        map.insert("productversion".into(), format!("{a}.{b}.{c}.{d}"));
+                    }
+                    map
+                }).unwrap_or_default();
+                vi.retain(|_, v| !v.is_empty());
+                let res: Vec<ResourceReport> = blobs
+                    .iter()
+                    .take(256)
+                    .map(|b| {
+                        let raw = b.data(d);
+                        ResourceReport {
+                            type_label: b.type_label.clone(),
+                            name: b.name.clone(),
+                            lang_id: b.lang_id,
+                            offset: b.data_offset,
+                            size: b.data_size,
+                            md5: hex::encode(md5(raw)),
+                            sha256: hex::encode(Sha256::digest(raw)),
+                            crc32: format!("{:08X}", crc32(raw)),
+                        }
+                    })
+                    .collect();
+                (auth.subjects, vi, res)
+            }
+            None => (Vec::new(), BTreeMap::new(), Vec::new()),
+        }
+    } else {
+        (Vec::new(), BTreeMap::new(), Vec::new())
+    };
+
     Some(PeInfo {
         kind,
         machine: machine_name(machine),
@@ -803,16 +908,23 @@ fn parse_pe(d: &[u8], ind: &mut Vec<Indicator>) -> Option<PeInfo> {
         imports,
         export_name,
         exports,
+        exphash,
+        sections_raw_size,
+        sections_md5,
+        sections_crc32,
         overlay_offset,
         overlay_size,
         overlay_entropy,
         has_signature,
+        authenticode_subjects,
+        version_info,
+        resources,
     })
 }
 
 /// Imphash, import count and .NET flag of a PE, without the rest of the report.
 pub fn pe_imphash(data: &[u8]) -> Option<(String, usize, bool)> {
-    let pe = parse_pe(data, &mut Vec::new())?;
+    let pe = parse_pe(data, &mut Vec::new(), false)?;
     Some((imphash(&pe.imports)?, pe.import_count, pe.is_dotnet))
 }
 

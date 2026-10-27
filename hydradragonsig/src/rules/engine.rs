@@ -2034,11 +2034,15 @@ fn evaluate_condition(
             .sha256
             .eq_ignore_ascii_case(value.trim())
             .then(|| "sha256 hash matched".to_string()),
-        RuleCondition::HashMd5 { value } => report
-            .hashes
-            .md5
-            .eq_ignore_ascii_case(value.trim())
-            .then(|| "md5 hash matched".to_string()),
+        RuleCondition::HashMd5 { value } => {
+            let got = if report.hashes.md5.is_empty() {
+                crate::utils::hash::md5_hex(bytes)
+            } else {
+                report.hashes.md5.clone()
+            };
+            got.eq_ignore_ascii_case(value.trim())
+                .then(|| "md5 hash matched".to_string())
+        }
         RuleCondition::HashSha1 { value } => {
             let got = if report.hashes.sha1.is_empty() {
                 crate::utils::hash::sha1_hex(bytes)
@@ -2602,7 +2606,10 @@ fn evaluate_condition(
                         continue;
                     }
                 }
-                hits.push(format!("{}/{} ({}B)", blob.type_label, blob.name, blob.data_size));
+                hits.push(format!(
+                    "{}/{} ({}B @0x{:x})",
+                    blob.type_label, blob.name, blob.data_size, blob.data_offset
+                ));
                 if hits.len() >= needed {
                     break;
                 }

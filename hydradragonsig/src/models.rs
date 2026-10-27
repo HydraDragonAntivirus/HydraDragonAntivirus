@@ -383,7 +383,7 @@ fn normalize_file_type_name(value: &str) -> String {
     out.trim_matches('_').to_string()
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct PeSectionInfo {
     pub name: String,
     pub virtual_size: u64,
@@ -396,7 +396,7 @@ pub struct PeSectionInfo {
     pub raw_offset: u64,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct PeInfo {
     pub arch: String,
     pub is_64: bool,
