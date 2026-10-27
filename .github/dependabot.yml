@@ -1,18 +1,89 @@
 version: 2
 
+# Every manifest in the repository ("**/*"), per ecosystem. Old copies and third-party
+# code kept only for reference are left out (exclude-paths). Minor and patch updates of
+# an ecosystem come as one pull request; a major update comes on its own.
+
 updates:
-  # Python (Poetry / pip)
-  - package-ecosystem: "pip"
-    directory: "/"                 # Location of pyproject.toml / poetry.lock
+  # Rust (Cargo): every crate and workspace
+  - package-ecosystem: "cargo"
+    directories:
+      - "**/*"
+    exclude-paths:
+      - "Owlyshield/owlyshield_predict-old/**"
+      - "hydradragonclamav_old/**"
     schedule:
       interval: "weekly"
-    # Optional settings:
-    # rebase-strategy: "auto"
-    # allow:
-    #   - dependency-type: "direct" # "direct" or "all"
+    open-pull-requests-limit: 10
+    groups:
+      cargo-minor-patch:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
 
-  # Rust (Cargo)
-  - package-ecosystem: "cargo"
-    directory: "HydraDragonFirewall/hydradragonfirewall"
+  # Python (pyproject.toml / requirements.txt)
+  - package-ecosystem: "pip"
+    directories:
+      - "**/*"
+    exclude-paths:
+      - "OpenEDR/edrav2/**"
+      - "Owlyshield/HyperDbg/**"
+      - "Owlyshield/ia32-doc/**"
+      - "hydradragon/old_machine_learning/**"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 10
+    groups:
+      pip-minor-patch:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+
+  # JavaScript (package.json)
+  - package-ecosystem: "npm"
+    directories:
+      - "**/*"
+    schedule:
+      interval: "weekly"
+    groups:
+      npm-minor-patch:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+
+  # C# (.csproj)
+  - package-ecosystem: "nuget"
+    directories:
+      - "**/*"
+    exclude-paths:
+      - "OpenEDR/edrav2/**"
+      - "Owlyshield/HyperDbg/**"
+    schedule:
+      interval: "weekly"
+    groups:
+      nuget-minor-patch:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+
+  # Go (go.mod)
+  - package-ecosystem: "gomod"
+    directories:
+      - "**/*"
+    schedule:
+      interval: "weekly"
+    groups:
+      gomod-minor-patch:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+
+  # Workflow actions (.github/workflows and .github/actions)
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    groups:
+      actions:
+        patterns: ["*"]
+
+  # Git submodules (unicorn, hayabusa, TinyAntivirus libs)
+  - package-ecosystem: "gitsubmodule"
+    directory: "/"
     schedule:
       interval: "weekly"
