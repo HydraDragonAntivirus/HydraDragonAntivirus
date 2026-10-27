@@ -1,0 +1,89 @@
+rules:
+- id: VK-HACKTOOL-GSMGOATMDM
+  title: GSM Goat MDM bypass loader
+  description: MDM/FRP bypass tool loader (GOAT UNLOCKER PRO).
+  severity: medium
+  verdict: suspicious
+  confidence: 85
+  score: 60
+  family: HackTool.MSIL.PhoneUnlock
+  tags:
+  - analyst
+  - hacktool
+  - frp
+  logic: all
+  conditions:
+  - type: string_set
+    values:
+    - GSM GOAT MDM
+    - GSM_GOAT_MDM_TOOL
+    - GOAT UNLOCKER PRO
+    min: 2
+    wide: true
+- id: VK-HACKTOOL-FRPEDL
+  title: FRP EDL flash tool
+  description: Qualcomm EDL FRP reset tool.
+  severity: medium
+  verdict: suspicious
+  confidence: 85
+  score: 60
+  family: HackTool.MSIL.PhoneUnlock
+  tags:
+  - analyst
+  - hacktool
+  - frp
+  logic: all
+  conditions:
+  - type: string_set
+    values:
+    - FRP EDL Flash Tool
+    - OpResetFrp
+    - patch_frp.xml
+    - No FRP partitions found.
+    min: 2
+    wide: true
+- id: VK-HACKTOOL-TUNAPRO
+  title: TunaProTool FRP tool
+  description: FRP erase / unlock tool.
+  severity: medium
+  verdict: suspicious
+  confidence: 85
+  score: 60
+  family: HackTool.MSIL.PhoneUnlock
+  tags:
+  - analyst
+  - hacktool
+  - frp
+  logic: all
+  conditions:
+  - type: string_set
+    values:
+    - tunaprotool.com
+    - frpcore_unlock_vault
+    - frpcore_make_session_token
+    - EraseFRP
+    min: 2
+    wide: true
+- id: VK-HACKTOOL-MASTERUNLOCK
+  title: Master Unlock Tool
+  description: Samsung/Android FRP and bootloader unlock tool.
+  severity: medium
+  verdict: suspicious
+  confidence: 85
+  score: 60
+  family: HackTool.MSIL.PhoneUnlock
+  tags:
+  - analyst
+  - hacktool
+  - frp
+  logic: all
+  conditions:
+  - type: string_set
+    values:
+    - Unlocking Frp...
+    - Factory Reset+FRP
+    - FrpRemoveRdo
+    - getvar unlocked
+    - Unlock HWID
+    min: 3
+    wide: true

@@ -1,0 +1,21 @@
+rules:
+- id: VK-RISKWARE-SUPERUSER
+  title: superUser TrustedInstaller launcher
+  description: Starts arbitrary processes as TrustedInstaller with token privileges.
+  severity: medium
+  verdict: suspicious
+  confidence: 85
+  score: 60
+  family: Riskware.Win64.SuperUser
+  tags:
+  - analyst
+  - riskware
+  logic: all
+  conditions:
+  - type: string_set
+    values:
+    - Run any process with TrustedInstaller privileges
+    - superUser.exe [options]
+    - Could not open/start the TrustedInstaller service
+    min: 2
+    wide: true

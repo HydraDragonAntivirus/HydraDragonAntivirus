@@ -1,0 +1,31 @@
+rules:
+- id: VK-VIRUS-TJPROJMAIN
+  title: TJprojMain VB6 prepender virus
+  description: VB6 stub (Project1 / TJprojMain.exe) prepended to host programs; uses wininet URLDownloadToFile, registry writes and IE window hooks, and drops itself as svchost.exe / explorer.exe under
+    %WINDIR%\Resources. Seen on rufus, 7-Zip, YUMI, phone tools and installers from test-pc1.
+  severity: critical
+  verdict: malware
+  confidence: 95
+  score: 100
+  family: Virus.Win32.TJprojMain
+  tags:
+  - analyst
+  - virus
+  - prepender
+  - vb6
+  logic: all
+  conditions:
+  - type: native_signature
+    expression: PE32
+  - type: string_contains
+    value: TJprojMain
+    wide: true
+  - type: string_set
+    wide: true
+    values:
+    - TJprojMain.exe
+    - MSVBVM60.DLL
+    - ShellIE_WindowRegistered
+    - URLDownloadToFile
+    - mdlReg
+    min: 3

@@ -1,0 +1,25 @@
+rules:
+- id: VK-PUA-UTORRENTWEB-INSTALLER
+  title: uTorrent Web installer with offer engine
+  description: >-
+    BitTorrent Inc uTorrent Web installer (utweb_installer.exe). Its setup runs an offer
+    engine that shows third-party offers ("MULTIPLE OFFERS W/O VERTICAL", "SAME VERTICAL
+    OFFER ALREADY PRESENT") and the installed client adds itself to autostart.
+  severity: low
+  verdict: pua
+  confidence: 90
+  score: 50
+  family: PUA.Win32.uTorrentWeb
+  tags: [analyst, pua, bundler, torrent]
+  logic: all
+  conditions:
+  - type: string_contains
+    value: uTorrent Web
+    wide: true
+  - type: string_set
+    min: 1
+    wide: true
+    values:
+    - MULTIPLE OFFERS W/O VERTICAL
+    - SAME VERTICAL OFFER ALREADY PRESENT
+    - EXCLUSIVE, BUT ANOTHER OFFER ALREADY PRESENT

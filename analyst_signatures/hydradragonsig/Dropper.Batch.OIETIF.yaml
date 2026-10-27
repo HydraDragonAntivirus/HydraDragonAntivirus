@@ -1,0 +1,23 @@
+rules:
+- id: VK-DROPPER-BAT-OIETIF
+  title: OIETIF batch launcher
+  description: Batch that rebuilds the OIETIF payload as %APPDATA%\s.exe from x.js / z.zip, starts it and deletes its traces
+  severity: high
+  verdict: malware
+  confidence: 90
+  score: 90
+  family: Dropper.Batch.OIETIF
+  tags:
+  - analyst
+  - dropper
+  - batch
+  logic: any
+  conditions:
+  - type: string_set
+    min: 4
+    nocase: true
+    values:
+    - '%appdata%\s.exe'
+    - del x.js
+    - del z.zip
+    - start "" %v%

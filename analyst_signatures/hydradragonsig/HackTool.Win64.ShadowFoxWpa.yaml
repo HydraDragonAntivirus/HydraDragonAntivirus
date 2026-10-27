@@ -1,0 +1,24 @@
+rules:
+- id: VK-HACKTOOL-SHADOWFOXWPA
+  title: ShadowFox WPA2/WPA3/PMKID Wi-Fi cracker
+  description: Wraps aircrack-ng / hashcat for WPA handshake and PMKID attacks.
+  severity: high
+  verdict: suspicious
+  confidence: 85
+  score: 80
+  family: HackTool.Win64.ShadowFoxWpa
+  tags:
+  - analyst
+  - hacktool
+  - wifi
+  logic: all
+  conditions:
+  - type: string_set
+    values:
+    - SHADOWFOX WPA3
+    - shadowfoxwpa_embedded
+    - saldiri_wpa2
+    - saldiri_wpa3
+    - pmkid_hashcat
+    - wpa3_wacker
+    min: 3

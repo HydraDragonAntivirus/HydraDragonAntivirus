@@ -1,0 +1,39 @@
+rules:
+- id: VK-TROJAN-HTA-INPROCSVR32
+  title: Hidden HTA launcher for ProgramData\InProcSvr32 payload
+  description: Startup-folder HTA that silently runs an exe from C:\ProgramData\InProcSvr32 (COM-key look-alike folder).
+  severity: critical
+  verdict: malware
+  confidence: 85
+  score: 100
+  family: Trojan.HTA.Starter
+  tags:
+  - analyst
+  - persistence
+  logic: all
+  conditions:
+  - type: string_contains
+    value: HTA:APPLICATION
+    nocase: true
+  - type: string_contains
+    value: ProgramData\\InProcSvr32\\
+    nocase: true
+- id: VK-TROJAN-BAT-INPROCSVR32
+  title: Batch launcher for ProgramData\InProcSvr32 payload
+  description: Batch file that starts an exe from C:\ProgramData\InProcSvr32.
+  severity: critical
+  verdict: malware
+  confidence: 85
+  score: 100
+  family: Trojan.Batch.Starter
+  tags:
+  - analyst
+  - persistence
+  logic: all
+  conditions:
+  - type: string_contains
+    value: '@echo off'
+    nocase: true
+  - type: string_contains
+    value: ProgramData\InProcSvr32\
+    nocase: true

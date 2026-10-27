@@ -1,0 +1,29 @@
+rules:
+- id: VK-TROJAN-PYSPY
+  title: PyInstaller spyware bundle (nedx config, mss screen capture, websockets)
+  description: Hidden-window PyInstaller build carrying a nedx.json config, mss screen capture and websockets C2; seen masquerading as HD Audio binaries under %LOCALAPPDATA%\CarshPacket\Chaces.
+  severity: critical
+  verdict: malware
+  confidence: 85
+  score: 100
+  family: Trojan.Win64.PySpy
+  tags:
+  - analyst
+  - spyware
+  - pyinstaller
+  logic: all
+  conditions:
+  - type: native_signature
+    expression: PE64
+  - type: string_set
+    values:
+    - _pyinstaller_pyz
+    - nedx.json
+  - type: string_set
+    min: 2
+    values:
+    - mss\tools.py
+    - websockets
+    - pynput.keyboard
+    - windows\hooks.py
+    - shadowcopy-

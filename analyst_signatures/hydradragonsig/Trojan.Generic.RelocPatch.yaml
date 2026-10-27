@@ -1,0 +1,37 @@
+# A .reloc section that is writable and executable and nearly random: the
+# relocation table was replaced with a payload (patched binaries). Linkers always
+# emit .reloc as read-only data. Retrohunt: 0 of ~34300 stored PE (clean,
+# malicious and suspicious) have a writable+executable .reloc at all.
+rules:
+- id: VK-TROJAN-RELOCPATCH-64
+  title: Payload in a writable, executable .reloc section (64-bit)
+  severity: critical
+  verdict: malware
+  confidence: 90
+  score: 100
+  family: Trojan.Win64.RelocPatch
+  tags: [analyst, patched, generic]
+  logic: all
+  conditions:
+  - type: native_signature
+    expression: PE64
+  - type: pe_section
+    name_regex: ^\.reloc$
+    flags_all: [write, execute]
+    entropy_min: 7.0
+- id: VK-TROJAN-RELOCPATCH-32
+  title: Payload in a writable, executable .reloc section (32-bit)
+  severity: critical
+  verdict: malware
+  confidence: 90
+  score: 100
+  family: Trojan.Win32.RelocPatch
+  tags: [analyst, patched, generic]
+  logic: all
+  conditions:
+  - type: native_signature
+    expression: PE32
+  - type: pe_section
+    name_regex: ^\.reloc$
+    flags_all: [write, execute]
+    entropy_min: 7.0

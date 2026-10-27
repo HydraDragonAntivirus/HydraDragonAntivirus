@@ -1,0 +1,91 @@
+# 2026-10-13 00:34 UTC | analyst: Emirhan Uçan | sample: ec887b5dcda6ed849b4636635ebce46883263e827e9aa1a0e3e0479410b5f25b 7.chunk.js
+# reason: Cause many fps on javascript files
+Xls.Macro.SYLKAgent-7374702-0
+
+# 2026-10-14 19:46 UTC | analyst: Emirhan Uçan | sample: 71145ac929f09b9b63c98123481527cda5677c9bacdd5194ce3e58dc9fda9625 avformat-59.dll
+# reason: FP: Matches stock FFmpeg libavformat (AMD, FDM, Movavi, MS)
+Win.Trojan.CVE_2012_0754-4
+
+# 2026-10-14 19:46 UTC | analyst: Emirhan Uçan | sample: 71145ac929f09b9b63c98123481527cda5677c9bacdd5194ce3e58dc9fda9625 avformat-59.dll
+# reason: FP: Matches stock FFmpeg libavformat
+Win.Trojan.CVE_2012_0754-5
+
+# 2026-10-14 19:46 UTC | analyst: Emirhan Uçan | sample: 377bbf40f4979ba6ebc77dfba25e63ddbc57da55a49a3e1e66944378dc86bb0e SDTasks.dll
+# reason: FP: Matches signed Spybot S&D modules
+PUA.Win.Adware.Graftor-6888004-0
+
+# 2026-10-14 19:46 UTC | analyst: Emirhan Uçan | sample: 94592cf5e0158523729e2e45ce7865142feff9e271cb918b5232092de53c2683 TreeSizeFree.exe
+# reason: FP: Matches signed TreeSize Free
+Win.Dropper.Flood-5700356-0
+
+# 2026-10-14 19:46 UTC | analyst: Emirhan Uçan | sample: b50d068533d1d88455b1cb69e9cb90cb9251ec00769d78013f6a3355b2c43513 WinMergeU.exe
+# reason: FP: Matches signed WinMerge
+Win.Trojan.GenericFF-8
+
+# 2026-10-14 19:46 UTC | analyst: Emirhan Uçan | sample: e7d78c1469fcb74b8fd86a7f4e516f3035c9af556cf90c2bb2ae06520d76a2a7 PhotoViewer.dll
+# reason: FP: Matches Windows PhotoViewer.dll
+Win.Trojan.Ag-18
+
+# 2026-10-14 19:46 UTC | analyst: Emirhan Uçan | sample: a4b8153f4e10ed786c980692b5b08259ede3e45ca79b3f131339dcb6e22069b8 nptswp.dll.locale
+# reason: FP: Only hits signed Qihoo 360 binaries/locale files
+PUA.Win.Trojan.Winlock-6629293-0
+
+# 2026-10-14 19:46 UTC | analyst: Emirhan Uçan | sample: fd4631ff9d9526449db92c686a5dab4a228b54f04486572e57200a0b1be01c03 WDPayPro.exe
+# reason: FP: Matches signed Qihoo 360 setup components
+Win.Trojan.Generickds-10033145-0
+
+# 2026-10-14 19:46 UTC | analyst: Emirhan Uçan | sample: 105f99a291297dcaa8cb7885ef3db2d93be9e729cd792567c96f7fc177d33e15 SoftMgr.exe
+# reason: FP: Matches signed Qihoo 360 SoftMgr
+Win.Trojan.Ulise-9645830-0
+
+# 2026-10-14 19:46 UTC | analyst: Emirhan Uçan | sample: 3a83a34b68a906cbf722efc0a38d4f9a33585bd34a2083c3c7e4ab8fe9d30ede aswEngin.dll
+# reason: FP: Matches signed Avast definition modules
+PUA.Win.Trojan.Agent-37077
+
+# 2026-10-14 19:46 UTC | analyst: Emirhan Uçan | sample: 10de6c5a6b643290c026b84adba0ae14577ca1193557fb5132966fbc7676b654 msvcr120.dll
+# reason: FP: Matches Microsoft VC++ runtime msvcr120.dll
+PUA.Win.Dropper.Ghokswa-6651872-0
+
+# 2026-10-14 19:46 UTC | analyst: Emirhan Uçan | sample: dfe62ca60e4f30ce93522038ca18ed0f43dcc07922dcf20c1456ffe527b8499e CCleaner.exe
+# reason: FP: Matches signed CCleaner
+Win.Malware.Pikabot-10037545-0
+
+# 2026-10-14 19:46 UTC | analyst: Emirhan Uçan | sample: 33ba9f600b4c222c5447382c0ef614c14e82f07f3d5ffa266569d6959f39971e mc_config_mp2m.dll
+# reason: FP: Matches signed MAGIX plug-in (signature intact, not infected)
+Win.Virus.Ramnit-9958679-0
+
+# 2026-10-18 20:54 UTC | analyst: Claude | sample: adaefa90d49ee0b24be6f6c9d378cdb6b3f24a714441ea4d6b4e14ecc8fa9a06 win-service.exe
+# reason: FP: matches the validly signed Total VPN service (Total Security Limited, 49 MB native service); no NanoCore strings, plugin interfaces or .NET runtime.
+Win.Dropper.Nanocore-7890545-0
+
+# 2026-10-23 13:42 UTC | analyst: Emirhan Uçan | sample: 044897532d4df2ed73c6ed4d0214683927c386a8ecb057249e1a068ae6c4ed32 MHLab.PATCH.dll
+# reason: Only ClamAV flags this at virustotal. So it's false alarm
+Win.Packed.Jalapeno-10059855-0
+
+# 2026-10-24 10:25 UTC | analyst: Emirhan Uçan | sample: f3bf868a0b3ef76b66e80044aad6b9082e69317f6bd8646eb0ff4eea7cc5e953 BaiduNetdisk.exe
+# reason: Baidu application and only false positive come from ClamAV
+Win.Malware.Malwarex-10058820-0
+
+# 2026-10-24 14:51 UTC | analyst: Emirhan Uçan | sample: 26d76513ccd8ba9402668402f746354b2c204cd121b7e48728881f88419b4f39 DuiLib.dll
+# reason: It's antivirus Huorong is not PUA
+PUA.Win.Tool.HRSword-10025943-0
+
+# 2026-10-24 15:54 UTC | analyst: Claude | sample: 98cd8f5352f3cb29ad54dcf161396f780527cdf654516b448fea5c998259321f 075fb508-d2ba-490e-ad7b-b4146d6b528d.tmp.js
+# reason: FP: matches minified React/Vite web bundles (*.tmp.js, 10 MB app bundle), no hacktool content
+PUA.Win.Tool.Hacktool-1840
+
+# 2026-10-24 15:54 UTC | analyst: Claude | sample: 67b7529d0606d3cc40a4830c916d6bdcbb0ace44400dc575e2cf753e590a8cc0 entry.js
+# reason: FP: matches minified JavaScript bundles (webpack/Vite/Lit: vendors.js, main.js, entry.js, sm.bundle.js, Edge extension); signature is meant for XOR-encoded PE
+PUA.Win.Trojan.Xored-1
+
+# 2026-10-24 15:57 UTC | analyst: Claude | sample: cd7aa8e248d1135d55662d0f826a4a5f6d72471bb692ad35a30be4c6569fee05 RogueKiller_portable64_v13.5.2.0.exe
+# reason: FP: hits RogueKiller signed by Adlice (the vendor own anti-malware product)
+Win.Exploit.Adlice-10056426-0
+
+# 2026-10-24 15:57 UTC | analyst: Claude | sample: cd7aa8e248d1135d55662d0f826a4a5f6d72471bb692ad35a30be4c6569fee05 RogueKiller_portable64_v13.5.2.0.exe
+# reason: FP: hits RogueKiller signed by Adlice (the vendor own anti-malware product)
+Win.Exploit.Adlice-10056428-0
+
+# 2026-10-24 16:24 UTC | analyst: Claude | sample: fc3ac6076b678b409b1d48788efc755a9463c330f86b10c4c090cafa19dee4cd usbipd.exe
+# reason: FP: new sig, only hits usbipd.exe (GearUP signed) and Blast.Service.exe, both 0 detections on VirusTotal (confirmed by Emirhan)
+Win.Malware.Aotera-10060486-0

@@ -1,0 +1,28 @@
+rules:
+- id: VK-DOWNLOADER-OFFLOADER-INNO
+  title: OffLoader Inno Setup offer downloader
+  description: >-
+    Inno Setup installer whose [Code] downloads offer installers to {tmp}\eldN.exe from a
+    tracking server, runs them silently (/S, /qn) and reports each step back
+    (r=offer_execution, offer_execution_fail, offer_exists, d=inno). Seen bundling
+    proxyware (Microleaves / WorldProxyPool) behind a fake "Velocity Executor" game tool.
+    Matches the compiled [Code] that hydradragonextractor (innospect) pulls out of the
+    installer as the members [inno]/compiled_code.ifps and [inno]/setup0.bin (UTF-16 strings).
+  severity: high
+  verdict: malware
+  confidence: 90
+  score: 90
+  family: Downloader.Win32.OffLoader
+  tags: [analyst, downloader, offloader, inno-setup, bundler, proxyware]
+  logic: all
+  conditions:
+  - type: string_set
+    min: 3
+    wide: true
+    values:
+    - r=offer_execution&
+    - r=offer_execution_fail&
+    - r=offer_exists&
+    - '&d=inno&'
+    - states.log
+    - DOWNLOADTEMPORARYFILE

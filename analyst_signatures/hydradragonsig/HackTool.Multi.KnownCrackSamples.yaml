@@ -1,0 +1,147 @@
+rules:
+- id: VK-HASH-ADWARE-WIN32-DVDVIDEOSOFT
+  title: Adware.Win32.DVDVideoSoft known samples (exact hash)
+  description: 'Analyst-reviewed samples: dlmgr.dll, dvssyshelper.dll'
+  severity: medium
+  verdict: pua
+  confidence: 100
+  score: 60
+  family: Adware.Win32.DVDVideoSoft
+  tags:
+  - analyst
+  - hash
+  logic: any
+  conditions:
+  - type: hash_sha256
+    value: 85d90860f60780717c0bd659f82bfd8e33d5e5a0035c1e987544ec05a23d3a40
+  - type: hash_sha256
+    value: 9bbdf19674c3cf1d9bed6a250556c37230d40e89fc9a20463ba409122549db85
+- id: VK-HASH-HACKTOOL-WIN32-CRACK
+  title: HackTool.Win32.Crack known samples (exact hash)
+  description: "Analyst-reviewed samples: ASC.exe, Apowersoft.CommUtilities.dll, DD.dll, DD.exe, Patch g\xE9n\xE9rique Revo Uninstaller Pro 1.2 - Majax31.exe, Scan.dll, ScriptPortal.Vegas.dll, SecureDelete.exe,\
+    \ lrepacks.dll, madexcept_.bpl, vegas200.exe"
+  severity: medium
+  verdict: suspicious
+  confidence: 100
+  score: 60
+  family: HackTool.Win32.Crack
+  tags:
+  - analyst
+  - hash
+  logic: any
+  conditions:
+  - type: hash_sha256
+    value: 4bb40c36b1c25ad221e7c6a1f236540e3da404d8c9358746476ce02d820eca96
+  - type: hash_sha256
+    value: 6c2f94b439e1c3bad8c2cb555746dc6d8fc41121e5bd9078417d1507993933c9
+  - type: hash_sha256
+    value: ae99cd3cc9d4e78a99218d460fe96dc64bd5e6f83e422fb2f65a4d2f216b4c2a
+  - type: hash_sha256
+    value: ef336831c4d12ef8fb98864ce90930941b92998c6284a104d6a7327b2afbe352
+  - type: hash_sha256
+    value: f6df71debf5721e70a0f0edf2ac0fd9e969ae0d637102ea83e1cd38ed17aae16
+  - type: hash_sha256
+    value: fc49eaf798cbcec0a36fbf2c6e374bc5dad9ee2948a103cedf2ccdcf56d757d9
+  - type: hash_sha256
+    value: 1793b5acb9cb7530f833658decc3be9efbcc148723af471bebcc6d3acd1eee99
+  - type: hash_sha256
+    value: 23e8bc2460cdf378ecde919dc1856d3b8e3206ee54fdf3a3e99f6e1f3087248e
+  - type: hash_sha256
+    value: 567242ce0436c1980c15240e25f8aadf672ac0788e1f011fa5cab28d5b19c0c1
+  - type: hash_sha256
+    value: b5173243479cc80c1d8544ef8ca9e0c8c581daf49e83f23b3a782ee4af32d593
+  - type: hash_sha256
+    value: ff0a272d3e9649f19d4a4c176e10119c43907222c04697358ac9364ab3f55278
+- id: VK-HASH-HACKTOOL-WIN32-CRACK-IDM
+  title: HackTool.Win32.Crack.IDM known samples (exact hash)
+  description: 'Analyst-reviewed samples: IDMan.exe'
+  severity: medium
+  verdict: suspicious
+  confidence: 100
+  score: 60
+  family: HackTool.Win32.Crack.IDM
+  tags:
+  - analyst
+  - hash
+  logic: any
+  conditions:
+  - type: hash_sha256
+    value: cae777138b4113fc8e1ceeb65d4e57a970892458ac3375353a6dca442319d809
+- id: VK-HASH-HACKTOOL-WIN64-CRACK
+  title: HackTool.Win64.Crack known samples (exact hash)
+  description: 'Analyst-reviewed samples: GeneralPlugin_64.dll'
+  severity: medium
+  verdict: suspicious
+  confidence: 100
+  score: 60
+  family: HackTool.Win64.Crack
+  tags:
+  - analyst
+  - hash
+  logic: any
+  conditions:
+  - type: hash_sha256
+    value: a569ceca3d7973f8bc1c4e377007083f2a3d396dde5fea3d4bbf250e8cb9fd2d
+- id: VK-HASH-PUA-WIN32-CHRONEBROWSER
+  title: PUA.Win32.ChroneBrowser known samples (exact hash)
+  description: 'Analyst-reviewed samples: Chrone Browser.lnk, Uninstall.exe, centbrowserupdater.exe, chrome.exe, safemode.bat, setup.exe'
+  severity: medium
+  verdict: pua
+  confidence: 100
+  score: 60
+  family: PUA.Win32.ChroneBrowser
+  tags:
+  - analyst
+  - hash
+  logic: any
+  conditions:
+  - type: hash_sha256
+    value: ae2082afc83f3212599e187c122722a4a3999befcdfb6d6441f1ebb0e96453b1
+  - type: hash_sha256
+    value: 918c2bded5f44e06c4c985b3e4f49ed486104436225b84f8211ba21161dcd564
+  - type: hash_sha256
+    value: f5a8967e1a63c2bbf2e1955baf8fe881f20066354bc01898f77a695bcc1ade00
+  - type: hash_sha256
+    value: 0768a543ec26dc5568ecd884667396d9c59925a1d53d0472513643079d64d66a
+  - type: hash_sha256
+    value: 626ed96882caac6ebacf7c265b29ae67c692283d4128298222e69306bacd4e78
+  - type: hash_sha256
+    value: 66da100398436d68572de8c158d0a1cae2c82f48219b0668ec9b379b261eea2b
+  - type: hash_sha256
+    value: d9dbd015979617e68e399e1cb29f0a793d4e9efa1ce0ce6f72a46c1928457565
+- id: VK-HASH-ADWARE-WIN32-SEARCHERBAR
+  title: Adware.Win32.SearcherBar known samples (exact hash)
+  description: 'Analyst-reviewed samples: Uninstall.exe'
+  severity: medium
+  verdict: pua
+  confidence: 100
+  score: 60
+  family: Adware.Win32.SearcherBar
+  tags:
+  - analyst
+  - hash
+  logic: any
+  conditions:
+  - type: hash_sha256
+    value: b7639a19b4fd49591312a9e235dd6e594d19308c6710d9e59b5667b5482ecde9
+- id: VK-PUA-ORANGEEMU-STRINGS
+  title: OrangeEmu EA/Origin DRM emulator
+  description: OrangeEmu core DLL (EA license token emulation).
+  severity: medium
+  verdict: pua
+  confidence: 90
+  score: 60
+  family: PUA.Win64.OrangeEmu
+  tags:
+  - analyst
+  - crack
+  logic: all
+  conditions:
+  - type: string_set
+    min: 2
+    wide: true
+    values:
+    - OrangeEmu Core
+    - EALicenseToken
+    - OrangeEmu64.dll
+    - deactivation.php?hash=

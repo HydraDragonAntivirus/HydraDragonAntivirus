@@ -1,0 +1,37 @@
+rules:
+- id: VK-TROJAN-MUSTANGPANDA-USB
+  title: Mustang Panda trojan DLL (USB spreading)
+  description: Side-loaded DLL that copies itself to removable drives as "USB Disk.exe" / "CD Drive.exe", hides files under System Volume Information, opens ACLs with icacls Everyone, staging folder under
+    C:\ProgramData, once-mutexes Global\wdsadf_once / Global\sdjsalk_once
+  severity: high
+  verdict: malware
+  confidence: 90
+  score: 90
+  family: Trojan.Win32.MustangPanda
+  tags:
+  - analyst
+  - apt
+  - mustangpanda
+  - usb-spread
+  - sideload
+  logic: all
+  conditions:
+  - type: file_type
+    values:
+    - pe
+  - type: string_set
+    min: 2
+    values:
+    - USB Disk.exe
+    - CD Drive.exe
+    - System Volume Information
+    - /grant:r Everyone:(OI)(CI)(
+  - type: string_set
+    min: 1
+    values:
+    - Global\wdsadf_once
+    - Global\sdjsalk_once
+    - Global\fjqwlfjklwqgh
+    - _READY_TEMP_
+    - JONOUQMEM
+    - RJPSVMHED

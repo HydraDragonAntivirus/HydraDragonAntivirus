@@ -1,0 +1,27 @@
+rules:
+- id: VK-HACKTOOL-CLOADER
+  title: Game cheat product loader (c_loader)
+  description: >-
+    C++ loader that signs in with Discord, fetches a product list over a WinHTTP
+    websocket (BCrypt key exchange), sends HWID diagnostics (firmware tables) and
+    injects the chosen product ("injecting..."). Classes loader::c_loader and
+    sdk::protocol.
+  severity: high
+  verdict: suspicious
+  confidence: 90
+  score: 80
+  family: HackTool.Win64.CLoader
+  tags: [analyst, hacktool, cheat, loader, injector]
+  logic: all
+  conditions:
+  - type: native_signature
+    expression: PE64
+  - type: string_set
+    min: 3
+    values:
+    - load_product@c_loader@loader@@
+    - fetch_product_list@c_loader@loader@@
+    - discord_auth@c_loader@loader@@
+    - send_diagnostics_sync@c_loader@loader@@
+    - diagnostics_response_t@protocol@sdk@@
+    - injecting...

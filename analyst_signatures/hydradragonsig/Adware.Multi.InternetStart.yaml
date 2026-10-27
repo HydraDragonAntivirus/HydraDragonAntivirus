@@ -1,0 +1,31 @@
+rules:
+- id: VK-ADW-INTERNETSTART-REF
+  title: Internet-Start homepage hijack (beetle campaign)
+  description: Shortcut or prefs.js forcing internet-start.net with utm_source=beetle/beatle
+  severity: medium
+  verdict: pua
+  confidence: 90
+  score: 60
+  family: Adware.Multi.InternetStart
+  tags:
+  - analyst
+  - adware
+  - hijacker
+  - driverpack
+  logic: all
+  conditions:
+  - type: string_contains
+    value: internet-start.net
+    nocase: true
+    ascii: true
+    wide: true
+  - type: string_set
+    min: 1
+    nocase: true
+    ascii: true
+    wide: true
+    values:
+    - utm_source=beetle
+    - utm_source=beatle
+    - '@Internat-Start'
+    - DRPSu\Internet_Start.ico

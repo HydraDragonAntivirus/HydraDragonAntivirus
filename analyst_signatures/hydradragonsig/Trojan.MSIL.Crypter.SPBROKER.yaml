@@ -1,0 +1,41 @@
+rules:
+- id: VK-MSIL-CRYPTER-SPFBROKER
+  title: MSIL crypter impersonating SharePointFeedbackBroker
+  description: Unsigned .NET stub with fake SharePoint Broker version info, encrypted resource payload and reflective loading
+  severity: high
+  verdict: malware
+  confidence: 85
+  score: 90
+  family: Trojan.MSIL.Crypter.SPBROKER
+  tags:
+  - analyst
+  - msil
+  - crypter
+  - loader
+  logic: all
+  conditions:
+  - type: file_type
+    values:
+    - pe
+  - type: import_any
+    names:
+    - mscoree.dll!_CorExeMain
+  - type: string_set
+    min: 1
+    values:
+    - SharePointFeedbackBroker
+    - SharePoint Broker
+  - type: string_set
+    min: 5
+    values:
+    - SuppressIldasmAttribute
+    - GetManifestResourceStream
+    - RijndaelManaged
+    - DESCryptoServiceProvider
+    - CreateDecryptor
+    - DeflateStream
+    - CreateDelegate
+    - FromBase64String
+    - FailFast
+  - type: section_entropy
+    min: 7.5

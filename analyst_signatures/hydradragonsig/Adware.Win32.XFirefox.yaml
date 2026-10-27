@@ -1,0 +1,26 @@
+rules:
+- id: VK-ADW-XFIREFOX-LAUNCHER
+  title: X-Firefox AutoIt launcher (repacked Firefox)
+  description: 'C:\Firefox\X-Firefox.exe: compiled AutoIt wrapper shipping a hijacked Firefox profile'
+  severity: medium
+  verdict: pua
+  confidence: 80
+  score: 60
+  family: Adware.Win32.XFirefox
+  tags:
+  - analyst
+  - adware
+  - autoit
+  - driverpack
+  logic: all
+  conditions:
+  - type: file_type
+    values:
+    - pe
+  - type: path_regex
+    pattern: (?i)\\X-Firefox\.exe$
+  - type: string_set
+    min: 1
+    values:
+    - This is a compiled AutoIt script
+    - Software\AutoIt v3\AutoIt

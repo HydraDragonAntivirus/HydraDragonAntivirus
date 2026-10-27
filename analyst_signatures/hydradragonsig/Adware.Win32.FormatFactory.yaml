@@ -1,0 +1,19 @@
+rules:
+- id: VK-ADWARE-FORMATFACTORY
+  title: Format Factory bundled installer
+  description: Format Factory setup that carries third-party offers.
+  severity: medium
+  verdict: pua
+  confidence: 85
+  score: 60
+  family: Adware.Win32.FormatFactory
+  tags:
+  - analyst
+  - adware
+  logic: all
+  conditions:
+  - type: string_set
+    values:
+    - Media File format convert tools FormatFactory.
+    - ExtractionFolder=[TempFolder]FormatFactory
+    min: 1

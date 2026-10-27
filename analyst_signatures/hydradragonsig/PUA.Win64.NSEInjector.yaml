@@ -1,0 +1,33 @@
+rules:
+- id: VK-PUA-NSEINJECTOR
+  title: NSE INJECTOR Minecraft cheat DLL injector
+  description: Unsigned console injector that opens javaw.exe and loads a cheat DLL with WriteProcessMemory/CreateRemoteThread/LoadLibraryA; Turkish status messages, PDB path NSE INJECTOR
+  severity: medium
+  verdict: pua
+  confidence: 85
+  score: 60
+  family: PUA.Win64.NSEInjector
+  tags:
+  - analyst
+  - pua
+  - injector
+  - game-cheat
+  logic: all
+  conditions:
+  - type: file_type
+    values:
+    - pe
+  - type: import_any
+    names:
+    - kernel32.dll!WriteProcessMemory
+    - kernel32.dll!OpenProcess
+  - type: string_set
+    min: 2
+    values:
+    - NSE INJECTOR
+    - Dll inject edildi
+    - Dll inject edilemedi
+    - Noise0.5.dll
+  - type: string_contains
+    value: javaw.exe
+    nocase: true

@@ -1,0 +1,19 @@
+rules:
+- id: VK-PUA-DRIVERPACK-ALICE
+  title: DriverPack Alice launcher (renamed NW.js runtime)
+  description: NW.js executable in the DriverPack "Alice" folder (%APPDATA%\DRPSu\Alice), e.g. cloud.exe; runs the DriverPack UI
+  severity: medium
+  verdict: pua
+  confidence: 85
+  score: 60
+  family: PUA.Win32.DriverPack.ALICE
+  tags: [analyst, pua, bundler, driverpack]
+  logic: all
+  conditions:
+  - type: file_type
+    values: [pe]
+  - type: path_regex
+    pattern: '(?i)\\DRPSu\\Alice\\[^\\]+\.exe$'
+  - type: string_contains
+    value: "nw_elf.dll"
+    nocase: true

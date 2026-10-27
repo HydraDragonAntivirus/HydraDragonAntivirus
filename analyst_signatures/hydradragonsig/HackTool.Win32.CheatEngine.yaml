@@ -1,0 +1,23 @@
+rules:
+- id: VK-HACKTOOL-CHEATENGINE
+  title: Cheat Engine
+  description: Memory scanner/debugger with DBK kernel driver loader.
+  severity: medium
+  verdict: suspicious
+  confidence: 85
+  score: 60
+  family: HackTool.Win32.CheatEngine
+  tags:
+  - analyst
+  - hacktool
+  - cheat
+  logic: all
+  conditions:
+  - type: string_set
+    values:
+    - DBK64 LOADED
+    - DBKProcList60
+    - DBK32FUNCTIONS
+    - cheatengine.po
+    - dbk_initialize
+    min: 3

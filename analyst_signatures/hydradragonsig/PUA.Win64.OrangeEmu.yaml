@@ -1,0 +1,21 @@
+rules:
+- id: VK-PUA-CRACK-ORANGEEMU
+  title: OrangeEmu game crack DLL
+  description: OrangeEmu64.dll in a game Bin folder; packed, Authenticode blob from the Windows Phone Production PCA
+  severity: medium
+  verdict: pua
+  confidence: 80
+  score: 60
+  family: PUA.Win64.OrangeEmu
+  tags:
+  - analyst
+  - pua
+  - crack
+  - game
+  logic: all
+  conditions:
+  - type: path_regex
+    pattern: (?i)\\OrangeEmu(64)?\.dll$
+  - type: string_contains
+    value: Windows Phone Production PCA 2012
+  - type: packed_pe
