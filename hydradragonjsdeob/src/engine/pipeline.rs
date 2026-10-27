@@ -66,11 +66,7 @@ impl Engine {
                 for module in &mut self.common {
                     let result = module.transform(allocator, program, scoping)?;
                     iteration_mods += result.modifications;
-                    scoping = result.scoping;
-
-                    if module.changes_symbols() && result.modifications > 0 {
-                        scoping = build_scoping(program);
-                    }
+                    scoping = rescope(program, module.as_ref(), result);
                 }
 
                 total_modifications += iteration_mods;
@@ -88,11 +84,7 @@ impl Engine {
             for module in &mut self.locked {
                 let result = module.transform(allocator, program, scoping)?;
                 locked_mods += result.modifications;
-                scoping = result.scoping;
-
-                if module.changes_symbols() && result.modifications > 0 {
-                    scoping = build_scoping(program);
-                }
+                scoping = rescope(program, module.as_ref(), result);
             }
 
             total_modifications += locked_mods;
@@ -121,6 +113,18 @@ impl Engine {
             converged,
             elapsed: start.elapsed(),
         })
+    }
+}
+
+/// The scoping after `module` ran: its own, or built again when it changed symbols.
+/// The old one is dropped first, so the two are never held at once (a scoping is a
+/// fifth of the memory of a large script's run).
+fn rescope(program: &Program, module: &dyn Module, result: super::module::TransformResult) -> Scoping {
+    if module.changes_symbols() && result.modifications > 0 {
+        drop(result.scoping);
+        build_scoping(program)
+    } else {
+        result.scoping
     }
 }
 

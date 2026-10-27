@@ -12,7 +12,7 @@ use rustc_hash::FxHashMap;
 use oxc::allocator::{Allocator, CloneIn};
 use oxc::ast::ast::*;
 use oxc::ast::builder::AstBuilder;
-use oxc::ast_visit::VisitMut;
+use oxc::ast_visit::{Visit, VisitMut};
 use oxc::semantic::{Scoping, SymbolId};
 use oxc::span::SPAN;
 
@@ -45,7 +45,7 @@ impl Module for ProxyInliner {
         if collector.proxies.is_empty() {
             return Ok(TransformResult { modifications: 0, scoping });
         }
-        let mut inliner = Inliner { proxies: collector.proxies, modifications: 0 };
+        let mut inliner = Inliner { proxies: collector.proxies, templates: FxHashMap::default(), modifications: 0 };
         let scoping = traverse_mut(&mut inliner, allocator, program, scoping, ());
         Ok(TransformResult { modifications: inliner.modifications, scoping })
     }
@@ -55,6 +55,8 @@ impl Module for ProxyInliner {
 struct ProxyInfo {
     /// Parameter names in order
     params: Vec<String>,
+    /// How many times each parameter appears in the return expression.
+    uses: Vec<usize>,
     /// The return expression as source code
     return_source: String,
 }
@@ -87,15 +89,62 @@ impl<'a> Traverse<'a, ()> for Collector {
             .collect();
         if params.len() != func.params.items.len() { return; }
 
+        let mut counter = UseCounter { params: &params, uses: vec![0; params.len()] };
+        counter.visit_expression(ret_expr);
+        let uses = counter.uses;
+
         // Store source code to avoid lifetime issues
         let return_source = codegen::expr_to_code(ret_expr);
+        if return_source.len() > MAX_TEMPLATE_BYTES { return; }
 
         self.proxies.insert(sym, ProxyInfo {
             params,
+            uses,
             return_source,
         });
     }
 }
+
+/// Counts the references to each parameter in a return expression.
+struct UseCounter<'p> {
+    params: &'p [String],
+    uses: Vec<usize>,
+}
+
+impl<'a> Visit<'a> for UseCounter<'_> {
+    fn visit_identifier_reference(&mut self, id: &IdentifierReference<'a>) {
+        if let Some(i) = self.params.iter().position(|p| p == id.name.as_str()) {
+            self.uses[i] += 1;
+        }
+    }
+}
+
+/// An argument that may be copied to every use of its parameter, or dropped when the
+/// parameter is unused: no side effects and small. Anything else is substituted only
+/// for a parameter used exactly once. Copying a call or assignment would run it again
+/// (`ff(d, g, ...)` of MD5 uses `g` three times, and its argument is itself a nested
+/// `ff(...)` call: copying it at every level is exponential, a 4 KB file asked for
+/// 49 GB).
+fn is_copyable_argument(e: &Expression) -> bool {
+    match e {
+        Expression::Identifier(_)
+        | Expression::NumericLiteral(_)
+        | Expression::BooleanLiteral(_)
+        | Expression::NullLiteral(_) => true,
+        Expression::StringLiteral(s) => s.value.len() <= 256,
+        Expression::UnaryExpression(u) => {
+            matches!(u.operator, UnaryOperator::UnaryNegation | UnaryOperator::UnaryPlus)
+                && matches!(u.argument, Expression::NumericLiteral(_))
+        }
+        _ => false,
+    }
+}
+
+/// Longest return expression (as code) a proxy may have. Obfuscator proxies are one
+/// call or operation (`return Hs(v - -966, r)`); a function returning a whole decision
+/// tree (Bing's WSB model: 450 functions of a few KB each) is not one, and copying its
+/// body to every call site doubled the code and filled the arena (139 MB for 717 KB).
+const MAX_TEMPLATE_BYTES: usize = 256;
 
 /// Maximum AST depth allowed for an expression to qualify as a proxy template.
 ///
@@ -158,12 +207,16 @@ fn is_simple_expression_inner(expr: &Expression, depth: usize) -> bool {
     }
 }
 
-struct Inliner {
+struct Inliner<'a> {
     proxies: FxHashMap<SymbolId, ProxyInfo>,
+    /// Each proxy's return expression, parsed once into the arena and cloned per call
+    /// site: parsing it again at every one of tens of thousands of call sites filled
+    /// the arena (which frees nothing until the run ends) with copies.
+    templates: FxHashMap<SymbolId, Option<Expression<'a>>>,
     modifications: usize,
 }
 
-impl<'a> Traverse<'a, ()> for Inliner {
+impl<'a> Traverse<'a, ()> for Inliner<'a> {
     fn exit_expression(&mut self, expr: &mut Expression<'a>, ctx: &mut TraverseCtx<'a, ()>) {
         // Match: proxy_func(args...)
         let sym = {
@@ -177,30 +230,31 @@ impl<'a> Traverse<'a, ()> for Inliner {
         // Must have exact argument count
         let Expression::CallExpression(call) = &*expr else { return; };
         if call.arguments.len() != proxy.params.len() { return; }
+        let copies_safely = call.arguments.iter().zip(&proxy.uses).all(|(a, &uses)| {
+            uses == 1 || a.as_expression().is_some_and(is_copyable_argument)
+        });
+        if !copies_safely { return; }
 
-        // Collect argument source codes
-        let arg_sources: Vec<String> = call.arguments.iter()
-            .filter_map(|a| a.as_expression())
-            .map(codegen::expr_to_code)
-            .collect();
-        if arg_sources.len() != proxy.params.len() { return; }
+        let allocator = ctx.ast.allocator();
+        let template = self.templates.entry(sym).or_insert_with(|| {
+            // Parse the return expression template
+            let parsed = oxc::parser::Parser::new(
+                allocator, allocator.alloc_str(&proxy.return_source), oxc::span::SourceType::mjs(),
+            ).parse();
+            if parsed.diagnostics.has_errors() || parsed.program.body.is_empty() { return None; }
+            let Statement::ExpressionStatement(es) = &parsed.program.body[0] else { return None; };
+            Some(es.expression.clone_in(allocator))
+        });
+        let Some(template) = template else { return; };
+        let mut cloned = template.clone_in(allocator);
 
-        // Parse the return expression template
-        let allocator = &ctx.ast.allocator();
-        let parsed = oxc::parser::Parser::new(
-            allocator, &proxy.return_source, oxc::span::SourceType::mjs(),
-        ).parse();
-
-        if parsed.diagnostics.has_errors() || parsed.program.body.is_empty() { return; }
-        let Statement::ExpressionStatement(es) = &parsed.program.body[0] else { return; };
-
-        // Clone into our arena
-        let mut cloned = es.expression.clone_in(allocator);
-
-        // Build parameter → argument source mapping
-        let mut substitutions: FxHashMap<&str, &str> = FxHashMap::default();
-        for (i, param) in proxy.params.iter().enumerate() {
-            substitutions.insert(param.as_str(), arg_sources[i].as_str());
+        // Build parameter → argument mapping (the call's own argument nodes, copied
+        // where the parameter is used)
+        let Expression::CallExpression(call) = &*expr else { return; };
+        let mut substitutions: FxHashMap<&str, &Expression<'a>> = FxHashMap::default();
+        for (param, arg) in proxy.params.iter().zip(&call.arguments) {
+            let Some(arg) = arg.as_expression() else { return; };
+            substitutions.insert(param.as_str(), arg);
         }
 
         // Substitute all parameter references with argument expressions
@@ -210,6 +264,8 @@ impl<'a> Traverse<'a, ()> for Inliner {
             ast: &ctx.ast,
         };
         substitutor.visit_expression(&mut cloned);
+        drop(substitutor);
+        drop(substitutions);
 
         *expr = cloned;
         self.modifications += 1;
@@ -218,7 +274,7 @@ impl<'a> Traverse<'a, ()> for Inliner {
 
 /// AST visitor that substitutes parameter identifiers with argument expressions.
 struct ParamSubstitutor<'a, 's> {
-    substitutions: &'s FxHashMap<&'s str, &'s str>,
+    substitutions: &'s FxHashMap<&'s str, &'s Expression<'a>>,
     allocator: &'a Allocator,
     ast: &'s AstBuilder<'a>,
 }
@@ -228,21 +284,9 @@ impl<'a, 's> VisitMut<'a> for ParamSubstitutor<'a, 's> {
         // Check if this is an identifier that should be substituted
         if let Expression::Identifier(ident) = expr {
             let name = ident.name.as_str();
-            if let Some(&replacement_src) = self.substitutions.get(name) {
-                // Parse the replacement expression
-                let parsed = oxc::parser::Parser::new(
-                    self.allocator, replacement_src, oxc::span::SourceType::mjs(),
-                ).parse();
-
-                if parsed.diagnostics.has_errors() || parsed.program.body.is_empty() {
-                    return;
-                }
-                let Statement::ExpressionStatement(es) = &parsed.program.body[0] else {
-                    return;
-                };
-
+            if let Some(&replacement) = self.substitutions.get(name) {
                 // Clone and wrap in parens if needed
-                let mut cloned = es.expression.clone_in(self.allocator);
+                let mut cloned = replacement.clone_in(self.allocator);
 
                 // Wrap complex expressions in parentheses for safety
                 if needs_parens(&cloned) {
@@ -367,6 +411,34 @@ mod tests {
         let (code, mods) = deob("function f(a) { return g(\"hello a world\"); } f(1);");
         assert!(mods > 0);
         assert!(code.contains("\"hello a world\""), "string should not be corrupted: {code}");
+    }
+
+    #[test]
+    fn test_argument_used_twice_is_copied_only_when_simple() {
+        let (code, mods) = deob("function f(a) { return a * a; } f(3); f(g());");
+        assert_eq!(mods, 1, "got: {code}");
+        assert!(code.contains("f(g())"), "a call must not run twice: {code}");
+    }
+
+    #[test]
+    fn test_nested_multi_use_proxies_stay_small() {
+        // The MD5 shape: each level uses its parameter three times.
+        let mut src = String::from("function ff(d, g) { return h(g & d | ~g & d, g); } let f = 1;");
+        let mut e = String::from("f");
+        for _ in 0..64 {
+            e = format!("ff(f = {e}, 2)");
+        }
+        src.push_str(&e);
+        src.push(';');
+        let (code, _) = deob(&src);
+        assert!(code.len() < src.len() * 4, "{} -> {} bytes", src.len(), code.len());
+    }
+
+    #[test]
+    fn test_large_function_is_not_a_proxy() {
+        let tree = (0..40).map(|i| format!("a > {i} ? {i} : ")).collect::<String>() + "0";
+        let (_, mods) = deob(&format!("function f(a) {{ return {tree}; }} f(x);"));
+        assert_eq!(mods, 0);
     }
 
     #[test]
