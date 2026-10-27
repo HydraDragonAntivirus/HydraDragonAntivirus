@@ -3,6 +3,7 @@ pub mod auth_timestamp;
 pub mod cidr;
 pub mod clam;
 pub mod diagnostics;
+pub mod domain_intel;
 pub mod embedded_url;
 pub mod engine;
 pub mod hayabusa_scanner;

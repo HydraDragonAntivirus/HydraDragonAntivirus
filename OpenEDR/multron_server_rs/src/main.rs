@@ -38,6 +38,7 @@ mod scan_server;
 mod scheduler;
 mod threat_intel;
 mod uptime;
+mod url_intel;
 
 use std::net::SocketAddr;
 use std::path::PathBuf;

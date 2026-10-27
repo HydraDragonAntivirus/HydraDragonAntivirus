@@ -485,6 +485,62 @@ impl BinaryFuse16Filter {
     }
 }
 
+/// BinaryFuse32 filter (tag 32, `xorfilter_writer --bf32`): the same format and query
+/// as [`BinaryFuse16Filter`] with 32-bit fingerprints. For blocklists, where a false
+/// match flags a clean item: one in ~4.3 billion lookups instead of one in 65 536.
+#[derive(Clone)]
+pub struct BinaryFuse32Filter {
+    seed: u64,
+    seg_len: u32,
+    seg_len_mask: u32,
+    seg_count_len: u32,
+    fingerprints: Vec<u32>,
+}
+
+impl std::fmt::Debug for BinaryFuse32Filter {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("BinaryFuse32Filter")
+            .field("count", &self.fingerprints.len())
+            .finish_non_exhaustive()
+    }
+}
+
+impl BinaryFuse32Filter {
+    /// `None` for anything but a well-formed tag-32 file (a BF16 file included).
+    pub fn from_bytes(bytes: &[u8]) -> Option<Self> {
+        if bytes.len() < 32 || bytes[0] != 32 || bytes[1] != 2 {
+            return None;
+        }
+        let seed = u64::from_le_bytes(bytes[4..12].try_into().ok()?);
+        let seg_len = u32::from_le_bytes(bytes[12..16].try_into().ok()?);
+        let seg_len_mask = u32::from_le_bytes(bytes[16..20].try_into().ok()?);
+        let seg_count_len = u32::from_le_bytes(bytes[20..24].try_into().ok()?);
+        let count = usize::try_from(u64::from_le_bytes(bytes[24..32].try_into().ok()?)).ok()?;
+        let body = bytes.get(32..32usize.checked_add(count.checked_mul(4)?)?)?;
+        let fingerprints = body.chunks_exact(4).map(|c| u32::from_le_bytes([c[0], c[1], c[2], c[3]])).collect();
+        Some(Self { seed, seg_len, seg_len_mask, seg_count_len, fingerprints })
+    }
+
+    /// Number of fingerprints (≈ keys × 1.13).
+    pub fn len(&self) -> usize {
+        self.fingerprints.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.fingerprints.is_empty()
+    }
+
+    pub fn contains(&self, s: &str) -> bool {
+        let hash = BinaryFuse16Filter::mix64(BinaryFuse16Filter::key(s).wrapping_add(self.seed));
+        let (h0, h1, h2) = BinaryFuse16Filter::hash_of_hash(hash, self.seg_len, self.seg_len_mask, self.seg_count_len);
+        let fp = |i: u32| self.fingerprints.get(i as usize).copied();
+        match (fp(h0), fp(h1), fp(h2)) {
+            (Some(a), Some(b), Some(c)) => (hash as u32) ^ a ^ b ^ c == 0,
+            _ => false,
+        }
+    }
+}
+
 #[cfg(windows)]
 use windows::core::{PCWSTR, PWSTR};
 #[cfg(windows)]

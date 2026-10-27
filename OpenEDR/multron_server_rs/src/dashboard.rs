@@ -367,6 +367,7 @@ pub fn dashboard_router(state: Arc<AppState>) -> Router {
         .route("/api/limits/reset", post(handle_limits_reset))
         .route("/api/unban", post(handle_unban))
         .route("/api/insights/stats", get(handle_dashboard_insights_stats))
+        .route("/api/url-insights", get(handle_url_insights))
         .route("/api/insights/:sha256", get(handle_dashboard_insights_hash))
         .route("/api/rules", post(handle_rules_reload).route_layer(DefaultBodyLimit::disable()))
         .route("/api/engine/reload", post(handle_engine_reload))
@@ -976,6 +977,22 @@ async fn handle_rescan_audit(State(app): State<Arc<AppState>>) -> impl IntoRespo
         .await
         .unwrap_or_else(|e| serde_json::json!({ "ok": false, "error": e.to_string() }));
     Json(v)
+}
+
+#[derive(Deserialize, Default)]
+struct UrlInsightsQuery {
+    #[serde(default)]
+    q: String,
+    /// "" / "threat" (malicious + suspicious), "all", or one verdict.
+    #[serde(default)]
+    verdict: String,
+    #[serde(default)]
+    limit: Option<usize>,
+}
+
+/// URLs a scan found malicious or suspicious (and their later scans), newest first.
+async fn handle_url_insights(Query(q): Query<UrlInsightsQuery>) -> impl IntoResponse {
+    Json(crate::url_intel::list(&q.q, &q.verdict, q.limit.unwrap_or(200).min(2000)))
 }
 
 #[derive(Deserialize, Default)]

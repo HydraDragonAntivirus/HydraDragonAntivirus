@@ -2279,6 +2279,15 @@ pub async fn execute_url_scan(
         message: Some(format!("Liveness: {}", liveness_str)),
         origin_type: Some("url".to_string()),
     });
+    crate::url_intel::record(
+        &report.target_url,
+        &report.host,
+        &report.verdict,
+        report.detections.first().map(|d| d.title.as_str()).filter(|_| report.verdict != "Clean"),
+        &report.verdict_reason,
+        report.risk_score,
+        &liveness_str,
+    );
 
     let detections_json: Vec<serde_json::Value> = report.detections.iter().map(|d| {
         serde_json::json!({

@@ -347,6 +347,27 @@
     </section>
 
     <section class="card">
+      <h2>URL Threats</h2>
+      <div style="display:flex; gap:6px; margin-bottom:10px; flex-wrap:wrap;">
+        <input id="uiSearch" type="search" placeholder="URL, host or threat..." style="flex:1; min-width:160px; font-size:11.5px;">
+        <select id="uiVerdict">
+          <option value="threat">Malicious + suspicious</option>
+          <option value="malicious">Malicious</option>
+          <option value="suspicious">Suspicious</option>
+          <option value="all">All listed (also those that turned clean)</option>
+        </select>
+      </div>
+      <div class="limits">
+        <span>Listed URLs:</span><b id="uiTotal">—</b>
+        <span>Malicious:</span><b id="uiMalicious" style="color:var(--red);">—</b>
+        <span>Suspicious:</span><b id="uiSuspicious" style="color:var(--orange);">—</b>
+        <span>No longer a threat:</span><b id="uiOther">—</b>
+      </div>
+      <div class="hint" id="uiInfo" style="margin:8px 0 4px">URLs a scan found malicious or suspicious, kept across restarts (url_insights.jsonl). A later scan of the same URL updates it, also when it turns clean.</div>
+      <div class="tablewrap" style="max-height:340px"><table><thead><tr><th>Verdict</th><th>URL</th><th>Threat</th><th class="num">Seen</th><th>Last seen</th></tr></thead><tbody id="uiRows"></tbody></table></div>
+    </section>
+
+    <section class="card">
       <h2>Engine &amp; limits</h2>
       <div class="limits" id="limits"></div>
       <div style="display:flex;gap:8px;align-items:center;margin-top:12px;flex-wrap:wrap">
@@ -1825,6 +1846,31 @@ window.sigKey = (list) => list && list.length ? `${list[0].layer}: ${list[0].nam
     localStorage.setItem("theme", newTheme);
     updateThemeBtn();
   };
+
+  // URL threats (url_insights.jsonl): counts and the newest matching URLs.
+  const uiEsc = (x) => String(x ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  let uiTimer = null;
+  const updateUrlInsights = async () => {
+    try {
+      const q = encodeURIComponent($("uiSearch").value.trim());
+      const res = await fetch(`/api/url-insights?q=${q}&verdict=${$("uiVerdict").value}&limit=200`, { cache: "no-store" });
+      const d = await res.json();
+      if (!res.ok || d.ok === false) throw new Error(d.error || res.statusText);
+      const c = d.counts || {};
+      $("uiTotal").textContent = d.total.toLocaleString();
+      $("uiMalicious").textContent = (c.malicious || 0).toLocaleString();
+      $("uiSuspicious").textContent = (c.suspicious || 0).toLocaleString();
+      $("uiOther").textContent = (d.total - (c.malicious || 0) - (c.suspicious || 0)).toLocaleString();
+      const tag = (v) => v === "malicious" ? "t-malicious" : v === "suspicious" ? "t-suspicious" : v === "clean" ? "t-clean" : "t-unknown";
+      $("uiRows").innerHTML = d.items.map(i => `<tr title="${uiEsc(i.reason)}"><td><span class="tag ${tag(i.verdict)}">${uiEsc(i.verdict)}</span></td><td class="file mono" style="word-break:break-all">${uiEsc(i.url)}</td><td>${uiEsc(i.threat || "")}</td><td class="num">${i.seen_count.toLocaleString()}</td><td>${uiEsc(new Date(i.last_seen).toLocaleString())}</td></tr>`).join("")
+        || `<tr><td colspan="5" class="hint">No URL threats${d.matched === 0 && d.total ? " match" : " yet"}.</td></tr>`;
+      if (d.matched > d.items.length) $("uiRows").insertAdjacentHTML("beforeend", `<tr><td colspan="5" class="hint">${d.items.length} of ${d.matched.toLocaleString()} shown; search to narrow.</td></tr>`);
+    } catch (e) { $("uiInfo").textContent = e.message; }
+  };
+  $("uiSearch").oninput = () => { clearTimeout(uiTimer); uiTimer = setTimeout(updateUrlInsights, 300); };
+  $("uiVerdict").onchange = updateUrlInsights;
+  setInterval(updateUrlInsights, 10000);
+  updateUrlInsights();
 
   const updateInsightsStats = async () => {
     try {

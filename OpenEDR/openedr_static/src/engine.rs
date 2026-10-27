@@ -187,6 +187,9 @@ pub struct StaticEngine {
     /// Compiled CIDR whitelist/blacklist tables (`src/cidr_*.bin`, byte-identical
     /// copies of the `openedr_web` tables). The IP half of the same gate.
     cidr_engine: crate::cidr::CidrEngine,
+    /// Phishing / malware / abuse ... domain and IP blocklists (`xorfilter_rules/
+    /// <list>.xf`, BinaryFuse32 only), asked for hosts that are not whitelisted.
+    domain_intel: crate::domain_intel::DomainIntel,
     pub url_engine: crate::url_rules::UrlThreatEngine,
 }
 
@@ -327,7 +330,7 @@ impl StaticEngine {
         });
         let cidr_dir = base.join("cidr_rules");
 
-        let (clam, yara, ml, signers, pua_registry, url_whitelist, cidr_engine) = std::thread::scope(|s| {
+        let (clam, yara, ml, signers, pua_registry, url_whitelist, cidr_engine, domain_intel) = std::thread::scope(|s| {
             let h_clam = s.spawn(|| timed!("clam", ClamScanner::new(&database_dir)));
             let h_yara = s.spawn(|| timed!("yara", YaraScanner::new(&rules_dir)));
             let h_ml = s.spawn(|| timed!("ml_models", MlScanner::new(&models_dir)));
@@ -374,6 +377,14 @@ impl StaticEngine {
                             None
                         }
                     }
+                })
+            });
+
+            let h_intel = s.spawn(|| {
+                timed!("domain_intel", {
+                    let (intel, line) = crate::domain_intel::DomainIntel::load_from_dir(&xf_dir);
+                    diagnostics::log("init-step", &format!("domain_intel={line}"));
+                    intel
                 })
             });
 
@@ -442,6 +453,7 @@ impl StaticEngine {
                 h_pua.join().expect("registry rule loader panicked"),
                 h_url_wl.join().expect("url whitelist loader panicked"),
                 h_cidr.join().expect("cidr loader panicked"),
+                h_intel.join().expect("domain intel loader panicked"),
             )
         });
         diagnostics::log(
@@ -513,6 +525,7 @@ impl StaticEngine {
             string_rules,
             url_whitelist,
             cidr_engine,
+            domain_intel,
             url_engine,
         }
     }
@@ -2359,6 +2372,32 @@ impl StaticEngine {
             page_content,
             false,
         );
+
+        // Threat-intel lists (hydradragon/website), for hosts no whitelist covers. A
+        // listed host is judged even when its domain is dead: the list says what it is.
+        if !is_whitelisted {
+            if let Some(hit) = self.domain_intel.lookup(&host) {
+                let malicious = hit.severity == "Malicious";
+                report.detections.push(crate::url_rules::UrlRuleHit {
+                    rule_id: format!("INTEL_{}", hit.category.to_ascii_uppercase()),
+                    title: format!("Threat intel: {} list", hit.category),
+                    severity: hit.severity.to_string(),
+                    score: if malicious { 90 } else { 60 },
+                    details: format!("'{}' is on the {} threat-intel list.", hit.listed, hit.category),
+                });
+                if malicious {
+                    report.verdict = "Malicious".to_string();
+                    report.risk_score = report.risk_score.max(90);
+                    report.fp_mitigated = false;
+                    report.verdict_reason = format!("Threat Intel (Malicious): '{}' is on the {} list.", hit.listed, hit.category);
+                } else if report.verdict != "Malicious" {
+                    report.verdict = "Suspicious".to_string();
+                    report.risk_score = report.risk_score.max(60);
+                    report.fp_mitigated = false;
+                    report.verdict_reason = format!("Threat Intel (Suspicious): '{}' is on the {} list.", hit.listed, hit.category);
+                }
+            }
+        }
 
         if let Some(body) = page_content {
             // 1. JS ML tree prediction on scripts/content

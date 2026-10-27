@@ -1,21 +1,26 @@
 //! Build a BinaryFuse16 (xor) filter from a newline-delimited list and serialize
 //! it to a tagged `.xf` file the native engine loads and queries.
 //!
-//! Always uses BinaryFuse16 (~2.16 bytes/key). No fpp argument needed —
-//! BF16 is the project-wide standard for all filters (URL/domain, IP, MD5 hash).
+//! BinaryFuse16 (~2.16 bytes/key) by default, the standard for whitelists. A
+//! blocklist is built with `--bf32` (~4.3 bytes/key): a false match there flags a
+//! clean item, one in 65 536 lookups with BF16 against one in ~4.3 billion.
 //!
 //! Usage:
-//!   xorfilter_writer <input.txt> <output.xf>
+//!   xorfilter_writer [--bf32] <input.txt> <output.xf>
 //!   xorfilter_writer --check <file.xf> <item>      # round-trip membership check
 //!   xorfilter_writer --fp    <file.xf> <count> <hex|dom>   # empirical FP rate
 
 use std::fs::File;
 use std::io::{BufRead, BufReader, Write};
 
-use hydradragonxorfilter::{build_from_keys, key, XorFilter};
+use hydradragonxorfilter::{build_bf32_from_keys, build_from_keys, key, XorFilter};
 
 fn main() {
-    let args: Vec<String> = std::env::args().collect();
+    let mut args: Vec<String> = std::env::args().collect();
+    let bf32 = args.len() > 1 && args[1] == "--bf32";
+    if bf32 {
+        args.remove(1);
+    }
 
     // `--check <file.xf> <item>`: read + membership, verifies round-trip.
     if args.len() == 4 && args[1] == "--check" {
@@ -75,7 +80,7 @@ fn main() {
     }
 
     if args.len() != 3 {
-        eprintln!("usage: xorfilter_writer <input.txt> <output.xf>");
+        eprintln!("usage: xorfilter_writer [--bf32] <input.txt> <output.xf>");
         eprintln!("       xorfilter_writer --fp    <file.xf> <count> <hex|dom>");
         eprintln!("       xorfilter_writer --check <file.xf> <item>");
         std::process::exit(2);
@@ -103,9 +108,10 @@ fn main() {
             }
         }
     }
-    eprintln!("items (lines): {}, filter: BinaryFuse16", keys.len());
+    eprintln!("items (lines): {}, filter: BinaryFuse{}", keys.len(), if bf32 { 32 } else { 16 });
 
-    let bytes = match build_from_keys(keys) {
+    let built = if bf32 { build_bf32_from_keys(keys) } else { build_from_keys(keys) };
+    let bytes = match built {
         Ok(b) => b,
         Err(e) => {
             eprintln!("FATAL: filter construction failed: {e}");
