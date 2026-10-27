@@ -15,7 +15,7 @@
         "url": "git+https://github.com/LockBlock-dev/pkg-unpacker.git"
     },
     "dependencies": {
-        "commander": "^13.1.0"
+        "commander": "^15.0.0"
     },
     "devDependencies": {
         "@types/node": "^22.13.9",
