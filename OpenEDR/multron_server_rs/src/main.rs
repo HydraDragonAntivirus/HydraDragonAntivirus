@@ -14,6 +14,7 @@ mod alyzer;
 mod archive;
 mod archived;
 mod human_review;
+mod hexsha;
 mod istr;
 mod stamp;
 mod imphash_sigs;

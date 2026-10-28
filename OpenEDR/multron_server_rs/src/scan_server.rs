@@ -2651,7 +2651,7 @@ async fn handle_daily_feed(
             let mut csv = String::from("first_seen,sha256,verdict,verdict_source,threat_name,file_name,file_size,seen_count,category,platform,family\n");
             for (i, v, human) in &rows {
                 let esc = |s: &str| format!("\"{}\"", s.replace('"', "\"\""));
-                let threat = match server.threat_intel.reviews.completed(&i.sha256) {
+                let threat = match server.threat_intel.reviews.completed(&i.sha256.text()) {
                     Some(r) => r.threat_name,
                     None => i.threat_name.as_ref().map(|t| t.to_string()),
                 };
@@ -2686,7 +2686,7 @@ async fn handle_daily_feed(
                 "date": date,
                 "count": rows.len(),
                 "items": rows.iter().map(|(i, v, human)| {
-                    let threat = match server.threat_intel.reviews.completed(&i.sha256) { Some(r) => r.threat_name, None => i.threat_name.as_ref().map(|t| t.to_string()) };
+                    let threat = match server.threat_intel.reviews.completed(&i.sha256.text()) { Some(r) => r.threat_name, None => i.threat_name.as_ref().map(|t| t.to_string()) };
                     serde_json::json!({
                     "sha256": i.sha256.to_lowercase(),
                     "first_seen": i.first_seen,
@@ -2697,7 +2697,7 @@ async fn handle_daily_feed(
                     "file_name": i.file_names.first(),
                     "file_size": i.file_size,
                     "seen_count": i.seen_count,
-                    "has_report": crate::reports::exists(&i.sha256),
+                    "has_report": crate::reports::exists(&i.sha256.text()),
                     "sample_sharing": keys,
                 })}).collect::<Vec<_>>(),
             }),

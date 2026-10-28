@@ -9,6 +9,7 @@ use std::time::Duration;
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 
+use crate::hexsha::HexSha;
 use crate::istr::IStr;
 use crate::stamp::Stamp;
 
@@ -18,7 +19,7 @@ use crate::human_review::HumanReviewStore;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ThreatInsight {
-    pub sha256: String,
+    pub sha256: HexSha,
     pub first_seen: Stamp,
     pub last_seen: Stamp,
     pub seen_count: u64,
@@ -365,7 +366,7 @@ impl ThreatIntelStore {
             let mut guard = self.map.write().unwrap();
             old_verdict = guard.get(&sha_bytes).map(|e| e.verdict.to_string());
             let entry = guard.entry(sha_bytes).or_insert_with(|| ThreatInsight {
-                sha256: sha256_hex.to_lowercase(),
+                sha256: sha256_hex.to_lowercase().into(),
                 first_seen: now_str.as_str().into(),
                 last_seen: now_str.as_str().into(),
                 seen_count: 0,
@@ -429,7 +430,7 @@ impl ThreatIntelStore {
         if old_verdict.as_deref() != Some(updated_insight.verdict.as_str())
             && !(old_verdict.is_none() && updated_insight.verdict == "unknown")
         {
-            crate::verdict_history::record(&updated_insight.sha256, "engine", old_verdict.as_deref(), &updated_insight.verdict, updated_insight.threat_name.as_deref(), "scan", "");
+            crate::verdict_history::record(&updated_insight.sha256.text(), "engine", old_verdict.as_deref(), &updated_insight.verdict, updated_insight.threat_name.as_deref(), "scan", "");
         }
 
         if let Some(writer) = &self.writer {
@@ -520,7 +521,7 @@ impl ThreatIntelStore {
             let old = std::mem::replace(&mut entry.verdict, verdict.into());
             entry.threat_name = threat.map(IStr::from);
             entry.score = score;
-            crate::verdict_history::record(&entry.sha256, "engine", Some(&old), verdict, threat, source, "");
+            crate::verdict_history::record(&entry.sha256.text(), "engine", Some(&old), verdict, threat, source, "");
             entry.clone()
         };
         if let Some(writer) = &self.writer {
@@ -566,7 +567,7 @@ impl ThreatIntelStore {
         }
         for line in lines {
             if let Ok(item) = serde_json::from_str::<ThreatInsight>(line) {
-                if let Some(sha) = parse_sha(&item.sha256) {
+                if let Some(sha) = parse_sha(&item.sha256.text()) {
                     g.insert(sha, item);
                 }
             }
@@ -581,7 +582,7 @@ impl ThreatIntelStore {
             .iter()
             .map(|(sha, i)| {
                 let human = self.reviews.completed_verdict_raw(sha);
-                crate::dataset::UserFile::new(&i.sha256, human.as_deref().unwrap_or(&i.verdict), &i.file_names, &i.first_seen.to_string())
+                crate::dataset::UserFile::new(&i.sha256.text(), human.as_deref().unwrap_or(&i.verdict), &i.file_names, &i.first_seen.to_string())
             })
             .collect()
     }
@@ -603,9 +604,9 @@ impl ThreatIntelStore {
             guard
                 .values()
                 .filter(|i| crate::human_review::AUTO_QUEUE_VERDICTS.contains(&i.verdict.as_str()))
-                .filter(|i| self.reviews.get(&i.sha256).is_none() && !self.reviews.was_removed(&i.sha256))
+                .filter(|i| self.reviews.get(&i.sha256.text()).is_none() && !self.reviews.was_removed(&i.sha256.text()))
                 .filter(|i| is_kept(&i.sha256.to_ascii_uppercase()))
-                .map(|i| (i.sha256.clone(), i.verdict.to_string(), i.file_names.first().map(|n| n.to_string())))
+                .map(|i| (i.sha256.to_string(), i.verdict.to_string(), i.file_names.first().map(|n| n.to_string())))
                 .collect()
         };
         open.iter()
@@ -637,8 +638,8 @@ impl ThreatIntelStore {
             guard
                 .values()
                 .filter(|i| i.verdict == verdict)
-                .filter(|i| self.reviews.get(&i.sha256).is_none())
-                .filter(|i| include_removed || !self.reviews.was_removed(&i.sha256))
+                .filter(|i| self.reviews.get(&i.sha256.text()).is_none())
+                .filter(|i| include_removed || !self.reviews.was_removed(&i.sha256.text()))
                 .filter(|i| is_kept(&i.sha256.to_ascii_uppercase()))
                 .map(|i| (i.sha256.to_ascii_lowercase(), i.file_names.first().map(|n| n.to_string())))
                 .collect()
@@ -664,10 +665,10 @@ impl ThreatIntelStore {
             let (mut total, mut pending, mut done, mut removed, mut missing) = (0u64, 0u64, 0u64, 0u64, 0u64);
             for i in guard.values().filter(|i| i.verdict == v) {
                 total += 1;
-                match self.reviews.get(&i.sha256) {
+                match self.reviews.get(&i.sha256.text()) {
                     Some(r) if r.is_completed() => done += 1,
                     Some(_) => pending += 1,
-                    None if self.reviews.was_removed(&i.sha256) => removed += 1,
+                    None if self.reviews.was_removed(&i.sha256.text()) => removed += 1,
                     None => missing += 1,
                 }
             }
@@ -981,7 +982,7 @@ fn load_latest_insights(path: &Path) -> std::io::Result<HashMap<Sha, ThreatInsig
         for r in parsed.into_iter().flatten() {
             match r {
                 Ok(item) => {
-                    if let Some(sha) = parse_sha(&item.sha256) {
+                    if let Some(sha) = parse_sha(&item.sha256.text()) {
                         map.insert(sha, item);
                     }
                 }
@@ -1009,7 +1010,7 @@ fn load_latest_insights(path: &Path) -> std::io::Result<HashMap<Sha, ThreatInsig
         for_each_line(path, |_, line| {
             if line_sha(line).is_some_and(|s| broken.contains(&s)) {
                 if let Ok(item) = serde_json::from_slice::<ThreatInsight>(line) {
-                    if let Some(sha) = parse_sha(&item.sha256) {
+                    if let Some(sha) = parse_sha(&item.sha256.text()) {
                         map.insert(sha, item);
                     }
                 }
@@ -1090,9 +1091,9 @@ fn flush_insights(path: &Path, buffer: &mut Vec<ThreatInsight>) {
         return;
     }
 
-    let mut last: HashMap<&str, usize> = HashMap::with_capacity(buffer.len());
+    let mut last: HashMap<&HexSha, usize> = HashMap::with_capacity(buffer.len());
     for (i, item) in buffer.iter().enumerate() {
-        last.insert(item.sha256.as_str(), i);
+        last.insert(&item.sha256, i);
     }
     let keep: std::collections::HashSet<usize> = last.into_values().collect();
 
@@ -1199,7 +1200,7 @@ mod load_tests {
         let mut m = HashMap::new();
         for line in BufReader::new(File::open(path).unwrap()).lines().map_while(Result::ok) {
             if let Ok(item) = serde_json::from_str::<ThreatInsight>(&line) {
-                if let Some(sha) = parse_sha(&item.sha256) {
+                if let Some(sha) = parse_sha(&item.sha256.text()) {
                     m.insert(sha, item);
                 }
             }
@@ -1315,7 +1316,7 @@ mod load_tests {
         };
         let mut vec_hdr = 0u64;
         for i in map.values() {
-            add("sha256", &i.sha256);
+            add("sha256", &i.sha256.text());
             add("first_seen", &i.first_seen.to_string());
             add("last_seen", &i.last_seen.to_string());
             add("verdict", &i.verdict);
