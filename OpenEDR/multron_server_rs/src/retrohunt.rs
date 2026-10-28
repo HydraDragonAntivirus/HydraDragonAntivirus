@@ -370,7 +370,7 @@ fn hunt_file(
         return;
     }
     let sha = k.sha256.to_ascii_lowercase();
-    let old = srv.threat_intel.get(&sha).map(|i| i.verdict).unwrap_or_else(|| "unknown".into());
+    let old = srv.threat_intel.get(&sha).map(|i| i.verdict.to_string()).unwrap_or_else(|| "unknown".into());
     let mut m = HuntMatch {
         sha256: sha.clone(),
         file_name: k.name.clone(),
@@ -397,7 +397,7 @@ fn hunt_file(
     } else {
         // Match only: the current verdict stays as it is.
         m.new_verdict = m.old_verdict.clone();
-        m.threat = srv.threat_intel.get(&sha).and_then(|i| i.threat_name);
+        m.threat = srv.threat_intel.get(&sha).and_then(|i| i.threat_name.map(String::from));
     }
     let changed = job.rescan && m.error.is_none() && m.old_verdict != m.new_verdict;
     rh.update(job.id, |h| {

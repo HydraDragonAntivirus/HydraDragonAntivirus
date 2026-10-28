@@ -9,6 +9,9 @@ use std::time::Duration;
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 
+use crate::istr::IStr;
+use crate::stamp::Stamp;
+
 use crate::cache::{parse_sha, Sha};
 use crate::config::app_dir;
 use crate::human_review::HumanReviewStore;
@@ -16,13 +19,13 @@ use crate::human_review::HumanReviewStore;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ThreatInsight {
     pub sha256: String,
-    pub first_seen: String,
-    pub last_seen: String,
+    pub first_seen: Stamp,
+    pub last_seen: Stamp,
     pub seen_count: u64,
-    pub verdict: String,
+    pub verdict: IStr,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub threat_name: Option<String>,
-    pub file_names: Vec<String>,
+    pub threat_name: Option<IStr>,
+    pub file_names: Vec<IStr>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub file_size: Option<u64>,
     pub score: f64,
@@ -30,11 +33,11 @@ pub struct ThreatInsight {
     /// environment placeholders (%USERPROFILE%, %APPDATA%, ...) so no user name is kept.
     /// Dashboard only: never put in public JSON (website, insights API, client results).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub folders: Vec<String>,
+    pub folders: Vec<IStr>,
     /// Full folder paths as sent by the client (user name included; at most 5), so
     /// several user profiles on one computer stay apart. Dashboard only, like `folders`.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub full_folders: Vec<String>,
+    pub full_folders: Vec<IStr>,
     /// Which client IP sent the file from which full path (at most `MAX_SIGHTINGS`
     /// IP/path pairs). Lets analysts count how many different sources a file came
     /// from and spot abuse. Dashboard only, like `folders`: never published.
@@ -43,7 +46,7 @@ pub struct ThreatInsight {
     /// Authenticode signer from the last engine scan (dashboard; None = not checked,
     /// e.g. a hash-only verdict or a non-PE file).
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub signer: Option<SignerSummary>,
+    pub signer: Option<Box<SignerSummary>>,
     /// Every signature that matched in the last engine scan of the stored verdict
     /// (engine layer + rule name), so analysts see the exact rules, not only the
     /// malware type. Dashboard only, like `folders`.
@@ -66,12 +69,12 @@ pub struct DetectionRef {
 /// One client IP + full path a file was sent from.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Sighting {
-    pub ip: String,
+    pub ip: IStr,
     /// Full folder path as sent by the client (empty when the client sent none).
-    #[serde(default, skip_serializing_if = "String::is_empty")]
-    pub path: String,
-    pub first_seen: String,
-    pub last_seen: String,
+    #[serde(default, skip_serializing_if = "IStr::is_empty")]
+    pub path: IStr,
+    pub first_seen: Stamp,
+    pub last_seen: Stamp,
     pub count: u64,
 }
 
@@ -360,14 +363,14 @@ impl ThreatIntelStore {
         let old_verdict: Option<String>;
         let updated_insight = {
             let mut guard = self.map.write().unwrap();
-            old_verdict = guard.get(&sha_bytes).map(|e| e.verdict.clone());
+            old_verdict = guard.get(&sha_bytes).map(|e| e.verdict.to_string());
             let entry = guard.entry(sha_bytes).or_insert_with(|| ThreatInsight {
                 sha256: sha256_hex.to_lowercase(),
-                first_seen: now_str.clone(),
-                last_seen: now_str.clone(),
+                first_seen: now_str.as_str().into(),
+                last_seen: now_str.as_str().into(),
                 seen_count: 0,
-                verdict: verdict.to_string(),
-                threat_name: threat.map(str::to_string),
+                verdict: verdict.into(),
+                threat_name: threat.map(IStr::from),
                 file_names: Vec::new(),
                 file_size,
                 score,
@@ -388,7 +391,7 @@ impl ThreatIntelStore {
             } else {
                 entry.seen_count += 1;
             }
-            entry.last_seen = now_str;
+            entry.last_seen = now_str.as_str().into();
 
             // The latest real verdict wins, lower ones too: once malicious stayed malicious
             // before, so a false positive fixed in the engine (or a file now PUA /
@@ -397,12 +400,12 @@ impl ThreatIntelStore {
             // answered by a human verdict, scans that could not decide) never replaces a
             // real verdict, and any real verdict replaces it.
             if verdict != "unknown" && verdict != entry.verdict {
-                entry.verdict = verdict.to_string();
-                entry.threat_name = threat.map(str::to_string);
+                entry.verdict = verdict.into();
+                entry.threat_name = threat.map(IStr::from);
                 entry.score = score;
             } else if verdict == entry.verdict {
                 if let Some(t) = threat {
-                    entry.threat_name.get_or_insert_with(|| t.to_string());
+                    entry.threat_name.get_or_insert_with(|| t.into());
                 }
                 entry.score = score.max(entry.score);
             }
@@ -411,7 +414,7 @@ impl ThreatIntelStore {
                 let trimmed = name.trim();
                 if !trimmed.is_empty() && !entry.file_names.iter().any(|n| n.eq_ignore_ascii_case(trimmed)) {
                     if entry.file_names.len() < 5 {
-                        entry.file_names.push(trimmed.to_string());
+                        entry.file_names.push(trimmed.into());
                     }
                 }
             }
@@ -449,7 +452,7 @@ impl ThreatIntelStore {
             for (list, item) in [(&mut entry.folders, folder), (&mut entry.full_folders, full.clone())] {
                 if let Some(item) = item {
                     if list.len() < 5 && !list.iter().any(|f| f.eq_ignore_ascii_case(&item)) {
-                        list.push(item);
+                        list.push(item.into());
                     }
                 }
             }
@@ -469,10 +472,10 @@ impl ThreatIntelStore {
         let updated = {
             let mut guard = self.map.write().unwrap();
             let Some(entry) = guard.get_mut(&sha_bytes) else { return };
-            if entry.signer.as_ref() == Some(signer) {
+            if entry.signer.as_deref() == Some(signer) {
                 return;
             }
-            entry.signer = Some(signer.clone());
+            entry.signer = Some(Box::new(signer.clone()));
             entry.clone()
         };
         if let Some(writer) = &self.writer {
@@ -514,8 +517,8 @@ impl ThreatIntelStore {
         let updated = {
             let mut guard = self.map.write().unwrap();
             let Some(entry) = guard.get_mut(&sha_bytes) else { return };
-            let old = std::mem::replace(&mut entry.verdict, verdict.to_string());
-            entry.threat_name = threat.map(str::to_string);
+            let old = std::mem::replace(&mut entry.verdict, verdict.into());
+            entry.threat_name = threat.map(IStr::from);
             entry.score = score;
             crate::verdict_history::record(&entry.sha256, "engine", Some(&old), verdict, threat, source, "");
             entry.clone()
@@ -535,7 +538,7 @@ impl ThreatIntelStore {
             .map(|(sha, i)| {
                 let human = self.reviews.completed_verdict_raw(sha);
                 let is_human = human.is_some();
-                (i.clone(), human.unwrap_or_else(|| i.verdict.clone()), is_human)
+                (i.clone(), human.unwrap_or_else(|| i.verdict.to_string()), is_human)
             })
             .collect();
         out.sort_by(|a, b| b.0.first_seen.cmp(&a.0.first_seen));
@@ -549,7 +552,7 @@ impl ThreatIntelStore {
             return (r.verdict.clone().unwrap_or_default(), "human".into(), r.threat_name.clone());
         }
         match self.get(sha256_hex) {
-            Some(i) => (i.verdict.clone(), "engine".into(), i.threat_name.clone()),
+            Some(i) => (i.verdict.to_string(), "engine".into(), i.threat_name.as_ref().map(|t| t.to_string())),
             None => ("unknown".into(), "unseen".into(), None),
         }
     }
@@ -578,7 +581,7 @@ impl ThreatIntelStore {
             .iter()
             .map(|(sha, i)| {
                 let human = self.reviews.completed_verdict_raw(sha);
-                crate::dataset::UserFile::new(&i.sha256, human.as_deref().unwrap_or(&i.verdict), &i.file_names, &i.first_seen)
+                crate::dataset::UserFile::new(&i.sha256, human.as_deref().unwrap_or(&i.verdict), &i.file_names, &i.first_seen.to_string())
             })
             .collect()
     }
@@ -602,7 +605,7 @@ impl ThreatIntelStore {
                 .filter(|i| crate::human_review::AUTO_QUEUE_VERDICTS.contains(&i.verdict.as_str()))
                 .filter(|i| self.reviews.get(&i.sha256).is_none() && !self.reviews.was_removed(&i.sha256))
                 .filter(|i| is_kept(&i.sha256.to_ascii_uppercase()))
-                .map(|i| (i.sha256.clone(), i.verdict.clone(), i.file_names.first().cloned()))
+                .map(|i| (i.sha256.clone(), i.verdict.to_string(), i.file_names.first().map(|n| n.to_string())))
                 .collect()
         };
         open.iter()
@@ -637,7 +640,7 @@ impl ThreatIntelStore {
                 .filter(|i| self.reviews.get(&i.sha256).is_none())
                 .filter(|i| include_removed || !self.reviews.was_removed(&i.sha256))
                 .filter(|i| is_kept(&i.sha256.to_ascii_uppercase()))
-                .map(|i| (i.sha256.to_ascii_lowercase(), i.file_names.first().cloned()))
+                .map(|i| (i.sha256.to_ascii_lowercase(), i.file_names.first().map(|n| n.to_string())))
                 .collect()
         };
         let mut n = 0;
@@ -700,21 +703,22 @@ impl ThreatIntelStore {
                     if !path_q.is_empty() && !sg.path.to_lowercase().contains(&path_q) {
                         continue;
                     }
-                    let a = acc.entry(sg.ip.clone()).or_default();
+                    let a = acc.entry(sg.ip.to_string()).or_default();
                     a.uploads += sg.count;
                     if !sg.path.is_empty() {
                         a.paths.insert(sg.path.to_lowercase());
                     }
-                    if a.first.is_empty() || sg.first_seen < a.first {
-                        a.first = sg.first_seen.clone();
+                    let (first, last) = (sg.first_seen.to_string(), sg.last_seen.to_string());
+                    if a.first.is_empty() || first < a.first {
+                        a.first = first;
                     }
-                    if sg.last_seen > a.last {
-                        a.last = sg.last_seen.clone();
+                    if last > a.last {
+                        a.last = last;
                     }
                     if !seen_ips.contains(&sg.ip.as_str()) {
                         seen_ips.push(&sg.ip);
                         a.files += 1;
-                        let v = self.reviews.completed_verdict_raw(sha).unwrap_or_else(|| i.verdict.clone());
+                        let v = self.reviews.completed_verdict_raw(sha).unwrap_or_else(|| i.verdict.to_string());
                         *a.verdicts.entry(v).or_default() += 1;
                     }
                 }
@@ -751,13 +755,13 @@ impl ThreatIntelStore {
                     if mine.is_empty() {
                         return None;
                     }
-                    let last = mine.iter().map(|s| s.last_seen.as_str()).max().unwrap_or("").to_string();
+                    let last = mine.iter().map(|s| &s.last_seen).max().map(|t| t.to_string()).unwrap_or_default();
                     let human = self.reviews.completed_verdict_raw(sha);
                     let v = serde_json::json!({
                         "sha256": i.sha256.to_ascii_lowercase(),
                         "file_names": i.file_names,
                         "file_size": i.file_size,
-                        "verdict": human.clone().unwrap_or_else(|| i.verdict.clone()),
+                        "verdict": human.clone().unwrap_or_else(|| i.verdict.to_string()),
                         "human": human.is_some(),
                         "threat": i.threat_name,
                         "detections": i.detections,
@@ -779,7 +783,7 @@ impl ThreatIntelStore {
     /// `recent_days`. `public` leaves out nothing sensitive: names only, no hashes.
     pub fn type_stats(&self, recent_days: i64) -> serde_json::Value {
         use std::collections::BTreeMap;
-        let since = (Utc::now() - chrono::Duration::days(recent_days)).to_rfc3339();
+        let since = Stamp::new(&(Utc::now() - chrono::Duration::days(recent_days)).to_rfc3339());
         #[derive(Default)]
         struct Acc {
             categories: BTreeMap<&'static str, u64>,
@@ -796,7 +800,7 @@ impl ThreatIntelStore {
             for (sha, i) in guard.iter() {
                 let (verdict, threat) = match self.reviews.completed_raw(sha) {
                     Some((v, t)) => (v.unwrap_or_default(), t),
-                    None => (i.verdict.clone(), i.threat_name.clone()),
+                    None => (i.verdict.to_string(), i.threat_name.as_ref().map(|t| t.to_string())),
                 };
                 if verdict != "malicious" && verdict != "suspicious" {
                     continue;
@@ -846,7 +850,7 @@ impl ThreatIntelStore {
         guard
             .iter()
             .filter(|(sha, item)| verdicts.contains(&item.verdict.as_str()) && self.reviews.completed_verdict_raw(sha).is_none())
-            .map(|(sha, item)| (hex::encode_upper(sha), item.verdict.clone()))
+            .map(|(sha, item)| (hex::encode_upper(sha), item.verdict.to_string()))
             .collect()
     }
 
@@ -940,58 +944,67 @@ fn for_each_line(path: &Path, mut f: impl FnMut(u64, &[u8])) -> std::io::Result<
 /// so most lines are superseded (6.5 GB to parse at each start). The file is only read.
 ///
 /// 1. one pass finds the offset of each hash's last line from the line prefix alone;
-/// 2. a second pass takes those lines and parses them on all cores;
+/// 2. a second pass takes those lines and parses them on all cores, a batch of
+///    `LOAD_BATCH_BYTES` at a time (all of them raw at once, next to their parsed
+///    copies, made the start the peak of the process: memory the heap kept after);
 /// 3. a hash whose last line does not parse (cut short by a crash) gets its lines
 ///    parsed in order, keeping the last valid one, as before.
 fn load_latest_insights(path: &Path) -> std::io::Result<HashMap<Sha, ThreatInsight>> {
+    const LOAD_BATCH_BYTES: usize = 64 << 20;
     let mut last: HashMap<Sha, u64> = HashMap::new();
     for_each_line(path, |off, line| {
         if let Some(sha) = line_sha(line) {
             last.insert(sha, off);
         }
     })?;
-
-    let mut wanted: std::collections::HashSet<u64> = last.values().copied().collect();
-    let mut lines: Vec<Vec<u8>> = Vec::with_capacity(wanted.len());
-    for_each_line(path, |off, line| {
-        if wanted.remove(&off) {
-            lines.push(line.to_vec());
-        }
-    })?;
+    let mut map = HashMap::with_capacity(last.len());
+    let mut wanted: std::collections::HashSet<u64> = last.into_values().collect();
 
     let threads = std::thread::available_parallelism().map_or(4, |n| n.get()).clamp(1, 16);
-    let chunk = lines.len().div_ceil(threads).max(1);
-    let parsed: Vec<Vec<Result<ThreatInsight, Option<Sha>>>> = std::thread::scope(|s| {
-        let handles: Vec<_> = lines
-            .chunks(chunk)
-            .map(|part| {
-                s.spawn(move || {
-                    part.iter()
-                        .map(|l| serde_json::from_slice::<ThreatInsight>(l).map_err(|_| line_sha(l)))
-                        .collect::<Vec<_>>()
-                })
-            })
-            .collect();
-        handles.into_iter().map(|h| h.join().unwrap_or_default()).collect()
-    });
-    drop(lines);
-
-    let mut map = HashMap::with_capacity(last.len());
     let mut broken: std::collections::HashSet<Sha> = std::collections::HashSet::new();
-    for r in parsed.into_iter().flatten() {
-        match r {
-            Ok(item) => match parse_sha(&item.sha256) {
-                Some(sha) => {
-                    map.insert(sha, item);
+    let mut parse_batch = |lines: &mut Vec<Vec<u8>>, map: &mut HashMap<Sha, ThreatInsight>| {
+        let chunk = lines.len().div_ceil(threads).max(1);
+        let parsed: Vec<Vec<Result<ThreatInsight, Option<Sha>>>> = std::thread::scope(|s| {
+            let handles: Vec<_> = lines
+                .chunks(chunk)
+                .map(|part| {
+                    s.spawn(move || {
+                        part.iter()
+                            .map(|l| serde_json::from_slice::<ThreatInsight>(l).map_err(|_| line_sha(l)))
+                            .collect::<Vec<_>>()
+                    })
+                })
+                .collect();
+            handles.into_iter().map(|h| h.join().unwrap_or_default()).collect()
+        });
+        lines.clear();
+        for r in parsed.into_iter().flatten() {
+            match r {
+                Ok(item) => {
+                    if let Some(sha) = parse_sha(&item.sha256) {
+                        map.insert(sha, item);
+                    }
                 }
-                None => {}
-            },
-            Err(Some(sha)) => {
-                broken.insert(sha);
+                Err(Some(sha)) => {
+                    broken.insert(sha);
+                }
+                Err(None) => {}
             }
-            Err(None) => {}
         }
-    }
+    };
+    let (mut lines, mut bytes): (Vec<Vec<u8>>, usize) = (Vec::new(), 0);
+    for_each_line(path, |off, line| {
+        if wanted.remove(&off) {
+            bytes += line.len();
+            lines.push(line.to_vec());
+            if bytes >= LOAD_BATCH_BYTES {
+                parse_batch(&mut lines, &mut map);
+                bytes = 0;
+            }
+        }
+    })?;
+    parse_batch(&mut lines, &mut map);
+    drop((lines, wanted, parse_batch));
     if !broken.is_empty() {
         for_each_line(path, |_, line| {
             if line_sha(line).is_some_and(|s| broken.contains(&s)) {
@@ -1121,16 +1134,16 @@ pub fn add_sighting(list: &mut Vec<Sighting>, ip: &str, path: &str, now: &str) {
     if let Some(i) = hit {
         let s = &mut list[i];
         if s.path.is_empty() && !path.is_empty() {
-            s.path = path.to_string();
+            s.path = path.into();
         }
         if count {
             s.count += 1;
         }
-        s.last_seen = now.to_string();
+        s.last_seen = now.into();
         return;
     }
     if list.len() < MAX_SIGHTINGS {
-        list.push(Sighting { ip: ip.to_string(), path: path.to_string(), first_seen: now.to_string(), last_seen: now.to_string(), count: 1 });
+        list.push(Sighting { ip: ip.into(), path: path.into(), first_seen: now.into(), last_seen: now.into(), count: 1 });
     }
 }
 
@@ -1243,6 +1256,93 @@ mod load_tests {
         let slow = load_every_line(&p);
         eprintln!("fast {:?}, every line {:?}, {} hashes", fast_s, t.elapsed(), fast.len());
         same(&fast, &slow);
+    }
+
+    /// Every line of the real file written back gives the same JSON (the in-memory
+    /// forms, `IStr` and `Stamp`, lose nothing):
+    /// `TI_FILE=...\threat_insights.jsonl cargo test --release -- --ignored real_file_round_trip`.
+    #[test]
+    #[ignore]
+    fn real_file_round_trip() {
+        let Some(p) = std::env::var_os("TI_FILE") else { return };
+        let (mut n, mut bad) = (0u64, 0u64);
+        for_each_line(&PathBuf::from(p), |_, line| {
+            let (Ok(orig), Ok(item)) = (serde_json::from_slice::<serde_json::Value>(line), serde_json::from_slice::<ThreatInsight>(line)) else { return };
+            n += 1;
+            if serde_json::to_value(&item).unwrap() != orig {
+                if bad < 3 {
+                    eprintln!("differs: {}", String::from_utf8_lossy(&line[..line.len().min(300)]));
+                }
+                bad += 1;
+            }
+        })
+        .unwrap();
+        eprintln!("{n} lines, {bad} differ");
+        assert_eq!(bad, 0);
+    }
+
+    /// Process private bytes (Windows; 0 elsewhere).
+    fn private_bytes() -> u64 {
+        let out = std::process::Command::new("powershell")
+            .args(["-NoProfile", "-Command", &format!("(Get-Process -Id {}).PrivateMemorySize64", std::process::id())])
+            .output();
+        out.ok().and_then(|o| String::from_utf8_lossy(&o.stdout).trim().parse().ok()).unwrap_or(0)
+    }
+
+    /// Where the memory of the loaded insights goes, per field, and how many distinct
+    /// values each has (what sharing them would save):
+    /// `TI_FILE=...\threat_insights.jsonl cargo test --release -- --ignored real_file_memory --nocapture`.
+    #[test]
+    #[ignore]
+    fn real_file_memory() {
+        let Some(p) = std::env::var_os("TI_FILE") else { return };
+        let before = private_bytes();
+        let map = load_latest_insights(&PathBuf::from(p)).unwrap();
+        let after = private_bytes();
+        // Heap of a String: its capacity plus ~16 B allocator header; 24 B inline.
+        let heap = |s: &str| s.len() as u64 + 16;
+        #[derive(Default)]
+        struct F { n: u64, inline: u64, heap: u64, distinct: std::collections::HashSet<String> }
+        let mut f: std::collections::BTreeMap<&str, F> = Default::default();
+        let mut add = |name: &'static str, s: &str| {
+            let e = f.entry(name).or_default();
+            e.n += 1;
+            e.inline += 24;
+            e.heap += heap(s);
+            if e.distinct.len() < 20_000_000 {
+                e.distinct.insert(s.to_string());
+            }
+        };
+        let mut vec_hdr = 0u64;
+        for i in map.values() {
+            add("sha256", &i.sha256);
+            add("first_seen", &i.first_seen.to_string());
+            add("last_seen", &i.last_seen.to_string());
+            add("verdict", &i.verdict);
+            if let Some(t) = &i.threat_name { add("threat_name", t) }
+            for x in &i.file_names { add("file_names", x) }
+            for x in &i.folders { add("folders", x) }
+            for x in &i.full_folders { add("full_folders", x) }
+            for d in &i.detections { add("det.layer", &d.layer); add("det.name", &d.name) }
+            for s in &i.sightings {
+                add("sight.ip", &s.ip);
+                add("sight.path", &s.path);
+                add("sight.first_seen", &s.first_seen.to_string());
+                add("sight.last_seen", &s.last_seen.to_string());
+            }
+            vec_hdr += 5 * 16 + (i.file_names.capacity() + i.folders.capacity() + i.full_folders.capacity()) as u64 * 24
+                + i.detections.capacity() as u64 * 48 + i.sightings.capacity() as u64 * std::mem::size_of::<Sighting>() as u64;
+        }
+        let entry = (std::mem::size_of::<ThreatInsight>() + 32 + 8) as u64 * map.len() as u64;
+        eprintln!("{} hashes; private bytes {} MB before, {} MB after (+{} MB)", map.len(), before >> 20, after >> 20, after.saturating_sub(before) >> 20);
+        eprintln!("map entries (struct {} B + key + slot): {} MB; vec buffers/headers: {} MB", std::mem::size_of::<ThreatInsight>(), entry >> 20, vec_hdr >> 20);
+        eprintln!("sizes: SignerSummary {} B, Option<SignerSummary> {} B, Sighting {} B, DetectionRef {} B; signed entries {}", std::mem::size_of::<SignerSummary>(), std::mem::size_of::<Option<SignerSummary>>(), std::mem::size_of::<Sighting>(), std::mem::size_of::<DetectionRef>(), map.values().filter(|i| i.signer.is_some()).count());
+        eprintln!("{:<18} {:>11} {:>9} {:>9} {:>11}", "field", "strings", "heap MB", "inline MB", "distinct");
+        let mut rows: Vec<_> = f.into_iter().collect();
+        rows.sort_by(|a, b| b.1.heap.cmp(&a.1.heap));
+        for (k, e) in rows {
+            eprintln!("{:<18} {:>11} {:>9} {:>9} {:>11}", k, e.n, e.heap >> 20, e.inline >> 20, e.distinct.len());
+        }
     }
 }
 

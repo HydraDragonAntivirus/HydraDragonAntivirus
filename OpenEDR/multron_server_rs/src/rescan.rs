@@ -133,7 +133,7 @@ pub fn rescan_one(server: &Arc<ScanServer>, sha_hex: &str) -> Result<Change, Str
     if actual != sha_up {
         return Err("the kept file does not match its SHA-256 (damaged?)".into());
     }
-    let old_verdict = server.threat_intel.get(&sha_up).map(|i| i.verdict).unwrap_or_else(|| "unknown".into());
+    let old_verdict = server.threat_intel.get(&sha_up).map(|i| i.verdict.to_string()).unwrap_or_else(|| "unknown".into());
 
     let ti = Arc::clone(&server.threat_intel);
     let mut report = None;
@@ -224,7 +224,7 @@ pub fn rescan_logged(server: &Arc<ScanServer>, sha_hex: &str, source: &'static s
             LogEntry {
                 sha256: sha.to_ascii_lowercase(),
                 file_name: kept.as_ref().map(|k| k.name.clone()).unwrap_or_default(),
-                old_verdict: server.threat_intel.get(&sha.to_ascii_lowercase()).map(|i| i.verdict).unwrap_or_else(|| "unknown".into()),
+                old_verdict: server.threat_intel.get(&sha.to_ascii_lowercase()).map(|i| i.verdict.to_string()).unwrap_or_else(|| "unknown".into()),
                 new_verdict: String::new(),
                 threat: None,
                 detail: None,

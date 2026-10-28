@@ -1992,7 +1992,7 @@ async fn handle_reviews_list(State(app): State<Arc<AppState>>, Query(q): Query<R
 /// last engine verdict in the scan cache. Missing when the cache entry expired.
 /// File name of a review: the one the client sent, else the first name seen.
 fn review_name(rv: &crate::human_review::HumanReview, ins: Option<&crate::threat_intel::ThreatInsight>) -> String {
-    rv.file_name.clone().or_else(|| ins.and_then(|i| i.file_names.first().cloned())).unwrap_or_default()
+    rv.file_name.clone().or_else(|| ins.and_then(|i| i.file_names.first().map(|n| n.to_string()))).unwrap_or_default()
 }
 
 /// One row of the analyst lists (queue and verdicts): the review plus what the
@@ -2206,7 +2206,7 @@ async fn handle_reviews_bulk(State(app): State<Arc<AppState>>, who: Option<Exten
                 if conflicts.len() < 200 {
                     conflicts.push(serde_json::json!({
                         "sha256": sha,
-                        "name": ins.as_ref().and_then(|i| i.file_names.first().cloned())
+                        "name": ins.as_ref().and_then(|i| i.file_names.first().map(|n| n.to_string()))
                             .or_else(|| review.as_ref().and_then(|r| r.file_name.clone())),
                         "engine": engine,
                         "threat": ins.as_ref().and_then(|i| i.threat_name.clone()),

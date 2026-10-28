@@ -779,7 +779,7 @@ async fn handle_hash_insights(
                     "status": "success",
                     "sha256": insight.sha256,
                     // Final verdict: the human one when an analyst has answered.
-                    "verdict": human_verdict.clone().unwrap_or_else(|| insight.verdict.clone()),
+                    "verdict": human_verdict.clone().unwrap_or_else(|| insight.verdict.to_string()),
                     "verdict_source": if human_verdict.is_some() { "human" } else { "engine" },
                     "history": crate::verdict_history::public_json(&crate::verdict_history::get(&sha_hist)),
                     "engine_verdict": insight.verdict,
@@ -790,7 +790,7 @@ async fn handle_hash_insights(
                         if human_verdict.is_some() { human_threat.as_deref() } else { insight.threat_name.as_deref() },
                     ),
                     // A human verdict replaces the engine name too: a clean review must not keep the engine detection name.
-                    "threat_name": if human_verdict.is_some() { human_threat } else { insight.threat_name.clone() },
+                    "threat_name": if human_verdict.is_some() { human_threat } else { insight.threat_name.as_ref().map(|t| t.to_string()) },
                     "first_seen": insight.first_seen,
                     "last_seen": insight.last_seen,
                     "seen_count": insight.seen_count,
@@ -1992,7 +1992,7 @@ fn handle_verdict_report(server: &Arc<ScanServer>, session: &Arc<SessionHandle>,
         return;
     }
     let name: String = msg.name.trim().chars().take(260).collect();
-    let name = if name.is_empty() { insight.file_names.first().cloned().unwrap_or_default() } else { name };
+    let name = if name.is_empty() { insight.file_names.first().map(|n| n.to_string()).unwrap_or_default() } else { name };
     match server.threat_intel.reviews.report_user_verdict(
         &sha,
         source,
@@ -2009,7 +2009,7 @@ fn handle_verdict_report(server: &Arc<ScanServer>, session: &Arc<SessionHandle>,
                 kind: "info".to_string(),
                 session: Some(session.id),
                 client: Some(session.address.clone()),
-                verdict: Some(insight.verdict.clone()),
+                verdict: Some(insight.verdict.to_string()),
                 file: if name.is_empty() { None } else { Some(name.clone()) },
                 size: None,
                 ms: None,
@@ -2500,7 +2500,7 @@ async fn handle_review_request(
             serde_json::json!({"status": "error", "error": "the file is not on the server; scan it with a VirusKov client so it is uploaded, then ask again"}),
         );
     }
-    let name = insight.file_names.first().map(String::as_str);
+    let name = insight.file_names.first().map(|n| n.as_str());
     match server.threat_intel.reviews.enqueue(&sha, "user", Some(&insight.verdict), name) {
         Ok(r) => json(StatusCode::OK, serde_json::json!({"status": "success", "human_analysis": r.to_public_json()})),
         Err(e) => json(StatusCode::SERVICE_UNAVAILABLE, serde_json::json!({"status": "error", "error": e})),
@@ -2568,11 +2568,11 @@ async fn handle_file_report(
     let human_verdict = review.as_ref().filter(|r| r.is_completed()).and_then(|r| r.verdict.clone());
     let sha_hist = sha.to_ascii_lowercase();
     let engine_verdict = insight.as_ref().map(|i| i.verdict.clone()).unwrap_or_else(|| "unknown".into());
-    let verdict = human_verdict.clone().unwrap_or_else(|| engine_verdict.clone());
+    let verdict = human_verdict.clone().unwrap_or_else(|| engine_verdict.to_string());
     // A human verdict replaces the engine name too (clean review -> no threat name).
     let threat_name = match review.as_ref().filter(|r| r.is_completed()) {
         Some(r) => r.threat_name.clone(),
-        None => insight.as_ref().and_then(|i| i.threat_name.clone()),
+        None => insight.as_ref().and_then(|i| i.threat_name.as_ref().map(|t| t.to_string())),
     };
     let mut resp = json_response(
         StatusCode::OK,
@@ -2653,7 +2653,7 @@ async fn handle_daily_feed(
                 let esc = |s: &str| format!("\"{}\"", s.replace('"', "\"\""));
                 let threat = match server.threat_intel.reviews.completed(&i.sha256) {
                     Some(r) => r.threat_name,
-                    None => i.threat_name.clone(),
+                    None => i.threat_name.as_ref().map(|t| t.to_string()),
                 };
                 let c = crate::naming::classify(threat.as_deref().unwrap_or(""));
                 let malicious = v == "malicious" || v == "suspicious";
@@ -2664,7 +2664,7 @@ async fn handle_daily_feed(
                     v,
                     if *human { "human" } else { "engine" },
                     esc(threat.as_deref().unwrap_or("")),
-                    esc(i.file_names.first().map(String::as_str).unwrap_or("")),
+                    esc(i.file_names.first().map(|n| n.as_str()).unwrap_or("")),
                     i.file_size.unwrap_or(0),
                     i.seen_count,
                     if malicious { c.category } else { "" },
@@ -2686,7 +2686,7 @@ async fn handle_daily_feed(
                 "date": date,
                 "count": rows.len(),
                 "items": rows.iter().map(|(i, v, human)| {
-                    let threat = match server.threat_intel.reviews.completed(&i.sha256) { Some(r) => r.threat_name, None => i.threat_name.clone() };
+                    let threat = match server.threat_intel.reviews.completed(&i.sha256) { Some(r) => r.threat_name, None => i.threat_name.as_ref().map(|t| t.to_string()) };
                     serde_json::json!({
                     "sha256": i.sha256.to_lowercase(),
                     "first_seen": i.first_seen,
@@ -2744,7 +2744,7 @@ async fn handle_sample_download(
         .reviews
         .completed(&sha)
         .and_then(|r| r.verdict)
-        .or_else(|| server.threat_intel.get(&sha).map(|i| i.verdict))
+        .or_else(|| server.threat_intel.get(&sha).map(|i| i.verdict.to_string()))
         .unwrap_or_else(|| "unknown".into());
     if verdict != "malicious" && verdict != "suspicious" {
         return err(StatusCode::FORBIDDEN, "only malicious or suspicious samples are shared");

@@ -14,6 +14,8 @@ mod alyzer;
 mod archive;
 mod archived;
 mod human_review;
+mod istr;
+mod stamp;
 mod imphash_sigs;
 mod yara_classes;
 mod ip_bans;
@@ -351,7 +353,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 fn startup_upkeep(engine: &Arc<EngineAdapter>, ti: &Arc<threat_intel::ThreatIntelStore>) {
     // One-off: verdict history from the existing append-only logs (background).
     verdict_history::backfill_if_missing();
-    engine.sort_legacy_kept(|sha| ti.get(sha).map(|i| i.verdict));
+    engine.sort_legacy_kept(|sha| ti.get(sha).map(|i| i.verdict.to_string()));
     // Kept files follow human verdicts (e.g. bulk whitelists made by older builds).
     let queued = ti.sync_review_queue(&|s| engine.is_kept(s));
     if queued > 0 {
