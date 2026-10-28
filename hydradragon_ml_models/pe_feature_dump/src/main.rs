@@ -26,6 +26,7 @@ use rayon::prelude::*;
 const STACK: usize = 64 * 1024 * 1024;
 
 fn main() {
+    openedr_static::ml::pe_string_ml::enable_multron_training_whitelist();
     rayon::ThreadPoolBuilder::new().stack_size(STACK).build_global().expect("thread pool");
     let worker = std::thread::Builder::new().stack_size(STACK).spawn(run).expect("work thread");
     if worker.join().is_err() {

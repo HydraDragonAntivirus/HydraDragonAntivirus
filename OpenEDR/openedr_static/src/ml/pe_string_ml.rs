@@ -26,6 +26,7 @@
 use std::fs::File;
 use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, OnceLock};
 
 use hydradragondecompiler::{extract_strings as decompile_strings, ExtractOptions, StringKind};
@@ -37,10 +38,19 @@ use crate::signers::{BinaryFuse16Filter, BinaryFuse32Filter};
 
 /// Hardcoded path to the dynamic string whitelist directory maintained specially and
 /// dynamically by the Multron Server (`multron_server_rs/src/string_wl.rs`).
-/// Multron Server continuously updates `whitelist.json`, `strings-<gen>.u64`, and
-/// `strings-<gen>.idx` from human-verified clean files in real time.
+/// IMPORTANT: Used ONLY during Machine Learning Training (`pe_feature_dump` &
+/// `xorfilter_writer`). In real runtime (Viruskovalyzer / `openedr_static`), only
+/// the `.xf` filters (`pe_strings_benign.xf` and `pe_strings_malicious.xf`) are used!
 pub const MULTRON_DYNAMIC_STRING_WHITELIST_DIR: &str =
     r"C:\Users\semae\OneDrive\Belgeler\stringwhitelist";
+
+static TRAINING_MULTRON_WHITELIST_ENABLED: AtomicBool = AtomicBool::new(false);
+
+/// Enables direct Multron Server `stringwhitelist` disk lookups for ML training (`pe_feature_dump`).
+/// In real runtime (Viruskovalyzer), this remains `false` so only `.xf` files are used.
+pub fn enable_multron_training_whitelist() {
+    TRAINING_MULTRON_WHITELIST_ENABLED.store(true, Ordering::Relaxed);
+}
 
 /// Minimum string length matching Multron Server's `string_wl::MIN_LEN` and yarGen.
 pub const MIN_LEN: usize = 6;
@@ -148,7 +158,11 @@ pub struct PeStringMlEngine {
 impl PeStringMlEngine {
     fn load() -> Self {
         let multron_dir = PathBuf::from(MULTRON_DYNAMIC_STRING_WHITELIST_DIR);
-        let multron_gen = Self::load_latest_multron_gen(&multron_dir);
+        let multron_gen = if TRAINING_MULTRON_WHITELIST_ENABLED.load(Ordering::Relaxed) {
+            Self::load_latest_multron_gen(&multron_dir)
+        } else {
+            None
+        };
         let (yargen_benign, yargen_malicious) = Self::load_xf_filters();
 
         Self {
@@ -461,28 +475,32 @@ pub fn extract_inner_pe_string_ml_with_overlay(
     let total_unique = strings.len();
     let eng = PeStringMlEngine::global();
 
-    // 1. Query Multron Server Dynamic String Whitelist in sorted key order
-    let mut keyed: Vec<(u64, usize)> = strings
-        .iter()
-        .enumerate()
-        .map(|(idx, s)| (multron_pe_string_key(s), idx))
-        .collect();
-    keyed.sort_unstable_by_key(|&(k, _)| k);
-
-    let sorted_keys: Vec<u64> = keyed.iter().map(|&(k, _)| k).collect();
-    let mut multron_hits = vec![false; sorted_keys.len()];
-    eng.with_multron_whitelist(|disk| {
-        disk.count_matches_sorted(&sorted_keys, &mut multron_hits);
-    });
-
+    // 1. Only during ML Training (`pe_feature_dump`), query Multron Server Dynamic String Whitelist
+    // on disk (`C:\Users\semae\OneDrive\Belgeler\stringwhitelist`). In real runtime (Viruskovalyzer),
+    // `TRAINING_MULTRON_WHITELIST_ENABLED` is false so only `.xf` files are used!
     let mut is_whitelisted = vec![false; total_unique];
-    for ((_, orig_idx), hit) in keyed.into_iter().zip(multron_hits) {
-        if hit {
-            is_whitelisted[orig_idx] = true;
+    if TRAINING_MULTRON_WHITELIST_ENABLED.load(Ordering::Relaxed) {
+        let mut keyed: Vec<(u64, usize)> = strings
+            .iter()
+            .enumerate()
+            .map(|(idx, s)| (multron_pe_string_key(s), idx))
+            .collect();
+        keyed.sort_unstable_by_key(|&(k, _)| k);
+
+        let sorted_keys: Vec<u64> = keyed.iter().map(|&(k, _)| k).collect();
+        let mut multron_hits = vec![false; sorted_keys.len()];
+        eng.with_multron_whitelist(|disk| {
+            disk.count_matches_sorted(&sorted_keys, &mut multron_hits);
+        });
+
+        for ((_, orig_idx), hit) in keyed.into_iter().zip(multron_hits) {
+            if hit {
+                is_whitelisted[orig_idx] = true;
+            }
         }
     }
 
-    // 2. Check yarGen Benign & Malicious .xf filters (Whitelist always wins!)
+    // 2. Check `.xf` filters (`pe_strings_benign.xf` & `pe_strings_malicious.xf` — used in Viruskovalyzer runtime)
     let mut ben_count = 0u64;
     let mut mal_count = 0u64;
 
@@ -494,7 +512,10 @@ pub fn extract_inner_pe_string_ml_with_overlay(
         }
         if s.len() >= 4 {
             if let Some(ref ben_xf) = eng.yargen_benign {
-                if ben_xf.contains(s) || (norm.len() >= 4 && ben_xf.contains(norm)) {
+                if ben_xf.contains(s)
+                    || (norm.len() >= 4 && ben_xf.contains(norm))
+                    || (s.len() >= MIN_LEN && ben_xf.contains_key(multron_pe_string_key(s)))
+                {
                     ben_count += 1;
                     continue;
                 }

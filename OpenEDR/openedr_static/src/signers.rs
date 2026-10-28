@@ -439,7 +439,10 @@ impl BinaryFuse16Filter {
     }
 
     pub fn contains(&self, s: &str) -> bool {
-        let k = Self::key(s);
+        self.contains_key(Self::key(s))
+    }
+
+    pub fn contains_key(&self, k: u64) -> bool {
         let hash = Self::mix64(k.wrapping_add(self.seed));
         let f = hash as u16;
         let (h0, h1, h2) = Self::hash_of_hash(hash, self.seg_len, self.seg_len_mask, self.seg_count_len);

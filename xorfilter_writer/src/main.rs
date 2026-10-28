@@ -20,7 +20,11 @@ mod pe_string_builder;
 fn main() {
     let mut args: Vec<String> = std::env::args().collect();
     if args.len() > 1 && args[1] == "--build-pe-string-ml" {
-        pe_string_builder::run_build_pe_string_ml();
+        pe_string_builder::run_build_pe_string_ml(false);
+        return;
+    }
+    if args.len() > 1 && args[1] == "--build-pe-string-ml-benign-only" {
+        pe_string_builder::run_build_pe_string_ml(true);
         return;
     }
     let bf32 = args.len() > 1 && args[1] == "--bf32";

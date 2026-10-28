@@ -268,7 +268,7 @@ fn worker_count() -> usize {
         .max(1)
 }
 
-pub fn run_build_pe_string_ml() {
+pub fn run_build_pe_string_ml(benign_only: bool) {
     let t0 = Instant::now();
     let num_threads = worker_count();
     let repo_root = PathBuf::from(r"c:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus");
@@ -382,20 +382,52 @@ pub fn run_build_pe_string_ml() {
         multron_u64.len()
     );
 
+    // Merge Multron Server's 56.88M dynamic whitelist keys directly into `pe_strings_benign.xf`
+    // so that at runtime in Viruskovalyzer (`openedr_static`), querying `.xf` alone includes
+    // all 146.2M+ benign strings without needing `C:\Users\semae\OneDrive\Belgeler\stringwhitelist` on disk!
+    let mut combined_ben_keys = Vec::with_capacity(ben_keys.len() + multron_u64.len());
+    combined_ben_keys.extend_from_slice(&ben_keys);
+    combined_ben_keys.extend_from_slice(&multron_u64);
+    combined_ben_keys.sort_unstable();
+    combined_ben_keys.dedup();
+    let total_ben_xf_keys = combined_ben_keys.len();
+
     // Build `pe_strings_benign.xf` (BinaryFuse16)
     let ben_xf_path = out_dir.join("pe_strings_benign.xf");
     eprintln!(
-        "[*] Building BinaryFuse16 filter -> {} ...",
-        ben_xf_path.display()
+        "[*] Building BinaryFuse16 filter -> {} ({} combined benign + Multron keys)...",
+        ben_xf_path.display(),
+        total_ben_xf_keys
     );
     let ben_xf_bytes =
-        build_from_keys(ben_keys.clone()).expect("Failed to build pe_strings_benign.xf");
+        build_from_keys(combined_ben_keys).expect("Failed to build pe_strings_benign.xf");
     std::fs::write(&ben_xf_path, &ben_xf_bytes).expect("Failed to write pe_strings_benign.xf");
     eprintln!(
         "    -> Wrote pe_strings_benign.xf: {:.2} MB ({} keys)",
         ben_xf_bytes.len() as f64 / (1024.0 * 1024.0),
-        ben_keys.len()
+        total_ben_xf_keys
     );
+
+    if benign_only {
+        let sync_dirs = [
+            repo_root.join("OpenEDR").join("openedr_static").join("models"),
+            repo_root.join("OpenMalwareScannerPortable").join("models"),
+            repo_root
+                .join("OpenMalwareScannerPortable")
+                .join("xorfilter_rules"),
+        ];
+        for d in &sync_dirs {
+            if d.exists() {
+                let _ = std::fs::write(d.join("pe_strings_benign.xf"), &ben_xf_bytes);
+                eprintln!("    [sync] Updated {}", d.display());
+            }
+        }
+        eprintln!(
+            "[+] Completed Benign + Multron .xf filter build in {:.1}s!",
+            t0.elapsed().as_secs_f64()
+        );
+        return;
+    }
 
     // -------------------------------------------------------------------------
     // STEP 3: Harvest Malicious Strings from ALL 158,126+ Malware Samples + DBs
