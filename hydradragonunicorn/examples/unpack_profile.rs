@@ -3,6 +3,10 @@
 //! emulation as `openedr_static::ml::pe_combined::run_emulation` (trace mode, no
 //! write-execute / section-hopping stops, 20M instructions, 20 s), inside Unicorn only.
 //!
+//! A file an unpacker signature (`unpack_rules/default.yaml`) recognises runs its
+//! recipe first (`rule`, `recipe`, `recipe_error`); the generic run follows only
+//! when no rule matches or the recipe failed.
+//!
 //! `unpack_profile <files.lst> <out.jsonl> [packer_signatures.yar] [threads]`
 //! Lines already in <out.jsonl> are skipped, so a run that stopped goes on where it was.
 
@@ -12,6 +16,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Mutex;
 
 use hydradragonunicorn::unpacker::engine::{entrypoint, Sample, UnpackerEngine};
+use hydradragonunicorn::unpacker::plan::{Budget, Outcome, UnpackRules};
 
 const MAX_INSTRUCTIONS: usize = 20_000_000;
 const TIMEOUT_US: u64 = 20_000_000;
@@ -85,6 +90,34 @@ fn profile(path: &str, rules: Option<&yara_x::Rules>) -> String {
     if data.len() > MAX_BYTES {
         return format!("{{{head},\"result\":\"too_big\"}}");
     }
+    // Unpacker signature first: its recipe, and the generic run only when no rule
+    // matches or a step of the recipe did not happen.
+    let budget = Budget { max_instructions: MAX_INSTRUCTIONS, timeout_us: TIMEOUT_US };
+    let recipe = UnpackRules::builtin().unpack(&data, budget);
+    let head = match &recipe {
+        None => format!("{head},\"rule\":null"),
+        Some(run) => {
+            let (outcome, why) = match &run.outcome {
+                Outcome::Dumped(_) => ("dumped", None),
+                Outcome::Decompile => ("decompile", None),
+                Outcome::Extract => ("extract", None),
+                Outcome::Failed { step, reason } => ("failed", Some(format!("step {step}: {reason}"))),
+            };
+            let why = why.map(|w| format!("\"{}\"", esc(&w))).unwrap_or_else(|| "null".into());
+            format!("{head},\"rule\":\"{}\",\"recipe\":\"{outcome}\",\"recipe_error\":{why},\"recipe_ms\":{}", esc(&run.rule), t.elapsed().as_millis())
+        }
+    };
+    if let Some(run) = &recipe {
+        let result = match run.outcome {
+            Outcome::Dumped(_) => Some("unpacked"),
+            Outcome::Decompile => Some("decompile"),
+            Outcome::Extract => Some("extract"),
+            Outcome::Failed { .. } => None,
+        };
+        if let Some(result) = result {
+            return format!("{{{head},\"result\":\"{result}\",\"api_calls\":{},\"ms\":{}}}", run.trace.calls.len(), t.elapsed().as_millis());
+        }
+    }
     let Ok(sample) = Sample::from_bytes(&data) else { return format!("{{{head},\"result\":\"not_pe\"}}") };
     let ep = entrypoint(&sample.opt_header);
     let is_64 = sample.opt_header.magic == 0x20b;
@@ -107,12 +140,13 @@ fn profile(path: &str, rules: Option<&yara_x::Rules>) -> String {
     let last: Vec<String> = calls.iter().rev().take(5).map(|c| c.api.clone()).collect();
     let distinct: HashSet<&str> = calls.iter().map(|c| c.api.as_str()).collect();
     format!(
-        "{{{head},\"x64\":{is_64},\"result\":\"{result}\",\"end\":\"{:?}\",\"api_calls\":{},\"distinct_apis\":{},\"last_apis\":[{}],\"emu_error\":{},\"ms\":{}}}",
+        "{{{head},\"x64\":{is_64},\"result\":\"{result}\",\"end\":\"{:?}\",\"api_calls\":{},\"distinct_apis\":{},\"last_apis\":[{}],\"emu_error\":{},\"stop_api\":{},\"ms\":{}}}",
         eng.end,
         calls.len(),
         distinct.len(),
         list(&last),
         err.map(|e| format!("\"{}\"", esc(&e))).unwrap_or_else(|| "null".into()),
+        eng.stop_api.as_deref().map(|e| format!("\"{}\"", esc(e))).unwrap_or_else(|| "null".into()),
         t.elapsed().as_millis()
     )
 }

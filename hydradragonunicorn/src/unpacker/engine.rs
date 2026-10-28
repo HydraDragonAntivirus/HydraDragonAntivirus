@@ -95,6 +95,41 @@ impl EmuEnd {
         matches!(self, EmuEnd::Finished | EmuEnd::Exited | EmuEnd::EntryReturned)
     }
 }
+
+/// Where the run stopped on one of the conditions set with `set_stops`. The
+/// address is the instruction the run stopped before (not executed yet).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum StopHit {
+    /// Executing a page this run had written.
+    WriteExecute(u64),
+    /// Calling this API (name as imported); the stop is at its stub, before the call.
+    Api(String, u64),
+    /// Entering this section.
+    Section(String, u64),
+    /// A basic block starting with one of the patterns.
+    Pattern(u64),
+}
+
+impl StopHit {
+    pub fn address(&self) -> u64 {
+        match self {
+            StopHit::WriteExecute(a) | StopHit::Pattern(a) | StopHit::Api(_, a) | StopHit::Section(_, a) => *a,
+        }
+    }
+}
+
+/// Conditions a run stops on (any of them), on top of the budget and time limit.
+#[derive(Debug, Clone, Default)]
+pub struct Stops {
+    pub write_execute: bool,
+    /// API names, normalized (`apicalls::normalize_api_name`).
+    pub apis: Vec<String>,
+    pub sections: Vec<String>,
+    /// Hex byte patterns (`??` = any byte) matched at the start of a basic block.
+    pub patterns: Vec<Vec<Option<u8>>>,
+    /// No condition stops inside these sections (the packer stub's own).
+    pub outside: Vec<String>,
+}
 const LDR_ENTRY_SIZE: u64 = 0x60;
 
 // ---------------------------------------------------------------------------
@@ -314,6 +349,13 @@ struct HookState {
     wx_hit: Option<u64>,
     /// Set where the API hook ends the run (exit, or no way to return).
     api_end: Option<EmuEnd>,
+    /// The API the run could not return from (`EmuEnd::Stopped`).
+    stop_api: Option<String>,
+    /// `set_stops` conditions (section names resolved to indices) and the one hit.
+    stops: Stops,
+    stop_sections: Vec<usize>,
+    stop_outside: Vec<usize>,
+    stop_hit: Option<StopHit>,
     /// Map a zeroed page on an unmapped read/write/fetch and continue instead of
     /// stopping (infector scan: polymorphic junk code dereferences registers that
     /// pointed at host data in the real process). Bounded by `faults`.
@@ -986,6 +1028,10 @@ pub struct UnpackerEngine {
     pub wx_hit: Option<u64>,
     /// How the last run ended.
     pub end: EmuEnd,
+    /// The API the run could not return from, when it ended `Stopped`.
+    pub stop_api: Option<String>,
+    /// The `set_stops` condition the last run stopped on.
+    pub stop_hit: Option<StopHit>,
     pub apicall_counter: HashMap<String, u64>,
     pub hook_addr: u64,
     pub stack_addr: u64,
@@ -1030,6 +1076,8 @@ impl UnpackerEngine {
             write_targets: Vec::new(),
             wx_hit: None,
             end: EmuEnd::Finished,
+            stop_api: None,
+            stop_hit: None,
             apicall_counter: HashMap::new(),
             hook_addr: HOOK_ADDR,
             stack_addr: STACK_ADDR,
@@ -1053,6 +1101,11 @@ impl UnpackerEngine {
                 written_pages: HashSet::new(),
                 wx_hit: None,
                 api_end: None,
+                stop_api: None,
+                stops: Stops::default(),
+                stop_sections: Vec::new(),
+                stop_outside: Vec::new(),
+                stop_hit: None,
                 map_on_fault: false,
                 faults: 0,
                 seh_fault: None,
@@ -1413,7 +1466,10 @@ impl UnpackerEngine {
                             }
                         }
 
-                        if !st.trace_mode {
+                        if st.stops.apis.iter().any(|a| *a == norm) {
+                            st.stop_hit = Some(StopHit::Api(api_name.clone(), addr));
+                            true
+                        } else if !st.trace_mode {
                             log::info!("API call: {}", api_name);
                             let is_add_veh = norm == "addvectoredexceptionhandler" || norm == "rtladdvectoredexceptionhandler";
                             let is_remove_veh = norm == "removevectoredexceptionhandler" || norm == "rtlremovevectoredexceptionhandler";
@@ -1467,6 +1523,9 @@ impl UnpackerEngine {
                                                 // Unknown API: attempt call-site disassembly to count pushed arguments
                                                 if let Some(count) = apicalls::estimate_x86_stdcall_arg_count(uc, ret) {
                                                     (count, true)
+                                                } else if apicalls::is_cdecl_api(&api_name, dll_name_opt.as_deref()) {
+                                                    // The caller cleans the stack: only the return address is popped.
+                                                    (0, true)
                                                 } else {
                                                     // Indeterminate push count: safe stop to prevent stack corruption
                                                     log::warn!("Indeterminate argument count for x86 API {}; stopping emulation safely", api_name);
@@ -1581,9 +1640,25 @@ impl UnpackerEngine {
                                     log::info!("API [trace]: {} called -> terminating emulation cleanly", api_name);
                                     st.api_end = Some(EmuEnd::Exited);
                                     true
-                                } else if !can_continue || ret_addr == 0 || (ret_addr >= hook_addr_base && ret_addr < hook_addr_base + 0x100000) {
+                                } else if !can_continue
+                                    || ret_addr == 0
+                                    || (ret_addr >= hook_addr_base
+                                        && ret_addr < hook_addr_base + 0x100000
+                                        // A CRT frame handler (`_except_handler3`) called by the
+                                        // SEH dispatch returns to its sentinel, which ends the dispatch.
+                                        && ret_addr != SEH_RETURN_ADDR
+                                        && ret_addr != SEH64_RETURN_ADDR)
+                                {
                                     log::warn!("Cannot continue from return address {:#x} for API {}, stopping emulation", ret_addr, api_name);
                                     st.api_end = Some(EmuEnd::Stopped);
+                                    let why = if !can_continue {
+                                        "stack unreadable"
+                                    } else if ret_addr == 0 {
+                                        "returns to 0"
+                                    } else {
+                                        "returns into an API stub"
+                                    };
+                                    st.stop_api = Some(format!("{api_name} ({why})"));
                                     true
                                 } else {
                                     // Execute stub logic with dllname_to_functionlist
@@ -1802,7 +1877,27 @@ impl UnpackerEngine {
                                 st.wx_hit = Some(addr.max(page << 12));
                             }
                         }
-                        if st.unpacker.write_execute_control && wx_page.is_some() {
+                        let hit = if idx.is_some_and(|i| st.stop_outside.contains(&i)) {
+                            None
+                        } else if st.stops.write_execute && wx_page.is_some() {
+                            Some(StopHit::WriteExecute(addr))
+                        } else if let Some(i) = idx.filter(|i| st.stop_sections.contains(i)) {
+                            Some(StopHit::Section(st.sample_sections[i].name.clone(), addr))
+                        } else if !st.stops.patterns.is_empty() {
+                            let longest = st.stops.patterns.iter().map(Vec::len).max().unwrap_or(0);
+                            let head = uc.mem_read_as_vec(addr, longest).unwrap_or_default();
+                            st.stops
+                                .patterns
+                                .iter()
+                                .any(|p| head.len() >= p.len() && p.iter().zip(&head).all(|(b, h)| b.is_none_or(|b| b == *h)))
+                                .then_some(StopHit::Pattern(addr))
+                        } else {
+                            None
+                        };
+                        if hit.is_some() {
+                            st.stop_hit = hit;
+                            true
+                        } else if st.unpacker.write_execute_control && wx_page.is_some() {
                             log::warn!("Write-execute at {:#x}", addr);
                             true
                         } else if st.unpacker.section_hopping_control
@@ -1971,6 +2066,35 @@ impl UnpackerEngine {
         self.hook_state.borrow_mut().unpacker.endaddr = end;
     }
 
+    /// Conditions the next runs stop on (`stop_hit` says which one); `Stops::default()`
+    /// clears them. Section names not in the image are ignored.
+    pub fn set_stops(&mut self, stops: Stops) {
+        let mut hs = self.hook_state.borrow_mut();
+        let indices = |names: &[String]| -> Vec<usize> {
+            hs.sample_sections
+                .iter()
+                .enumerate()
+                .filter(|(_, s)| names.iter().any(|n| n.eq_ignore_ascii_case(&s.name)))
+                .map(|(i, _)| i)
+                .collect()
+        };
+        let (sections, outside) = (indices(&stops.sections), indices(&stops.outside));
+        hs.stop_sections = sections;
+        hs.stop_outside = outside;
+        hs.stops = Stops { apis: stops.apis.iter().map(|a| apicalls::normalize_api_name(a)).collect(), ..stops };
+    }
+
+    /// The instruction pointer (x86 / x64).
+    pub fn ip(&self) -> Option<u64> {
+        let reg = if self.hook_state.borrow().is_64 { RegisterX86::RIP } else { RegisterX86::EIP };
+        self.uc.as_ref()?.reg_read(reg as i32).ok()
+    }
+
+    pub fn set_ip(&mut self, ip: u64) -> bool {
+        let reg = if self.hook_state.borrow().is_64 { RegisterX86::RIP } else { RegisterX86::EIP };
+        self.uc.as_mut().is_some_and(|uc| uc.reg_write(reg as i32, ip).is_ok())
+    }
+
     /// Map zeroed pages on unmapped accesses instead of stopping (at most 512).
     pub fn set_map_on_fault(&mut self, on: bool) {
         self.hook_state.borrow_mut().map_on_fault = on;
@@ -2009,6 +2133,8 @@ impl UnpackerEngine {
             hs.insn_budget = count as u64;
             hs.insn_count = 0;
             hs.api_end = None;
+            hs.stop_api = None;
+            hs.stop_hit = None;
         }
 
         let mut run_from = ep;
@@ -2068,6 +2194,8 @@ impl UnpackerEngine {
             self.wx_hit = hs.wx_hit;
             let x64 = hs.is_64;
             let pc = uc.reg_read(if x64 { RegisterX86::RIP } else { RegisterX86::EIP } as i32).unwrap_or(0);
+            self.stop_api = hs.stop_api.clone();
+            self.stop_hit = hs.stop_hit.clone();
             self.end = if !matches!(result, Ok(_) | Err(uc_error::OK)) {
                 EmuEnd::Fault
             } else if pc == ENTRY_RETURN_ADDR {

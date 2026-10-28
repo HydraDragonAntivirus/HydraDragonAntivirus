@@ -6,26 +6,20 @@
 //! A `@` argument is a UTF-8 list of files, one path per line (train_js_lgbm.py writes
 //! them from every folder in dataset_paths.json, duplicates already removed).
 //!
-//! Includes OpenEDR/openedr_static/src/ml/{features,js_features}.rs by path, so the
-//! features train_js_lgbm.py learns from are byte for byte what the engine computes at
-//! scan time. Files the extractor rejects (not valid JS) are skipped, as in the engine.
-//! No extension filter: every UTF-8 file is offered to the extractor, which decides
-//! by content. `max_per_class` 0 (or missing) = unlimited.
-//! Output: CSV with `label,path,<51 features>` (label 1 = malicious).
+//! Uses openedr_static's `extract_js_features`, so the features train_js_lgbm.py learns from
+//! are byte for byte what the engine computes at scan time. Files the extractor rejects
+//! (not valid JS) are skipped, as in the engine.
+//! Output: CSV with `label,path,<57 features>` (label 1 = malicious).
+//!
+//! Pure standard library parallelism (no rayon).
 
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex};
 
-use rayon::prelude::*;
-
-// At the crate root: js_features.rs refers to `super::features`.
-#[allow(dead_code)]
-#[path = "../../../OpenEDR/openedr_static/src/ml/features.rs"]
-mod features;
-#[allow(dead_code)]
-#[path = "../../../OpenEDR/openedr_static/src/ml/js_features.rs"]
-mod js_features;
+use openedr_static::ml::features::JsFeatureVector;
+use openedr_static::ml::js_features::extract_js_features;
 
 fn walk(dir: &Path, max: usize) -> Vec<PathBuf> {
     let mut out = Vec::new();
@@ -66,32 +60,76 @@ fn inputs(arg: &str, max: usize) -> Vec<PathBuf> {
     }
 }
 
-fn extract(files: &[PathBuf], label: u8) -> Vec<(u8, String, [f32; 51])> {
-    let done = AtomicUsize::new(0);
+/// Stack size for worker threads. Deeply nested JS AST parsing requires ample stack space.
+const STACK: usize = 64 * 1024 * 1024;
+
+fn extract(files: &[PathBuf], label: u8) -> Vec<(u8, String, [f32; 57])> {
+    if files.is_empty() {
+        return Vec::new();
+    }
     let total = files.len();
-    files
-        .par_iter()
-        .filter_map(|p| {
-            let n = done.fetch_add(1, Ordering::Relaxed) + 1;
-            if n % 2000 == 0 || n == total {
-                eprintln!("  label {label}: {n}/{total}");
-            }
-            let bytes = std::fs::read(p).ok()?;
-            let src = String::from_utf8(bytes).ok()?; // the engine only scores UTF-8 text
-            let f = std::panic::catch_unwind(|| js_features::extract_js_features(&src)).ok()??;
-            Some((label, p.display().to_string(), f.to_array()))
-        })
-        .collect()
+    let num_threads = std::thread::available_parallelism()
+        .map(|n| n.get())
+        .unwrap_or(8)
+        .min(total)
+        .max(1);
+
+    let next_idx = Arc::new(AtomicUsize::new(0));
+    let done_count = Arc::new(AtomicUsize::new(0));
+    let results: Arc<Mutex<Vec<(u8, String, [f32; 57])>>> =
+        Arc::new(Mutex::new(Vec::with_capacity(total)));
+    let files_arc = Arc::new(files.to_vec());
+
+    let mut handles = Vec::with_capacity(num_threads);
+    for _ in 0..num_threads {
+        let next_ref = Arc::clone(&next_idx);
+        let done_ref = Arc::clone(&done_count);
+        let res_ref = Arc::clone(&results);
+        let f_ref = Arc::clone(&files_arc);
+
+        let handle = std::thread::Builder::new()
+            .stack_size(STACK)
+            .spawn(move || {
+                let mut local = Vec::with_capacity(1024);
+                loop {
+                    let idx = next_ref.fetch_add(1, Ordering::Relaxed);
+                    if idx >= total {
+                        break;
+                    }
+                    let p = &f_ref[idx];
+                    let n = done_ref.fetch_add(1, Ordering::Relaxed) + 1;
+                    if n % 2000 == 0 || n == total {
+                        eprintln!("  label {label}: {n}/{total}");
+                    }
+                    let Ok(bytes) = std::fs::read(p) else { continue };
+                    let Ok(src) = String::from_utf8(bytes) else { continue };
+                    let Ok(Some(f)) = std::panic::catch_unwind(|| extract_js_features(&src)) else {
+                        continue;
+                    };
+                    local.push((label, p.display().to_string(), f.to_array()));
+                    if local.len() >= 1024 {
+                        res_ref.lock().unwrap().append(&mut local);
+                    }
+                }
+                if !local.is_empty() {
+                    res_ref.lock().unwrap().append(&mut local);
+                }
+            })
+            .expect("spawn worker thread");
+        handles.push(handle);
+    }
+
+    for h in handles {
+        let _ = h.join();
+    }
+
+    let mut guard = results.lock().unwrap();
+    std::mem::take(&mut *guard)
 }
 
-/// Stack for the main work thread and every extraction worker. Deeply nested JS
-/// recurses deep in the parser and AST walkers, and a stack overflow cannot be caught
-/// (it aborts the process), so give every thread far more than it will use; only the
-/// pages actually touched are committed.
-const STACK: usize = 512 * 1024 * 1024;
-
 fn main() {
-    rayon::ThreadPoolBuilder::new().stack_size(STACK).build_global().expect("thread pool");
+    // Enable the Multron disk whitelist during training extraction:
+    openedr_static::ml::pe_string_ml::enable_multron_training_whitelist();
     let worker = std::thread::Builder::new().stack_size(STACK).spawn(run).expect("work thread");
     if worker.join().is_err() {
         std::process::exit(1);
@@ -114,7 +152,7 @@ fn run() {
 
     let mut w = std::io::BufWriter::new(std::fs::File::create(&a[3]).expect("cannot create output"));
     let mut header = String::from("label,path");
-    for name in NAMES {
+    for name in &JsFeatureVector::NAMES {
         header.push(',');
         header.push_str(name);
     }
@@ -127,19 +165,3 @@ fn run() {
     let m = rows.iter().filter(|r| r.0 == 1).count();
     eprintln!("[+] wrote {} rows ({} malicious, {} benign; rejected files skipped) to {}", rows.len(), m, rows.len() - m, a[3]);
 }
-
-/// `JsFeatureVector::to_array` order.
-const NAMES: [&str; 51] = [
-    "file_size", "entropy", "parse_success", "function_count", "variable_declarations",
-    "call_expressions", "member_expressions", "binary_expressions", "conditional_statements",
-    "loop_statements", "try_catch_blocks", "array_literals", "object_literals", "max_nesting_depth",
-    "eval_usage", "suspicious_call_count", "hex_encoded_strings", "unicode_encoded_strings",
-    "char_code_usage", "base64_usage", "escape_usage", "bracket_notation_calls", "obfuscation_score",
-    "is_obfuscated", "crypto_references", "network_operations", "file_system_operations",
-    "registry_operations", "process_operations", "suspicious_api_calls", "suspicious_score",
-    "total_strings", "avg_string_length", "max_string_length", "long_strings_count",
-    "base64_like_strings", "url_strings", "hex_strings", "total_lines", "code_lines", "comment_lines",
-    "blank_lines", "avg_line_length", "max_line_length", "cyclomatic_complexity", "total_identifiers",
-    "short_identifiers", "long_identifiers", "avg_identifier_length", "suspicious_naming",
-    "random_like_identifiers",
-];

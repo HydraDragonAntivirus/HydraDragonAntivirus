@@ -482,22 +482,10 @@ impl PeStringBreakdown {
     }
 }
 
-/// Splits the inner PE's strings (image + overlay + decompiler + Unicorn trace) into
-/// malicious / benign / unknown. Whitelist always wins over the malicious filter.
-pub fn classify_inner_pe_strings(
-    data: &[u8],
-    extra_raw: Option<&[u8]>,
-    trace: Option<&BehaviorTrace>,
-) -> PeStringBreakdown {
-    if data.len() < 64 {
-        return PeStringBreakdown::default();
-    }
-    let (mut strings, decomp_count, trace_count) = collect_all_inner_strings(data, extra_raw, trace);
-    let mut out = PeStringBreakdown {
-        decompiler_strings: decomp_count,
-        unicorn_trace_strings: trace_count,
-        ..PeStringBreakdown::default()
-    };
+/// Splits a string list into malicious / benign / unknown using the loaded `.xf` filters
+/// (and Multron Server dynamic whitelist if in training mode). Whitelist always wins.
+pub fn classify_string_list(mut strings: Vec<String>) -> PeStringBreakdown {
+    let mut out = PeStringBreakdown::default();
     if strings.is_empty() {
         return out;
     }
@@ -552,6 +540,23 @@ pub fn classify_inner_pe_strings(
             out.unknown.push(s);
         }
     }
+    out
+}
+
+/// Splits the inner PE's strings (image + overlay + decompiler + Unicorn trace) into
+/// malicious / benign / unknown. Whitelist always wins over the malicious filter.
+pub fn classify_inner_pe_strings(
+    data: &[u8],
+    extra_raw: Option<&[u8]>,
+    trace: Option<&BehaviorTrace>,
+) -> PeStringBreakdown {
+    if data.len() < 64 {
+        return PeStringBreakdown::default();
+    }
+    let (strings, decomp_count, trace_count) = collect_all_inner_strings(data, extra_raw, trace);
+    let mut out = classify_string_list(strings);
+    out.decompiler_strings = decomp_count;
+    out.unicorn_trace_strings = trace_count;
     out
 }
 

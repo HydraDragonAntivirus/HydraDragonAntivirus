@@ -1108,25 +1108,53 @@ impl StaticEngine {
             crate::ml::pe_combined::forget_emulation();
             explained.map(|(e, model_kind)| (e, "MalwareNet.PE.HighConfidence", pe_threshold_for_model(model_kind), kind))
         } else if is_js_content(data) {
-            std::str::from_utf8(data).ok().and_then(|src| self.ml.explain_js(src)).map(|e| (e, "MalwareNet.JS.HighConfidence", js_tree_threshold(), "JavaScript tree ensemble (51 AST/lexical features)".to_string()))
+            if let Ok(src) = std::str::from_utf8(data) {
+                string_breakdown = crate::ml::js_features::js_deobfuscated_string_breakdown(src);
+            }
+            std::str::from_utf8(data).ok().and_then(|src| self.ml.explain_js(src)).map(|e| {
+                (
+                    e,
+                    "MalwareNet.JS.HighConfidence",
+                    js_tree_threshold(),
+                    format!("JavaScript tree ensemble ({} AST/lexical/deob features)", crate::ml::features::JsFeatureVector::LEN),
+                )
+            })
         } else {
             None
         };
         if let Some((e, rule, threshold, kind)) = ml {
-            // "Scan with engine" (this analyst view only, never the normal scan): the PE
+            // "Scan with engine" (this analyst view only, never the normal scan): the PE / JS
             // content model's strings are listed even when the model did not flag the
             // file, as an informational ML entry below the threshold.
             let flagged = e.probability >= threshold;
             if flagged || string_breakdown.is_some() {
-                let rule = if flagged { rule } else { "ML.PE.StringsInfo" };
+                let rule = if flagged { rule } else if is_pe { "ML.PE.StringsInfo" } else { "ML.JS.StringsInfo" };
                 let mut m = ml_explain(rule, &kind, threshold, &e);
                 if !flagged {
                     m.kind = format!("{} · {:.2}% malware (below threshold, strings shown for analysis)", kind, e.probability * 100.0);
                     m.evidence.clear();
                 }
                 if let Some(b) = &string_breakdown {
-                    append_string_breakdown(&mut m, b);
+                    append_string_breakdown(&mut m, b, !is_pe);
                 }
+                out.push(m);
+            }
+        } else if is_js_content(data) {
+            if let Some(b) = &string_breakdown {
+                let mut m = MatchExplain {
+                    engine: "HydraDragonML",
+                    score: 0.85,
+                    rule: "ML.JS.StringsInfo".to_string(),
+                    kind: "JavaScript deobfuscated strings (analyst view)".to_string(),
+                    source: None,
+                    line: None,
+                    definition: None,
+                    object_path: None,
+                    view: None,
+                    evidence: Vec::new(),
+                    ranges: Vec::new(),
+                };
+                append_string_breakdown(&mut m, b, true);
                 out.push(m);
             }
         }
@@ -2599,22 +2627,34 @@ fn ml_explain(rule: &str, kind: &str, threshold: f32, e: &crate::ml::scanner::Ml
     }
 }
 
-/// Strings the PE content model read, split into malicious / benign / unknown
+/// Strings the PE or JS content model read, split into malicious / benign / unknown
 /// (`pe_strings_malicious.xf` / `pe_strings_benign.xf` / neither). Shown in the ML
 /// definition (capped per class) and the malicious ones in the evidence.
-fn append_string_breakdown(m: &mut MatchExplain, b: &crate::ml::pe_string_ml::PeStringBreakdown) {
+fn append_string_breakdown(m: &mut MatchExplain, b: &crate::ml::pe_string_ml::PeStringBreakdown, is_js: bool) {
     const SHOW: usize = 200;
     let clip = |s: &str| -> String { s.chars().take(160).collect::<String>().replace(['\r', '\n'], " ") };
     let def = m.definition.get_or_insert_with(String::new);
-    def.push_str(&format!(
-        "\nStrings read by the content model: {} unique ({} malicious, {} benign, {} unknown; {} from disassembler, {} from emulation trace)\n",
-        b.total_unique,
-        b.malicious.len(),
-        b.benign.len(),
-        b.unknown.len(),
-        b.decompiler_strings,
-        b.unicorn_trace_strings
-    ));
+    if is_js {
+        def.push_str(&format!(
+            "\nStrings read by JS deobfuscated content model: {} unique ({} malicious, {} benign, {} unknown; {} deobfuscator AST modifications, unpacked: {})\n",
+            b.total_unique,
+            b.malicious.len(),
+            b.benign.len(),
+            b.unknown.len(),
+            b.decompiler_strings,
+            b.unicorn_trace_strings > 0
+        ));
+    } else {
+        def.push_str(&format!(
+            "\nStrings read by the content model: {} unique ({} malicious, {} benign, {} unknown; {} from disassembler, {} from emulation trace)\n",
+            b.total_unique,
+            b.malicious.len(),
+            b.benign.len(),
+            b.unknown.len(),
+            b.decompiler_strings,
+            b.unicorn_trace_strings
+        ));
+    }
     for (label, list) in [("MALICIOUS", &b.malicious), ("UNKNOWN", &b.unknown), ("BENIGN", &b.benign)] {
         def.push_str(&format!("\n[{label}] {} string(s){}\n", list.len(), if list.len() > SHOW { format!(", first {SHOW}") } else { String::new() }));
         for s in list.iter().take(SHOW) {

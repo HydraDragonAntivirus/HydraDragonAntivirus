@@ -4,6 +4,7 @@ pub mod error;
 pub mod imagedump;
 pub mod kernel_structs;
 pub mod packers;
+pub mod plan;
 
 pub use engine::UnpackerEngine;
 pub use error::UnpackerError;

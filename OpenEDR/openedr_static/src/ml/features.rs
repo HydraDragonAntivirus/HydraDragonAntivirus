@@ -352,12 +352,18 @@ pub struct JsFeatureVector {
     pub avg_identifier_length: f32,
     pub suspicious_naming: f32,
     pub random_like_identifiers: f32,
+    pub mal_str_hits: f32,
+    pub ben_str_hits: f32,
+    pub mal_ben_str_ratio: f32,
+    pub mal_str_density: f32,
+    pub deob_modifications: f32,
+    pub deob_unpacked: f32,
 }
 
 impl JsFeatureVector {
-    pub const LEN: usize = 51;
+    pub const LEN: usize = 57;
     /// Feature names in `to_array` order (for ML explanations).
-    pub const NAMES: [&'static str; 51] = [
+    pub const NAMES: [&'static str; 57] = [
         "file_size",
         "entropy",
         "parse_success",
@@ -409,9 +415,15 @@ impl JsFeatureVector {
         "avg_identifier_length",
         "suspicious_naming",
         "random_like_identifiers",
+        "mal_str_hits",
+        "ben_str_hits",
+        "mal_ben_str_ratio",
+        "mal_str_density",
+        "deob_modifications",
+        "deob_unpacked",
     ];
 
-    pub fn to_array(&self) -> [f32; 51] {
+    pub fn to_array(&self) -> [f32; 57] {
         [
             self.file_size,
             self.entropy,
@@ -464,6 +476,12 @@ impl JsFeatureVector {
             self.avg_identifier_length,
             self.suspicious_naming,
             self.random_like_identifiers,
+            self.mal_str_hits,
+            self.ben_str_hits,
+            self.mal_ben_str_ratio,
+            self.mal_str_density,
+            self.deob_modifications,
+            self.deob_unpacked,
         ]
     }
 
@@ -522,6 +540,12 @@ impl JsFeatureVector {
             ("avg_identifier_length", self.avg_identifier_length),
             ("suspicious_naming", self.suspicious_naming),
             ("random_like_identifiers", self.random_like_identifiers),
+            ("mal_str_hits", self.mal_str_hits),
+            ("ben_str_hits", self.ben_str_hits),
+            ("mal_ben_str_ratio", self.mal_ben_str_ratio),
+            ("mal_str_density", self.mal_str_density),
+            ("deob_modifications", self.deob_modifications),
+            ("deob_unpacked", self.deob_unpacked),
         ]
         .into_iter()
         .map(|(k, v)| (k.to_string(), v))
@@ -816,6 +840,12 @@ mod tests {
             avg_identifier_length: 46.0,
             suspicious_naming: 47.0,
             random_like_identifiers: 48.0,
+            mal_str_hits: 49.0,
+            ben_str_hits: 50.0,
+            mal_ben_str_ratio: 51.0,
+            mal_str_density: 52.0,
+            deob_modifications: 53.0,
+            deob_unpacked: 54.0,
         };
         let map = f.to_map();
         assert_eq!(map.len(), JsFeatureVector::LEN);

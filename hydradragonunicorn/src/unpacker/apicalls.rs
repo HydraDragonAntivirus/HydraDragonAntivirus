@@ -112,6 +112,53 @@ api_specs! {
     "initializecriticalsectionex"(3) -> 1;
     "seterrormode"(1) -> 0;
     "getprocessheap"(0) -> 0x150000;
+
+    // --- Heap, process environment and CRT startup (handlers in handle_api_call) ---
+    "heapcreate"(3) -> 0x150000;
+    "heapalloc"(3) -> 0;
+    "heaprealloc"(4) -> 0;
+    "heapfree"(3) -> 1;
+    "rtlallocateheap"(3) -> 0;
+    "rtlfreeheap"(3) -> 1;
+    "getcommandlinea"(0) -> 0;
+    "getcommandlinew"(0) -> 0;
+    "getenvironmentstrings"(0) -> 0;
+    "getenvironmentstringsa"(0) -> 0;
+    "getenvironmentstringsw"(0) -> 0;
+    "freeenvironmentstringsa"(1) -> 1;
+    "freeenvironmentstringsw"(1) -> 1;
+    "getwindowsdirectorya"(2) -> 0;
+    "getwindowsdirectoryw"(2) -> 0;
+    "getsystemdirectorya"(2) -> 0;
+    "getsystemdirectoryw"(2) -> 0;
+    "encodepointer"(1) -> 0;
+    "decodepointer"(1) -> 0;
+    "lstrcpyna"(3) -> 0;
+    "lstrcpynw"(3) -> 0;
+    "lstrcpya"(2) -> 0;
+    "lstrcpyw"(2) -> 0;
+    "initializecriticalsection"(1) -> 0;
+    "initializecriticalsectionandspincount"(2) -> 1;
+    "entercriticalsection"(1) -> 0;
+    "leavecriticalsection"(1) -> 0;
+    "deletecriticalsection"(1) -> 0;
+    "coinitialize"(1) -> 0;
+    "coinitializeex"(2) -> 0;
+    "getdc"(1) -> 0x1234;
+    "releasedc"(2) -> 1;
+    "isbadreadptr"(2) -> 0;
+    "isbadwriteptr"(2) -> 0;
+    "getsystemdefaultlangid"(0) -> 0x409;
+    "getuserdefaultlangid"(0) -> 0x409;
+    "enumdesktopsa"(3) -> 1;
+    "createwindowexa"(12) -> 0x2000;
+    "createwindowexw"(12) -> 0x2000;
+    // msvcrt / ucrt (cdecl through their DLL name)
+    "p__fmode"(0) -> 0;
+    "p__commode"(0) -> 0;
+    "getmainargs"(5) -> 0;
+    "wgetmainargs"(5) -> 0;
+    "get_initial_narrow_environment"(0) -> 0;
     "getversion"(0) -> 0x23F00206;
     "createeventw"(4) -> 0x1100;
     "createeventa"(4) -> 0x1104;
@@ -133,6 +180,21 @@ api_specs! {
     "getversionexa"(1) -> 1;
     // Previous top-level filter: none.
     "setunhandledexceptionfilter"(1) -> 0;
+    // Atomic operations on a caller's variable (handlers in handle_api_call).
+    "interlockedincrement"(1) -> 1;
+    "interlockeddecrement"(1) -> 0;
+    "interlockedexchange"(2) -> 0;
+    "interlockedexchangeadd"(2) -> 0;
+    "interlockedcompareexchange"(3) -> 0;
+    "getacp"(0) -> 1252;
+    "getoemcp"(0) -> 437;
+    "getsystemdefaultlcid"(0) -> 0x409;
+    "getuserdefaultlcid"(0) -> 0x409;
+    // CRT SEH frame handlers (msvcrt, cdecl), reached through the SEH dispatch:
+    // ExceptionContinueSearch, so the next frame handles it. 0 would retry the
+    // faulting instruction until the SEH limit.
+    "except_handler3"(4) -> 1;
+    "except_handler4_common"(6) -> 1;
 
     // --- Network APIs ---
     "winhttpopen"(5, [ (0, Wide) ]) -> 0x3000;
@@ -261,6 +323,13 @@ pub struct ApiState {
     pub net_stub_base: u64,
     pub net_stub_offset: u64,
     pub net_stub_mapped: u64,
+    /// Bump allocator for HeapAlloc: [heap_cur, heap_end) is mapped and free.
+    pub heap_cur: u64,
+    pub heap_end: u64,
+    /// Size of every block HeapAlloc gave out (HeapReAlloc copies that much).
+    pub heap_sizes: HashMap<u64, u64>,
+    /// Command line, environment, CRT globals: written once per run.
+    pub scratch: HashMap<&'static str, u64>,
 }
 
 impl Default for ApiState {
@@ -281,6 +350,10 @@ impl Default for ApiState {
             net_stub_base: 0x78000000,
             net_stub_offset: 0,
             net_stub_mapped: 0,
+            heap_cur: 0,
+            heap_end: 0,
+            heap_sizes: HashMap::new(),
+            scratch: HashMap::new(),
         }
     }
 }
@@ -677,6 +750,113 @@ pub fn write_fake_find_data_w(uc: &mut Unicorn<'_, ()>, addr: u64, filename: &st
     data[44..44 + copy_len].copy_from_slice(&utf16[..copy_len]);
 
     uc.mem_write(addr, &data).is_ok()
+}
+
+/// Path the CRT startup is told the program runs from.
+const PROGRAM_PATH: &str = "C:\\Users\\user\\Desktop\\sample.exe";
+const WINDOWS_DIR: &str = "C:\\Windows";
+const SYSTEM_DIR: &str = "C:\\Windows\\system32";
+/// Heap arena mapped at a time; blocks above `HEAP_DIRECT` get pages of their own.
+const HEAP_ARENA: u64 = 16 << 20;
+const HEAP_DIRECT: u64 = 1 << 20;
+
+/// `size` zeroed bytes from fresh pages in the VirtualAlloc area (0 when out of room).
+fn alloc_pages(uc: &mut Unicorn<'_, ()>, st: &mut ApiState, size: u64) -> u64 {
+    let len = (size.clamp(1, 64 << 20) + 0xFFF) & !0xFFF;
+    let addr = st.next_alloc_addr;
+    if addr.saturating_add(len) >= 0x70000000 || uc.mem_map(addr, len, Prot::ALL).is_err() {
+        return 0;
+    }
+    st.next_alloc_addr = addr + len + 0x10000;
+    addr
+}
+
+/// HeapAlloc: 16-byte aligned blocks from a mapped arena (fresh Unicorn pages are
+/// zeroed), so thousands of small allocations do not each become a mapped region.
+fn heap_alloc(uc: &mut Unicorn<'_, ()>, st: &mut ApiState, size: u64) -> u64 {
+    let size = size.max(1);
+    let addr = if size > HEAP_DIRECT {
+        alloc_pages(uc, st, size)
+    } else {
+        let need = (size + 15) & !15;
+        if st.heap_cur == 0 || st.heap_cur + need > st.heap_end {
+            let arena = alloc_pages(uc, st, HEAP_ARENA);
+            if arena == 0 {
+                return 0;
+            }
+            st.heap_cur = arena;
+            st.heap_end = arena + HEAP_ARENA;
+        }
+        let a = st.heap_cur;
+        st.heap_cur += need;
+        a
+    };
+    if addr != 0 {
+        st.heap_sizes.insert(addr, size);
+    }
+    addr
+}
+
+/// `bytes` written once per run under `key`; its address afterwards.
+fn scratch(uc: &mut Unicorn<'_, ()>, st: &mut ApiState, key: &'static str, bytes: &[u8]) -> u64 {
+    if let Some(&a) = st.scratch.get(key) {
+        return a;
+    }
+    let a = heap_alloc(uc, st, bytes.len() as u64);
+    if a != 0 && uc.mem_write(a, bytes).is_ok() {
+        st.scratch.insert(key, a);
+        return a;
+    }
+    0
+}
+
+fn ansi_z(s: &str) -> Vec<u8> {
+    let mut v = s.as_bytes().to_vec();
+    v.push(0);
+    v
+}
+
+fn wide_z(s: &str) -> Vec<u8> {
+    s.encode_utf16().chain(std::iter::once(0)).flat_map(|c| c.to_le_bytes()).collect()
+}
+
+/// A pointer-sized little-endian value (4 or 8 bytes).
+fn ptr_bytes(v: u64, is_64: bool) -> Vec<u8> {
+    if is_64 { v.to_le_bytes().to_vec() } else { (v as u32).to_le_bytes().to_vec() }
+}
+
+/// GetWindowsDirectory / GetSystemDirectory: the text when it fits in `cap` characters
+/// (returns its length), else the size needed (with the NUL), as Windows does.
+fn write_dir(uc: &mut Unicorn<'_, ()>, buf: u64, cap: u64, dir: &str, wide: bool) -> u64 {
+    let n = dir.len() as u64;
+    if buf < 0x10000 || cap <= n {
+        return n + 1;
+    }
+    let bytes = if wide { wide_z(dir) } else { ansi_z(dir) };
+    if uc.mem_write(buf, &bytes).is_err() {
+        return 0;
+    }
+    n
+}
+
+/// lstrcpy(n): copies at most `max` characters of the NUL-terminated `src` (the last one
+/// becomes the NUL), units of 1 or 2 bytes. Returns `dst`, or 0 when it cannot.
+fn copy_z(uc: &mut Unicorn<'_, ()>, dst: u64, src: u64, max: u64, unit: u64) -> u64 {
+    if dst < 0x10000 || src < 0x10000 || max == 0 {
+        return 0;
+    }
+    let mut c = [0u8; 2];
+    for i in 0..max.min(1 << 16) {
+        let last = i + 1 == max;
+        let ch = if last || uc.mem_read(src + i * unit, &mut c[..unit as usize]).is_err() { [0, 0] } else { c };
+        if uc.mem_write(dst + i * unit, &ch[..unit as usize]).is_err() {
+            return 0;
+        }
+        if ch[..unit as usize].iter().all(|&b| b == 0) {
+            break;
+        }
+    }
+    dst
 }
 
 /// Executes stub emulation logic for a resolved Windows API.
@@ -1144,6 +1324,26 @@ pub fn handle_api_call(
             }
             1
         }
+        "interlockedincrement" | "interlockeddecrement" | "interlockedexchange" | "interlockedexchangeadd"
+        | "interlockedcompareexchange" => {
+            let target = args.first().copied().unwrap_or(0);
+            let arg = |i: usize| args.get(i).copied().unwrap_or(0) as u32;
+            let mut cur = [0u8; 4];
+            if target < 0x10000 || uc.mem_read(target, &mut cur).is_err() {
+                return 0;
+            }
+            let old = u32::from_le_bytes(cur);
+            let (new, ret) = match norm.as_str() {
+                "interlockedincrement" => (old.wrapping_add(1), old.wrapping_add(1)),
+                "interlockeddecrement" => (old.wrapping_sub(1), old.wrapping_sub(1)),
+                "interlockedexchange" => (arg(1), old),
+                "interlockedexchangeadd" => (old.wrapping_add(arg(1)), old),
+                _ => (if old == arg(2) { arg(1) } else { old }, old),
+            };
+            let _ = uc.mem_write(target, &new.to_le_bytes());
+            ret as u64
+        }
+        "except_handler3" | "except_handler4_common" => 1,
         "isdebuggerpresent" => 0,
         "checkremotedebuggerpresent" => {
             let pb_debugger_present = args.get(1).copied().unwrap_or(0);
@@ -1153,6 +1353,76 @@ pub fn handle_api_call(
             1
         }
         "getlasterror" | "setlasterror" => 0,
+
+        // --- Heap ---
+        "heapalloc" | "rtlallocateheap" => {
+            let size = args.get(2).copied().unwrap_or(0);
+            heap_alloc(uc, api_state, size)
+        }
+        "heaprealloc" => {
+            let (old, size) = (args.get(2).copied().unwrap_or(0), args.get(3).copied().unwrap_or(0));
+            let new = heap_alloc(uc, api_state, size);
+            let keep = api_state.heap_sizes.get(&old).copied().unwrap_or(0).min(size);
+            if new != 0 && old >= 0x10000 && keep > 0 {
+                if let Ok(data) = uc.mem_read_as_vec(old, keep as usize) {
+                    let _ = uc.mem_write(new, &data);
+                }
+            }
+            new
+        }
+        // --- Process environment ---
+        "getcommandlinea" => scratch(uc, api_state, "cmdline_a", &ansi_z(&format!("\"{PROGRAM_PATH}\""))),
+        "getcommandlinew" => scratch(uc, api_state, "cmdline_w", &wide_z(&format!("\"{PROGRAM_PATH}\""))),
+        "getenvironmentstrings" | "getenvironmentstringsa" => {
+            scratch(uc, api_state, "env_a", b"PATH=C:\\Windows\\system32\0\0")
+        }
+        "getenvironmentstringsw" => {
+            let mut w = wide_z("PATH=C:\\Windows\\system32");
+            w.extend_from_slice(&[0, 0]);
+            scratch(uc, api_state, "env_w", &w)
+        }
+        "getwindowsdirectorya" | "getwindowsdirectoryw" | "getsystemdirectorya" | "getsystemdirectoryw" => {
+            let dir = if norm.starts_with("getwindows") { WINDOWS_DIR } else { SYSTEM_DIR };
+            let (buf, cap) = (args.get(0).copied().unwrap_or(0), args.get(1).copied().unwrap_or(0));
+            write_dir(uc, buf, cap, dir, norm.ends_with('w'))
+        }
+        "encodepointer" | "decodepointer" => args.get(0).copied().unwrap_or(0),
+        "lstrcpyna" | "lstrcpynw" => {
+            let unit = if norm.ends_with('w') { 2 } else { 1 };
+            copy_z(uc, args.get(0).copied().unwrap_or(0), args.get(1).copied().unwrap_or(0), args.get(2).copied().unwrap_or(0), unit)
+        }
+        "lstrcpya" | "lstrcpyw" => {
+            let unit = if norm.ends_with('w') { 2 } else { 1 };
+            copy_z(uc, args.get(0).copied().unwrap_or(0), args.get(1).copied().unwrap_or(0), 4096, unit)
+        }
+        // --- CRT startup (msvcrt / ucrt) ---
+        "p__fmode" => scratch(uc, api_state, "fmode", &[0u8; 4]),
+        "p__commode" => scratch(uc, api_state, "commode", &[0u8; 4]),
+        "get_initial_narrow_environment" => {
+            let is_64 = api_state.is_64;
+            scratch(uc, api_state, "envp", &ptr_bytes(0, is_64))
+        }
+        // __getmainargs(int *argc, char ***argv, char ***envp, int wildcard, _startupinfo *)
+        "getmainargs" | "wgetmainargs" => {
+            let is_64 = api_state.is_64;
+            let wide = norm.starts_with('w');
+            let path = if wide { scratch(uc, api_state, "argv0_w", &wide_z(PROGRAM_PATH)) } else { scratch(uc, api_state, "argv0_a", &ansi_z(PROGRAM_PATH)) };
+            let mut argv = ptr_bytes(path, is_64);
+            argv.extend(ptr_bytes(0, is_64));
+            let argv = scratch(uc, api_state, if wide { "argv_w" } else { "argv_a" }, &argv);
+            let envp = scratch(uc, api_state, "envp", &ptr_bytes(0, is_64));
+            let out = |i: usize| args.get(i).copied().unwrap_or(0);
+            if out(0) >= 0x10000 {
+                let _ = uc.mem_write(out(0), &1u32.to_le_bytes());
+            }
+            if out(1) >= 0x10000 {
+                let _ = uc.mem_write(out(1), &ptr_bytes(argv, is_64));
+            }
+            if out(2) >= 0x10000 {
+                let _ = uc.mem_write(out(2), &ptr_bytes(envp, is_64));
+            }
+            0
+        }
 
         // --- Fallback ---
         _ => {
@@ -1315,6 +1585,47 @@ mod tests {
 
         let estimated = estimate_x86_stdcall_arg_count(&uc, ret_addr);
         assert_eq!(estimated, Some(3));
+    }
+
+    #[test]
+    fn test_crt_startup_heap_and_environment() {
+        let mut uc = Unicorn::new(Arch::X86, Mode::MODE_32).expect("Unicorn new");
+        let mut st = ApiState::default();
+        let mut dll_map = HashMap::new();
+        let mut call = |uc: &mut Unicorn<'_, ()>, st: &mut ApiState, name: &str, args: &[u64]| handle_api_call(uc, name, args, st, &mut dll_map);
+
+        // Heap blocks are distinct, zeroed, and HeapReAlloc keeps the old contents.
+        let a = call(&mut uc, &mut st, "HeapAlloc", &[0x150000, 0, 8]);
+        let b = call(&mut uc, &mut st, "HeapAlloc", &[0x150000, 0, 8]);
+        assert!(a >= 0x10000 && b >= a + 8);
+        uc.mem_write(a, b"abcdefgh").unwrap();
+        let c = call(&mut uc, &mut st, "HeapReAlloc", &[0x150000, 0, a, 32]);
+        assert_eq!(uc.mem_read_as_vec(c, 8).unwrap(), b"abcdefgh");
+
+        // The command line is written once and keeps its address.
+        let cmd = call(&mut uc, &mut st, "GetCommandLineA", &[]);
+        assert_eq!(read_ansi_string(&uc, cmd, 512).unwrap(), format!("\"{PROGRAM_PATH}\""));
+        assert_eq!(call(&mut uc, &mut st, "GetCommandLineA", &[]), cmd);
+
+        // GetWindowsDirectory: length when it fits, size needed otherwise.
+        let buf = call(&mut uc, &mut st, "HeapAlloc", &[0x150000, 0, 64]);
+        assert_eq!(call(&mut uc, &mut st, "GetWindowsDirectoryA", &[buf, 64]), WINDOWS_DIR.len() as u64);
+        assert_eq!(read_ansi_string(&uc, buf, 64).unwrap(), WINDOWS_DIR);
+        assert_eq!(call(&mut uc, &mut st, "GetWindowsDirectoryA", &[buf, 4]), WINDOWS_DIR.len() as u64 + 1);
+
+        // __getmainargs: argc = 1, argv[0] = the program, argv[1] = NULL.
+        let outs = call(&mut uc, &mut st, "HeapAlloc", &[0x150000, 0, 12]);
+        assert_eq!(call(&mut uc, &mut st, "__getmainargs", &[outs, outs + 4, outs + 8, 0, 0]), 0);
+        let rd = |uc: &Unicorn<'_, ()>, a: u64| u32::from_le_bytes(uc.mem_read_as_vec(a, 4).unwrap().try_into().unwrap()) as u64;
+        assert_eq!(rd(&uc, outs), 1);
+        let argv = rd(&uc, outs + 4);
+        assert_eq!(read_ansi_string(&uc, rd(&uc, argv), 512).unwrap(), PROGRAM_PATH);
+        assert_eq!(rd(&uc, argv + 4), 0);
+
+        // InterlockedIncrement returns the new value and stores it.
+        uc.mem_write(buf, &41u32.to_le_bytes()).unwrap();
+        assert_eq!(call(&mut uc, &mut st, "InterlockedIncrement", &[buf]), 42);
+        assert_eq!(rd(&uc, buf), 42);
     }
 
     #[test]

@@ -644,16 +644,22 @@ impl<'a> Visit<'a> for RegexSpans {
 /// Largest script that is deobfuscated before its features are taken.
 const MAX_DEOBFUSCATE_BYTES: usize = 1 << 20;
 
-/// The script with its static obfuscation undone (`hydradragonjsdeob`: P.A.C.K.E.R.,
-/// constant folding, string concatenation, `atob` / `fromCharCode`, proxies, dead
-/// code), when that changed anything; `None` keeps the file as it is. A packed clean
-/// script (Trend Micro HouseCall's packed UI strings) otherwise looks like malware to
-/// the model: `eval`, a regex built at run time, one long line. Only when something
-/// was undone, because the output is re-printed: using it for every file would erase
-/// the layout features (line lengths, whitespace) of the unobfuscated ones too.
-/// The engine also scans the result as an object of its own (signatures written for
-/// the readable code), so the last answer is kept per thread (`LAST_DEOBFUSCATED`).
-pub fn deobfuscated(source: &str) -> Option<std::rc::Rc<str>> {
+#[derive(Clone)]
+pub struct JsDeobInfo {
+    pub code: std::rc::Rc<str>,
+    pub modifications: usize,
+    pub unpacked: bool,
+}
+
+thread_local! {
+    /// The last script deobfuscated on this thread, by hash and length of the source:
+    /// the ML features and the engine's scan of the deobfuscated object ask for the same
+    /// file one after the other. One entry, the size of one script.
+    static LAST_DEOBFUSCATED: std::cell::RefCell<Option<((u64, usize), Option<JsDeobInfo>)>> = const { std::cell::RefCell::new(None) };
+}
+
+/// Retrieves cached deobfuscation details (code, modifications count, unpacked status).
+pub fn get_deobfuscated_info(source: &str) -> Option<JsDeobInfo> {
     if source.len() > MAX_DEOBFUSCATE_BYTES {
         return None;
     }
@@ -663,36 +669,140 @@ pub fn deobfuscated(source: &str) -> Option<std::rc::Rc<str>> {
         source.hash(&mut h);
         (h.finish(), source.len())
     };
-    if let Some(hit) = LAST_DEOBFUSCATED.with_borrow(|last| last.as_ref().filter(|(k, _)| *k == key).map(|(_, r)| r.clone())) {
-        return hit;
+    if let Some(hit) = LAST_DEOBFUSCATED.with_borrow(|last| {
+        last.as_ref()
+            .filter(|(k, _)| *k == key)
+            .and_then(|(_, r)| r.clone())
+    }) {
+        return Some(hit);
     }
-    let result = deobfuscate(source).map(std::rc::Rc::from);
+
+    let unpacked_code = hydradragonjsdeob::packer::unpack_all(source);
+    let was_packed = unpacked_code.is_some();
+    let src_for_deob = unpacked_code.as_deref().unwrap_or(source);
+
+    let r = std::panic::catch_unwind(|| {
+        hydradragonjsdeob::engine::api::JSDeobfuscator::new()
+            .max_iterations(20)
+            .deobfuscate(src_for_deob)
+    })
+    .ok()
+    .and_then(|res| res.ok());
+
+    let result = match r {
+        Some(res) if was_packed || res.modifications > 0 => Some(JsDeobInfo {
+            code: std::rc::Rc::from(res.code),
+            modifications: res.modifications,
+            unpacked: was_packed,
+        }),
+        _ if was_packed => Some(JsDeobInfo {
+            code: std::rc::Rc::from(src_for_deob),
+            modifications: 0,
+            unpacked: true,
+        }),
+        _ => None,
+    };
+
     LAST_DEOBFUSCATED.set(Some((key, result.clone())));
     result
 }
 
-thread_local! {
-    /// The last script deobfuscated on this thread, by hash and length of the source:
-    /// the ML features and the engine's scan of the deobfuscated object ask for the same
-    /// file one after the other. One entry, the size of one script.
-    static LAST_DEOBFUSCATED: std::cell::RefCell<Option<((u64, usize), Option<std::rc::Rc<str>>)>> = const { std::cell::RefCell::new(None) };
+/// The script with its static obfuscation undone (`hydradragonjsdeob`: P.A.C.K.E.R.,
+/// constant folding, string concatenation, `atob` / `fromCharCode`, proxies, dead
+/// code), when that changed anything; `None` keeps the file as it is.
+pub fn deobfuscated(source: &str) -> Option<std::rc::Rc<str>> {
+    get_deobfuscated_info(source).map(|d| d.code)
 }
 
-fn deobfuscate(source: &str) -> Option<String> {
-    let packed = hydradragonjsdeob::packer::unpack_all(source).is_some();
-    let r = std::panic::catch_unwind(|| hydradragonjsdeob::engine::api::JSDeobfuscator::new().max_iterations(20).deobfuscate(source))
-        .ok()?
-        .ok()?;
-    (packed || r.modifications > 0).then_some(r.code)
+/// Extracts string literals and identifier/API tokens from JavaScript code for matching
+/// against the malicious and benign XOR / BinaryFuse filters.
+pub fn extract_js_strings_for_classification(code: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    const MIN_LEN: usize = 5;
+    const MAX_LEN: usize = 512;
+    const MAX_ITEMS: usize = 10_000;
+
+    // 1. Quoted string literals (single, double, template literals)
+    static RE_LITERALS: LazyLock<regex::Regex> = LazyLock::new(|| {
+        regex::Regex::new(r#"(?s)"([^"\\]*(?:\\.[^"\\]*)*)"|'([^'\\]*(?:\\.[^'\\]*)*)'|`([^`\\]*(?:\\.[^`\\]*)*)`"#).unwrap()
+    });
+
+    for caps in RE_LITERALS.captures_iter(code) {
+        let raw = caps.get(1).or_else(|| caps.get(2)).or_else(|| caps.get(3)).map(|m| m.as_str()).unwrap_or("");
+        let trimmed = raw.trim();
+        if trimmed.len() >= MIN_LEN && trimmed.len() <= MAX_LEN && trimmed.chars().any(|c| c.is_alphabetic()) {
+            out.push(trimmed.to_string());
+            if out.len() >= MAX_ITEMS {
+                break;
+            }
+        }
+        if trimmed.contains(' ') {
+            for word in trimmed.split_whitespace() {
+                let w = word.trim_matches(|c: char| !c.is_alphanumeric() && c != '.' && c != '_' && c != '-');
+                if w.len() >= MIN_LEN && w.len() <= MAX_LEN && w.chars().any(|c| c.is_alphabetic()) {
+                    out.push(w.to_string());
+                    if out.len() >= MAX_ITEMS {
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
+    // 2. Identifiers / API tokens
+    for m in RE_IDENTIFIERS.find_iter(code) {
+        let s = m.as_str();
+        if s.len() >= MIN_LEN && s.len() <= MAX_LEN {
+            out.push(s.to_string());
+            if out.len() >= MAX_ITEMS {
+                break;
+            }
+        }
+    }
+
+    // 3. Dotted member chains (e.g. WScript.Shell, Scripting.FileSystemObject)
+    static RE_DOTTED: LazyLock<regex::Regex> = LazyLock::new(|| {
+        regex::Regex::new(r"\b[a-zA-Z_$][a-zA-Z0-9_$]*(?:\.[a-zA-Z_$][a-zA-Z0-9_$]*)+\b").unwrap()
+    });
+    for m in RE_DOTTED.find_iter(code) {
+        let s = m.as_str();
+        if s.len() >= MIN_LEN && s.len() <= MAX_LEN {
+            out.push(s.to_string());
+            if out.len() >= MAX_ITEMS {
+                break;
+            }
+        }
+    }
+
+    out
+}
+
+/// Returns the string breakdown (malicious, benign, unknown) of the deobfuscated JavaScript
+/// code, along with deobfuscation modification counts and unpack status.
+pub fn js_deobfuscated_string_breakdown(source: &str) -> Option<super::pe_string_ml::PeStringBreakdown> {
+    let deob = get_deobfuscated_info(source);
+    let code = deob.as_ref().map(|d| d.code.as_ref()).unwrap_or(source);
+    let strings = extract_js_strings_for_classification(code);
+    if strings.is_empty() {
+        return None;
+    }
+    let mut b = super::pe_string_ml::classify_string_list(strings);
+    b.decompiler_strings = deob.as_ref().map(|d| d.modifications).unwrap_or(0);
+    b.unicorn_trace_strings = if deob.as_ref().is_some_and(|d| d.unpacked) { 1 } else { 0 };
+    Some(b)
 }
 
 /// The same for training (`js_feature_dump`) and scanning: features of the
 /// deobfuscated script when there is one (`deobfuscated`), of the file otherwise.
 pub fn extract_js_features(source: &str) -> Option<JsFeatureVector> {
-    match deobfuscated(source) {
-        Some(code) => extract_js_features_of(&code).or_else(|| extract_js_features_of(source)),
-        None => extract_js_features_of(source),
+    if let Some(deob) = get_deobfuscated_info(source) {
+        if let Some(mut f) = extract_js_features_of(&deob.code) {
+            f.deob_modifications = (deob.modifications as f32).ln_1p();
+            f.deob_unpacked = if deob.unpacked { 1.0 } else { 0.0 };
+            return Some(f);
+        }
     }
+    extract_js_features_of(source)
 }
 
 fn extract_js_features_of(source: &str) -> Option<JsFeatureVector> {
@@ -786,6 +896,14 @@ fn extract_js_features_of(source: &str) -> Option<JsFeatureVector> {
     let (total_idents, short_idents, long_idents, avg_ident_len, suspicious_naming, random_idents) =
         analyze_identifiers(source);
 
+    let string_candidates = extract_js_strings_for_classification(source);
+    let str_breakdown = super::pe_string_ml::classify_string_list(string_candidates);
+    let mal_str_f = str_breakdown.malicious.len() as f32;
+    let ben_str_f = str_breakdown.benign.len() as f32;
+    let tot_str_f = str_breakdown.total_unique as f32;
+    let mal_ben_str_ratio = mal_str_f / (ben_str_f + 1.0);
+    let mal_str_density = mal_str_f / (tot_str_f + 1.0);
+
     Some(JsFeatureVector {
         file_size: ln1p(source.len() as f32),
         entropy: shannon_entropy_str(source),
@@ -838,6 +956,12 @@ fn extract_js_features_of(source: &str) -> Option<JsFeatureVector> {
         avg_identifier_length: avg_ident_len,
         suspicious_naming,
         random_like_identifiers: ln1p(random_idents),
+        mal_str_hits: ln1p(mal_str_f),
+        ben_str_hits: ln1p(ben_str_f),
+        mal_ben_str_ratio,
+        mal_str_density,
+        deob_modifications: 0.0,
+        deob_unpacked: 0.0,
     })
 }
 
@@ -935,6 +1059,16 @@ mod tests {
         // The second ask (the engine's object scan after the ML features) is the cached result.
         assert!(std::rc::Rc::ptr_eq(&first, &deobfuscated(packed).unwrap()));
         assert_eq!(deobfuscated("console.log(document.title);\n"), None);
+    }
+
+    #[test]
+    fn test_js_deobfuscated_string_breakdown() {
+        let packed = r#"eval(function(p,a,c,k,e,d){e=function(c){return c.toString(36)};while(c--){if(k[c]){p=p.replace(new RegExp('\\b'+e(c)+'\\b','g'),k[c])}}return p}('0 1=\'2\';',3,3,'var|url|http://example.invalid/x'.split('|'),0,{}))"#;
+        let b = js_deobfuscated_string_breakdown(packed);
+        assert!(b.is_some());
+        let b = b.unwrap();
+        assert_eq!(b.unicorn_trace_strings, 1); // unpacked
+        assert!(b.total_unique > 0);
     }
 
     #[test]

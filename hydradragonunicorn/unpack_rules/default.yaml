@@ -1,0 +1,88 @@
+# HydraDragon unpacker signatures (format: hydradragonunicorn/UNPACK_FORMAT.md).
+# Compiled into hydradragonunicorn. Each rule RECOGNISES a packer with
+# hydradragonsig conditions and gives the STEPS that unpack it. The header only
+# picks the recipe: every run_until is checked against what the emulated code
+# really does, and a recipe whose step does not happen falls back to the generic
+# emulation. Rules are tried in order; the first that matches runs.
+version: 1
+rules:
+  # .NET: a native stub that jumps to mscoree!_CorExeMain / _CorDllMain, which
+  # the CPU emulator cannot run (profile 2026-10-28: 212 of the 447 packed
+  # samples that did not unpack stopped there). Only a file that REALLY calls it
+  # is decompiled: a fake CLR header over native code, or a C++/CLI image whose
+  # native code runs first, does not reach it and falls back to emulation.
+  - id: dotnet
+    description: Managed image; decompiled once its stub calls the CLR
+    conditions:
+      - type: pe_section
+        directories_any: [clr]
+    unpack:
+      - run_until: {api: [_CorExeMain, _CorDllMain], max_instructions: 2000000}
+      - decompile
+
+  # UPX: the stub decompresses UPX0 in place, then `popad; jmp OEP` into it.
+  # The first instruction executed from the written UPX0 is the original entry.
+  - id: upx
+    description: UPX (NRV / LZMA), tail jump into the decompressed UPX0
+    logic: any
+    conditions:
+      - type: pe_section
+        name: UPX0
+      - type: pe_section
+        name: UPX1
+      - type: unpacker_any
+        signatures:
+          - {name: UPX, pattern: "{ 60 BE ?? ?? ?? ?? 8D BE ?? ?? ?? ?? 57 }"}
+    unpack:
+      - run_until: {write_execute: true, outside: [UPX1], max_instructions: 100000000, timeout_ms: 60000}
+      - set_oep: ip
+      - dump
+
+  # MPRESS: .MPRESS1 holds the compressed image, .MPRESS2 the stub that
+  # decompresses it in place and jumps to the original entry.
+  - id: mpress
+    description: MPRESS, jump into the decompressed .MPRESS1
+    logic: any
+    conditions:
+      - type: pe_section
+        name: .MPRESS1
+      - type: pe_section
+        name: .MPRESS2
+    unpack:
+      - run_until: {write_execute: true, outside: [.MPRESS2], max_instructions: 100000000, timeout_ms: 60000}
+      - set_oep: ip
+      - dump
+
+  # ASPack: the stub in .aspack decompresses the sections, rebuilds the
+  # imports, then `push OEP; ret` into the written code.
+  - id: aspack
+    description: ASPack, return into the decompressed code
+    logic: any
+    conditions:
+      - type: pe_section
+        name: .aspack
+      - type: pe_section
+        name: .adata
+    unpack:
+      - run_until: {write_execute: true, outside: [.aspack, .adata], max_instructions: 100000000, timeout_ms: 60000}
+      - set_oep: ip
+      - dump
+
+  # Installers: the payload is in the data, the stub is not worth emulating.
+  - id: nsis
+    description: Nullsoft installer (first header 0xDEADBEEF "NullsoftInst")
+    conditions:
+      - type: byte_pattern
+        pattern: "{ EF BE AD DE 4E 75 6C 6C 73 6F 66 74 49 6E 73 74 }"
+    unpack:
+      - extract
+
+  - id: sevenzip_sfx
+    description: 7-Zip self-extracting archive (7z signature after the stub)
+    conditions:
+      - type: pe_anchor_pattern
+        anchor: overlay
+        range: 0x400
+        patterns: ["37 7A BC AF 27 1C"]
+    unpack:
+      - extract
