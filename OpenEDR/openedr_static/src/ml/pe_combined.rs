@@ -266,7 +266,7 @@ pub fn forget_emulation() {
 
 fn run_emulation(data: &[u8]) -> Option<Emulation> {
     use hydradragonunicorn::unpacker::engine::{entrypoint, Sample, UnpackerEngine};
-    use hydradragonunicorn::unpacker::plan::{Budget, Outcome, UnpackRules};
+    use hydradragonunicorn::unpacker::plan::{Budget, UnpackRules};
     if !should_unpack(data) {
         return None;
     }
@@ -274,8 +274,8 @@ fn run_emulation(data: &[u8]) -> Option<Emulation> {
     // means the recipe does not fit this file: the generic run below.
     let budget = Budget { max_instructions: UNPACK_MAX_INSTRUCTIONS, timeout_us: UNPACK_TIMEOUT_US };
     if let Some(run) = UnpackRules::builtin().unpack(data, budget) {
-        if let Outcome::Dumped(image) = run.outcome {
-            return Some(Emulation { dump: Some(image), unpacked: true, trace: run.trace, failed: false });
+        if let Some(payload) = run.main_payload() {
+            return Some(Emulation { dump: Some(payload.to_vec()), unpacked: true, trace: run.trace.clone(), failed: false });
         }
     }
     let sample = Sample::from_bytes(data).ok()?;

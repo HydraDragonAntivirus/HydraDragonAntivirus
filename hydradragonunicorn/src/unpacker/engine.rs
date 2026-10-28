@@ -2090,6 +2090,42 @@ impl UnpackerEngine {
         self.uc.as_ref()?.reg_read(reg as i32).ok()
     }
 
+    /// The first `n` arguments of a call stopped at its API stub (before the
+    /// call ran): x86 stdcall / cdecl from the stack above the return address,
+    /// x64 from RCX, RDX, R8, R9 and the stack. Unreadable ones are 0.
+    pub fn api_args(&self, n: usize) -> Vec<u64> {
+        let Some(uc) = self.uc.as_ref() else { return vec![0; n] };
+        let is_64 = self.hook_state.borrow().is_64;
+        let stack = |addr: u64, size: usize| -> u64 {
+            let mut b = [0u8; 8];
+            if uc.mem_read(addr, &mut b[..size]).is_ok() { u64::from_le_bytes(b) } else { 0 }
+        };
+        (0..n)
+            .map(|i| {
+                if is_64 {
+                    match i {
+                        0 => uc.reg_read(RegisterX86::RCX as i32).unwrap_or(0),
+                        1 => uc.reg_read(RegisterX86::RDX as i32).unwrap_or(0),
+                        2 => uc.reg_read(RegisterX86::R8 as i32).unwrap_or(0),
+                        3 => uc.reg_read(RegisterX86::R9 as i32).unwrap_or(0),
+                        _ => stack(uc.reg_read(RegisterX86::RSP as i32).unwrap_or(0) + 0x28 + (i as u64 - 4) * 8, 8),
+                    }
+                } else {
+                    stack(uc.reg_read(RegisterX86::ESP as i32).unwrap_or(0) + 4 * (i as u64 + 1), 4)
+                }
+            })
+            .collect()
+    }
+
+    /// `len` bytes of emulated memory at `addr`.
+    pub fn read_mem(&self, addr: u64, len: usize) -> Option<Vec<u8>> {
+        self.uc.as_ref()?.mem_read_as_vec(addr, len).ok()
+    }
+
+    pub fn is_64(&self) -> bool {
+        self.hook_state.borrow().is_64
+    }
+
     pub fn set_ip(&mut self, ip: u64) -> bool {
         let reg = if self.hook_state.borrow().is_64 { RegisterX86::RIP } else { RegisterX86::EIP };
         self.uc.as_mut().is_some_and(|uc| uc.reg_write(reg as i32, ip).is_ok())

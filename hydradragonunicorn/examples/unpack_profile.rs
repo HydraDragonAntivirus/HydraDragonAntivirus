@@ -3,11 +3,11 @@
 //! emulation as `openedr_static::ml::pe_combined::run_emulation` (trace mode, no
 //! write-execute / section-hopping stops, 20M instructions, 20 s), inside Unicorn only.
 //!
-//! A file an unpacker signature (`unpack_rules/default.yaml`) recognises runs its
-//! recipe first (`rule`, `recipe`, `recipe_error`); the generic run follows only
-//! when no rule matches or the recipe failed.
+//! A file an unpacker signature (the built-in ones plus [unpack_rules.yaml]) recognises
+//! runs its recipe first (`rule`, `recipe`, `recipe_error`); the generic run follows
+//! only when no rule matches or the recipe failed.
 //!
-//! `unpack_profile <files.lst> <out.jsonl> [packer_signatures.yar] [threads]`
+//! `unpack_profile <files.lst> <out.jsonl> [packer_signatures.yar] [threads] [unpack_rules.yaml]`
 //! Lines already in <out.jsonl> are skipped, so a run that stopped goes on where it was.
 
 use std::collections::HashSet;
@@ -72,7 +72,7 @@ fn sections(d: &[u8]) -> (Vec<String>, f64) {
     (names, emax)
 }
 
-fn profile(path: &str, rules: Option<&yara_x::Rules>) -> String {
+fn profile(path: &str, rules: Option<&yara_x::Rules>, unpack_rules: &UnpackRules) -> String {
     let t = std::time::Instant::now();
     let Ok(data) = std::fs::read(path) else { return format!("{{\"path\":\"{}\",\"error\":\"read\"}}", esc(path)) };
     let (secs, emax) = sections(&data);
@@ -93,19 +93,19 @@ fn profile(path: &str, rules: Option<&yara_x::Rules>) -> String {
     // Unpacker signature first: its recipe, and the generic run only when no rule
     // matches or a step of the recipe did not happen.
     let budget = Budget { max_instructions: MAX_INSTRUCTIONS, timeout_us: TIMEOUT_US };
-    let recipe = UnpackRules::builtin().unpack(&data, budget);
+    let recipe = unpack_rules.unpack(&data, budget);
     let head = match &recipe {
         None => format!("{head},\"rule\":null"),
         Some(run) => {
             let (outcome, why) = match &run.outcome {
-                Outcome::Dumped(_) => ("dumped", None),
-                Outcome::Failed { step, reason } => ("failed", Some(format!("step {step}: {reason}"))),
+                Outcome::Unpacked(p) => (if p.len() == 1 { "unpacked" } else { "unpacked_many" }, None),
+                Outcome::Failed(reason) => ("failed", Some(reason.clone())),
             };
             let why = why.map(|w| format!("\"{}\"", esc(&w))).unwrap_or_else(|| "null".into());
             format!("{head},\"rule\":\"{}\",\"recipe\":\"{outcome}\",\"recipe_error\":{why},\"recipe_ms\":{}", esc(&run.rule), t.elapsed().as_millis())
         }
     };
-    if let Some(run) = recipe.as_ref().filter(|r| matches!(r.outcome, Outcome::Dumped(_))) {
+    if let Some(run) = recipe.as_ref().filter(|r| matches!(r.outcome, Outcome::Unpacked(_))) {
         return format!("{{{head},\"result\":\"unpacked\",\"api_calls\":{},\"ms\":{}}}", run.trace.calls.len(), t.elapsed().as_millis());
     }
     let Ok(sample) = Sample::from_bytes(&data) else { return format!("{{{head},\"result\":\"not_pe\"}}") };
@@ -144,7 +144,7 @@ fn profile(path: &str, rules: Option<&yara_x::Rules>) -> String {
 fn main() {
     let a: Vec<String> = std::env::args().collect();
     if a.len() < 3 {
-        eprintln!("usage: unpack_profile <files.lst> <out.jsonl> [packer_signatures.yar] [threads]");
+        eprintln!("usage: unpack_profile <files.lst> <out.jsonl> [packer_signatures.yar] [threads] [unpack_rules.yaml]");
         std::process::exit(2);
     }
     let rules = a.get(3).filter(|p| !p.is_empty()).map(|p| {
@@ -152,6 +152,11 @@ fn main() {
         yara_x::compile(src.as_str()).expect("compile YARA rules")
     });
     let threads: usize = a.get(4).and_then(|v| v.parse().ok()).unwrap_or(4).max(1);
+    let unpack_rules = match a.get(5) {
+        Some(p) => UnpackRules::builtin_with_file(std::path::Path::new(p)).unwrap_or_else(|e| panic!("unpack rules: {e}")),
+        None => UnpackRules::builtin().clone(),
+    };
+    eprintln!("{} unpacker signatures", unpack_rules.len());
     let done: HashSet<String> = std::fs::File::open(&a[2])
         .map(|f| {
             std::io::BufReader::new(f)
@@ -178,7 +183,7 @@ fn main() {
                 .spawn_scoped(s, || loop {
                     let i = next.fetch_add(1, Ordering::Relaxed);
                     let Some(p) = files.get(i) else { break };
-                    let line = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| profile(p, rules.as_ref())))
+                    let line = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| profile(p, rules.as_ref(), &unpack_rules)))
                         .unwrap_or_else(|_| format!("{{\"path\":\"{}\",\"result\":\"panic\"}}", esc(p)));
                     let mut o = out.lock().unwrap();
                     let _ = writeln!(o, "{line}");

@@ -124,11 +124,17 @@ impl MlScanner {
         Some(trees.predict_probability(&arr))
     }
 
-    /// APK probability from our own forest (`apk_trees.bin`, 24 features —
+    /// APK probability from our own forest (`apk_trees.bin` —
     /// same bundle format and scorer as the PE/JS/URL trees).
     pub fn predict_apk(&self, features: &[f32; crate::apk::APK_TREE_FEATURE_COUNT]) -> Option<f32> {
         let trees = self.apk_trees.as_ref()?;
         Some(trees.predict_probability(features))
+    }
+
+    /// Same as [`Self::explain_pe`] for the APK model.
+    pub fn explain_apk(&self, features: &[f32; crate::apk::APK_TREE_FEATURE_COUNT]) -> Option<MlExplanation> {
+        let trees = self.apk_trees.as_ref()?;
+        Some(MlExplanation::new(trees.explain(features), features, &crate::apk::APK_TREE_FEATURE_NAMES))
     }
 
     pub fn apk_loaded(&self) -> bool {

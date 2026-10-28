@@ -2,82 +2,18 @@
 //
 // One rule per packer: how to RECOGNISE it (hydradragonsig conditions, the same
 // `pe_section`, `pe_anchor_pattern`, `unpacker_any`, ... a detection rule uses)
-// and the steps that UNPACK it. The header only picks the recipe; every step is
-// checked against what the emulated code really does. A `run_until` whose
-// condition never happens (a fake .NET header over native code, a packer variant
-// the recipe does not know) fails the recipe, and the caller falls back to its
-// generic emulation.
+// and the recipe that UNPACKS it (`recipe.rs`). The header only picks the
+// recipe; a step that does not happen fails it, and the caller falls back to
+// its generic emulation.
 
-use crate::unpacker::engine::{entrypoint, Sample, StopHit, Stops, UnpackerEngine};
+pub use crate::unpacker::recipe::{Budget, Outcome};
+use crate::unpacker::recipe::{self, Step};
 use hydradragonsig::models::{BehaviorTrace, MemoryScanContext};
 use hydradragonsig::rules::RuleSet;
 use hydradragonsig::ScanOptions;
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 use std::sync::OnceLock;
-
-/// Rules shipped with the engine (compiled in).
-const BUILTIN_YAML: &str = include_str!("../../unpack_rules/default.yaml");
-
-/// One step of a recipe.
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
-#[serde(rename_all = "snake_case", deny_unknown_fields)]
-pub enum Step {
-    /// Emulate from the current instruction until one of the conditions happens.
-    /// The run stops BEFORE that instruction. Reaching the budget, an exit or a
-    /// fault first fails the recipe.
-    RunUntil(RunUntil),
-    /// Set the instruction pointer: the entry point the dump gets.
-    SetOep(Oep),
-    /// Dump the memory image (entry point = instruction pointer, imports
-    /// rebuilt from the API stubs): the unpacked payload. Ends the recipe.
-    Dump,
-}
-
-#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct RunUntil {
-    /// Executing a page this run has written (the packed code, decompressed).
-    #[serde(default)]
-    pub write_execute: bool,
-    /// Calling one of these APIs (stop at its stub, before the call).
-    #[serde(default)]
-    pub api: Vec<String>,
-    /// Entering one of these sections.
-    #[serde(default)]
-    pub section: Vec<String>,
-    /// A basic block starting with one of these hex patterns (`??` = any byte).
-    #[serde(default)]
-    pub ip_pattern: Vec<String>,
-    /// No condition stops inside these sections (the stub's own, which often
-    /// writes and runs its own code before it reaches the payload).
-    #[serde(default)]
-    pub outside: Vec<String>,
-    /// Instruction budget of this step (default: the caller's).
-    #[serde(default)]
-    pub max_instructions: Option<u64>,
-    /// Time limit of this step in milliseconds (default: the caller's).
-    #[serde(default)]
-    pub timeout_ms: Option<u64>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
-#[serde(rename_all = "snake_case", deny_unknown_fields)]
-pub enum Oep {
-    /// Where the last `run_until` stopped.
-    Ip,
-    /// An address relative to the image base.
-    Rva(u64),
-}
-
-/// How a recipe ended.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Outcome {
-    /// The unpacked image.
-    Dumped(Vec<u8>),
-    /// A step did not happen as the recipe says: fall back to the generic way.
-    Failed { step: usize, reason: String },
-}
 
 /// One recipe run.
 #[derive(Debug, Clone)]
@@ -86,6 +22,18 @@ pub struct RecipeRun {
     pub outcome: Outcome,
     /// API calls made by the emulated steps (empty when none emulated).
     pub trace: BehaviorTrace,
+}
+
+impl RecipeRun {
+    /// The payload a scanner looks at first: the largest PE, else the largest one.
+    pub fn main_payload(&self) -> Option<&[u8]> {
+        let Outcome::Unpacked(p) = &self.outcome else { return None };
+        p.iter()
+            .filter(|d| d.starts_with(b"MZ"))
+            .max_by_key(|d| d.len())
+            .or_else(|| p.iter().max_by_key(|d| d.len()))
+            .map(Vec::as_slice)
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -111,7 +59,7 @@ struct UnpackRule {
     /// hydradragonsig conditions, passed through unchanged so its own loader
     /// checks them (unknown keys, bad patterns).
     conditions: Vec<yaml_serde::Value>,
-    /// `- run_until: {...}` / `- dump`: enums as one-key maps, not YAML tags.
+    /// `- find: {...}` / `- dump`: enums as one-key maps, not YAML tags.
     #[serde(deserialize_with = "yaml_serde::with::singleton_map_recursive::deserialize")]
     unpack: Vec<Step>,
 }
@@ -137,13 +85,6 @@ struct SigRule<'a> {
     conditions: &'a [yaml_serde::Value],
 }
 
-/// Budget a `run_until` gets when its rule does not give one.
-#[derive(Debug, Clone, Copy)]
-pub struct Budget {
-    pub max_instructions: usize,
-    pub timeout_us: u64,
-}
-
 /// A set of unpacker signatures, in the order they are tried.
 #[derive(Debug, Clone, Default)]
 pub struct UnpackRules {
@@ -152,12 +93,11 @@ pub struct UnpackRules {
 }
 
 impl UnpackRules {
+    /// The rules the engine ships with: none yet. With no rule every file takes
+    /// the caller's generic path.
     pub fn builtin() -> &'static UnpackRules {
         static RULES: OnceLock<UnpackRules> = OnceLock::new();
-        RULES.get_or_init(|| {
-            UnpackRules::from_yaml_str(BUILTIN_YAML)
-                .unwrap_or_else(|e| panic!("built-in unpack_rules/default.yaml is invalid: {e}"))
-        })
+        RULES.get_or_init(UnpackRules::default)
     }
 
     pub fn from_yaml_str(yaml: &str) -> Result<Self, String> {
@@ -200,7 +140,10 @@ impl UnpackRules {
             if r.conditions.is_empty() {
                 return Err(format!("rule {}: no conditions", r.id));
             }
-            check_steps(&r.unpack).map_err(|e| format!("rule {}: {e}", r.id))?;
+            recipe::check(&r.unpack).map_err(|e| format!("rule {}: {e}", r.id))?;
+        }
+        if rules.is_empty() {
+            return Ok(Self::default());
         }
         let doc = SigFile {
             name: "unpack_rules",
@@ -231,7 +174,7 @@ impl UnpackRules {
         self.rules.is_empty()
     }
 
-    /// Id and steps of the first rule (in file order) that recognises `data`.
+    /// Id and recipe of the first rule (in file order) that recognises `data`.
     pub fn choose(&self, data: &[u8]) -> Option<(&str, &[Step])> {
         if self.rules.is_empty() {
             return None;
@@ -249,122 +192,8 @@ impl UnpackRules {
     /// `None`: no rule does (the caller uses its generic way).
     pub fn unpack(&self, data: &[u8], budget: Budget) -> Option<RecipeRun> {
         let (rule, steps) = self.choose(data)?;
-        let (outcome, trace) = run_steps(data, steps, budget);
+        let (outcome, trace) = recipe::run(data, steps, budget);
         Some(RecipeRun { rule: rule.to_string(), outcome, trace })
-    }
-}
-
-/// Exactly one `dump`, as the last step (a recipe always produces the payload);
-/// every `run_until` has a condition and valid patterns.
-fn check_steps(steps: &[Step]) -> Result<(), String> {
-    match steps.iter().position(|s| matches!(s, Step::Dump)) {
-        Some(i) if i + 1 == steps.len() => {}
-        Some(_) => return Err("dump must be the last step".into()),
-        None => return Err("unpack must end with dump".into()),
-    }
-    for (i, s) in steps.iter().enumerate() {
-        if let Step::RunUntil(r) = s {
-            if !r.write_execute && r.api.is_empty() && r.section.is_empty() && r.ip_pattern.is_empty() {
-                return Err(format!("step {}: run_until without a condition", i + 1));
-            }
-            for p in &r.ip_pattern {
-                let p = crate::disinfect::rules::parse_hex_pattern(p).map_err(|e| format!("step {}: {e}", i + 1))?;
-                if p.is_empty() {
-                    return Err(format!("step {}: empty ip_pattern", i + 1));
-                }
-            }
-        }
-    }
-    Ok(())
-}
-
-fn run_steps(data: &[u8], steps: &[Step], budget: Budget) -> (Outcome, BehaviorTrace) {
-    let mut eng: Option<UnpackerEngine> = None;
-    let fail = |step: usize, reason: String| Outcome::Failed { step: step + 1, reason };
-    for (i, step) in steps.iter().enumerate() {
-        let trace = |eng: &Option<UnpackerEngine>| eng.as_ref().map(|e| e.behavior_trace().clone()).unwrap_or_default();
-        if eng.is_none() {
-            match start(data) {
-                Ok(e) => eng = Some(e),
-                Err(e) => return (fail(i, e), BehaviorTrace::default()),
-            }
-        }
-        match step {
-            Step::RunUntil(r) => {
-                let e = eng.as_mut().expect("started above");
-                let patterns = r.ip_pattern.iter().filter_map(|p| crate::disinfect::rules::parse_hex_pattern(p).ok()).collect();
-                e.set_stops(Stops {
-                    write_execute: r.write_execute,
-                    apis: r.api.clone(),
-                    sections: r.section.clone(),
-                    patterns,
-                    outside: r.outside.clone(),
-                });
-                let from = e.ip().unwrap_or(0);
-                let max = r.max_instructions.map_or(budget.max_instructions, |n| n as usize);
-                let timeout = r.timeout_ms.map_or(budget.timeout_us, |ms| ms.saturating_mul(1000));
-                let err = e.emu_from(from, timeout, max).err();
-                e.set_stops(Stops::default());
-                match e.stop_hit.clone() {
-                    Some(hit) => {
-                        e.set_ip(hit.address());
-                    }
-                    None => {
-                        let why = match (&err, &e.stop_api) {
-                            (_, Some(api)) => format!("stopped at {api}"),
-                            (Some(err), _) => err.to_string(),
-                            _ => format!("{:?} before the condition", e.end),
-                        };
-                        let t = trace(&eng);
-                        return (fail(i, why), t);
-                    }
-                }
-            }
-            Step::SetOep(oep) => {
-                let e = eng.as_mut().expect("started above");
-                let ip = match oep {
-                    Oep::Ip => e.ip().unwrap_or(0),
-                    Oep::Rva(rva) => e.sample.base_addr.wrapping_add(*rva),
-                };
-                let (base, size) = (e.sample.base_addr, e.sample.virtualmemorysize);
-                if ip < base || ip >= base + size {
-                    let t = trace(&eng);
-                    return (fail(i, format!("entry point {ip:#x} is outside the image")), t);
-                }
-                e.set_ip(ip);
-            }
-            Step::Dump => {
-                let e = eng.as_ref().expect("started above");
-                let t = trace(&eng);
-                return match e.dump_bytes() {
-                    Ok(image) if !image.is_empty() => (Outcome::Dumped(image), t),
-                    Ok(_) => (fail(i, "empty dump".into()), t),
-                    Err(err) => (fail(i, err.to_string()), t),
-                };
-            }
-        }
-    }
-    unreachable!("check_steps: a recipe ends with dump")
-}
-
-fn start(data: &[u8]) -> Result<UnpackerEngine, String> {
-    let sample = Sample::from_bytes(data).map_err(|e| e.to_string())?;
-    let ep = entrypoint(&sample.opt_header);
-    let mut eng = UnpackerEngine::new(sample, "memory").with_trace_mode(true);
-    eng.init_uc().map_err(|e| e.to_string())?;
-    eng.set_controls(false, false);
-    eng.set_end_addr(u64::MAX);
-    eng.set_ip(ep);
-    Ok(eng)
-}
-
-/// What the stop of a `run_until` was, for logs.
-pub fn describe(hit: &StopHit) -> String {
-    match hit {
-        StopHit::WriteExecute(a) => format!("write-execute at {a:#x}"),
-        StopHit::Api(n, _) => format!("call to {n}"),
-        StopHit::Section(n, a) => format!("entered {n} at {a:#x}"),
-        StopHit::Pattern(a) => format!("pattern at {a:#x}"),
     }
 }
 
@@ -372,67 +201,56 @@ pub fn describe(hit: &StopHit) -> String {
 mod tests {
     use super::*;
 
-    #[test]
-    fn builtin_rules_load() {
-        assert!(!UnpackRules::builtin().is_empty());
+    const BUDGET: Budget = Budget { max_instructions: 1000, timeout_us: 1_000_000 };
+
+    fn rule(id: &str, steps: &str) -> String {
+        format!("  - id: {id}\n    conditions: [{{type: not_mz}}]\n    unpack: {steps}\n")
     }
 
     #[test]
-    fn unknown_condition_key_is_an_error() {
-        let yaml = r#"
-rules:
-  - id: bad
-    conditions:
-      - type: pe_section
-        nmae: UPX0
-    unpack: [dump]
-"#;
-        assert!(UnpackRules::from_yaml_str(yaml).is_err());
+    fn no_builtin_rules_means_the_generic_path() {
+        assert!(UnpackRules::builtin().is_empty());
+        assert!(UnpackRules::builtin().unpack(b"anything", BUDGET).is_none());
     }
 
     #[test]
-    fn recipe_must_end_with_dump() {
+    fn the_format_document_example_loads() {
+        let doc = include_str!("../../UNPACK_FORMAT.md");
+        let yaml = doc.split("```yaml\n").nth(1).and_then(|s| s.split("```").next()).expect("yaml block in UNPACK_FORMAT.md");
+        assert_eq!(UnpackRules::from_yaml_str(yaml).unwrap_or_else(|e| panic!("{e}")).len(), 2);
+    }
+
+    #[test]
+    fn bad_rules_are_rejected_at_load() {
+        let bad_condition = "rules:\n  - id: bad\n    conditions:\n      - type: pe_section\n        nmae: UPX0\n    unpack: [{emit: file}]\n";
+        assert!(UnpackRules::from_yaml_str(bad_condition).is_err());
         for steps in [
             "[]",
-            "[dump, dump]",
-            "[dump, {run_until: {write_execute: true}}]",
+            "[{take: {as: x}}]",
             "[{run_until: {}}, dump]",
-            "[decompile]",
-            "[extract]",
+            "[{try: [[dump]]}]",
+            "[{repeat: {while: 1, steps: [{run_until: {write_execute: true}}]}}, {emit: file}]",
+            "[{xor: {in: file, as: x}}, {emit: x}]",
+            "[{find: {pattern: \"?? 4D\", as: p}}, {emit: file}]",
+            "[{set: {x: \"1 +\"}}, {emit: file}]",
+            "[{nonsense: 1}, {emit: file}]",
         ] {
-            let yaml = format!("rules:\n  - id: r\n    conditions: [{{type: not_mz}}]\n    unpack: {steps}\n");
+            let yaml = format!("rules:\n{}", rule("r", steps));
             assert!(UnpackRules::from_yaml_str(&yaml).is_err(), "{steps} must be rejected");
         }
-        let ok = "rules:\n  - id: r\n    conditions: [{type: not_mz}]\n    unpack: [{run_until: {write_execute: true}}, {set_oep: ip}, dump]\n";
-        assert!(UnpackRules::from_yaml_str(ok).is_ok());
     }
 
     #[test]
     fn first_matching_rule_wins_and_file_rules_go_first() {
-        let recipe = |id: &str, n: u64| {
-            format!("  - id: {id}\n    conditions: [{{type: not_mz}}]\n    unpack: [{{run_until: {{write_execute: true, max_instructions: {n}}}}}, dump]\n")
-        };
-        let base = UnpackRules::from_yaml_str(&format!("rules:\n{}{}", recipe("a", 1), recipe("b", 2))).unwrap();
+        let base = UnpackRules::from_yaml_str(&format!("rules:\n{}{}", rule("a", "[{emit: file}]"), rule("b", "[{emit: file}]"))).unwrap();
         let data = b"just some text that is not a PE file at all".repeat(4);
         assert_eq!(base.choose(&data).unwrap().0, "a");
 
         let mut merged = base.clone();
-        merged.extend(UnpackRules::from_yaml_str(&format!("rules:\n{}{}", recipe("a", 3), recipe("c", 4))).unwrap()).unwrap();
+        let file_rules = format!("rules:\n{}{}", rule("a", "[{take: {at: 0, len: 4, as: x}}, {emit: x}]"), rule("c", "[{take: {at: 5, len: 4, as: x}}, {emit: x}]"));
+        merged.extend(UnpackRules::from_yaml_str(&file_rules).unwrap()).unwrap();
         assert_eq!(merged.rules.iter().map(|r| r.id.as_str()).collect::<Vec<_>>(), ["c", "a", "b"]);
-        let Step::RunUntil(r) = &merged.rules[1].unpack[0] else { panic!("run_until expected") };
-        assert_eq!(r.max_instructions, Some(3));
-        let budget = Budget { max_instructions: 1000, timeout_us: 1_000_000 };
-        assert_eq!(merged.unpack(&data, budget).unwrap().rule, "c");
-    }
-
-    #[test]
-    fn emulating_a_non_pe_fails_the_recipe() {
-        let rules = UnpackRules::from_yaml_str(
-            "rules:\n  - id: r\n    conditions: [{type: not_mz}]\n    unpack: [{run_until: {write_execute: true}}, dump]\n",
-        )
-        .unwrap();
-        let data = b"not a PE file, nothing to emulate here".repeat(4);
-        let run = rules.unpack(&data, Budget { max_instructions: 1000, timeout_us: 1_000_000 }).unwrap();
-        assert!(matches!(run.outcome, Outcome::Failed { step: 1, .. }), "{:?}", run.outcome);
+        let run = merged.unpack(&data, BUDGET).unwrap();
+        assert_eq!((run.rule.as_str(), run.main_payload()), ("c", Some(&b"some"[..])));
     }
 }

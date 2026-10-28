@@ -1119,23 +1119,44 @@ impl StaticEngine {
                     format!("JavaScript tree ensemble ({} AST/lexical/deob features)", crate::ml::features::JsFeatureVector::LEN),
                 )
             })
+        } else if apk::is_apk(data, name) {
+            string_breakdown = apk::apk_deobfuscated_string_breakdown(data);
+            apk::apk_tree_features(data)
+                .and_then(|feats| self.ml.explain_apk(&feats))
+                .map(|e| {
+                    (
+                        e,
+                        "MalwareNet.APK.HighConfidence",
+                        apk_tree_threshold(),
+                        format!("APK tree ensemble ({} DEX/ELF/manifest features)", apk::APK_TREE_FEATURE_COUNT),
+                    )
+                })
         } else {
             None
         };
         if let Some((e, rule, threshold, kind)) = ml {
-            // "Scan with engine" (this analyst view only, never the normal scan): the PE / JS
+            // "Scan with engine" (this analyst view only, never the normal scan): the PE / JS / APK
             // content model's strings are listed even when the model did not flag the
             // file, as an informational ML entry below the threshold.
             let flagged = e.probability >= threshold;
             if flagged || string_breakdown.is_some() {
-                let rule = if flagged { rule } else if is_pe { "ML.PE.StringsInfo" } else { "ML.JS.StringsInfo" };
+                let rule = if flagged {
+                    rule
+                } else if is_pe {
+                    "ML.PE.StringsInfo"
+                } else if is_js_content(data) {
+                    "ML.JS.StringsInfo"
+                } else {
+                    "ML.APK.StringsInfo"
+                };
                 let mut m = ml_explain(rule, &kind, threshold, &e);
                 if !flagged {
                     m.kind = format!("{} · {:.2}% malware (below threshold, strings shown for analysis)", kind, e.probability * 100.0);
                     m.evidence.clear();
                 }
                 if let Some(b) = &string_breakdown {
-                    append_string_breakdown(&mut m, b, !is_pe);
+                    let k = if is_pe { "PE" } else if is_js_content(data) { "JS" } else { "APK" };
+                    append_string_breakdown(&mut m, b, k);
                 }
                 out.push(m);
             }
@@ -1154,7 +1175,25 @@ impl StaticEngine {
                     evidence: Vec::new(),
                     ranges: Vec::new(),
                 };
-                append_string_breakdown(&mut m, b, true);
+                append_string_breakdown(&mut m, b, "JS");
+                out.push(m);
+            }
+        } else if apk::is_apk(data, name) {
+            if let Some(b) = &string_breakdown {
+                let mut m = MatchExplain {
+                    engine: "HydraDragonML",
+                    score: 0.85,
+                    rule: "ML.APK.StringsInfo".to_string(),
+                    kind: "APK DEX/ELF decompressed strings (analyst view)".to_string(),
+                    source: None,
+                    line: None,
+                    definition: None,
+                    object_path: None,
+                    view: None,
+                    evidence: Vec::new(),
+                    ranges: Vec::new(),
+                };
+                append_string_breakdown(&mut m, b, "APK");
                 out.push(m);
             }
         }
@@ -2627,14 +2666,24 @@ fn ml_explain(rule: &str, kind: &str, threshold: f32, e: &crate::ml::scanner::Ml
     }
 }
 
-/// Strings the PE or JS content model read, split into malicious / benign / unknown
+/// Strings the PE, JS, or APK content model read, split into malicious / benign / unknown
 /// (`pe_strings_malicious.xf` / `pe_strings_benign.xf` / neither). Shown in the ML
 /// definition (capped per class) and the malicious ones in the evidence.
-fn append_string_breakdown(m: &mut MatchExplain, b: &crate::ml::pe_string_ml::PeStringBreakdown, is_js: bool) {
+fn append_string_breakdown(m: &mut MatchExplain, b: &crate::ml::pe_string_ml::PeStringBreakdown, kind: &str) {
     const SHOW: usize = 200;
     let clip = |s: &str| -> String { s.chars().take(160).collect::<String>().replace(['\r', '\n'], " ") };
     let def = m.definition.get_or_insert_with(String::new);
-    if is_js {
+    if kind == "APK" {
+        def.push_str(&format!(
+            "\nStrings read by APK DEX/ELF content model: {} unique ({} malicious, {} benign, {} unknown; {} Dalvik method calls, protected: {})\n",
+            b.total_unique,
+            b.malicious.len(),
+            b.benign.len(),
+            b.unknown.len(),
+            b.decompiler_strings,
+            b.unicorn_trace_strings > 0
+        ));
+    } else if kind == "JS" {
         def.push_str(&format!(
             "\nStrings read by JS deobfuscated content model: {} unique ({} malicious, {} benign, {} unknown; {} deobfuscator AST modifications, unpacked: {})\n",
             b.total_unique,

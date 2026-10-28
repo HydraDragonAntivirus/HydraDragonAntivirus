@@ -20,7 +20,8 @@ pub enum Codec {
     LzmaAlone,
     /// bzip2 with its `BZh` header.
     Bzip2,
-    /// NSIS bzip2 (no `BZh` header, NSIS block layout).
+    /// NSIS bzip2 (no `BZh` header). nsis-rs tries the 2.x+ block layout, then
+    /// the NSIS 1.x one with its per-block flag.
     NsisBzip2,
     /// aPLib (raw, or with an `AP32` header).
     Aplib,

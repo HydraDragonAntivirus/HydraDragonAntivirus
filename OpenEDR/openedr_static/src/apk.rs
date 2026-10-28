@@ -12,11 +12,13 @@
 
 use std::collections::HashSet;
 
-/// Tree-model feature count. Order is frozen: the shipped `apk_trees.bin`
-/// splits on these indices, so never reorder — only append (with retrain).
-pub const APK_TREE_FEATURE_COUNT: usize = 24;
+/// Tree-model feature count. Features 0..23 are frozen for full backward compatibility
+/// with existing 24-feature forests; features 24..57 provide deep Dalvik API invocation,
+/// native ELF symbols, protector detection, and XOR filter String ML metrics.
+pub const APK_TREE_FEATURE_COUNT: usize = 58;
 
 pub const APK_TREE_FEATURE_NAMES: [&str; APK_TREE_FEATURE_COUNT] = [
+    // 0..23: Original frozen features
     "dex_classes",
     "dex_strings",
     "dex_methods",
@@ -41,6 +43,50 @@ pub const APK_TREE_FEATURE_NAMES: [&str; APK_TREE_FEATURE_COUNT] = [
     "compression_ratio",
     "avg_entry_size_log",
     "native_with_perms",
+
+    // 24..30: Native .so detailed architecture & symbols
+    "has_arm64",
+    "has_arm32",
+    "has_x86",
+    "has_x86_64",
+    "so_exported_jni_count",
+    "so_imported_symbols_count",
+    "so_suspicious_imports_count",
+
+    // 31..37: Manifest high-risk capability flags
+    "perm_boot_completed",
+    "perm_accessibility_service",
+    "perm_device_admin",
+    "perm_system_alert_window",
+    "perm_install_packages",
+    "perm_read_phone_state",
+    "perm_external_storage_write",
+
+    // 38..46: Dalvik sensitive API invocation signals
+    "api_reflection_calls",
+    "api_dynamic_dex_loading",
+    "api_crypto_cipher_calls",
+    "api_process_exec_calls",
+    "api_sms_send_calls",
+    "api_device_id_calls",
+    "api_network_http_calls",
+    "api_package_manager_queries",
+    "api_anti_debug_root_calls",
+
+    // 47..51: Packaging, assets, protector anomalies
+    "assets_entry_count",
+    "assets_size_log",
+    "has_hidden_payload_in_assets",
+    "is_protector_packed",
+    "has_non_standard_dex",
+
+    // 52..57: String ML & Threat density metrics
+    "mal_str_hits",
+    "ben_str_hits",
+    "mal_ben_str_ratio",
+    "mal_str_density",
+    "unknown_str_ratio",
+    "total_unique_strings_log",
 ];
 
 /// Per-entry / total decompression caps so a hostile 200 MB APK cannot OOM
@@ -323,6 +369,168 @@ fn dex_counts(buf: &[u8]) -> Option<(u32, u32, u32)> {
     Some((class_defs, string_ids, method_ids))
 }
 
+fn read_uleb128(buf: &[u8], mut off: usize) -> Option<(u32, usize)> {
+    let mut result: u32 = 0;
+    let mut shift: u32 = 0;
+    loop {
+        if off >= buf.len() {
+            return None;
+        }
+        let b = buf[off];
+        off += 1;
+        result |= ((b & 0x7f) as u32) << shift;
+        if b & 0x80 == 0 {
+            break;
+        }
+        shift += 7;
+        if shift > 35 {
+            return None;
+        }
+    }
+    Some((result, off))
+}
+
+pub fn parse_dex_string_table(buf: &[u8]) -> Option<Vec<String>> {
+    if buf.len() < 0x70 || &buf[0..4] != b"dex\n" {
+        return None;
+    }
+    let string_ids_size = read_u32_le(buf, 0x38)? as usize;
+    let string_ids_off = read_u32_le(buf, 0x3c)? as usize;
+    if string_ids_size > 200_000 || string_ids_off >= buf.len() {
+        return None;
+    }
+
+    let mut strings = Vec::with_capacity(string_ids_size.min(15_000));
+    for i in 0..string_ids_size.min(15_000) {
+        let entry_off = string_ids_off + i * 4;
+        let Some(data_off) = read_u32_le(buf, entry_off).map(|v| v as usize) else {
+            break;
+        };
+        let Some((_utf16_len, str_start)) = read_uleb128(buf, data_off) else {
+            continue;
+        };
+        if str_start >= buf.len() {
+            continue;
+        }
+        let max_read = (buf.len() - str_start).min(512);
+        let slice = &buf[str_start..str_start + max_read];
+        let end = slice.iter().position(|&b| b == 0).unwrap_or(slice.len());
+        if end >= 4 {
+            if let Ok(s) = std::str::from_utf8(&slice[..end]) {
+                strings.push(s.to_string());
+            } else {
+                strings.push(String::from_utf8_lossy(&slice[..end]).into_owned());
+            }
+        } else {
+            strings.push(String::new());
+        }
+    }
+    Some(strings)
+}
+
+pub fn parse_dex_method_signatures(buf: &[u8], strings: &[String]) -> Vec<String> {
+    let mut methods = Vec::new();
+    let Some(type_ids_size) = read_u32_le(buf, 0x40).map(|v| v as usize) else { return methods };
+    let Some(type_ids_off) = read_u32_le(buf, 0x44).map(|v| v as usize) else { return methods };
+    let Some(method_ids_size) = read_u32_le(buf, 0x58).map(|v| v as usize) else { return methods };
+    let Some(method_ids_off) = read_u32_le(buf, 0x5c).map(|v| v as usize) else { return methods };
+
+    if method_ids_size > 200_000 || method_ids_off >= buf.len() || type_ids_off >= buf.len() {
+        return methods;
+    }
+
+    let get_type = |idx: usize| -> Option<&str> {
+        if idx >= type_ids_size { return None; }
+        let desc_idx = read_u32_le(buf, type_ids_off + idx * 4)? as usize;
+        strings.get(desc_idx).map(|s| s.as_str())
+    };
+
+    for i in 0..method_ids_size.min(15_000) {
+        let off = method_ids_off + i * 8;
+        let Some(class_idx) = read_u16_le(buf, off).map(|v| v as usize) else { break };
+        let Some(name_idx) = read_u32_le(buf, off + 4).map(|v| v as usize) else { break };
+        let Some(class_name) = get_type(class_idx) else { continue };
+        let Some(method_name) = strings.get(name_idx).map(|s| s.as_str()) else { continue };
+        if !class_name.is_empty() && !method_name.is_empty() {
+            methods.push(format!("{}->{}", class_name, method_name));
+        }
+    }
+    methods
+}
+
+pub fn parse_elf_strings_and_symbols(buf: &[u8], out: &mut Vec<String>) -> Option<(bool, bool, bool, bool, usize, usize, usize)> {
+    if buf.len() < 0x34 || &buf[0..4] != b"\x7fELF" {
+        return None;
+    }
+    let machine = read_u16_le(buf, 0x12).unwrap_or(0);
+    let is_arm64 = machine == 183;
+    let is_arm32 = machine == 40;
+    let is_x86 = machine == 3;
+    let is_x86_64 = machine == 62;
+
+    let mut in_str = false;
+    let mut start = 0;
+    let mut exported_jni = 0usize;
+    let mut imported = 0usize;
+    let mut suspicious = 0usize;
+
+    for (i, &b) in buf.iter().enumerate() {
+        if (0x20..0x7f).contains(&b) {
+            if !in_str {
+                in_str = true;
+                start = i;
+            }
+        } else {
+            if in_str {
+                in_str = false;
+                let len = i - start;
+                if len >= 4 && len <= 256 {
+                    if let Ok(s) = std::str::from_utf8(&buf[start..i]) {
+                        if s.starts_with("Java_") || s.contains("JNI_OnLoad") {
+                            exported_jni += 1;
+                        } else if s == "dlopen" || s == "dlsym" || s == "system" || s == "execve" || s == "ptrace" || s == "fork" || s == "socket" || s == "connect" {
+                            imported += 1;
+                            suspicious += 1;
+                        }
+                        if out.len() < 15_000 {
+                            out.push(s.to_string());
+                        }
+                    }
+                }
+            }
+        }
+    }
+    Some((is_arm64, is_arm32, is_x86, is_x86_64, exported_jni, imported, suspicious))
+}
+
+pub const PROTECTOR_SIGNATURES: &[(&str, &str)] = &[
+    ("libprotectclass.so", "Qihoo 360"),
+    ("libjiagu.so", "Qihoo 360"),
+    ("libjiagu_a64.so", "Qihoo 360"),
+    ("libjiagu_x86.so", "Qihoo 360"),
+    ("libtx_shared.so", "Tencent Legu"),
+    ("libshell.so", "Tencent Legu"),
+    ("libshellx.so", "Tencent Legu"),
+    ("libsecmain.so", "SecShell / Bangcle"),
+    ("libsecexe.so", "SecShell / Bangcle"),
+    ("secdata0.jar", "SecShell / Bangcle"),
+    ("bangcle", "SecShell / Bangcle"),
+    ("libexec.so", "Ijiami"),
+    ("libexecmain.so", "Ijiami"),
+    ("ijm_lib", "Ijiami"),
+    ("libbaiduprotect.so", "Baidu Protect"),
+    ("libbaiduprotect_art.so", "Baidu Protect"),
+    ("libmobisec.so", "Alibaba / AliProtect"),
+    ("libfake_jni.so", "Alibaba / AliProtect"),
+    ("libdexhelper.so", "SecNeo"),
+    ("libdexhelper-x86.so", "SecNeo"),
+    ("libkdp.so", "Kingsoft"),
+    ("libnsaferonly.so", "NSafer"),
+    ("libnqshield.so", "NetQin"),
+    ("libaps.so", "AppSolid"),
+    ("apkprotect", "APKProtect"),
+];
+
 const RES_XML_TYPE: u16 = 0x0003;
 const RES_STRING_POOL_TYPE: u16 = 0x0001;
 const RES_XML_START_ELEMENT_TYPE: u16 = 0x0102;
@@ -412,6 +620,35 @@ fn parse_axml_string_pool(b: &[u8], chunk_start: usize, chunk_size: usize) -> Op
         }
     }
     Some(strings)
+}
+
+pub fn parse_axml_string_pool_from_bytes(buf: &[u8]) -> Option<Vec<String>> {
+    if buf.len() < 8 {
+        return None;
+    }
+    let mut off = 0usize;
+    let mut chunks = 0usize;
+    while off + 8 <= buf.len() && chunks < 50_000 {
+        chunks += 1;
+        let chunk_type = read_u16_le(buf, off)?;
+        let header_size = read_u16_le(buf, off + 2)? as usize;
+        let chunk_size = read_u32_le(buf, off + 4)? as usize;
+        if chunk_size < header_size || header_size < 8 || chunk_size == 0 || off + chunk_size > buf.len() {
+            break;
+        }
+        if chunk_type == RES_STRING_POOL_TYPE {
+            return parse_axml_string_pool(buf, off, chunk_size);
+        }
+        if chunk_type == RES_XML_TYPE {
+            if header_size == 0 || off + header_size > buf.len() {
+                break;
+            }
+            off += header_size;
+        } else {
+            off += chunk_size;
+        }
+    }
+    None
 }
 
 fn analyze_manifest(buf: &[u8]) -> Option<ManifestCounts> {
@@ -752,8 +989,10 @@ fn profile_apk(apk: &[u8]) -> Option<ApkProfile> {
     Some(p)
 }
 
-/// Our own tree-model feature vector. Returns `None` when the buffer has no
-/// parseable APK content (caller falls back to heuristics, never `Error`).
+/// Our own tree-model feature vector (58 features).
+/// Features 0..23 preserve exact parity with the original 24-feature forest;
+/// features 24..57 provide native ELF, manifest high-risk permissions, Dalvik API calls,
+/// protector signals, and pure XOR filter String ML metrics.
 pub fn apk_tree_features(apk: &[u8]) -> Option<[f32; APK_TREE_FEATURE_COUNT]> {
     let p = profile_apk(apk)?;
     let ratio = if p.uncomp_total > 0 {
@@ -766,7 +1005,131 @@ pub fn apk_tree_features(apk: &[u8]) -> Option<[f32; APK_TREE_FEATURE_COUNT]> {
     } else {
         0.0
     };
+
+    // Deep inspection via ripzip/hydradragonextractor:
+    let mut has_arm64 = 0.0f32;
+    let mut has_arm32 = 0.0f32;
+    let mut has_x86 = 0.0f32;
+    let mut has_x86_64 = 0.0f32;
+    let mut so_exported_jni = 0usize;
+    let mut so_imported = 0usize;
+    let mut so_suspicious = 0usize;
+
+    let mut perm_boot = 0.0f32;
+    let mut perm_accessibility = 0.0f32;
+    let mut perm_admin = 0.0f32;
+    let mut perm_alert = 0.0f32;
+    let mut perm_install = 0.0f32;
+    let mut perm_phone_state = 0.0f32;
+    let mut perm_storage = 0.0f32;
+
+    let mut api_reflection = 0usize;
+    let mut api_dynamic_loading = 0usize;
+    let mut api_crypto = 0usize;
+    let mut api_process = 0usize;
+    let mut api_sms = 0usize;
+    let mut api_device_id = 0usize;
+    let mut api_network = 0usize;
+    let mut api_pkg_manager = 0usize;
+    let mut api_anti_debug = 0usize;
+
+    let mut assets_count = 0usize;
+    let mut assets_size = 0u64;
+    let mut hidden_payload_assets = 0.0f32;
+    let mut is_protector = 0.0f32;
+    let mut has_non_standard_dex = 0.0f32;
+
+    let mut all_strings = Vec::new();
+
+    if let Ok(extracted) = hydradragonextractor::extract_archive_from_bytes(apk, true) {
+        for e in &extracted {
+            let l = e.name.to_ascii_lowercase();
+
+            // Protector check
+            for &(sig, _) in PROTECTOR_SIGNATURES {
+                if l.contains(sig) {
+                    is_protector = 1.0;
+                    break;
+                }
+            }
+
+            if l.starts_with("assets/") {
+                assets_count += 1;
+                assets_size += e.data.len() as u64;
+                if l.ends_with(".dex") || l.ends_with(".jar") || l.ends_with(".so") || l.ends_with(".dat") || l.ends_with(".bin") {
+                    hidden_payload_assets = 1.0;
+                }
+            }
+
+            if l.ends_with(".dex") {
+                let filename = l.rsplit('/').next().unwrap_or(&l);
+                if filename != "classes.dex" && !filename.starts_with("classes") {
+                    has_non_standard_dex = 1.0;
+                }
+                if let Some(strs) = parse_dex_string_table(&e.data) {
+                    let methods = parse_dex_method_signatures(&e.data, &strs);
+                    for m in &methods {
+                        if m.contains("java/lang/reflect") { api_reflection += 1; }
+                        if m.contains("DexClassLoader") || m.contains("PathClassLoader") { api_dynamic_loading += 1; }
+                        if m.contains("Cipher") { api_crypto += 1; }
+                        if m.contains("Runtime;->exec") || m.contains("ProcessBuilder") { api_process += 1; }
+                        if m.contains("sendTextMessage") || m.contains("SmsManager") { api_sms += 1; }
+                        if m.contains("getDeviceId") || m.contains("getSubscriberId") { api_device_id += 1; }
+                        if m.contains("HttpURLConnection") || m.contains("HttpClient") || m.contains("okhttp") { api_network += 1; }
+                        if m.contains("getInstalledPackages") || m.contains("getInstalledApplications") { api_pkg_manager += 1; }
+                        if m.contains("su") || m.contains("isDebuggerConnected") { api_anti_debug += 1; }
+                    }
+                    all_strings.extend(methods);
+                    all_strings.extend(strs);
+                }
+            } else if l.starts_with("lib/") && l.ends_with(".so") {
+                if let Some((arm64, arm32, x86, x86_64, exp_jni, imp, susp)) = parse_elf_strings_and_symbols(&e.data, &mut all_strings) {
+                    if arm64 { has_arm64 = 1.0; }
+                    if arm32 { has_arm32 = 1.0; }
+                    if x86 { has_x86 = 1.0; }
+                    if x86_64 { has_x86_64 = 1.0; }
+                    so_exported_jni += exp_jni;
+                    so_imported += imp;
+                    so_suspicious += susp;
+                }
+            } else if l == "androidmanifest.xml" || l.ends_with("/androidmanifest.xml") {
+                let text = harvest_manifest_text(&e.data).to_ascii_lowercase();
+                if text.contains("android.permission.receive_boot_completed") { perm_boot = 1.0; }
+                if text.contains("android.permission.bind_accessibility_service") { perm_accessibility = 1.0; }
+                if text.contains("android.permission.bind_device_admin") { perm_admin = 1.0; }
+                if text.contains("android.permission.system_alert_window") { perm_alert = 1.0; }
+                if text.contains("android.permission.request_install_packages") { perm_install = 1.0; }
+                if text.contains("android.permission.read_phone_state") { perm_phone_state = 1.0; }
+                if text.contains("android.permission.write_external_storage") { perm_storage = 1.0; }
+
+                if let Some(pool) = parse_axml_string_pool_from_bytes(&e.data) {
+                    all_strings.extend(pool);
+                }
+            }
+        }
+    }
+
+    // String ML filter metrics:
+    let (mal_hits, ben_hits, mal_ben_ratio, mal_density, unk_ratio, tot_log) = if !all_strings.is_empty() {
+        let str_breakdown = crate::ml::pe_string_ml::classify_string_list(all_strings);
+        let mal_f = str_breakdown.malicious.len() as f32;
+        let ben_f = str_breakdown.benign.len() as f32;
+        let tot_f = str_breakdown.total_unique as f32;
+        let unk_f = str_breakdown.unknown.len() as f32;
+        (
+            ln1p(mal_f),
+            ln1p(ben_f),
+            mal_f / (ben_f + 1.0),
+            mal_f / (tot_f + 1.0),
+            unk_f / (tot_f + 1.0),
+            ln1p(tot_f),
+        )
+    } else {
+        (0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
+    };
+
     Some([
+        // 0..23 (Frozen original features)
         p.dex_classes as f32,
         p.dex_strings as f32,
         p.dex_methods as f32,
@@ -791,7 +1154,158 @@ pub fn apk_tree_features(apk: &[u8]) -> Option<[f32; APK_TREE_FEATURE_COUNT]> {
         ratio,
         ln1p(avg_entry),
         (p.so_files >= 1 && p.dangerous_perm_count >= 5) as u8 as f32,
+
+        // 24..30: Native .so detailed architecture & symbols
+        has_arm64,
+        has_arm32,
+        has_x86,
+        has_x86_64,
+        ln1p(so_exported_jni as f32),
+        ln1p(so_imported as f32),
+        ln1p(so_suspicious as f32),
+
+        // 31..37: Manifest high-risk capability flags
+        perm_boot,
+        perm_accessibility,
+        perm_admin,
+        perm_alert,
+        perm_install,
+        perm_phone_state,
+        perm_storage,
+
+        // 38..46: Dalvik sensitive API invocation signals
+        ln1p(api_reflection as f32),
+        ln1p(api_dynamic_loading as f32),
+        ln1p(api_crypto as f32),
+        ln1p(api_process as f32),
+        ln1p(api_sms as f32),
+        ln1p(api_device_id as f32),
+        ln1p(api_network as f32),
+        ln1p(api_pkg_manager as f32),
+        ln1p(api_anti_debug as f32),
+
+        // 47..51: Packaging, assets, protector anomalies
+        ln1p(assets_count as f32),
+        ln1p(assets_size as f32),
+        hidden_payload_assets,
+        is_protector,
+        has_non_standard_dex,
+
+        // 52..57: String ML & Threat density metrics
+        mal_hits,
+        ben_hits,
+        mal_ben_ratio,
+        mal_density,
+        unk_ratio,
+        tot_log,
     ])
+}
+
+/// Returns the full string breakdown (malicious, benign, unknown) of the APK:
+/// Extracts:
+/// 1. AndroidManifest.xml string pool and permissions
+/// 2. Dalvik `classes*.dex` string pool + all Class->Method API calls
+/// 3. Native `lib/**/*.so` symbols, JNI exports, imports and string tables
+/// Powered by `hydradragonextractor` / `ripzip` for maximum decompression speed.
+pub fn apk_deobfuscated_string_breakdown(apk_data: &[u8]) -> Option<crate::ml::pe_string_ml::PeStringBreakdown> {
+    let extracted: Vec<(String, Vec<u8>)> = if let Ok(ext) = hydradragonextractor::extract_archive_from_bytes(apk_data, true) {
+        if ext.is_empty() {
+            if let Some(entries) = parse_central_dir(apk_data) {
+                let mut list = Vec::new();
+                for e in entries {
+                    let l = e.name.to_ascii_lowercase();
+                    if l == "androidmanifest.xml" || l.ends_with("/androidmanifest.xml") || l.ends_with(".dex") || (l.starts_with("lib/") && l.ends_with(".so")) {
+                        if let Some(bytes) = read_entry_data(apk_data, &e) {
+                            list.push((e.name, bytes));
+                        }
+                    }
+                }
+                list
+            } else {
+                return None;
+            }
+        } else {
+            ext.into_iter().map(|e| (e.name, e.data)).collect()
+        }
+    } else if let Some(entries) = parse_central_dir(apk_data) {
+        let mut list = Vec::new();
+        for e in entries {
+            let l = e.name.to_ascii_lowercase();
+            if l == "androidmanifest.xml" || l.ends_with("/androidmanifest.xml") || l.ends_with(".dex") || (l.starts_with("lib/") && l.ends_with(".so")) {
+                if let Some(bytes) = read_entry_data(apk_data, &e) {
+                    list.push((e.name, bytes));
+                }
+            }
+        }
+        list
+    } else {
+        return None;
+    };
+
+    let mut candidates = Vec::new();
+    let mut method_count = 0usize;
+    let mut protector_found = false;
+
+    // Check protector signatures across extracted file names
+    for (name, _) in &extracted {
+        let l = name.to_ascii_lowercase();
+        for &(sig, _) in PROTECTOR_SIGNATURES {
+            if l.contains(sig) {
+                protector_found = true;
+                break;
+            }
+        }
+    }
+
+    for (name, data) in &extracted {
+        let l = name.to_ascii_lowercase();
+        if l == "androidmanifest.xml" || l.ends_with("/androidmanifest.xml") {
+            if let Some(pool) = parse_axml_string_pool_from_bytes(data) {
+                candidates.extend(pool);
+            } else {
+                let text = harvest_manifest_text(data);
+                for word in text.split_whitespace() {
+                    let w = word.trim();
+                    if w.len() >= 4 {
+                        candidates.push(w.to_string());
+                    }
+                }
+            }
+        } else if l.ends_with(".dex") {
+            if let Some(strings) = parse_dex_string_table(data) {
+                let methods = parse_dex_method_signatures(data, &strings);
+                method_count += methods.len();
+                candidates.extend(methods);
+                candidates.extend(strings);
+            } else {
+                let mut in_str = false;
+                let mut start = 0;
+                for (i, &b) in data.iter().enumerate() {
+                    if (0x20..0x7f).contains(&b) {
+                        if !in_str { in_str = true; start = i; }
+                    } else if in_str {
+                        in_str = false;
+                        if i - start >= 4 && i - start <= 256 {
+                            if let Ok(s) = std::str::from_utf8(&data[start..i]) {
+                                candidates.push(s.to_string());
+                            }
+                        }
+                    }
+                }
+            }
+        } else if l.starts_with("lib/") && l.ends_with(".so") {
+            parse_elf_strings_and_symbols(data, &mut candidates);
+        }
+    }
+
+    if candidates.is_empty() {
+        return None;
+    }
+
+    let mut b = crate::ml::pe_string_ml::classify_string_list(candidates);
+    b.decompiler_strings = method_count;
+    b.unicorn_trace_strings = if protector_found { 1 } else { 0 };
+    Some(b)
 }
 
 // ---------------------------------------------------------------------------
@@ -1007,19 +1521,31 @@ pub fn seen_feature_names(seen: &HashSet<usize>) -> Vec<&'static str> {
 pub(crate) mod test_helpers {
     use super::*;
 
+    fn crc32_ieee(data: &[u8]) -> u32 {
+        let mut crc = !0u32;
+        for &b in data {
+            crc ^= b as u32;
+            for _ in 0..8 {
+                crc = (crc >> 1) ^ if crc & 1 != 0 { 0xEDB8_8320 } else { 0 };
+            }
+        }
+        !crc
+    }
+
     /// Minimal STORED-only ZIP writer for tests (shared with engine tests).
     pub(crate) fn stored_zip(entries: &[(&str, &[u8])]) -> Vec<u8> {
         let mut out = Vec::new();
         let mut central = Vec::new();
         for (name, data) in entries {
             let local_off = out.len() as u32;
+            let crc = crc32_ieee(data);
             out.extend_from_slice(&0x0403_4b50u32.to_le_bytes());
             out.extend_from_slice(&20u16.to_le_bytes());
             out.extend_from_slice(&0u16.to_le_bytes());
             out.extend_from_slice(&0u16.to_le_bytes());
             out.extend_from_slice(&0u16.to_le_bytes());
             out.extend_from_slice(&0u16.to_le_bytes());
-            out.extend_from_slice(&0u32.to_le_bytes());
+            out.extend_from_slice(&crc.to_le_bytes());
             out.extend_from_slice(&(data.len() as u32).to_le_bytes());
             out.extend_from_slice(&(data.len() as u32).to_le_bytes());
             out.extend_from_slice(&(name.len() as u16).to_le_bytes());
@@ -1033,7 +1559,7 @@ pub(crate) mod test_helpers {
             central.extend_from_slice(&0u16.to_le_bytes());
             central.extend_from_slice(&0u16.to_le_bytes());
             central.extend_from_slice(&0u16.to_le_bytes());
-            central.extend_from_slice(&0u32.to_le_bytes());
+            central.extend_from_slice(&crc.to_le_bytes());
             central.extend_from_slice(&(data.len() as u32).to_le_bytes());
             central.extend_from_slice(&(data.len() as u32).to_le_bytes());
             central.extend_from_slice(&(name.len() as u16).to_le_bytes());
@@ -1134,5 +1660,14 @@ pub(crate) mod test_helpers {
         assert_eq!(f[19], 1.0);
         // garbage is not an APK profile.
         assert!(apk_tree_features(b"definitely not a zip").is_none());
+    }
+
+    #[test]
+    fn test_apk_string_breakdown() {
+        let zip = sms_trio_apk();
+        let b = apk_deobfuscated_string_breakdown(&zip);
+        assert!(b.is_some());
+        let b = b.unwrap();
+        assert!(b.total_unique > 0);
     }
 }
