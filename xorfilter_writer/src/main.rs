@@ -15,8 +15,14 @@ use std::io::{BufRead, BufReader, Write};
 
 use hydradragonxorfilter::{build_bf32_from_keys, build_from_keys, key, XorFilter};
 
+mod pe_string_builder;
+
 fn main() {
     let mut args: Vec<String> = std::env::args().collect();
+    if args.len() > 1 && args[1] == "--build-pe-string-ml" {
+        pe_string_builder::run_build_pe_string_ml();
+        return;
+    }
     let bf32 = args.len() > 1 && args[1] == "--bf32";
     if bf32 {
         args.remove(1);

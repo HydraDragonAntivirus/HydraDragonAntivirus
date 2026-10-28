@@ -25,6 +25,7 @@ import shutil
 import struct
 import subprocess
 import sys
+import tempfile
 
 import lightgbm as lgb
 import numpy as np
@@ -36,7 +37,51 @@ import dataset_paths
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 REPO_ROOT = os.path.abspath(os.path.join(BASE_DIR, ".."))
 DUMP_CRATE = os.path.join(BASE_DIR, "js_feature_dump")
+JS_DUMP_EXE = os.path.join(DUMP_CRATE, "target", "release", "js_feature_dump.exe")
 ENGINE_THRESHOLD = 0.90  # JS_TREE_THRESHOLD in OpenEDR/openedr_static/src/engine.rs
+
+
+def extract_js_features_from_file(filepath: str):
+    """Extracts 51 JS features for a single file via js_feature_dump (OpenEDR js_features.rs)."""
+    if not filepath or not os.path.isfile(filepath):
+        return None
+    if not os.path.isfile(JS_DUMP_EXE):
+        return None
+    with tempfile.TemporaryDirectory() as tmpdir:
+        mal_lst = os.path.join(tmpdir, "mal.lst")
+        ben_lst = os.path.join(tmpdir, "ben.lst")
+        out_csv = os.path.join(tmpdir, "out.csv")
+        with open(mal_lst, "w", encoding="utf-8") as fh:
+            fh.write(filepath + "\n")
+        with open(ben_lst, "w", encoding="utf-8") as fh:
+            fh.write("")
+        res = subprocess.run([JS_DUMP_EXE, "@" + mal_lst, "@" + ben_lst, out_csv, "1"],
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        if res.returncode != 0 or not os.path.isfile(out_csv):
+            return None
+        with open(out_csv, newline="", encoding="utf-8") as fh:
+            rd = csv.reader(fh)
+            _ = next(rd, None)
+            row = next(rd, None)
+            if not row or len(row) < 53:
+                return None
+            return [float(v) for v in row[2:53]]
+
+
+def extract_js_features_from_source(source: str):
+    """Extracts 51 JS features from a JS source string via js_feature_dump."""
+    if not source:
+        return None
+    with tempfile.NamedTemporaryFile("w", suffix=".js", encoding="utf-8", delete=False) as tf:
+        tf.write(source)
+        tpath = tf.name
+    try:
+        return extract_js_features_from_file(tpath)
+    finally:
+        try:
+            os.remove(tpath)
+        except OSError:
+            pass
 
 # JsFeatureVector::to_array order (OpenEDR/openedr_static/src/ml/features.rs).
 JS_FEATURE_NAMES = [

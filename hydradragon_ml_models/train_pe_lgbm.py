@@ -528,6 +528,12 @@ def extract_chunks_to_disk(file_list, executor, label_name, label_val, chunk_dir
 PE_MIMICRY_NAMES = ("code_to_import_ratio", "compiler_dissonance_flag",
                     "non_standard_section_entropy_max", "fake_debug_directory_flag")
 
+# pe_string_ml.rs PeStringMlMetrics::NAMES (ONLY on inner unpacked/content PEs, NEVER on shell).
+# Uses Multron Server dynamic string whitelist (C:\Users\semae\OneDrive\Belgeler\stringwhitelist)
+# + ALL yarGen benign/malicious DBs + Unicorn trace + Disassembler strings.
+PE_STRING_ML_NAMES = ("mal_str_hits", "ben_str_hits", "mal_ben_str_ratio",
+                      "mal_str_density", "decompiler_strings", "unicorn_trace_strings")
+
 
 def load_chunks(chunk_dir, balance=False, max_benign_ratio=0.0, inner_only=False, not_unpacked_only=False):
     """Load every feature chunk. By default ALL samples are used (benign > malicious is
@@ -561,13 +567,14 @@ def load_chunks(chunk_dir, balance=False, max_benign_ratio=0.0, inner_only=False
             # them alike. The shell model keeps the rest (emulator failed, ...).
             unpacked = np.isin(data["X"][:, source_i], (1.0, 2.0, 4.0)) & (data["X"][:, is_pe_i] == 1.0)
             if inner_only:
-                # Inner PE structure + inner strings + inner .NET marker only.
+                # Inner PE structure + inner strings + inner .NET marker + inner mimicry + inner String ML (Multron WL + yarGen + Unicorn + Disassembler).
                 selected = list(range(names.index("inner_size_of_optional_header"), names.index("inner_size_of_optional_header") + 65))
                 selected += [names.index(f"inner_{n}") for n in ("ascii_strings", "utf16_strings", "ascii_unicode_ratio", "is_dotnet")]
                 selected += [names.index(f"inner_{n}") for n in PE_MIMICRY_NAMES if f"inner_{n}" in names]
+                selected += [names.index(f"inner_{n}") for n in PE_STRING_ML_NAMES if f"inner_{n}" in names]
                 mask = unpacked
             else:
-                # Outer PE structure + shell strings + shell .NET marker only.
+                # Outer PE structure + shell strings + shell .NET marker + shell mimicry ONLY (NO string ML on unpacked-failed outer shells).
                 selected = list(range(names.index("shell_size_of_optional_header"), names.index("shell_size_of_optional_header") + 65))
                 selected += [names.index(f"shell_{n}") for n in ("ascii_strings", "utf16_strings", "ascii_unicode_ratio", "is_dotnet")]
                 selected += [names.index(f"shell_{n}") for n in PE_MIMICRY_NAMES if f"shell_{n}" in names]

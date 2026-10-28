@@ -23,6 +23,7 @@
 
 use super::features::PeFeatureVector;
 use super::pe_features::{extract_pe_features, extract_pe_mimicry, PeMimicryMetrics};
+use super::pe_string_ml::{extract_inner_pe_string_ml_with_overlay, PeStringMlMetrics};
 
 /// Strings shorter than this are not counted (`pe_strings::MIN_LEN`).
 const MIN_STRING: usize = crate::pe_strings::MIN_LEN;
@@ -125,6 +126,8 @@ pub struct Inner {
     /// The PE the inner features describe, as a memory image after emulation: of the
     /// largest extracted PE member, or of the file itself (unpacked or not packed).
     pub pe: Option<Vec<u8>>,
+    /// Unicorn emulation behavior trace for the inner PE, when emulated.
+    pub trace: Option<hydradragonsig::models::BehaviorTrace>,
     /// Strings of every extracted member (or of the unpacked image).
     pub strings: StringCounts,
     /// Inner bytes looked at.
@@ -133,7 +136,7 @@ pub struct Inner {
 
 impl Inner {
     fn none() -> Self {
-        Inner { source: InnerSource::None, members: 0, pe: None, strings: StringCounts::default(), bytes: 0 }
+        Inner { source: InnerSource::None, members: 0, pe: None, trace: None, strings: StringCounts::default(), bytes: 0 }
     }
 }
 
@@ -181,7 +184,10 @@ pub fn inner_of(data: &[u8]) -> Inner {
                 // content, like an unpacked payload. Taken as its memory image after
                 // emulation, the same way as every other content image, so the content
                 // model never sees "raw file vs dump" as a difference between sources.
-                inner.pe = best.filter(|b| should_unpack(b)).and_then(|b| emulate(b)?.dump.clone());
+                if let Some(emu) = best.filter(|b| should_unpack(b)).and_then(emulate) {
+                    inner.pe = emu.dump.clone();
+                    inner.trace = Some(emu.trace.clone());
+                }
                 return inner;
             }
         }
@@ -202,6 +208,7 @@ pub fn inner_of(data: &[u8]) -> Inner {
             strings: StringCounts::of(d),
             bytes: d.len(),
             pe: extract_pe_features(&image).is_some().then_some(image),
+            trace: Some(emu.trace.clone()),
         };
     }
     Inner::none()
@@ -346,16 +353,19 @@ pub fn dotnet_kind(data: &[u8]) -> u8 {
 }
 
 /// Shell 65 + shell strings 3 + inner 65 + inner strings 3 + meta 4 + combined strings 3
-/// + shell / inner `dotnet_kind` + shell / inner `PeMimicryMetrics` (last, so the earlier
-/// positions stay where they were).
-pub const PE_V2_FEATURE_COUNT: usize = 65 + 3 + 65 + 3 + 4 + 3 + 2 + 2 * PeMimicryMetrics::LEN;
-pub const PE_INNER_FEATURE_COUNT: usize = 65 + 3 + 1 + PeMimicryMetrics::LEN;
+/// + shell / inner `dotnet_kind` + shell / inner `PeMimicryMetrics` + inner `PeStringMlMetrics`
+/// (last, so the earlier positions stay where they were; string ML is ONLY on inner content,
+/// NEVER on the outer shell model).
+pub const PE_V2_FEATURE_COUNT: usize = 65 + 3 + 65 + 3 + 4 + 3 + 2 + 2 * PeMimicryMetrics::LEN + PeStringMlMetrics::LEN;
+pub const PE_INNER_FEATURE_COUNT: usize = 65 + 3 + 1 + PeMimicryMetrics::LEN + PeStringMlMetrics::LEN;
 pub const PE_SHELL_FEATURE_COUNT: usize = 65 + 3 + 1 + PeMimicryMetrics::LEN;
-/// Where the shell / inner `PeMimicryMetrics` start in the v2 vector.
+/// Where the shell / inner `PeMimicryMetrics` and inner `PeStringMlMetrics` start in the v2 vector.
 const SHELL_MIMICRY: usize = 145;
 const INNER_MIMICRY: usize = SHELL_MIMICRY + PeMimicryMetrics::LEN;
 
 /// Shell-only feature set for files whose content was not successfully unpacked.
+/// Does NOT include `PeStringMlMetrics` (unpacked/failed outer shells are evaluated
+/// purely on structural and mimicry features).
 pub fn pe_v2_shell_model_features(v: &[f32; PE_V2_FEATURE_COUNT]) -> [f32; PE_SHELL_FEATURE_COUNT] {
     let mut out = [0.0; PE_SHELL_FEATURE_COUNT];
     out[..68].copy_from_slice(&v[..68]);
@@ -364,8 +374,9 @@ pub fn pe_v2_shell_model_features(v: &[f32; PE_V2_FEATURE_COUNT]) -> [f32; PE_SH
     out
 }
 
-/// Features for the dedicated successfully-unpacked PE model. No shell, combined,
-/// or shell-relative values are included.
+/// Features for the dedicated successfully-unpacked PE model. Includes the inner
+/// `PeStringMlMetrics` (Multron dynamic string whitelist + yarGen 2.5M benign / 2.6M
+/// malicious + Unicorn trace + Disassembler strings).
 pub fn extract_unpacked_inner_features(data: &[u8]) -> Option<[f32; PE_INNER_FEATURE_COUNT]> {
     let v = extract_pe_features_v2(data)?;
     (InnerSource::is_content(v[136]) && v[137] == 1.0)
@@ -387,6 +398,7 @@ pub fn pe_inner_feature_names_static() -> &'static [&'static str] {
         let mut names: Vec<String> = PeFeatureVector::NAMES.iter().map(|s| format!("inner_{s}")).collect();
         names.extend(["inner_ascii_strings", "inner_utf16_strings", "inner_ascii_unicode_ratio", "inner_is_dotnet"].map(String::from));
         names.extend(PeMimicryMetrics::NAMES.iter().map(|s| format!("inner_{s}")));
+        names.extend(PeStringMlMetrics::NAMES.iter().map(|s| format!("inner_{s}")));
         names.into_iter().map(|s| &*Box::leak(s.into_boxed_str())).collect()
     })
 }
@@ -436,6 +448,14 @@ pub fn extract_pe_features_v2(data: &[u8]) -> Option<[f32; PE_V2_FEATURE_COUNT]>
     let mimicry = |d: &[u8]| extract_pe_mimicry(d).unwrap_or_default().to_array();
     put(&mimicry(data));
     put(&inner.pe.as_deref().map_or([0.0; PeMimicryMetrics::LEN], mimicry));
+    let extra_raw = (inner.source == InnerSource::Image).then_some(data);
+    let inner_str_ml = inner
+        .pe
+        .as_deref()
+        .map_or([0.0; PeStringMlMetrics::LEN], |p| {
+            extract_inner_pe_string_ml_with_overlay(p, extra_raw, inner.trace.as_ref()).to_array()
+        });
+    put(&inner_str_ml);
     Some(v)
 }
 
@@ -458,6 +478,7 @@ pub fn pe_v2_feature_names() -> Vec<String> {
     n.extend(["shell_is_dotnet", "inner_is_dotnet"].map(String::from));
     n.extend(PeMimicryMetrics::NAMES.iter().map(|s| format!("shell_{s}")));
     n.extend(PeMimicryMetrics::NAMES.iter().map(|s| format!("inner_{s}")));
+    n.extend(PeStringMlMetrics::NAMES.iter().map(|s| format!("inner_{s}")));
     n
 }
 

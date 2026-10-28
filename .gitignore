@@ -1,3 +1,7 @@
+// Over than 100MB files for string based machine learning models
+pe_strings_benign.xf
+pe_strings_malicious.xf
+
 # System32 DLLs for emulation
 /hydradragonunicorn/DLLs
 
