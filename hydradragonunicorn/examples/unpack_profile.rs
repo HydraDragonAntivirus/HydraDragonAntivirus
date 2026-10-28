@@ -99,24 +99,14 @@ fn profile(path: &str, rules: Option<&yara_x::Rules>) -> String {
         Some(run) => {
             let (outcome, why) = match &run.outcome {
                 Outcome::Dumped(_) => ("dumped", None),
-                Outcome::Decompile => ("decompile", None),
-                Outcome::Extract => ("extract", None),
                 Outcome::Failed { step, reason } => ("failed", Some(format!("step {step}: {reason}"))),
             };
             let why = why.map(|w| format!("\"{}\"", esc(&w))).unwrap_or_else(|| "null".into());
             format!("{head},\"rule\":\"{}\",\"recipe\":\"{outcome}\",\"recipe_error\":{why},\"recipe_ms\":{}", esc(&run.rule), t.elapsed().as_millis())
         }
     };
-    if let Some(run) = &recipe {
-        let result = match run.outcome {
-            Outcome::Dumped(_) => Some("unpacked"),
-            Outcome::Decompile => Some("decompile"),
-            Outcome::Extract => Some("extract"),
-            Outcome::Failed { .. } => None,
-        };
-        if let Some(result) = result {
-            return format!("{{{head},\"result\":\"{result}\",\"api_calls\":{},\"ms\":{}}}", run.trace.calls.len(), t.elapsed().as_millis());
-        }
+    if let Some(run) = recipe.as_ref().filter(|r| matches!(r.outcome, Outcome::Dumped(_))) {
+        return format!("{{{head},\"result\":\"unpacked\",\"api_calls\":{},\"ms\":{}}}", run.trace.calls.len(), t.elapsed().as_millis());
     }
     let Ok(sample) = Sample::from_bytes(&data) else { return format!("{{{head},\"result\":\"not_pe\"}}") };
     let ep = entrypoint(&sample.opt_header);

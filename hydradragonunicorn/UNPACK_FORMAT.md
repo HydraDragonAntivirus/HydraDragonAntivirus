@@ -10,8 +10,8 @@ An unpacker signature says how to unpack one packer. It has two parts:
 The header only picks the recipe. Every `run_until` must really happen in the
 emulation. If it doesn't (the budget runs out, the program exits or faults, or
 an API stops it first), the recipe fails and the caller falls back to its generic
-emulation. A fake .NET header over native code, or a packer variant the recipe
-does not know, therefore never gets a wrong result.
+emulation. A fake header over other code, or a packer variant the recipe does not
+know, therefore never gets a wrong result.
 
 Rules are tried in file order; the first one whose conditions match runs. The
 built-in rules (`unpack_rules/default.yaml`) are compiled in.
@@ -40,10 +40,9 @@ rules:
 | `run_until: {...}` | Emulate from the current instruction until one of the conditions holds. The run stops **before** that instruction. |
 | `set_oep: ip` / `set_oep: {rva: 0x1234}` | Set the instruction pointer: the entry point the dump gets. `ip` keeps where the last `run_until` stopped. |
 | `dump` | Dump the memory image: entry point = instruction pointer, imports rebuilt from the API stubs. |
-| `decompile` | Managed (.NET IL) or script code: static analysis of the file (hydradragondecompiler). |
-| `extract` | A container hydradragonextractor opens. When it extracts nothing, the caller emulates instead. |
 
-A recipe ends with exactly one of `dump`, `decompile` or `extract`, as its last step.
+A recipe always produces the unpacked payload: it ends with exactly one `dump`, as
+its last step. There are no steps that hand the file to another tool.
 
 ### `run_until` keys
 
@@ -52,7 +51,7 @@ At least one condition is required. Any condition that holds stops the run.
 | key | stops when |
 |---|---|
 | `write_execute: true` | Code runs from a page this run wrote (the decompressed / decrypted payload). |
-| `api: [_CorExeMain]` | One of these APIs is called (stop at its stub, before the call). Names are matched without leading `_`, `@n` or DLL prefix, case-insensitive. |
+| `api: [VirtualProtect]` | One of these APIs is called (stop at its stub, before the call). Names are matched without leading `_`, `@n` or DLL prefix, case-insensitive. |
 | `section: [.text]` | Execution enters one of these sections. |
 | `ip_pattern: ["61 E9"]` | A basic block starts with one of these hex patterns (`??` = any byte). |
 

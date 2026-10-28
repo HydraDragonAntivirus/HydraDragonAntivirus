@@ -30,13 +30,8 @@ pub enum Step {
     /// Set the instruction pointer: the entry point the dump gets.
     SetOep(Oep),
     /// Dump the memory image (entry point = instruction pointer, imports
-    /// rebuilt from the API stubs). Ends the recipe.
+    /// rebuilt from the API stubs): the unpacked payload. Ends the recipe.
     Dump,
-    /// The code is managed (.NET IL) or a script: static analysis of the file
-    /// (hydradragondecompiler). Ends the recipe.
-    Decompile,
-    /// The content is in a container hydradragonextractor opens. Ends the recipe.
-    Extract,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
@@ -80,10 +75,6 @@ pub enum Oep {
 pub enum Outcome {
     /// The unpacked image.
     Dumped(Vec<u8>),
-    /// Managed / script code: decompile the file.
-    Decompile,
-    /// A container: extract it.
-    Extract,
     /// A step did not happen as the recipe says: fall back to the generic way.
     Failed { step: usize, reason: String },
 }
@@ -263,14 +254,13 @@ impl UnpackRules {
     }
 }
 
-/// Exactly one ending step (`dump`, `decompile`, `extract`), as the last one;
+/// Exactly one `dump`, as the last step (a recipe always produces the payload);
 /// every `run_until` has a condition and valid patterns.
 fn check_steps(steps: &[Step]) -> Result<(), String> {
-    let ends = |s: &Step| matches!(s, Step::Dump | Step::Decompile | Step::Extract);
-    match steps.iter().position(ends) {
+    match steps.iter().position(|s| matches!(s, Step::Dump)) {
         Some(i) if i + 1 == steps.len() => {}
-        Some(_) => return Err("dump / decompile / extract must be the last step".into()),
-        None => return Err("unpack must end with dump, decompile or extract".into()),
+        Some(_) => return Err("dump must be the last step".into()),
+        None => return Err("unpack must end with dump".into()),
     }
     for (i, s) in steps.iter().enumerate() {
         if let Step::RunUntil(r) = s {
@@ -293,7 +283,7 @@ fn run_steps(data: &[u8], steps: &[Step], budget: Budget) -> (Outcome, BehaviorT
     let fail = |step: usize, reason: String| Outcome::Failed { step: step + 1, reason };
     for (i, step) in steps.iter().enumerate() {
         let trace = |eng: &Option<UnpackerEngine>| eng.as_ref().map(|e| e.behavior_trace().clone()).unwrap_or_default();
-        if !matches!(step, Step::Decompile | Step::Extract) && eng.is_none() {
+        if eng.is_none() {
             match start(data) {
                 Ok(e) => eng = Some(e),
                 Err(e) => return (fail(i, e), BehaviorTrace::default()),
@@ -352,11 +342,9 @@ fn run_steps(data: &[u8], steps: &[Step], budget: Budget) -> (Outcome, BehaviorT
                     Err(err) => (fail(i, err.to_string()), t),
                 };
             }
-            Step::Decompile => return (Outcome::Decompile, trace(&eng)),
-            Step::Extract => return (Outcome::Extract, trace(&eng)),
         }
     }
-    unreachable!("check_steps: a recipe ends with dump, decompile or extract")
+    unreachable!("check_steps: a recipe ends with dump")
 }
 
 fn start(data: &[u8]) -> Result<UnpackerEngine, String> {
@@ -403,34 +391,38 @@ rules:
     }
 
     #[test]
-    fn recipe_must_end_with_one_ending_step() {
-        for steps in ["[]", "[dump, dump]", "[decompile, {run_until: {write_execute: true}}]", "[{run_until: {}}, dump]"] {
+    fn recipe_must_end_with_dump() {
+        for steps in [
+            "[]",
+            "[dump, dump]",
+            "[dump, {run_until: {write_execute: true}}]",
+            "[{run_until: {}}, dump]",
+            "[decompile]",
+            "[extract]",
+        ] {
             let yaml = format!("rules:\n  - id: r\n    conditions: [{{type: not_mz}}]\n    unpack: {steps}\n");
             assert!(UnpackRules::from_yaml_str(&yaml).is_err(), "{steps} must be rejected");
         }
-        let ok = "rules:\n  - id: r\n    conditions: [{type: not_mz}]\n    unpack: [{run_until: {api: [_CorExeMain]}}, {set_oep: ip}, decompile]\n";
+        let ok = "rules:\n  - id: r\n    conditions: [{type: not_mz}]\n    unpack: [{run_until: {write_execute: true}}, {set_oep: ip}, dump]\n";
         assert!(UnpackRules::from_yaml_str(ok).is_ok());
     }
 
     #[test]
     fn first_matching_rule_wins_and_file_rules_go_first() {
-        let base = UnpackRules::from_yaml_str(
-            "rules:\n  - id: a\n    conditions: [{type: not_mz}]\n    unpack: [extract]\n  - id: b\n    conditions: [{type: not_mz}]\n    unpack: [decompile]\n",
-        )
-        .unwrap();
+        let recipe = |id: &str, n: u64| {
+            format!("  - id: {id}\n    conditions: [{{type: not_mz}}]\n    unpack: [{{run_until: {{write_execute: true, max_instructions: {n}}}}}, dump]\n")
+        };
+        let base = UnpackRules::from_yaml_str(&format!("rules:\n{}{}", recipe("a", 1), recipe("b", 2))).unwrap();
         let data = b"just some text that is not a PE file at all".repeat(4);
         assert_eq!(base.choose(&data).unwrap().0, "a");
 
         let mut merged = base.clone();
-        merged
-            .extend(UnpackRules::from_yaml_str(
-                "rules:\n  - id: a\n    conditions: [{type: not_mz}]\n    unpack: [decompile]\n  - id: c\n    conditions: [{type: not_mz}]\n    unpack: [extract]\n",
-            ).unwrap())
-            .unwrap();
+        merged.extend(UnpackRules::from_yaml_str(&format!("rules:\n{}{}", recipe("a", 3), recipe("c", 4))).unwrap()).unwrap();
         assert_eq!(merged.rules.iter().map(|r| r.id.as_str()).collect::<Vec<_>>(), ["c", "a", "b"]);
-        assert_eq!(merged.rules[1].unpack, [Step::Decompile]);
+        let Step::RunUntil(r) = &merged.rules[1].unpack[0] else { panic!("run_until expected") };
+        assert_eq!(r.max_instructions, Some(3));
         let budget = Budget { max_instructions: 1000, timeout_us: 1_000_000 };
-        assert_eq!(merged.unpack(&data, budget).unwrap().outcome, Outcome::Extract);
+        assert_eq!(merged.unpack(&data, budget).unwrap().rule, "c");
     }
 
     #[test]

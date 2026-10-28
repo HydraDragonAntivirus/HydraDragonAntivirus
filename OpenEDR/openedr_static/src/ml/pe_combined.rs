@@ -270,18 +270,12 @@ fn run_emulation(data: &[u8]) -> Option<Emulation> {
     if !should_unpack(data) {
         return None;
     }
-    // The recipe of the unpacker signature that recognises the file. `Extract` only
-    // reaches here when hydradragonextractor found nothing (`inner_of` tries it
-    // first), and a failed step means the recipe does not fit: both fall back to
-    // the generic run below.
+    // The recipe of the unpacker signature that recognises the file; a failed step
+    // means the recipe does not fit this file: the generic run below.
     let budget = Budget { max_instructions: UNPACK_MAX_INSTRUCTIONS, timeout_us: UNPACK_TIMEOUT_US };
     if let Some(run) = UnpackRules::builtin().unpack(data, budget) {
-        match run.outcome {
-            Outcome::Dumped(image) => return Some(Emulation { dump: Some(image), unpacked: true, trace: run.trace, failed: false }),
-            // Managed code: the CLR entry was really called. Not an emulator failure;
-            // its content is what the decompiler reads from the file.
-            Outcome::Decompile => return Some(Emulation { dump: None, unpacked: false, trace: run.trace, failed: false }),
-            Outcome::Extract | Outcome::Failed { .. } => {}
+        if let Outcome::Dumped(image) = run.outcome {
+            return Some(Emulation { dump: Some(image), unpacked: true, trace: run.trace, failed: false });
         }
     }
     let sample = Sample::from_bytes(data).ok()?;
