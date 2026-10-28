@@ -154,7 +154,7 @@ fn main() {
                 .spawn_scoped(s, || loop {
                     let i = next.fetch_add(1, Ordering::Relaxed);
                     let Some(p) = files.get(i) else { break };
-                    let line = std::panic::catch_unwind(|| profile(p, rules.as_ref()))
+                    let line = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| profile(p, rules.as_ref())))
                         .unwrap_or_else(|_| format!("{{\"path\":\"{}\",\"result\":\"panic\"}}", esc(p)));
                     let mut o = out.lock().unwrap();
                     let _ = writeln!(o, "{line}");
