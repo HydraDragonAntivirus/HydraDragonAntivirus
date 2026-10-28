@@ -245,6 +245,19 @@ impl VerdictCache {
     pub fn len(&self) -> usize {
         self.inner.lock().unwrap().map.len()
     }
+
+    /// Live cached `(SHA-256 upper-case hex, verdict)` entries with one of `verdicts`.
+    pub fn verdict_hashes(&self, verdicts: &[&str]) -> Vec<(String, String)> {
+        let now = now_secs();
+        let inv = self.invalidated_before.load(Ordering::Relaxed);
+        let g = self.inner.lock().unwrap();
+        g.map
+            .iter()
+            .filter(|(_, v)| v.at >= inv && now - v.at <= self.ttl_for(&v.verdict))
+            .filter(|(_, v)| verdicts.contains(&v.verdict.as_str()))
+            .map(|(sha, v)| (hex::encode_upper(sha), v.verdict.clone()))
+            .collect()
+    }
 }
 
 /// Message to the cache writer: a line, or "flush now and tell me".

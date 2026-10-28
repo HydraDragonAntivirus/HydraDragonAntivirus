@@ -518,10 +518,19 @@ impl ThreatIntelStore {
         let updated = {
             let mut guard = self.map.write().unwrap();
             let Some(entry) = guard.get_mut(&sha_bytes) else { return };
+            let had_extra = verdict == "unknown" && (entry.threat_name.is_some() || entry.score != 0.0 || !entry.detections.is_empty());
             let old = std::mem::replace(&mut entry.verdict, verdict.into());
             entry.threat_name = threat.map(IStr::from);
             entry.score = score;
-            crate::verdict_history::record(&entry.sha256.text(), "engine", Some(&old), verdict, threat, source, "");
+            if verdict == "unknown" {
+                entry.detections.clear();
+            }
+            if old.as_str() == verdict && !had_extra {
+                return;
+            }
+            if old.as_str() != verdict {
+                crate::verdict_history::record(&entry.sha256.text(), "engine", Some(&old), verdict, threat, source, "");
+            }
             entry.clone()
         };
         if let Some(writer) = &self.writer {

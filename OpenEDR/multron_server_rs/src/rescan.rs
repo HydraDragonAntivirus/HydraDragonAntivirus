@@ -123,10 +123,14 @@ impl BulkRescan {
 pub fn rescan_one(server: &Arc<ScanServer>, sha_hex: &str) -> Result<Change, String> {
     let sha_up = sha_hex.trim().to_ascii_uppercase();
     let sha = parse_sha(&sha_up).ok_or("invalid sha256")?;
-    let kept = server
-        .engine
-        .find_kept(&sha_up)
-        .ok_or_else(|| format!("{}; the client has to send it again", crate::missing_files::explain(&sha_up)))?;
+    let Some(kept) = server.engine.find_kept(&sha_up) else {
+        let why = crate::missing_files::explain(&sha_up);
+        if server.threat_intel.reviews.completed(&sha_up).is_none() {
+            reset_unkept_one(server, &sha_up);
+            server.cache.forget(&[sha].into_iter().collect());
+        }
+        return Err(format!("{why}; set to unknown so the client sends it again"));
+    };
     let data = kept.read().ok_or("the kept file could not be read")?;
     let data_len = data.len() as u64;
     let actual = hex::encode_upper(Sha256::digest(&data));
@@ -347,15 +351,47 @@ pub fn kept_audit(server: &Arc<ScanServer>) -> serde_json::Value {
 }
 
 /// Engine verdicts `unkept_threats_report` can reset.
-pub const UNKEPT_VERDICTS: [&str; 2] = ["malicious", "suspicious"];
+pub const UNKEPT_VERDICTS: [&str; 4] = ["malicious", "suspicious", "possible_clean", "clean"];
+pub const DEFAULT_UNKEPT_VERDICTS: [&str; 3] = ["malicious", "suspicious", "possible_clean"];
 
-/// Hashes with one of `verdicts` from the engine (no analyst verdict) whose file is not
-/// kept here: a rescan cannot check them again, so their old verdict stays in the
-/// statistics and is still given to clients that send the hash. (upper-case hex, verdict).
+fn reset_unkept_one(server: &ScanServer, sha: &str) {
+    server.threat_intel.set_engine_verdict_from(sha, "unknown", None, 0.0, "unkept");
+    crate::missing_files::set_unknown(sha);
+    if server.threat_intel.reviews.get(sha).is_some_and(|r| !r.is_completed()) {
+        server.threat_intel.reviews.remove(sha);
+    }
+}
+
+/// Hashes with one of `verdicts` from the engine, verdict cache, quota-drop log or
+/// pending review queue (no completed analyst verdict) whose file is not kept here: a
+/// rescan cannot check them again, so their old verdict stays in the statistics and is
+/// still given to clients that send the hash. (upper-case hex, verdict).
 fn unkept_threats(server: &Arc<ScanServer>, verdicts: &[&str]) -> Vec<(String, String)> {
     let kept: std::collections::HashSet<String> =
         server.engine.list_kept().into_iter().map(|k| k.sha256.to_ascii_uppercase()).collect();
-    server.threat_intel.engine_verdict_hashes(verdicts).into_iter().filter(|(s, _)| !kept.contains(s)).collect()
+    let mut seen = std::collections::HashSet::new();
+    let mut out = Vec::new();
+    let pending = server.threat_intel.reviews.pending(usize::MAX).into_iter().filter_map(|r| {
+        let v = r.engine_verdict?;
+        verdicts.contains(&v.as_str()).then(|| (r.sha256.to_ascii_uppercase(), v))
+    });
+    for (sha, v) in server
+        .threat_intel
+        .engine_verdict_hashes(verdicts)
+        .into_iter()
+        .chain(server.cache.verdict_hashes(verdicts))
+        .chain(crate::missing_files::verdict_hashes(verdicts))
+        .chain(pending)
+    {
+        if kept.contains(&sha) || !seen.insert(sha.clone()) {
+            continue;
+        }
+        if server.threat_intel.reviews.completed(&sha).is_some() {
+            continue;
+        }
+        out.push((sha, v));
+    }
+    out
 }
 
 /// Why the file of `sha` is not here (`missing_files::explain` in short).
@@ -372,20 +408,24 @@ fn unkept_reason(sha: &str) -> &'static str {
 }
 
 /// `unkept_threats` with counts per verdict and per reason. `verdicts`: any of
-/// `UNKEPT_VERDICTS` (empty = both). With `apply`, their engine verdict becomes unknown
-/// (written to the telemetry and the verdict history as "unkept"; nothing is deleted) and
-/// their cached verdict is dropped, so the next client that has the file uploads it and it
-/// is scanned with the current engine. Dashboard button only.
+/// `UNKEPT_VERDICTS` (empty = `DEFAULT_UNKEPT_VERDICTS`). With `apply`, their engine
+/// verdict becomes unknown (written to the telemetry, missing-file log and verdict
+/// history as "unkept"; nothing is deleted), pending unkept queue entries are removed,
+/// and their cached verdict is dropped, so the next client that has the file uploads it
+/// and it is scanned with the current engine. Dashboard button only.
 pub fn unkept_threats_report(server: &Arc<ScanServer>, verdicts: &[String], apply: bool) -> Result<serde_json::Value, String> {
     let mut wanted: Vec<&str> = Vec::new();
     for v in verdicts {
-        let k = UNKEPT_VERDICTS.iter().find(|k| **k == v.as_str()).ok_or_else(|| format!("unknown verdict {v} (malicious or suspicious)"))?;
+        let k = UNKEPT_VERDICTS
+            .iter()
+            .find(|k| **k == v.as_str())
+            .ok_or_else(|| format!("unknown verdict {v} ({})", UNKEPT_VERDICTS.join(", ")))?;
         if !wanted.contains(k) {
             wanted.push(k);
         }
     }
     if wanted.is_empty() {
-        wanted = UNKEPT_VERDICTS.to_vec();
+        wanted = DEFAULT_UNKEPT_VERDICTS.to_vec();
     }
     let shas = unkept_threats(server, &wanted);
     let mut reasons: std::collections::BTreeMap<&'static str, usize> = std::collections::BTreeMap::new();
@@ -411,7 +451,7 @@ pub fn unkept_threats_report(server: &Arc<ScanServer>, verdicts: &[String], appl
     let mut uncached = 0;
     if apply {
         for (sha, _) in &shas {
-            server.threat_intel.set_engine_verdict_from(sha, "unknown", None, 0.0, "unkept");
+            reset_unkept_one(server, sha);
         }
         let set: std::collections::HashSet<_> = shas.iter().filter_map(|(s, _)| parse_sha(s)).collect();
         uncached = server.cache.forget(&set);

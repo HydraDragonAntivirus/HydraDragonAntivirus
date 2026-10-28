@@ -566,8 +566,12 @@ async fn handle_health(State(server): State<Arc<ScanServer>>) -> impl IntoRespon
         }
         if self.cfg.cache() && !skip_cache {
             if let Some(v) = self.cache.get(sha) {
-                self.stats.cache_hits.fetch_add(1, Ordering::Relaxed);
-                return Some(verdict_message(sha_hex, v, "cache_lookup", "cache"));
+                if v.verdict != "unknown" && self.threat_intel.get(sha_hex).is_some_and(|i| i.verdict == "unknown") {
+                    self.cache.forget(&[*sha].into_iter().collect());
+                } else {
+                    self.stats.cache_hits.fetch_add(1, Ordering::Relaxed);
+                    return Some(verdict_message(sha_hex, v, "cache_lookup", "cache"));
+                }
             }
         }
         let r = self.engine.hash_lookup(sha, sha_hex)?;

@@ -1072,14 +1072,16 @@
       </div>
       <div class="rs-audit">
         <div class="feedbar" style="margin:0">
-          <b style="font-size:13px">Malicious / suspicious without a kept file</b>
+          <b style="font-size:13px">Verdicts without a kept file</b>
           <label class="chkl"><input type="checkbox" class="umVerdict" value="malicious" checked> Malicious</label>
           <label class="chkl"><input type="checkbox" class="umVerdict" value="suspicious" checked> Suspicious</label>
+          <label class="chkl"><input type="checkbox" class="umVerdict" value="possible_clean" checked> Possible clean</label>
+          <label class="chkl"><input type="checkbox" class="umVerdict" value="clean"> Clean</label>
           <span class="spacer"></span>
           <button class="ghost" id="umCheck">Find</button>
           <button class="ghost" id="umRun" disabled>Make unknown</button>
         </div>
-        <div class="hint" style="margin:4px 0 8px">Hashes the engine called malicious or suspicious (no analyst verdict) whose file is not in multron_incoming: only the hash was sent, the file was dropped at upload (quota), offloaded or archived. A rescan cannot check them, so the old verdict stays in the statistics and is given to clients that send the hash. <b>Make unknown</b> sets their engine verdict to unknown and drops their cached verdict, so the file is scanned again when a client uploads it. Nothing is deleted; the change is in the verdict history.</div>
+        <div class="hint" style="margin:4px 0 8px">Hashes with an engine verdict (no analyst verdict) whose file is not in multron_incoming: only the hash was sent, the file was dropped at upload (quota), offloaded or archived. A rescan cannot check them, so the old verdict stays in the statistics and is given to clients that send the hash. <b>Make unknown</b> sets their engine verdict to unknown and drops their cached verdict, so the file is scanned again when a client uploads it. Nothing is deleted; the change is in the verdict history.</div>
         <div id="umBody" hidden>
           <div class="hint" id="umInfo" style="margin:6px 0"></div>
           <div class="tablewrap" style="max-height:300px"><table><thead><tr><th>SHA-256</th><th>Verdict</th><th>File</th><th>Threat</th><th>Why no file</th></tr></thead><tbody id="umRows"></tbody></table></div>
@@ -1614,7 +1616,7 @@ window.sigKey = (list) => list && list.length ? `${list[0].layer}: ${list[0].nam
   }
   $("umCheck").onclick = async () => {
     const verdicts = umVerdicts();
-    if (!verdicts.length) { $("umBody").hidden = false; $("umInfo").textContent = "Pick malicious and/or suspicious."; return; }
+    if (!verdicts.length) { $("umBody").hidden = false; $("umInfo").textContent = "Pick at least one verdict."; return; }
     $("umCheck").disabled = true; $("umBody").hidden = false; $("umInfo").textContent = "Looking…";
     try {
       const res = await fetch(`/api/rescan/unkept-threats?verdicts=${encodeURIComponent(verdicts.join(","))}`, { cache: "no-store" });
