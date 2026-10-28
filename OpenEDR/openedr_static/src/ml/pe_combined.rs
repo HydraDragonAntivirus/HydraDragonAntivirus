@@ -459,6 +459,16 @@ pub fn extract_pe_features_v2(data: &[u8]) -> Option<[f32; PE_V2_FEATURE_COUNT]>
     Some(v)
 }
 
+/// The inner PE's strings split into malicious / benign / unknown, for the report.
+/// Reuses the cached emulation of `extract_pe_features_v2`, so call it before
+/// `forget_emulation`. `None` when there is no inner PE (the shell model never reads strings).
+pub fn pe_inner_string_breakdown(data: &[u8]) -> Option<super::pe_string_ml::PeStringBreakdown> {
+    let inner = inner_of(data);
+    let pe = inner.pe.as_deref()?;
+    let extra_raw = (inner.source == InnerSource::Image).then_some(data);
+    Some(super::pe_string_ml::classify_inner_pe_strings(pe, extra_raw, inner.trace.as_ref()))
+}
+
 /// `pe_v2_feature_names`, built once (the ML explanation keeps `&'static str` names).
 pub fn pe_v2_feature_names_static() -> &'static [&'static str] {
     static NAMES: std::sync::OnceLock<Vec<&'static str>> = std::sync::OnceLock::new();

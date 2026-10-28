@@ -1098,9 +1098,13 @@ impl StaticEngine {
         }
         // ML: probability and the features that moved the score, when the model
         // flagged the file (same thresholds as the scan).
+        let mut string_breakdown: Option<crate::ml::pe_string_ml::PeStringBreakdown> = None;
         let ml = if is_pe {
             let kind = format!("PE tree ensemble ({} features)", self.ml.pe_feature_count());
             let explained = self.ml.explain_pe_with_model(data);
+            if matches!(explained, Some((_, crate::ml::scanner::PeModelKind::Inner))) {
+                string_breakdown = crate::ml::pe_combined::pe_inner_string_breakdown(data);
+            }
             crate::ml::pe_combined::forget_emulation();
             explained.map(|(e, model_kind)| (e, "MalwareNet.PE.HighConfidence", pe_threshold_for_model(model_kind), kind))
         } else if is_js_content(data) {
@@ -1109,8 +1113,21 @@ impl StaticEngine {
             None
         };
         if let Some((e, rule, threshold, kind)) = ml {
-            if e.probability >= threshold {
-                out.push(ml_explain(rule, &kind, threshold, &e));
+            // "Scan with engine" (this analyst view only, never the normal scan): the PE
+            // content model's strings are listed even when the model did not flag the
+            // file, as an informational ML entry below the threshold.
+            let flagged = e.probability >= threshold;
+            if flagged || string_breakdown.is_some() {
+                let rule = if flagged { rule } else { "ML.PE.StringsInfo" };
+                let mut m = ml_explain(rule, &kind, threshold, &e);
+                if !flagged {
+                    m.kind = format!("{} · {:.2}% malware (below threshold, strings shown for analysis)", kind, e.probability * 100.0);
+                    m.evidence.clear();
+                }
+                if let Some(b) = &string_breakdown {
+                    append_string_breakdown(&mut m, b);
+                }
+                out.push(m);
             }
         }
         out
@@ -2580,6 +2597,31 @@ fn ml_explain(rule: &str, kind: &str, threshold: f32, e: &crate::ml::scanner::Ml
         evidence: e.features.iter().filter(|f| f.contribution > 0.0).take(10).map(|f| format!("{}={} ({:+.2})", f.name, fmt(f.value), f.contribution)).collect(),
         ranges: Vec::new(),
     }
+}
+
+/// Strings the PE content model read, split into malicious / benign / unknown
+/// (`pe_strings_malicious.xf` / `pe_strings_benign.xf` / neither). Shown in the ML
+/// definition (capped per class) and the malicious ones in the evidence.
+fn append_string_breakdown(m: &mut MatchExplain, b: &crate::ml::pe_string_ml::PeStringBreakdown) {
+    const SHOW: usize = 200;
+    let clip = |s: &str| -> String { s.chars().take(160).collect::<String>().replace(['\r', '\n'], " ") };
+    let def = m.definition.get_or_insert_with(String::new);
+    def.push_str(&format!(
+        "\nStrings read by the content model: {} unique ({} malicious, {} benign, {} unknown; {} from disassembler, {} from emulation trace)\n",
+        b.total_unique,
+        b.malicious.len(),
+        b.benign.len(),
+        b.unknown.len(),
+        b.decompiler_strings,
+        b.unicorn_trace_strings
+    ));
+    for (label, list) in [("MALICIOUS", &b.malicious), ("UNKNOWN", &b.unknown), ("BENIGN", &b.benign)] {
+        def.push_str(&format!("\n[{label}] {} string(s){}\n", list.len(), if list.len() > SHOW { format!(", first {SHOW}") } else { String::new() }));
+        for s in list.iter().take(SHOW) {
+            def.push_str(&format!("  {}\n", clip(s)));
+        }
+    }
+    m.evidence.extend(b.malicious.iter().take(10).map(|s| format!("malicious string: {}", clip(s))));
 }
 
 /// The detections of a script's deobfuscated object, added to the script's own.
