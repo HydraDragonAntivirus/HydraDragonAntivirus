@@ -1012,6 +1012,50 @@ pub extern "C" fn openedr_static_restore_hosts_file(hosts_path: *const c_char, c
     }
 }
 
+/// Set ML detection thresholds across all models (PE inner, PE shell, JS, APK).
+/// Pass -1.0 or any value outside [0.50, 0.9999] to leave unchanged / keep current.
+#[unsafe(no_mangle)]
+pub extern "C" fn openedr_static_set_ml_thresholds(
+    pe_inner: f32,
+    pe_shell: f32,
+    js: f32,
+    apk: f32,
+) {
+    let opt = |v: f32| if (0.50..=0.9999).contains(&v) { Some(v) } else { None };
+    let (p_in, p_sh) = (opt(pe_inner), opt(pe_shell));
+    if p_in.is_some() || p_sh.is_some() {
+        engine::set_pe_route_thresholds(p_in, p_sh);
+    }
+    let (j_val, a_val) = (opt(js), opt(apk));
+    if j_val.is_some() || a_val.is_some() {
+        engine::set_ml_thresholds(j_val, a_val);
+    }
+}
+
+/// Retrieve currently active ML detection thresholds across all models.
+#[unsafe(no_mangle)]
+pub extern "C" fn openedr_static_get_ml_thresholds(
+    pe_inner: *mut f32,
+    pe_shell: *mut f32,
+    js: *mut f32,
+    apk: *mut f32,
+) {
+    unsafe {
+        if !pe_inner.is_null() {
+            *pe_inner = engine::pe_inner_tree_threshold();
+        }
+        if !pe_shell.is_null() {
+            *pe_shell = engine::pe_shell_tree_threshold();
+        }
+        if !js.is_null() {
+            *js = engine::js_tree_threshold();
+        }
+        if !apk.is_null() {
+            *apk = engine::apk_tree_threshold();
+        }
+    }
+}
+
 /// Free a C-string allocated and returned by openedr_static.
 #[unsafe(no_mangle)]
 pub extern "C" fn openedr_static_free_string(s: *mut c_char) {

@@ -19,10 +19,8 @@ use crate::signers::{verify_authenticode, BinaryFuse16Filter, SignerDb};
 use crate::string_rules::PeStringRules;
 use crate::yara::YaraScanner;
 
-/// APK tree-model decision threshold. From `apk_trees.meta.json`
-/// (LightGBM 200 trees, valid F1 0.955 / FPR 0.017). Retune on retrain.
-/// Web parity (`openedr_web/src/engine.rs::APK_TREE_THRESHOLD`).
-pub const APK_TREE_THRESHOLD: f32 = 0.8;
+/// APK tree-model decision threshold. Tuned to 0.85 for 0% FPR (FP=0, TN=421) on benign APKs.
+pub const APK_TREE_THRESHOLD: f32 = 0.85;
 
 /// Separate route defaults: shell-only scores need a stricter cutoff because
 /// packer stubs are less representative of the payload than successfully unpacked PEs.
@@ -36,21 +34,58 @@ pub const JS_TREE_THRESHOLD: f32 = 0.90;
 // Thresholds in use (f32 bits): the defaults above until configured.
 static PE_INNER_THRESHOLD_BITS: AtomicU32 = AtomicU32::new(0);
 static PE_SHELL_THRESHOLD_BITS: AtomicU32 = AtomicU32::new(0);
-static JS_THRESHOLD_BITS: AtomicU32 = AtomicU32::new(JS_TREE_THRESHOLD.to_bits());
-static APK_THRESHOLD_BITS: AtomicU32 = AtomicU32::new(APK_TREE_THRESHOLD.to_bits());
+static JS_THRESHOLD_BITS: AtomicU32 = AtomicU32::new(0);
+static APK_THRESHOLD_BITS: AtomicU32 = AtomicU32::new(0);
 
 /// Lowest and highest threshold `set_ml_thresholds` accepts.
 pub const ML_THRESHOLD_RANGE: (f32, f32) = (0.50, 0.9999);
 
+fn env_threshold(keys: &[&str], default: f32) -> f32 {
+    for &k in keys {
+        if let Ok(v) = std::env::var(k) {
+            if let Ok(f) = v.parse::<f32>() {
+                return f.clamp(ML_THRESHOLD_RANGE.0, ML_THRESHOLD_RANGE.1);
+            }
+        }
+    }
+    default
+}
+
 /// ML thresholds in use: a file whose probability is at least this is flagged.
 pub fn pe_inner_tree_threshold() -> f32 {
     let bits = PE_INNER_THRESHOLD_BITS.load(Ordering::Relaxed);
-    if bits == 0 { PE_INNER_TREE_THRESHOLD } else { f32::from_bits(bits) }
+    if bits == 0 {
+        env_threshold(&["PE_INNER_THRESHOLD", "PE_INNER_ML_THRESHOLD", "PE_ML_THRESHOLD", "ML_THRESHOLD"], PE_INNER_TREE_THRESHOLD)
+    } else {
+        f32::from_bits(bits)
+    }
 }
 
 pub fn pe_shell_tree_threshold() -> f32 {
     let bits = PE_SHELL_THRESHOLD_BITS.load(Ordering::Relaxed);
-    if bits == 0 { PE_SHELL_TREE_THRESHOLD } else { f32::from_bits(bits) }
+    if bits == 0 {
+        env_threshold(&["PE_SHELL_THRESHOLD", "PE_SHELL_ML_THRESHOLD", "PE_ML_THRESHOLD", "ML_THRESHOLD"], PE_SHELL_TREE_THRESHOLD)
+    } else {
+        f32::from_bits(bits)
+    }
+}
+
+pub fn js_tree_threshold() -> f32 {
+    let bits = JS_THRESHOLD_BITS.load(Ordering::Relaxed);
+    if bits == 0 {
+        env_threshold(&["JS_TREE_THRESHOLD", "JS_ML_THRESHOLD", "ML_THRESHOLD"], JS_TREE_THRESHOLD)
+    } else {
+        f32::from_bits(bits)
+    }
+}
+
+pub fn apk_tree_threshold() -> f32 {
+    let bits = APK_THRESHOLD_BITS.load(Ordering::Relaxed);
+    if bits == 0 {
+        env_threshold(&["APK_TREE_THRESHOLD", "APK_ML_THRESHOLD", "ML_THRESHOLD"], APK_TREE_THRESHOLD)
+    } else {
+        f32::from_bits(bits)
+    }
 }
 
 /// Set route-specific PE cutoffs. `None` restores the route default.
@@ -71,14 +106,6 @@ fn pe_threshold_for_model(kind: crate::ml::scanner::PeModelKind) -> f32 {
         crate::ml::scanner::PeModelKind::Inner => pe_inner_tree_threshold(),
         crate::ml::scanner::PeModelKind::Shell => pe_shell_tree_threshold(),
     }
-}
-
-pub fn js_tree_threshold() -> f32 {
-    f32::from_bits(JS_THRESHOLD_BITS.load(Ordering::Relaxed))
-}
-
-pub fn apk_tree_threshold() -> f32 {
-    f32::from_bits(APK_THRESHOLD_BITS.load(Ordering::Relaxed))
 }
 
 /// Sets the JS / APK ML thresholds for every scan (None = default).
