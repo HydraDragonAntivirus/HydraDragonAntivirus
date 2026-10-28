@@ -562,3 +562,26 @@ pub fn extract_inner_pe_string_ml_with_overlay(
 ) -> PeStringMlMetrics {
     classify_inner_pe_strings(data, extra_raw, trace).metrics()
 }
+
+/// FNV-1a-64 over the ASCII-lowercased bytes: the key `pe_strings_*.xf` are built with
+/// (`hydradragonxorfilter::key`).
+fn xf_key(s: &str) -> u64 {
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    for b in s.bytes() {
+        h ^= b.to_ascii_lowercase() as u64;
+        h = h.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    h
+}
+
+/// Training only: keys of every inner string that is NOT benign (malicious or unknown),
+/// harvested from the unpacked / content image so `pe_strings_malicious.xf` is built
+/// from what the engine really reads at scan time, not from packed bytes.
+pub fn harvest_inner_non_benign_keys(
+    data: &[u8],
+    extra_raw: Option<&[u8]>,
+    trace: Option<&BehaviorTrace>,
+) -> Vec<u64> {
+    let b = classify_inner_pe_strings(data, extra_raw, trace);
+    b.malicious.iter().chain(b.unknown.iter()).map(|s| xf_key(s)).collect()
+}

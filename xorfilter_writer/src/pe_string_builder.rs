@@ -707,3 +707,67 @@ pub fn run_build_pe_string_ml(benign_only: bool) {
         t0.elapsed().as_secs_f64()
     );
 }
+
+/// Builds `pe_strings_malicious.xf` from `pe_feature_dump --harvest-strings` output: the
+/// non-benign strings of every sample's UNPACKED / content image (what the engine reads at
+/// scan time), kept when they appear in >= 2 samples. Benign strings were already removed
+/// by the harvester (Multron whitelist + `pe_strings_benign.xf`).
+pub fn run_build_malicious_from_harvest(harvest: &str) {
+    let t0 = Instant::now();
+    let repo_root = PathBuf::from(r"c:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus");
+    let out_dir = repo_root.join("hydradragon_ml_models");
+    let mut r = BufReader::with_capacity(1 << 22, File::open(harvest).expect("open harvest"));
+    let mut shards: Vec<Vec<u64>> = (0..NUM_SHARDS).map(|_| Vec::new()).collect();
+    let (mut samples, mut keys_in) = (0usize, 0usize);
+    let mut hdr = [0u8; 4];
+    let mut buf: Vec<u8> = Vec::new();
+    while r.read_exact(&mut hdr).is_ok() {
+        let n = u32::from_le_bytes(hdr) as usize;
+        buf.resize(n * 8, 0);
+        if r.read_exact(&mut buf).is_err() {
+            break;
+        }
+        samples += 1;
+        keys_in += n;
+        for c in buf.chunks_exact(8) {
+            let k = u64::from_le_bytes(c.try_into().unwrap());
+            shards[(k as usize) & (NUM_SHARDS - 1)].push(k);
+        }
+    }
+    eprintln!("[*] {samples} unpacked/content samples, {keys_in} non-benign string keys");
+    let mut final_keys: Vec<u64> = Vec::new();
+    let mut unique = 0usize;
+    for mut v in shards {
+        v.sort_unstable();
+        let mut i = 0;
+        while i < v.len() {
+            let k = v[i];
+            let mut j = i + 1;
+            while j < v.len() && v[j] == k {
+                j += 1;
+            }
+            unique += 1;
+            if j - i >= 2 {
+                final_keys.push(k);
+            }
+            i = j;
+        }
+    }
+    final_keys.sort_unstable();
+    eprintln!("    -> {unique} unique, {} shared by >= 2 samples kept", final_keys.len());
+    let n = final_keys.len();
+    let bytes = build_bf32_from_keys(final_keys).expect("build pe_strings_malicious.xf");
+    std::fs::write(out_dir.join("pe_strings_malicious.xf"), &bytes).expect("write");
+    eprintln!("    -> wrote pe_strings_malicious.xf: {:.2} MB ({n} keys)", bytes.len() as f64 / (1024.0 * 1024.0));
+    for d in [
+        repo_root.join("OpenEDR").join("openedr_static").join("models"),
+        repo_root.join("OpenMalwareScannerPortable").join("models"),
+        repo_root.join("OpenMalwareScannerPortable").join("xorfilter_rules"),
+    ] {
+        if d.exists() {
+            let _ = std::fs::write(d.join("pe_strings_malicious.xf"), &bytes);
+            eprintln!("    [sync] {}", d.display());
+        }
+    }
+    eprintln!("[+] done in {:.1}s", t0.elapsed().as_secs_f64());
+}

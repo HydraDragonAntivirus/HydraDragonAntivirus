@@ -554,3 +554,12 @@ mod tests {
         assert!(extract_pe_features_v2(b"not a pe").is_none());
     }
 }
+
+/// Training only (`pe_feature_dump --harvest-strings`): keys of the inner PE's non-benign
+/// strings, from the emulated / unpacked image. `None` when there is no inner PE.
+pub fn pe_inner_harvest_keys(data: &[u8]) -> Option<Vec<u64>> {
+    let inner = inner_of(data);
+    let pe = inner.pe.as_deref()?;
+    let extra_raw = (inner.source == InnerSource::Image).then_some(data);
+    Some(super::pe_string_ml::harvest_inner_non_benign_keys(pe, extra_raw, inner.trace.as_ref()))
+}

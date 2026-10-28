@@ -23,6 +23,10 @@ fn main() {
         pe_string_builder::run_build_pe_string_ml(false);
         return;
     }
+    if args.len() > 2 && args[1] == "--build-pe-malicious-from-harvest" {
+        pe_string_builder::run_build_malicious_from_harvest(&args[2]);
+        return;
+    }
     if args.len() > 1 && args[1] == "--build-pe-string-ml-benign-only" {
         pe_string_builder::run_build_pe_string_ml(true);
         return;

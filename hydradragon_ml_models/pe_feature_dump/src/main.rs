@@ -35,8 +35,74 @@ fn main() {
 }
 
 fn usage() -> ! {
-    eprintln!("usage: pe_feature_dump [--v2] @<files.lst> <out.csv>\n       pe_feature_dump --show <file>");
+    eprintln!("usage: pe_feature_dump [--v2] @<files.lst> <out.csv>\n       pe_feature_dump --harvest-strings @<files.lst> <out.bin>\n       pe_feature_dump --show <file>");
     std::process::exit(2);
+}
+
+/// Training only: emulates / unpacks every file exactly as the scanner does and writes the
+/// keys of the inner PE's non-benign strings (malicious or unknown) per file, as
+/// `u32 count` + `count x u64` records. `xorfilter_writer --build-pe-malicious-from-harvest`
+/// turns them into `pe_strings_malicious.xf`. Plain std threads, one emulation per worker.
+fn harvest_strings(list: &str, out: &str) {
+    use std::sync::Mutex;
+    let text = std::fs::read_to_string(list).unwrap_or_else(|e| {
+        eprintln!("cannot read file list {list}: {e}");
+        std::process::exit(2);
+    });
+    let files: Vec<&str> = text.lines().map(str::trim).filter(|l| !l.is_empty()).collect();
+    std::panic::set_hook(Box::new(|_| {}));
+    let w = Mutex::new(std::io::BufWriter::with_capacity(
+        1 << 22,
+        std::fs::File::create(out).unwrap_or_else(|e| {
+            eprintln!("cannot create {out}: {e}");
+            std::process::exit(2);
+        }),
+    ));
+    let next = AtomicUsize::new(0);
+    let done = AtomicUsize::new(0);
+    let with_inner = AtomicUsize::new(0);
+    let strings_total = AtomicUsize::new(0);
+    let workers = std::thread::available_parallelism().map_or(4, |n| n.get());
+    std::thread::scope(|s| {
+        for _ in 0..workers {
+            std::thread::Builder::new()
+                .stack_size(STACK)
+                .spawn_scoped(s, || loop {
+                    let i = next.fetch_add(1, Ordering::Relaxed);
+                    let Some(p) = files.get(i) else { break };
+                    if let Ok(bytes) = std::fs::read(p) {
+                        let keys = std::panic::catch_unwind(|| openedr_static::ml::pe_combined::pe_inner_harvest_keys(&bytes)).ok().flatten();
+                        openedr_static::ml::pe_combined::forget_emulation();
+                        if let Some(keys) = keys {
+                            with_inner.fetch_add(1, Ordering::Relaxed);
+                            strings_total.fetch_add(keys.len(), Ordering::Relaxed);
+                            let mut g = w.lock().unwrap();
+                            let _ = g.write_all(&(keys.len() as u32).to_le_bytes());
+                            for k in keys {
+                                let _ = g.write_all(&k.to_le_bytes());
+                            }
+                        }
+                    }
+                    let n = done.fetch_add(1, Ordering::Relaxed) + 1;
+                    if n % 500 == 0 {
+                        eprintln!(
+                            "  harvest {n}/{}: {} with inner PE, {} non-benign string keys",
+                            files.len(),
+                            with_inner.load(Ordering::Relaxed),
+                            strings_total.load(Ordering::Relaxed)
+                        );
+                    }
+                })
+                .expect("worker");
+        }
+    });
+    let _ = w.lock().unwrap().flush();
+    eprintln!(
+        "harvest done: {} files, {} with an inner PE, {} non-benign string keys",
+        files.len(),
+        with_inner.load(Ordering::Relaxed),
+        strings_total.load(Ordering::Relaxed)
+    );
 }
 
 fn run() {
@@ -51,6 +117,12 @@ fn run() {
     let v2 = a.first().map(String::as_str) == Some("--v2");
     if v2 {
         a.remove(0);
+    }
+    if a.first().map(String::as_str) == Some("--harvest-strings") {
+        a.remove(0);
+        let (Some(list), Some(out)) = (a.first().and_then(|s| s.strip_prefix('@')), a.get(1)) else { usage() };
+        harvest_strings(list, out);
+        return;
     }
     let (Some(list), Some(out)) = (a.first().and_then(|s| s.strip_prefix('@')), a.get(1)) else { usage() };
     let text = std::fs::read_to_string(list).unwrap_or_else(|e| {
