@@ -371,7 +371,7 @@ pub fn dashboard_router(state: Arc<AppState>) -> Router {
         .route("/api/url-review", post(handle_url_review))
         .route("/api/insights/:sha256", get(handle_dashboard_insights_hash))
         .route("/api/rules", post(handle_rules_reload).route_layer(DefaultBodyLimit::disable()))
-        .route("/api/engine/reload", post(handle_engine_reload))
+        .route("/api/engine/reload", get(handle_engine_reload_status).post(handle_engine_reload))
         .route("/api/reviews", get(handle_reviews_list))
         .route("/api/review", post(handle_review_save))
         .route("/api/review/delete", post(handle_review_delete))
@@ -1606,16 +1606,21 @@ struct EngineReloadQuery {
 }
 
 /// Hot reload of the whole engine in this process; the listener and sessions stay up.
+/// Answers 202 at once: everything (TLSH lists included, hundreds of MB) loads on the
+/// reload thread. `GET /api/engine/reload` says when it is done.
 async fn handle_engine_reload(
     State(app): State<Arc<AppState>>,
     Query(q): Query<EngineReloadQuery>,
 ) -> impl IntoResponse {
+    let app1 = Arc::clone(&app);
     let app2 = Arc::clone(&app);
     let keep_cache = q.keep_cache;
-    let tl = app.threat_intel.similarity.reload_known_malware();
-    let refs = app.threat_intel.similarity.reload_corpus_refs();
-    info_event(&app, format!("TLSH blacklist: {tl} digests, smart-whitelist corpus: {refs} references"));
-    let started = app.engine.reload_all(move |res| match res {
+    let prepare = move || {
+        let tl = app1.threat_intel.similarity.reload_known_malware();
+        let refs = app1.threat_intel.similarity.reload_corpus_refs();
+        info_event(&app1, format!("TLSH blacklist: {tl} digests, smart-whitelist corpus: {refs} references"));
+    };
+    let started = app.engine.reload_all(prepare, move |res| match res {
         Ok(ms) => {
             if !keep_cache {
                 app2.scan_server.cache.invalidate_all();
@@ -1643,6 +1648,18 @@ async fn handle_engine_reload(
         }
         Err(e) => (StatusCode::CONFLICT, Json(serde_json::json!({"error": e}))).into_response(),
     }
+}
+
+/// Whether an engine reload is running and how the last one ended, for callers that
+/// started one (the updater) without the whole dashboard state.
+async fn handle_engine_reload_status(State(app): State<Arc<AppState>>) -> impl IntoResponse {
+    let s = app.engine.get_status().await;
+    Json(serde_json::json!({
+        "status": s.status,
+        "reloading": s.reloading,
+        "reloadMsg": s.reload_msg,
+        "loadMs": s.load_ms,
+    }))
 }
 
 #[derive(Deserialize)]

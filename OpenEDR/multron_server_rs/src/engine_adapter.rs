@@ -702,8 +702,13 @@ impl EngineAdapter {
     /// only the final swap takes the write lock (waits for scans in progress, then
     /// is instant). If loading fails or panics, the old engine stays in place.
     /// Peak memory is roughly two engines while the new one loads.
-    pub fn reload_all<F>(self: &Arc<Self>, on_done: F) -> Result<(), String>
+    ///
+    /// `prepare` runs first on the same thread (other data reloaded with the engine,
+    /// e.g. the TLSH lists), so the caller returns at once and `reloading` stays set
+    /// until everything is loaded.
+    pub fn reload_all<P, F>(self: &Arc<Self>, prepare: P, on_done: F) -> Result<(), String>
     where
+        P: FnOnce() + Send + 'static,
         F: FnOnce(Result<i64, String>) + Send + 'static,
     {
         if !self.ready() {
@@ -723,6 +728,7 @@ impl EngineAdapter {
             .stack_size(64 * 1024 * 1024)
             .spawn(move || {
                 let started = Instant::now();
+                prepare();
                 eprintln!("[engine] hot reload from: {}", rules_dir.display());
                 let new_xf = load_malicious_xf(&rules_dir);
                 let result = match std::panic::catch_unwind(|| StaticEngine::init(&rules_dir)) {
