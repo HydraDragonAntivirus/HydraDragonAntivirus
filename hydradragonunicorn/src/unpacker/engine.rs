@@ -58,8 +58,14 @@ impl PeArch {
 const PAGE_SIZE: u64 = 0x1000;
 // Keep the low 64 KiB unmapped, as on Windows. Besides matching the process
 // address space this is required for null dereferences to raise an exception.
-const STACK_ADDR: u64 = 0x0010_0000;
-const STACK_SIZE: u64 = 1024 * 1024;
+// The stack fills the space up to the TEB (~1.8 MB): with 512 KB below the start,
+// stubs that probe a large frame (`sub esp, n` / __chkstk) or recurse ran off its
+// bottom (16 of the faults in the 2026-10-30 profile wrote to 0xffffc).
+const STACK_ADDR: u64 = 0x0003_0000;
+const STACK_SIZE: u64 = 0x0020_0000 - STACK_ADDR;
+/// Where ESP starts: near the top, as in a Windows thread, with room above for
+/// the entry point's return address and frames that read their caller's.
+const STACK_START: u64 = STACK_ADDR + STACK_SIZE - 0x4000;
 const TEB_ADDR: u64 = 0x200000;
 const PEB_ADDR: u64 = 0x201000;
 const LDR_ADDR: u64 = 0x202000;
@@ -116,6 +122,15 @@ impl StopHit {
             StopHit::WriteExecute(a) | StopHit::Pattern(a) | StopHit::Api(_, a) | StopHit::Section(_, a) => *a,
         }
     }
+}
+
+/// An invalid memory access: the address, the instruction that made it, and the
+/// access (0 read, 1 write, 8 execute).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MemFault {
+    pub address: u64,
+    pub instruction: u64,
+    pub access: u32,
 }
 
 /// Conditions a run stops on (any of them), on top of the budget and time limit.
@@ -352,6 +367,8 @@ struct HookState {
     /// `insn_count` at the last write into an executable section or allocated
     /// memory in this run (0: none): a stub still unpacking writes until the end.
     last_code_write: u64,
+    /// The last invalid memory access of this run.
+    last_fault: Option<MemFault>,
     /// Set where the API hook ends the run (exit, or no way to return).
     api_end: Option<EmuEnd>,
     /// The API the run could not return from (`EmuEnd::Stopped`).
@@ -1033,6 +1050,9 @@ pub struct UnpackerEngine {
     pub wx_hit: Option<u64>,
     /// First such address outside the image (allocated memory); `alloc_payload`.
     pub wx_alloc_hit: Option<u64>,
+    /// The last invalid memory access of the last run (an unhandled one ends it
+    /// as `EmuEnd::Fault`).
+    pub last_fault: Option<MemFault>,
     /// How the last run ended.
     pub end: EmuEnd,
     /// The API the run could not return from, when it ended `Stopped`.
@@ -1083,6 +1103,7 @@ impl UnpackerEngine {
             write_targets: Vec::new(),
             wx_hit: None,
             wx_alloc_hit: None,
+            last_fault: None,
             end: EmuEnd::Finished,
             stop_api: None,
             stop_hit: None,
@@ -1110,6 +1131,7 @@ impl UnpackerEngine {
                 wx_hit: None,
                 wx_alloc_hit: None,
                 last_code_write: 0,
+                last_fault: None,
                 api_end: None,
                 stop_api: None,
                 stops: Stops::default(),
@@ -1338,7 +1360,7 @@ impl UnpackerEngine {
         setup_ldr_entries(&mut uc, ldr_entries_base, &dll_bases, is_64)?;
 
         // --- Initialize registers ---
-        let esp_val = STACK_ADDR + STACK_SIZE / 2;
+        let esp_val = STACK_START;
         let start_addr = entrypoint(&self.sample.opt_header);
         let entry_return = match arch {
             PeArch::X86 => Some((ENTRY_RETURN_ADDR as u32).to_le_bytes().to_vec()),
@@ -1513,7 +1535,7 @@ impl UnpackerEngine {
                                 } else { true }
                             } else { true }
                         } else {
-                            let spec = apicalls::get_api_spec(&api_name);
+                            let spec = apicalls::get_api_spec(&api_name).or_else(|| apicalls::get_ordinal_spec(&api_name, dll_name_opt.as_deref()));
                                 let is_64 = st.is_64;
                                 let hook_addr_base = st.hook_addr;
 
@@ -2021,6 +2043,7 @@ impl UnpackerEngine {
                             };
                             let instruction = if st.is_64 { uc.reg_read(RegisterX86::RIP as i32).unwrap_or(0) } else { uc.reg_read(RegisterX86::EIP as i32).unwrap_or(0) };
                             st.seh_fault = Some(SehFault { code: 0xc0000005, address: addr, access, instruction });
+                            st.last_fault = Some(MemFault { address: addr, instruction, access });
                         }
                     }
                     let eip = uc.reg_read(RegisterX86::EIP as i32).unwrap_or(0);
@@ -2201,6 +2224,7 @@ impl UnpackerEngine {
             hs.insn_budget = count as u64;
             hs.insn_count = 0;
             hs.last_code_write = 0;
+            hs.last_fault = None;
             hs.api_end = None;
             hs.stop_api = None;
             hs.stop_hit = None;
@@ -2262,6 +2286,7 @@ impl UnpackerEngine {
             self.write_targets = ranges;
             self.wx_hit = hs.wx_hit;
             self.wx_alloc_hit = hs.wx_alloc_hit;
+            self.last_fault = hs.last_fault;
             let x64 = hs.is_64;
             let pc = uc.reg_read(if x64 { RegisterX86::RIP } else { RegisterX86::EIP } as i32).unwrap_or(0);
             self.stop_api = hs.stop_api.clone();

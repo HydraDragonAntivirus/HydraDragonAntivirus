@@ -34,7 +34,8 @@ use serde::{Deserialize, Serialize};
 use crate::config::app_dir;
 
 /// Files directly in the server folder that are mirrored.
-pub const MIRROR_FILES: [&str; 8] = [
+pub const MIRROR_FILES: [&str; 9] = [
+    "threat_insights.db",
     "threat_insights.jsonl",
     "verdict_changes.jsonl",
     "verdict_changes_backfill.jsonl",

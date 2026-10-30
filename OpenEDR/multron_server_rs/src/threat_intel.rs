@@ -283,6 +283,9 @@ pub struct ThreatIntelStats {
 pub struct ThreatIntelStore {
     map: RwLock<HashMap<Sha, ThreatInsight>>,
     writer: Option<mpsc::Sender<WriterMsg>>,
+    /// SQLite store (`threat_insights.db`); None on the archive server, which follows
+    /// the mirrored `threat_insights.jsonl` instead.
+    db: Option<Arc<crate::insight_db::InsightDb>>,
     /// Human analysis queue and verdicts (override the engine verdict).
     pub reviews: HumanReviewStore,
     /// TLSH index of analysed files (smart whitelist, similar files).
@@ -294,24 +297,38 @@ impl ThreatIntelStore {
         let mut initial_map = HashMap::new();
         let target_path = persistence_file.unwrap_or_else(|| app_dir().join("threat_insights.jsonl"));
 
-        if target_path.exists() {
-            let started = std::time::Instant::now();
-            match load_latest_insights(&target_path) {
+        // The archive server reads the mirrored `.jsonl`; every other server keeps the
+        // data in SQLite (`threat_insights.db` next to it). The `.jsonl` stays as it is.
+        let db = (!crate::config::is_archive()).then(|| open_db(&target_path)).flatten();
+        let started = std::time::Instant::now();
+        match &db {
+            Some(db) => {
+                match load_from_db(db, &target_path) {
+                    Ok(m) => {
+                        eprintln!("[telemetry] {} hashes loaded from threat_insights.db in {:.1} s", m.len(), started.elapsed().as_secs_f64());
+                        initial_map = m;
+                    }
+                    Err(e) => eprintln!("[telemetry] reading threat_insights.db failed: {e}"),
+                }
+            }
+            None if target_path.exists() => match load_latest_insights(&target_path) {
                 Ok(m) => {
                     eprintln!("[telemetry] {} hashes loaded from threat_insights.jsonl in {:.1} s", m.len(), started.elapsed().as_secs_f64());
                     initial_map = m;
                 }
                 Err(e) => eprintln!("[telemetry] reading {} failed: {e}", target_path.display()),
-            }
+            },
+            None => {}
         }
 
         let reviews = HumanReviewStore::new(&crate::human_review::analyst_dir().join("human_verdicts.jsonl"));
         // The archive server never writes: its data comes from the main server's mirror.
-        let writer = (!crate::config::is_archive()).then(|| start_batch_writer(target_path));
+        let writer = db.clone().map(start_batch_writer);
 
         Arc::new(Self {
             map: RwLock::new(initial_map),
             writer,
+            db,
             reviews,
             similarity: crate::similarity::SimilarityIndex::load(),
         })
@@ -1058,13 +1075,74 @@ fn load_latest_insights(path: &Path) -> std::io::Result<HashMap<Sha, ThreatInsig
     Ok(map)
 }
 
+fn db_path_for(jsonl_path: &Path) -> PathBuf {
+    jsonl_path.with_extension("db")
+}
+
+fn open_db(jsonl_path: &Path) -> Option<Arc<crate::insight_db::InsightDb>> {
+    let p = db_path_for(jsonl_path);
+    match crate::insight_db::InsightDb::open(&p) {
+        Ok(db) => Some(Arc::new(db)),
+        Err(e) => {
+            eprintln!("[telemetry] opening SQLite {} failed: {e}", p.display());
+            None
+        }
+    }
+}
+
+fn load_from_db(db: &crate::insight_db::InsightDb, jsonl_path: &Path) -> std::io::Result<HashMap<Sha, ThreatInsight>> {
+    let count = db.count().map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
+    
+    // Auto-migrate from JSONL if SQLite is completely empty but threat_insights.jsonl exists
+    if count == 0 && jsonl_path.exists() {
+        eprintln!("[telemetry] SQLite is empty, migrating from {}...", jsonl_path.display());
+        let map = load_latest_insights(jsonl_path)?;
+        let mut batch = Vec::with_capacity(2048);
+        let mut serialized_pool: Vec<Vec<u8>> = Vec::with_capacity(2048);
+        for (sha, item) in &map {
+            if let Ok(bytes) = serde_json::to_vec(item) {
+                serialized_pool.push(bytes);
+            }
+        }
+        for (i, (sha, _)) in map.iter().enumerate() {
+            if i < serialized_pool.len() {
+                batch.push((sha, serialized_pool[i].as_slice()));
+            }
+            if batch.len() >= 2000 {
+                let _ = db.upsert_batch(batch.drain(..));
+            }
+        }
+        if !batch.is_empty() {
+            let _ = db.upsert_batch(batch);
+        }
+        eprintln!("[telemetry] Migrated {} records into SQLite {}", map.len(), db_path_for(jsonl_path).display());
+        return Ok(map);
+    }
+
+    let mut map = HashMap::with_capacity(count as usize);
+    let mut bad = 0usize;
+    db.for_each(|sha, data| {
+        match serde_json::from_slice::<ThreatInsight>(data) {
+            Ok(item) => {
+                map.insert(sha, item);
+            }
+            Err(_) => bad += 1,
+        }
+    }).map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
+
+    if bad > 0 {
+        eprintln!("[telemetry] {bad} corrupted entries in SQLite skipped");
+    }
+    Ok(map)
+}
+
 /// Message to the insight writer: a line, or "write everything now and tell me".
 enum WriterMsg {
     Item(ThreatInsight),
     Flush(mpsc::SyncSender<()>),
 }
 
-fn start_batch_writer(path: PathBuf) -> mpsc::Sender<WriterMsg> {
+fn start_batch_writer(db: Arc<crate::insight_db::InsightDb>) -> mpsc::Sender<WriterMsg> {
     let (tx, rx) = mpsc::channel::<WriterMsg>();
 
     std::thread::Builder::new()
@@ -1079,14 +1157,14 @@ fn start_batch_writer(path: PathBuf) -> mpsc::Sender<WriterMsg> {
                 match rx.recv_timeout(Duration::from_secs(2)) {
                     Ok(WriterMsg::Item(item)) => buffer.push(item),
                     Ok(WriterMsg::Flush(done)) => {
-                        flush_insights(&path, &mut buffer);
+                        flush_insights(&db, &mut buffer);
                         last_flush = std::time::Instant::now();
                         let _ = done.send(());
                         continue;
                     }
                     Err(mpsc::RecvTimeoutError::Timeout) => {
                         if !buffer.is_empty() {
-                            flush_insights(&path, &mut buffer);
+                            flush_insights(&db, &mut buffer);
                             last_flush = std::time::Instant::now();
                         }
                         continue;
@@ -1099,7 +1177,7 @@ fn start_batch_writer(path: PathBuf) -> mpsc::Sender<WriterMsg> {
                     match more {
                         WriterMsg::Item(item) => buffer.push(item),
                         WriterMsg::Flush(done) => {
-                            flush_insights(&path, &mut buffer);
+                            flush_insights(&db, &mut buffer);
                             last_flush = std::time::Instant::now();
                             let _ = done.send(());
                         }
@@ -1110,13 +1188,13 @@ fn start_batch_writer(path: PathBuf) -> mpsc::Sender<WriterMsg> {
                 }
 
                 if buffer.len() >= 2048 || last_flush.elapsed() >= Duration::from_secs(2) {
-                    flush_insights(&path, &mut buffer);
+                    flush_insights(&db, &mut buffer);
                     last_flush = std::time::Instant::now();
                 }
             }
 
             if !buffer.is_empty() {
-                flush_insights(&path, &mut buffer);
+                flush_insights(&db, &mut buffer);
             }
         })
         .expect("failed to spawn threat intel writer thread");
@@ -1124,7 +1202,7 @@ fn start_batch_writer(path: PathBuf) -> mpsc::Sender<WriterMsg> {
     tx
 }
 
-fn flush_insights(path: &Path, buffer: &mut Vec<ThreatInsight>) {
+fn flush_insights(db: &crate::insight_db::InsightDb, buffer: &mut Vec<ThreatInsight>) {
     if buffer.is_empty() {
         return;
     }
@@ -1135,21 +1213,29 @@ fn flush_insights(path: &Path, buffer: &mut Vec<ThreatInsight>) {
     }
     let keep: std::collections::HashSet<usize> = last.into_values().collect();
 
-    let Ok(file) = OpenOptions::new().create(true).append(true).open(path) else {
-        buffer.clear();
-        return;
-    };
+    let mut batch = Vec::with_capacity(keep.len());
+    let mut raw_data = Vec::with_capacity(keep.len());
+    let mut sha_keys = Vec::with_capacity(keep.len());
 
-    let mut writer = BufWriter::new(file);
     for (i, item) in buffer.drain(..).enumerate() {
         if !keep.contains(&i) {
             continue;
         }
-        if let Ok(serialized) = serde_json::to_string(&item) {
-            let _ = writeln!(writer, "{}", serialized);
+        if let Some(sha_bytes) = parse_sha(&item.sha256.text()) {
+            if let Ok(serialized) = serde_json::to_vec(&item) {
+                sha_keys.push(sha_bytes);
+                raw_data.push(serialized);
+            }
         }
     }
-    let _ = writer.flush();
+
+    for (sha, data) in sha_keys.iter().zip(raw_data.iter()) {
+        batch.push((sha, data.as_slice()));
+    }
+
+    if let Err(e) = db.upsert_batch(batch) {
+        eprintln!("[telemetry] SQLite upsert_batch failed: {e}");
+    }
 }
 
 /// Records one IP/path sighting (at most `MAX_SIGHTINGS` entries per file).

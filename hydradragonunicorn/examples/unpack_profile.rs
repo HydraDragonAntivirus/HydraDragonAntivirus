@@ -137,11 +137,38 @@ fn profile(path: &str, rules: Option<&yara_x::Rules>, unpack_rules: &UnpackRules
         (Some(_), None) => "\"image\"".to_string(),
         (Some(_), Some(p)) => format!("\"{}\"", if p.pe.is_some() { "alloc_pe" } else { "alloc" }),
     };
+    // Where an unhandled invalid access went and came from.
+    let (base, size) = (eng.sample.base_addr, eng.sample.virtualmemorysize);
+    let area = |a: u64| -> &'static str {
+        match a {
+            _ if a < 0x1_0000 => "null",
+            _ if a >= base && a < base + size => "image",
+            0x3_0000..0x20_0000 => "stack",
+            0x20_0000..0x20_6000 => "teb_peb_ldr",
+            0x7000_0000..0x7800_0000 => "fake_dll",
+            0x7800_0000..0x7F00_0000 => "net_stub",
+            0x7F00_0000..0x8000_0000 => "api_stub",
+            _ if (hydradragonunicorn::unpacker::apicalls::ALLOC_BASE..hydradragonunicorn::unpacker::apicalls::ALLOC_END).contains(&a) => "alloc",
+            _ if a >= 0x7FF0_0000_0000 => "high",
+            _ => "other",
+        }
+    };
+    let fault = match (eng.end, eng.last_fault) {
+        (hydradragonunicorn::unpacker::engine::EmuEnd::Fault, Some(f)) => format!(
+            "{{\"addr\":\"{:#x}\",\"addr_in\":\"{}\",\"ip\":\"{:#x}\",\"ip_in\":\"{}\",\"access\":{}}}",
+            f.address,
+            area(f.address),
+            f.instruction,
+            area(f.instruction),
+            f.access
+        ),
+        _ => "null".into(),
+    };
     let calls = &eng.behavior_trace().calls;
     let last: Vec<String> = calls.iter().rev().take(5).map(|c| c.api.clone()).collect();
     let distinct: HashSet<&str> = calls.iter().map(|c| c.api.as_str()).collect();
     format!(
-        "{{{head},\"x64\":{is_64},\"result\":\"{result}\",\"extended\":{extended},\"wx_in\":{wx_in},\"end\":\"{:?}\",\"api_calls\":{},\"distinct_apis\":{},\"last_apis\":[{}],\"emu_error\":{},\"stop_api\":{},\"ms\":{}}}",
+        "{{{head},\"x64\":{is_64},\"result\":\"{result}\",\"extended\":{extended},\"wx_in\":{wx_in},\"fault\":{fault},\"end\":\"{:?}\",\"api_calls\":{},\"distinct_apis\":{},\"last_apis\":[{}],\"emu_error\":{},\"stop_api\":{},\"ms\":{}}}",
         eng.end,
         calls.len(),
         distinct.len(),
