@@ -229,23 +229,49 @@ impl PeStringMlEngine {
         dirs
     }
 
+    /// Loads both string filters and logs where each came from. A missing or unparseable
+    /// filter is not an error, but it silently zeroes the inner string features, so it is
+    /// reported as a disabled capability rather than passed over.
     fn load_xf_filters() -> (Option<BinaryFuse16Filter>, Option<BinaryFuse32Filter>) {
         let mut ben = None;
         let mut mal = None;
+        let mut ben_status = "absent".to_string();
+        let mut mal_status = "absent".to_string();
         for d in Self::candidate_filter_dirs() {
             if ben.is_none() {
-                if let Ok(b) = std::fs::read(d.join("pe_strings_benign.xf")) {
+                let p = d.join("pe_strings_benign.xf");
+                if let Ok(b) = std::fs::read(&p) {
                     ben = BinaryFuse16Filter::from_bytes(&b);
+                    ben_status = match &ben {
+                        Some(f) => format!("loaded ({} keys) from {}", f.len(), p.display()),
+                        None => format!("parse-failed {}", p.display()),
+                    };
                 }
             }
             if mal.is_none() {
-                if let Ok(b) = std::fs::read(d.join("pe_strings_malicious.xf")) {
+                let p = d.join("pe_strings_malicious.xf");
+                if let Ok(b) = std::fs::read(&p) {
                     mal = BinaryFuse32Filter::from_bytes(&b);
+                    mal_status = match &mal {
+                        Some(f) => format!("loaded ({} keys) from {}", f.len(), p.display()),
+                        None => format!("parse-failed {}", p.display()),
+                    };
                 }
             }
             if ben.is_some() && mal.is_some() {
                 break;
             }
+        }
+        crate::diagnostics::log(
+            "init-step",
+            &format!("pe_strings_benign={ben_status}; pe_strings_malicious={mal_status}"),
+        );
+        if ben.is_none() || mal.is_none() {
+            crate::diagnostics::log(
+                "capability-disabled",
+                "PE string ML: pe_strings_benign.xf / pe_strings_malicious.xf missing or \
+                 unparseable; inner string features (mal/ben_str_hits, ratio, density) read as 0",
+            );
         }
         (ben, mal)
     }
