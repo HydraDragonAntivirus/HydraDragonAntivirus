@@ -118,6 +118,11 @@ these runs. They cannot be inside `try` or `repeat`.
 | `mem: {at, len, as}` | Emulated memory at a virtual address as a buffer (e.g. `mem: {at: arg0, len: arg1, as: blob}` after stopping at `VirtualProtect`). |
 | `set_oep: ip` / `{rva: expr}` / `{va: expr}` | Set the instruction pointer: the entry point of the next `dump`. |
 | `dump` | The memory image is a payload: entry point = instruction pointer, imports rebuilt from the API stubs. |
+| `dump_alloc` | The allocated memory region the code runs in is a payload (the instruction pointer's region when it is outside the image, else the first write-execute outside it): a PE mapped there (found at a page boundary) is dumped like the image with that entry point, anything else is the raw region. |
+
+`write_execute` covers allocated memory too: writes into the VirtualAlloc / heap
+area are tracked like writes into the image, so a stub that decrypts its payload
+into allocated memory and jumps there stops `run_until: {write_execute: true}`.
 
 `run_until` keys (at least one condition):
 

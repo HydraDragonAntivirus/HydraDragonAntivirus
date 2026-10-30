@@ -347,6 +347,11 @@ struct HookState {
     /// First address executed from a page this run had written (write-execute):
     /// self-decrypting / self-modifying code.
     wx_hit: Option<u64>,
+    /// The same outside the image: code decrypted into allocated memory.
+    wx_alloc_hit: Option<u64>,
+    /// `insn_count` at the last write into an executable section or allocated
+    /// memory in this run (0: none): a stub still unpacking writes until the end.
+    last_code_write: u64,
     /// Set where the API hook ends the run (exit, or no way to return).
     api_end: Option<EmuEnd>,
     /// The API the run could not return from (`EmuEnd::Stopped`).
@@ -1026,6 +1031,8 @@ pub struct UnpackerEngine {
     pub write_targets: Vec<(u64, u64)>,
     /// First address executed from a page written during this run, if any.
     pub wx_hit: Option<u64>,
+    /// First such address outside the image (allocated memory); `alloc_payload`.
+    pub wx_alloc_hit: Option<u64>,
     /// How the last run ended.
     pub end: EmuEnd,
     /// The API the run could not return from, when it ended `Stopped`.
@@ -1075,6 +1082,7 @@ impl UnpackerEngine {
             sections_executed: HashMap::new(),
             write_targets: Vec::new(),
             wx_hit: None,
+            wx_alloc_hit: None,
             end: EmuEnd::Finished,
             stop_api: None,
             stop_hit: None,
@@ -1100,6 +1108,8 @@ impl UnpackerEngine {
                 section_exec_bytes: vec![0; sections.len()],
                 written_pages: HashSet::new(),
                 wx_hit: None,
+                wx_alloc_hit: None,
+                last_code_write: 0,
                 api_end: None,
                 stop_api: None,
                 stops: Stops::default(),
@@ -1876,6 +1886,10 @@ impl UnpackerEngine {
                             if st.wx_hit.is_none() {
                                 st.wx_hit = Some(addr.max(page << 12));
                             }
+                            let in_image = addr >= st.image_base && addr < st.image_base.saturating_add(st.image_size);
+                            if !in_image && st.wx_alloc_hit.is_none() {
+                                st.wx_alloc_hit = Some(addr.max(page << 12));
+                            }
                         }
                         let hit = if idx.is_some_and(|i| st.stop_outside.contains(&i)) {
                             None
@@ -1936,6 +1950,9 @@ impl UnpackerEngine {
                     let is_write = matches!(mem_type, MemType::WRITE);
                     if is_write {
                         st.section_write_bytes[i] += size as u64;
+                        if st.sample_sections[i].characteristics & 0x2000_0000 != 0 {
+                            st.last_code_write = st.insn_count.max(1);
+                        }
                         let first = addr >> 12;
                         let last = (addr + (size as u64).max(1) - 1) >> 12;
                         for page in first..=last {
@@ -1956,6 +1973,21 @@ impl UnpackerEngine {
             .map_err(|e| UnpackerError::EmulatorError(format!("add_mem_access_hook: {:?}", e)))?;
 
         self.hook_ids.push(mem_access_hook);
+
+        // Writes into the VirtualAlloc / heap area: a crypter that decrypts its
+        // payload into allocated memory and jumps there is a write-execute too.
+        let hook_state_alloc = Rc::clone(&self.hook_state);
+        let alloc_write_hook = uc
+            .add_mem_hook(UcHookType::MEM_WRITE, apicalls::ALLOC_BASE, apicalls::ALLOC_END - 1, move |_uc, _mem_type, addr, size, _value| {
+                let mut st = hook_state_alloc.borrow_mut();
+                for page in addr >> 12..=(addr + (size as u64).max(1) - 1) >> 12 {
+                    st.written_pages.insert(page);
+                }
+                st.last_code_write = st.insn_count.max(1);
+                true
+            })
+            .map_err(|e| UnpackerError::EmulatorError(format!("add_mem_hook (allocations): {:?}", e)))?;
+        self.hook_ids.push(alloc_write_hook);
 
         // Invalid memory hook
         let invalid_mem_hook = uc
@@ -2168,6 +2200,7 @@ impl UnpackerEngine {
             // The instruction budget, for the whole run like the time limit.
             hs.insn_budget = count as u64;
             hs.insn_count = 0;
+            hs.last_code_write = 0;
             hs.api_end = None;
             hs.stop_api = None;
             hs.stop_hit = None;
@@ -2228,6 +2261,7 @@ impl UnpackerEngine {
             }
             self.write_targets = ranges;
             self.wx_hit = hs.wx_hit;
+            self.wx_alloc_hit = hs.wx_alloc_hit;
             let x64 = hs.is_64;
             let pc = uc.reg_read(if x64 { RegisterX86::RIP } else { RegisterX86::EIP } as i32).unwrap_or(0);
             self.stop_api = hs.stop_api.clone();
@@ -2405,39 +2439,7 @@ impl UnpackerEngine {
             .uc
             .as_ref()
             .ok_or_else(|| UnpackerError::EmulatorError("engine not initialized".into()))?;
-        let ctx = crate::unpacker::imagedump::DumpContext {
-            virtualmemorysize: self.sample.virtualmemorysize,
-            hook_addr: self.hook_addr,
-            ntp: HashMap::new(),
-            dllname_to_functionlist: self.sample.dllname_to_functionlist.clone(),
-            allocated_chunks: self.sample.allocated_chunks.clone(),
-            original_imports: self.sample.original_imports.iter().map(|id| {
-                crate::unpacker::imagedump::ImportDescriptor {
-                    characteristics: id.characteristics,
-                    time_date_stamp: id.time_date_stamp,
-                    forwarder_chain: id.forwarder_chain,
-                    name: id.name_rva,
-                    first_thunk: id.first_thunk,
-                    dll_name: id.dll_name.clone(),
-                    imports: id.imports.clone(),
-                }
-            }).collect(),
-            sections: self.sample.sections.iter().map(|s| {
-                crate::unpacker::imagedump::Section {
-                    name: s.name.clone(),
-                    virtual_size: s.virtual_size,
-                    virtual_address: s.virtual_address,
-                    size_of_raw_data: s.size_of_raw_data,
-                    pointer_to_raw_data: s.pointer_to_raw_data,
-                    pointer_to_relocations: 0,
-                    pointer_to_linenumbers: 0,
-                    number_of_relocations: 0,
-                    number_of_linenumbers: 0,
-                    characteristics: s.characteristics,
-                }
-            }).collect(),
-        };
-        crate::unpacker::imagedump::dump_image(uc, self.sample.base_addr, self.sample.virtualmemorysize, &ctx, file_path)
+        crate::unpacker::imagedump::dump_image(uc, self.sample.base_addr, self.sample.virtualmemorysize, &self.dump_context(), file_path)
     }
 
     /// Dump the emulated PE image to a byte vector (no file I/O).
@@ -2446,7 +2448,120 @@ impl UnpackerEngine {
             .uc
             .as_ref()
             .ok_or_else(|| UnpackerError::EmulatorError("engine not initialized".into()))?;
-        let ctx = crate::unpacker::imagedump::DumpContext {
+        crate::unpacker::imagedump::dump_image_to_bytes(uc, self.sample.base_addr, self.sample.virtualmemorysize, &self.dump_context())
+    }
+
+    /// The run wrote into an executable section of the image (UPX0, a packer's
+    /// target section) or into allocated memory: code is being unpacked, whether or
+    /// not it has run yet. Ordinary programs write their data sections only.
+    pub fn wrote_code(&self) -> bool {
+        self.code_pages_written() > 0
+    }
+
+    /// Pages of executable sections and allocated memory written so far.
+    fn code_pages_written(&self) -> usize {
+        const IMAGE_SCN_MEM_EXECUTE: u32 = 0x2000_0000;
+        let hs = self.hook_state.borrow();
+        let code: Vec<(u64, u64)> = hs
+            .sample_sections
+            .iter()
+            .filter(|s| s.characteristics & IMAGE_SCN_MEM_EXECUTE != 0)
+            .map(|s| {
+                let lo = hs.image_base + s.virtual_address as u64;
+                (lo, lo + s.virtual_size.max(s.size_of_raw_data) as u64)
+            })
+            .collect();
+        hs.written_pages
+            .iter()
+            .filter(|&&p| {
+                let a = p << 12;
+                (apicalls::ALLOC_BASE..apicalls::ALLOC_END).contains(&a) || code.iter().any(|&(lo, hi)| a + PAGE_SIZE > lo && a < hi)
+            })
+            .count()
+    }
+
+    /// The last run wrote into an executable section or allocated memory during
+    /// its last quarter: whatever writes code was still at it when the run ended.
+    fn writing_code_at_end(&self) -> bool {
+        let hs = self.hook_state.borrow();
+        hs.last_code_write > 0 && hs.insn_count.saturating_sub(hs.last_code_write) <= hs.insn_count / 4
+    }
+
+    /// Continues a run that used up its budget while still unpacking, from where
+    /// it stopped, for up to `timeout_us` / `count` more. A stub decompressing a
+    /// large payload (UPX on a big program) needs more than the usual budget. The
+    /// extra budget is given in slices of `UNPACK_SLICE` instructions, each only
+    /// while nothing written has run yet and the previous run was still writing
+    /// code (executable sections or allocated memory) in its last quarter, into
+    /// new pages: a decompressor fills new pages until it is done, a program that
+    /// loops, or wrote a code page once at start-up, does not. True when it ran again.
+    pub fn continue_unpacking(&mut self, timeout_us: u64, count: usize) -> bool {
+        const UNPACK_SLICE: usize = 10_000_000;
+        let mut pages = self.code_pages_written();
+        if self.end != EmuEnd::Finished || self.wx_hit.is_some() || pages == 0 || !self.writing_code_at_end() {
+            return false;
+        }
+        let deadline = Instant::now() + std::time::Duration::from_micros(timeout_us);
+        let mut left = count;
+        let mut ran = false;
+        while left > 0 {
+            let Some(ip) = self.ip() else { break };
+            let time = deadline.saturating_duration_since(Instant::now()).as_micros() as u64;
+            if time == 0 {
+                break;
+            }
+            let slice = left.min(UNPACK_SLICE);
+            let _ = self.emu_from(ip, time, slice);
+            ran = true;
+            left -= slice;
+            let now = self.code_pages_written();
+            if self.wx_hit.is_some() || self.end != EmuEnd::Finished || now == pages || !self.writing_code_at_end() {
+                break;
+            }
+            pages = now;
+        }
+        // The first run ended cleanly at its budget. An extension that faults or
+        // stops at an API before anything written ran found nothing: the run counts
+        // as it was (clean), not as an emulator failure.
+        if ran && self.wx_hit.is_none() && self.end != EmuEnd::Finished {
+            self.end = EmuEnd::Finished;
+            self.stop_api = None;
+        }
+        ran
+    }
+
+    /// What the run executed from memory it wrote outside the image (a payload
+    /// decrypted into VirtualAlloc'd memory): see `region_payload`.
+    pub fn alloc_payload(&mut self) -> Option<AllocPayload> {
+        let hit = self.wx_alloc_hit?;
+        self.region_payload(hit)
+    }
+
+    /// The mapped region holding `addr`, as it is in memory, and a PE found in it
+    /// at a page boundary (a loader that maps its payload image there) dumped like
+    /// the image: entry point = `addr` when it lies in that PE, else its own.
+    pub fn region_payload(&mut self, addr: u64) -> Option<AllocPayload> {
+        let uc = self.uc.as_ref()?;
+        let region = uc.mem_regions().ok()?.into_iter().find(|r| addr >= r.begin && addr <= r.end)?;
+        let len = (region.end - region.begin + 1).min(MAX_REGION_DUMP);
+        let memory = uc.mem_read_as_vec(region.begin, len as usize).ok()?;
+        let pe_base = (0..memory.len())
+            .step_by(PAGE_SIZE as usize)
+            .find_map(|off| mapped_pe_size(&memory[off..]).map(|(size, ep)| (region.begin + off as u64, size, ep)));
+        let pe = pe_base.and_then(|(base, size, ep)| {
+            let entry = if addr >= base && addr < base + size { addr } else { base + ep as u64 };
+            let saved = self.ip()?;
+            self.set_ip(entry);
+            let ctx = self.dump_context();
+            let dumped = crate::unpacker::imagedump::dump_image_to_bytes(self.uc.as_ref()?, base, size, &ctx).ok();
+            self.set_ip(saved);
+            dumped.filter(|d| !d.is_empty())
+        });
+        Some(AllocPayload { base: region.begin, entry: addr, memory, pe })
+    }
+
+    fn dump_context(&self) -> crate::unpacker::imagedump::DumpContext {
+        crate::unpacker::imagedump::DumpContext {
             virtualmemorysize: self.sample.virtualmemorysize,
             hook_addr: self.hook_addr,
             ntp: HashMap::new(),
@@ -2477,9 +2592,45 @@ impl UnpackerEngine {
                     characteristics: s.characteristics,
                 }
             }).collect(),
-        };
-        crate::unpacker::imagedump::dump_image_to_bytes(uc, self.sample.base_addr, self.sample.virtualmemorysize, &ctx)
+        }
     }
+}
+
+/// Code a run executed from memory it wrote outside the image.
+#[derive(Debug, Clone)]
+pub struct AllocPayload {
+    /// Start of the mapped region holding it.
+    pub base: u64,
+    /// The instruction the payload was looked up from (the first one executed there).
+    pub entry: u64,
+    /// The region as it is in memory (at most `MAX_REGION_DUMP` bytes).
+    pub memory: Vec<u8>,
+    /// A PE mapped in the region, dumped like the image.
+    pub pe: Option<Vec<u8>>,
+}
+
+/// Bytes of one region `region_payload` reads.
+const MAX_REGION_DUMP: u64 = 64 << 20;
+
+/// A PE image mapped at the start of `mem` (as a loader maps it): its
+/// SizeOfImage (page aligned, within `mem`) and entry point RVA.
+fn mapped_pe_size(mem: &[u8]) -> Option<(u64, u32)> {
+    let rd16 = |o: usize| mem.get(o..o + 2).map(|b| u16::from_le_bytes([b[0], b[1]]));
+    let rd32 = |o: usize| mem.get(o..o + 4).map(|b| u32::from_le_bytes([b[0], b[1], b[2], b[3]]));
+    if mem.get(..2)? != b"MZ" {
+        return None;
+    }
+    let pe = rd32(0x3C)? as usize;
+    if pe >= 0x1000 || mem.get(pe..pe + 4)? != b"PE\0\0" {
+        return None;
+    }
+    let opt = pe + 24;
+    if !matches!(rd16(opt)?, 0x10B | 0x20B) {
+        return None;
+    }
+    let ep = rd32(opt + 16)?;
+    let size = page_align(rd32(opt + 56)? as u64);
+    (size >= PAGE_SIZE && size <= mem.len() as u64).then_some((size, ep))
 }
 
 impl Drop for UnpackerEngine {

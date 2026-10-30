@@ -1,5 +1,6 @@
 mod budget;
 mod cache;
+mod company_signers;
 mod config;
 mod dashboard;
 mod dataset;

@@ -601,6 +601,35 @@ impl ThreatIntelStore {
         self.map.read().unwrap().get(&sha_bytes).cloned()
     }
 
+    /// Returns a list of recently seen files with Authenticode signers (for sample selection).
+    pub fn recent_signed_samples(&self, limit: usize) -> Vec<serde_json::Value> {
+        let guard = self.map.read().unwrap();
+        let mut out = Vec::new();
+        for insight in guard.values() {
+            if let Some(ref sg) = insight.signer {
+                if let Some(ref name) = sg.name {
+                    let name_str = name.trim();
+                    if !name_str.is_empty() {
+                        let sha = insight.sha256.text().to_string();
+                        let fn_str = insight.file_names.first().map(|n| n.as_str().to_string()).unwrap_or_default();
+                        out.push(serde_json::json!({
+                            "sha256": sha,
+                            "signer": name_str,
+                            "file_name": fn_str,
+                            "status": if sg.status.is_empty() { if sg.trusted { "trusted".into() } else { "untrusted".into() } } else { sg.status.clone() },
+                            "trusted": sg.trusted,
+                            "verdict": insight.verdict.as_str(),
+                        }));
+                        if out.len() >= limit {
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+        out
+    }
+
     /// Puts every hash whose effective verdict is still open (unknown, suspicious or
     /// possible_clean, no completed human review) into the human analysis queue if it
     /// is not there yet, so the queue matches the "Unknown" / "Suspicious" counts.

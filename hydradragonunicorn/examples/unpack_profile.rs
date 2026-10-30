@@ -20,6 +20,8 @@ use hydradragonunicorn::unpacker::plan::{Budget, Outcome, UnpackRules};
 
 const MAX_INSTRUCTIONS: usize = 20_000_000;
 const TIMEOUT_US: u64 = 20_000_000;
+const EXTRA_INSTRUCTIONS: usize = 80_000_000;
+const EXTRA_TIMEOUT_US: u64 = 40_000_000;
 const MAX_BYTES: usize = 64 << 20;
 
 fn esc(s: &str) -> String {
@@ -118,6 +120,8 @@ fn profile(path: &str, rules: Option<&yara_x::Rules>, unpack_rules: &UnpackRules
     eng.set_controls(false, false);
     eng.set_end_addr(u64::MAX);
     let err = eng.emu_from(ep, TIMEOUT_US, MAX_INSTRUCTIONS).err().map(|e| e.to_string());
+    // Same extension as pe_combined: more budget while the stub is still unpacking.
+    let extended = eng.continue_unpacking(EXTRA_TIMEOUT_US, EXTRA_INSTRUCTIONS);
     let unpacked = eng.wx_hit.is_some();
     let result = if unpacked {
         "unpacked"
@@ -126,11 +130,18 @@ fn profile(path: &str, rules: Option<&yara_x::Rules>, unpack_rules: &UnpackRules
     } else {
         "image"
     };
+    // Where the written code ran: the image, or allocated memory (and a PE there).
+    let alloc = eng.alloc_payload();
+    let wx_in = match (&eng.wx_hit, &alloc) {
+        (None, _) => "null".to_string(),
+        (Some(_), None) => "\"image\"".to_string(),
+        (Some(_), Some(p)) => format!("\"{}\"", if p.pe.is_some() { "alloc_pe" } else { "alloc" }),
+    };
     let calls = &eng.behavior_trace().calls;
     let last: Vec<String> = calls.iter().rev().take(5).map(|c| c.api.clone()).collect();
     let distinct: HashSet<&str> = calls.iter().map(|c| c.api.as_str()).collect();
     format!(
-        "{{{head},\"x64\":{is_64},\"result\":\"{result}\",\"end\":\"{:?}\",\"api_calls\":{},\"distinct_apis\":{},\"last_apis\":[{}],\"emu_error\":{},\"stop_api\":{},\"ms\":{}}}",
+        "{{{head},\"x64\":{is_64},\"result\":\"{result}\",\"extended\":{extended},\"wx_in\":{wx_in},\"end\":\"{:?}\",\"api_calls\":{},\"distinct_apis\":{},\"last_apis\":[{}],\"emu_error\":{},\"stop_api\":{},\"ms\":{}}}",
         eng.end,
         calls.len(),
         distinct.len(),

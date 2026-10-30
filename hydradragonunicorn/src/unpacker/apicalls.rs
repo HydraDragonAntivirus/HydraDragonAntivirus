@@ -337,7 +337,7 @@ impl Default for ApiState {
         Self {
             next_file_handle: 0x1000,
             next_hook_addr: 0x7F080000,
-            next_alloc_addr: 0x20000000,
+            next_alloc_addr: ALLOC_BASE,
             image_base: 0x400000,
             dll_bases: HashMap::new(),
             find_handles: HashMap::new(),
@@ -760,11 +760,16 @@ const SYSTEM_DIR: &str = "C:\\Windows\\system32";
 const HEAP_ARENA: u64 = 16 << 20;
 const HEAP_DIRECT: u64 = 1 << 20;
 
+/// The VirtualAlloc / heap area: allocations without a requested address are
+/// placed in `[ALLOC_BASE, ALLOC_END)`.
+pub const ALLOC_BASE: u64 = 0x2000_0000;
+pub const ALLOC_END: u64 = 0x7000_0000;
+
 /// `size` zeroed bytes from fresh pages in the VirtualAlloc area (0 when out of room).
 fn alloc_pages(uc: &mut Unicorn<'_, ()>, st: &mut ApiState, size: u64) -> u64 {
     let len = (size.clamp(1, 64 << 20) + 0xFFF) & !0xFFF;
     let addr = st.next_alloc_addr;
-    if addr.saturating_add(len) >= 0x70000000 || uc.mem_map(addr, len, Prot::ALL).is_err() {
+    if addr.saturating_add(len) >= ALLOC_END || uc.mem_map(addr, len, Prot::ALL).is_err() {
         return 0;
     }
     st.next_alloc_addr = addr + len + 0x10000;
@@ -1282,7 +1287,7 @@ pub fn handle_api_call(
             } else {
                 let addr = api_state.next_alloc_addr;
                 // Guard against upper bound collision with HOOK_ADDR (0x7F000000) or DLL regions
-                if addr.saturating_add(page_aligned) >= 0x70000000 {
+                if addr.saturating_add(page_aligned) >= ALLOC_END {
                     return 0; // Out of memory
                 }
                 if uc.mem_map(addr, page_aligned, Prot::ALL).is_err() {
@@ -1306,7 +1311,7 @@ pub fn handle_api_call(
                 target
             } else {
                 let addr = api_state.next_alloc_addr;
-                if addr.saturating_add(page_aligned) >= 0x70000000 {
+                if addr.saturating_add(page_aligned) >= ALLOC_END {
                     return 0;
                 }
                 if uc.mem_map(addr, page_aligned, Prot::ALL).is_err() {

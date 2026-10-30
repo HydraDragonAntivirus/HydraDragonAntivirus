@@ -31,6 +31,10 @@ const MIN_STRING: usize = crate::pe_strings::MIN_LEN;
 pub const UNPACK_MAX_INSTRUCTIONS: usize = 20_000_000;
 /// Safety stop for a file that runs very slowly per instruction (microseconds).
 const UNPACK_TIMEOUT_US: u64 = 20_000_000;
+/// More for a run that used its budget while still unpacking (it wrote into code
+/// or allocated memory and has not run it yet): a big UPX payload needs ~100M.
+const UNPACK_EXTRA_INSTRUCTIONS: usize = 80_000_000;
+const UNPACK_EXTRA_TIMEOUT_US: u64 = 40_000_000;
 /// Inner bytes looked at (all extracted members together).
 const INNER_MAX_BYTES: usize = 64 * 1024 * 1024;
 
@@ -285,10 +289,14 @@ fn run_emulation(data: &[u8]) -> Option<Emulation> {
     eng.set_controls(false, false);
     eng.set_end_addr(u64::MAX);
     let _ = eng.emu_from(ep, UNPACK_TIMEOUT_US, UNPACK_MAX_INSTRUCTIONS);
+    eng.continue_unpacking(UNPACK_EXTRA_TIMEOUT_US, UNPACK_EXTRA_INSTRUCTIONS);
     let trace = eng.behavior_trace().clone();
+    // Code ran from memory it wrote: in the image, or in VirtualAlloc'd memory.
     let unpacked = eng.wx_hit.is_some();
     let failed = !unpacked && !eng.end.is_clean();
-    let dump = if failed { None } else { dump_image(&mut eng, ep) };
+    // A PE the stub mapped into allocated memory and ran is the payload itself.
+    let alloc_pe = eng.alloc_payload().and_then(|p| p.pe);
+    let dump = if failed { None } else { alloc_pe.or_else(|| dump_image(&mut eng, ep)) };
     Some(Emulation { dump, unpacked, trace, failed })
 }
 

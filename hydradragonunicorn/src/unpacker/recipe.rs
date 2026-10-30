@@ -79,6 +79,10 @@ pub enum Step {
     /// The memory image (entry point = instruction pointer, imports rebuilt) is
     /// an unpacked payload.
     Dump,
+    /// The allocated memory region the code runs in (the instruction pointer's
+    /// when it is outside the image, else the first write-execute outside it) is a
+    /// payload: a PE mapped there dumped like the image, else the raw region.
+    DumpAlloc,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -385,7 +389,7 @@ pub fn check(steps: &[Step]) -> Result<(), String> {
                 }
                 Step::Repeat(r) => walk(&r.steps, true, out).map_err(at)?,
                 Step::Emit(_) => *out = true,
-                Step::RunUntil(_) | Step::Mem(_) | Step::SetOep(_) | Step::Dump if in_alt => {
+                Step::RunUntil(_) | Step::Mem(_) | Step::SetOep(_) | Step::Dump | Step::DumpAlloc if in_alt => {
                     return Err(at("emulation steps cannot be inside try / repeat".into()));
                 }
                 Step::RunUntil(r) => {
@@ -396,7 +400,7 @@ pub fn check(steps: &[Step]) -> Result<(), String> {
                         pattern(p).map_err(at)?;
                     }
                 }
-                Step::Dump => *out = true,
+                Step::Dump | Step::DumpAlloc => *out = true,
                 _ => {}
             }
         }
@@ -795,6 +799,13 @@ impl State<'_> {
                 }
                 self.emit(image)?;
             }
+            Step::DumpAlloc => {
+                let e = self.engine()?;
+                let (base, size) = (e.sample.base_addr, e.sample.virtualmemorysize);
+                let at = e.ip().filter(|&ip| ip < base || ip >= base + size).or(e.wx_alloc_hit).ok_or("no code ran in allocated memory")?;
+                let p = e.region_payload(at).ok_or_else(|| format!("{at:#x} is not mapped"))?;
+                self.emit(p.pe.unwrap_or(p.memory))?;
+            }
         }
         Ok(())
     }
@@ -1104,6 +1115,164 @@ unpack:
         d
     }
 
+    /// PE32 at 0x400000 importing kernel32!VirtualAlloc. Its stub allocates
+    /// 0x3000 bytes, copies the `payload` from `.data` (0x402000) there XORing
+    /// every byte with `key`, and jumps to `allocation + entry`.
+    fn alloc_loader_pe(payload: &[u8], key: u8, entry: u32) -> Vec<u8> {
+        let mut stub = vec![0x6A, 0x40, 0x68, 0x00, 0x30, 0x00, 0x00, 0x68, 0x00, 0x30, 0x00, 0x00, 0x6A, 0x00]; // VirtualAlloc(0, 0x3000, 0x3000, 0x40)
+        stub.extend_from_slice(&[0xFF, 0x15, 0x50, 0x50, 0x40, 0x00]); // call [0x405050]
+        stub.extend_from_slice(&[0x89, 0xC3, 0x89, 0xC7]); // mov ebx, eax / mov edi, eax
+        stub.extend_from_slice(&[0xBE, 0x00, 0x20, 0x40, 0x00]); // mov esi, 0x402000
+        stub.push(0xB9); // mov ecx, len
+        stub.extend_from_slice(&(payload.len() as u32).to_le_bytes());
+        stub.extend_from_slice(&[0xAC, 0x34, key, 0xAA, 0xE2, 0xFA]); // lodsb / xor al, key / stosb / loop
+        stub.extend_from_slice(&[0x81, 0xC3]); // add ebx, entry
+        stub.extend_from_slice(&entry.to_le_bytes());
+        stub.extend_from_slice(&[0xFF, 0xE3]); // jmp ebx
+        let packed: Vec<u8> = payload.iter().map(|b| b ^ key).collect();
+
+        let mut idata = vec![0u8; 0x80];
+        let put = |d: &mut Vec<u8>, o: usize, v: u32| d[o..o + 4].copy_from_slice(&v.to_le_bytes());
+        put(&mut idata, 0x00, 0x5040); // OriginalFirstThunk
+        put(&mut idata, 0x0C, 0x5060); // Name
+        put(&mut idata, 0x10, 0x5050); // FirstThunk
+        put(&mut idata, 0x40, 0x5070); // ILT
+        put(&mut idata, 0x50, 0x5070); // IAT
+        idata[0x60..0x6C].copy_from_slice(b"kernel32.dll");
+        idata[0x72..0x7E].copy_from_slice(b"VirtualAlloc");
+
+        let sections: [(&str, u32, &[u8], u32); 3] =
+            [(".text", 0x1000, &stub, 0x6000_0020), (".data", 0x2000, &packed, 0xC000_0040), (".idata", 0x5000, &idata, 0xC000_0040)];
+        let mut d = vec![0u8; 0x200];
+        d[..2].copy_from_slice(b"MZ");
+        put(&mut d, 0x3C, 0x40);
+        d[0x40..0x44].copy_from_slice(b"PE\0\0");
+        let (coff, opt) = (0x44, 0x58);
+        d[coff..coff + 2].copy_from_slice(&0x14Cu16.to_le_bytes());
+        d[coff + 2..coff + 4].copy_from_slice(&3u16.to_le_bytes());
+        d[coff + 16..coff + 18].copy_from_slice(&0xE0u16.to_le_bytes());
+        d[coff + 18..coff + 20].copy_from_slice(&0x0102u16.to_le_bytes());
+        d[opt..opt + 2].copy_from_slice(&0x10Bu16.to_le_bytes());
+        put(&mut d, opt + 16, 0x1000);
+        put(&mut d, opt + 28, 0x40_0000);
+        put(&mut d, opt + 32, 0x1000);
+        put(&mut d, opt + 36, 0x200);
+        put(&mut d, opt + 56, 0x6000);
+        put(&mut d, opt + 60, 0x200);
+        d[opt + 68..opt + 70].copy_from_slice(&2u16.to_le_bytes());
+        put(&mut d, opt + 92, 16);
+        put(&mut d, opt + 96 + 8, 0x5000); // import directory
+        put(&mut d, opt + 96 + 12, 40);
+        for (i, (name, rva, data, chars)) in sections.iter().enumerate() {
+            let t = opt + 0xE0 + i * 40;
+            let raw_size = (data.len() as u32).div_ceil(0x200) * 0x200;
+            let raw = d.len() as u32;
+            d[t..t + name.len()].copy_from_slice(name.as_bytes());
+            put(&mut d, t + 8, data.len() as u32);
+            put(&mut d, t + 12, *rva);
+            put(&mut d, t + 16, raw_size);
+            put(&mut d, t + 20, raw);
+            put(&mut d, t + 36, *chars);
+            let mut s = data.to_vec();
+            s.resize(raw_size as usize, 0);
+            d.extend_from_slice(&s);
+        }
+        d
+    }
+
+    /// A PE as a loader maps it: headers in the first page, `mov eax, 42; ret` at
+    /// RVA 0x1000 (its entry point), SizeOfImage 0x2000.
+    fn mapped_image() -> Vec<u8> {
+        let mut m = vec![0u8; 0x2000];
+        m[..2].copy_from_slice(b"MZ");
+        m[0x3C..0x40].copy_from_slice(&0x40u32.to_le_bytes());
+        m[0x40..0x44].copy_from_slice(b"PE\0\0");
+        m[0x44..0x46].copy_from_slice(&0x14Cu16.to_le_bytes());
+        m[0x46..0x48].copy_from_slice(&1u16.to_le_bytes());
+        m[0x54..0x56].copy_from_slice(&0xE0u16.to_le_bytes());
+        let opt = 0x58;
+        m[opt..opt + 2].copy_from_slice(&0x10Bu16.to_le_bytes());
+        m[opt + 16..opt + 20].copy_from_slice(&0x1000u32.to_le_bytes());
+        m[opt + 28..opt + 32].copy_from_slice(&0x1000_0000u32.to_le_bytes());
+        m[opt + 32..opt + 36].copy_from_slice(&0x1000u32.to_le_bytes());
+        m[opt + 36..opt + 40].copy_from_slice(&0x200u32.to_le_bytes());
+        m[opt + 56..opt + 60].copy_from_slice(&0x2000u32.to_le_bytes());
+        m[opt + 60..opt + 64].copy_from_slice(&0x200u32.to_le_bytes());
+        m[opt + 92..opt + 96].copy_from_slice(&16u32.to_le_bytes());
+        let t = opt + 0xE0;
+        m[t..t + 5].copy_from_slice(b".text");
+        m[t + 8..t + 12].copy_from_slice(&0x1000u32.to_le_bytes());
+        m[t + 12..t + 16].copy_from_slice(&0x1000u32.to_le_bytes());
+        m[t + 16..t + 20].copy_from_slice(&0x200u32.to_le_bytes());
+        m[t + 20..t + 24].copy_from_slice(&0x200u32.to_le_bytes());
+        m[t + 36..t + 40].copy_from_slice(&0x6000_0020u32.to_le_bytes());
+        m[0x1000..0x1006].copy_from_slice(&[0xB8, 0x2A, 0x00, 0x00, 0x00, 0xC3]);
+        m
+    }
+
+    fn emulate(pe: &[u8]) -> UnpackerEngine {
+        let sample = Sample::from_bytes(pe).unwrap();
+        let ep = entrypoint(&sample.opt_header);
+        let mut eng = UnpackerEngine::new(sample, "memory").with_trace_mode(true);
+        eng.init_uc().unwrap();
+        eng.set_controls(false, false);
+        eng.set_end_addr(u64::MAX);
+        let _ = eng.emu_from(ep, 5_000_000, 200_000);
+        eng
+    }
+
+    #[test]
+    fn code_decrypted_into_allocated_memory_is_a_write_execute() {
+        let shellcode = [0xB8, 0x2A, 0x00, 0x00, 0x00, 0xC3, 0x90, 0x90];
+        let mut eng = emulate(&alloc_loader_pe(&shellcode, 0x5A, 0));
+        let base = crate::unpacker::apicalls::ALLOC_BASE;
+        assert_eq!(eng.wx_alloc_hit, Some(base));
+        assert!(eng.wx_hit.is_some());
+        let p = eng.alloc_payload().unwrap();
+        assert_eq!((p.base, p.entry), (base, base));
+        assert_eq!(&p.memory[..8], shellcode);
+        assert!(p.pe.is_none());
+
+        // An image-only packer (no allocation) has no allocated payload.
+        assert_eq!(emulate(&xor_packed_pe()).wx_alloc_hit, None);
+    }
+
+    #[test]
+    fn a_stub_still_unpacking_gets_more_budget() {
+        // Too small a budget to finish the copy loop: written allocated memory, no
+        // write-execute yet, so the run goes on and reaches the payload.
+        let pe = alloc_loader_pe(&mapped_image(), 0, 0x1000);
+        let sample = Sample::from_bytes(&pe).unwrap();
+        let ep = entrypoint(&sample.opt_header);
+        let mut eng = UnpackerEngine::new(sample, "memory").with_trace_mode(true);
+        eng.init_uc().unwrap();
+        eng.set_controls(false, false);
+        eng.set_end_addr(u64::MAX);
+        let _ = eng.emu_from(ep, 5_000_000, 2_000);
+        assert!(eng.wx_hit.is_none() && eng.wrote_code());
+        assert!(eng.continue_unpacking(5_000_000, 200_000));
+        assert_eq!(eng.wx_alloc_hit, Some(crate::unpacker::apicalls::ALLOC_BASE + 0x1000));
+
+        // A program that only computes (no code written) gets no extension.
+        let mut plain = emulate(&xor_packed_pe());
+        assert!(!plain.continue_unpacking(5_000_000, 200_000), "already unpacked: nothing to continue");
+        assert!(plain.wx_hit.is_some());
+    }
+
+    #[test]
+    fn a_pe_mapped_into_allocated_memory_is_dumped_as_a_pe() {
+        let mut eng = emulate(&alloc_loader_pe(&mapped_image(), 0, 0x1000));
+        let base = crate::unpacker::apicalls::ALLOC_BASE;
+        assert_eq!(eng.wx_alloc_hit, Some(base + 0x1000));
+        let pe = eng.alloc_payload().unwrap().pe.expect("the mapped PE");
+        assert!(pe.starts_with(b"MZ"));
+        assert_eq!(u32::from_le_bytes(pe[0x68..0x6C].try_into().unwrap()), 0x1000, "entry point = where it jumped");
+
+        // The same through a recipe.
+        let out = unpacked(&alloc_loader_pe(&mapped_image(), 0, 0x1000), "unpack:\n  - run_until: {write_execute: true, max_instructions: 200000}\n  - check: ip == 0x20001000\n  - dump_alloc\n");
+        assert!(out[0].starts_with(b"MZ") && out[0].len() >= 0x400, "{} bytes", out[0].len());
+    }
+
     #[test]
     fn emulation_steps_unpack_a_self_decrypting_stub() {
         let pe = xor_packed_pe();
@@ -1182,5 +1351,6 @@ fn name(s: &Step) -> &'static str {
         Step::Mem(_) => "mem",
         Step::SetOep(_) => "set_oep",
         Step::Dump => "dump",
+        Step::DumpAlloc => "dump_alloc",
     }
 }

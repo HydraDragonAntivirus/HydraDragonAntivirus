@@ -407,6 +407,10 @@ pub fn dashboard_router(state: Arc<AppState>) -> Router {
         .route("/api/retrohunt/archive", post(handle_retrohunt_archive))
         .route("/api/naming", get(handle_naming_check))
         .route("/api/companies", get(handle_companies_get).post(handle_companies_save))
+        .route("/api/companies/add", post(handle_companies_add))
+        .route("/api/companies/delete", post(handle_companies_delete))
+        .route("/api/companies/lookup-signer", get(handle_companies_lookup_signer))
+        .route("/api/companies/recent-signed", get(handle_companies_recent_signed))
         .route("/api/analyst/whoami", get(handle_analyst_whoami))
         .layer(middleware::from_fn(guard_middleware))
         .with_state(state)
@@ -434,12 +438,12 @@ fn is_local_host(host: &str) -> bool {
 /// Dashboard calls that write human verdicts or change what decides a verdict (rules,
 /// FP lists, company lists, bans): with `analyst_keys.txt` in place they need a valid
 /// `X-Multron-Analyst-Key` (see `human_review::analyst_keys`).
-const ANALYST_PATHS: [&str; 20] = [
+const ANALYST_PATHS: [&str; 22] = [
     "/api/review", "/api/review/start", "/api/review/release", "/api/review/delete", "/api/url-review",
     "/api/reviews/bulk", "/api/reviews/requeue", "/api/signatures", "/api/signatures/delete",
     "/api/imphash-signatures", "/api/imphash-signatures/delete",
     "/api/yara-rule-classes", "/api/yara-rule-classes/delete",
-    "/api/fp/ignore", "/api/fp/unignore", "/api/companies", "/api/rules", "/api/bans/add", "/api/bans/remove",
+    "/api/fp/ignore", "/api/fp/unignore", "/api/companies", "/api/companies/add", "/api/companies/delete", "/api/rules", "/api/bans/add", "/api/bans/remove",
     "/api/ml-thresholds",
 ];
 
@@ -2760,7 +2764,12 @@ async fn handle_analyst_whoami(who: Option<Extension<AnalystId>>) -> impl IntoRe
 }
 
 async fn handle_companies_get(State(app): State<Arc<AppState>>) -> impl IntoResponse {
-    Json(serde_json::json!({ "ok": true, "lists": app.engine.analyst.company_lists() }))
+    let entries = crate::company_signers::list();
+    Json(serde_json::json!({
+        "ok": true,
+        "lists": app.engine.analyst.company_lists(),
+        "entries": entries,
+    }))
 }
 
 #[derive(Deserialize)]
@@ -2769,21 +2778,25 @@ struct CompaniesBody {
     allow: Vec<String>,
     #[serde(default)]
     block: Vec<String>,
+    #[serde(default)]
+    analyst: String,
 }
 
 /// Replaces the company allow / block lists (a name may not be in both). Active at
 /// once; cached verdicts are cleared.
 async fn handle_companies_save(
     State(app): State<Arc<AppState>>,
-    Json(b): Json<CompaniesBody>,
+    who: Option<Extension<AnalystId>>,
+    Json(mut b): Json<CompaniesBody>,
 ) -> Response {
+    apply_analyst(&who, &mut b.analyst);
     if b.allow.len() + b.block.len() > 10_000 {
         return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "too many entries"}))).into_response();
     }
     if let Some(both) = b.allow.iter().find(|a| b.block.iter().any(|x| x.trim().eq_ignore_ascii_case(a.trim()))) {
         return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": format!("\"{}\" is in both lists", both.trim())}))).into_response();
     }
-    if let Err(e) = crate::analyst_engine::save_company_lists(&b.allow, &b.block) {
+    if let Err(e) = crate::company_signers::sync_raw_lists(&b.allow, &b.block, &b.analyst) {
         return (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": e.to_string()}))).into_response();
     }
     let engine = Arc::clone(&app.engine);
@@ -2791,7 +2804,195 @@ async fn handle_companies_save(
     // Cached verdicts were made with the old lists.
     app.scan_server.cache.invalidate_all();
     info_event(&app, format!("company lists saved: {summary}"));
-    Json(serde_json::json!({ "ok": true, "lists": app.engine.analyst.company_lists(), "note": "Saved and active; cached verdicts cleared." })).into_response()
+    Json(serde_json::json!({
+        "ok": true,
+        "lists": app.engine.analyst.company_lists(),
+        "entries": crate::company_signers::list(),
+        "note": "Saved and active; cached verdicts cleared."
+    })).into_response()
+}
+
+#[derive(Deserialize)]
+struct CompanyAddBody {
+    name: String,
+    list: String,
+    reason: String,
+    #[serde(default)]
+    sha256: String,
+    #[serde(default)]
+    sample_name: String,
+    #[serde(default)]
+    analyst: String,
+}
+
+/// Adds a single signer to allow or block list with mandatory reason and optional sample metadata.
+async fn handle_companies_add(
+    State(app): State<Arc<AppState>>,
+    who: Option<Extension<AnalystId>>,
+    Json(mut b): Json<CompanyAddBody>,
+) -> Response {
+    apply_analyst(&who, &mut b.analyst);
+    let name = b.name.trim().to_string();
+    if name.is_empty() {
+        return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "Signer / Company name cannot be empty"}))).into_response();
+    }
+    let reason = b.reason.trim().to_string();
+    if reason.is_empty() {
+        return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "Reason (Gerekçe / Sebep) is mandatory for signer lists"}))).into_response();
+    }
+    let list = b.list.trim().to_ascii_lowercase();
+    if list != "allow" && list != "block" {
+        return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "List must be 'allow' or 'block'"}))).into_response();
+    }
+
+    let entry = crate::company_signers::CompanySignerEntry {
+        name: name.clone(),
+        list: list.clone(),
+        reason,
+        sha256: b.sha256.trim().to_ascii_lowercase(),
+        sample_name: b.sample_name.trim().to_string(),
+        analyst: if b.analyst.trim().is_empty() { "analyst".to_string() } else { b.analyst.trim().to_string() },
+        added: chrono::Utc::now().to_rfc3339(),
+    };
+
+    if let Err(e) = crate::company_signers::add(entry) {
+        return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": e}))).into_response();
+    }
+
+    let engine = Arc::clone(&app.engine);
+    let summary = tokio::task::spawn_blocking(move || engine.analyst.reload()).await.unwrap_or_default();
+    app.scan_server.cache.invalidate_all();
+    info_event(&app, format!("Signer added to {list}: {name} ({summary})"));
+
+    Json(serde_json::json!({
+        "ok": true,
+        "lists": app.engine.analyst.company_lists(),
+        "entries": crate::company_signers::list(),
+        "note": format!("Signer \"{name}\" added to {list} list and reloaded.")
+    })).into_response()
+}
+
+#[derive(Deserialize)]
+struct CompanyDeleteBody {
+    name: String,
+    #[serde(default)]
+    list: String,
+}
+
+/// Removes a signer from allow / block list.
+async fn handle_companies_delete(
+    State(app): State<Arc<AppState>>,
+    Json(b): Json<CompanyDeleteBody>,
+) -> Response {
+    let name = b.name.trim();
+    if name.is_empty() {
+        return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "Signer name cannot be empty"}))).into_response();
+    }
+    if let Err(e) = crate::company_signers::remove(name, &b.list) {
+        return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": e}))).into_response();
+    }
+
+    let engine = Arc::clone(&app.engine);
+    let summary = tokio::task::spawn_blocking(move || engine.analyst.reload()).await.unwrap_or_default();
+    app.scan_server.cache.invalidate_all();
+    info_event(&app, format!("Signer removed: {name} ({summary})"));
+
+    Json(serde_json::json!({
+        "ok": true,
+        "lists": app.engine.analyst.company_lists(),
+        "entries": crate::company_signers::list(),
+        "note": format!("Signer \"{name}\" removed and reloaded.")
+    })).into_response()
+}
+
+#[derive(Deserialize)]
+struct SignerLookupQuery {
+    sha256: String,
+}
+
+/// Looks up signer certificate info from a sample's SHA-256 in threat intel or verdict cache.
+async fn handle_companies_lookup_signer(
+    State(app): State<Arc<AppState>>,
+    Query(q): Query<SignerLookupQuery>,
+) -> Response {
+    let sha = q.sha256.trim().to_ascii_lowercase();
+    if sha.is_empty() {
+        return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "sha256 query param required"}))).into_response();
+    }
+
+    // 1. Check threat intel store
+    let ti = app.threat_intel.get(&sha);
+    let mut signer_name = None;
+    let mut sample_name = None;
+    let mut trusted = false;
+    let mut threat = None;
+
+    if let Some(info) = ti {
+        sample_name = info.file_names.first().map(|n| n.as_str().to_string());
+        threat = info.threat_name.map(|t| t.as_str().to_string());
+        if let Some(sg) = info.signer {
+            signer_name = sg.name;
+            trusted = sg.trusted;
+        }
+    }
+
+    // 2. If not found in TI signer summary, check cache detail
+    if signer_name.is_none() {
+        if let Some(sha_arr) = crate::cache::parse_sha(&sha.to_ascii_uppercase()) {
+            if let Some(cached) = app.scan_server.cache.get(&sha_arr) {
+                if let Some(d) = cached.detail {
+                    // Look for [Authenticode: ...]
+                    if let Some(pos) = d.find("[Authenticode:") {
+                        let rest = &d[pos + 13..];
+                        if let Some(end) = rest.find(']') {
+                            let text = rest[..end].trim();
+                            if !text.is_empty() {
+                                signer_name = Some(text.to_string());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if let Some(s) = signer_name {
+        Json(serde_json::json!({
+            "ok": true,
+            "found": true,
+            "sha256": sha,
+            "signer": s,
+            "sample_name": sample_name,
+            "trusted": trusted,
+            "threat": threat,
+        })).into_response()
+    } else {
+        Json(serde_json::json!({
+            "ok": true,
+            "found": false,
+            "sha256": sha,
+            "note": "No Authenticode signature info found for this sample SHA-256."
+        })).into_response()
+    }
+}
+
+#[derive(Deserialize)]
+struct RecentSignedQuery {
+    #[serde(default)]
+    limit: Option<usize>,
+}
+
+/// Returns recent samples that have Authenticode signer certificates.
+async fn handle_companies_recent_signed(
+    State(app): State<Arc<AppState>>,
+    Query(q): Query<RecentSignedQuery>,
+) -> Response {
+    let limit = q.limit.unwrap_or(25).clamp(1, 100);
+    let samples = app.threat_intel.recent_signed_samples(limit);
+    Json(serde_json::json!({
+        "ok": true,
+        "samples": samples
+    })).into_response()
 }
 
 

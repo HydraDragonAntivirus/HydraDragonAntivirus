@@ -614,13 +614,102 @@
       <button class="primary" id="ycSave" style="margin-top:8px">Set rule class</button>
       <div id="ycMsg" class="error"></div>
       <div id="ycList" style="margin-top:8px"></div>
-      <h2 style="margin-top:22px">Company (signer) lists</h2>
-      <div class="hint" style="margin-top:0">One Authenticode signer name per line, exactly as in the certificate. <b>Allow</b> makes validly signed files clean (a broken or untrusted signature is ignored). <b>Block</b> marks the signer's files malicious. Nothing overrides an allowed signer, nor a valid signature of a publisher in signer_rules/trusted_signers.yaml: analyst ClamAV / HydraDragonSig, TLSH and imphash matches are listed but do not change the verdict. Only the block-list and a human hash verdict decide otherwise.</div>
-      <div class="row2" style="margin-top:8px">
-        <div><label for="coAllow">Allow-list</label><textarea id="coAllow" spellcheck="false" placeholder="Microsoft Corporation" style="min-height:140px; font-family:Consolas, monospace; font-size:12px;"></textarea></div>
-        <div><label for="coBlock">Block-list</label><textarea id="coBlock" spellcheck="false" placeholder="Shady Software Ltd" style="min-height:140px; font-family:Consolas, monospace; font-size:12px;"></textarea></div>
+      <h2 style="margin-top:22px" id="companySignerSection">Company (signer) lists</h2>
+      <div class="hint" style="margin-top:0">One Authenticode signer name per line, exactly as in the certificate. <b>Allow</b> makes validly signed files clean (a broken or untrusted signature is ignored). <b>Block</b> marks the signer's files malicious. Every signer addition tracks a <b>mandatory reason</b> and reference sample for full auditability.</div>
+
+      <!-- Add Signer with Reason & Sample Picker -->
+      <div style="background:var(--card-bg, #1a1f2c); border:1px solid var(--border, #2d3748); border-radius:6px; padding:12px; margin-top:12px">
+        <h3 style="margin:0 0 8px; font-size:14px; color:var(--text-bright, #fff)">&#10133; Add Signer to List (With Reason &amp; Sample Selection)</h3>
+        
+        <div class="row2" style="margin-bottom:8px">
+          <div>
+            <label for="coAddList">Target List</label>
+            <select id="coAddList" style="width:100%; height:34px">
+              <option value="allow" selected>Allow-list (Whitelist valid signatures as CLEAN)</option>
+              <option value="block">Block-list (Blacklist signer as MALICIOUS)</option>
+            </select>
+          </div>
+          <div>
+            <label for="coSampleSelect">Pick from Recent Signed Samples</label>
+            <select id="coSampleSelect" style="width:100%; height:34px">
+              <option value="">-- Or choose a recently seen signed file --</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="row2" style="margin-bottom:8px">
+          <div>
+            <label for="coSampleSha">Sample SHA-256 (Optional / Auto-fill)</label>
+            <div style="display:flex; gap:6px">
+              <input id="coSampleSha" type="text" placeholder="64-char sample SHA-256" style="flex:1" spellcheck="false">
+              <button class="ghost" id="coLookupSha" type="button" style="white-space:nowrap">Fetch Signer</button>
+            </div>
+          </div>
+          <div>
+            <label for="coSampleName">Sample File Name (Optional)</label>
+            <input id="coSampleName" type="text" placeholder="e.g. installer.exe or setup.dll">
+          </div>
+        </div>
+
+        <div class="row2" style="margin-bottom:8px">
+          <div>
+            <label for="coSignerName">Signer / Company Name (Certificate Subject/CN) *</label>
+            <input id="coSignerName" type="text" placeholder="e.g. Microsoft Corporation or Valve Corp." required spellcheck="false">
+          </div>
+          <div>
+            <label for="coReason">Reason / Gerekçe (Zorunlu / Mandatory) *</label>
+            <input id="coReason" type="text" placeholder="e.g. Verified vendor binary / Whitelisted after manual audit" required>
+          </div>
+        </div>
+
+        <div style="display:flex; gap:8px; align-items:center; margin-top:10px">
+          <button class="primary" id="coAddBtn" type="button" style="padding:6px 16px">&#10133; Add Signer</button>
+          <button class="ghost" id="coRefreshSamples" type="button">Refresh Recent Samples</button>
+          <span id="coAddMsg" class="hint" style="margin:0"></span>
+        </div>
       </div>
-      <button class="primary" id="coSave">Save company lists</button>
+
+      <!-- Configured Signers Table -->
+      <h3 style="margin:16px 0 6px; font-size:13px; color:var(--text-bright, #fff)">Configured Signer Entries (<span id="coCount">0</span>)</h3>
+      <div style="display:flex; gap:8px; margin-bottom:6px; align-items:center">
+        <input id="coSearch" type="text" placeholder="Search configured signers by name, reason or sample..." style="max-width:320px; font-size:12px; padding:4px 8px">
+        <select id="coFilterList" style="height:28px; font-size:12px">
+          <option value="">All Lists</option>
+          <option value="allow">Allow only</option>
+          <option value="block">Block only</option>
+        </select>
+        <span class="spacer"></span>
+        <button class="ghost" id="coToggleRaw" type="button" style="font-size:11px">Toggle Raw Lists Textarea</button>
+      </div>
+
+      <div class="tablewrap" style="max-height:280px; overflow-y:auto; border:1px solid var(--border, #2d3748); border-radius:4px">
+        <table>
+          <thead>
+            <tr>
+              <th style="width:70px">List</th>
+              <th>Signer / Company</th>
+              <th>Reason (Gerekçe)</th>
+              <th>Sample SHA-256</th>
+              <th>By</th>
+              <th>Date</th>
+              <th style="width:50px"></th>
+            </tr>
+          </thead>
+          <tbody id="coTableRows">
+            <tr><td colspan="7" class="empty">Loading signer list...</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Raw textareas (collapsible for backward compatibility and bulk import) -->
+      <div id="coRawWrap" hidden style="margin-top:12px">
+        <div class="hint" style="margin:4px 0">Bulk Raw Text Format (lines starting with # or inline # are comments/reasons):</div>
+        <div class="row2" style="margin-top:8px">
+          <div><label for="coAllow">Allow-list (raw lines)</label><textarea id="coAllow" spellcheck="false" placeholder="Microsoft Corporation" style="min-height:120px; font-family:Consolas, monospace; font-size:12px;"></textarea></div>
+          <div><label for="coBlock">Block-list (raw lines)</label><textarea id="coBlock" spellcheck="false" placeholder="Shady Software Ltd" style="min-height:120px; font-family:Consolas, monospace; font-size:12px;"></textarea></div>
+        </div>
+        <button class="primary" id="coSave" style="margin-top:8px">Save company lists (Raw Sync)</button>
+      </div>
       <div id="coMsg" class="error"></div>
     </section>
 
@@ -2192,7 +2281,7 @@ window.sigKey = (list) => list && list.length ? `${list[0].layer}: ${list[0].nam
       `<div><span class="k">Engine:</span> ${haVTag(r.current_verdict || r.engine_verdict)} ${r.current_threat ? "<b>" + haEsc(r.current_threat) + "</b>" : ""} · seen ${r.seen_count || 0}× · ${haSize(r.file_size)}</div>`,
       (r.detections || []).length ? `<div><span class="k">Signatures (${r.detections.length}):</span>${sigChips(r.detections)}</div>` : "",
       r.engine_detail ? `<div><span class="k">Detected by:</span> ${haEsc(r.engine_detail)} · <a href="#" onclick="fpOpen('${sha}', ${haEsc(JSON.stringify(haName(r) || ""))});return false" style="color:var(--accent)">False positive: turn off a signature…</a></div>` : "",
-      `<div><span class="k">Signer:</span> ${haSigner(r, true)}</div>`,
+      `<div><span class="k">Signer:</span> ${haSigner(r, true)}${r.signer && r.signer.name ? ` <button class="ghost" style="padding:1px 6px;font-size:11px;margin-left:6px" onclick="window.signerFill && window.signerFill('${haEsc(r.signer.name)}', '${sha}', '${r.current_verdict === 'malicious' ? 'block' : 'allow'}', '${haEsc(haName(r))}');return false;">+ Signer List</button>` : ""}</div>`,
       r.file_missing ? `<div><span class="k">File:</span> <span style="color:var(--accent-red,#e5534b)">${haEsc(r.file_missing)}</span></div>` : "",
       `<div><a href="${haEsc(r.virustotal)}" target="_blank" rel="noopener" style="color:var(--accent)">VirusTotal ↗</a> · <a href="#" onclick="rescanSha('${sha}');return false" style="color:var(--accent)">Rescan</a></div>`,
       `<div><span class="k">Requested:</span> ${new Date(r.requested_at).toLocaleString()}${r.started_at ? ` · <span class="k">${r.timed ? "started" : "verdict"}:</span> ${new Date(r.started_at).toLocaleString()}${r.started_by ? " by <b>" + haEsc(r.started_by) + "</b>" : ""}` : ""}${r.reviewed_at ? ` · <span class="k">done:</span> ${new Date(r.reviewed_at).toLocaleString()}` : ""}</div>`,
@@ -2735,22 +2824,217 @@ window.sigKey = (list) => list && list.length ? `${list[0].layer}: ${list[0].nam
   };
   rhLoad();
 
+  let coEntries = [];
+  const coRenderTable = () => {
+    const q = ($("coSearch")?.value || "").trim().toLowerCase();
+    const flt = $("coFilterList")?.value || "";
+    const filtered = coEntries.filter(e => {
+      if (flt && e.list !== flt) return false;
+      if (!q) return true;
+      return (e.name || "").toLowerCase().includes(q) ||
+             (e.reason || "").toLowerCase().includes(q) ||
+             (e.sha256 || "").toLowerCase().includes(q) ||
+             (e.sample_name || "").toLowerCase().includes(q) ||
+             (e.analyst || "").toLowerCase().includes(q);
+    });
+
+    if ($("coCount")) $("coCount").textContent = coEntries.length;
+    if (!$("coTableRows")) return;
+
+    if (!filtered.length) {
+      $("coTableRows").innerHTML = `<tr><td colspan="7" class="empty">${coEntries.length ? "No signers match search filter." : "No signers configured yet."}</td></tr>`;
+      return;
+    }
+
+    $("coTableRows").innerHTML = filtered.map(e => {
+      const isAllow = e.list === "allow";
+      const badge = isAllow
+        ? '<span class="tag t-clean" style="font-weight:600">ALLOW</span>'
+        : '<span class="tag t-malicious" style="font-weight:600">BLOCK</span>';
+      const sampleCell = e.sha256
+        ? `<span class="mono" title="${haEsc(e.sha256)}">${haEsc(e.sha256.slice(0, 16))}…</span>${e.sample_name ? `<br><small class="hint">${haEsc(e.sample_name)}</small>` : ""} <a href="#" onclick="window.vaOpenSha && window.vaOpenSha('${haEsc(e.sha256)}'); return false;" style="color:var(--accent);font-size:11px">&#128065;</a>`
+        : '<span class="hint">—</span>';
+      const addedDate = e.added ? new Date(e.added).toLocaleDateString() : "—";
+
+      return `<tr>
+        <td>${badge}</td>
+        <td><b>${haEsc(e.name)}</b></td>
+        <td style="max-width:240px; word-break:break-word;">${haEsc(e.reason || "—")}</td>
+        <td>${sampleCell}</td>
+        <td><small>${haEsc(e.analyst || "analyst")}</small></td>
+        <td><small>${addedDate}</small></td>
+        <td><button class="ghost" style="padding:2px 6px; font-size:11px; color:var(--red)" onclick="window.coDelete('${haEsc(e.name)}', '${haEsc(e.list)}')">&#10005;</button></td>
+      </tr>`;
+    }).join("");
+  };
+
+  const coLoadRecentSamples = async () => {
+    try {
+      const res = await fetch("/api/companies/recent-signed?limit=50", { cache: "no-store" });
+      const d = await res.json();
+      if (!d.ok || !d.samples) return;
+      const sel = $("coSampleSelect");
+      if (!sel) return;
+      sel.innerHTML = '<option value="">-- Pick from recent signed samples --</option>' +
+        d.samples.map(s => {
+          const fn = s.file_name ? s.file_name + " - " : "";
+          const tr = s.trusted ? "✓ Trusted" : "⚠ " + (s.status || "Untrusted");
+          return `<option value="${haEsc(s.sha256)}" data-signer="${haEsc(s.signer)}" data-name="${haEsc(s.file_name || "")}" data-verdict="${haEsc(s.verdict || "")}">${fn}${haEsc(s.signer)} (${tr}) [${haEsc(s.sha256.slice(0, 12))}…]</option>`;
+        }).join("");
+    } catch (_) {}
+  };
+
   const coLoad = async () => {
     try {
       const d = await (await fetch("/api/companies", { cache: "no-store" })).json();
       $("coAllow").value = (d.lists.allow || []).join("\n");
       $("coBlock").value = (d.lists.block || []).join("\n");
+      coEntries = d.entries || [];
+      coRenderTable();
     } catch (_) {}
   };
+
+  window.coDelete = async (name, list) => {
+    if (!confirm(`Remove "${name}" from ${list} list?`)) return;
+    try {
+      const r = await post("/api/companies/delete", { name, list });
+      if (r.entries) coEntries = r.entries;
+      if (r.lists) {
+        $("coAllow").value = (r.lists.allow || []).join("\n");
+        $("coBlock").value = (r.lists.block || []).join("\n");
+      }
+      coRenderTable();
+      if ($("coMsg")) { $("coMsg").style.color = "var(--green)"; $("coMsg").textContent = r.note || "Signer removed."; }
+    } catch (err) {
+      if ($("coMsg")) { $("coMsg").style.color = "var(--red)"; $("coMsg").textContent = err.message; }
+    }
+  };
+
+  window.signerFill = (name, sha256, list, sampleName, reason) => {
+    if ($("coSignerName")) $("coSignerName").value = name || "";
+    if ($("coSampleSha")) $("coSampleSha").value = sha256 || "";
+    if ($("coSampleName") && sampleName) $("coSampleName").value = sampleName;
+    if ($("coAddList") && list) $("coAddList").value = list;
+    if ($("coReason") && reason) $("coReason").value = reason;
+    const sec = $("companySignerSection");
+    if (sec) sec.scrollIntoView({ behavior: "smooth" });
+    if ($("coReason")) $("coReason").focus();
+  };
+
+  $("coAddBtn").onclick = async () => {
+    const msg = $("coAddMsg");
+    if (msg) { msg.style.color = ""; msg.textContent = ""; }
+    const name = $("coSignerName").value.trim();
+    const reason = $("coReason").value.trim();
+    const list = $("coAddList").value;
+    const sha256 = $("coSampleSha").value.trim().toLowerCase();
+    const sample_name = $("coSampleName").value.trim();
+
+    if (!name) {
+      if (msg) { msg.style.color = "var(--red)"; msg.textContent = "Signer name is required."; }
+      $("coSignerName").focus();
+      return;
+    }
+    if (!reason) {
+      if (msg) { msg.style.color = "var(--red)"; msg.textContent = "Reason (Gerekçe) is mandatory."; }
+      $("coReason").focus();
+      return;
+    }
+
+    try {
+      const r = await post("/api/companies/add", {
+        name, list, reason, sha256, sample_name, analyst: haAnalystName()
+      });
+      if (msg) { msg.style.color = "var(--green)"; msg.textContent = r.note || "Signer added successfully."; }
+      $("coSignerName").value = "";
+      $("coReason").value = "";
+      $("coSampleSha").value = "";
+      $("coSampleName").value = "";
+      if (r.entries) coEntries = r.entries;
+      if (r.lists) {
+        $("coAllow").value = (r.lists.allow || []).join("\n");
+        $("coBlock").value = (r.lists.block || []).join("\n");
+      }
+      coRenderTable();
+    } catch (err) {
+      if (msg) { msg.style.color = "var(--red)"; msg.textContent = err.message; }
+    }
+  };
+
+  $("coLookupSha").onclick = async () => {
+    const sha = $("coSampleSha").value.trim().toLowerCase();
+    const msg = $("coAddMsg");
+    if (!sha || sha.length !== 64) {
+      if (msg) { msg.style.color = "var(--red)"; msg.textContent = "Please enter a valid 64-character SHA-256."; }
+      return;
+    }
+    if (msg) { msg.style.color = ""; msg.textContent = "Looking up certificate signer..."; }
+    try {
+      const res = await fetch(`/api/companies/lookup-signer?sha256=${encodeURIComponent(sha)}`, { cache: "no-store" });
+      const d = await res.json();
+      if (!d.ok) throw new Error(d.error || "Lookup failed");
+      if (!d.found) {
+        if (msg) { msg.style.color = "var(--orange)"; msg.textContent = d.note || "No Authenticode signer found for this sample."; }
+        return;
+      }
+      $("coSignerName").value = d.signer || "";
+      if (d.sample_name && !$("coSampleName").value.trim()) $("coSampleName").value = d.sample_name;
+      if (d.threat && !$("coReason").value.trim()) {
+        $("coReason").value = `Sample flagged as ${d.threat}; blocked publisher`;
+        $("coAddList").value = "block";
+      } else if (d.trusted && !$("coReason").value.trim()) {
+        $("coReason").value = `Verified trusted vendor certificate`;
+        $("coAddList").value = "allow";
+      }
+      if (msg) { msg.style.color = "var(--green)"; msg.textContent = `Found signer: ${d.signer}`; }
+    } catch (err) {
+      if (msg) { msg.style.color = "var(--red)"; msg.textContent = err.message; }
+    }
+  };
+
+  $("coSampleSelect").onchange = () => {
+    const opt = $("coSampleSelect").selectedOptions[0];
+    if (!opt || !opt.value) return;
+    $("coSampleSha").value = opt.value;
+    const sName = opt.dataset.signer || "";
+    const fName = opt.dataset.name || "";
+    const v = opt.dataset.verdict || "";
+    if (sName) $("coSignerName").value = sName;
+    if (fName) $("coSampleName").value = fName;
+    if (v === "malicious" || v === "suspicious") {
+      $("coAddList").value = "block";
+      $("coReason").value = `Malware sample (${v}) signed by ${sName}`;
+    } else {
+      $("coAddList").value = "allow";
+      $("coReason").value = `Legitimate clean sample signed by ${sName}`;
+    }
+  };
+
+  $("coRefreshSamples").onclick = () => {
+    coLoadRecentSamples();
+    const msg = $("coAddMsg");
+    if (msg) { msg.style.color = ""; msg.textContent = "Recent signed samples refreshed."; }
+  };
+
+  $("coToggleRaw").onclick = () => {
+    const raw = $("coRawWrap");
+    if (raw) raw.hidden = !raw.hidden;
+  };
+
+  if ($("coSearch")) $("coSearch").oninput = coRenderTable;
+  if ($("coFilterList")) $("coFilterList").onchange = coRenderTable;
+
   $("coSave").onclick = async () => {
     $("coMsg").style.color = ""; $("coMsg").textContent = "";
     const lines = id => $(id).value.split("\n").map(l => l.trim()).filter(Boolean);
     try {
-      const r = await post("/api/companies", { allow: lines("coAllow"), block: lines("coBlock") });
-      $("coMsg").style.color = "var(--green)"; $("coMsg").textContent = r.note; coLoad();
+      const r = await post("/api/companies", { allow: lines("coAllow"), block: lines("coBlock"), analyst: haAnalystName() });
+      $("coMsg").style.color = "var(--green)"; $("coMsg").textContent = r.note;
+      coLoad();
     } catch (err) { $("coMsg").textContent = err.message; }
   };
   coLoad();
+  coLoadRecentSamples();
 
   poll();
 })();
@@ -3024,9 +3308,15 @@ window.sigKey = (list) => list && list.length ? `${list[0].layer}: ${list[0].nam
   // or the countersigning authority just as well as the publisher.
   const sgDate = (v) => (typeof v === "number" && v > 0) ? new Date(v * 1000).toLocaleString() : "";
   const sgYesNo = (v) => v === true ? "yes" : v === false ? "no" : "";
-  const signerHeadline = (sg) => !sg.signed ? "unsigned"
-    : sg.trusted ? `<span style="color:var(--green)">&#10003; ${esc(sg.name || "signed")}${sg.catalog ? " (catalog)" : ""}</span>`
-    : `<span style="color:var(--orange)">&#9888; ${esc(sg.name || "signed")} &#9888; not trusted (${esc(sg.status || "")})</span>`;
+  const signerHeadline = (sg) => {
+    if (!sg.signed) return "unsigned";
+    const name = sg.name || "signed";
+    const statusTxt = sg.trusted ? `<span style="color:var(--green)">&#10003; ${esc(name)}${sg.catalog ? " (catalog)" : ""}</span>`
+      : `<span style="color:var(--orange)">&#9888; ${esc(name)} &#9888; not trusted (${esc(sg.status || "")})</span>`;
+    const allowBtn = sg.name ? `<button class="ghost" style="padding:1px 6px; font-size:11px; margin-left:8px; color:var(--green)" onclick="window.signerFill && window.signerFill('${esc(sg.name)}', '${doc?.report?.hashes?.sha256 || ""}', 'allow', '${esc(doc?.name || "")}', 'Verified vendor binary from VirusKovAlyzer'); return false;">+ Allow List</button>` : "";
+    const blockBtn = sg.name ? `<button class="ghost" style="padding:1px 6px; font-size:11px; margin-left:4px; color:var(--red)" onclick="window.signerFill && window.signerFill('${esc(sg.name)}', '${doc?.report?.hashes?.sha256 || ""}', 'block', '${esc(doc?.name || "")}', 'Untrusted/malicious signer certificate from VirusKovAlyzer'); return false;">+ Block List</button>` : "";
+    return `${statusTxt} ${allowBtn}${blockBtn}`;
+  };
   function signerRows(sg) {
     if (!sg) return [["Signer", '<span class="hint" style="margin:0">not checked yet (Scan with engine)</span>']];
     const rows = [["Signer", signerHeadline(sg)]];
