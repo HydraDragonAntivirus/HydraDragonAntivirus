@@ -57,8 +57,37 @@ use engine_adapter::EngineAdapter;
 use events::EventLog;
 use scan_server::ScanServer;
 
+/// `multron_server_exit.log` next to the executable: why the server stopped (a panic,
+/// a startup error), one JSON line each. The console window closes with the message,
+/// so Multron Updater reads it when a server it started stops right away.
+const EXIT_LOG: &str = "multron_server_exit.log";
+
+fn exit_report(message: &str) {
+    use std::io::Write;
+    let line = serde_json::json!({ "at": chrono::Utc::now().to_rfc3339(), "pid": std::process::id(), "message": message });
+    if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(app_dir().join(EXIT_LOG)) {
+        let _ = writeln!(f, "{line}");
+    }
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Panics are written down too (a panic on another thread may not stop the server;
+    // the updater only looks when it did stop).
+    let default_hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        let thread = std::thread::current().name().unwrap_or("?").to_string();
+        exit_report(&format!("panic on thread '{thread}': {info}"));
+        default_hook(info);
+    }));
+    let r = run().await;
+    if let Err(e) = &r {
+        exit_report(&format!("Error: {e}"));
+    }
+    r
+}
+
+async fn run() -> Result<(), Box<dyn std::error::Error>> {
     let mut args = CliArgs::parse();
     args.enforce_limits();
     args.archive = args.archive || config::archive_in_settings();
@@ -163,6 +192,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         while !args.archive && !engine.is_ready().await {
             if engine.load_failed() {
                 eprintln!("[handoff] the engine failed to load; the running server stays (update cancelled)");
+                exit_report("the engine failed to load; the running server stays (update cancelled)");
                 handoff::cancel(ui_addr).await;
                 std::process::exit(1);
             }
@@ -182,6 +212,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             Ok(r) => old_listening = r.listening,
             Err(e) if e.starts_with("release refused") => {
                 eprintln!("[handoff] {e}; the running server stays (update cancelled)");
+                exit_report(&format!("{e}; the running server stays (update cancelled)"));
                 handoff::cancel(ui_addr).await;
                 std::process::exit(1);
             }
@@ -195,6 +226,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             Ok(l) => early_dashboard = Some(l),
             Err(e) => {
                 eprintln!("[handoff] {e}; exiting");
+                exit_report(&format!("handoff: {e}"));
                 std::process::exit(1);
             }
         }

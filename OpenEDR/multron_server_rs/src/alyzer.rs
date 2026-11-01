@@ -87,6 +87,7 @@ pub async fn handle_open(State(app): State<Arc<AppState>>, Json(b): Json<OpenBod
     let eng = Arc::clone(&app.engine);
     let sha_in = b.sha256.trim().to_ascii_uppercase();
     let path_in = b.path.trim().trim_matches('"').to_string();
+    let t = std::time::Instant::now();
     let loaded = tokio::task::spawn_blocking(move || -> Result<(String, String, Vec<u8>), String> {
         if !sha_in.is_empty() {
             let k = eng.find_kept(&sha_in).ok_or_else(|| crate::missing_files::explain(&sha_in))?;
@@ -117,7 +118,8 @@ pub async fn handle_open(State(app): State<Arc<AppState>>, Json(b): Json<OpenBod
     if data.len() as u64 > MAX_OPEN_BYTES {
         return err(StatusCode::BAD_REQUEST, format!("file is larger than {} MB", MAX_OPEN_BYTES / (1024 * 1024)));
     }
-    open_doc(&app, name, source, data).await
+    let read_ms = t.elapsed().as_millis();
+    open_doc(&app, name, source, data, read_ms).await
 }
 
 /// URL model score at or above which an embedded URL is listed (the URL scanner's
@@ -159,19 +161,24 @@ fn url_ml_indicator(eng: &crate::engine_adapter::EngineAdapter, report: &mut cra
         .collect()
 }
 
-async fn open_doc(app: &Arc<AppState>, name: String, source: String, data: Vec<u8>) -> Response {
+/// `read_ms`: how long finding and reading the file took (for the timing log line).
+async fn open_doc(app: &Arc<AppState>, name: String, source: String, data: Vec<u8>, read_ms: u128) -> Response {
     let data = Arc::new(data);
     let (d2, n2, eng) = (Arc::clone(&data), name.clone(), Arc::clone(&app.engine));
-    let (report, url_ml) = match tokio::task::spawn_blocking(move || {
+    let (report, url_ml, analyze_ms, url_ms) = match tokio::task::spawn_blocking(move || {
+        let t = std::time::Instant::now();
         let mut report = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| crate::analyzer::analyze(&d2, &n2))).ok()?;
+        let analyze_ms = t.elapsed().as_millis();
+        let t = std::time::Instant::now();
         let url_ml = url_ml_indicator(&eng, &mut report);
-        Some((report, url_ml))
+        Some((report, url_ml, analyze_ms, t.elapsed().as_millis()))
     })
     .await
     {
         Ok(Some(r)) => r,
         _ => return err(StatusCode::INTERNAL_SERVER_ERROR, "the analyzer failed on this file"),
     };
+    let t = std::time::Instant::now();
     let sha = report.hashes.sha256.to_ascii_lowercase();
     let token = format!("{}-{}", &sha[..16.min(sha.len())], chrono::Utc::now().timestamp_millis());
     {
@@ -181,6 +188,14 @@ async fn open_doc(app: &Arc<AppState>, name: String, source: String, data: Vec<u
     let insight = app.threat_intel.get(&sha);
     let review = app.threat_intel.reviews.get(&sha);
     let cached = crate::cache::parse_sha(&sha).and_then(|s| app.scan_server.cache.get(&s));
+    let lookup_ms = t.elapsed().as_millis();
+    // Where an open goes slow (a slow disk, a big file, many URLs for the model).
+    eprintln!(
+        "[alyzer] opened {name} ({} KB) in {} ms: read {read_ms} ms, analyze {analyze_ms} ms, URL model {url_ms} ms ({} URLs), lookups {lookup_ms} ms",
+        data.len() / 1024,
+        read_ms + analyze_ms + url_ms + lookup_ms,
+        url_ml.len()
+    );
     Json(serde_json::json!({
         "ok": true,
         "token": token,
@@ -351,7 +366,7 @@ pub async fn handle_archive_open(State(app): State<Arc<AppState>>, Json(b): Json
         return err(StatusCode::BAD_REQUEST, format!("entry is larger than {} MB", MAX_OPEN_BYTES / (1024 * 1024)));
     }
     let name = b.name.rsplit(['/', '\\']).next().unwrap_or(&b.name).to_string();
-    open_doc(&app, name, format!("{parent} › {}", b.name), bytes).await
+    open_doc(&app, name, format!("{parent} › {}", b.name), bytes, 0).await
 }
 
 #[derive(Deserialize)]
@@ -433,7 +448,7 @@ pub async fn handle_unpack(State(app): State<Arc<AppState>>, Json(b): Json<Token
     if dumped.is_empty() || original.as_deref().is_some_and(|o| o.as_slice() == dumped.as_slice()) {
         return Json(serde_json::json!({"ok": false, "message": format!("{status} in {} ms; the memory image is the same as the file (nothing unpacked)", started.elapsed().as_millis())})).into_response();
     }
-    let mut resp = open_doc(&app, format!("{name}.unpacked.bin"), format!("{name} › Unicorn unpack ({status}, {} ms)", started.elapsed().as_millis()), dumped).await;
+    let mut resp = open_doc(&app, format!("{name}.unpacked.bin"), format!("{name} › Unicorn unpack ({status}, {} ms)", started.elapsed().as_millis()), dumped, 0).await;
     resp.headers_mut().insert("X-Unpack-Status", axum::http::HeaderValue::from_str(&status.chars().filter(|c| c.is_ascii() && !c.is_control()).collect::<String>()).unwrap_or(axum::http::HeaderValue::from_static("done")));
     resp
 }
@@ -675,7 +690,7 @@ pub async fn handle_save(State(app): State<Arc<AppState>>, Json(b): Json<SaveBod
         return err(StatusCode::INTERNAL_SERVER_ERROR, format!("{}: {e}", path.display()));
     }
     if b.open {
-        return open_doc(&app, format!("{safe}.patched"), path.display().to_string(), out).await;
+        return open_doc(&app, format!("{safe}.patched"), path.display().to_string(), out, 0).await;
     }
     Json(serde_json::json!({ "ok": true, "path": path.display().to_string(), "sha256": sha, "size": out.len() })).into_response()
 }

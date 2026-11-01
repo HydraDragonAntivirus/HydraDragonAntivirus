@@ -267,13 +267,28 @@ pub const STRING_RULES: &[(&str, &str, &str, &[&str])] = &[
 // ---------------------------------------------------------------- entry point
 
 pub fn analyze(data: &[u8], file_name: &str) -> FileReport {
-    let mut indicators = Vec::new();
-    let entropy = round2(shannon(data));
+    // The PE, the strings and the whole-file hashes do not depend on each other: on
+    // their own threads a 50 MB file takes about as long as its PE alone (~3 s → ~1 s).
+    // A panic in one is passed on as it was (VirusKovAlyzer catches it).
+    fn join<T>(h: std::thread::ScopedJoinHandle<'_, T>) -> T {
+        h.join().unwrap_or_else(|e| std::panic::resume_unwind(e))
+    }
+    let ((pe, mut indicators), strings, md5_hex, sha1_hex, tlsh, crc, sha256_hex, entropy) = std::thread::scope(|s| {
+        let pe = s.spawn(|| {
+            let mut ind = Vec::new();
+            (parse_pe(data, &mut ind, true), ind)
+        });
+        let strings = s.spawn(|| extract_strings(data));
+        let md5_hex = s.spawn(|| hex::encode(md5(data)));
+        let sha1_hex = s.spawn(|| hex::encode(sha1(data)));
+        let tlsh = s.spawn(|| tlsh_digest(data));
+        let crc = format!("{:08X}", crc32(data));
+        let sha256_hex = hex::encode(Sha256::digest(data));
+        let entropy = round2(shannon(data));
+        (join(pe), join(strings), join(md5_hex), join(sha1_hex), join(tlsh), crc, sha256_hex, entropy)
+    });
     let (file_type, mime) = detect_type(data, file_name);
-
-    let pe = parse_pe(data, &mut indicators, true);
     let imphash = pe.as_ref().and_then(|p| imphash(&p.imports));
-    let strings = extract_strings(data);
 
     if pe.is_none() && entropy >= 7.5 && data.len() > 4096 {
         indicators.push(Indicator {
@@ -296,12 +311,12 @@ pub fn analyze(data: &[u8], file_name: &str) -> FileReport {
         mime: mime.to_string(),
         entropy,
         hashes: Hashes {
-            crc32: format!("{:08X}", crc32(data)),
-            md5: hex::encode(md5(data)),
-            sha1: hex::encode(sha1(data)),
-            sha256: hex::encode(Sha256::digest(data)),
+            crc32: crc,
+            md5: md5_hex,
+            sha1: sha1_hex,
+            sha256: sha256_hex,
             imphash,
-            tlsh: tlsh_digest(data),
+            tlsh,
             dex_tlsh: dex_tlsh(data),
         },
         pe,
@@ -1272,5 +1287,44 @@ mod string_rule_tests {
         assert!(!analyze(rule, "x.yar").indicators.iter().any(|i| i.id.starts_with("str_")));
         let git = b"....usr/bin/ssh-keygen.exe....";
         assert!(!analyze(git, "git.bin").indicators.iter().any(|i| i.id == "str_crack"));
+    }
+}
+
+#[cfg(test)]
+mod timing {
+    /// How long the VirusKovAlyzer report of a file takes:
+    /// `ALYZER_FILE=path cargo test --release -- --ignored alyzer_report_time --nocapture`.
+    #[test]
+    #[ignore]
+    fn alyzer_report_time() {
+        let path = std::env::var("ALYZER_FILE").expect("ALYZER_FILE");
+        let data = std::fs::read(&path).unwrap();
+        let t = std::time::Instant::now();
+        let r = super::analyze(&data, &path);
+        let json = serde_json::to_vec(&r).unwrap();
+        eprintln!("{} KB: report in {:?}, {} URLs, {} KB of JSON", data.len() / 1024, t.elapsed(), r.strings.urls.len(), json.len() / 1024);
+        let time = |label: &str, f: &dyn Fn()| {
+            let t = std::time::Instant::now();
+            f();
+            eprintln!("  {label}: {:?}", t.elapsed());
+        };
+        time("entropy", &|| { super::shannon(&data); });
+        time("pe", &|| { super::parse_pe(&data, &mut Vec::new(), true); });
+        time("strings", &|| { super::extract_strings(&data); });
+        time("crc32", &|| { super::crc32(&data); });
+        time("md5", &|| { super::md5(&data); });
+        time("sha1", &|| { super::sha1(&data); });
+        time("sha256", &|| { use sha2::Digest; sha2::Sha256::digest(&data); });
+        time("tlsh", &|| { super::tlsh_digest(&data); });
+        // The threads give the same report as one after the other.
+        let mut ind = Vec::new();
+        let pe = super::parse_pe(&data, &mut ind, true);
+        assert_eq!(serde_json::to_value(&r.pe).unwrap(), serde_json::to_value(&pe).unwrap());
+        assert_eq!(r.hashes.md5, hex::encode(super::md5(&data)));
+        assert_eq!(r.hashes.sha1, hex::encode(super::sha1(&data)));
+        assert_eq!(r.hashes.crc32, format!("{:08X}", super::crc32(&data)));
+        assert_eq!(r.hashes.tlsh, super::tlsh_digest(&data));
+        assert_eq!(serde_json::to_value(&r.strings).unwrap(), serde_json::to_value(super::extract_strings(&data)).unwrap());
+        assert!(r.indicators.iter().map(|i| i.id).collect::<Vec<_>>().starts_with(&ind.iter().map(|i| i.id).collect::<Vec<_>>()));
     }
 }
