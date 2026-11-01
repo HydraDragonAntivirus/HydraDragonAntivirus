@@ -814,7 +814,7 @@
 
         const vcls = isMal ? 'mal' : isSusp ? 'susp' : isClean ? 'clean' : 'unk';
         const threatLine = (isMal || isSusp)
-          ? `<div class="sc-r-threat">${res.threatName} <span>&middot; ${res.score}/100</span></div>`
+          ? `<div class="sc-r-threat">${esc(res.threatName || '')} <span>&middot; ${Number(res.score || 0)}/100</span></div>`
           : '';
         const live = res.liveness.status === 'ACTIVE';
         const livenessBadge = `<span class="sc-r-live ${live ? 'on' : ''}">${live ? t('scan.liveness_active') : t('scan.liveness_inactive')}</span>`;
@@ -829,11 +829,11 @@
             <a class="vk-btn vk-btn-ghost" href="mailto:viruskov@viruskov.com?subject=[FP-BILDIRIMI]%20URL%20-%20${encodeURIComponent(res.url)}">${t('sc.fp', 'Report a wrong verdict')}</a>
           </div>
           <dl class="sc-r-kv">
-            <div><dt>${t('scan.lbl_domain').replace(/:\s*$/, '')}</dt><dd>${res.host}</dd></div>
-            <div><dt>${t('scan.lbl_protocol').replace(/:\s*$/, '')}</dt><dd>${res.protocol.toUpperCase()}</dd></div>
-            <div><dt>${t('scan.lbl_entropy').replace(/:\s*$/, '')}</dt><dd>${res.entropy} bits</dd></div>
+            <div><dt>${t('scan.lbl_domain').replace(/:\s*$/, '')}</dt><dd>${esc(res.host)}</dd></div>
+            <div><dt>${t('scan.lbl_protocol').replace(/:\s*$/, '')}</dt><dd>${esc(String(res.protocol || '').toUpperCase())}</dd></div>
+            <div><dt>${t('scan.lbl_entropy').replace(/:\s*$/, '')}</dt><dd>${esc(String(res.entropy || ''))} bits</dd></div>
             <div><dt>${t('sc.liveness', 'Liveness')}</dt><dd>${livenessBadge}</dd></div>
-            <div class="w"><dt>SHA-256</dt><dd class="m">${urlSha256}</dd></div>
+            <div class="w"><dt>SHA-256</dt><dd class="m">${esc(urlSha256)}</dd></div>
           </dl>
         `;
         urlResultBox.innerHTML = html;
@@ -915,11 +915,11 @@
               tiBox.innerHTML = `
                 <div class="sc-r-head" data-v="${vcls}">
                   <div class="sc-r-main">
-                    <div class="sc-r-verdict"><span class="sc-pill">${esc(String(data.verdict).replace('_', ' '))}</span><span class="sc-r-sub">${t('lookup.score')} ${data.score}/100</span></div>
+                    <div class="sc-r-verdict"><span class="sc-pill">${esc(String(data.verdict).replace('_', ' '))}</span><span class="sc-r-sub">${t('lookup.score')} ${Number(data.score || 0)}/100</span></div>
                     ${data.threat_name ? `<div class="sc-r-target">${esc(data.threat_name)}</div>` : ''}
-                    <div class="sc-r-threat q">${t('lookup.prevalence')} ${esc(String(data.prevalence || 'unknown').toLowerCase())} &middot; ${data.seen_count} ${t('lookup.sightings')}</div>
+                    <div class="sc-r-threat q">${t('lookup.prevalence')} ${esc(String(data.prevalence || 'unknown').toLowerCase())} &middot; ${Number(data.seen_count || 0)} ${t('lookup.sightings')}</div>
                   </div>
-                  <a class="vk-btn vk-btn-light" href="../file/index.html?sha256=${hash}">${t('sc.full_report', 'Open full report')} <span class="vk-arrow" aria-hidden="true">&rarr;</span></a>
+                  <a class="vk-btn vk-btn-light" href="../file/index.html?sha256=${esc(hash)}">${t('sc.full_report', 'Open full report')} <span class="vk-arrow" aria-hidden="true">&rarr;</span></a>
                 </div>`;
             } else {
               tiBox.innerHTML = '<div class="sc-r-empty">' + t('lookup.unknown_note') + '</div>';
@@ -1064,15 +1064,15 @@
             <div class="sc-r-main">
               <div class="sc-r-verdict">${verdictPill(badge)}</div>
               <div class="sc-r-target">${esc(name)}</div>
-              ${threat ? `<div class="sc-r-threat">${threat}</div>` : ''}
+              ${threat ? `<div class="sc-r-threat">${esc(threat)}</div>` : ''}
             </div>
-            <a class="vk-btn vk-btn-light" href="../file/index.html?sha256=${sha}">${t('sc.full_report', 'Open full report')} <span class="vk-arrow" aria-hidden="true">&rarr;</span></a>
+            <a class="vk-btn vk-btn-light" href="../file/index.html?sha256=${esc(sha)}">${t('sc.full_report', 'Open full report')} <span class="vk-arrow" aria-hidden="true">&rarr;</span></a>
           </div>
           <dl class="sc-r-kv">
             <div><dt>${t('res.filesize').replace(/:\s*$/, '')}</dt><dd>${(size/1024).toFixed(1)} KB</dd></div>
-            <div class="w"><dt>SHA-256</dt><dd class="m">${sha}</dd></div>
+            <div class="w"><dt>SHA-256</dt><dd class="m">${esc(sha)}</dd></div>
           </dl>
-          <p class="sc-r-note">${t('scan.file_fp_note')} <a href="mailto:viruskov@viruskov.com?subject=[FP-BILDIRIMI]%20${sha}">viruskov@viruskov.com</a></p>
+          <p class="sc-r-note">${t('scan.file_fp_note')} <a href="mailto:viruskov@viruskov.com?subject=[FP-BILDIRIMI]%20${encodeURIComponent(sha)}">viruskov@viruskov.com</a></p>
         `;
 
         saveRecordToHistory(name, size, sha, verdict, res.antivirus ? res.antivirus.score : 0, threat, 'file');

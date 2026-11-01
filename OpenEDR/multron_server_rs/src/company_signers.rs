@@ -175,26 +175,6 @@ pub fn add(mut entry: CompanySignerEntry) -> Result<CompanySignerEntry, String> 
     Ok(entry)
 }
 
-pub fn remove(name: &str, list: &str) -> Result<bool, String> {
-    let name = name.trim();
-    let list = list.trim().to_ascii_lowercase();
-    let k = key(name, &list);
-    let mut guard = entries().write().unwrap();
-    if guard.remove(&k).is_some() {
-        let v = serde_json::json!({
-            "name": name,
-            "list": list,
-            "removed": true,
-            "removed_at": Utc::now().to_rfc3339(),
-        });
-        let _ = append_json(&v);
-        let _ = sync_text_files(&guard);
-        Ok(true)
-    } else {
-        Ok(false)
-    }
-}
-
 pub fn sync_raw_lists(allow: &[String], block: &[String], analyst: &str) -> Result<(), String> {
     let mut guard = entries().write().unwrap();
     let now = Utc::now().to_rfc3339();

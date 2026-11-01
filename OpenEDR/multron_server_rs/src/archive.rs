@@ -34,9 +34,11 @@ use serde::{Deserialize, Serialize};
 use crate::config::app_dir;
 
 /// Files directly in the server folder that are mirrored.
-pub const MIRROR_FILES: [&str; 9] = [
-    "threat_insights.db",
-    "threat_insights.jsonl",
+/// The telemetry is not among them: `threat_insights.db` is written while it is copied
+/// (a copy can be torn), so its changes are appended to the archive's
+/// `threat_insights.jsonl` instead (`export_insights`). The local `.jsonl` is the old
+/// store, already in the database: copied after the newer lines it would win.
+pub const MIRROR_FILES: [&str; 7] = [
     "verdict_changes.jsonl",
     "verdict_changes_backfill.jsonl",
     "multron_cache.jsonl",
@@ -46,8 +48,7 @@ pub const MIRROR_FILES: [&str; 9] = [
     "sample_api_keys.txt",
 ];
 /// Append-only line databases: added to in the archive, never replaced (see the module docs).
-pub const LOG_FILES: [&str; 6] = [
-    "threat_insights.jsonl",
+pub const LOG_FILES: [&str; 5] = [
     "verdict_changes.jsonl",
     "multron_cache.jsonl",
     "tlsh_index.jsonl",
@@ -104,6 +105,8 @@ pub struct Mirror {
     wake: (Mutex<bool>, Condvar),
     seen: Mutex<Option<Seen>>,
     verdict_of: RwLock<Option<VerdictOf>>,
+    /// The telemetry database whose changes go to the archive's `threat_insights.jsonl`.
+    insights: RwLock<Option<Arc<crate::insight_db::InsightDb>>>,
     /// One run or duplicate removal at a time.
     busy: Mutex<()>,
 }
@@ -137,6 +140,46 @@ impl Mirror {
 
     pub fn set_verdict_lookup(&self, f: VerdictOf) {
         *self.verdict_of.write().unwrap() = Some(f);
+    }
+
+    pub fn set_insights_db(&self, db: Arc<crate::insight_db::InsightDb>) {
+        *self.insights.write().unwrap() = Some(db);
+    }
+
+    /// Appends the records changed since the last run to the archive's
+    /// `threat_insights.jsonl`, one JSON line each (the archive reads the newest line of
+    /// a hash). Where it got to is kept per target in the database's `meta`; a run cut
+    /// short writes some lines again next time, which changes nothing.
+    fn export_insights(&self, target: &Path) -> io::Result<u64> {
+        let Some(db) = self.insights.read().unwrap().clone() else { return Ok(0) };
+        let key = format!("mirror_seq:{}", target.display());
+        let mut seq: i64 = db.meta(&key).and_then(|v| v.parse().ok()).unwrap_or(0);
+        let dst = target.join("threat_insights.jsonl");
+        let mut bytes = 0u64;
+        loop {
+            if self.stop.load(Ordering::Relaxed) {
+                break;
+            }
+            let rows = db.changes_since(seq, 10_000).map_err(io::Error::other)?;
+            let Some(&(last, _)) = rows.last() else { break };
+            // A file cut short by a crash may not end with a line break.
+            let len = fs::metadata(&dst).map(|m| m.len()).unwrap_or(0);
+            let mut out = Vec::new();
+            if len > 0 && !ends_with_newline(&dst, len)? {
+                out.push(b'\n');
+            }
+            for (_, data) in &rows {
+                out.extend_from_slice(data);
+                out.push(b'\n');
+            }
+            let mut f = OpenOptions::new().create(true).append(true).open(&dst)?;
+            f.write_all(&out)?;
+            f.sync_data()?;
+            bytes += out.len() as u64;
+            seq = last;
+            db.set_meta(&key, &seq.to_string()).map_err(io::Error::other)?;
+        }
+        Ok(bytes)
     }
 
     pub fn set_work_dir(&self, d: Option<PathBuf>) {
@@ -224,6 +267,21 @@ impl Mirror {
         let mut seen = self.seen.lock().unwrap().take().unwrap_or_else(|| {
             fs::read_to_string(seen_path()).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default()
         });
+
+        self.stats.lock().unwrap().current = "threat_insights.jsonl".into();
+        match self.export_insights(&target) {
+            Ok(n) if n > 0 => {
+                let mut s = self.stats.lock().unwrap();
+                s.appended += 1;
+                s.bytes += n;
+            }
+            Ok(_) => {}
+            Err(e) => {
+                let mut s = self.stats.lock().unwrap();
+                s.failed += 1;
+                s.last_error = format!("threat_insights.jsonl: {e}");
+            }
+        }
 
         let root = app_dir();
         let mut jobs: Vec<(PathBuf, String)> = Vec::new();
@@ -658,7 +716,23 @@ impl Tail {
         t
     }
 
+    /// Continues from a position `state` gave (the archive keeps it across restarts).
+    pub fn resume(path: PathBuf, offset: u64, check: Vec<u8>) -> Self {
+        Self { path, offset, check, fresh: false }
+    }
+
+    /// Where reading got to: (offset, the last bytes before it).
+    pub fn state(&self) -> (u64, &[u8]) {
+        (self.offset, &self.check)
+    }
+
     pub fn read(&mut self) -> TailRead {
+        self.read_max(u64::MAX)
+    }
+
+    /// `read`, but at most about `max` bytes of whole lines at a time (a very large
+    /// file is taken in parts; a line longer than `max` is read whole).
+    pub fn read_max(&mut self, max: u64) -> TailRead {
         let mut reset = std::mem::take(&mut self.fresh);
         let Ok(mut f) = File::open(&self.path) else {
             if self.offset > 0 || reset {
@@ -684,7 +758,13 @@ impl Tail {
         }
         let mut buf = Vec::new();
         if len > self.offset && f.seek(SeekFrom::Start(self.offset)).is_ok() {
-            let _ = (&mut f).take(len - self.offset).read_to_end(&mut buf);
+            let _ = (&mut f).take((len - self.offset).min(max)).read_to_end(&mut buf);
+            // No line break in the part: read on to the end of that line.
+            if len - self.offset > max && !buf.contains(&b'\n') {
+                let mut rest = Vec::new();
+                let _ = io::BufRead::read_until(&mut io::BufReader::new(&mut f), b'\n', &mut rest);
+                buf.extend_from_slice(&rest);
+            }
         }
         let lines = match buf.iter().rposition(|&b| b == b'\n') {
             Some(end) => {
@@ -751,12 +831,48 @@ fn stamp_time() -> Option<String> {
     serde_json::from_str::<serde_json::Value>(&t).ok()?["time"].as_str().map(str::to_string)
 }
 
+const ARCHIVE_TAIL_KEY: &str = "archive_jsonl_position";
+
+/// Archive mode: reads what was added to the mirrored `threat_insights.jsonl` into the
+/// archive's database, 64 MiB at a time (the first start reads the whole file), and
+/// keeps the position in it so a restart goes on from there.
+fn follow_insights(ti: &crate::threat_intel::ThreatIntelStore, tail: &mut Tail) {
+    let mut any = false;
+    loop {
+        let lines = match tail.read_max(64 << 20) {
+            TailRead::Same => break,
+            TailRead::New(l) => {
+                ti.archive_ingest(&l, false);
+                l
+            }
+            TailRead::Reset(l) => {
+                ti.archive_ingest(&l, true);
+                l
+            }
+        };
+        any = true;
+        ti.flush(Duration::from_secs(600));
+        let (offset, check) = tail.state();
+        let _ = ti.db().set_meta(ARCHIVE_TAIL_KEY, &serde_json::json!([offset, hex::encode(check)]).to_string());
+        if lines.is_empty() {
+            break;
+        }
+    }
+    if any {
+        ti.resync();
+    }
+}
+
 /// Archive mode: follows the mirrored files every minute.
 pub fn spawn_reloader(server: Arc<crate::scan_server::ScanServer>) {
     let _ = std::thread::Builder::new().name("archive-reload".into()).spawn(move || {
         let ti = Arc::clone(&server.threat_intel);
         let root = app_dir();
-        let mut insights = Tail::new(root.join("threat_insights.jsonl"));
+        // The archive's own database holds what was read; it goes on from there.
+        let mut insights = match ti.db().meta(ARCHIVE_TAIL_KEY).and_then(|v| serde_json::from_str::<(u64, String)>(&v).ok()) {
+            Some((offset, check)) => Tail::resume(root.join("threat_insights.jsonl"), offset, hex::decode(check).unwrap_or_default()),
+            None => Tail::new(root.join("threat_insights.jsonl")),
+        };
         let mut reviews = Tail::new(crate::human_review::analyst_dir().join("human_verdicts.jsonl"));
         let mut cache = Tail::new(root.join("multron_cache.jsonl"));
         let mut tlsh = Tail::new(root.join("tlsh_index.jsonl"));
@@ -770,7 +886,7 @@ pub fn spawn_reloader(server: Arc<crate::scan_server::ScanServer>) {
                 TailRead::New(l) => f(&l, false),
                 TailRead::Reset(l) => f(&l, true),
             };
-            feed(&mut insights, &|l, r| ti.archive_ingest(l, r));
+            follow_insights(&ti, &mut insights);
             feed(&mut reviews, &|l, r| ti.reviews.archive_ingest(l, r));
             feed(&mut cache, &|l, r| server.cache.archive_ingest(l, r));
             feed(&mut tlsh, &|l, r| ti.similarity.archive_ingest_index(l, r));

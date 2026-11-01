@@ -11,8 +11,9 @@
 //!    mode by itself after `BEAT_TIMEOUT`.
 //! 3. The standby loads the engine and the data WITHOUT touching anything the running
 //!    server owns (no leftover clean-up, no dataset indexing, no listener, no writes) and
-//!    follows what the running server appends to `threat_insights.jsonl`,
-//!    `human_verdicts.jsonl` and `tlsh_index.jsonl`.
+//!    follows what the running server writes: new rows of `threat_insights.db` (both
+//!    use the same database, the standby only reads it until it takes over) and what
+//!    it appends to `human_verdicts.jsonl` and `tlsh_index.jsonl`.
 //! 4. Ready: `POST /api/handoff/release`. The old server refuses new scans for a moment
 //!    ("switching"), lets the scans in progress finish (at most `--handoff-drain-secs`),
 //!    closes its sessions, waits for its writers to flush and exits.
@@ -219,19 +220,16 @@ pub async fn bind_when_free(addr: SocketAddr, limit: Duration) -> Result<tokio::
     }
 }
 
-/// Lengths of the files the standby loads and then follows, taken BEFORE loading them.
+/// Where the standby starts following, taken BEFORE it loads: the last `seq` of
+/// `threat_insights.db` and the lengths of the line files.
 pub struct Lengths {
-    insights: u64,
+    insights_seq: i64,
     reviews: u64,
     tlsh: u64,
 }
 
-fn files() -> (PathBuf, PathBuf, PathBuf) {
-    (
-        app_dir().join("threat_insights.jsonl"),
-        crate::human_review::analyst_dir().join("human_verdicts.jsonl"),
-        app_dir().join("tlsh_index.jsonl"),
-    )
+fn files() -> (PathBuf, PathBuf) {
+    (crate::human_review::analyst_dir().join("human_verdicts.jsonl"), app_dir().join("tlsh_index.jsonl"))
 }
 
 fn sig_paths() -> Vec<PathBuf> {
@@ -240,13 +238,16 @@ fn sig_paths() -> Vec<PathBuf> {
 
 pub fn lengths() -> Lengths {
     let len = |p: &PathBuf| std::fs::metadata(p).map(|m| m.len()).unwrap_or(0);
-    let (a, b, c) = files();
-    Lengths { insights: len(&a), reviews: len(&b), tlsh: len(&c) }
+    let (b, c) = files();
+    let insights_seq = crate::insight_db::InsightDb::open_readonly(&app_dir().join("threat_insights.db"))
+        .and_then(|db| db.max_seq())
+        .unwrap_or(0);
+    Lengths { insights_seq, reviews: len(&b), tlsh: len(&c) }
 }
 
 /// Standby: follows what the running server appends after the standby loaded the files.
 pub struct Follow {
-    insights: Tail,
+    insights_seq: i64,
     reviews: Tail,
     tlsh: Tail,
     sig_fp: Vec<(PathBuf, u64, u128)>,
@@ -254,18 +255,25 @@ pub struct Follow {
 
 impl Follow {
     pub fn new(l: Lengths) -> Self {
-        let (a, b, c) = files();
+        let (b, c) = files();
         Follow {
-            insights: Tail::after(a, l.insights),
+            insights_seq: l.insights_seq,
             reviews: Tail::after(b, l.reviews),
             tlsh: Tail::after(c, l.tlsh),
             sig_fp: crate::archive::fingerprint(&sig_paths()),
         }
     }
 
-    /// Reads what was appended since the last call. Returns the number of lines.
+    /// Reads what was written since the last call. Returns the number of records and
+    /// lines.
     pub fn catch_up(&mut self, ti: &ThreatIntelStore) -> usize {
-        let mut n = 0;
+        // Same database: only the records held in memory and the counts follow.
+        let seq = ti.db().max_seq().unwrap_or(self.insights_seq);
+        let mut n = (seq - self.insights_seq).max(0) as usize;
+        if seq != self.insights_seq || !crate::config::is_standby() {
+            ti.resync_external();
+            self.insights_seq = seq;
+        }
         let mut feed = |t: &mut Tail, f: &dyn Fn(&[String], bool)| match t.read() {
             TailRead::Same => {}
             TailRead::New(l) => {
@@ -277,7 +285,6 @@ impl Follow {
                 f(&l, true)
             }
         };
-        feed(&mut self.insights, &|l, r| ti.archive_ingest(l, r));
         feed(&mut self.reviews, &|l, r| ti.reviews.archive_ingest(l, r));
         feed(&mut self.tlsh, &|l, r| ti.similarity.archive_ingest_index(l, r));
         let fp = crate::archive::fingerprint(&sig_paths());

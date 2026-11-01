@@ -1,38 +1,24 @@
-//! Shared, immutable strings for the telemetry kept in memory.
+//! Immutable strings for the telemetry records.
 //!
-//! `threat_insights.jsonl` repeats a few values over and over: 5 verdicts, ~150 client
-//! IPs and some ten thousand folders for hundreds of thousands of files. As `String`s each
-//! copy had its own allocation (24 B inline + the text + the allocator's header); an
-//! `IStr` with a value already in memory points at that copy (16 B inline, nothing
-//! more). On disk and in JSON it is the same plain string, so the file format does not
-//! change. Values are kept for the life of the process (the set only grows, as the
-//! telemetry it serves does).
+//! An `IStr` is 16 B inline (a `String` is 24 B) and cheap to clone. It used to point
+//! at one shared copy of each value, kept for the life of the process: right while
+//! every record stayed in memory, a leak once records come and go (SQLite holds them
+//! and only the ones in use are read): every value read once stayed. On disk and in
+//! JSON it is the same plain string, so the file format does not change.
 
 use std::borrow::Borrow;
-use std::collections::HashSet;
 use std::fmt;
 use std::ops::Deref;
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::Arc;
 
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 #[derive(Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct IStr(Arc<str>);
 
-fn pool() -> &'static Mutex<HashSet<Arc<str>>> {
-    static POOL: OnceLock<Mutex<HashSet<Arc<str>>>> = OnceLock::new();
-    POOL.get_or_init(|| Mutex::new(HashSet::new()))
-}
-
 impl IStr {
     pub fn new(s: &str) -> Self {
-        let mut p = pool().lock().unwrap();
-        if let Some(a) = p.get(s) {
-            return IStr(Arc::clone(a));
-        }
-        let a: Arc<str> = Arc::from(s);
-        p.insert(Arc::clone(&a));
-        IStr(a)
+        IStr(Arc::from(s))
     }
 
     pub fn as_str(&self) -> &str {
@@ -171,10 +157,10 @@ mod tests {
     use super::*;
 
     #[test]
-    fn equal_values_share_one_copy_and_json_is_unchanged() {
+    fn equal_values_compare_equal_and_json_is_unchanged() {
         let a = IStr::new("malicious");
         let b: IStr = serde_json::from_str("\"malicious\"").unwrap();
-        assert!(Arc::ptr_eq(&a.0, &b.0));
+        assert_eq!(a, b);
         assert_eq!(serde_json::to_string(&b).unwrap(), "\"malicious\"");
         assert!(a == "malicious" && "malicious" == a && a == "malicious".to_string());
         let esc: IStr = serde_json::from_str("\"C:\\\\Users\"").unwrap();

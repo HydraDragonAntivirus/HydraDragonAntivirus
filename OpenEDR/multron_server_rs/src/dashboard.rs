@@ -408,9 +408,7 @@ pub fn dashboard_router(state: Arc<AppState>) -> Router {
         .route("/api/naming", get(handle_naming_check))
         .route("/api/companies", get(handle_companies_get).post(handle_companies_save))
         .route("/api/companies/add", post(handle_companies_add))
-        .route("/api/companies/delete", post(handle_companies_delete))
         .route("/api/companies/lookup-signer", get(handle_companies_lookup_signer))
-        .route("/api/companies/recent-signed", get(handle_companies_recent_signed))
         .route("/api/analyst/whoami", get(handle_analyst_whoami))
         .layer(middleware::from_fn(guard_middleware))
         .with_state(state)
@@ -438,12 +436,12 @@ fn is_local_host(host: &str) -> bool {
 /// Dashboard calls that write human verdicts or change what decides a verdict (rules,
 /// FP lists, company lists, bans): with `analyst_keys.txt` in place they need a valid
 /// `X-Multron-Analyst-Key` (see `human_review::analyst_keys`).
-const ANALYST_PATHS: [&str; 22] = [
+const ANALYST_PATHS: [&str; 21] = [
     "/api/review", "/api/review/start", "/api/review/release", "/api/review/delete", "/api/url-review",
     "/api/reviews/bulk", "/api/reviews/requeue", "/api/signatures", "/api/signatures/delete",
     "/api/imphash-signatures", "/api/imphash-signatures/delete",
     "/api/yara-rule-classes", "/api/yara-rule-classes/delete",
-    "/api/fp/ignore", "/api/fp/unignore", "/api/companies", "/api/companies/add", "/api/companies/delete", "/api/rules", "/api/bans/add", "/api/bans/remove",
+    "/api/fp/ignore", "/api/fp/unignore", "/api/companies", "/api/companies/add", "/api/rules", "/api/bans/add", "/api/bans/remove",
     "/api/ml-thresholds",
 ];
 
@@ -2873,39 +2871,6 @@ async fn handle_companies_add(
 }
 
 #[derive(Deserialize)]
-struct CompanyDeleteBody {
-    name: String,
-    #[serde(default)]
-    list: String,
-}
-
-/// Removes a signer from allow / block list.
-async fn handle_companies_delete(
-    State(app): State<Arc<AppState>>,
-    Json(b): Json<CompanyDeleteBody>,
-) -> Response {
-    let name = b.name.trim();
-    if name.is_empty() {
-        return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "Signer name cannot be empty"}))).into_response();
-    }
-    if let Err(e) = crate::company_signers::remove(name, &b.list) {
-        return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": e}))).into_response();
-    }
-
-    let engine = Arc::clone(&app.engine);
-    let summary = tokio::task::spawn_blocking(move || engine.analyst.reload()).await.unwrap_or_default();
-    app.scan_server.cache.invalidate_all();
-    info_event(&app, format!("Signer removed: {name} ({summary})"));
-
-    Json(serde_json::json!({
-        "ok": true,
-        "lists": app.engine.analyst.company_lists(),
-        "entries": crate::company_signers::list(),
-        "note": format!("Signer \"{name}\" removed and reloaded.")
-    })).into_response()
-}
-
-#[derive(Deserialize)]
 struct SignerLookupQuery {
     sha256: String,
 }
@@ -2974,25 +2939,6 @@ async fn handle_companies_lookup_signer(
             "note": "No Authenticode signature info found for this sample SHA-256."
         })).into_response()
     }
-}
-
-#[derive(Deserialize)]
-struct RecentSignedQuery {
-    #[serde(default)]
-    limit: Option<usize>,
-}
-
-/// Returns recent samples that have Authenticode signer certificates.
-async fn handle_companies_recent_signed(
-    State(app): State<Arc<AppState>>,
-    Query(q): Query<RecentSignedQuery>,
-) -> Response {
-    let limit = q.limit.unwrap_or(25).clamp(1, 100);
-    let samples = app.threat_intel.recent_signed_samples(limit);
-    Json(serde_json::json!({
-        "ok": true,
-        "samples": samples
-    })).into_response()
 }
 
 

@@ -1,9 +1,9 @@
 use std::collections::HashMap;
-use std::fs::{File, OpenOptions};
-use std::io::{BufRead, BufReader, BufWriter, Write};
+use std::fs::File;
+use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 use std::sync::mpsc;
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, Mutex, RwLock};
 use std::time::Duration;
 
 use chrono::Utc;
@@ -57,6 +57,9 @@ pub struct ThreatInsight {
     /// already counted the sighting, so that result does not count it again.
     #[serde(skip)]
     pub pending_uploads: u32,
+    /// Changed since it was last written to SQLite (the writer clears it).
+    #[serde(skip)]
+    pub dirty: bool,
 }
 
 /// One matched signature: the engine layer ("YARA", "ClamAV", "Analyst clamav", ...)
@@ -280,12 +283,39 @@ pub struct ThreatIntelStats {
     pub unknown_count: usize,
 }
 
+/// Records kept in memory besides the ones not written yet (see `ThreatIntelStore::hot`).
+const HOT_MAX: usize = 50_000;
+/// Hashes per `IN (...)` lookup.
+const IN_CHUNK: usize = 500;
+/// The final verdicts the statistics count by name; anything else is "unknown".
+const KNOWN_VERDICTS: [&str; 4] = ["malicious", "suspicious", "clean", "possible_clean"];
+
+/// Engine verdict counts of every record (`stats`), kept up to date by each change
+/// instead of walking the table on every dashboard refresh.
+#[derive(Debug, Default, Clone)]
+struct Counts {
+    hashes: u64,
+    sightings: u64,
+    by_verdict: HashMap<String, u64>,
+}
+
+impl Counts {
+    fn add(&mut self, verdict: &str, n: i64) {
+        let e = self.by_verdict.entry(verdict.to_string()).or_default();
+        *e = (*e as i64 + n).max(0) as u64;
+    }
+}
+
 pub struct ThreatIntelStore {
-    map: RwLock<HashMap<Sha, ThreatInsight>>,
+    /// Records changed and not written yet (`dirty`), and records read to be changed.
+    /// Everything else lives only in SQLite: the writer drops written records once
+    /// there are more than `HOT_MAX`, so memory does not grow with the number of hashes.
+    hot: Arc<RwLock<HashMap<Sha, ThreatInsight>>>,
+    counts: Arc<Mutex<Counts>>,
     writer: Option<mpsc::Sender<WriterMsg>>,
-    /// SQLite store (`threat_insights.db`); None on the archive server, which follows
-    /// the mirrored `threat_insights.jsonl` instead.
-    db: Option<Arc<crate::insight_db::InsightDb>>,
+    /// `threat_insights.db` (the archive server: `threat_insights_archive.db`, filled
+    /// from the mirrored `.jsonl`).
+    db: Arc<crate::insight_db::InsightDb>,
     /// Human analysis queue and verdicts (override the engine verdict).
     pub reviews: HumanReviewStore,
     /// TLSH index of analysed files (smart whitelist, similar files).
@@ -294,39 +324,34 @@ pub struct ThreatIntelStore {
 
 impl ThreatIntelStore {
     pub fn new(persistence_file: Option<PathBuf>) -> Arc<Self> {
-        let mut initial_map = HashMap::new();
         let target_path = persistence_file.unwrap_or_else(|| app_dir().join("threat_insights.jsonl"));
-
-        // The archive server reads the mirrored `.jsonl`; every other server keeps the
-        // data in SQLite (`threat_insights.db` next to it). The `.jsonl` stays as it is.
-        let db = (!crate::config::is_archive()).then(|| open_db(&target_path)).flatten();
+        let archive = crate::config::is_archive();
+        let db = open_db(&target_path, archive);
         let started = std::time::Instant::now();
-        match &db {
-            Some(db) => {
-                match load_from_db(db, &target_path) {
-                    Ok(m) => {
-                        eprintln!("[telemetry] {} hashes loaded from threat_insights.db in {:.1} s", m.len(), started.elapsed().as_secs_f64());
-                        initial_map = m;
-                    }
-                    Err(e) => eprintln!("[telemetry] reading threat_insights.db failed: {e}"),
-                }
-            }
-            None if target_path.exists() => match load_latest_insights(&target_path) {
-                Ok(m) => {
-                    eprintln!("[telemetry] {} hashes loaded from threat_insights.jsonl in {:.1} s", m.len(), started.elapsed().as_secs_f64());
-                    initial_map = m;
-                }
-                Err(e) => eprintln!("[telemetry] reading {} failed: {e}", target_path.display()),
-            },
-            None => {}
+        // The archive server fills its own database from the mirrored `.jsonl`
+        // (`archive::spawn_reloader`); the main server moves its old `.jsonl` once.
+        if !archive {
+            migrate_jsonl(&db, &target_path);
         }
+        // A standby must not write: the running server fills these after the hand-over.
+        if !crate::config::is_standby() {
+            fill_stale_columns(&db);
+        }
+        let counts = Arc::new(Mutex::new(recount(&db)));
+        eprintln!(
+            "[telemetry] {} hashes in {} ({:.1} s)",
+            counts.lock().unwrap().hashes,
+            db_path_for(&target_path, archive).display(),
+            started.elapsed().as_secs_f64()
+        );
 
         let reviews = HumanReviewStore::new(&crate::human_review::analyst_dir().join("human_verdicts.jsonl"));
-        // The archive server never writes: its data comes from the main server's mirror.
-        let writer = db.clone().map(start_batch_writer);
+        let hot = Arc::new(RwLock::new(HashMap::new()));
+        let writer = Some(start_batch_writer(Arc::clone(&db), Arc::clone(&hot), Arc::clone(&counts)));
 
         Arc::new(Self {
-            map: RwLock::new(initial_map),
+            hot,
+            counts,
             writer,
             db,
             reviews,
@@ -334,11 +359,64 @@ impl ThreatIntelStore {
         })
     }
 
-    /// Writes every buffered insight to disk now (seamless update: before the hand-over).
+    /// The SQLite store (change feed for the archive mirror and the seamless update).
+    pub fn db(&self) -> &Arc<crate::insight_db::InsightDb> {
+        &self.db
+    }
+
+    /// Writes every buffered insight to disk now (seamless update: before the hand-over;
+    /// queries that read SQLite: before they read).
     pub fn flush(&self, timeout: Duration) -> bool {
         let Some(w) = &self.writer else { return true };
         let (tx, rx) = mpsc::sync_channel(1);
         w.send(WriterMsg::Flush(tx)).is_ok() && rx.recv_timeout(timeout).is_ok()
+    }
+
+    /// Before a query reads SQLite: the changes still in memory go first.
+    fn flush_for_query(&self) {
+        let _ = self.flush(Duration::from_secs(30));
+    }
+
+    /// A batch was imported (archive): written now and counted again.
+    pub fn resync(&self) {
+        resync(&self.db, &self.hot, &self.counts, false);
+    }
+
+    /// The running server wrote the database (seamless update standby): records in
+    /// memory may be older than SQLite; after the hand-over, the columns it left out
+    /// are filled. The counts are counted again.
+    pub fn resync_external(&self) {
+        if !crate::config::is_standby() {
+            fill_stale_columns(&self.db);
+        }
+        resync(&self.db, &self.hot, &self.counts, true);
+    }
+
+    fn load(&self, sha: &Sha) -> Option<ThreatInsight> {
+        let data = self.db.get(sha).ok().flatten()?;
+        serde_json::from_slice(&data).ok()
+    }
+
+    /// Runs `f` on the record of `sha` with `true` when it was just created: read from
+    /// SQLite into memory when it is not there, made by `create` when the hash is not
+    /// known at all. `None` = not known and nothing to create. `f` sets `dirty` when it
+    /// changed something.
+    fn update<R>(
+        &self,
+        sha: Sha,
+        create: Option<&dyn Fn() -> ThreatInsight>,
+        f: impl FnOnce(&mut ThreatInsight, bool) -> R,
+    ) -> Option<R> {
+        let loaded = if self.hot.read().unwrap().contains_key(&sha) { None } else { self.load(&sha) };
+        let mut g = self.hot.write().unwrap();
+        let (entry, is_new) = match g.entry(sha) {
+            std::collections::hash_map::Entry::Occupied(o) => (o.into_mut(), false),
+            std::collections::hash_map::Entry::Vacant(v) => match loaded {
+                Some(i) => (v.insert(i), false),
+                None => (v.insert(create?()), true),
+            },
+        };
+        Some(f(entry, is_new))
     }
 
     /// Records a sighting with its verdict (`seen_count` + 1), or the result of an
@@ -377,28 +455,28 @@ impl ThreatIntelStore {
         };
 
         let now_str = Utc::now().to_rfc3339();
+        let create = || ThreatInsight {
+            sha256: sha256_hex.to_lowercase().into(),
+            first_seen: now_str.as_str().into(),
+            last_seen: now_str.as_str().into(),
+            seen_count: 0,
+            verdict: verdict.into(),
+            threat_name: threat.map(IStr::from),
+            file_names: Vec::new(),
+            file_size,
+            score,
+            folders: Vec::new(),
+            full_folders: Vec::new(),
+            sightings: Vec::new(),
+            signer: None,
+            detections: Vec::new(),
+            pending_uploads: 0,
+            dirty: false,
+        };
 
-        let old_verdict: Option<String>;
-        let updated_insight = {
-            let mut guard = self.map.write().unwrap();
-            old_verdict = guard.get(&sha_bytes).map(|e| e.verdict.to_string());
-            let entry = guard.entry(sha_bytes).or_insert_with(|| ThreatInsight {
-                sha256: sha256_hex.to_lowercase().into(),
-                first_seen: now_str.as_str().into(),
-                last_seen: now_str.as_str().into(),
-                seen_count: 0,
-                verdict: verdict.into(),
-                threat_name: threat.map(IStr::from),
-                file_names: Vec::new(),
-                file_size,
-                score,
-                folders: Vec::new(),
-                full_folders: Vec::new(),
-                sightings: Vec::new(),
-                signer: None,
-                detections: Vec::new(),
-                pending_uploads: 0,
-            });
+        let changed = self.update(sha_bytes, Some(&create), |entry, is_new| {
+            let old_verdict = (!is_new).then(|| entry.verdict.to_string());
+            let old_seen = entry.seen_count;
 
             // One sighting = one check or one upload, not both.
             if check {
@@ -440,18 +518,29 @@ impl ThreatIntelStore {
             if file_size.is_some() && entry.file_size.is_none() {
                 entry.file_size = file_size;
             }
+            entry.dirty = true;
 
-            entry.clone()
-        };
+            let mut c = self.counts.lock().unwrap();
+            match &old_verdict {
+                None => {
+                    c.hashes += 1;
+                    c.add(&entry.verdict, 1);
+                }
+                Some(old) if old.as_str() != entry.verdict.as_str() => {
+                    c.add(old, -1);
+                    c.add(&entry.verdict, 1);
+                }
+                Some(_) => {}
+            }
+            c.sightings += entry.seen_count - old_seen;
+            drop(c);
+
+            (old_verdict, entry.sha256.text().to_string(), entry.verdict.to_string(), entry.threat_name.as_ref().map(|t| t.to_string()))
+        });
+        let Some((old_verdict, sha, new_verdict, threat_name)) = changed else { return };
         // History: a new verdict (a first "unknown" placeholder is not one).
-        if old_verdict.as_deref() != Some(updated_insight.verdict.as_str())
-            && !(old_verdict.is_none() && updated_insight.verdict == "unknown")
-        {
-            crate::verdict_history::record(&updated_insight.sha256.text(), "engine", old_verdict.as_deref(), &updated_insight.verdict, updated_insight.threat_name.as_deref(), "scan", "");
-        }
-
-        if let Some(writer) = &self.writer {
-            let _ = writer.send(WriterMsg::Item(updated_insight));
+        if old_verdict.as_deref() != Some(new_verdict.as_str()) && !(old_verdict.is_none() && new_verdict == "unknown") {
+            crate::verdict_history::record(&sha, "engine", old_verdict.as_deref(), &new_verdict, threat_name.as_deref(), "scan", "");
         }
     }
 
@@ -464,9 +553,7 @@ impl ThreatIntelStore {
         let full = clean_full_folder(full);
         let ip: String = ip.trim().chars().filter(|c| !c.is_control()).take(64).collect();
         let Some(sha_bytes) = parse_sha(sha256_hex) else { return };
-        let updated = {
-            let mut guard = self.map.write().unwrap();
-            let Some(entry) = guard.get_mut(&sha_bytes) else { return };
+        self.update(sha_bytes, None, |entry, _| {
             for (list, item) in [(&mut entry.folders, folder), (&mut entry.full_folders, full.clone())] {
                 if let Some(item) = item {
                     if list.len() < 5 && !list.iter().any(|f| f.eq_ignore_ascii_case(&item)) {
@@ -477,28 +564,19 @@ impl ThreatIntelStore {
             if !ip.is_empty() {
                 add_sighting(&mut entry.sightings, &ip, full.as_deref().unwrap_or(""), &Utc::now().to_rfc3339());
             }
-            entry.clone()
-        };
-        if let Some(writer) = &self.writer {
-            let _ = writer.send(WriterMsg::Item(updated));
-        }
+            entry.dirty = true;
+        });
     }
 
     /// Stores the Authenticode signer the engine saw (after a real scan or rescan).
     pub fn set_signer(&self, sha256_hex: &str, signer: &SignerSummary) {
         let Some(sha_bytes) = parse_sha(sha256_hex) else { return };
-        let updated = {
-            let mut guard = self.map.write().unwrap();
-            let Some(entry) = guard.get_mut(&sha_bytes) else { return };
-            if entry.signer.as_deref() == Some(signer) {
-                return;
+        self.update(sha_bytes, None, |entry, _| {
+            if entry.signer.as_deref() != Some(signer) {
+                entry.signer = Some(Box::new(signer.clone()));
+                entry.dirty = true;
             }
-            entry.signer = Some(Box::new(signer.clone()));
-            entry.clone()
-        };
-        if let Some(writer) = &self.writer {
-            let _ = writer.send(WriterMsg::Item(updated));
-        }
+        });
     }
 
     /// Stores the signatures that matched. `force` (rescan): always replaces them, an
@@ -506,21 +584,15 @@ impl ThreatIntelStore {
     /// (a weaker later scan does not replace the rules behind the stored verdict).
     pub fn set_detections(&self, sha256_hex: &str, verdict: &str, detections: &[DetectionRef], force: bool) {
         let Some(sha_bytes) = parse_sha(sha256_hex) else { return };
-        let updated = {
-            let mut guard = self.map.write().unwrap();
-            let Some(entry) = guard.get_mut(&sha_bytes) else { return };
+        self.update(sha_bytes, None, |entry, _| {
             if !force && (detections.is_empty() || entry.verdict != verdict) {
                 return;
             }
-            if entry.detections.as_slice() == detections {
-                return;
+            if entry.detections.as_slice() != detections {
+                entry.detections = detections.to_vec();
+                entry.dirty = true;
             }
-            entry.detections = detections.to_vec();
-            entry.clone()
-        };
-        if let Some(writer) = &self.writer {
-            let _ = writer.send(WriterMsg::Item(updated));
-        }
+        });
     }
 
     /// Sets the engine verdict after a rescan with the current engine (may lower it,
@@ -532,9 +604,7 @@ impl ThreatIntelStore {
     /// `set_engine_verdict` with the source written to the verdict history.
     pub fn set_engine_verdict_from(&self, sha256_hex: &str, verdict: &str, threat: Option<&str>, score: f64, source: &str) {
         let Some(sha_bytes) = parse_sha(sha256_hex) else { return };
-        let updated = {
-            let mut guard = self.map.write().unwrap();
-            let Some(entry) = guard.get_mut(&sha_bytes) else { return };
+        self.update(sha_bytes, None, |entry, _| {
             let had_extra = verdict == "unknown" && (entry.threat_name.is_some() || entry.score != 0.0 || !entry.detections.is_empty());
             let old = std::mem::replace(&mut entry.verdict, verdict.into());
             entry.threat_name = threat.map(IStr::from);
@@ -545,32 +615,39 @@ impl ThreatIntelStore {
             if old.as_str() == verdict && !had_extra {
                 return;
             }
+            entry.dirty = true;
             if old.as_str() != verdict {
+                let mut c = self.counts.lock().unwrap();
+                c.add(&old, -1);
+                c.add(verdict, 1);
+                drop(c);
                 crate::verdict_history::record(&entry.sha256.text(), "engine", Some(&old), verdict, threat, source, "");
             }
-            entry.clone()
-        };
-        if let Some(writer) = &self.writer {
-            let _ = writer.send(WriterMsg::Item(updated));
-        }
+        });
     }
 
     /// Hashes first seen on `date` (YYYY-MM-DD, UTC) with their effective verdict
     /// (a completed human review overrides the engine). Newest first, at most `limit`.
     pub fn first_seen_on(&self, date: &str, limit: usize) -> Vec<(ThreatInsight, String, bool)> {
-        let guard = self.map.read().unwrap();
-        let mut out: Vec<(ThreatInsight, String, bool)> = guard
+        self.flush_for_query();
+        // Every time on that day starts with it; '~' sorts after any character in them.
+        let (lo, hi) = (date.to_string(), format!("{date}~"));
+        let rows = self.db.scan(|c| {
+            let mut st = c.prepare("SELECT data FROM insights WHERE first_seen >= ?1 AND first_seen < ?2 ORDER BY first_seen DESC LIMIT ?3")?;
+            let rows = st.query_map(rusqlite::params![lo, hi, limit as i64], |r| r.get::<_, Vec<u8>>(0))?;
+            rows.collect::<rusqlite::Result<Vec<_>>>()
+        });
+        log_err("first_seen_on", rows)
+            .unwrap_or_default()
             .iter()
-            .filter(|(_, i)| i.first_seen.starts_with(date))
-            .map(|(sha, i)| {
-                let human = self.reviews.completed_verdict_raw(sha);
+            .filter_map(|d| serde_json::from_slice::<ThreatInsight>(d).ok())
+            .map(|i| {
+                let human = parse_sha(&i.sha256.text()).and_then(|sha| self.reviews.completed_verdict_raw(&sha));
                 let is_human = human.is_some();
-                (i.clone(), human.unwrap_or_else(|| i.verdict.to_string()), is_human)
+                let v = human.unwrap_or_else(|| i.verdict.to_string());
+                (i, v, is_human)
             })
-            .collect();
-        out.sort_by(|a, b| b.0.first_seen.cmp(&a.0.first_seen));
-        out.truncate(limit);
-        out
+            .collect()
     }
 
     /// (verdict, source "human" | "engine" | "unseen", threat name) for one hash.
@@ -578,22 +655,100 @@ impl ThreatIntelStore {
         if let Some(r) = self.reviews.completed(sha256_hex) {
             return (r.verdict.clone().unwrap_or_default(), "human".into(), r.threat_name.clone());
         }
-        match self.get(sha256_hex) {
-            Some(i) => (i.verdict.to_string(), "engine".into(), i.threat_name.as_ref().map(|t| t.to_string())),
+        match self.engine_verdict(sha256_hex) {
+            Some((v, t)) => (v, "engine".into(), t),
             None => ("unknown".into(), "unseen".into(), None),
         }
     }
 
-    /// Archive mode: lines the main server added to `threat_insights.jsonl` (a later
-    /// line for the same hash replaces the earlier one); `reset` = the file was rewritten.
-    pub fn archive_ingest(&self, lines: &[String], reset: bool) {
-        let mut g = self.map.write().unwrap();
-        if reset {
-            g.clear();
+    /// Engine (verdict, threat name) of one hash, without reading the whole record.
+    fn engine_verdict(&self, sha256_hex: &str) -> Option<(String, Option<String>)> {
+        let sha = parse_sha(sha256_hex)?;
+        if let Some(i) = self.hot.read().unwrap().get(&sha) {
+            return Some((i.verdict.to_string(), i.threat_name.as_ref().map(|t| t.to_string())));
         }
+        let cols = self.db.lookup(|c| {
+            let mut st = c.prepare_cached("SELECT verdict, threat FROM insights WHERE sha = ?1")?;
+            let mut rows = st.query([&sha[..]])?;
+            match rows.next()? {
+                Some(r) => Ok(Some((r.get::<_, Option<String>>(0)?, r.get::<_, Option<String>>(1)?))),
+                None => Ok(None),
+            }
+        });
+        match log_err("effective", cols).flatten()? {
+            (Some(v), t) => Some((v, t)),
+            // Columns not filled yet (written by an older version): read the record.
+            (None, _) => self.load(&sha).map(|i| (i.verdict.to_string(), i.threat_name.as_ref().map(|t| t.to_string()))),
+        }
+    }
+
+    /// Engine verdicts of these hashes (the ones that are recorded): memory first, as
+    /// it holds the newest state, then SQLite.
+    fn engine_verdicts(&self, shas: &[Sha]) -> HashMap<Sha, String> {
+        let mut out = HashMap::with_capacity(shas.len());
+        let mut missing = Vec::new();
+        {
+            let g = self.hot.read().unwrap();
+            for sha in shas {
+                match g.get(sha) {
+                    Some(i) => {
+                        out.insert(*sha, i.verdict.to_string());
+                    }
+                    None => missing.push(*sha),
+                }
+            }
+        }
+        for chunk in missing.chunks(IN_CHUNK) {
+            let sql = format!("SELECT sha, verdict FROM insights WHERE verdict IS NOT NULL AND sha IN ({})", vec!["?"; chunk.len()].join(","));
+            let r = self.db.lookup(|c| {
+                let mut st = c.prepare_cached(&sql)?;
+                let rows = st.query_map(rusqlite::params_from_iter(chunk.iter().map(|s| &s[..])), |r| {
+                    Ok((r.get::<_, Vec<u8>>(0)?, r.get::<_, String>(1)?))
+                })?;
+                for row in rows {
+                    let (sha, v) = row?;
+                    if let Ok(sha) = Sha::try_from(sha.as_slice()) {
+                        out.insert(sha, v);
+                    }
+                }
+                Ok(())
+            });
+            log_err("engine_verdicts", r);
+        }
+        out
+    }
+
+    /// Calls `f(sha, engine verdict, first file name)` for every record with one of
+    /// these engine verdicts.
+    fn for_each_with_verdict(&self, verdicts: &[&str], mut f: impl FnMut(Sha, &str, Option<String>)) {
+        self.flush_for_query();
+        let sql = format!(
+            "SELECT sha, verdict, json_extract(data, '$.file_names[0]') FROM insights WHERE verdict IN ({})",
+            vec!["?"; verdicts.len()].join(",")
+        );
+        let r = self.db.scan(|c| {
+            let mut st = c.prepare(&sql)?;
+            let mut rows = st.query(rusqlite::params_from_iter(verdicts.iter()))?;
+            while let Some(row) = rows.next()? {
+                let Ok(sha) = Sha::try_from(row.get_ref(0)?.as_blob()?) else { continue };
+                let v: String = row.get(1)?;
+                f(sha, &v, row.get::<_, Option<String>>(2)?);
+            }
+            Ok(())
+        });
+        log_err("for_each_with_verdict", r);
+    }
+
+    /// Archive mode: lines the main server added to `threat_insights.jsonl` (a later
+    /// line for the same hash replaces the earlier one). Nothing is removed: a rewritten
+    /// file (`reset`) is read again and its lines replace what they cover. The counts
+    /// follow with `resync` once a batch is written.
+    pub fn archive_ingest(&self, lines: &[String], _reset: bool) {
+        let mut g = self.hot.write().unwrap();
         for line in lines {
-            if let Ok(item) = serde_json::from_str::<ThreatInsight>(line) {
+            if let Ok(mut item) = serde_json::from_str::<ThreatInsight>(line) {
                 if let Some(sha) = parse_sha(&item.sha256.text()) {
+                    item.dirty = true;
                     g.insert(sha, item);
                 }
             }
@@ -603,48 +758,34 @@ impl ThreatIntelStore {
     /// Every hash users sent (effective verdict: a completed human review first), for
     /// the public ML dataset numbers.
     pub fn user_files(&self) -> Vec<crate::dataset::UserFile> {
-        let guard = self.map.read().unwrap();
-        guard
-            .iter()
-            .map(|(sha, i)| {
-                let human = self.reviews.completed_verdict_raw(sha);
-                crate::dataset::UserFile::new(&i.sha256.text(), human.as_deref().unwrap_or(&i.verdict), &i.file_names, &i.first_seen.to_string())
-            })
-            .collect()
+        self.flush_for_query();
+        let mut out = Vec::new();
+        let r = self.db.scan(|c| {
+            let mut st = c.prepare("SELECT sha, verdict, json_extract(data, '$.file_names'), first_seen FROM insights WHERE verdict IS NOT NULL")?;
+            let mut rows = st.query([])?;
+            while let Some(row) = rows.next()? {
+                let Ok(sha) = Sha::try_from(row.get_ref(0)?.as_blob()?) else { continue };
+                let verdict: String = row.get(1)?;
+                let names: Vec<String> = row
+                    .get::<_, Option<String>>(2)?
+                    .and_then(|j| serde_json::from_str(&j).ok())
+                    .unwrap_or_default();
+                let first: String = row.get::<_, Option<String>>(3)?.unwrap_or_default();
+                let human = self.reviews.completed_verdict_raw(&sha);
+                out.push(crate::dataset::UserFile::new(&hex::encode(sha), human.as_deref().unwrap_or(&verdict), &names, &first));
+            }
+            Ok(())
+        });
+        log_err("user_files", r);
+        out
     }
 
     pub fn get(&self, sha256_hex: &str) -> Option<ThreatInsight> {
         let sha_bytes = parse_sha(sha256_hex)?;
-        self.map.read().unwrap().get(&sha_bytes).cloned()
-    }
-
-    /// Returns a list of recently seen files with Authenticode signers (for sample selection).
-    pub fn recent_signed_samples(&self, limit: usize) -> Vec<serde_json::Value> {
-        let guard = self.map.read().unwrap();
-        let mut out = Vec::new();
-        for insight in guard.values() {
-            if let Some(ref sg) = insight.signer {
-                if let Some(ref name) = sg.name {
-                    let name_str = name.trim();
-                    if !name_str.is_empty() {
-                        let sha = insight.sha256.text().to_string();
-                        let fn_str = insight.file_names.first().map(|n| n.as_str().to_string()).unwrap_or_default();
-                        out.push(serde_json::json!({
-                            "sha256": sha,
-                            "signer": name_str,
-                            "file_name": fn_str,
-                            "status": if sg.status.is_empty() { if sg.trusted { "trusted".into() } else { "untrusted".into() } } else { sg.status.clone() },
-                            "trusted": sg.trusted,
-                            "verdict": insight.verdict.as_str(),
-                        }));
-                        if out.len() >= limit {
-                            break;
-                        }
-                    }
-                }
-            }
+        if let Some(i) = self.hot.read().unwrap().get(&sha_bytes) {
+            return Some(i.clone());
         }
-        out
+        self.load(&sha_bytes)
     }
 
     /// Puts every hash whose effective verdict is still open (unknown, suspicious or
@@ -654,20 +795,15 @@ impl ThreatIntelStore {
     /// hand. Only files kept on the server (`is_kept`, upper-case SHA-256): a hash
     /// without its file cannot be analysed. Returns how many were added.
     pub fn sync_review_queue(&self, is_kept: &dyn Fn(&str) -> bool) -> usize {
-        let open: Vec<(String, String, Option<String>)> = {
-            let guard = self.map.read().unwrap();
-            guard
-                .values()
-                .filter(|i| crate::human_review::AUTO_QUEUE_VERDICTS.contains(&i.verdict.as_str()))
-                .filter(|i| self.reviews.get(&i.sha256.text()).is_none() && !self.reviews.was_removed(&i.sha256.text()))
-                .filter(|i| is_kept(&i.sha256.to_ascii_uppercase()))
-                .map(|i| (i.sha256.to_string(), i.verdict.to_string(), i.file_names.first().map(|n| n.to_string())))
-                .collect()
-        };
+        let mut open: Vec<(String, String, Option<String>)> = Vec::new();
+        self.for_each_with_verdict(&crate::human_review::AUTO_QUEUE_VERDICTS, |sha, verdict, name| {
+            let hex = hex::encode(sha);
+            if self.reviews.get(&hex).is_none() && !self.reviews.was_removed(&hex) && is_kept(&hex.to_ascii_uppercase()) {
+                open.push((hex, verdict.to_string(), name));
+            }
+        });
         open.iter()
-            .filter(|(sha, verdict, name)| {
-                self.reviews.enqueue(&sha.to_ascii_lowercase(), "auto", Some(verdict), name.as_deref()).is_ok()
-            })
+            .filter(|(sha, verdict, name)| self.reviews.enqueue(sha, "auto", Some(verdict), name.as_deref()).is_ok())
             .count()
     }
 
@@ -688,17 +824,16 @@ impl ThreatIntelStore {
     /// also the ones an analyst removed when `include_removed`. Only files kept on the
     /// server. Returns how many.
     pub fn requeue(&self, verdict: &str, include_removed: bool, is_kept: &dyn Fn(&str) -> bool) -> Result<usize, String> {
-        let todo: Vec<(String, Option<String>)> = {
-            let guard = self.map.read().unwrap();
-            guard
-                .values()
-                .filter(|i| i.verdict == verdict)
-                .filter(|i| self.reviews.get(&i.sha256.text()).is_none())
-                .filter(|i| include_removed || !self.reviews.was_removed(&i.sha256.text()))
-                .filter(|i| is_kept(&i.sha256.to_ascii_uppercase()))
-                .map(|i| (i.sha256.to_ascii_lowercase(), i.file_names.first().map(|n| n.to_string())))
-                .collect()
-        };
+        let mut todo: Vec<(String, Option<String>)> = Vec::new();
+        self.for_each_with_verdict(&[verdict], |sha, _, name| {
+            let hex = hex::encode(sha);
+            if self.reviews.get(&hex).is_none()
+                && (include_removed || !self.reviews.was_removed(&hex))
+                && is_kept(&hex.to_ascii_uppercase())
+            {
+                todo.push((hex, name));
+            }
+        });
         let mut n = 0;
         for (sha, name) in &todo {
             match self.reviews.enqueue(sha, "requeue", Some(verdict), name.as_deref()) {
@@ -714,19 +849,21 @@ impl ThreatIntelStore {
     /// {verdict: {total, pending, done, removed, missing}}. `missing` should be 0 after
     /// `sync_review_queue`; anything else there is a bug or a full queue.
     pub fn queue_coverage(&self) -> serde_json::Value {
-        let guard = self.map.read().unwrap();
+        let mut acc: HashMap<String, [u64; 5]> = crate::human_review::AUTO_QUEUE_VERDICTS.iter().map(|v| (v.to_string(), [0; 5])).collect();
+        self.for_each_with_verdict(&crate::human_review::AUTO_QUEUE_VERDICTS, |sha, verdict, _| {
+            let Some(a) = acc.get_mut(verdict) else { return };
+            let hex = hex::encode(sha);
+            a[0] += 1;
+            match self.reviews.get(&hex) {
+                Some(r) if r.is_completed() => a[2] += 1,
+                Some(_) => a[1] += 1,
+                None if self.reviews.was_removed(&hex) => a[3] += 1,
+                None => a[4] += 1,
+            }
+        });
         let mut out = serde_json::Map::new();
         for v in crate::human_review::AUTO_QUEUE_VERDICTS {
-            let (mut total, mut pending, mut done, mut removed, mut missing) = (0u64, 0u64, 0u64, 0u64, 0u64);
-            for i in guard.values().filter(|i| i.verdict == v) {
-                total += 1;
-                match self.reviews.get(&i.sha256.text()) {
-                    Some(r) if r.is_completed() => done += 1,
-                    Some(_) => pending += 1,
-                    None if self.reviews.was_removed(&i.sha256.text()) => removed += 1,
-                    None => missing += 1,
-                }
-            }
+            let [total, pending, done, removed, missing] = acc[v];
             out.insert(v.to_string(), serde_json::json!({"total": total, "pending": pending, "done": done, "removed": removed, "missing": missing}));
         }
         serde_json::Value::Object(out)
@@ -748,38 +885,78 @@ impl ThreatIntelStore {
             verdicts: HashMap<String, u64>,
         }
         let mut acc: HashMap<String, Acc> = HashMap::new();
-        {
-            let guard = self.map.read().unwrap();
-            for (sha, i) in guard.iter() {
-                let mut seen_ips: Vec<&str> = Vec::new();
-                for sg in &i.sightings {
-                    if !ip_q.is_empty() && !sg.ip.to_ascii_lowercase().contains(&ip_q) {
-                        continue;
+        self.flush_for_query();
+        // Both tables in hash order (their keys), read side by side: the IPs counted
+        // for one file are known while its rows pass, and no record is looked up one by
+        // one (a join did that, a random read per sighting).
+        let r = self.db.scan(|c| {
+            let mut st = c.prepare("SELECT sha, ip, path, first_seen, last_seen, count FROM sightings ORDER BY sha")?;
+            let mut vst = c.prepare("SELECT sha, verdict FROM insights ORDER BY sha")?;
+            let mut rows = st.query([])?;
+            let mut verdicts = vst.query([])?;
+            let mut next_verdict: Option<(Sha, Option<String>)> = None;
+            let mut cur: Option<Sha> = None;
+            let mut seen_ips: Vec<String> = Vec::new();
+            let mut verdict = String::new();
+            let mut recorded = false;
+            while let Some(row) = rows.next()? {
+                let Ok(sha) = Sha::try_from(row.get_ref(0)?.as_blob()?) else { continue };
+                if cur != Some(sha) {
+                    cur = Some(sha);
+                    seen_ips.clear();
+                    let mut engine = None;
+                    recorded = false;
+                    loop {
+                        match &next_verdict {
+                            Some((s, _)) if *s > sha => break,
+                            Some((s, v)) if *s == sha => {
+                                engine = v.clone();
+                                recorded = true;
+                                break;
+                            }
+                            _ => match verdicts.next()? {
+                                Some(v) => {
+                                    let s = Sha::try_from(v.get_ref(0)?.as_blob()?).unwrap_or([0; 32]);
+                                    next_verdict = Some((s, v.get(1)?));
+                                }
+                                None => break,
+                            },
+                        }
                     }
-                    if !path_q.is_empty() && !sg.path.to_lowercase().contains(&path_q) {
-                        continue;
-                    }
-                    let a = acc.entry(sg.ip.to_string()).or_default();
-                    a.uploads += sg.count;
-                    if !sg.path.is_empty() {
-                        a.paths.insert(sg.path.to_lowercase());
-                    }
-                    let (first, last) = (sg.first_seen.to_string(), sg.last_seen.to_string());
-                    if a.first.is_empty() || first < a.first {
-                        a.first = first;
-                    }
-                    if last > a.last {
-                        a.last = last;
-                    }
-                    if !seen_ips.contains(&sg.ip.as_str()) {
-                        seen_ips.push(&sg.ip);
-                        a.files += 1;
-                        let v = self.reviews.completed_verdict_raw(sha).unwrap_or_else(|| i.verdict.to_string());
-                        *a.verdicts.entry(v).or_default() += 1;
-                    }
+                    verdict = self.reviews.completed_verdict_raw(&sha).or(engine).unwrap_or_default();
+                }
+                if !recorded {
+                    continue;
+                }
+                let ip: String = row.get(1)?;
+                let path: String = row.get(2)?;
+                if !ip_q.is_empty() && !ip.to_ascii_lowercase().contains(&ip_q) {
+                    continue;
+                }
+                if !path_q.is_empty() && !path.to_lowercase().contains(&path_q) {
+                    continue;
+                }
+                let (first, last): (String, String) = (row.get(3)?, row.get(4)?);
+                let a = acc.entry(ip.clone()).or_default();
+                a.uploads += row.get::<_, i64>(5)?.max(0) as u64;
+                if !path.is_empty() {
+                    a.paths.insert(path.to_lowercase());
+                }
+                if a.first.is_empty() || first < a.first {
+                    a.first = first;
+                }
+                if last > a.last {
+                    a.last = last;
+                }
+                if !seen_ips.contains(&ip) {
+                    seen_ips.push(ip);
+                    a.files += 1;
+                    *a.verdicts.entry(verdict.clone()).or_default() += 1;
                 }
             }
-        }
+            Ok(())
+        });
+        log_err("sources", r);
         let mut out: Vec<(u64, serde_json::Value)> = acc
             .into_iter()
             .map(|(ip, a)| {
@@ -798,37 +975,40 @@ impl ThreatIntelStore {
     pub fn files_from_ip(&self, ip: &str, path_q: &str, limit: usize) -> (usize, Vec<serde_json::Value>) {
         let ip = ip.trim();
         let path_q = path_q.trim().to_lowercase();
-        let mut out: Vec<(String, serde_json::Value)> = {
-            let guard = self.map.read().unwrap();
-            guard
-                .iter()
-                .filter_map(|(sha, i)| {
-                    let mine: Vec<&Sighting> = i
-                        .sightings
-                        .iter()
-                        .filter(|s| s.ip == ip && (path_q.is_empty() || s.path.to_lowercase().contains(&path_q)))
-                        .collect();
-                    if mine.is_empty() {
-                        return None;
-                    }
-                    let last = mine.iter().map(|s| &s.last_seen).max().map(|t| t.to_string()).unwrap_or_default();
-                    let human = self.reviews.completed_verdict_raw(sha);
-                    let v = serde_json::json!({
-                        "sha256": i.sha256.to_ascii_lowercase(),
-                        "file_names": i.file_names,
-                        "file_size": i.file_size,
-                        "verdict": human.clone().unwrap_or_else(|| i.verdict.to_string()),
-                        "human": human.is_some(),
-                        "threat": i.threat_name,
-                        "detections": i.detections,
-                        "seen_count": i.seen_count,
-                        "sources": i.sightings.iter().map(|s| s.ip.as_str()).collect::<std::collections::HashSet<_>>().len(),
-                        "sightings": mine,
-                    });
-                    Some((last, v))
-                })
-                .collect()
-        };
+        self.flush_for_query();
+        let mut out: Vec<(String, serde_json::Value)> = Vec::new();
+        let r = self.db.scan(|c| {
+            let mut st = c.prepare("SELECT data FROM insights WHERE sha IN (SELECT sha FROM sightings WHERE ip = ?1)")?;
+            let mut rows = st.query([ip])?;
+            while let Some(row) = rows.next()? {
+                let Ok(i) = serde_json::from_slice::<ThreatInsight>(row.get_ref(0)?.as_blob()?) else { continue };
+                let mine: Vec<&Sighting> = i
+                    .sightings
+                    .iter()
+                    .filter(|s| s.ip == ip && (path_q.is_empty() || s.path.to_lowercase().contains(&path_q)))
+                    .collect();
+                if mine.is_empty() {
+                    continue;
+                }
+                let last = mine.iter().map(|s| &s.last_seen).max().map(|t| t.to_string()).unwrap_or_default();
+                let human = parse_sha(&i.sha256.text()).and_then(|sha| self.reviews.completed_verdict_raw(&sha));
+                let v = serde_json::json!({
+                    "sha256": i.sha256.to_ascii_lowercase(),
+                    "file_names": i.file_names,
+                    "file_size": i.file_size,
+                    "verdict": human.clone().unwrap_or_else(|| i.verdict.to_string()),
+                    "human": human.is_some(),
+                    "threat": i.threat_name,
+                    "detections": i.detections,
+                    "seen_count": i.seen_count,
+                    "sources": i.sightings.iter().map(|s| s.ip.as_str()).collect::<std::collections::HashSet<_>>().len(),
+                    "sightings": mine,
+                });
+                out.push((last, v));
+            }
+            Ok(())
+        });
+        log_err("files_from_ip", r);
         let total = out.len();
         out.sort_by(|a, b| b.0.cmp(&a.0));
         (total, out.into_iter().take(limit).map(|(_, v)| v).collect())
@@ -851,33 +1031,69 @@ impl ThreatIntelStore {
             exact: u64,
         }
         let (mut all, mut recent) = (Acc::default(), Acc::default());
-        {
-            let guard = self.map.read().unwrap();
-            for (sha, i) in guard.iter() {
-                let (verdict, threat) = match self.reviews.completed_raw(sha) {
-                    Some((v, t)) => (v.unwrap_or_default(), t),
-                    None => (i.verdict.to_string(), i.threat_name.as_ref().map(|t| t.to_string())),
-                };
-                if verdict != "malicious" && verdict != "suspicious" {
-                    continue;
+        let mut add = |threat: Option<&str>, first_seen: &str, detections: &[DetectionRef]| {
+            let c = crate::naming::classify(threat.unwrap_or(""));
+            let is_recent = Stamp::new(first_seen) >= since;
+            for acc in std::iter::once(&mut all).chain(is_recent.then_some(&mut recent)) {
+                acc.total += 1;
+                acc.exact += c.exact as u64;
+                *acc.categories.entry(c.category).or_default() += 1;
+                if !c.platform.is_empty() {
+                    *acc.platforms.entry(c.platform).or_default() += 1;
                 }
-                let c = crate::naming::classify(threat.as_deref().unwrap_or(""));
-                let is_recent = i.first_seen >= since;
-                for acc in std::iter::once(&mut all).chain(is_recent.then_some(&mut recent)) {
-                    acc.total += 1;
-                    acc.exact += c.exact as u64;
-                    *acc.categories.entry(c.category).or_default() += 1;
-                    if !c.platform.is_empty() {
-                        *acc.platforms.entry(c.platform).or_default() += 1;
-                    }
-                    if !c.family.is_empty() {
-                        *acc.families.entry((c.family.clone(), c.category)).or_default() += 1;
-                    }
-                    for d in &i.detections {
-                        *acc.signatures.entry((d.layer.clone(), d.name.clone())).or_default() += 1;
-                    }
+                if !c.family.is_empty() {
+                    *acc.families.entry((c.family.clone(), c.category)).or_default() += 1;
+                }
+                for d in detections {
+                    *acc.signatures.entry((d.layer.clone(), d.name.clone())).or_default() += 1;
                 }
             }
+        };
+        let detections_of = |j: Option<String>| -> Vec<DetectionRef> { j.and_then(|j| serde_json::from_str(&j).ok()).unwrap_or_default() };
+        self.flush_for_query();
+        // Engine verdicts of the files no analyst answered...
+        let r = self.db.scan(|c| {
+            let mut st = c.prepare(
+                "SELECT sha, threat, first_seen, json_extract(data, '$.detections') FROM insights WHERE verdict IN ('malicious', 'suspicious')",
+            )?;
+            let mut rows = st.query([])?;
+            while let Some(row) = rows.next()? {
+                let Ok(sha) = Sha::try_from(row.get_ref(0)?.as_blob()?) else { continue };
+                if self.reviews.completed_raw(&sha).is_some() {
+                    continue;
+                }
+                let threat: Option<String> = row.get(1)?;
+                let first: String = row.get::<_, Option<String>>(2)?.unwrap_or_default();
+                add(threat.as_deref(), &first, &detections_of(row.get(3)?));
+            }
+            Ok(())
+        });
+        log_err("type_stats", r);
+        // ...and the human verdicts, whatever the engine said.
+        let human: Vec<(Sha, Option<String>)> = self
+            .reviews
+            .completed_overrides()
+            .into_iter()
+            .filter(|(_, v, _)| matches!(v.as_deref(), Some("malicious" | "suspicious")))
+            .map(|(sha, _, t)| (sha, t))
+            .collect();
+        for chunk in human.chunks(IN_CHUNK) {
+            let sql = format!(
+                "SELECT sha, first_seen, json_extract(data, '$.detections') FROM insights WHERE sha IN ({})",
+                vec!["?"; chunk.len()].join(",")
+            );
+            let threats: HashMap<Sha, Option<String>> = chunk.iter().cloned().collect();
+            let r = self.db.scan(|c| {
+                let mut st = c.prepare(&sql)?;
+                let mut rows = st.query(rusqlite::params_from_iter(chunk.iter().map(|(s, _)| &s[..])))?;
+                while let Some(row) = rows.next()? {
+                    let Ok(sha) = Sha::try_from(row.get_ref(0)?.as_blob()?) else { continue };
+                    let first: String = row.get::<_, Option<String>>(1)?.unwrap_or_default();
+                    add(threats.get(&sha).cloned().flatten().as_deref(), &first, &detections_of(row.get(2)?));
+                }
+                Ok(())
+            });
+            log_err("type_stats", r);
         }
         let out = |a: Acc| {
             let mut fam: Vec<_> = a.families.into_iter().collect();
@@ -902,58 +1118,76 @@ impl ThreatIntelStore {
     /// `verdicts` and no analyst has answered (a completed human review is the verdict and
     /// stays as it is).
     pub fn engine_verdict_hashes(&self, verdicts: &[&str]) -> Vec<(String, String)> {
-        let guard = self.map.read().unwrap();
-        guard
-            .iter()
-            .filter(|(sha, item)| verdicts.contains(&item.verdict.as_str()) && self.reviews.completed_verdict_raw(sha).is_none())
-            .map(|(sha, item)| (hex::encode_upper(sha), item.verdict.to_string()))
-            .collect()
+        let mut out = Vec::new();
+        self.for_each_with_verdict(verdicts, |sha, verdict, _| {
+            if self.reviews.completed_verdict_raw(&sha).is_none() {
+                out.push((hex::encode_upper(sha), verdict.to_string()));
+            }
+        });
+        out
     }
 
     /// SHA-256 (upper-case hex) of every hash whose final verdict (human first) is
     /// unknown.
     pub fn unknown_hashes(&self) -> Vec<String> {
-        let guard = self.map.read().unwrap();
-        guard
-            .iter()
-            .filter(|(sha, item)| {
-                let human = self.reviews.completed_verdict_raw(sha);
-                !matches!(human.as_deref().unwrap_or(item.verdict.as_str()), "malicious" | "suspicious" | "clean" | "possible_clean")
-            })
-            .map(|(sha, _)| hex::encode_upper(sha))
-            .collect()
+        self.flush_for_query();
+        let known = |v: &str| KNOWN_VERDICTS.contains(&v);
+        let mut out = Vec::new();
+        // Engine verdict not a known one, unless an analyst gave a known one...
+        let sql = format!(
+            "SELECT sha FROM insights WHERE verdict NOT IN ({})",
+            KNOWN_VERDICTS.iter().map(|v| format!("'{v}'")).collect::<Vec<_>>().join(",")
+        );
+        let r = self.db.scan(|c| {
+            let mut st = c.prepare(&sql)?;
+            let mut rows = st.query([])?;
+            while let Some(row) = rows.next()? {
+                let Ok(sha) = Sha::try_from(row.get_ref(0)?.as_blob()?) else { continue };
+                if !self.reviews.completed_verdict_raw(&sha).is_some_and(|h| known(&h)) {
+                    out.push(hex::encode_upper(sha));
+                }
+            }
+            Ok(())
+        });
+        log_err("unknown_hashes", r);
+        // ...and recorded files an analyst answered with something else.
+        let human: Vec<Sha> = self
+            .reviews
+            .completed_overrides()
+            .into_iter()
+            .filter_map(|(sha, v, _)| v.filter(|v| !known(v)).map(|_| sha))
+            .collect();
+        for (sha, engine) in self.engine_verdicts(&human) {
+            if known(&engine) {
+                out.push(hex::encode_upper(sha));
+            }
+        }
+        out
     }
 
     pub fn stats(&self) -> ThreatIntelStats {
-        let guard = self.map.read().unwrap();
-        let mut total_sightings = 0u64;
-        let mut malicious_count = 0;
-        let mut suspicious_count = 0;
-        let mut clean_count = 0;
-        let mut possible_clean_count = 0;
-        let mut unknown_count = 0;
-
-        for (sha, item) in guard.iter() {
-            total_sightings += item.seen_count;
-            // A completed human review overrides the engine verdict.
-            let human = self.reviews.completed_verdict_raw(sha);
-            match human.as_deref().unwrap_or(item.verdict.as_str()) {
-                "malicious" => malicious_count += 1,
-                "suspicious" => suspicious_count += 1,
-                "clean" => clean_count += 1,
-                "possible_clean" => possible_clean_count += 1,
-                _ => unknown_count += 1,
+        let Counts { hashes, sightings, mut by_verdict } = self.counts.lock().unwrap().clone();
+        // A completed human review overrides the engine verdict.
+        let human: Vec<(Sha, String)> = self.reviews.completed_overrides().into_iter().filter_map(|(sha, v, _)| Some((sha, v?))).collect();
+        let engine = self.engine_verdicts(&human.iter().map(|(s, _)| *s).collect::<Vec<_>>());
+        for (sha, v) in &human {
+            if let Some(e) = engine.get(sha) {
+                if let Some(n) = by_verdict.get_mut(e) {
+                    *n = n.saturating_sub(1);
+                }
+                *by_verdict.entry(v.clone()).or_default() += 1;
             }
         }
-
+        let n = |v: &str| by_verdict.get(v).copied().unwrap_or(0) as usize;
+        let named: usize = KNOWN_VERDICTS.iter().map(|v| n(v)).sum();
         ThreatIntelStats {
-            total_unique_hashes: guard.len(),
-            total_sightings,
-            malicious_count,
-            suspicious_count,
-            clean_count,
-            possible_clean_count,
-            unknown_count,
+            total_unique_hashes: hashes as usize,
+            total_sightings: sightings,
+            malicious_count: n("malicious"),
+            suspicious_count: n("suspicious"),
+            clean_count: n("clean"),
+            possible_clean_count: n("possible_clean"),
+            unknown_count: (hashes as usize).saturating_sub(named),
         }
     }
 }
@@ -1075,126 +1309,214 @@ fn load_latest_insights(path: &Path) -> std::io::Result<HashMap<Sha, ThreatInsig
     Ok(map)
 }
 
-fn db_path_for(jsonl_path: &Path) -> PathBuf {
-    jsonl_path.with_extension("db")
+/// `threat_insights.db` next to `threat_insights.jsonl`. The archive server keeps its
+/// own `threat_insights_archive.db`, filled from the mirrored `.jsonl`.
+fn db_path_for(jsonl_path: &Path, archive: bool) -> PathBuf {
+    if archive {
+        jsonl_path.with_file_name("threat_insights_archive.db")
+    } else {
+        jsonl_path.with_extension("db")
+    }
 }
 
-fn open_db(jsonl_path: &Path) -> Option<Arc<crate::insight_db::InsightDb>> {
-    let p = db_path_for(jsonl_path);
+fn open_db(jsonl_path: &Path, archive: bool) -> Arc<crate::insight_db::InsightDb> {
+    let p = db_path_for(jsonl_path, archive);
     match crate::insight_db::InsightDb::open(&p) {
-        Ok(db) => Some(Arc::new(db)),
+        Ok(db) => Arc::new(db),
         Err(e) => {
-            eprintln!("[telemetry] opening SQLite {} failed: {e}", p.display());
-            None
+            // Telemetry still works for this run; nothing of it is kept.
+            let tmp = std::env::temp_dir().join(format!("multron_threat_insights_{}.db", std::process::id()));
+            eprintln!("[telemetry] opening SQLite {} failed: {e}; using {} for this run", p.display(), tmp.display());
+            Arc::new(crate::insight_db::InsightDb::open(&tmp).expect("cannot open any threat insights database"))
         }
     }
 }
 
-fn load_from_db(db: &crate::insight_db::InsightDb, jsonl_path: &Path) -> std::io::Result<HashMap<Sha, ThreatInsight>> {
-    let count = db.count().map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
-    
-    // Auto-migrate from JSONL if SQLite is completely empty but threat_insights.jsonl exists
-    if count == 0 && jsonl_path.exists() {
-        eprintln!("[telemetry] SQLite is empty, migrating from {}...", jsonl_path.display());
-        let map = load_latest_insights(jsonl_path)?;
-        let mut batch = Vec::with_capacity(2048);
-        let mut serialized_pool: Vec<Vec<u8>> = Vec::with_capacity(2048);
-        for (sha, item) in &map {
-            if let Ok(bytes) = serde_json::to_vec(item) {
-                serialized_pool.push(bytes);
-            }
-        }
-        for (i, (sha, _)) in map.iter().enumerate() {
-            if i < serialized_pool.len() {
-                batch.push((sha, serialized_pool[i].as_slice()));
-            }
-            if batch.len() >= 2000 {
-                let _ = db.upsert_batch(batch.drain(..));
-            }
-        }
-        if !batch.is_empty() {
-            let _ = db.upsert_batch(batch);
-        }
-        eprintln!("[telemetry] Migrated {} records into SQLite {}", map.len(), db_path_for(jsonl_path).display());
-        return Ok(map);
-    }
-
-    let mut map = HashMap::with_capacity(count as usize);
-    let mut bad = 0usize;
-    db.for_each(|sha, data| {
-        match serde_json::from_slice::<ThreatInsight>(data) {
-            Ok(item) => {
-                map.insert(sha, item);
-            }
-            Err(_) => bad += 1,
-        }
-    }).map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
-
-    if bad > 0 {
-        eprintln!("[telemetry] {bad} corrupted entries in SQLite skipped");
-    }
-    Ok(map)
+/// The record as written to SQLite: its JSON and the columns copied from it.
+fn insight_row(sha: Sha, item: &ThreatInsight) -> Option<crate::insight_db::InsightRow> {
+    Some(crate::insight_db::InsightRow {
+        sha,
+        data: serde_json::to_vec(item).ok()?,
+        verdict: item.verdict.to_string(),
+        threat: item.threat_name.as_ref().map(|t| t.to_string()),
+        first_seen: item.first_seen.to_string(),
+        last_seen: item.last_seen.to_string(),
+        seen_count: item.seen_count as i64,
+        sightings: item
+            .sightings
+            .iter()
+            .map(|s| crate::insight_db::SightingRow {
+                ip: s.ip.to_string(),
+                path: s.path.to_string(),
+                first_seen: s.first_seen.to_string(),
+                last_seen: s.last_seen.to_string(),
+                count: s.count as i64,
+            })
+            .collect(),
+    })
 }
 
-/// Message to the insight writer: a line, or "write everything now and tell me".
+/// Logs a failed SQLite call; `None` then.
+fn log_err<T>(what: &str, r: rusqlite::Result<T>) -> Option<T> {
+    r.map_err(|e| eprintln!("[telemetry] SQLite {what} failed: {e}")).ok()
+}
+
+/// First start with SQLite: the records of the old `threat_insights.jsonl` are moved
+/// in once (the file itself is left as it is).
+fn migrate_jsonl(db: &crate::insight_db::InsightDb, jsonl_path: &Path) {
+    if db.count().unwrap_or(1) != 0 || !jsonl_path.exists() {
+        return;
+    }
+    eprintln!("[telemetry] SQLite is empty, migrating from {}...", jsonl_path.display());
+    let map = match load_latest_insights(jsonl_path) {
+        Ok(m) => m,
+        Err(e) => {
+            eprintln!("[telemetry] reading {} failed: {e}", jsonl_path.display());
+            return;
+        }
+    };
+    let rows: Vec<_> = map.iter().filter_map(|(sha, item)| insight_row(*sha, item)).collect();
+    drop(map);
+    for chunk in rows.chunks(2000) {
+        log_err("migration", db.upsert_batch(chunk));
+    }
+    eprintln!("[telemetry] Migrated {} records into SQLite", rows.len());
+}
+
+/// Fills the columns of rows written without them (an older version, the server that
+/// ran during a seamless update).
+fn fill_stale_columns(db: &crate::insight_db::InsightDb) {
+    let mut after: Sha = [0u8; 32];
+    let mut n = 0usize;
+    loop {
+        let Some(batch) = log_err("stale_rows", db.stale_rows(&after, 5000)) else { return };
+        let Some(last) = batch.last() else { break };
+        after = last.0;
+        let rows: Vec<_> = batch
+            .iter()
+            .map(|(sha, seq, data)| {
+                let row = serde_json::from_slice::<ThreatInsight>(data).ok().and_then(|i| insight_row(*sha, &i));
+                (*seq, *sha, row)
+            })
+            .collect();
+        n += rows.len();
+        log_err("fill_columns", db.fill_columns(&rows));
+    }
+    if n > 0 {
+        eprintln!("[telemetry] filled the query columns of {n} records");
+    }
+}
+
+/// Engine verdict counts of every record, from SQLite.
+fn recount(db: &crate::insight_db::InsightDb) -> Counts {
+    let mut c = Counts::default();
+    let r = db.scan(|conn| {
+        let mut st = conn.prepare(
+            "SELECT verdict, COUNT(*), COALESCE(SUM(seen_count), 0) FROM insights WHERE verdict IS NOT NULL GROUP BY verdict",
+        )?;
+        let mut rows = st.query([])?;
+        while let Some(row) = rows.next()? {
+            let (v, n, s): (String, i64, i64) = (row.get(0)?, row.get(1)?, row.get(2)?);
+            c.hashes += n as u64;
+            c.sightings += s.max(0) as u64;
+            c.by_verdict.insert(v, n as u64);
+        }
+        Ok(())
+    });
+    log_err("recount", r);
+    c
+}
+
+/// Writes what is pending (not on a standby, which must not write) and counts again.
+/// `drop_clean`: another process wrote the database (seamless update), so records in
+/// memory that are not changes of ours may be older than SQLite. Holds the records
+/// while it counts, so no change falls between the two.
+fn resync(
+    db: &crate::insight_db::InsightDb,
+    hot: &RwLock<HashMap<Sha, ThreatInsight>>,
+    counts: &Mutex<Counts>,
+    drop_clean: bool,
+) {
+    let mut g = hot.write().unwrap();
+    if !crate::config::is_standby() {
+        let rows = take_dirty(&mut g);
+        write_rows(db, &rows, &mut g);
+    }
+    if drop_clean {
+        g.retain(|_, i| i.dirty);
+    }
+    *counts.lock().unwrap() = recount(db);
+}
+
+/// The records marked `dirty`, as rows to write; the mark is cleared.
+fn take_dirty(g: &mut HashMap<Sha, ThreatInsight>) -> Vec<crate::insight_db::InsightRow> {
+    g.iter_mut()
+        .filter(|(_, i)| i.dirty)
+        .filter_map(|(sha, i)| {
+            i.dirty = false;
+            insight_row(*sha, i)
+        })
+        .collect()
+}
+
+/// Writes the rows; a batch that fails is marked `dirty` again (in `g`) so the next
+/// round tries again. Returns the shas of failed batches.
+fn write_rows(db: &crate::insight_db::InsightDb, rows: &[crate::insight_db::InsightRow], g: &mut HashMap<Sha, ThreatInsight>) {
+    for sha in failed_rows(db, rows) {
+        if let Some(i) = g.get_mut(&sha) {
+            i.dirty = true;
+        }
+    }
+}
+
+fn failed_rows(db: &crate::insight_db::InsightDb, rows: &[crate::insight_db::InsightRow]) -> Vec<Sha> {
+    let mut failed = Vec::new();
+    for chunk in rows.chunks(WRITE_BATCH) {
+        if log_err("upsert_batch", db.upsert_batch(chunk)).is_none() {
+            failed.extend(chunk.iter().map(|r| r.sha));
+        }
+    }
+    failed
+}
+
+/// Message to the insight writer: "write everything now and tell me". Changes are
+/// marked on the records themselves (`dirty`); the writer writes them every 2 s.
 enum WriterMsg {
-    Item(ThreatInsight),
     Flush(mpsc::SyncSender<()>),
 }
 
-fn start_batch_writer(db: Arc<crate::insight_db::InsightDb>) -> mpsc::Sender<WriterMsg> {
+/// Most records written in one transaction.
+const WRITE_BATCH: usize = 2048;
+
+fn start_batch_writer(
+    db: Arc<crate::insight_db::InsightDb>,
+    hot: Arc<RwLock<HashMap<Sha, ThreatInsight>>>,
+    counts: Arc<Mutex<Counts>>,
+) -> mpsc::Sender<WriterMsg> {
     let (tx, rx) = mpsc::channel::<WriterMsg>();
 
     std::thread::Builder::new()
         .name("threat_intel_writer".into())
         .spawn(move || {
-            let mut buffer: Vec<ThreatInsight> = Vec::with_capacity(128);
-            let mut last_flush = std::time::Instant::now();
-
+            // A standby fills the columns the old server left out once it has taken over.
+            let mut filled = !crate::config::is_standby();
             loop {
-                // Wake up at least every 2 s so a lone update is not left unflushed
-                // until the next one arrives (it would be lost on restart).
-                match rx.recv_timeout(Duration::from_secs(2)) {
-                    Ok(WriterMsg::Item(item)) => buffer.push(item),
+                let msg = rx.recv_timeout(Duration::from_secs(2));
+                if !crate::config::is_standby() {
+                    if !filled {
+                        fill_stale_columns(&db);
+                        resync(&db, &hot, &counts, true);
+                        filled = true;
+                    }
+                    flush(&db, &hot);
+                }
+                match msg {
                     Ok(WriterMsg::Flush(done)) => {
-                        flush_insights(&db, &mut buffer);
-                        last_flush = std::time::Instant::now();
                         let _ = done.send(());
-                        continue;
                     }
-                    Err(mpsc::RecvTimeoutError::Timeout) => {
-                        if !buffer.is_empty() {
-                            flush_insights(&db, &mut buffer);
-                            last_flush = std::time::Instant::now();
-                        }
-                        continue;
-                    }
+                    Err(mpsc::RecvTimeoutError::Timeout) => {}
                     Err(mpsc::RecvTimeoutError::Disconnected) => break,
                 }
-
-                // Drain remaining queued items non-blockingly
-                while let Ok(more) = rx.try_recv() {
-                    match more {
-                        WriterMsg::Item(item) => buffer.push(item),
-                        WriterMsg::Flush(done) => {
-                            flush_insights(&db, &mut buffer);
-                            last_flush = std::time::Instant::now();
-                            let _ = done.send(());
-                        }
-                    }
-                    if buffer.len() >= 4096 {
-                        break;
-                    }
-                }
-
-                if buffer.len() >= 2048 || last_flush.elapsed() >= Duration::from_secs(2) {
-                    flush_insights(&db, &mut buffer);
-                    last_flush = std::time::Instant::now();
-                }
-            }
-
-            if !buffer.is_empty() {
-                flush_insights(&db, &mut buffer);
             }
         })
         .expect("failed to spawn threat intel writer thread");
@@ -1202,39 +1524,28 @@ fn start_batch_writer(db: Arc<crate::insight_db::InsightDb>) -> mpsc::Sender<Wri
     tx
 }
 
-fn flush_insights(db: &crate::insight_db::InsightDb, buffer: &mut Vec<ThreatInsight>) {
-    if buffer.is_empty() {
-        return;
-    }
-
-    let mut last: HashMap<&HexSha, usize> = HashMap::with_capacity(buffer.len());
-    for (i, item) in buffer.iter().enumerate() {
-        last.insert(&item.sha256, i);
-    }
-    let keep: std::collections::HashSet<usize> = last.into_values().collect();
-
-    let mut batch = Vec::with_capacity(keep.len());
-    let mut raw_data = Vec::with_capacity(keep.len());
-    let mut sha_keys = Vec::with_capacity(keep.len());
-
-    for (i, item) in buffer.drain(..).enumerate() {
-        if !keep.contains(&i) {
-            continue;
-        }
-        if let Some(sha_bytes) = parse_sha(&item.sha256.text()) {
-            if let Ok(serialized) = serde_json::to_vec(&item) {
-                sha_keys.push(sha_bytes);
-                raw_data.push(serialized);
-            }
+/// Writes the changed records (the records are not held while SQLite writes), then
+/// drops written ones beyond `HOT_MAX` (records waiting for the upload a hash check
+/// asked for stay while there is room: they carry `pending_uploads`, which is not
+/// written).
+fn flush(db: &crate::insight_db::InsightDb, hot: &RwLock<HashMap<Sha, ThreatInsight>>) {
+    let rows = take_dirty(&mut hot.write().unwrap());
+    let failed = failed_rows(db, &rows);
+    drop(rows);
+    let mut g = hot.write().unwrap();
+    for sha in failed {
+        if let Some(i) = g.get_mut(&sha) {
+            i.dirty = true;
         }
     }
-
-    for (sha, data) in sha_keys.iter().zip(raw_data.iter()) {
-        batch.push((sha, data.as_slice()));
+    if g.len() > HOT_MAX {
+        g.retain(|_, i| i.dirty || i.pending_uploads > 0);
     }
-
-    if let Err(e) = db.upsert_batch(batch) {
-        eprintln!("[telemetry] SQLite upsert_batch failed: {e}");
+    if g.len() > 4 * HOT_MAX {
+        g.retain(|_, i| i.dirty);
+    }
+    if g.capacity() > 4 * HOT_MAX && g.len() < HOT_MAX {
+        g.shrink_to(HOT_MAX);
     }
 }
 
@@ -1537,5 +1848,133 @@ mod sighting_tests {
         ti.record(&sha, "malicious", None, None, None, 1.0);
         assert_eq!(seen(), 5);
         let _ = std::fs::remove_file(&path);
+    }
+}
+
+#[cfg(test)]
+mod store_tests {
+    use super::*;
+
+    fn store(tag: &str) -> (Arc<ThreatIntelStore>, PathBuf) {
+        let dir = std::env::temp_dir().join(format!("ti_store_{tag}_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("threat_insights.jsonl");
+        (ThreatIntelStore::new(Some(path)), dir)
+    }
+
+    fn sha(i: usize) -> String {
+        format!("{:064x}", i as u128 * 0x9e37_79b9_7f4a_7c15 + 1)
+    }
+
+    const VERDICTS: [&str; 5] = ["malicious", "suspicious", "clean", "possible_clean", "unknown"];
+
+    /// More records than stay in memory: what is not there any more is read back from
+    /// SQLite, and the counts, lists and IP pages agree with what was recorded.
+    #[test]
+    fn records_beyond_memory_are_read_back_and_counted() {
+        let (ti, dir) = store("big");
+        let n = HOT_MAX + 10_000;
+        for i in 0..n {
+            let v = VERDICTS[i % VERDICTS.len()];
+            ti.record(&sha(i), v, (v == "malicious").then_some("Trojan.Win32.Agent"), Some(&format!("f{i}.exe")), Some(100), 1.0);
+            ti.add_folder(&sha(i), &format!("10.0.0.{}", i % 7), "", &format!("C:\\Users\\a\\dir{}", i % 3));
+        }
+        // One file seen twice from one IP, once from another.
+        ti.record(&sha(0), "malicious", None, None, None, 1.0);
+        ti.add_folder(&sha(0), "10.0.0.0", "", "C:\\Users\\a\\dir0");
+        ti.add_folder(&sha(0), "192.168.1.1", "", "");
+        assert!(ti.flush(Duration::from_secs(60)));
+        assert!(ti.hot.read().unwrap().len() <= HOT_MAX, "written records leave memory");
+
+        let st = ti.stats();
+        assert_eq!(st.total_unique_hashes, n);
+        assert_eq!(st.total_sightings, n as u64 + 1);
+        assert_eq!(st.malicious_count, n.div_ceil(5));
+        assert_eq!(st.unknown_count, (0..n).filter(|i| i % 5 == 4).count());
+
+        // The counts kept on the way equal the ones SQLite gives.
+        ti.resync();
+        let again = ti.stats();
+        assert_eq!((again.total_unique_hashes, again.total_sightings, again.malicious_count, again.clean_count), (st.total_unique_hashes, st.total_sightings, st.malicious_count, st.clean_count));
+
+        // The first record left memory long ago.
+        let first = ti.get(&sha(0)).expect("read back from SQLite");
+        assert_eq!((first.seen_count, first.verdict.as_str()), (2, "malicious"));
+        assert_eq!(first.sightings.len(), 2);
+        assert_eq!(ti.effective(&sha(0)).0, "malicious");
+        assert_eq!(ti.effective(&sha(n + 5)).1, "unseen");
+
+        // A change to a record that is only in SQLite.
+        ti.set_engine_verdict(&sha(0), "clean", None, 0.0);
+        assert_eq!(ti.stats().malicious_count, st.malicious_count - 1);
+        assert_eq!(ti.get(&sha(0)).unwrap().seen_count, 2, "loaded, not replaced");
+
+        let unknown = ti.unknown_hashes();
+        assert_eq!(unknown.len(), st.unknown_count);
+        assert_eq!(ti.engine_verdict_hashes(&["suspicious"]).len(), st.suspicious_count);
+        assert_eq!(ti.first_seen_on(&Utc::now().format("%Y-%m-%d").to_string(), 10).len(), 10);
+
+        let src = ti.sources("", "", 100);
+        let ip0 = src.iter().find(|v| v["ip"] == "10.0.0.0").unwrap();
+        assert_eq!(ip0["files"], n.div_ceil(7));
+        assert_eq!(ip0["paths"], 3);
+        let (total, files) = ti.files_from_ip("192.168.1.1", "", 10);
+        assert_eq!((total, files.len()), (1, 1));
+        assert_eq!(files[0]["sha256"], sha(0));
+
+        let types = ti.type_stats(7);
+        assert_eq!(types["all"]["total"], (st.malicious_count - 1 + st.suspicious_count) as u64);
+
+        drop(ti);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Process memory with many records written (Windows):
+    /// `cargo test --release -- --ignored store_memory --nocapture`.
+    #[test]
+    #[ignore]
+    fn store_memory() {
+        let private = || {
+            let out = std::process::Command::new("powershell")
+                .args(["-NoProfile", "-Command", &format!("(Get-Process -Id {}).PrivateMemorySize64", std::process::id())])
+                .output();
+            out.ok().and_then(|o| String::from_utf8_lossy(&o.stdout).trim().parse::<u64>().ok()).unwrap_or(0) >> 20
+        };
+        let (ti, dir) = store("mem");
+        let before = private();
+        let n: usize = std::env::var("TI_RECORDS").ok().and_then(|v| v.parse().ok()).unwrap_or(500_000);
+        let t = std::time::Instant::now();
+        for i in 0..n {
+            ti.record(&sha(i), VERDICTS[i % 5], Some("Trojan.Win32.Agent"), Some(&format!("some_installer_{i}.exe")), Some(1 << 20), 1.0);
+            for k in 0..3 {
+                ti.add_folder(&sha(i), &format!("10.{}.{}.{}", k, i % 250, i % 13), "", &format!("C:\\Users\\user{}\\Downloads\\folder{}", i % 50, i % 1000));
+            }
+            if i % 100_000 == 0 {
+                eprintln!("{i} records, private {} MB", private());
+            }
+        }
+        let wrote = std::time::Instant::now();
+        let peak = private();
+        while !ti.flush(Duration::from_secs(600)) {}
+        eprintln!("peak private {peak} MB while writing; the writer caught up {:.1} s after the last record", wrote.elapsed().as_secs_f64());
+        eprintln!(
+            "{n} records in {:.1} s; private {} MB before, {} MB after; {} in memory",
+            t.elapsed().as_secs_f64(),
+            before,
+            private(),
+            ti.hot.read().unwrap().len()
+        );
+        let t = std::time::Instant::now();
+        let st = ti.stats();
+        eprintln!("stats {:?} in {:?}", st.total_unique_hashes, t.elapsed());
+        let t = std::time::Instant::now();
+        let s = ti.sources("", "", 50);
+        eprintln!("sources {} ips in {:?}", s.len(), t.elapsed());
+        let t = std::time::Instant::now();
+        let ty = ti.type_stats(7);
+        eprintln!("type_stats total {} in {:?}; private {} MB", ty["all"]["total"], t.elapsed(), private());
+        drop(ti);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

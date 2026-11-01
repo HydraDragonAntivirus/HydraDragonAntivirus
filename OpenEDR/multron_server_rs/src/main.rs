@@ -149,6 +149,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let lengths = standby.then(handoff::lengths);
     let threat_intel = threat_intel::ThreatIntelStore::new(None);
+    verdict_history::start();
 
     // Standby: wait for the engine (calling the running server every few seconds and
     // following what it writes), then ask it to hand over and take its ports.
@@ -238,6 +239,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let srv = Arc::clone(&scan_server);
         scan_server.mirror.set_work_dir(engine.work_dir().map(|p| p.to_path_buf()));
         let ti = Arc::clone(&threat_intel);
+        scan_server.mirror.set_insights_db(Arc::clone(threat_intel.db()));
         scan_server.mirror.set_verdict_lookup(Arc::new(move |sha: &str| {
             let (verdict, source, _) = ti.effective(&sha.to_ascii_lowercase());
             (source != "unseen").then_some(verdict)
