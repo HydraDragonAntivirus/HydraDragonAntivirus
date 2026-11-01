@@ -347,44 +347,6 @@
     </section>
 
     <section class="card">
-      <h2>URL Threats</h2>
-      <div style="display:flex; gap:6px; margin-bottom:10px; flex-wrap:wrap;">
-        <input id="uiSearch" type="search" placeholder="URL, host or threat..." style="flex:1; min-width:160px; font-size:11.5px;">
-        <select id="uiVerdict">
-          <option value="threat">Malicious + suspicious</option>
-          <option value="unreviewed">Waiting for an analyst</option>
-          <option value="reviewed">Reviewed by an analyst</option>
-          <option value="malicious">Malicious</option>
-          <option value="suspicious">Suspicious</option>
-          <option value="all">All listed (also those that turned clean)</option>
-        </select>
-      </div>
-      <div class="limits">
-        <span>Listed URLs:</span><b id="uiTotal">—</b>
-        <span>Malicious:</span><b id="uiMalicious" style="color:var(--red);">—</b>
-        <span>Suspicious:</span><b id="uiSuspicious" style="color:var(--orange);">—</b>
-        <span>No longer a threat:</span><b id="uiOther">—</b>
-        <span>Reviewed:</span><b id="uiReviewed">—</b>
-      </div>
-      <div class="hint" id="uiInfo" style="margin:8px 0 4px">URLs a scan found malicious or suspicious, kept across restarts (url_insights.jsonl). A later scan of the same URL updates it, also when it turns clean. Click a URL to review it: the analyst verdict is what the list counts and what later scans of the URL answer.</div>
-      <div class="tablewrap" style="max-height:340px"><table><thead><tr><th>Verdict</th><th>URL</th><th>Threat</th><th class="num">Seen</th><th>Last seen</th></tr></thead><tbody id="uiRows"></tbody></table></div>
-      <div id="uiReview" hidden style="margin-top:10px;border-top:1px solid var(--border);padding-top:10px">
-        <div class="hint" style="margin-bottom:6px">Analyst review of <b class="mono" id="uiRvUrl" style="word-break:break-all"></b> · engine: <span id="uiRvEngine"></span></div>
-        <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
-          <select id="uiRvVerdict"><option value="malicious">Malicious</option><option value="suspicious">Suspicious</option><option value="clean">Clean</option></select>
-          <input id="uiRvThreat" type="text" placeholder="Threat name (e.g. Phishing.Web.Generic)" style="flex:1;min-width:160px">
-        </div>
-        <input id="uiRvNote" type="text" placeholder="Note (shown with the verdict)" style="width:100%;margin-top:6px">
-        <div style="display:flex;gap:6px;margin-top:6px;align-items:center">
-          <button class="primary" id="uiRvSave">Save verdict</button>
-          <button class="ghost" id="uiRvRemove">Remove review</button>
-          <button class="ghost" id="uiRvClose">Close</button>
-          <span class="hint" id="uiRvMsg"></span>
-        </div>
-      </div>
-    </section>
-
-    <section class="card">
       <h2>Engine &amp; limits</h2>
       <div class="limits" id="limits"></div>
       <div style="display:flex;gap:8px;align-items:center;margin-top:12px;flex-wrap:wrap">
@@ -664,6 +626,7 @@
         <button class="ghost active" data-tab="Queue">Queue <span id="haQCount"></span></button>
         <button class="ghost" data-tab="Folder">Folder whitelist</button>
         <button class="ghost" data-tab="Recent">Verdicts</button>
+        <button class="ghost" data-tab="Urls">URL verdicts</button>
         <button class="ghost" data-tab="Stats">Analysts &amp; time</button>
         <button class="ghost" data-tab="Rescan">Rescan</button>
         <button class="ghost" data-tab="Alyzer">VirusKovAlyzer</button>
@@ -864,6 +827,47 @@
           <thead><tr><th>File</th><th>Verdict</th><th>Notes</th><th>Analyst</th><th class="num">Waited</th><th class="num">Analysis</th><th class="num">Total</th><th>Reviewed</th><th></th></tr></thead>
           <tbody id="haRecentRows"></tbody>
         </table>
+      </div>
+    </div>
+    <div class="ha-tab" id="haTabUrls" hidden>
+      <div class="ha-toolbar" style="grid-template-columns:minmax(180px,1fr) 260px">
+        <input id="uiSearch" type="search" placeholder="Search URL, host or threat…">
+        <select id="uiVerdict">
+          <option value="threat">Malicious + suspicious</option>
+          <option value="unreviewed">Waiting for an analyst</option>
+          <option value="reviewed">Reviewed by an analyst</option>
+          <option value="malicious">Malicious</option>
+          <option value="suspicious">Suspicious</option>
+          <option value="all">All listed (also those that turned clean)</option>
+        </select>
+      </div>
+      <div class="hint" style="display:flex;gap:18px;flex-wrap:wrap;margin:10px 0 0">
+        <span>Listed URLs: <b id="uiTotal">—</b></span>
+        <span>Malicious: <b id="uiMalicious" style="color:var(--red);">—</b></span>
+        <span>Suspicious: <b id="uiSuspicious" style="color:var(--orange);">—</b></span>
+        <span>No longer a threat: <b id="uiOther">—</b></span>
+        <span>Reviewed: <b id="uiReviewed">—</b></span>
+      </div>
+      <div class="hint" id="uiInfo" style="margin:6px 0 0">URLs a scan found malicious or suspicious, kept across restarts (url_insights.jsonl). A later scan of the same URL updates it, also when it turns clean. Click a URL to review it: the analyst verdict is what the list counts and what later scans of the URL answer.</div>
+      <div id="uiLayout" style="margin-top:10px">
+        <div class="tablewrap ha-table" style="min-width:0">
+          <table>
+            <thead><tr><th>URL</th><th>Verdict</th><th>Threat</th><th>Notes</th><th>Analyst</th><th class="num">Seen</th><th>Last seen</th></tr></thead>
+            <tbody id="uiRows"></tbody>
+          </table>
+        </div>
+        <div id="uiReview" hidden style="border:1px solid var(--border);border-radius:10px;padding:12px">
+          <div class="hint" style="margin:0 0 6px">Analyst review of <b class="mono" id="uiRvUrl" style="word-break:break-all"></b> · engine: <span id="uiRvEngine"></span></div>
+          <select id="uiRvVerdict" style="width:100%"><option value="malicious">Malicious</option><option value="suspicious">Suspicious</option><option value="clean">Clean</option></select>
+          <input id="uiRvThreat" type="text" placeholder="Threat name (e.g. Phishing.Web.Generic)" style="width:100%;margin-top:6px">
+          <input id="uiRvNote" type="text" placeholder="Note (shown with the verdict)" style="width:100%;margin-top:6px">
+          <div style="display:flex;gap:6px;margin-top:8px;align-items:center;flex-wrap:wrap">
+            <button class="primary" id="uiRvSave">Save verdict</button>
+            <button class="ghost" id="uiRvRemove">Remove review</button>
+            <button class="ghost" id="uiRvClose">Close</button>
+            <span class="hint" id="uiRvMsg"></span>
+          </div>
+        </div>
       </div>
     </div>
     <div class="ha-tab" id="haTabStats" hidden>
@@ -1886,10 +1890,10 @@ window.sigKey = (list) => list && list.length ? `${list[0].layer}: ${list[0].nam
       $("uiRows").innerHTML = d.items.map(i => {
         const v = i.human_verdict || i.verdict;
         const who = i.human_verdict ? ` <span class="hint" title="Analyst${i.analyst ? ": " + uiEsc(i.analyst) : ""}; engine: ${uiEsc(i.verdict)}">👤</span>` : "";
-        return `<tr data-url="${uiEsc(i.url)}" style="cursor:pointer" title="${uiEsc(i.human_note || i.reason)}"><td><span class="tag ${tag(v)}">${uiEsc(v)}</span>${who}</td><td class="file mono" style="word-break:break-all">${uiEsc(i.url)}</td><td>${uiEsc(i.human_threat || i.threat || "")}</td><td class="num">${i.seen_count.toLocaleString()}</td><td>${uiEsc(new Date(i.last_seen).toLocaleString())}</td></tr>`;
+        return `<tr class="it" data-url="${uiEsc(i.url)}" title="${uiEsc(i.human_note || i.reason)}"><td class="file mono" style="word-break:break-all">${uiEsc(i.url)}</td><td><span class="tag ${tag(v)}">${uiEsc(v)}</span>${who}</td><td>${uiEsc(i.human_threat || i.threat || "")}</td><td>${uiEsc(i.human_note || i.reason || "")}</td><td>${uiEsc(i.analyst || "")}</td><td class="num">${i.seen_count.toLocaleString()}</td><td>${uiEsc(new Date(i.last_seen).toLocaleString())}</td></tr>`;
       }).join("")
-        || `<tr><td colspan="5" class="hint">No URL threats${d.matched === 0 && d.total ? " match" : " yet"}.</td></tr>`;
-      if (d.matched > d.items.length) $("uiRows").insertAdjacentHTML("beforeend", `<tr><td colspan="5" class="hint">${d.items.length} of ${d.matched.toLocaleString()} shown; search to narrow.</td></tr>`);
+        || `<tr><td colspan="7" class="hint">No URL threats${d.matched === 0 && d.total ? " match" : " yet"}.</td></tr>`;
+      if (d.matched > d.items.length) $("uiRows").insertAdjacentHTML("beforeend", `<tr><td colspan="7" class="hint">${d.items.length} of ${d.matched.toLocaleString()} shown; search to narrow.</td></tr>`);
     } catch (e) { $("uiInfo").textContent = e.message; }
   };
   // Analyst review of one URL: click a row, pick a verdict, save.
@@ -1899,6 +1903,7 @@ window.sigKey = (list) => list && list.length ? `${list[0].layer}: ${list[0].nam
     const i = tr && uiItems.get(tr.dataset.url);
     if (!i) return;
     $("uiReview").hidden = false;
+    $("uiLayout").className = "ha-layout";
     $("uiRvUrl").textContent = i.url;
     $("uiRvEngine").textContent = i.verdict + (i.threat ? ` (${i.threat})` : "");
     $("uiRvVerdict").value = i.human_verdict || (i.verdict === "suspicious" ? "suspicious" : "malicious");
@@ -1916,7 +1921,7 @@ window.sigKey = (list) => list && list.length ? `${list[0].layer}: ${list[0].nam
   };
   $("uiRvSave").onclick = () => uiRvSend($("uiRvVerdict").value);
   $("uiRvRemove").onclick = () => { if (confirm("Remove the analyst review of this URL?")) uiRvSend(""); };
-  $("uiRvClose").onclick = () => { $("uiReview").hidden = true; };
+  $("uiRvClose").onclick = () => { $("uiReview").hidden = true; $("uiLayout").className = ""; };
   $("uiSearch").oninput = () => { clearTimeout(uiTimer); uiTimer = setTimeout(updateUrlInsights, 300); };
   $("uiVerdict").onchange = updateUrlInsights;
   setInterval(updateUrlInsights, 10000);
@@ -2024,7 +2029,7 @@ window.sigKey = (list) => list && list.length ? `${list[0].layer}: ${list[0].nam
   // Tabs
   document.querySelectorAll("#haTabs button").forEach(b => b.onclick = () => {
     document.querySelectorAll("#haTabs button").forEach(x => x.classList.toggle("active", x === b));
-    ["Queue", "Folder", "Recent", "Stats", "Rescan", "Alyzer", "Sources"].forEach(t => { $("haTab" + t).hidden = t !== b.dataset.tab; });
+    ["Queue", "Folder", "Recent", "Urls", "Stats", "Rescan", "Alyzer", "Sources"].forEach(t => { $("haTab" + t).hidden = t !== b.dataset.tab; });
   });
   const haShowTab = (t) => document.querySelector(`#haTabs button[data-tab="${t}"]`).click();
 
