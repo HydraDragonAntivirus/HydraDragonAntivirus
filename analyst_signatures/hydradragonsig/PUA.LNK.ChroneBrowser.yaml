@@ -1,0 +1,22 @@
+rules:
+- id: VK-PUA-CHRONE-LNK
+  title: Shortcut to bundled Chrone browser
+  description: Shortcut pointing to C:\Chrone\chrome.exe (DriverPack-bundled Cent Browser).
+  severity: low
+  verdict: pua
+  confidence: 85
+  score: 40
+  family: PUA.Win32.ChroneBrowser
+  tags:
+  - analyst
+  - pua
+  - driverpack
+  logic: all
+  conditions:
+  - type: string_set
+    values:
+    - Chrone\chrome.exe
+    - Chrone\chrone.ico
+    min: 1
+    nocase: true
+    wide: true

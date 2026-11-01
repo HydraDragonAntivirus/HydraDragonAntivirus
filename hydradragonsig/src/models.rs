@@ -232,6 +232,10 @@ impl Verdict {
 pub struct Hashes {
     pub sha256: String,
     pub md5: String,
+    #[serde(default)]
+    pub sha1: String,
+    #[serde(default)]
+    pub crc32: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -379,7 +383,7 @@ fn normalize_file_type_name(value: &str) -> String {
     out.trim_matches('_').to_string()
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct PeSectionInfo {
     pub name: String,
     pub virtual_size: u64,
@@ -392,7 +396,7 @@ pub struct PeSectionInfo {
     pub raw_offset: u64,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct PeInfo {
     pub arch: String,
     pub is_64: bool,

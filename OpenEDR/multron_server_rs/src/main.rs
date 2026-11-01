@@ -1,5 +1,7 @@
 mod budget;
 mod cache;
+mod company_signers;
+mod insight_db;
 mod config;
 mod dashboard;
 mod dataset;
@@ -14,6 +16,9 @@ mod alyzer;
 mod archive;
 mod archived;
 mod human_review;
+mod hexsha;
+mod istr;
+mod stamp;
 mod imphash_sigs;
 mod yara_classes;
 mod ip_bans;
@@ -38,6 +43,7 @@ mod scan_server;
 mod scheduler;
 mod threat_intel;
 mod uptime;
+mod url_intel;
 
 use std::net::SocketAddr;
 use std::path::PathBuf;
@@ -143,6 +149,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let lengths = standby.then(handoff::lengths);
     let threat_intel = threat_intel::ThreatIntelStore::new(None);
+    verdict_history::start();
 
     // Standby: wait for the engine (calling the running server every few seconds and
     // following what it writes), then ask it to hand over and take its ports.
@@ -229,24 +236,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     if args.archive {
         crate::archive::spawn_reloader(Arc::clone(&scan_server));
     } else {
-        // Without a work folder nothing is kept: every verdict would look file-less.
-        if engine.work_dir().is_some() {
-            let srv = Arc::clone(&scan_server);
-            let _ = std::thread::Builder::new().name("forget-fileless".into()).spawn(move || {
-                let gone = srv.threat_intel.forget_malicious_without_file(&|s| srv.engine.is_kept(s) || archived::get(s).is_some());
-                for sha in &gone {
-                    if let Some(b) = crate::cache::parse_sha(sha) {
-                        srv.cache.forget(&b);
-                    }
-                }
-                if !gone.is_empty() {
-                    eprintln!("[telemetry] {} malicious hashes without a file on the server set back to unknown", gone.len());
-                }
-            });
-        }
         let srv = Arc::clone(&scan_server);
         scan_server.mirror.set_work_dir(engine.work_dir().map(|p| p.to_path_buf()));
         let ti = Arc::clone(&threat_intel);
+        scan_server.mirror.set_insights_db(Arc::clone(threat_intel.db()));
         scan_server.mirror.set_verdict_lookup(Arc::new(move |sha: &str| {
             let (verdict, source, _) = ti.effective(&sha.to_ascii_lowercase());
             (source != "unseen").then_some(verdict)
@@ -365,7 +358,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 fn startup_upkeep(engine: &Arc<EngineAdapter>, ti: &Arc<threat_intel::ThreatIntelStore>) {
     // One-off: verdict history from the existing append-only logs (background).
     verdict_history::backfill_if_missing();
-    engine.sort_legacy_kept(|sha| ti.get(sha).map(|i| i.verdict));
+    engine.sort_legacy_kept(|sha| ti.get(sha).map(|i| i.verdict.to_string()));
     // Kept files follow human verdicts (e.g. bulk whitelists made by older builds).
     let queued = ti.sync_review_queue(&|s| engine.is_kept(s));
     if queued > 0 {

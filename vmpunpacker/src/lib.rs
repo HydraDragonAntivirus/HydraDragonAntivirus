@@ -124,6 +124,24 @@ fn find_pattern(data: &[u8], pattern: &[u8]) -> Option<usize> {
     if pattern.is_empty() || data.len() < pattern.len() {
         return None;
     }
+    // Anchor on the first fully fixed 4-byte group (the patterns here are wildcard u32 +
+    // RVA u32 pairs): one u32 compare per offset instead of the byte loop below, which
+    // ran over every file the emulator loads.
+    if let Some(g) = (0..pattern.len() / 4).find(|g| pattern[g * 4..g * 4 + 4].iter().all(|&b| b != 0xFF)) {
+        let at = g * 4;
+        let anchor = u32::from_le_bytes(pattern[at..at + 4].try_into().unwrap());
+        let last = data.len() - pattern.len();
+        let mut i = 0;
+        while i <= last {
+            if u32::from_le_bytes(data[i + at..i + at + 4].try_into().unwrap()) == anchor
+                && pattern.iter().enumerate().all(|(j, &p)| p == 0xFF || data[i + j] == p)
+            {
+                return Some(i);
+            }
+            i += 1;
+        }
+        return None;
+    }
     'outer: for i in 0..=data.len() - pattern.len() {
         for (j, &p) in pattern.iter().enumerate() {
             if p != 0xFF && data[i + j] != p {

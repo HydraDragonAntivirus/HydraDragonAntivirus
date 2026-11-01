@@ -1329,6 +1329,13 @@ fn rule_signature_atom_count(rule: &Rule) -> usize {
             RuleCondition::ImphashAny { values } => values.len(),
             RuleCondition::EmulatedApiAny { names } => names.len(),
             RuleCondition::EmulatedSequence { steps, .. } => steps.len(),
+            RuleCondition::PeAnchorPattern { patterns, .. }
+            | RuleCondition::SectorPattern { patterns, .. } => patterns.len().max(1),
+            RuleCondition::ResourceMatch { data_patterns, .. } => data_patterns.len().max(1),
+            RuleCondition::ResourceHashAny { values }
+            | RuleCondition::ExportHashAny { values } => values.len().max(1),
+            RuleCondition::Clsid { guids, .. } => guids.len().max(1),
+            RuleCondition::FeatureBounds { bounds, .. } => bounds.len().max(1),
             _ => 1,
         })
         .sum()
@@ -1565,9 +1572,22 @@ fn evaluate_rule_with_matches(
             | RuleCondition::SectionEntropy { .. }
             | RuleCondition::SectionNameRegex { .. }
             | RuleCondition::PeSection { .. }
-            | RuleCondition::PackedPe => view.ensure_pe(report, bytes),
-            RuleCondition::HashSha256 { .. } | RuleCondition::HashMd5 { .. } => {
-                if report.hashes.sha256.is_empty() && !bytes.is_empty() {
+            | RuleCondition::PackedPe
+            | RuleCondition::PeAnchorPattern { .. }
+            | RuleCondition::ByteRepeat { .. }
+            | RuleCondition::Authenticode { .. }
+            | RuleCondition::VersionInfo { .. }
+            | RuleCondition::ResourceMatch { .. }
+            | RuleCondition::ResourceHashAny { .. }
+            | RuleCondition::ResourcesAbsent
+            | RuleCondition::PeSectionsSummary { .. }
+            | RuleCondition::ExportHashAny { .. }
+            | RuleCondition::PeTimestamp { .. } => view.ensure_pe(report, bytes),
+            RuleCondition::HashSha256 { .. }
+            | RuleCondition::HashMd5 { .. }
+            | RuleCondition::HashSha1 { .. }
+            | RuleCondition::HashCrc32 { .. } => {
+                if (report.hashes.sha256.is_empty() || report.hashes.sha1.is_empty()) && !bytes.is_empty() {
                     report.hashes = crate::utils::hash::hashes(bytes);
                 }
             }
@@ -1598,7 +1618,8 @@ fn evaluate_rule_with_matches(
             RuleCondition::EnvReference { .. } => view.ensure_env(report, bytes),
             RuleCondition::FeatureGte { .. }
             | RuleCondition::FeatureLte { .. }
-            | RuleCondition::FeatureDeltaGte { .. } => view.ensure_features(report, bytes),
+            | RuleCondition::FeatureDeltaGte { .. }
+            | RuleCondition::FeatureBounds { .. } => view.ensure_features(report, bytes),
             RuleCondition::NewImportSet { .. } => view.ensure_pe(report, bytes),
             RuleCondition::RuleMatch { ids, min } => {
                 let needed = set_needed(*min, ids.len());
@@ -2011,13 +2032,36 @@ fn evaluate_condition(
         RuleCondition::HashSha256 { value } => report
             .hashes
             .sha256
-            .eq_ignore_ascii_case(value)
+            .eq_ignore_ascii_case(value.trim())
             .then(|| "sha256 hash matched".to_string()),
-        RuleCondition::HashMd5 { value } => report
-            .hashes
-            .md5
-            .eq_ignore_ascii_case(value)
-            .then(|| "md5 hash matched".to_string()),
+        RuleCondition::HashMd5 { value } => {
+            let got = if report.hashes.md5.is_empty() {
+                crate::utils::hash::md5_hex(bytes)
+            } else {
+                report.hashes.md5.clone()
+            };
+            got.eq_ignore_ascii_case(value.trim())
+                .then(|| "md5 hash matched".to_string())
+        }
+        RuleCondition::HashSha1 { value } => {
+            let got = if report.hashes.sha1.is_empty() {
+                crate::utils::hash::sha1_hex(bytes)
+            } else {
+                report.hashes.sha1.clone()
+            };
+            got.eq_ignore_ascii_case(value.trim())
+                .then(|| "sha1 hash matched".to_string())
+        }
+        RuleCondition::HashCrc32 { value } => {
+            let clean = value.trim().trim_start_matches("0x").trim_start_matches("0X");
+            let got = if report.hashes.crc32.is_empty() {
+                crate::utils::hash::crc32_hex(bytes)
+            } else {
+                report.hashes.crc32.clone()
+            };
+            got.eq_ignore_ascii_case(clean)
+                .then(|| format!("crc32 hash matched {got}"))
+        }
         RuleCondition::ImphashAny { values } => {
             let h = report.pe.as_ref()?.imphash.as_deref()?;
             values
@@ -2292,6 +2336,491 @@ fn evaluate_condition(
 
             best
         }
+        RuleCondition::PeAnchorPattern {
+            anchor,
+            section,
+            offset,
+            range,
+            count,
+            patterns,
+            min,
+            negate,
+            excludes,
+        } => {
+            if patterns.is_empty() {
+                return None;
+            }
+            for excl in excludes {
+                if let Some(units) = super::pe_anchor::compile(excl)
+                    && super::pe_anchor::find_in_range(&units, bytes).is_some()
+                {
+                    return None;
+                }
+            }
+            let kind = super::pe_anchor::parse_anchor_with_section(anchor, *section)?;
+            let base_pos = super::pe_anchor::resolve(kind, *offset, report.pe.as_ref(), bytes.len() as u64)?;
+            let want_count = count.unwrap_or(1).max(1);
+            let needed = min.unwrap_or(1).max(1);
+            let mut matched_count = 0usize;
+            let mut detail: Vec<String> = Vec::new();
+            let mut any_valid_window = false;
+
+            for pat in patterns {
+                let Some(units) = super::pe_anchor::compile(pat) else {
+                    continue;
+                };
+                let (start, end) = if kind == super::pe_anchor::AnchorKind::Eof && *offset == 0 {
+                    let Some(s) = bytes.len().checked_sub(units.len()) else {
+                        continue;
+                    };
+                    (s, bytes.len())
+                } else {
+                    if base_pos < 0 {
+                        continue;
+                    }
+                    let s = base_pos as usize;
+                    if s >= bytes.len() {
+                        continue;
+                    }
+                    let e = match range {
+                        Some(r) if *r > 0 => {
+                            let span = if *r >= units.len() { *r } else { r.saturating_add(units.len()) };
+                            s.saturating_add(span).min(bytes.len())
+                        }
+                        _ => s.saturating_add(units.len()).min(bytes.len()),
+                    };
+                    if e - s < units.len() {
+                        continue;
+                    }
+                    (s, e)
+                };
+                any_valid_window = true;
+                let window = &bytes[start..end];
+                if want_count <= 1 {
+                    if let Some(rel) = super::pe_anchor::find_in_range(&units, window) {
+                        matched_count += 1;
+                        if detail.len() < 4 {
+                            detail.push(format!("`{pat}` at 0x{:x}", start + rel));
+                        }
+                    }
+                } else {
+                    let occ = super::pe_anchor::count_in_range(&units, window);
+                    if occ >= want_count {
+                        matched_count += 1;
+                        if detail.len() < 4 {
+                            detail.push(format!("`{pat}` x{occ} from 0x{start:x}"));
+                        }
+                    }
+                }
+            }
+
+            if !any_valid_window {
+                return None;
+            }
+            if *negate {
+                (matched_count < needed).then(|| {
+                    format!(
+                        "pe_anchor_pattern negated at 0x{:x} ({anchor})",
+                        base_pos.max(0)
+                    )
+                })
+            } else {
+                (matched_count >= needed).then(|| {
+                    format!(
+                        "pe_anchor_pattern matched {matched_count}/{needed}: {}",
+                        detail.join(", ")
+                    )
+                })
+            }
+        }
+        RuleCondition::ByteRepeat {
+            anchor,
+            section,
+            offset,
+            length,
+            min,
+        } => {
+            if *length == 0 {
+                return None;
+            }
+            let kind = super::pe_anchor::parse_anchor_with_section(anchor, *section)?;
+            let pos = super::pe_anchor::resolve(kind, *offset, report.pe.as_ref(), bytes.len() as u64)?;
+            if pos < 0 {
+                return None;
+            }
+            let start = pos as usize;
+            let end = start.checked_add(*length)?;
+            if end > bytes.len() {
+                return None;
+            }
+            let sample = &bytes[start..end];
+            let count_non_overlapping = |hay: &[u8]| -> usize {
+                let mut n = 0usize;
+                let mut from = 0usize;
+                while from + sample.len() <= hay.len() {
+                    if let Some(rel) = memchr::memmem::find(&hay[from..], sample) {
+                        n += 1;
+                        from += rel + sample.len();
+                    } else {
+                        break;
+                    }
+                }
+                n
+            };
+            let repeats = count_non_overlapping(&bytes[end..]) + count_non_overlapping(&bytes[..start]);
+            let needed = min.unwrap_or(1).max(1);
+            (repeats >= needed).then(|| {
+                format!(
+                    "byte_repeat {} bytes at 0x{:x} repeated {} time(s)",
+                    length, start, repeats
+                )
+            })
+        }
+        RuleCondition::NotMz => {
+            (!bytes.starts_with(b"MZ")).then(|| "not_mz (file does not start with MZ)".to_string())
+        }
+        RuleCondition::Authenticode {
+            signed,
+            subject_glob,
+        } => {
+            let pe = report.pe.as_ref()?;
+            let auth = super::pe_extra::authenticode(bytes, pe)?;
+            if let Some(want_signed) = signed
+                && auth.has_certificate != *want_signed
+            {
+                return None;
+            }
+            if let Some(glob) = subject_glob.as_deref().filter(|g| !g.is_empty()) {
+                if !auth.has_certificate {
+                    return None;
+                }
+                let hit = auth
+                    .subjects
+                    .iter()
+                    .find(|s| super::glob::glob_match(glob, s))?;
+                return Some(format!("authenticode subject `{hit}` matched `{glob}`"));
+            }
+            Some(format!("authenticode signed={}", auth.has_certificate))
+        }
+        RuleCondition::VersionInfo { fields, absent } => {
+            let pe = report.pe.as_ref()?;
+            let parsed = pefile_rs::PE::parse(bytes).ok()?;
+            let info = parsed
+                .resources
+                .as_ref()
+                .and_then(|dir| super::pe_extra::version_info(pe, bytes, dir));
+            if *absent {
+                return info
+                    .as_ref()
+                    .is_none_or(|v| !v.present)
+                    .then(|| "version_info absent".to_string());
+            }
+            let info = info.filter(|v| v.present)?;
+            if fields.is_empty() {
+                return Some("version_info present".to_string());
+            }
+            let mut matched_pairs = Vec::with_capacity(fields.len());
+            for (raw_key, pat) in fields {
+                let canonical = normalize_version_field_key(raw_key);
+                let fallback: String;
+                let actual = if let Some(val) = info.fields.get(&canonical) {
+                    val.as_str()
+                } else if canonical == "fileversion"
+                    && let Some((a, b, c, d)) = info.file_version
+                {
+                    fallback = format!("{a}.{b}.{c}.{d}");
+                    fallback.as_str()
+                } else if canonical == "productversion"
+                    && let Some((a, b, c, d)) = info.product_version
+                {
+                    fallback = format!("{a}.{b}.{c}.{d}");
+                    fallback.as_str()
+                } else {
+                    ""
+                };
+                let ok = if pat.eq_ignore_ascii_case("%NULL%") {
+                    actual.is_empty()
+                } else if let Some(neg) = pat.strip_prefix('!') {
+                    if neg.eq_ignore_ascii_case("%NULL%") {
+                        !actual.is_empty()
+                    } else {
+                        !super::glob::glob_match(neg, actual)
+                    }
+                } else {
+                    !actual.is_empty() && super::glob::glob_match(pat, actual)
+                };
+                if !ok {
+                    return None;
+                }
+                matched_pairs.push(format!("{canonical}=`{actual}`"));
+            }
+            Some(format!("version_info matched: {}", matched_pairs.join(", ")))
+        }
+        RuleCondition::ResourceMatch {
+            type_glob,
+            size_min,
+            size_max,
+            data_patterns,
+            min,
+        } => {
+            let pe = report.pe.as_ref()?;
+            let parsed = pefile_rs::PE::parse(bytes).ok()?;
+            let dir = parsed.resources.as_ref()?;
+            let blobs = super::pe_extra::resource_blobs(pe, bytes, dir);
+            let needed = min.unwrap_or(1).max(1);
+            let compiled_pats: Vec<Vec<super::pe_anchor::ByteUnit>> = data_patterns
+                .iter()
+                .filter_map(|p| super::pe_anchor::compile(p))
+                .collect();
+            if !data_patterns.is_empty() && compiled_pats.is_empty() {
+                return None;
+            }
+            let mut hits = Vec::new();
+            for blob in &blobs {
+                if let Some(tglob) = type_glob.as_deref().filter(|s| !s.is_empty()) {
+                    let raw_id = blob.type_id & 0x7fff_ffff;
+                    let candidates = [
+                        blob.type_label.clone(),
+                        blob.name.clone(),
+                        format!("#{raw_id}"),
+                        format!("{raw_id:04x}"),
+                        format!("{}:{:04x}", blob.type_label, blob.lang_id),
+                        format!("{raw_id:04x}:{:04x}", blob.lang_id),
+                    ];
+                    if !candidates.iter().any(|c| super::glob::glob_match(tglob, c)) {
+                        continue;
+                    }
+                }
+                if size_min.is_some_and(|lo| blob.data_size < lo) {
+                    continue;
+                }
+                if size_max.is_some_and(|hi| blob.data_size > hi) {
+                    continue;
+                }
+                if !compiled_pats.is_empty() {
+                    let data = blob.data(bytes);
+                    if !compiled_pats
+                        .iter()
+                        .any(|u| super::pe_anchor::find_in_range(u, data).is_some())
+                    {
+                        continue;
+                    }
+                }
+                hits.push(format!(
+                    "{}/{} ({}B @0x{:x})",
+                    blob.type_label, blob.name, blob.data_size, blob.data_offset
+                ));
+                if hits.len() >= needed {
+                    break;
+                }
+            }
+            (hits.len() >= needed).then(|| {
+                format!(
+                    "resource_match matched {}/{}: {}",
+                    hits.len(),
+                    needed,
+                    hits.join(", ")
+                )
+            })
+        }
+        RuleCondition::ResourceHashAny { values } => {
+            let pe = report.pe.as_ref()?;
+            let parsed = pefile_rs::PE::parse(bytes).ok()?;
+            let dir = parsed.resources.as_ref()?;
+            let blobs = super::pe_extra::resource_blobs(pe, bytes, dir);
+            let need_sha256 = values.iter().any(|v| v.trim().len() == 64);
+            for blob in &blobs {
+                let data = blob.data(bytes);
+                let md5 = super::system_windows::md5_hex(data);
+                let sha256 = need_sha256.then(|| super::system_windows::sha256_hex(data));
+                for want in values {
+                    let w = want.trim();
+                    if w.eq_ignore_ascii_case(&md5)
+                        || sha256.as_ref().is_some_and(|s| w.eq_ignore_ascii_case(s))
+                    {
+                        return Some(format!(
+                            "resource_hash_any {}/{} matched `{w}`",
+                            blob.type_label, blob.name
+                        ));
+                    }
+                }
+            }
+            None
+        }
+        RuleCondition::ResourcesAbsent => {
+            let pe = report.pe.as_ref()?;
+            let parsed = pefile_rs::PE::parse(bytes).ok()?;
+            let empty = match parsed.resources.as_ref() {
+                None => true,
+                Some(dir) => super::pe_extra::resource_blobs(pe, bytes, dir).is_empty(),
+            };
+            empty.then(|| "resources_absent (no PE resources)".to_string())
+        }
+        RuleCondition::RegistryKey {
+            key,
+            recursive,
+            value_pattern,
+        } => super::system_windows::registry_key_evidence(key, *recursive, value_pattern.as_deref()),
+        RuleCondition::RegistryValue {
+            key,
+            recursive,
+            value_regex,
+            data_regex,
+            data_hex,
+            md5,
+            sha256,
+            min,
+        } => {
+            let query = super::system_windows::RegistryQuery {
+                key: key.clone(),
+                recursive: *recursive,
+                value_regex: value_regex.clone(),
+                data_regex: data_regex.clone(),
+                data_hex: data_hex.clone(),
+                md5: md5.clone(),
+                sha256: sha256.clone(),
+                min: min.unwrap_or(1),
+            };
+            super::system_windows::registry_value_evidence(&query)
+        }
+        RuleCondition::Clsid { guids, inproc_regex } => {
+            super::system_windows::clsid_evidence(guids, inproc_regex.as_deref())
+        }
+        RuleCondition::HostsEntry { ip, host } => {
+            let host_re = match host.as_deref().filter(|s| !s.is_empty()) {
+                Some(p) => Some(cached_regex(p)?),
+                None => None,
+            };
+            super::system_windows::hosts_entry_evidence(
+                ip.as_deref().filter(|s| !s.is_empty()),
+                host_re.as_deref(),
+            )
+        }
+        RuleCondition::SectorPattern {
+            device,
+            lba,
+            count,
+            patterns,
+            min,
+            excludes,
+        } => {
+            let query = super::system_windows::SectorQuery {
+                device: device.clone(),
+                lba: *lba,
+                count: (*count).max(1),
+            };
+            super::system_windows::sector_pattern_evidence(
+                &query,
+                patterns,
+                min.unwrap_or(1),
+                excludes,
+            )
+        }
+        RuleCondition::PathGlob { pattern } => {
+            let path_str = report.path.to_string_lossy();
+            let expanded = super::system_windows::expand_windows_vars(pattern);
+            let matched = super::glob::glob_match(&expanded, &path_str)
+                || super::glob::glob_match(pattern, &path_str);
+            matched.then(|| format!("path_glob `{pattern}` matched `{path_str}`"))
+        }
+        RuleCondition::FeatureBounds { bounds, min } => {
+            if bounds.is_empty() {
+                return None;
+            }
+            let needed = min.unwrap_or(bounds.len()).max(1);
+            let mut matched = Vec::new();
+            for b in bounds {
+                let val = report
+                    .features
+                    .get(&b.feature)
+                    .and_then(|v| v.as_f64())
+                    .or_else(|| match b.feature.as_str() {
+                        "entropy" | "file_entropy" => Some(report.entropy),
+                        "size" | "file_size" => Some(bytes.len() as f64),
+                        _ => None,
+                    });
+                let Some(val) = val else { continue };
+                if b.min.is_none_or(|lo| val >= lo) && b.max.is_none_or(|hi| val <= hi) {
+                    matched.push(format!("{}={:.2}", b.feature, val));
+                }
+            }
+            (matched.len() >= needed).then(|| {
+                format!(
+                    "feature_bounds matched {}/{}: {}",
+                    matched.len(),
+                    needed,
+                    matched.join(", ")
+                )
+            })
+        }
+        RuleCondition::PeSectionsSummary { .. } => {
+            super::pe_section::evaluate_sections_summary(cond, report.pe.as_ref()?, bytes)
+        }
+        RuleCondition::ExportHashAny { values } => {
+            super::pe_section::evaluate_export_hash_any(values, report.pe.as_ref()?, bytes)
+        }
+        RuleCondition::PeTimestamp { value, hex, min, max } => {
+            let ts = report.pe.as_ref()?.time_date_stamp;
+            if value.is_some_and(|want| ts != want)
+                || min.is_some_and(|lo| ts < lo)
+                || max.is_some_and(|hi| ts > hi)
+            {
+                return None;
+            }
+            if let Some(hex_str) = hex {
+                let clean = hex_str.trim().trim_start_matches("0x").trim_start_matches("0X");
+                let want = u32::from_str_radix(clean, 16).ok()?;
+                if ts != want {
+                    return None;
+                }
+            }
+            Some(format!("pe_timestamp 0x{ts:08x} ({ts})"))
+        }
+        RuleCondition::FileTimestamp {
+            equals,
+            after,
+            before,
+            raw_hex,
+            age_days_min,
+            age_days_max,
+        } => super::system_windows::file_timestamp_evidence(
+            &report.path,
+            equals.as_deref(),
+            after.as_deref(),
+            before.as_deref(),
+            raw_hex.as_deref(),
+            *age_days_min,
+            *age_days_max,
+        ),
+        RuleCondition::FileAttributes {
+            spec,
+            required,
+            forbidden,
+        } => super::system_windows::file_attributes_evidence(
+            &report.path,
+            spec.as_deref(),
+            required,
+            forbidden,
+        ),
+    }
+}
+
+fn normalize_version_field_key(raw: &str) -> String {
+    let lower = raw.trim().to_ascii_lowercase();
+    match lower.as_str() {
+        "0" => "comments".to_string(),
+        "1" | "company" => "companyname".to_string(),
+        "2" | "description" => "filedescription".to_string(),
+        "3" => "fileversion".to_string(),
+        "4" => "internalname".to_string(),
+        "5" | "copyright" => "legalcopyright".to_string(),
+        "6" | "trademarks" => "legaltrademarks".to_string(),
+        "7" => "originalfilename".to_string(),
+        "8" | "product" => "productname".to_string(),
+        "9" => "productversion".to_string(),
+        "10" => "privatebuild".to_string(),
+        "11" => "specialbuild".to_string(),
+        _ => lower,
     }
 }
 
@@ -4484,7 +5013,8 @@ fn resolve_path_template(template: &str) -> String {
 /// Check whether `actual_path` matches the `required` path template.
 /// Supports `%VAR%` placeholders. Comparison is case-insensitive on Windows.
 fn path_matches_required(actual_path: &std::path::Path, required: &str) -> bool {
-    let resolved = resolve_path_template(required);
+    let expanded = super::system_windows::expand_windows_vars(required);
+    let resolved = resolve_path_template(&expanded);
     let resolved = resolved.replace('/', "\\").trim_end_matches('\\').to_string();
     let actual = actual_path.to_string_lossy().replace('/', "\\").trim_end_matches('\\').to_string();
     actual.eq_ignore_ascii_case(&resolved)

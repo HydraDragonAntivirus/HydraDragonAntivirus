@@ -349,6 +349,7 @@ pub fn dashboard_router(state: Arc<AppState>) -> Router {
         .route("/api/rescan/bulk", get(handle_rescan_status).post(handle_rescan_bulk))
         .route("/api/rescan/stop", post(handle_rescan_stop))
         .route("/api/rescan/audit", get(handle_rescan_audit).post(handle_rescan_audit_bulk))
+        .route("/api/rescan/unkept-threats", get(handle_unkept_threats).post(handle_unkept_threats_apply))
         .route("/api/rescan/log", get(handle_rescan_log))
         .route("/api/kept/info/:sha256", get(handle_kept_info))
         .route("/api/reviews/requeue", post(handle_reviews_requeue))
@@ -366,9 +367,11 @@ pub fn dashboard_router(state: Arc<AppState>) -> Router {
         .route("/api/limits/reset", post(handle_limits_reset))
         .route("/api/unban", post(handle_unban))
         .route("/api/insights/stats", get(handle_dashboard_insights_stats))
+        .route("/api/url-insights", get(handle_url_insights))
+        .route("/api/url-review", post(handle_url_review))
         .route("/api/insights/:sha256", get(handle_dashboard_insights_hash))
         .route("/api/rules", post(handle_rules_reload).route_layer(DefaultBodyLimit::disable()))
-        .route("/api/engine/reload", post(handle_engine_reload))
+        .route("/api/engine/reload", get(handle_engine_reload_status).post(handle_engine_reload))
         .route("/api/reviews", get(handle_reviews_list))
         .route("/api/review", post(handle_review_save))
         .route("/api/review/delete", post(handle_review_delete))
@@ -404,6 +407,8 @@ pub fn dashboard_router(state: Arc<AppState>) -> Router {
         .route("/api/retrohunt/archive", post(handle_retrohunt_archive))
         .route("/api/naming", get(handle_naming_check))
         .route("/api/companies", get(handle_companies_get).post(handle_companies_save))
+        .route("/api/companies/add", post(handle_companies_add))
+        .route("/api/companies/lookup-signer", get(handle_companies_lookup_signer))
         .route("/api/analyst/whoami", get(handle_analyst_whoami))
         .layer(middleware::from_fn(guard_middleware))
         .with_state(state)
@@ -431,12 +436,12 @@ fn is_local_host(host: &str) -> bool {
 /// Dashboard calls that write human verdicts or change what decides a verdict (rules,
 /// FP lists, company lists, bans): with `analyst_keys.txt` in place they need a valid
 /// `X-Multron-Analyst-Key` (see `human_review::analyst_keys`).
-const ANALYST_PATHS: [&str; 19] = [
-    "/api/review", "/api/review/start", "/api/review/release", "/api/review/delete",
+const ANALYST_PATHS: [&str; 21] = [
+    "/api/review", "/api/review/start", "/api/review/release", "/api/review/delete", "/api/url-review",
     "/api/reviews/bulk", "/api/reviews/requeue", "/api/signatures", "/api/signatures/delete",
     "/api/imphash-signatures", "/api/imphash-signatures/delete",
     "/api/yara-rule-classes", "/api/yara-rule-classes/delete",
-    "/api/fp/ignore", "/api/fp/unignore", "/api/companies", "/api/rules", "/api/bans/add", "/api/bans/remove",
+    "/api/fp/ignore", "/api/fp/unignore", "/api/companies", "/api/companies/add", "/api/rules", "/api/bans/add", "/api/bans/remove",
     "/api/ml-thresholds",
 ];
 
@@ -975,6 +980,83 @@ async fn handle_rescan_audit(State(app): State<Arc<AppState>>) -> impl IntoRespo
         .await
         .unwrap_or_else(|e| serde_json::json!({ "ok": false, "error": e.to_string() }));
     Json(v)
+}
+
+#[derive(Deserialize, Default)]
+struct UrlInsightsQuery {
+    #[serde(default)]
+    q: String,
+    /// "" / "threat" (malicious + suspicious), "all", or one verdict.
+    #[serde(default)]
+    verdict: String,
+    #[serde(default)]
+    limit: Option<usize>,
+}
+
+/// URLs a scan found malicious or suspicious (and their later scans), newest first.
+async fn handle_url_insights(Query(q): Query<UrlInsightsQuery>) -> impl IntoResponse {
+    Json(crate::url_intel::list(&q.q, &q.verdict, q.limit.unwrap_or(200).min(2000)))
+}
+
+#[derive(Deserialize)]
+struct UrlReviewBody {
+    url: String,
+    /// malicious, suspicious, clean; empty removes the review.
+    #[serde(default)]
+    verdict: String,
+    #[serde(default)]
+    threat_name: String,
+    #[serde(default)]
+    note: String,
+    #[serde(default)]
+    analyst: String,
+}
+
+/// Analyst verdict for a URL of the URL threat list.
+async fn handle_url_review(State(app): State<Arc<AppState>>, who: Option<Extension<AnalystId>>, Json(mut b): Json<UrlReviewBody>) -> Response {
+    apply_analyst(&who, &mut b.analyst);
+    match crate::url_intel::review(&b.url, &b.verdict, Some(b.threat_name.as_str()), &b.note, &b.analyst) {
+        Ok(e) => {
+            let by = if e.analyst.is_empty() { "analyst" } else { e.analyst.as_str() };
+            info_event(&app, format!("URL analysis: {} -> {} by {by}", e.url, e.human_verdict.as_deref().unwrap_or("review removed")));
+            Json(serde_json::json!({ "ok": true, "item": e })).into_response()
+        }
+        Err(e) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({ "error": e }))).into_response(),
+    }
+}
+
+#[derive(Deserialize, Default)]
+struct UnkeptBody {
+    /// "malicious", "suspicious" (empty = both).
+    #[serde(default)]
+    verdicts: Vec<String>,
+}
+
+#[derive(Deserialize, Default)]
+struct UnkeptQuery {
+    /// Comma separated, as `UnkeptBody::verdicts`.
+    #[serde(default)]
+    verdicts: String,
+}
+
+async fn unkept_threats(app: Arc<AppState>, verdicts: Vec<String>, apply: bool) -> Response {
+    let srv = Arc::clone(&app.scan_server);
+    match tokio::task::spawn_blocking(move || crate::rescan::unkept_threats_report(&srv, &verdicts, apply)).await {
+        Ok(Ok(v)) => Json(v).into_response(),
+        Ok(Err(e)) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({ "ok": false, "error": e }))).into_response(),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({ "ok": false, "error": e.to_string() }))).into_response(),
+    }
+}
+
+/// Engine-malicious / suspicious hashes without a kept file (a rescan cannot reach them).
+async fn handle_unkept_threats(State(app): State<Arc<AppState>>, Query(q): Query<UnkeptQuery>) -> Response {
+    let verdicts = q.verdicts.split(',').map(str::trim).filter(|v| !v.is_empty()).map(String::from).collect();
+    unkept_threats(app, verdicts, false).await
+}
+
+/// Sets them to unknown (the dashboard button; never automatic). Nothing is deleted.
+async fn handle_unkept_threats_apply(State(app): State<Arc<AppState>>, Json(b): Json<UnkeptBody>) -> Response {
+    unkept_threats(app, b.verdicts, true).await
 }
 
 #[derive(Deserialize, Default)]
@@ -1526,16 +1608,21 @@ struct EngineReloadQuery {
 }
 
 /// Hot reload of the whole engine in this process; the listener and sessions stay up.
+/// Answers 202 at once: everything (TLSH lists included, hundreds of MB) loads on the
+/// reload thread. `GET /api/engine/reload` says when it is done.
 async fn handle_engine_reload(
     State(app): State<Arc<AppState>>,
     Query(q): Query<EngineReloadQuery>,
 ) -> impl IntoResponse {
+    let app1 = Arc::clone(&app);
     let app2 = Arc::clone(&app);
     let keep_cache = q.keep_cache;
-    let tl = app.threat_intel.similarity.reload_known_malware();
-    let refs = app.threat_intel.similarity.reload_corpus_refs();
-    info_event(&app, format!("TLSH blacklist: {tl} digests, smart-whitelist corpus: {refs} references"));
-    let started = app.engine.reload_all(move |res| match res {
+    let prepare = move || {
+        let tl = app1.threat_intel.similarity.reload_known_malware();
+        let refs = app1.threat_intel.similarity.reload_corpus_refs();
+        info_event(&app1, format!("TLSH blacklist: {tl} digests, smart-whitelist corpus: {refs} references"));
+    };
+    let started = app.engine.reload_all(prepare, move |res| match res {
         Ok(ms) => {
             if !keep_cache {
                 app2.scan_server.cache.invalidate_all();
@@ -1563,6 +1650,18 @@ async fn handle_engine_reload(
         }
         Err(e) => (StatusCode::CONFLICT, Json(serde_json::json!({"error": e}))).into_response(),
     }
+}
+
+/// Whether an engine reload is running and how the last one ended, for callers that
+/// started one (the updater) without the whole dashboard state.
+async fn handle_engine_reload_status(State(app): State<Arc<AppState>>) -> impl IntoResponse {
+    let s = app.engine.get_status().await;
+    Json(serde_json::json!({
+        "status": s.status,
+        "reloading": s.reloading,
+        "reloadMsg": s.reload_msg,
+        "loadMs": s.load_ms,
+    }))
 }
 
 #[derive(Deserialize)]
@@ -1912,7 +2011,7 @@ async fn handle_reviews_list(State(app): State<Arc<AppState>>, Query(q): Query<R
 /// last engine verdict in the scan cache. Missing when the cache entry expired.
 /// File name of a review: the one the client sent, else the first name seen.
 fn review_name(rv: &crate::human_review::HumanReview, ins: Option<&crate::threat_intel::ThreatInsight>) -> String {
-    rv.file_name.clone().or_else(|| ins.and_then(|i| i.file_names.first().cloned())).unwrap_or_default()
+    rv.file_name.clone().or_else(|| ins.and_then(|i| i.file_names.first().map(|n| n.to_string()))).unwrap_or_default()
 }
 
 /// One row of the analyst lists (queue and verdicts): the review plus what the
@@ -2126,7 +2225,7 @@ async fn handle_reviews_bulk(State(app): State<Arc<AppState>>, who: Option<Exten
                 if conflicts.len() < 200 {
                     conflicts.push(serde_json::json!({
                         "sha256": sha,
-                        "name": ins.as_ref().and_then(|i| i.file_names.first().cloned())
+                        "name": ins.as_ref().and_then(|i| i.file_names.first().map(|n| n.to_string()))
                             .or_else(|| review.as_ref().and_then(|r| r.file_name.clone())),
                         "engine": engine,
                         "threat": ins.as_ref().and_then(|i| i.threat_name.clone()),
@@ -2663,7 +2762,12 @@ async fn handle_analyst_whoami(who: Option<Extension<AnalystId>>) -> impl IntoRe
 }
 
 async fn handle_companies_get(State(app): State<Arc<AppState>>) -> impl IntoResponse {
-    Json(serde_json::json!({ "ok": true, "lists": app.engine.analyst.company_lists() }))
+    let entries = crate::company_signers::list();
+    Json(serde_json::json!({
+        "ok": true,
+        "lists": app.engine.analyst.company_lists(),
+        "entries": entries,
+    }))
 }
 
 #[derive(Deserialize)]
@@ -2672,21 +2776,25 @@ struct CompaniesBody {
     allow: Vec<String>,
     #[serde(default)]
     block: Vec<String>,
+    #[serde(default)]
+    analyst: String,
 }
 
 /// Replaces the company allow / block lists (a name may not be in both). Active at
 /// once; cached verdicts are cleared.
 async fn handle_companies_save(
     State(app): State<Arc<AppState>>,
-    Json(b): Json<CompaniesBody>,
+    who: Option<Extension<AnalystId>>,
+    Json(mut b): Json<CompaniesBody>,
 ) -> Response {
+    apply_analyst(&who, &mut b.analyst);
     if b.allow.len() + b.block.len() > 10_000 {
         return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "too many entries"}))).into_response();
     }
     if let Some(both) = b.allow.iter().find(|a| b.block.iter().any(|x| x.trim().eq_ignore_ascii_case(a.trim()))) {
         return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": format!("\"{}\" is in both lists", both.trim())}))).into_response();
     }
-    if let Err(e) = crate::analyst_engine::save_company_lists(&b.allow, &b.block) {
+    if let Err(e) = crate::company_signers::sync_raw_lists(&b.allow, &b.block, &b.analyst) {
         return (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": e.to_string()}))).into_response();
     }
     let engine = Arc::clone(&app.engine);
@@ -2694,7 +2802,143 @@ async fn handle_companies_save(
     // Cached verdicts were made with the old lists.
     app.scan_server.cache.invalidate_all();
     info_event(&app, format!("company lists saved: {summary}"));
-    Json(serde_json::json!({ "ok": true, "lists": app.engine.analyst.company_lists(), "note": "Saved and active; cached verdicts cleared." })).into_response()
+    Json(serde_json::json!({
+        "ok": true,
+        "lists": app.engine.analyst.company_lists(),
+        "entries": crate::company_signers::list(),
+        "note": "Saved and active; cached verdicts cleared."
+    })).into_response()
+}
+
+#[derive(Deserialize)]
+struct CompanyAddBody {
+    name: String,
+    list: String,
+    reason: String,
+    #[serde(default)]
+    sha256: String,
+    #[serde(default)]
+    sample_name: String,
+    #[serde(default)]
+    analyst: String,
+}
+
+/// Adds a single signer to allow or block list with mandatory reason and optional sample metadata.
+async fn handle_companies_add(
+    State(app): State<Arc<AppState>>,
+    who: Option<Extension<AnalystId>>,
+    Json(mut b): Json<CompanyAddBody>,
+) -> Response {
+    apply_analyst(&who, &mut b.analyst);
+    let name = b.name.trim().to_string();
+    if name.is_empty() {
+        return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "Signer / Company name cannot be empty"}))).into_response();
+    }
+    let reason = b.reason.trim().to_string();
+    if reason.is_empty() {
+        return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "Reason (Gerekçe / Sebep) is mandatory for signer lists"}))).into_response();
+    }
+    let list = b.list.trim().to_ascii_lowercase();
+    if list != "allow" && list != "block" {
+        return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "List must be 'allow' or 'block'"}))).into_response();
+    }
+
+    let entry = crate::company_signers::CompanySignerEntry {
+        name: name.clone(),
+        list: list.clone(),
+        reason,
+        sha256: b.sha256.trim().to_ascii_lowercase(),
+        sample_name: b.sample_name.trim().to_string(),
+        analyst: if b.analyst.trim().is_empty() { "analyst".to_string() } else { b.analyst.trim().to_string() },
+        added: chrono::Utc::now().to_rfc3339(),
+    };
+
+    if let Err(e) = crate::company_signers::add(entry) {
+        return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": e}))).into_response();
+    }
+
+    let engine = Arc::clone(&app.engine);
+    let summary = tokio::task::spawn_blocking(move || engine.analyst.reload()).await.unwrap_or_default();
+    app.scan_server.cache.invalidate_all();
+    info_event(&app, format!("Signer added to {list}: {name} ({summary})"));
+
+    Json(serde_json::json!({
+        "ok": true,
+        "lists": app.engine.analyst.company_lists(),
+        "entries": crate::company_signers::list(),
+        "note": format!("Signer \"{name}\" added to {list} list and reloaded.")
+    })).into_response()
+}
+
+#[derive(Deserialize)]
+struct SignerLookupQuery {
+    sha256: String,
+}
+
+/// Looks up signer certificate info from a sample's SHA-256 in threat intel or verdict cache.
+async fn handle_companies_lookup_signer(
+    State(app): State<Arc<AppState>>,
+    Query(q): Query<SignerLookupQuery>,
+) -> Response {
+    let sha = q.sha256.trim().to_ascii_lowercase();
+    if sha.is_empty() {
+        return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "sha256 query param required"}))).into_response();
+    }
+
+    // 1. Check threat intel store
+    let ti = app.threat_intel.get(&sha);
+    let mut signer_name = None;
+    let mut sample_name = None;
+    let mut trusted = false;
+    let mut threat = None;
+
+    if let Some(info) = ti {
+        sample_name = info.file_names.first().map(|n| n.as_str().to_string());
+        threat = info.threat_name.map(|t| t.as_str().to_string());
+        if let Some(sg) = info.signer {
+            signer_name = sg.name;
+            trusted = sg.trusted;
+        }
+    }
+
+    // 2. If not found in TI signer summary, check cache detail
+    if signer_name.is_none() {
+        if let Some(sha_arr) = crate::cache::parse_sha(&sha.to_ascii_uppercase()) {
+            if let Some(cached) = app.scan_server.cache.get(&sha_arr) {
+                if let Some(d) = cached.detail {
+                    // Look for [Authenticode: ...]
+                    if let Some(pos) = d.find("[Authenticode:") {
+                        let rest = &d[pos + 13..];
+                        if let Some(end) = rest.find(']') {
+                            let text = rest[..end].trim();
+                            if !text.is_empty() {
+                                signer_name = Some(text.to_string());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if let Some(s) = signer_name {
+        Json(serde_json::json!({
+            "ok": true,
+            "found": true,
+            "sha256": sha,
+            "signer": s,
+            "sample_name": sample_name,
+            "trusted": trusted,
+            "threat": threat,
+        })).into_response()
+    } else {
+        Json(serde_json::json!({
+            "ok": true,
+            "found": false,
+            "sha256": sha,
+            "note": "No Authenticode signature info found for this sample SHA-256."
+        })).into_response()
+    }
 }
 
 

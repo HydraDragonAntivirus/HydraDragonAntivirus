@@ -1,0 +1,20 @@
+rules:
+- id: VK-STEALER-VIDAR
+  title: Vidar stealer (Go build)
+  description: Go-compiled Vidar samples signed with untrusted certificates (Apex Union / Granite Point Global)
+  severity: high
+  verdict: malware
+  confidence: 100
+  score: 90
+  family: Stealer.Win64.Vidar
+  tags:
+  - analyst
+  - stealer
+  - vidar
+  - golang
+  logic: any
+  conditions:
+  - type: string_contains
+    value: 3nt_jKlcLMSzvCh4J-Y2/NkMJshbBdw9LP6bSL-eA
+  - type: string_contains
+    value: sHWX4ryucQDgrk0aGIA0/AWmY3U3BMhmwsT3w_TmN

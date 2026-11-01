@@ -23,7 +23,7 @@ import onnxruntime as ort
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, BASE_DIR)
 
-from train_generic_lgbm import featurize_one, N_FEATS
+from train_generic_lgbm import featurize_buffer, N_FEATS
 
 MODEL = os.path.join(BASE_DIR, "generic_model.onnx")
 READ_CAP = 512 * 1024
@@ -38,7 +38,7 @@ def _sess():
         opts = ort.SessionOptions()
         opts.log_severity_level = 3
         s = ort.InferenceSession(MODEL, sess_options=opts, providers=["CPUExecutionProvider"])
-        _SESS = (s, s.get_inputs()[0].name)
+        _SESS = (s, s.get_inputs()[0].name, s.get_inputs()[0].shape[1])
     return _SESS
 
 
@@ -46,10 +46,12 @@ def scan_bytes(data: bytes):
     """Returns (label, mal_prob). One vector per buffer."""
     if not data or len(data) == 0:
         return 0, 0.0
-    s, inp = _sess()
-    feat = featurize_one(data[:READ_CAP])
+    s, inp, exp_dim = _sess()
+    feat = featurize_buffer(data[:READ_CAP])
     if feat is None:
         return 0, 0.0
+    if exp_dim and len(feat) > exp_dim:
+        feat = feat[:exp_dim]
     X = np.array([feat], dtype=np.float32)
     res = s.run(None, {inp: X})
     label = int(res[0][0])

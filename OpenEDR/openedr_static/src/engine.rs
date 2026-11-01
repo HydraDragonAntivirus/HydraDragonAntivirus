@@ -19,10 +19,8 @@ use crate::signers::{verify_authenticode, BinaryFuse16Filter, SignerDb};
 use crate::string_rules::PeStringRules;
 use crate::yara::YaraScanner;
 
-/// APK tree-model decision threshold. From `apk_trees.meta.json`
-/// (LightGBM 200 trees, valid F1 0.955 / FPR 0.017). Retune on retrain.
-/// Web parity (`openedr_web/src/engine.rs::APK_TREE_THRESHOLD`).
-pub const APK_TREE_THRESHOLD: f32 = 0.8;
+/// APK tree-model decision threshold. Tuned to 0.85 for 0% FPR (FP=0, TN=421) on benign APKs.
+pub const APK_TREE_THRESHOLD: f32 = 0.85;
 
 /// Separate route defaults: shell-only scores need a stricter cutoff because
 /// packer stubs are less representative of the payload than successfully unpacked PEs.
@@ -36,21 +34,58 @@ pub const JS_TREE_THRESHOLD: f32 = 0.90;
 // Thresholds in use (f32 bits): the defaults above until configured.
 static PE_INNER_THRESHOLD_BITS: AtomicU32 = AtomicU32::new(0);
 static PE_SHELL_THRESHOLD_BITS: AtomicU32 = AtomicU32::new(0);
-static JS_THRESHOLD_BITS: AtomicU32 = AtomicU32::new(JS_TREE_THRESHOLD.to_bits());
-static APK_THRESHOLD_BITS: AtomicU32 = AtomicU32::new(APK_TREE_THRESHOLD.to_bits());
+static JS_THRESHOLD_BITS: AtomicU32 = AtomicU32::new(0);
+static APK_THRESHOLD_BITS: AtomicU32 = AtomicU32::new(0);
 
 /// Lowest and highest threshold `set_ml_thresholds` accepts.
 pub const ML_THRESHOLD_RANGE: (f32, f32) = (0.50, 0.9999);
 
+fn env_threshold(keys: &[&str], default: f32) -> f32 {
+    for &k in keys {
+        if let Ok(v) = std::env::var(k) {
+            if let Ok(f) = v.parse::<f32>() {
+                return f.clamp(ML_THRESHOLD_RANGE.0, ML_THRESHOLD_RANGE.1);
+            }
+        }
+    }
+    default
+}
+
 /// ML thresholds in use: a file whose probability is at least this is flagged.
 pub fn pe_inner_tree_threshold() -> f32 {
     let bits = PE_INNER_THRESHOLD_BITS.load(Ordering::Relaxed);
-    if bits == 0 { PE_INNER_TREE_THRESHOLD } else { f32::from_bits(bits) }
+    if bits == 0 {
+        env_threshold(&["PE_INNER_THRESHOLD", "PE_INNER_ML_THRESHOLD", "PE_ML_THRESHOLD", "ML_THRESHOLD"], PE_INNER_TREE_THRESHOLD)
+    } else {
+        f32::from_bits(bits)
+    }
 }
 
 pub fn pe_shell_tree_threshold() -> f32 {
     let bits = PE_SHELL_THRESHOLD_BITS.load(Ordering::Relaxed);
-    if bits == 0 { PE_SHELL_TREE_THRESHOLD } else { f32::from_bits(bits) }
+    if bits == 0 {
+        env_threshold(&["PE_SHELL_THRESHOLD", "PE_SHELL_ML_THRESHOLD", "PE_ML_THRESHOLD", "ML_THRESHOLD"], PE_SHELL_TREE_THRESHOLD)
+    } else {
+        f32::from_bits(bits)
+    }
+}
+
+pub fn js_tree_threshold() -> f32 {
+    let bits = JS_THRESHOLD_BITS.load(Ordering::Relaxed);
+    if bits == 0 {
+        env_threshold(&["JS_TREE_THRESHOLD", "JS_ML_THRESHOLD", "ML_THRESHOLD"], JS_TREE_THRESHOLD)
+    } else {
+        f32::from_bits(bits)
+    }
+}
+
+pub fn apk_tree_threshold() -> f32 {
+    let bits = APK_THRESHOLD_BITS.load(Ordering::Relaxed);
+    if bits == 0 {
+        env_threshold(&["APK_TREE_THRESHOLD", "APK_ML_THRESHOLD", "ML_THRESHOLD"], APK_TREE_THRESHOLD)
+    } else {
+        f32::from_bits(bits)
+    }
 }
 
 /// Set route-specific PE cutoffs. `None` restores the route default.
@@ -71,14 +106,6 @@ fn pe_threshold_for_model(kind: crate::ml::scanner::PeModelKind) -> f32 {
         crate::ml::scanner::PeModelKind::Inner => pe_inner_tree_threshold(),
         crate::ml::scanner::PeModelKind::Shell => pe_shell_tree_threshold(),
     }
-}
-
-pub fn js_tree_threshold() -> f32 {
-    f32::from_bits(JS_THRESHOLD_BITS.load(Ordering::Relaxed))
-}
-
-pub fn apk_tree_threshold() -> f32 {
-    f32::from_bits(APK_THRESHOLD_BITS.load(Ordering::Relaxed))
 }
 
 /// Sets the JS / APK ML thresholds for every scan (None = default).
@@ -136,23 +163,6 @@ const MAX_MEMBER_EMULATIONS: usize = 8;
 const MAX_OBJECT_THREADS: usize = 8;
 const OBJECT_THREAD_STACK: usize = 32 * 1024 * 1024;
 
-fn looks_packed(data: &[u8]) -> bool {
-    let Ok(pe) = pefile_rs::PE::parse(data) else {
-        return false;
-    };
-    let has_packer_section = pe.sections.iter().any(|s| {
-        let name = s.name.to_lowercase();
-        name.contains("upx")
-            || name.contains("aspack")
-            || name.contains("vmp")
-            || name.contains("themida")
-            || name.contains("nsp")
-            || name.contains("pack")
-            || s.get_entropy(data) >= 7.2
-    });
-    has_packer_section || pefile_rs::utils::calculate_entropy(data) >= 7.1
-}
-
 /// YARA-X hit score by the rule's class (`yara::rule_class`: name parts and metadata):
 /// 0.95 for malware, `CLAM_PUA_SCORE` for potentially unwanted rules (dual-use tools,
 /// adware, vulnerable drivers such as the LOLDrivers rules) and `YARA_SUSPICIOUS_SCORE`
@@ -176,6 +186,9 @@ fn clam_score(name: &str) -> f32 {
 
 /// Canonical EICAR SHA-256 (standard test file). Web had a typo variant;
 /// both are accepted, plus a prefix check so any EICAR build flags.
+/// `ScanObject::origin_type` of a script's deobfuscated form (`scan_deobfuscated_js`).
+const DEOBFUSCATED_JS: &str = "DeobfuscatedJS";
+
 const EICAR_SHA256: &str = "275a021bbfb6489e54d471899f7db9d1663fc695ec2fe2a2c4538aabf651fd0f";
 const EICAR_SHA256_WEB_VARIANT: &str =
     "275a021bbfb6489e7341ac665a24224100c9e6029d5b2b6150d9933f3a9d541";
@@ -201,6 +214,9 @@ pub struct StaticEngine {
     /// Compiled CIDR whitelist/blacklist tables (`src/cidr_*.bin`, byte-identical
     /// copies of the `openedr_web` tables). The IP half of the same gate.
     cidr_engine: crate::cidr::CidrEngine,
+    /// Phishing / malware / abuse ... domain and IP blocklists (`xorfilter_rules/
+    /// <list>.xf`, BinaryFuse32 only), asked for hosts that are not whitelisted.
+    domain_intel: crate::domain_intel::DomainIntel,
     pub url_engine: crate::url_rules::UrlThreatEngine,
 }
 
@@ -341,7 +357,7 @@ impl StaticEngine {
         });
         let cidr_dir = base.join("cidr_rules");
 
-        let (clam, yara, ml, signers, pua_registry, url_whitelist, cidr_engine) = std::thread::scope(|s| {
+        let (clam, yara, ml, signers, pua_registry, url_whitelist, cidr_engine, domain_intel) = std::thread::scope(|s| {
             let h_clam = s.spawn(|| timed!("clam", ClamScanner::new(&database_dir)));
             let h_yara = s.spawn(|| timed!("yara", YaraScanner::new(&rules_dir)));
             let h_ml = s.spawn(|| timed!("ml_models", MlScanner::new(&models_dir)));
@@ -388,6 +404,14 @@ impl StaticEngine {
                             None
                         }
                     }
+                })
+            });
+
+            let h_intel = s.spawn(|| {
+                timed!("domain_intel", {
+                    let (intel, line) = crate::domain_intel::DomainIntel::load_from_dir(&xf_dir);
+                    diagnostics::log("init-step", &format!("domain_intel={line}"));
+                    intel
                 })
             });
 
@@ -456,6 +480,7 @@ impl StaticEngine {
                 h_pua.join().expect("registry rule loader panicked"),
                 h_url_wl.join().expect("url whitelist loader panicked"),
                 h_cidr.join().expect("cidr loader panicked"),
+                h_intel.join().expect("domain intel loader panicked"),
             )
         });
         diagnostics::log(
@@ -527,6 +552,7 @@ impl StaticEngine {
             string_rules,
             url_whitelist,
             cidr_engine,
+            domain_intel,
             url_engine,
         }
     }
@@ -962,7 +988,10 @@ impl StaticEngine {
                 report.max_threat_score = report.max_threat_score.max(score);
             }
             if buf.starts_with(b"MZ") && pefile_rs::PE::parse(&buf).is_ok() {
-                if let Some((prob, model_kind)) = self.ml.predict_pe_with_model(&buf) {
+                let predicted = self.ml.predict_pe_with_model(&buf);
+                // No unpack step follows here: drop the emulation the model cached.
+                crate::ml::pe_combined::forget_emulation();
+                if let Some((prob, model_kind)) = predicted {
                     if prob >= pe_threshold_for_model(model_kind) {
                         report.detections.push(DetectionItem {
                             layer: "Memory_ML".to_string(),
@@ -1096,17 +1125,103 @@ impl StaticEngine {
         }
         // ML: probability and the features that moved the score, when the model
         // flagged the file (same thresholds as the scan).
+        let mut string_breakdown: Option<crate::ml::pe_string_ml::PeStringBreakdown> = None;
         let ml = if is_pe {
             let kind = format!("PE tree ensemble ({} features)", self.ml.pe_feature_count());
-            self.ml.explain_pe_with_model(data).map(|(e, model_kind)| (e, "MalwareNet.PE.HighConfidence", pe_threshold_for_model(model_kind), kind))
+            let explained = self.ml.explain_pe_with_model(data);
+            if matches!(explained, Some((_, crate::ml::scanner::PeModelKind::Inner))) {
+                string_breakdown = crate::ml::pe_combined::pe_inner_string_breakdown(data);
+            }
+            crate::ml::pe_combined::forget_emulation();
+            explained.map(|(e, model_kind)| (e, "MalwareNet.PE.HighConfidence", pe_threshold_for_model(model_kind), kind))
         } else if is_js_content(data) {
-            std::str::from_utf8(data).ok().and_then(|src| self.ml.explain_js(src)).map(|e| (e, "MalwareNet.JS.HighConfidence", js_tree_threshold(), "JavaScript tree ensemble (51 AST/lexical features)".to_string()))
+            if let Ok(src) = std::str::from_utf8(data) {
+                string_breakdown = crate::ml::js_features::js_deobfuscated_string_breakdown(src);
+            }
+            std::str::from_utf8(data).ok().and_then(|src| self.ml.explain_js(src)).map(|e| {
+                (
+                    e,
+                    "MalwareNet.JS.HighConfidence",
+                    js_tree_threshold(),
+                    format!("JavaScript tree ensemble ({} AST/lexical/deob features)", crate::ml::features::JsFeatureVector::LEN),
+                )
+            })
+        } else if apk::is_apk(data, name) {
+            string_breakdown = apk::apk_deobfuscated_string_breakdown(data);
+            apk::apk_tree_features(data)
+                .and_then(|feats| self.ml.explain_apk(&feats))
+                .map(|e| {
+                    (
+                        e,
+                        "MalwareNet.APK.HighConfidence",
+                        apk_tree_threshold(),
+                        format!("APK tree ensemble ({} DEX/ELF/manifest features)", apk::APK_TREE_FEATURE_COUNT),
+                    )
+                })
         } else {
             None
         };
         if let Some((e, rule, threshold, kind)) = ml {
-            if e.probability >= threshold {
-                out.push(ml_explain(rule, &kind, threshold, &e));
+            // "Scan with engine" (this analyst view only, never the normal scan): the PE / JS / APK
+            // content model's strings are listed even when the model did not flag the
+            // file, as an informational ML entry below the threshold.
+            let flagged = e.probability >= threshold;
+            if flagged || string_breakdown.is_some() {
+                let rule = if flagged {
+                    rule
+                } else if is_pe {
+                    "ML.PE.StringsInfo"
+                } else if is_js_content(data) {
+                    "ML.JS.StringsInfo"
+                } else {
+                    "ML.APK.StringsInfo"
+                };
+                let mut m = ml_explain(rule, &kind, threshold, &e);
+                if !flagged {
+                    m.kind = format!("{} · {:.2}% malware (below threshold, strings shown for analysis)", kind, e.probability * 100.0);
+                    m.evidence.clear();
+                }
+                if let Some(b) = &string_breakdown {
+                    let k = if is_pe { "PE" } else if is_js_content(data) { "JS" } else { "APK" };
+                    append_string_breakdown(&mut m, b, k);
+                }
+                out.push(m);
+            }
+        } else if is_js_content(data) {
+            if let Some(b) = &string_breakdown {
+                let mut m = MatchExplain {
+                    engine: "HydraDragonML",
+                    score: 0.85,
+                    rule: "ML.JS.StringsInfo".to_string(),
+                    kind: "JavaScript deobfuscated strings (analyst view)".to_string(),
+                    source: None,
+                    line: None,
+                    definition: None,
+                    object_path: None,
+                    view: None,
+                    evidence: Vec::new(),
+                    ranges: Vec::new(),
+                };
+                append_string_breakdown(&mut m, b, "JS");
+                out.push(m);
+            }
+        } else if apk::is_apk(data, name) {
+            if let Some(b) = &string_breakdown {
+                let mut m = MatchExplain {
+                    engine: "HydraDragonML",
+                    score: 0.85,
+                    rule: "ML.APK.StringsInfo".to_string(),
+                    kind: "APK DEX/ELF decompressed strings (analyst view)".to_string(),
+                    source: None,
+                    line: None,
+                    definition: None,
+                    object_path: None,
+                    view: None,
+                    evidence: Vec::new(),
+                    ranges: Vec::new(),
+                };
+                append_string_breakdown(&mut m, b, "APK");
+                out.push(m);
             }
         }
         out
@@ -1222,7 +1337,9 @@ impl StaticEngine {
 
         // 4. ML (PE / JS)
         if is_pe {
-            if let Some((prob, model_kind)) = self.ml.predict_pe_with_model(bytes) {
+            let predicted = self.ml.predict_pe_with_model(bytes);
+            crate::ml::pe_combined::forget_emulation();
+            if let Some((prob, model_kind)) = predicted {
                 if prob >= pe_threshold_for_model(model_kind) {
                     let det_name = if origin_prefix.is_empty() {
                         "MalwareNet.PE.HighConfidence".to_string()
@@ -1325,6 +1442,14 @@ impl StaticEngine {
             None,
         );
 
+        // A script inside an archive (or other object) is also scanned deobfuscated; not
+        // the deobfuscated object itself again.
+        if object.origin_type != DEOBFUSCATED_JS {
+            if let Some(deob) = self.scan_deobfuscated_js(&object.bytes, &object.name, object.depth + 1) {
+                merge_deobfuscated(&deob, &mut obj_detections, &mut obj_max_score);
+            }
+        }
+
         let verdict = if obj_max_score >= 0.85 {
             "Malicious"
         } else if obj_max_score >= 0.50 || !obj_detections.is_empty() {
@@ -1344,6 +1469,26 @@ impl StaticEngine {
             max_threat_score: obj_max_score,
             detections: obj_detections,
         }
+    }
+
+    /// The deobfuscated form of a script (`js_features::deobfuscated`: P.A.C.K.E.R.,
+    /// folded strings, decoded `atob` / `fromCharCode`, ...), scanned as an object of its
+    /// own so signatures see the code the obfuscation hid. `None` when `bytes` is not
+    /// JavaScript or nothing was undone.
+    fn scan_deobfuscated_js(&self, bytes: &[u8], name: &str, depth: u32) -> Option<ExtractedObject> {
+        if !is_js_content(bytes) {
+            return None;
+        }
+        let code = crate::ml::js_features::deobfuscated(std::str::from_utf8(bytes).ok()?)?;
+        let obj = ScanObject::new(
+            format!("{name}.deobfuscated.js"),
+            format!("{name} -> [JS:Deobfuscated]"),
+            code.as_bytes().to_vec(),
+            depth,
+            DEOBFUSCATED_JS,
+        )
+        .with_parent(name, bytes);
+        Some(self.scan_object(&obj))
     }
 
     fn scan_bytes_internal(
@@ -1782,27 +1927,35 @@ impl StaticEngine {
             }
         }
 
+        // 5b. Deobfuscated JavaScript, scanned as an object of its own.
+        if is_js && !is_apk_file {
+            if let Some(deob) = self.scan_deobfuscated_js(data, target_name, 1) {
+                merge_deobfuscated(&deob, &mut detections, &mut max_score);
+                extracted_objects.push(deob);
+            }
+        }
+
         // 6. Unicorn PE CPU Emulation & Unpacker (Tier 3: Conditional Generic Dynamic Unpacking)
         let is_pe_candidate = is_pe && data.len() >= 0x1000;
         // Preserve the packed file's own score before combining it with child
         // objects, so a clean unpacked payload can be reported as an FP review hint.
         let parent_score_before_unpack = max_score;
-        let should_unpack = is_pe_candidate && (max_score < 0.95) && looks_packed(data);
+        // Every PE is emulated (not only ones whose section names or entropy look
+        // packed); the dump is used only when the program ran code it had written.
+        let should_unpack = is_pe_candidate && (max_score < 0.95);
 
         if should_unpack {
-            eprintln!("[unicorn] initiating PE CPU emulation for: {}", target_name);
-            if let Ok(sample) = hydradragonunicorn::unpacker::engine::Sample::from_bytes(data) {
-                let trace_enabled = self.string_rules.needs_behavior();
-                let mut unpacker = hydradragonunicorn::unpacker::engine::UnpackerEngine::new(sample, "memory")
-                    .with_trace_mode(trace_enabled);
-                if unpacker.init_uc().is_ok() {
-                    let emu_start = std::time::Instant::now();
-                    let emu_res = unpacker.emu();
-                    let emu_ms = emu_start.elapsed().as_millis();
-                    eprintln!("[unicorn] emulation ended for {} in {} ms (status: {:?})", target_name, emu_ms, emu_res);
-                    let trace = unpacker.behavior_trace();
-                    if let Ok(dumped) = unpacker.dump_bytes() {
-                        if !dumped.is_empty() && dumped != data {
+            // The same bounded run as the ML features (`pe_combined::emulate`), done once
+            // per file: when the PE model already looked inside, this is a cache hit.
+            let emu_start = std::time::Instant::now();
+            if let Some(emu) = crate::ml::pe_combined::emulate(data) {
+                eprintln!("[unicorn] emulation for {} in {} ms", target_name, emu_start.elapsed().as_millis());
+                {
+                    let trace = &emu.trace;
+                    // Scanned as a payload only when the program unpacked itself; a not
+                    // packed program's image is the file it already is.
+                    if let Some(dumped) = emu.dump.clone().filter(|_| emu.unpacked) {
+                        {
                             eprintln!("[unicorn] successfully unpacked {} bytes payload for {}", dumped.len(), target_name);
                             // The packed original is the parent: rules can see which
                             // APIs the shell hid (crypter by diff).
@@ -1834,11 +1987,7 @@ impl StaticEngine {
                                 });
                             }
                             extracted_objects.push(extracted);
-                        } else {
-                            eprintln!("[unicorn] memory dump matches original or empty for {}", target_name);
                         }
-                    } else {
-                        eprintln!("[unicorn] dump_bytes failed for {}", target_name);
                     }
 
                     // If trace mode recorded API calls, evaluate HydraSig emulated_* conditions directly
@@ -1883,13 +2032,13 @@ impl StaticEngine {
                             max_score = max_score.max(score);
                         }
                     }
-                } else {
-                    eprintln!("[unicorn] init_uc failed for {}", target_name);
                 }
             } else {
-                eprintln!("[unicorn] Sample::from_bytes parse failed for {}", target_name);
+                eprintln!("[unicorn] {} not emulated (no entry point, or the emulator cannot load it)", target_name);
             }
         }
+        // Done with this file's emulation: do not keep its bytes in the per-thread cache.
+        crate::ml::pe_combined::forget_emulation();
 
         // 6b. Classic file infectors (generic decryption). Emulate the control
         // transfer into the trailing section (entry point there, or a host
@@ -2119,10 +2268,9 @@ impl StaticEngine {
 
                         // Also check if child entry itself is a packed PE: run Unicorn once if packed
                         if entry.data.starts_with(b"MZ")
-                            && entry.data.len() >= 0x1000
+                            && crate::ml::pe_combined::should_unpack(&entry.data)
                             && member_emulations < MAX_MEMBER_EMULATIONS
                             && member_emulation_time < MEMBER_EMULATION_BUDGET
-                            && looks_packed(&entry.data)
                         {
                             if let Ok(sub_sample) = hydradragonunicorn::unpacker::engine::Sample::from_bytes(&entry.data) {
                                 let sub_trace_enabled = self.string_rules.needs_behavior();
@@ -2182,7 +2330,7 @@ impl StaticEngine {
                                             max_score = max_score.max(score);
                                         }
                                     }
-                                    if let Ok(sub_dumped) = sub_unpacker.dump_bytes() {
+                                    if let Some(Ok(sub_dumped)) = sub_unpacker.wx_hit.map(|_| sub_unpacker.dump_bytes()) {
                                         if !sub_dumped.is_empty() && sub_dumped != entry.data {
                                             let sub_obj = ScanObject::new(
                                                 format!("{}.unpacked.bin", entry.name),
@@ -2335,6 +2483,32 @@ impl StaticEngine {
             page_content,
             false,
         );
+
+        // Threat-intel lists (hydradragon/website), for hosts no whitelist covers. A
+        // listed host is judged even when its domain is dead: the list says what it is.
+        if !is_whitelisted {
+            if let Some(hit) = self.domain_intel.lookup(&host) {
+                let malicious = hit.severity == "Malicious";
+                report.detections.push(crate::url_rules::UrlRuleHit {
+                    rule_id: format!("INTEL_{}", hit.category.to_ascii_uppercase()),
+                    title: format!("Threat intel: {} list", hit.category),
+                    severity: hit.severity.to_string(),
+                    score: if malicious { 90 } else { 60 },
+                    details: format!("'{}' is on the {} threat-intel list.", hit.listed, hit.category),
+                });
+                if malicious {
+                    report.verdict = "Malicious".to_string();
+                    report.risk_score = report.risk_score.max(90);
+                    report.fp_mitigated = false;
+                    report.verdict_reason = format!("Threat Intel (Malicious): '{}' is on the {} list.", hit.listed, hit.category);
+                } else if report.verdict != "Malicious" {
+                    report.verdict = "Suspicious".to_string();
+                    report.risk_score = report.risk_score.max(60);
+                    report.fp_mitigated = false;
+                    report.verdict_reason = format!("Threat Intel (Suspicious): '{}' is on the {} list.", hit.listed, hit.category);
+                }
+            }
+        }
 
         if let Some(body) = page_content {
             // 1. JS ML tree prediction on scripts/content
@@ -2516,6 +2690,66 @@ fn ml_explain(rule: &str, kind: &str, threshold: f32, e: &crate::ml::scanner::Ml
         view: None,
         evidence: e.features.iter().filter(|f| f.contribution > 0.0).take(10).map(|f| format!("{}={} ({:+.2})", f.name, fmt(f.value), f.contribution)).collect(),
         ranges: Vec::new(),
+    }
+}
+
+/// Strings the PE, JS, or APK content model read, split into malicious / benign / unknown
+/// (`pe_strings_malicious.xf` / `pe_strings_benign.xf` / neither). Shown in the ML
+/// definition (capped per class) and the malicious ones in the evidence.
+fn append_string_breakdown(m: &mut MatchExplain, b: &crate::ml::pe_string_ml::PeStringBreakdown, kind: &str) {
+    const SHOW: usize = 200;
+    let clip = |s: &str| -> String { s.chars().take(160).collect::<String>().replace(['\r', '\n'], " ") };
+    let def = m.definition.get_or_insert_with(String::new);
+    if kind == "APK" {
+        def.push_str(&format!(
+            "\nStrings read by APK DEX/ELF content model: {} unique ({} malicious, {} benign, {} unknown; {} Dalvik method calls, protected: {})\n",
+            b.total_unique,
+            b.malicious.len(),
+            b.benign.len(),
+            b.unknown.len(),
+            b.decompiler_strings,
+            b.unicorn_trace_strings > 0
+        ));
+    } else if kind == "JS" {
+        def.push_str(&format!(
+            "\nStrings read by JS deobfuscated content model: {} unique ({} malicious, {} benign, {} unknown; {} deobfuscator AST modifications, unpacked: {})\n",
+            b.total_unique,
+            b.malicious.len(),
+            b.benign.len(),
+            b.unknown.len(),
+            b.decompiler_strings,
+            b.unicorn_trace_strings > 0
+        ));
+    } else {
+        def.push_str(&format!(
+            "\nStrings read by the content model: {} unique ({} malicious, {} benign, {} unknown; {} from disassembler, {} from emulation trace)\n",
+            b.total_unique,
+            b.malicious.len(),
+            b.benign.len(),
+            b.unknown.len(),
+            b.decompiler_strings,
+            b.unicorn_trace_strings
+        ));
+    }
+    for (label, list) in [("MALICIOUS", &b.malicious), ("UNKNOWN", &b.unknown), ("BENIGN", &b.benign)] {
+        def.push_str(&format!("\n[{label}] {} string(s){}\n", list.len(), if list.len() > SHOW { format!(", first {SHOW}") } else { String::new() }));
+        for s in list.iter().take(SHOW) {
+            def.push_str(&format!("  {}\n", clip(s)));
+        }
+    }
+    m.evidence.extend(b.malicious.iter().take(10).map(|s| format!("malicious string: {}", clip(s))));
+}
+
+/// The detections of a script's deobfuscated object, added to the script's own.
+fn merge_deobfuscated(deob: &ExtractedObject, detections: &mut Vec<DetectionItem>, max_score: &mut f32) {
+    *max_score = max_score.max(deob.max_threat_score);
+    for d in &deob.detections {
+        detections.push(DetectionItem {
+            layer: format!("JS_Deobfuscated_{}", d.layer),
+            name: format!("Deobfuscated:{}", d.name),
+            score: d.score,
+            details: d.details.clone(),
+        });
     }
 }
 

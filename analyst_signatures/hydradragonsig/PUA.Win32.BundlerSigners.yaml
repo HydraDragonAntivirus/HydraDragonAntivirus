@@ -1,0 +1,108 @@
+rules:
+- id: VK-PUA-TELAMON
+  title: TelamonCleaner installer (Zone ADS SIA)
+  description: Cleaner/optimizer installer signed by an ad-distribution company. Signer matched in the Authenticode certificate (ASN.1 string), not in arbitrary text.
+  severity: medium
+  verdict: pua
+  confidence: 85
+  score: 60
+  family: PUA.Win32.TelamonCleaner
+  tags:
+  - analyst
+  - pua
+  logic: all
+  conditions:
+  - type: byte_pattern
+    pattern: ( 0C | 13 ) 0C 5A 6F 6E 65 20 41 44 53 20 53 49 41
+  - type: string_set
+    values:
+    - Inno Setup
+    wide: true
+- id: VK-PUA-DRIVERLIFE
+  title: DriverLife driver updater
+  description: Driver updater signed by Shenzhen DriveTheLife. Signer matched in the Authenticode certificate (ASN.1 string), not in arbitrary text.
+  severity: medium
+  verdict: pua
+  confidence: 85
+  score: 60
+  family: PUA.Win32.DriverLife
+  tags:
+  - analyst
+  - pua
+  logic: all
+  conditions:
+  - type: byte_pattern
+    pattern: ( 0C | 13 ) 30 53 68 65 6E 7A 68 65 6E 20 44 72 69 76 65 54 68 65 4C 69 66 65 20 53 6F 66 74 77 61 72 65 20 54 65 63 68 6E 6F 6C 6F 67 79 20 43 6F 2E 4C 74 64
+- id: VK-PUA-IBOOSTUP
+  title: iBoostUp optimizer
+  description: PC optimizer with scare-style findings.
+  severity: medium
+  verdict: pua
+  confidence: 85
+  score: 60
+  family: PUA.Win32.iBoostUp
+  tags:
+  - analyst
+  - pua
+  - optimizer
+  logic: all
+  conditions:
+  - type: string_set
+    values:
+    - iboostup.com
+    - iBoostUp
+    wide: false
+- id: VK-PUA-FORTECT
+  title: Fortect system repair
+  description: Registry/system repair optimizer. Signer matched in the Authenticode certificate (ASN.1 string), not in arbitrary text.
+  severity: medium
+  verdict: pua
+  confidence: 85
+  score: 60
+  family: PUA.Win32.Fortect
+  tags:
+  - analyst
+  - pua
+  - optimizer
+  logic: all
+  conditions:
+  - type: byte_pattern
+    pattern: ( 0C | 13 ) 0B 46 6F 72 74 65 63 74 20 4C 54 44
+- id: VK-PUA-UTORRENT
+  title: uTorrent classic (RainCo)
+  description: uTorrent client/updater with bundled offers. Signer matched in the Authenticode certificate (ASN.1 string), not in arbitrary text.
+  severity: medium
+  verdict: pua
+  confidence: 85
+  score: 60
+  family: PUA.Win32.uTorrent
+  tags:
+  - analyst
+  - pua
+  logic: all
+  conditions:
+  - type: byte_pattern
+    pattern: ( 0C | 13 ) 11 52 61 69 6E 43 6F 20 48 4B 20 4C 69 6D 69 74 65 64
+  - type: string_set
+    values:
+    - utorrent.com
+    wide: true
+- id: VK-ADWARE-DVDVIDEOSOFT
+  title: DVDVideoSoft installer (Digital Wave)
+  description: Inno Setup installer signed by Digital Wave Ltd delivering offers. Signer matched in the Authenticode certificate (ASN.1 string), not in arbitrary text.
+  severity: medium
+  verdict: pua
+  confidence: 85
+  score: 60
+  family: Adware.Win32.DVDVideoSoft
+  tags:
+  - analyst
+  - adware
+  logic: all
+  conditions:
+  - type: byte_pattern
+    pattern: ( 0C | 13 ) 10 44 69 67 69 74 61 6C 20 57 61 76 65 20 4C 74 64
+  - type: string_set
+    values:
+    - Inno Setup
+    wide: true

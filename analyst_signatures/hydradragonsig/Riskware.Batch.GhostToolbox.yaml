@@ -1,0 +1,34 @@
+rules:
+- id: VK-SUSP-GHOST-TOOLBOX-CMD
+  title: Ghost Toolbox batch downloading from shorteners / anonymous file hosts
+  description: 'System32\migwiz\dlmanifests\run.ghost.cmd: self-elevates, pulls content via tinyurl/bit.ly/catbox/dropbox'
+  severity: low
+  verdict: suspicious
+  confidence: 75
+  score: 40
+  family: Riskware.Batch.GhostToolbox
+  tags:
+  - analyst
+  - batch
+  - downloader
+  - modded-windows
+  logic: all
+  conditions:
+  - type: file_type
+    values:
+    - batch
+  - type: string_set
+    min: 1
+    nocase: true
+    values:
+    - Ghost Toolbox
+    - GhostSpectre
+  - type: string_set
+    min: 2
+    nocase: true
+    values:
+    - files.catbox.moe
+    - tinyurl.com/
+    - bit.ly/
+    - dropbox.com/s/
+    - remove-camera.ps1

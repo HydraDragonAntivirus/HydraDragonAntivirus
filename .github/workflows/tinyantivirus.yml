@@ -33,7 +33,7 @@ jobs:
       - name: Enable long paths
         run: git config --global core.longpaths true
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
           submodules: recursive
@@ -62,7 +62,7 @@ jobs:
     steps:
       - name: Enable Git long paths
         run: git config --global core.longpaths true
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           submodules: recursive
       - name: Add MSBuild to PATH

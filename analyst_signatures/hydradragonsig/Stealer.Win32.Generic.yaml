@@ -1,0 +1,309 @@
+# Generic Stealer.Win32.Generic: steps the malware class has to take, no family strings.
+# Helpers are private; the verdict rule is the last one(s). Tested on the benign corpus with hydradragonsig/tools/corpus_eval.py.
+rules:
+- id: VK-STL-BROWSER
+  title: 'Helper: credential / cookie stores of several browsers'
+  severity: info
+  private: true
+  logic: all
+  conditions:
+  - type: string_set
+    min: 2
+    nocase: true
+    ascii: true
+    wide: true
+    decoded: true
+    values:
+    - Login Data
+    - Web Data
+    - Network\Cookies
+    - logins.json
+    - key4.db
+    - key3.db
+    - cookies.sqlite
+    - signons.sqlite
+    - formhistory.sqlite
+    - Login Data For Account
+  - type: string_set
+    min: 2
+    nocase: true
+    ascii: true
+    wide: true
+    decoded: true
+    values:
+    - Google\Chrome
+    - Microsoft\Edge
+    - BraveSoftware\Brave-Browser
+    - Opera Software\Opera
+    - Yandex\YandexBrowser
+    - Mozilla\Firefox
+    - Vivaldi\User Data
+    - Chromium\User Data
+    - Epic Privacy Browser
+    - CentBrowser
+    - Comodo\Dragon
+    - Torch\User Data
+    - Kometa\User Data
+    - Orbitum\User Data
+    - Amigo\User Data
+    - 7Star\7Star
+    - Sputnik\Sputnik
+    - uCozMedia\Uran
+    - Waterfox
+    - CocCoc\Browser
+    - Iridium\User Data
+  family: Stealer.Win32.Generic
+  tags:
+  - analyst
+  - helper
+- id: VK-STL-WALLET
+  title: 'Helper: crypto wallet files / wallet extension ids'
+  severity: info
+  private: true
+  conditions:
+  - type: string_set
+    min: 2
+    nocase: true
+    ascii: true
+    wide: true
+    decoded: true
+    values:
+    - wallet.dat
+    - Exodus\exodus.wallet
+    - Electrum\wallets
+    - atomic\Local Storage
+    - Ethereum\keystore
+    - Coinomi\Coinomi
+    - com.liberty.jaxx
+    - Guarda\Local Storage
+    - Bitcoin\wallets
+    - Monero\wallets
+    - Electrum-LTC
+    - WalletWasabi
+    - Ledger Live
+    - Local Extension Settings\
+    - nkbihfbeogaeaoehlefnkodbefgpgknn
+    - ejbalbakoplchlghecdalmeeeajnimhm
+    - bfnaelmomeimhlpmgjnjophhpkkoljpa
+    - fhbohimaelbohpjbbldcngcnapndodjp
+    - hnfanknocfeofbddgcijnmhnfnkdnaad
+    - ibnejdfjmmkpcnlpebklmnkoeoihofec
+    - fnjhmkhhmkbjkkabndcnnogagogbneec
+    - dmkamcknogkgcdfhhbddcghachkejeap
+    - egjidjbpglichdcondbcbdnbeeppgdph
+    - aholpfdialjgjfhomihkjbmgjidlcdno
+    - ffnbelfdoeiohenkjibnmadjiehjhajb
+    - hpglfhgfnhbgpjdenjgmdgoeiappafln
+    - aiifbnbfobpmeekipheeijimdpnlpgpp
+    - cjelfplplebdjjenllpjcblmjkfcffne
+  family: Stealer.Win32.Generic
+  tags:
+  - analyst
+  - helper
+- id: VK-STL-MESSENGER
+  title: 'Helper: messenger / game / FTP session and token stores'
+  severity: info
+  private: true
+  conditions:
+  - type: string_set
+    min: 2
+    nocase: true
+    ascii: true
+    wide: true
+    decoded: true
+    values:
+    - discord\Local Storage\leveldb
+    - discordcanary
+    - discordptb
+    - Lightcord
+    - 'dQw4w9WgXcQ:'
+    - '[\w-]{24}\.[\w-]{6}\.[\w-]{27}'
+    - mfa\.[\w-]{84}
+    - Telegram Desktop\tdata
+    - tdata\key_datas
+    - loginusers.vdf
+    - Steam\config
+    - ssfn*
+    - Growtopia\save.dat
+    - .minecraft\launcher_accounts
+    - Battle.net\Battle.net.config
+  family: Stealer.Win32.Generic
+  tags:
+  - analyst
+  - helper
+- id: VK-STL-MAILFTP
+  title: 'Helper: mail / FTP / VPN client credential stores'
+  severity: info
+  private: true
+  conditions:
+  - type: string_set
+    min: 2
+    nocase: true
+    ascii: true
+    wide: true
+    decoded: true
+    values:
+    - Aerofox\Foxmail
+    - Foxmail\V3.1
+    - IncrediMail
+    - Thunderbird\Profiles
+    - Mailbird\Store
+    - The Bat!
+    - Claws-mail
+    - ClawsMail
+    - Pocomail
+    - Windows Mail\Local Folders
+    - Outlook\Profiles
+    - eM Client
+    - FileZilla\recentservers.xml
+    - FileZilla\sitemanager.xml
+    - CoreFTP
+    - FTP Navigator
+    - FTPGetter
+    - FtpCommander
+    - SmartFTP\Client 2.0
+    - Martin Prikryl\WinSCP 2\Sessions
+    - Pidgin\accounts.xml
+    - OpenVPN Connect\profiles
+    - NordVPN\NordVPN.exe
+  family: Stealer.Win32.Generic
+  tags:
+  - analyst
+  - helper
+- id: VK-STEALER-TARGETS
+  title: 'Helper: credential stores of two different kinds (browser / wallet / messenger / mail-FTP)'
+  severity: info
+  private: true
+  conditions:
+  - type: rule_match
+    min: 2
+    ids:
+    - VK-STL-BROWSER
+    - VK-STL-WALLET
+    - VK-STL-MESSENGER
+    - VK-STL-MAILFTP
+  family: Stealer.Win32.Generic
+  tags:
+  - analyst
+  - helper
+- id: VK-STL-DECRYPT
+  title: 'Helper: browser secret decryption (DPAPI / os_crypt key / sqlite queries)'
+  severity: info
+  private: true
+  logic: any
+  conditions:
+  - type: import_any
+    names:
+    - '!CryptUnprotectData'
+  - type: string_set
+    min: 1
+    nocase: true
+    ascii: true
+    wide: true
+    decoded: true
+    values:
+    # FP fix 2026-10-24: removed os_crypt, sqlite3_prepare_v2, BCRYPT_CHAIN_MODE_GCM, ChainingModeGCM and
+    # crypt32.dll; they are in every SQLite / AES-GCM / Chromium build and alone matched Wise Care 365 etc.
+    - CryptUnprotectData
+    - encrypted_key
+    - app_bound_encrypted_key
+    - password_value
+    - encrypted_value
+    - FROM moz_cookies
+    - FROM logins
+    - PK11SDR_Decrypt
+  family: Stealer.Win32.Generic
+  tags:
+  - analyst
+  - helper
+- id: VK-EXFIL
+  title: 'Helper: bot / webhook exfiltration endpoints'
+  severity: info
+  private: true
+  conditions:
+  - type: string_set
+    min: 1
+    nocase: true
+    ascii: true
+    wide: true
+    decoded: true
+    values:
+    - api.telegram.org/bot
+    - discord.com/api/webhooks
+    - discordapp.com/api/webhooks
+    - pastebin.com/raw/
+  family: Stealer.Win32.Generic
+  tags:
+  - analyst
+  - helper
+- id: VK-STL-EXFIL
+  title: 'Helper: a way out (bot / webhook endpoint, HTTP / SMTP / FTP / socket send)'
+  severity: info
+  private: true
+  logic: any
+  conditions:
+  - type: rule_match
+    ids:
+    - VK-EXFIL
+  - type: import_any
+    names:
+    - '!WinHttpSendRequest'
+    - '!WinHttpConnect'
+    - '!HttpSendRequestA'
+    - '!HttpSendRequestW'
+    - '!InternetConnectA'
+    - '!InternetConnectW'
+    - '!InternetOpenUrlA'
+    - '!InternetOpenUrlW'
+    - ws2_32.dll!send
+    - ws2_32.dll!connect
+    - ws2_32.dll!WSASend
+    - ws2_32.dll!ord4
+    - ws2_32.dll!ord19
+    - wsock32.dll!ord4
+    - wsock32.dll!ord19
+  - type: string_set
+    min: 1
+    ascii: true
+    wide: true
+    values:
+    - MultipartFormDataContent
+    - UploadData
+    - UploadFile
+    - UploadValues
+    - WinHttpSendRequest
+    - HttpSendRequestA
+    - HttpSendRequestW
+    - multipart/form-data; boundary=
+    - SmtpClient
+    - FtpWebRequest
+    # FP fix 2026-10-24: removed the bare DLL names winhttp.dll / wininet.dll (any updater has them).
+  family: Stealer.Win32.Generic
+  tags:
+  - analyst
+  - helper
+- id: VK-STEALER-GENERIC
+  title: Generic info stealer
+  severity: high
+  verdict: malware
+  confidence: 90
+  score: 85
+  family: Stealer.Win32.Generic
+  tags:
+  - analyst
+  - stealer
+  - credential-access
+  mitre:
+  - id: T1555.003
+    name: 'Credentials from Password Stores: Credentials from Web Browsers'
+    tactic: Credential Access
+  - id: T1041
+    name: Exfiltration Over C2 Channel
+    tactic: Exfiltration
+  logic: all
+  conditions:
+  - type: rule_match
+    ids:
+    - VK-STEALER-TARGETS
+    - VK-STL-DECRYPT
+    - VK-STL-EXFIL

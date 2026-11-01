@@ -45,6 +45,11 @@ sevenz-rust2 = { version = "0.20", features = ["brotli", "deflate", "lz4", "zstd
 
 # Standalone pure-Rust archive/compression extractor (tar, gzip, xz, lzma)
 hydradragonextractor = { path = "../hydradragonextractor" }
+# Unpacker recipe codecs (same versions as hydradragonextractor): deflate / zlib /
+# gzip, bzip2, and the LZMA + NSIS-bzip2 decoders of nsis-rs.
+flate2 = { version = "1", default-features = false, features = ["rust_backend"] }
+bzip2 = "0.6"
+nsis = { git = "https://github.com/BinFlip/nsis-rs.git" }
 vmpunpacker = { path = "../vmpunpacker" }
 pefile-rs = { path = "../pefile-rs" }
 # Shared model types: the trace mode fills hydradragonsig::models::BehaviorTrace

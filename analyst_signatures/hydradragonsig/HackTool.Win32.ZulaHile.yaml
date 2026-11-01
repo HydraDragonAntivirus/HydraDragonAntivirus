@@ -1,0 +1,22 @@
+rules:
+- id: VK-HACKTOOL-ZULAHILE
+  title: Zula game hack DLL
+  description: Writes ammo/health values into Zula.exe memory.
+  severity: high
+  verdict: suspicious
+  confidence: 85
+  score: 80
+  family: HackTool.Win32.ZulaHile
+  tags:
+  - analyst
+  - hacktool
+  - cheat
+  logic: all
+  conditions:
+  - type: string_set
+    values:
+    - '[ZULA] Baslatiliyor...'
+    - zula_hile.cpp
+    - '[ZULA] Mermi 999.'
+    - '[ZULA] Zula.exe bulunamadi.'
+    min: 2

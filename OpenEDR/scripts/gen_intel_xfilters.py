@@ -36,7 +36,7 @@ def process_dataset(input_file: Path, output_file: Path, is_ip: bool = False):
                 raw_item = raw_item.split("/", 1)[0]
             if ":" in raw_item and not is_ip:
                 raw_item = raw_item.split(":", 1)[0]
-            if raw_item.ends_with("."):
+            if raw_item.endswith("."):
                 raw_item = raw_item[:-1]
 
             raw_item = raw_item.strip()

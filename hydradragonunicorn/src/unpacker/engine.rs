@@ -58,8 +58,14 @@ impl PeArch {
 const PAGE_SIZE: u64 = 0x1000;
 // Keep the low 64 KiB unmapped, as on Windows. Besides matching the process
 // address space this is required for null dereferences to raise an exception.
-const STACK_ADDR: u64 = 0x0010_0000;
-const STACK_SIZE: u64 = 1024 * 1024;
+// The stack fills the space up to the TEB (~1.8 MB): with 512 KB below the start,
+// stubs that probe a large frame (`sub esp, n` / __chkstk) or recurse ran off its
+// bottom (16 of the faults in the 2026-10-30 profile wrote to 0xffffc).
+const STACK_ADDR: u64 = 0x0003_0000;
+const STACK_SIZE: u64 = 0x0020_0000 - STACK_ADDR;
+/// Where ESP starts: near the top, as in a Windows thread, with room above for
+/// the entry point's return address and frames that read their caller's.
+const STACK_START: u64 = STACK_ADDR + STACK_SIZE - 0x4000;
 const TEB_ADDR: u64 = 0x200000;
 const PEB_ADDR: u64 = 0x201000;
 const LDR_ADDR: u64 = 0x202000;
@@ -68,6 +74,77 @@ const HOOK_ADDR: u64 = 0x7F000000;
 // Keep the synthetic RET target away from the mapped region's trailing page;
 // Unicorn may fetch a small instruction window past a basic block boundary.
 const SEH_RETURN_ADDR: u64 = HOOK_ADDR + 0x0F0000;
+/// Return address of the entry point: an EXE's start routine or a DLL's DllMain that
+/// returns lands here and the run ends cleanly (it used to return to address 0 and end
+/// as a FETCH_UNMAPPED fault).
+const ENTRY_RETURN_ADDR: u64 = HOOK_ADDR + 0x0F2000;
+
+/// How an emulation run ended (`UnpackerEngine::end`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum EmuEnd {
+    /// Ran until the instruction budget or the time limit (or a configured stop).
+    #[default]
+    Finished,
+    /// The program ended itself (ExitProcess / ExitThread / TerminateProcess on itself).
+    Exited,
+    /// The entry point (start routine, DllMain) returned.
+    EntryReturned,
+    /// An API call the emulator could not return from.
+    Stopped,
+    /// A memory or CPU fault no handler took.
+    Fault,
+}
+
+impl EmuEnd {
+    /// The program ran as far as it wanted to (as opposed to the emulator failing it).
+    pub fn is_clean(self) -> bool {
+        matches!(self, EmuEnd::Finished | EmuEnd::Exited | EmuEnd::EntryReturned)
+    }
+}
+
+/// Where the run stopped on one of the conditions set with `set_stops`. The
+/// address is the instruction the run stopped before (not executed yet).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum StopHit {
+    /// Executing a page this run had written.
+    WriteExecute(u64),
+    /// Calling this API (name as imported); the stop is at its stub, before the call.
+    Api(String, u64),
+    /// Entering this section.
+    Section(String, u64),
+    /// A basic block starting with one of the patterns.
+    Pattern(u64),
+}
+
+impl StopHit {
+    pub fn address(&self) -> u64 {
+        match self {
+            StopHit::WriteExecute(a) | StopHit::Pattern(a) | StopHit::Api(_, a) | StopHit::Section(_, a) => *a,
+        }
+    }
+}
+
+/// An invalid memory access: the address, the instruction that made it, and the
+/// access (0 read, 1 write, 8 execute).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MemFault {
+    pub address: u64,
+    pub instruction: u64,
+    pub access: u32,
+}
+
+/// Conditions a run stops on (any of them), on top of the budget and time limit.
+#[derive(Debug, Clone, Default)]
+pub struct Stops {
+    pub write_execute: bool,
+    /// API names, normalized (`apicalls::normalize_api_name`).
+    pub apis: Vec<String>,
+    pub sections: Vec<String>,
+    /// Hex byte patterns (`??` = any byte) matched at the start of a basic block.
+    pub patterns: Vec<Vec<Option<u8>>>,
+    /// No condition stops inside these sections (the packer stub's own).
+    pub outside: Vec<String>,
+}
 const LDR_ENTRY_SIZE: u64 = 0x60;
 
 // ---------------------------------------------------------------------------
@@ -274,9 +351,10 @@ impl Sample {
 struct HookState {
     breakpoints: Vec<u64>,
     mem_breakpoints: Vec<(u64, u64)>,
-    sections_read: HashMap<String, u64>,
-    sections_written: HashMap<String, u64>,
-    sections_executed: HashMap<String, u64>,
+    /// Bytes written / executed per section, by index into `sample_sections` (the
+    /// hooks only add to a slot; the name maps are built once after the run).
+    section_write_bytes: Vec<u64>,
+    section_exec_bytes: Vec<u64>,
     /// Pages (address >> 12) written inside the image. A set stays bounded however
     /// long a decryption loop runs; the old Vec of every single write grew by 16 bytes
     /// per write (millions per second) until the scanner ran out of memory.
@@ -284,6 +362,22 @@ struct HookState {
     /// First address executed from a page this run had written (write-execute):
     /// self-decrypting / self-modifying code.
     wx_hit: Option<u64>,
+    /// The same outside the image: code decrypted into allocated memory.
+    wx_alloc_hit: Option<u64>,
+    /// `insn_count` at the last write into an executable section or allocated
+    /// memory in this run (0: none): a stub still unpacking writes until the end.
+    last_code_write: u64,
+    /// The last invalid memory access of this run.
+    last_fault: Option<MemFault>,
+    /// Set where the API hook ends the run (exit, or no way to return).
+    api_end: Option<EmuEnd>,
+    /// The API the run could not return from (`EmuEnd::Stopped`).
+    stop_api: Option<String>,
+    /// `set_stops` conditions (section names resolved to indices) and the one hit.
+    stops: Stops,
+    stop_sections: Vec<usize>,
+    stop_outside: Vec<usize>,
+    stop_hit: Option<StopHit>,
     /// Map a zeroed page on an unmapped read/write/fetch and continue instead of
     /// stopping (infector scan: polymorphic junk code dereferences registers that
     /// pointed at host data in the real process). Bounded by `faults`.
@@ -306,6 +400,17 @@ struct HookState {
     apicall_counter: HashMap<String, u64>,
     hook_addr: u64,
     start_time: Instant,
+    /// End of the run's time limit (all SEH re-runs of one `emu_from` together),
+    /// checked in the block hook instead of Unicorn's own timer (see `emu_from`).
+    deadline: Option<Instant>,
+    /// Instruction budget of the run (0 = none) and instructions run so far, counted
+    /// per block in the block hook instead of Unicorn's `count`, which adds a code hook
+    /// on every instruction and halved the emulation speed.
+    insn_budget: u64,
+    insn_count: u64,
+    /// Instructions of each (block address, size), decoded once.
+    block_insns: HashMap<(u64, u32), u32>,
+    blocks_seen: u32,
     sample_sections: Vec<Section>,
     unpacker: UnpackerConfig,
     log_instr: bool,
@@ -943,6 +1048,17 @@ pub struct UnpackerEngine {
     pub write_targets: Vec<(u64, u64)>,
     /// First address executed from a page written during this run, if any.
     pub wx_hit: Option<u64>,
+    /// First such address outside the image (allocated memory); `alloc_payload`.
+    pub wx_alloc_hit: Option<u64>,
+    /// The last invalid memory access of the last run (an unhandled one ends it
+    /// as `EmuEnd::Fault`).
+    pub last_fault: Option<MemFault>,
+    /// How the last run ended.
+    pub end: EmuEnd,
+    /// The API the run could not return from, when it ended `Stopped`.
+    pub stop_api: Option<String>,
+    /// The `set_stops` condition the last run stopped on.
+    pub stop_hit: Option<StopHit>,
     pub apicall_counter: HashMap<String, u64>,
     pub hook_addr: u64,
     pub stack_addr: u64,
@@ -986,6 +1102,11 @@ impl UnpackerEngine {
             sections_executed: HashMap::new(),
             write_targets: Vec::new(),
             wx_hit: None,
+            wx_alloc_hit: None,
+            last_fault: None,
+            end: EmuEnd::Finished,
+            stop_api: None,
+            stop_hit: None,
             apicall_counter: HashMap::new(),
             hook_addr: HOOK_ADDR,
             stack_addr: STACK_ADDR,
@@ -1004,11 +1125,19 @@ impl UnpackerEngine {
             hook_state: Rc::new(RefCell::new(HookState {
                 breakpoints: Vec::new(),
                 mem_breakpoints: Vec::new(),
-                sections_read: HashMap::new(),
-                sections_written: HashMap::new(),
-                sections_executed: HashMap::new(),
+                section_write_bytes: vec![0; sections.len()],
+                section_exec_bytes: vec![0; sections.len()],
                 written_pages: HashSet::new(),
                 wx_hit: None,
+                wx_alloc_hit: None,
+                last_code_write: 0,
+                last_fault: None,
+                api_end: None,
+                stop_api: None,
+                stops: Stops::default(),
+                stop_sections: Vec::new(),
+                stop_outside: Vec::new(),
+                stop_hit: None,
                 map_on_fault: false,
                 faults: 0,
                 seh_fault: None,
@@ -1024,6 +1153,11 @@ impl UnpackerEngine {
                 apicall_counter: HashMap::new(),
                 hook_addr: HOOK_ADDR,
                 start_time: Instant::now(),
+                deadline: None,
+                insn_budget: 0,
+                insn_count: 0,
+                block_insns: HashMap::new(),
+                blocks_seen: 0,
                 sample_sections: sections,
                 unpacker,
                 log_instr: false,
@@ -1226,8 +1360,17 @@ impl UnpackerEngine {
         setup_ldr_entries(&mut uc, ldr_entries_base, &dll_bases, is_64)?;
 
         // --- Initialize registers ---
-        let esp_val = STACK_ADDR + STACK_SIZE / 2;
+        let esp_val = STACK_START;
         let start_addr = entrypoint(&self.sample.opt_header);
+        let entry_return = match arch {
+            PeArch::X86 => Some((ENTRY_RETURN_ADDR as u32).to_le_bytes().to_vec()),
+            PeArch::X64 => Some(ENTRY_RETURN_ADDR.to_le_bytes().to_vec()),
+            _ => None,
+        };
+        if let Some(ret) = entry_return {
+            uc.mem_write(esp_val, &ret)
+                .map_err(|e| UnpackerError::EmulatorError(format!("write entry return address: {:?}", e)))?;
+        }
         match arch {
             PeArch::X86 => {
                 uc.reg_write(RegisterX86::ESP as i32, esp_val)
@@ -1305,10 +1448,17 @@ impl UnpackerEngine {
         let hook_state = Rc::clone(&self.hook_state);
         let hook_state2 = Rc::clone(&self.hook_state);
         let hook_state3 = Rc::clone(&self.hook_state);
-        // Code hook
+        let hook_state4 = Rc::clone(&self.hook_state);
+        let (api_lo, image_lo, image_hi) = {
+            let hs = self.hook_state.borrow();
+            (hs.hook_addr, hs.image_base, hs.image_base.saturating_add(hs.image_size.max(1)) - 1)
+        };
+        // API hook: a code hook over the patched-IAT stub region only. A code hook over
+        // all memory ran this closure for every emulated instruction, most of the cost
+        // of an emulation; the per-block work is in the block hook below.
         let code_hook = uc
-            .add_code_hook(0, u64::MAX, move |uc, addr, _size| {
-                if addr == SEH_RETURN_ADDR || addr == SEH64_RETURN_ADDR {
+            .add_code_hook(api_lo, api_lo + 0x100000 - 1, move |uc, addr, _size| {
+                if addr == SEH_RETURN_ADDR || addr == SEH64_RETURN_ADDR || addr == ENTRY_RETURN_ADDR {
                     let _ = uc.emu_stop();
                     return;
                 }
@@ -1348,7 +1498,10 @@ impl UnpackerEngine {
                             }
                         }
 
-                        if !st.trace_mode {
+                        if st.stops.apis.iter().any(|a| *a == norm) {
+                            st.stop_hit = Some(StopHit::Api(api_name.clone(), addr));
+                            true
+                        } else if !st.trace_mode {
                             log::info!("API call: {}", api_name);
                             let is_add_veh = norm == "addvectoredexceptionhandler" || norm == "rtladdvectoredexceptionhandler";
                             let is_remove_veh = norm == "removevectoredexceptionhandler" || norm == "rtlremovevectoredexceptionhandler";
@@ -1382,7 +1535,7 @@ impl UnpackerEngine {
                                 } else { true }
                             } else { true }
                         } else {
-                            let spec = apicalls::get_api_spec(&api_name);
+                            let spec = apicalls::get_api_spec(&api_name).or_else(|| apicalls::get_ordinal_spec(&api_name, dll_name_opt.as_deref()));
                                 let is_64 = st.is_64;
                                 let hook_addr_base = st.hook_addr;
 
@@ -1402,6 +1555,9 @@ impl UnpackerEngine {
                                                 // Unknown API: attempt call-site disassembly to count pushed arguments
                                                 if let Some(count) = apicalls::estimate_x86_stdcall_arg_count(uc, ret) {
                                                     (count, true)
+                                                } else if apicalls::is_cdecl_api(&api_name, dll_name_opt.as_deref()) {
+                                                    // The caller cleans the stack: only the return address is popped.
+                                                    (0, true)
                                                 } else {
                                                     // Indeterminate push count: safe stop to prevent stack corruption
                                                     log::warn!("Indeterminate argument count for x86 API {}; stopping emulation safely", api_name);
@@ -1514,9 +1670,27 @@ impl UnpackerEngine {
                                         ret: 0,
                                     });
                                     log::info!("API [trace]: {} called -> terminating emulation cleanly", api_name);
+                                    st.api_end = Some(EmuEnd::Exited);
                                     true
-                                } else if !can_continue || ret_addr == 0 || (ret_addr >= hook_addr_base && ret_addr < hook_addr_base + 0x100000) {
+                                } else if !can_continue
+                                    || ret_addr == 0
+                                    || (ret_addr >= hook_addr_base
+                                        && ret_addr < hook_addr_base + 0x100000
+                                        // A CRT frame handler (`_except_handler3`) called by the
+                                        // SEH dispatch returns to its sentinel, which ends the dispatch.
+                                        && ret_addr != SEH_RETURN_ADDR
+                                        && ret_addr != SEH64_RETURN_ADDR)
+                                {
                                     log::warn!("Cannot continue from return address {:#x} for API {}, stopping emulation", ret_addr, api_name);
+                                    st.api_end = Some(EmuEnd::Stopped);
+                                    let why = if !can_continue {
+                                        "stack unreadable"
+                                    } else if ret_addr == 0 {
+                                        "returns to 0"
+                                    } else {
+                                        "returns into an API stub"
+                                    };
+                                    st.stop_api = Some(format!("{api_name} ({why})"));
                                     true
                                 } else {
                                     // Execute stub logic with dllname_to_functionlist
@@ -1677,21 +1851,90 @@ impl UnpackerEngine {
                                 }
                             }
                     } else {
+                        false
+                    }
+                };
+                if stop {
+                    let _ = uc.emu_stop();
+                }
+            })
+            .map_err(|e| UnpackerError::EmulatorError(format!("add_code_hook: {:?}", e)))?;
+
+        self.hook_ids.push(code_hook);
+
+        // Block hook: once per basic block instead of once per instruction. Stops,
+        // per-section execution (bytes) and write-execute: a block that runs code from
+        // a page this run wrote is unpacked / self-modifying code.
+        let block_hook = uc
+            .add_block_hook(1, 0, move |uc, addr, size| {
+                if addr == SEH_RETURN_ADDR || addr == SEH64_RETURN_ADDR || addr == ENTRY_RETURN_ADDR {
+                    let _ = uc.emu_stop();
+                    return;
+                }
+                let stop = {
+                    let mut guard = hook_state4.borrow_mut();
+                    let st = &mut *guard;
+                    let end = addr + (size as u64).max(1);
+                    st.blocks_seen = st.blocks_seen.wrapping_add(1);
+                    let out_of_time = st.blocks_seen & 255 == 0 && st.deadline.is_some_and(|d| Instant::now() >= d);
+                    let out_of_budget = st.insn_budget > 0 && {
+                        let n = match st.block_insns.get(&(addr, size)) {
+                            Some(&n) => n,
+                            None => {
+                                let n = count_block_insns(uc, addr, size, st.is_64);
+                                st.block_insns.insert((addr, size), n);
+                                n
+                            }
+                        };
+                        let spent = st.insn_count >= st.insn_budget;
+                        st.insn_count += n as u64;
+                        spent
+                    };
+                    if out_of_time || out_of_budget || addr >= st.unpacker.endaddr || st.breakpoints.iter().any(|&b| b >= addr && b < end) {
+                        true
+                    } else if addr >= st.hook_addr && addr < st.hook_addr + 0x100000 {
+                        false // API stubs: the code hook handles them
+                    } else {
                         let idx = section_index(&st.sample_sections, st.image_base, addr);
                         if let Some(i) = idx {
-                            let name = &st.sample_sections[i].name;
-                            match st.sections_executed.get_mut(name) {
-                                Some(c) => *c += 1,
-                                None => {
-                                    st.sections_executed.insert(name.clone(), 1);
-                                }
+                            st.section_exec_bytes[i] += size as u64;
+                        }
+                        let wx_page = if st.written_pages.is_empty() {
+                            None
+                        } else {
+                            ((addr >> 12)..=((end - 1) >> 12)).find(|p| st.written_pages.contains(p))
+                        };
+                        if let Some(page) = wx_page {
+                            if st.wx_hit.is_none() {
+                                st.wx_hit = Some(addr.max(page << 12));
+                            }
+                            let in_image = addr >= st.image_base && addr < st.image_base.saturating_add(st.image_size);
+                            if !in_image && st.wx_alloc_hit.is_none() {
+                                st.wx_alloc_hit = Some(addr.max(page << 12));
                             }
                         }
-                        if st.unpacker.write_execute_control && st.written_pages.contains(&(addr >> 12)) {
+                        let hit = if idx.is_some_and(|i| st.stop_outside.contains(&i)) {
+                            None
+                        } else if st.stops.write_execute && wx_page.is_some() {
+                            Some(StopHit::WriteExecute(addr))
+                        } else if let Some(i) = idx.filter(|i| st.stop_sections.contains(i)) {
+                            Some(StopHit::Section(st.sample_sections[i].name.clone(), addr))
+                        } else if !st.stops.patterns.is_empty() {
+                            let longest = st.stops.patterns.iter().map(Vec::len).max().unwrap_or(0);
+                            let head = uc.mem_read_as_vec(addr, longest).unwrap_or_default();
+                            st.stops
+                                .patterns
+                                .iter()
+                                .any(|p| head.len() >= p.len() && p.iter().zip(&head).all(|(b, h)| b.is_none_or(|b| b == *h)))
+                                .then_some(StopHit::Pattern(addr))
+                        } else {
+                            None
+                        };
+                        if hit.is_some() {
+                            st.stop_hit = hit;
+                            true
+                        } else if st.unpacker.write_execute_control && wx_page.is_some() {
                             log::warn!("Write-execute at {:#x}", addr);
-                            if st.wx_hit.is_none() {
-                                st.wx_hit = Some(addr);
-                            }
                             true
                         } else if st.unpacker.section_hopping_control
                             && !idx.is_some_and(|i| st.unpacker.allowed_sections.iter().any(|n| *n == st.sample_sections[i].name))
@@ -1708,40 +1951,30 @@ impl UnpackerEngine {
                     let _ = uc.emu_stop();
                 }
             })
-            .map_err(|e| UnpackerError::EmulatorError(format!("add_code_hook: {:?}", e)))?;
+            .map_err(|e| UnpackerError::EmulatorError(format!("add_block_hook: {:?}", e)))?;
 
-        self.hook_ids.push(code_hook);
+        self.hook_ids.push(block_hook);
 
-        // Memory access hook (read / write tracking)
+        // Memory hook: writes inside the image only. Reads were hooked too, over all
+        // memory (stack, DLLs), for counters nothing used; every emulated load paid
+        // for a callback.
         let mem_access_hook = uc
             .add_mem_hook(
-                UcHookType::MEM_READ | UcHookType::MEM_WRITE,
-                0,
-                u64::MAX,
+                UcHookType::MEM_WRITE,
+                image_lo,
+                image_hi,
                 move |_uc, mem_type, addr, size, _value| {
                     let mut guard = hook_state2.borrow_mut();
                     let st = &mut *guard;
                     let Some(i) = section_index(&st.sample_sections, st.image_base, addr) else {
                         return true;
                     };
-                    let name = &st.sample_sections[i].name;
                     let is_write = matches!(mem_type, MemType::WRITE);
-                    let counters = if is_write {
-                        Some(&mut st.sections_written)
-                    } else if matches!(mem_type, MemType::READ) {
-                        Some(&mut st.sections_read)
-                    } else {
-                        None
-                    };
-                    if let Some(map) = counters {
-                        match map.get_mut(name) {
-                            Some(v) => *v += size as u64,
-                            None => {
-                                map.insert(name.clone(), size as u64);
-                            }
-                        }
-                    }
                     if is_write {
+                        st.section_write_bytes[i] += size as u64;
+                        if st.sample_sections[i].characteristics & 0x2000_0000 != 0 {
+                            st.last_code_write = st.insn_count.max(1);
+                        }
                         let first = addr >> 12;
                         let last = (addr + (size as u64).max(1) - 1) >> 12;
                         for page in first..=last {
@@ -1762,6 +1995,21 @@ impl UnpackerEngine {
             .map_err(|e| UnpackerError::EmulatorError(format!("add_mem_access_hook: {:?}", e)))?;
 
         self.hook_ids.push(mem_access_hook);
+
+        // Writes into the VirtualAlloc / heap area: a crypter that decrypts its
+        // payload into allocated memory and jumps there is a write-execute too.
+        let hook_state_alloc = Rc::clone(&self.hook_state);
+        let alloc_write_hook = uc
+            .add_mem_hook(UcHookType::MEM_WRITE, apicalls::ALLOC_BASE, apicalls::ALLOC_END - 1, move |_uc, _mem_type, addr, size, _value| {
+                let mut st = hook_state_alloc.borrow_mut();
+                for page in addr >> 12..=(addr + (size as u64).max(1) - 1) >> 12 {
+                    st.written_pages.insert(page);
+                }
+                st.last_code_write = st.insn_count.max(1);
+                true
+            })
+            .map_err(|e| UnpackerError::EmulatorError(format!("add_mem_hook (allocations): {:?}", e)))?;
+        self.hook_ids.push(alloc_write_hook);
 
         // Invalid memory hook
         let invalid_mem_hook = uc
@@ -1795,6 +2043,7 @@ impl UnpackerEngine {
                             };
                             let instruction = if st.is_64 { uc.reg_read(RegisterX86::RIP as i32).unwrap_or(0) } else { uc.reg_read(RegisterX86::EIP as i32).unwrap_or(0) };
                             st.seh_fault = Some(SehFault { code: 0xc0000005, address: addr, access, instruction });
+                            st.last_fault = Some(MemFault { address: addr, instruction, access });
                         }
                     }
                     let eip = uc.reg_read(RegisterX86::EIP as i32).unwrap_or(0);
@@ -1872,6 +2121,71 @@ impl UnpackerEngine {
         self.hook_state.borrow_mut().unpacker.endaddr = end;
     }
 
+    /// Conditions the next runs stop on (`stop_hit` says which one); `Stops::default()`
+    /// clears them. Section names not in the image are ignored.
+    pub fn set_stops(&mut self, stops: Stops) {
+        let mut hs = self.hook_state.borrow_mut();
+        let indices = |names: &[String]| -> Vec<usize> {
+            hs.sample_sections
+                .iter()
+                .enumerate()
+                .filter(|(_, s)| names.iter().any(|n| n.eq_ignore_ascii_case(&s.name)))
+                .map(|(i, _)| i)
+                .collect()
+        };
+        let (sections, outside) = (indices(&stops.sections), indices(&stops.outside));
+        hs.stop_sections = sections;
+        hs.stop_outside = outside;
+        hs.stops = Stops { apis: stops.apis.iter().map(|a| apicalls::normalize_api_name(a)).collect(), ..stops };
+    }
+
+    /// The instruction pointer (x86 / x64).
+    pub fn ip(&self) -> Option<u64> {
+        let reg = if self.hook_state.borrow().is_64 { RegisterX86::RIP } else { RegisterX86::EIP };
+        self.uc.as_ref()?.reg_read(reg as i32).ok()
+    }
+
+    /// The first `n` arguments of a call stopped at its API stub (before the
+    /// call ran): x86 stdcall / cdecl from the stack above the return address,
+    /// x64 from RCX, RDX, R8, R9 and the stack. Unreadable ones are 0.
+    pub fn api_args(&self, n: usize) -> Vec<u64> {
+        let Some(uc) = self.uc.as_ref() else { return vec![0; n] };
+        let is_64 = self.hook_state.borrow().is_64;
+        let stack = |addr: u64, size: usize| -> u64 {
+            let mut b = [0u8; 8];
+            if uc.mem_read(addr, &mut b[..size]).is_ok() { u64::from_le_bytes(b) } else { 0 }
+        };
+        (0..n)
+            .map(|i| {
+                if is_64 {
+                    match i {
+                        0 => uc.reg_read(RegisterX86::RCX as i32).unwrap_or(0),
+                        1 => uc.reg_read(RegisterX86::RDX as i32).unwrap_or(0),
+                        2 => uc.reg_read(RegisterX86::R8 as i32).unwrap_or(0),
+                        3 => uc.reg_read(RegisterX86::R9 as i32).unwrap_or(0),
+                        _ => stack(uc.reg_read(RegisterX86::RSP as i32).unwrap_or(0) + 0x28 + (i as u64 - 4) * 8, 8),
+                    }
+                } else {
+                    stack(uc.reg_read(RegisterX86::ESP as i32).unwrap_or(0) + 4 * (i as u64 + 1), 4)
+                }
+            })
+            .collect()
+    }
+
+    /// `len` bytes of emulated memory at `addr`.
+    pub fn read_mem(&self, addr: u64, len: usize) -> Option<Vec<u8>> {
+        self.uc.as_ref()?.mem_read_as_vec(addr, len).ok()
+    }
+
+    pub fn is_64(&self) -> bool {
+        self.hook_state.borrow().is_64
+    }
+
+    pub fn set_ip(&mut self, ip: u64) -> bool {
+        let reg = if self.hook_state.borrow().is_64 { RegisterX86::RIP } else { RegisterX86::EIP };
+        self.uc.as_mut().is_some_and(|uc| uc.reg_write(reg as i32, ip).is_ok())
+    }
+
     /// Map zeroed pages on unmapped accesses instead of stopping (at most 512).
     pub fn set_map_on_fault(&mut self, on: bool) {
         self.hook_state.borrow_mut().map_on_fault = on;
@@ -1899,12 +2213,32 @@ impl UnpackerEngine {
             hs.log_apicalls = self.log_apicalls;
             hs.trace_mode = self.trace_mode;
             hs.start_time = self.start_time;
+            // Unicorn's own time limit starts a timer thread at every emu_start that
+            // polls with usleep(2) and is joined at the end: on Windows each sleep is a
+            // scheduler tick (~15 ms), so every run cost at least 15-30 ms and every
+            // SEH re-run as much again (a 2 KB DLL with 32 exceptions took a second).
+            // The limit is checked in the block hook instead, for the whole run.
+            hs.deadline = (timeout_us > 0).then(|| Instant::now() + std::time::Duration::from_micros(timeout_us));
+            hs.blocks_seen = 0;
+            // The instruction budget, for the whole run like the time limit.
+            hs.insn_budget = count as u64;
+            hs.insn_count = 0;
+            hs.last_code_write = 0;
+            hs.last_fault = None;
+            hs.api_end = None;
+            hs.stop_api = None;
+            hs.stop_hit = None;
         }
 
         let mut run_from = ep;
-        let mut result;
+        let mut result: Result<(), uc_error> = Ok(());
+        let mut first = true;
         loop {
-            result = uc.emu_start(run_from, end_addr, timeout_us, count);
+            // An SEH re-run starts only while the run's time is not used up.
+            if !std::mem::take(&mut first) && self.hook_state.borrow().deadline.is_some_and(|d| Instant::now() >= d) {
+                break;
+            }
+            result = uc.emu_start(run_from, end_addr, 0, 0);
             let x64 = self.hook_state.borrow().is_64;
             let sentinel = if x64 { uc.reg_read(RegisterX86::RIP as i32).unwrap_or(0) == SEH64_RETURN_ADDR } else { uc.reg_read(RegisterX86::EIP as i32).unwrap_or(0) == SEH_RETURN_ADDR };
             if sentinel {
@@ -1928,9 +2262,17 @@ impl UnpackerEngine {
         // Sync back results
         {
             let hs = self.hook_state.borrow();
-            self.sections_read = hs.sections_read.clone();
-            self.sections_written = hs.sections_written.clone();
-            self.sections_executed = hs.sections_executed.clone();
+            let by_name = |counts: &[u64]| -> HashMap<String, u64> {
+                let mut m = HashMap::new();
+                for (s, &n) in hs.sample_sections.iter().zip(counts) {
+                    if n > 0 {
+                        *m.entry(s.name.clone()).or_insert(0) += n;
+                    }
+                }
+                m
+            };
+            self.sections_written = by_name(&hs.section_write_bytes);
+            self.sections_executed = by_name(&hs.section_exec_bytes);
             // Written pages as merged [start, end) address ranges.
             let mut pages: Vec<u64> = hs.written_pages.iter().copied().collect();
             pages.sort_unstable();
@@ -1943,6 +2285,19 @@ impl UnpackerEngine {
             }
             self.write_targets = ranges;
             self.wx_hit = hs.wx_hit;
+            self.wx_alloc_hit = hs.wx_alloc_hit;
+            self.last_fault = hs.last_fault;
+            let x64 = hs.is_64;
+            let pc = uc.reg_read(if x64 { RegisterX86::RIP } else { RegisterX86::EIP } as i32).unwrap_or(0);
+            self.stop_api = hs.stop_api.clone();
+            self.stop_hit = hs.stop_hit.clone();
+            self.end = if !matches!(result, Ok(_) | Err(uc_error::OK)) {
+                EmuEnd::Fault
+            } else if pc == ENTRY_RETURN_ADDR {
+                EmuEnd::EntryReturned
+            } else {
+                hs.api_end.unwrap_or(EmuEnd::Finished)
+            };
             self.apicall_counter = hs.apicall_counter.clone();
             self.behavior_trace = hs.behavior_trace.clone();
         }
@@ -2109,39 +2464,7 @@ impl UnpackerEngine {
             .uc
             .as_ref()
             .ok_or_else(|| UnpackerError::EmulatorError("engine not initialized".into()))?;
-        let ctx = crate::unpacker::imagedump::DumpContext {
-            virtualmemorysize: self.sample.virtualmemorysize,
-            hook_addr: self.hook_addr,
-            ntp: HashMap::new(),
-            dllname_to_functionlist: self.sample.dllname_to_functionlist.clone(),
-            allocated_chunks: self.sample.allocated_chunks.clone(),
-            original_imports: self.sample.original_imports.iter().map(|id| {
-                crate::unpacker::imagedump::ImportDescriptor {
-                    characteristics: id.characteristics,
-                    time_date_stamp: id.time_date_stamp,
-                    forwarder_chain: id.forwarder_chain,
-                    name: id.name_rva,
-                    first_thunk: id.first_thunk,
-                    dll_name: id.dll_name.clone(),
-                    imports: id.imports.clone(),
-                }
-            }).collect(),
-            sections: self.sample.sections.iter().map(|s| {
-                crate::unpacker::imagedump::Section {
-                    name: s.name.clone(),
-                    virtual_size: s.virtual_size,
-                    virtual_address: s.virtual_address,
-                    size_of_raw_data: s.size_of_raw_data,
-                    pointer_to_raw_data: s.pointer_to_raw_data,
-                    pointer_to_relocations: 0,
-                    pointer_to_linenumbers: 0,
-                    number_of_relocations: 0,
-                    number_of_linenumbers: 0,
-                    characteristics: s.characteristics,
-                }
-            }).collect(),
-        };
-        crate::unpacker::imagedump::dump_image(uc, self.sample.base_addr, self.sample.virtualmemorysize, &ctx, file_path)
+        crate::unpacker::imagedump::dump_image(uc, self.sample.base_addr, self.sample.virtualmemorysize, &self.dump_context(), file_path)
     }
 
     /// Dump the emulated PE image to a byte vector (no file I/O).
@@ -2150,7 +2473,120 @@ impl UnpackerEngine {
             .uc
             .as_ref()
             .ok_or_else(|| UnpackerError::EmulatorError("engine not initialized".into()))?;
-        let ctx = crate::unpacker::imagedump::DumpContext {
+        crate::unpacker::imagedump::dump_image_to_bytes(uc, self.sample.base_addr, self.sample.virtualmemorysize, &self.dump_context())
+    }
+
+    /// The run wrote into an executable section of the image (UPX0, a packer's
+    /// target section) or into allocated memory: code is being unpacked, whether or
+    /// not it has run yet. Ordinary programs write their data sections only.
+    pub fn wrote_code(&self) -> bool {
+        self.code_pages_written() > 0
+    }
+
+    /// Pages of executable sections and allocated memory written so far.
+    fn code_pages_written(&self) -> usize {
+        const IMAGE_SCN_MEM_EXECUTE: u32 = 0x2000_0000;
+        let hs = self.hook_state.borrow();
+        let code: Vec<(u64, u64)> = hs
+            .sample_sections
+            .iter()
+            .filter(|s| s.characteristics & IMAGE_SCN_MEM_EXECUTE != 0)
+            .map(|s| {
+                let lo = hs.image_base + s.virtual_address as u64;
+                (lo, lo + s.virtual_size.max(s.size_of_raw_data) as u64)
+            })
+            .collect();
+        hs.written_pages
+            .iter()
+            .filter(|&&p| {
+                let a = p << 12;
+                (apicalls::ALLOC_BASE..apicalls::ALLOC_END).contains(&a) || code.iter().any(|&(lo, hi)| a + PAGE_SIZE > lo && a < hi)
+            })
+            .count()
+    }
+
+    /// The last run wrote into an executable section or allocated memory during
+    /// its last quarter: whatever writes code was still at it when the run ended.
+    fn writing_code_at_end(&self) -> bool {
+        let hs = self.hook_state.borrow();
+        hs.last_code_write > 0 && hs.insn_count.saturating_sub(hs.last_code_write) <= hs.insn_count / 4
+    }
+
+    /// Continues a run that used up its budget while still unpacking, from where
+    /// it stopped, for up to `timeout_us` / `count` more. A stub decompressing a
+    /// large payload (UPX on a big program) needs more than the usual budget. The
+    /// extra budget is given in slices of `UNPACK_SLICE` instructions, each only
+    /// while nothing written has run yet and the previous run was still writing
+    /// code (executable sections or allocated memory) in its last quarter, into
+    /// new pages: a decompressor fills new pages until it is done, a program that
+    /// loops, or wrote a code page once at start-up, does not. True when it ran again.
+    pub fn continue_unpacking(&mut self, timeout_us: u64, count: usize) -> bool {
+        const UNPACK_SLICE: usize = 10_000_000;
+        let mut pages = self.code_pages_written();
+        if self.end != EmuEnd::Finished || self.wx_hit.is_some() || pages == 0 || !self.writing_code_at_end() {
+            return false;
+        }
+        let deadline = Instant::now() + std::time::Duration::from_micros(timeout_us);
+        let mut left = count;
+        let mut ran = false;
+        while left > 0 {
+            let Some(ip) = self.ip() else { break };
+            let time = deadline.saturating_duration_since(Instant::now()).as_micros() as u64;
+            if time == 0 {
+                break;
+            }
+            let slice = left.min(UNPACK_SLICE);
+            let _ = self.emu_from(ip, time, slice);
+            ran = true;
+            left -= slice;
+            let now = self.code_pages_written();
+            if self.wx_hit.is_some() || self.end != EmuEnd::Finished || now == pages || !self.writing_code_at_end() {
+                break;
+            }
+            pages = now;
+        }
+        // The first run ended cleanly at its budget. An extension that faults or
+        // stops at an API before anything written ran found nothing: the run counts
+        // as it was (clean), not as an emulator failure.
+        if ran && self.wx_hit.is_none() && self.end != EmuEnd::Finished {
+            self.end = EmuEnd::Finished;
+            self.stop_api = None;
+        }
+        ran
+    }
+
+    /// What the run executed from memory it wrote outside the image (a payload
+    /// decrypted into VirtualAlloc'd memory): see `region_payload`.
+    pub fn alloc_payload(&mut self) -> Option<AllocPayload> {
+        let hit = self.wx_alloc_hit?;
+        self.region_payload(hit)
+    }
+
+    /// The mapped region holding `addr`, as it is in memory, and a PE found in it
+    /// at a page boundary (a loader that maps its payload image there) dumped like
+    /// the image: entry point = `addr` when it lies in that PE, else its own.
+    pub fn region_payload(&mut self, addr: u64) -> Option<AllocPayload> {
+        let uc = self.uc.as_ref()?;
+        let region = uc.mem_regions().ok()?.into_iter().find(|r| addr >= r.begin && addr <= r.end)?;
+        let len = (region.end - region.begin + 1).min(MAX_REGION_DUMP);
+        let memory = uc.mem_read_as_vec(region.begin, len as usize).ok()?;
+        let pe_base = (0..memory.len())
+            .step_by(PAGE_SIZE as usize)
+            .find_map(|off| mapped_pe_size(&memory[off..]).map(|(size, ep)| (region.begin + off as u64, size, ep)));
+        let pe = pe_base.and_then(|(base, size, ep)| {
+            let entry = if addr >= base && addr < base + size { addr } else { base + ep as u64 };
+            let saved = self.ip()?;
+            self.set_ip(entry);
+            let ctx = self.dump_context();
+            let dumped = crate::unpacker::imagedump::dump_image_to_bytes(self.uc.as_ref()?, base, size, &ctx).ok();
+            self.set_ip(saved);
+            dumped.filter(|d| !d.is_empty())
+        });
+        Some(AllocPayload { base: region.begin, entry: addr, memory, pe })
+    }
+
+    fn dump_context(&self) -> crate::unpacker::imagedump::DumpContext {
+        crate::unpacker::imagedump::DumpContext {
             virtualmemorysize: self.sample.virtualmemorysize,
             hook_addr: self.hook_addr,
             ntp: HashMap::new(),
@@ -2181,9 +2617,45 @@ impl UnpackerEngine {
                     characteristics: s.characteristics,
                 }
             }).collect(),
-        };
-        crate::unpacker::imagedump::dump_image_to_bytes(uc, self.sample.base_addr, self.sample.virtualmemorysize, &ctx)
+        }
     }
+}
+
+/// Code a run executed from memory it wrote outside the image.
+#[derive(Debug, Clone)]
+pub struct AllocPayload {
+    /// Start of the mapped region holding it.
+    pub base: u64,
+    /// The instruction the payload was looked up from (the first one executed there).
+    pub entry: u64,
+    /// The region as it is in memory (at most `MAX_REGION_DUMP` bytes).
+    pub memory: Vec<u8>,
+    /// A PE mapped in the region, dumped like the image.
+    pub pe: Option<Vec<u8>>,
+}
+
+/// Bytes of one region `region_payload` reads.
+const MAX_REGION_DUMP: u64 = 64 << 20;
+
+/// A PE image mapped at the start of `mem` (as a loader maps it): its
+/// SizeOfImage (page aligned, within `mem`) and entry point RVA.
+fn mapped_pe_size(mem: &[u8]) -> Option<(u64, u32)> {
+    let rd16 = |o: usize| mem.get(o..o + 2).map(|b| u16::from_le_bytes([b[0], b[1]]));
+    let rd32 = |o: usize| mem.get(o..o + 4).map(|b| u32::from_le_bytes([b[0], b[1], b[2], b[3]]));
+    if mem.get(..2)? != b"MZ" {
+        return None;
+    }
+    let pe = rd32(0x3C)? as usize;
+    if pe >= 0x1000 || mem.get(pe..pe + 4)? != b"PE\0\0" {
+        return None;
+    }
+    let opt = pe + 24;
+    if !matches!(rd16(opt)?, 0x10B | 0x20B) {
+        return None;
+    }
+    let ep = rd32(opt + 16)?;
+    let size = page_align(rd32(opt + 56)? as u64);
+    (size >= PAGE_SIZE && size <= mem.len() as u64).then_some((size, ep))
 }
 
 impl Drop for UnpackerEngine {
@@ -2328,26 +2800,43 @@ fn load_dll_into_emu(
     dll_path: &str,
     is_64: bool,
 ) -> UnpackerResult<(u64, u64)> {
-    let data = std::fs::read(dll_path)?;
-    let (_, _, opt_header, sections) = parse_pe_bytes(&data)?;
-    if (opt_header.magic == 0x20b) != is_64 {
+    let dll = mapped_dll(dll_path)?;
+    let (dll_64, image_base, virtual_size, mmap) = (dll.0, dll.1, dll.2, &dll.3);
+    if dll_64 != is_64 {
         return Err(UnpackerError::InvalidPeFile(format!(
             "{dll_path} is {}-bit, the sample is {}-bit",
-            if opt_header.magic == 0x20b { 64 } else { 32 },
+            if dll_64 { 64 } else { 32 },
             if is_64 { 64 } else { 32 }
         )));
     }
-    let image_base = opt_header.image_base as u64;
-    let virtual_size = get_virtual_memory_size(&sections);
-    let mmap = get_memory_mapped_image(&data, &sections, virtual_size, opt_header.size_of_headers);
 
     uc.mem_map(image_base, virtual_size, Prot::ALL)
         .map_err(|e| UnpackerError::EmulatorError(format!("mem_map DLL: {:?}", e)))?;
 
-    uc.mem_write(image_base, &mmap)
+    uc.mem_write(image_base, mmap)
         .map_err(|e| UnpackerError::EmulatorError(format!("mem_write DLL: {:?}", e)))?;
 
     Ok((image_base, virtual_size))
+}
+
+/// A system DLL mapped as in memory: (64-bit, image base, virtual size, image). Read and
+/// laid out once per process; every emulation used to read ~4 MB of DLLs from disk and
+/// parse them again.
+type MappedDll = std::sync::Arc<(bool, u64, u64, Vec<u8>)>;
+
+fn mapped_dll(dll_path: &str) -> UnpackerResult<MappedDll> {
+    static CACHE: std::sync::OnceLock<std::sync::Mutex<HashMap<String, MappedDll>>> = std::sync::OnceLock::new();
+    let cache = CACHE.get_or_init(Default::default);
+    if let Some(d) = cache.lock().unwrap().get(dll_path) {
+        return Ok(d.clone());
+    }
+    let data = std::fs::read(dll_path)?;
+    let (_, _, opt_header, sections) = parse_pe_bytes(&data)?;
+    let virtual_size = get_virtual_memory_size(&sections);
+    let mmap = get_memory_mapped_image(&data, &sections, virtual_size, opt_header.size_of_headers);
+    let d: MappedDll = std::sync::Arc::new((opt_header.magic == 0x20b, opt_header.image_base as u64, virtual_size, mmap));
+    cache.lock().unwrap().insert(dll_path.to_string(), d.clone());
+    Ok(d)
 }
 
 fn setup_ldr_entries(
@@ -2455,6 +2944,22 @@ fn setup_ldr_entries(
 }
 
 /// Index of the section that holds `addr` (an absolute address in the emulated image).
+/// Instructions in the basic block at `addr` (`size` bytes), decoded from the
+/// emulator's memory. At least 1; x86 / x64 only (other code: one per 4 bytes).
+fn count_block_insns(uc: &Unicorn<'_, ()>, addr: u64, size: u32, is_64: bool) -> u32 {
+    let mut buf = vec![0u8; size as usize];
+    if size == 0 || uc.mem_read(addr, &mut buf).is_err() {
+        return (size / 4).max(1);
+    }
+    let mut dec = iced_x86::Decoder::with_ip(if is_64 { 64 } else { 32 }, &buf, addr, iced_x86::DecoderOptions::NONE);
+    let mut n = 0u32;
+    while dec.can_decode() {
+        let _ = dec.decode();
+        n += 1;
+    }
+    n.max(1)
+}
+
 fn section_index(sections: &[Section], image_base: u64, addr: u64) -> Option<usize> {
     let rva = addr.checked_sub(image_base)?;
     sections.iter().position(|s| {

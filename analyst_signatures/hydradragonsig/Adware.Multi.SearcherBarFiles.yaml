@@ -1,0 +1,23 @@
+rules:
+- id: VK-ADWARE-SEARCHERBAR-FILES
+  title: SearcherBar adware scripts and launchers
+  description: JS/LNK/CMD components of SearcherBar (searcherbar.ws statistics, utm_source=searcherbar, mshta C:\SearcherBar\run.hta).
+  severity: medium
+  verdict: pua
+  confidence: 85
+  score: 60
+  family: Adware.Multi.SearcherBar
+  tags:
+  - analyst
+  - adware
+  logic: all
+  conditions:
+  - type: string_set
+    values:
+    - searcherbar.ws
+    - utm_source=searcherbar
+    - SearcherBar\run.hta
+    - SearcherBar\\run.hta
+    min: 1
+    nocase: true
+    wide: true

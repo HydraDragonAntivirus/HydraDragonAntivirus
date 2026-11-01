@@ -626,6 +626,13 @@ impl HumanReviewStore {
         g.values().filter(|r| r.is_completed()).filter_map(|r| Some((r.sha256.clone(), r.verdict.clone()?))).collect()
     }
 
+    /// (hash, verdict, threat name) of every completed review: the statistics move
+    /// these files from their engine verdict to this one.
+    pub fn completed_overrides(&self) -> Vec<(Sha, Option<String>, Option<String>)> {
+        let g = self.map.read().unwrap();
+        g.iter().filter(|(_, r)| r.is_completed()).map(|(sha, r)| (*sha, r.verdict.clone(), r.threat_name.clone())).collect()
+    }
+
     /// Newest first.
     pub fn recent_completed(&self, limit: usize) -> Vec<HumanReview> {
         let g = self.map.read().unwrap();

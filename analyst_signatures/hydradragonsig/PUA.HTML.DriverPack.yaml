@@ -1,0 +1,27 @@
+rules:
+- id: VK-PUA-DRIVERPACK-HTA
+  title: DriverPack Solution HTA launcher
+  description: PROD_Start_DriverPack.hta (dwrapper) and beetle-cab\DriverPack\run.hta
+  severity: medium
+  verdict: pua
+  confidence: 90
+  score: 60
+  family: PUA.HTML.DriverPack
+  tags:
+  - analyst
+  - pua
+  - hta
+  - driverpack
+  logic: all
+  conditions:
+  - type: string_contains
+    value: HTA:APPLICATION
+    nocase: true
+  - type: string_set
+    min: 1
+    nocase: true
+    values:
+    - dwrapper-prod.herokuapp.com
+    - drp.su/error/noscript
+    - applicationName="DriverPack Solution"
+    - APPLICATIONNAME="dwrapper"

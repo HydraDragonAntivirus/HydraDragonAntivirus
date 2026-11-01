@@ -1,0 +1,24 @@
+rules:
+- id: VK-HACKTOOL-ETS2MP-BYPASS
+  title: DirectStorage proxy DLL that hooks the ETS2 multiplayer core (bypass)
+  description: Rust dstorage.dll proxy that forwards to dstorage_o.dll and hooks core_ets2mp.dll
+  severity: medium
+  verdict: pua
+  confidence: 90
+  score: 60
+  family: HackTool.Win64.ETS2MP.BYPASS
+  tags:
+  - analyst
+  - hacktool
+  - game
+  - bypass
+  - proxy-dll
+  logic: threshold
+  threshold: 2
+  conditions:
+  - type: string_contains
+    value: dstorage_o.dll not found!
+  - type: string_contains
+    value: dstorage_o.dll is not a valid dstorage DLL!
+  - type: string_contains
+    value: core_ets2mp.dll

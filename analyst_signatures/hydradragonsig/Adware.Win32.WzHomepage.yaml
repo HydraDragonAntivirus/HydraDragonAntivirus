@@ -1,0 +1,23 @@
+rules:
+- id: VK-ADW-WZHOMEPAGE
+  title: Installer sets the IE start page to wz123.com / eBay affiliate pages
+  description: >-
+    MSI custom action (Format Factory installer, "Wzhomepage" option) writes
+    HKCU\Software\Microsoft\Internet Explorer\Main\Start Page to the wz123.com
+    navigation site with an affiliate tag (?cjh) or to a country eBay site.
+  severity: medium
+  verdict: pua
+  confidence: 90
+  score: 60
+  family: Adware.Win32.WzHomepage
+  tags: [analyst, adware, homepage, msi]
+  logic: all
+  conditions:
+  - type: string_contains
+    value: Internet Explorer\Main\Start Page
+    nocase: true
+  - type: string_set
+    min: 1
+    values:
+    - wz123.com/?cjh
+    - Wzhomepage

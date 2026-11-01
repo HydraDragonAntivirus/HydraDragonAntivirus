@@ -1,0 +1,24 @@
+rules:
+- id: VK-PUA-MEDIAGET
+  title: MediaGet torrent client / installer
+  description: PE signed by Global Microtrading PTE. LTD that references mediaget.com
+  severity: medium
+  verdict: pua
+  confidence: 85
+  score: 60
+  family: PUA.Win32.MediaGet
+  tags:
+  - analyst
+  - pua
+  - torrent
+  - bundler
+  logic: all
+  conditions:
+  - type: file_type
+    values:
+    - pe
+  - type: string_contains
+    value: Global Microtrading PTE. LTD
+  - type: string_contains
+    value: mediaget.com
+    nocase: true

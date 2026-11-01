@@ -4,12 +4,12 @@
 //! and the on-disk format in ONE crate guarantees a filter written on the x86
 //! build host is queryable byte-for-byte on the arm64 device.
 //!
-//! **Only BinaryFuse16 (`Bf16`) is used** — it gives ~2.16 bytes/key, which is
-//! the best size/accuracy tradeoff for every filter in this project (URL/domain
-//! lists, IP blocklists, MD5 whitelists). Using a single width means:
-//!   * one file-format tag, no branching on read
-//!   * predictable asset sizes before building
-//!   * `jdb_xorf::Bf16::from(&keys)` handles construction directly
+//! **BinaryFuse16 (`Bf16`) is the default** — ~2.16 bytes/key and a false match
+//! about once in 65 536 lookups, the right tradeoff for whitelists (a false match
+//! there only lets an item through). A **blocklist** answers "malicious" on a false
+//! match, so it is built as BinaryFuse32 (`Bf32`, tag 32, `build_bf32_from_keys`):
+//! ~4.3 bytes/key and one false match in ~4.3 billion. Same header, same query; only
+//! the fingerprint width differs.
 //!
 //! On-disk format (version 2, repr(C)-style, no bitcode):
 //! ```text
@@ -20,8 +20,8 @@
 //! [12..16] seg_len (u32 LE)
 //! [16..20] seg_len_mask (u32 LE)
 //! [20..24] seg_count_len (u32 LE)
-//! [24..32] count (u64 LE)  — number of u16 fingerprints
-//! [32..]   fingerprints (u16 × count, little-endian)
+//! [24..32] count (u64 LE)  — number of fingerprints
+//! [32..]   fingerprints (u16 × count, or u32 × count for tag 32, little-endian)
 //! ```
 //! A 32-byte fixed header keeps the fingerprint array 2-byte aligned at
 //! offset 32, so a zero-copy `&[u16]` can be built from an AAsset / owned
@@ -29,10 +29,11 @@
 //! NO decoded heap copy — so the filter's data is file-backed (evictable
 //! page cache under memory pressure) instead of anonymous RSS.
 
-use jdb_xorf::{Bf16, Filter as JdbFilter};
+use jdb_xorf::{Bf16, Bf32, Filter as JdbFilter};
 
-/// File-format tag (first byte of every `.xf` file) — always BF16.
+/// File-format tag (first byte of every `.xf` file): the fingerprint width in bits.
 const TAG_BF16: u8 = 16;
+const TAG_BF32: u8 = 32;
 /// On-disk format version (bumped from 1: bitcode → repr(C) header).
 const VERSION: u8 = 2;
 /// Header size in bytes (fixed, keeps fingerprints 2-byte aligned).
@@ -120,6 +121,8 @@ unsafe impl Sync for XorFilter {}
 
 /// A loaded BinaryFuse16 filter backed by borrowed bytes (no decoded copy).
 pub struct XorFilter {
+    /// Bytes per fingerprint: 2 (BF16) or 4 (BF32).
+    fp_width: usize,
     seed: u64,
     seg_len: u32,
     seg_len_mask: u32,
@@ -132,33 +135,39 @@ pub struct XorFilter {
 impl XorFilter {
     /// Parse and validate the 32-byte header, returning the fingerprint
     /// pointer + count into `bytes`.
-    fn parse_at(bytes: &[u8]) -> Option<(u64, u32, u32, u32, usize, *const u8)> {
-        if bytes.len() < HEADER_LEN || bytes[0] != TAG_BF16 || bytes[1] != VERSION {
+    fn parse_at(bytes: &[u8]) -> Option<(usize, u64, u32, u32, u32, usize, *const u8)> {
+        if bytes.len() < HEADER_LEN || bytes[1] != VERSION {
             return None;
         }
+        let fp_width = match bytes[0] {
+            TAG_BF16 => 2,
+            TAG_BF32 => 4,
+            _ => return None,
+        };
         let seed = u64::from_le_bytes(bytes[4..12].try_into().ok()?);
         let seg_len = u32::from_le_bytes(bytes[12..16].try_into().ok()?);
         let seg_len_mask = u32::from_le_bytes(bytes[16..20].try_into().ok()?);
         let seg_count_len = u32::from_le_bytes(bytes[20..24].try_into().ok()?);
         let count = u64::from_le_bytes(bytes[24..32].try_into().ok()?);
         let count = usize::try_from(count).ok()?;
-        let fp_bytes = count.checked_mul(2)?;
+        let fp_bytes = count.checked_mul(fp_width)?;
         if HEADER_LEN.checked_add(fp_bytes)? > bytes.len() {
             return None;
         }
         // SAFETY: `fp_bytes` is checked to fit inside `bytes` above.
         let fp_ptr = unsafe { bytes.as_ptr().add(HEADER_LEN) };
-        Some((seed, seg_len, seg_len_mask, seg_count_len, count, fp_ptr))
+        Some((fp_width, seed, seg_len, seg_len_mask, seg_count_len, count, fp_ptr))
     }
 
     /// Decode a filter from its tagged on-disk bytes, OWNING a copy (used by
     /// host tools and the compressed-asset fallback). `None` on a bad tag or a
     /// malformed body.
     pub fn from_bytes(bytes: &[u8]) -> Option<XorFilter> {
-        let (seed, seg_len, seg_len_mask, seg_count_len, count, _) = Self::parse_at(bytes)?;
-        let owned = bytes[HEADER_LEN..HEADER_LEN + count * 2].to_vec();
+        let (fp_width, seed, seg_len, seg_len_mask, seg_count_len, count, _) = Self::parse_at(bytes)?;
+        let owned = bytes[HEADER_LEN..HEADER_LEN + count * fp_width].to_vec();
         let ptr = owned.as_ptr();
         Some(XorFilter {
+            fp_width,
             seed,
             seg_len,
             seg_len_mask,
@@ -172,8 +181,9 @@ impl XorFilter {
     /// Zero-copy view over an owned buffer (no double copy: caller hands over
     /// the exact bytes it read).
     pub fn from_owned(bytes: Vec<u8>) -> Option<XorFilter> {
-        let (seed, seg_len, seg_len_mask, seg_count_len, count, ptr) = Self::parse_at(&bytes)?;
+        let (fp_width, seed, seg_len, seg_len_mask, seg_count_len, count, ptr) = Self::parse_at(&bytes)?;
         Some(XorFilter {
+            fp_width,
             seed,
             seg_len,
             seg_len_mask,
@@ -198,8 +208,9 @@ impl XorFilter {
     ) -> Option<XorFilter> {
         // SAFETY: guaranteed by the caller (see `# Safety` above).
         let bytes = unsafe { std::slice::from_raw_parts(ptr, len) };
-        let (seed, seg_len, seg_len_mask, seg_count_len, count, fp) = Self::parse_at(bytes)?;
+        let (fp_width, seed, seg_len, seg_len_mask, seg_count_len, count, fp) = Self::parse_at(bytes)?;
         Some(XorFilter {
+            fp_width,
             seed,
             seg_len,
             seg_len_mask,
@@ -210,24 +221,34 @@ impl XorFilter {
         })
     }
 
+    /// Fingerprint width in bits: 16 or 32.
+    pub fn fingerprint_bits(&self) -> u32 {
+        self.fp_width as u32 * 8
+    }
+
     /// Membership test for a precomputed key.
     pub fn contains_key(&self, k: u64) -> bool {
         let hash = mix64(k.wrapping_add(self.seed));
-        let f = hash as u16;
         let (h0, h1, h2) = hash_of_hash(hash, self.seg_len, self.seg_len_mask, self.seg_count_len);
         let c = self.count;
         if h0 as usize >= c || h1 as usize >= c || h2 as usize >= c {
             return false; // corrupt file; never index out of bounds
         }
-        // SAFETY: indices are bounds-checked above; `fingerprints` points into
-        // live backing memory for this filter's lifetime.
+        // The fingerprint is the low bits of the hash (jdb_xorf `from_hash`); each
+        // width reads slots of its own size.
+        // SAFETY: indices are bounds-checked above; `fingerprints` points into live
+        // backing memory of `count * fp_width` bytes for this filter's lifetime.
         unsafe {
-            let read = |i: usize| -> u16 {
-                u16::from_le_bytes([
-                    *self.fingerprints.add(i * 2),
-                    *self.fingerprints.add(i * 2 + 1),
-                ])
+            let w = self.fp_width;
+            let read = |i: usize| -> u32 {
+                let p = self.fingerprints.add(i * w);
+                if w == 4 {
+                    u32::from_le_bytes([*p, *p.add(1), *p.add(2), *p.add(3)])
+                } else {
+                    u16::from_le_bytes([*p, *p.add(1)]) as u32
+                }
             };
+            let f = if w == 4 { hash as u32 } else { hash as u16 as u32 };
             let fp = read(h0 as usize) ^ read(h1 as usize) ^ read(h2 as usize);
             f ^ fp == 0
         }
@@ -239,32 +260,58 @@ impl XorFilter {
     }
 }
 
-/// Build a tagged `.xf` blob from `keys` (raw `u64` keys, i.e. already passed
-/// through [`key`]). Always uses BinaryFuse16 (`Bf16`).
-///
-/// Duplicate keys are removed first: binary-fuse construction requires distinct
-/// keys. Returns the bytes to write, or an error string if construction failed.
-pub fn build_from_keys(mut keys: Vec<u64>) -> Result<Vec<u8>, String> {
+/// Sorted, distinct keys: binary-fuse construction requires distinct keys.
+fn prepare(mut keys: Vec<u64>) -> Result<Vec<u64>, String> {
     keys.sort_unstable();
     keys.dedup();
     if keys.is_empty() {
         return Err("no keys to build a filter from".to_string());
     }
+    Ok(keys)
+}
+
+fn header(tag: u8, seed: u64, seg_len: u32, seg_len_mask: u32, seg_count_len: u32, count: usize, fp_width: usize) -> Vec<u8> {
+    let mut out = Vec::with_capacity(HEADER_LEN + count * fp_width);
+    out.push(tag);
+    out.push(VERSION);
+    out.extend_from_slice(&[0u8; 2]); // reserved
+    out.extend_from_slice(&seed.to_le_bytes());
+    out.extend_from_slice(&seg_len.to_le_bytes());
+    out.extend_from_slice(&seg_len_mask.to_le_bytes());
+    out.extend_from_slice(&seg_count_len.to_le_bytes());
+    out.extend_from_slice(&(count as u64).to_le_bytes());
+    out
+}
+
+/// BinaryFuse32 (tag 32) `.xf` blob from `keys`: for blocklists, where a false
+/// match would flag a clean item (one in ~4.3 billion instead of one in 65 536).
+pub fn build_bf32_from_keys(keys: Vec<u64>) -> Result<Vec<u8>, String> {
+    let keys = prepare(keys)?;
+    let filter = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| Bf32::from(&keys)))
+        .map_err(|_| "BF32 filter construction panicked".to_string())?;
+    let d = &filter.desc;
+    let mut out = header(TAG_BF32, d.seed, d.seg_len, d.seg_len_mask, d.seg_count_len, filter.fingerprints.len(), 4);
+    for fp in filter.fingerprints.iter() {
+        out.extend_from_slice(&fp.to_le_bytes());
+    }
+    Ok(out)
+}
+
+/// Build a tagged `.xf` blob from `keys` (raw `u64` keys, i.e. already passed
+/// through [`key`]). BinaryFuse16 (`Bf16`); blocklists use [`build_bf32_from_keys`].
+///
+/// Duplicate keys are removed first: binary-fuse construction requires distinct
+/// keys. Returns the bytes to write, or an error string if construction failed.
+pub fn build_from_keys(keys: Vec<u64>) -> Result<Vec<u8>, String> {
+    let keys = prepare(keys)?;
     // Bf16::from panics (rather than returning Result) in the extremely
     // unlikely event construction doesn't converge even after dedup; catch
     // that to preserve this function's Result contract.
     let filter = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| Bf16::from(&keys)))
         .map_err(|_| "BF16 filter construction panicked".to_string())?;
 
-    let mut out = Vec::with_capacity(HEADER_LEN + filter.len() * 2);
-    out.push(TAG_BF16);
-    out.push(VERSION);
-    out.extend_from_slice(&[0u8; 2]); // reserved
-    out.extend_from_slice(&filter.desc.seed.to_le_bytes());
-    out.extend_from_slice(&filter.desc.seg_len.to_le_bytes());
-    out.extend_from_slice(&filter.desc.seg_len_mask.to_le_bytes());
-    out.extend_from_slice(&filter.desc.seg_count_len.to_le_bytes());
-    out.extend_from_slice(&(filter.fingerprints.len() as u64).to_le_bytes());
+    let d = &filter.desc;
+    let mut out = header(TAG_BF16, d.seed, d.seg_len, d.seg_len_mask, d.seg_count_len, filter.fingerprints.len(), 2);
     for fp in filter.fingerprints.iter() {
         out.extend_from_slice(&fp.to_le_bytes());
     }
@@ -288,6 +335,21 @@ mod tests {
         // Owned-buffer path (no copy)
         let f2 = XorFilter::from_owned(bytes.clone()).unwrap();
         assert!(f2.contains_key(keys[0]));
+    }
+
+    #[test]
+    fn bf32_roundtrip_and_false_matches() {
+        let keys: Vec<u64> = (0..50_000u64).map(|i| key(&format!("evil{i}.example"))).collect();
+        let bytes = build_bf32_from_keys(keys.clone()).unwrap();
+        assert_eq!(bytes[0], 32);
+        let f = XorFilter::from_bytes(&bytes).unwrap();
+        assert_eq!(f.fingerprint_bits(), 32);
+        assert!(keys.iter().all(|k| f.contains_key(*k)));
+        // 1M clean names: BF16 gives ~15 false matches here, BF32 none.
+        let false_matches = (0..1_000_000u64).filter(|i| f.contains(&format!("clean{i}.example"))).count();
+        assert_eq!(false_matches, 0);
+        let f16 = XorFilter::from_bytes(&build_from_keys(keys).unwrap()).unwrap();
+        assert_eq!(f16.fingerprint_bits(), 16);
     }
 
     #[test]

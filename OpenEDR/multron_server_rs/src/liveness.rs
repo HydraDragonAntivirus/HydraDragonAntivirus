@@ -150,6 +150,9 @@ pub async fn fetch_page_content_safe(raw_url: &str) -> Option<(u16, String)> {
 
     let host = parsed.host_str()?;
     let port = parsed.port().unwrap_or(80);
+    if !WEB_PORTS.contains(&port) {
+        return None;
+    }
     let path_and_query = match parsed.query() {
         Some(q) => format!("{}?{}", parsed.path(), q),
         None => parsed.path().to_string(),
@@ -206,11 +209,16 @@ pub async fn fetch_page_content_safe(raw_url: &str) -> Option<(u16, String)> {
     Some((status, text))
 }
 
-/// TCP connect to the URL's port: ACTIVE when any address accepts, INACTIVE when all
+/// Ports the server connects to for a URL scan (liveness probe and page fetch). Any
+/// port made the public URL scan a port scanner run from this server's address: open,
+/// closed and filtered answered differently.
+pub const WEB_PORTS: [u16; 4] = [80, 443, 8080, 8443];
+
+/// TCP connect to the URL's port (web ports only, see `WEB_PORTS`; others stay UNKNOWN): ACTIVE when any address accepts, INACTIVE when all
 /// refuse or time out. Never toward loopback / LAN / metadata (SSRF guard, see
 /// `is_public_ip`): those stay UNKNOWN, there is nothing to learn about them from here.
 async fn probe_port(addrs: &[std::net::SocketAddr]) -> (i32, String) {
-    if !addrs.iter().all(|a| is_public_ip(a.ip())) {
+    if !addrs.iter().all(|a| is_public_ip(a.ip()) && WEB_PORTS.contains(&a.port())) {
         return (LIVENESS_UNKNOWN, "UNKNOWN".to_string());
     }
     for a in addrs.iter().take(2) {
@@ -219,6 +227,18 @@ async fn probe_port(addrs: &[std::net::SocketAddr]) -> (i32, String) {
         }
     }
     (LIVENESS_INACTIVE, "INACTIVE".to_string())
+}
+
+/// The URL names this server's own network: a loopback / LAN / link-local / reserved
+/// IP, or a local-only name (`localhost`, `*.localhost`, `*.local`, `*.internal`).
+pub fn is_internal_target(raw_url: &str) -> bool {
+    let parsed = Url::parse(raw_url).or_else(|_| Url::parse(&format!("https://{}", raw_url)));
+    let Ok(u) = parsed else { return false };
+    let host = u.host_str().unwrap_or("").trim_matches(|c| c == '[' || c == ']').to_ascii_lowercase();
+    if let Ok(ip) = host.parse::<IpAddr>() {
+        return !is_public_ip(ip);
+    }
+    host == "localhost" || [".localhost", ".local", ".internal"].iter().any(|s| host.ends_with(s))
 }
 
 /// Globally routable unicast address (`IpAddr::is_global` is unstable). Loopback,

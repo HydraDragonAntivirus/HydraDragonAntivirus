@@ -1,0 +1,3 @@
+# 2026-10-14 19:46 UTC | analyst: Emirhan Uçan | sample: 352396c8a3d9b31b157a4820abd3b9347fc934a2314cdda8a4f566a5570163e4 yara-4.5.5-2368-win64.zip
+# reason: FP: Matches YARA distribution (contains ransomware rule text)
+RANSOM_0001

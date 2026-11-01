@@ -711,6 +711,7 @@
 
   <script>
     const HISTORY_KEY = 'viruskov_scan_history';
+    const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
     // 1. Live Telemetry Fetcher
     async function fetchTelemetry() {
@@ -1033,19 +1034,19 @@
 
         return `
           <tr>
-            <td style="color:var(--text-muted);">${dateStr}</td>
-            <td style="font-weight:700; color:#fff;">${item.fileName || 'Dosya'}</td>
-            <td style="color:var(--text-muted);">${sizeStr}</td>
-            <td><span class="badge ${badgeClass}">${(item.verdict || 'unknown').toUpperCase()}</span></td>
-            <td style="font-weight:700; color:${isMal ? 'var(--accent-red)' : isSusp ? 'var(--accent-amber)' : 'var(--accent-green)'};">${item.score !== undefined ? item.score : 0}/100</td>
-            <td style="max-width:220px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${threatStr}">${threatStr}</td>
+            <td style="color:var(--text-muted);">${esc(dateStr)}</td>
+            <td style="font-weight:700; color:#fff;">${esc(item.fileName || 'Dosya')}</td>
+            <td style="color:var(--text-muted);">${esc(sizeStr)}</td>
+            <td><span class="badge ${esc(badgeClass)}">${esc((item.verdict || 'unknown').toUpperCase())}</span></td>
+            <td style="font-weight:700; color:${isMal ? 'var(--accent-red)' : isSusp ? 'var(--accent-amber)' : 'var(--accent-green)'};">${item.score !== undefined ? Number(item.score) : 0}/100</td>
+            <td style="max-width:220px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${esc(threatStr)}">${esc(threatStr)}</td>
             <td>
-              <span class="hash-cell" onclick="copyHash('${item.sha256Hex}')" title="Kopyalamak için tıkla">
-                ${shortHash} 
+              <span class="hash-cell" onclick="copyHash('${esc(item.sha256Hex || '')}')" title="Kopyalamak için tıkla">
+                ${esc(shortHash)} 
               </span>
             </td>
             <td style="text-align:right;">
-              <button onclick="inspectScanRecord(${idx})" class="btn btn-ghost btn-sm" style="font-size:0.7rem; padding:3px 8px;">
+              <button onclick="inspectScanRecord(${Number(idx)})" class="btn btn-ghost btn-sm" style="font-size:0.7rem; padding:3px 8px;">
                 ECS JSON &nearr;
               </button>
             </td>
@@ -1155,12 +1156,12 @@
 
           qBox.innerHTML = `
             <div style="font-size:1.05rem; font-weight:800; color:${color}; margin-bottom:6px;">
-              ${badge} &bull; Skor: ${data.score}/100
+              ${badge} &bull; Skor: ${Number(data.score || 0)}/100
             </div>
-            ${data.threat_name ? `<div style="color:var(--accent-red); margin-bottom:4px;"><b>Tespit İmzası:</b> ${data.threat_name}</div>` : ''}
-            <div style="color:var(--text-muted); margin-bottom:4px;"><b>Yayılım:</b> <span style="color:#fff;">${(data.prevalence || 'UNKNOWN').toUpperCase()}</span> (${data.seen_count} gözlem)</div>
-            <div style="color:var(--text-muted); margin-bottom:4px;"><b>İlk/Son Görülme:</b> ${new Date(data.first_seen).toLocaleString()} &bull; ${new Date(data.last_seen).toLocaleString()}</div>
-            ${data.file_names && data.file_names.length ? `<div style="color:var(--text-muted);"><b>Dosya Adları:</b> ${data.file_names.join(', ')}</div>` : ''}
+            ${data.threat_name ? `<div style="color:var(--accent-red); margin-bottom:4px;"><b>Tespit İmzası:</b> ${esc(data.threat_name)}</div>` : ''}
+            <div style="color:var(--text-muted); margin-bottom:4px;"><b>Yayılım:</b> <span style="color:#fff;">${esc(String(data.prevalence || 'UNKNOWN').toUpperCase())}</span> (${Number(data.seen_count || 0)} gözlem)</div>
+            <div style="color:var(--text-muted); margin-bottom:4px;"><b>İlk/Son Görülme:</b> ${esc(new Date(data.first_seen).toLocaleString())} &bull; ${esc(new Date(data.last_seen).toLocaleString())}</div>
+            ${data.file_names && data.file_names.length ? `<div style="color:var(--text-muted);"><b>Dosya Adları:</b> ${esc(data.file_names.join(', '))}</div>` : ''}
           `;
         } else if (res.status === 429) {
           qBox.innerHTML = `<span style="color:var(--accent-amber);"> Rate limit (10 sorgu/dk). Lütfen bekleyin.</span>`;
@@ -1173,7 +1174,7 @@
           `;
         }
       } catch (e) {
-        qBox.innerHTML = `<span style="color:var(--accent-red);">Bağlantı hatası: ${e.message}</span>`;
+        qBox.innerHTML = `<span style="color:var(--accent-red);">Bağlantı hatası: ${esc(e.message || '')}</span>`;
       }
     });
   </script>

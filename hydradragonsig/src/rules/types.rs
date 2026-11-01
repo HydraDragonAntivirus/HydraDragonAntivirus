@@ -77,6 +77,10 @@ pub struct Rule {
     /// YAML key: `file_path`.
     #[serde(default, skip_serializing_if = "Option::is_none", alias = "file_path")]
     pub required_path: Option<String>,
+
+    /// Declarative post-detection remediation steps (`--remediate`).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub remediation: Vec<super::remediation::Remediation>,
 }
 
 impl Rule {
@@ -102,7 +106,16 @@ impl Rule {
                 | RuleCondition::SectionEntropy { .. }
                 | RuleCondition::SectionNameRegex { .. }
                 | RuleCondition::PeSection { .. }
-                | RuleCondition::PackedPe => {
+                | RuleCondition::PackedPe
+                | RuleCondition::PeAnchorPattern { .. }
+                | RuleCondition::Authenticode { .. }
+                | RuleCondition::VersionInfo { .. }
+                | RuleCondition::ResourceMatch { .. }
+                | RuleCondition::ResourceHashAny { .. }
+                | RuleCondition::ResourcesAbsent
+                | RuleCondition::PeSectionsSummary { .. }
+                | RuleCondition::ExportHashAny { .. }
+                | RuleCondition::PeTimestamp { .. } => {
                     if !types.contains(&"pe".to_string()) {
                         types.push("pe".to_string());
                     }
@@ -116,6 +129,9 @@ impl Rule {
                 }
                 _ => {}
             }
+        }
+        if self.conditions.iter().any(|c| matches!(c, RuleCondition::NotMz)) {
+            types.retain(|t| t != "pe");
         }
         self.required_types = if types.is_empty() { None } else { Some(types) };
     }
@@ -317,20 +333,54 @@ pub enum RuleCondition {
     PeSection {
         #[serde(default)]
         select: PeSectionSelect,
+        /// Optional 0-based section table index (`sectionindex=0..N`).
+        #[serde(default)]
+        index: Option<usize>,
+        /// Exact section name (e.g. `.text`, `.rsrc`, `/4`, `/19`).
+        #[serde(default)]
+        name: Option<String>,
         #[serde(default)]
         name_regex: Option<String>,
         #[serde(default)]
         flags_all: Vec<String>,
         #[serde(default)]
         flags_none: Vec<String>,
+        /// Exact `Characteristics` 32-bit field (e.g. `0x60000020`).
+        #[serde(default)]
+        characteristics: Option<u32>,
         #[serde(default)]
         entropy_min: Option<f64>,
         #[serde(default)]
         entropy_max: Option<f64>,
+        /// Exact `SizeOfRawData` (`size[section]` / `physicalsize[section]`).
+        #[serde(default)]
+        raw_size: Option<u64>,
         #[serde(default)]
         raw_size_min: Option<u64>,
         #[serde(default)]
         raw_size_max: Option<u64>,
+        /// Exact `PointerToRawData` (`physicaladdress[section]`).
+        #[serde(default)]
+        raw_offset: Option<u64>,
+        /// Exact `VirtualAddress` (`virtualaddress[section]`).
+        #[serde(default)]
+        virtual_address: Option<u64>,
+        /// Exact `VirtualSize` (`virtualsize[section]`).
+        #[serde(default)]
+        virtual_size: Option<u64>,
+        #[serde(default)]
+        virtual_size_min: Option<u64>,
+        #[serde(default)]
+        virtual_size_max: Option<u64>,
+        /// Hashes of the section's raw byte slice (`md5[section]`, etc.).
+        #[serde(default)]
+        md5: Option<String>,
+        #[serde(default)]
+        sha1: Option<String>,
+        #[serde(default)]
+        sha256: Option<String>,
+        #[serde(default)]
+        crc32: Option<String>,
         /// Direct `call` / `jmp` (rel32) from the other executable sections into it.
         #[serde(default)]
         code_xrefs_min: Option<usize>,
@@ -369,6 +419,12 @@ pub enum RuleCondition {
         value: String,
     },
     HashMd5 {
+        value: String,
+    },
+    HashSha1 {
+        value: String,
+    },
+    HashCrc32 {
         value: String,
     },
     /// The PE's import hash (Mandiant / pefile imphash) is one of these.
@@ -524,6 +580,241 @@ pub enum RuleCondition {
         #[serde(default)]
         idb_groups: Vec<String>,
     },
+
+    /// Hex byte pattern(s) matched at or within `range` bytes of an anchor
+    /// (`absolute`, `entry`, `section`, `overlay`, `eof`). Supports `??`, `!!`
+    /// (any non-zero byte) and nibble wildcards (`4?`, `?A`).
+    PeAnchorPattern {
+        #[serde(default = "default_anchor")]
+        anchor: String,
+        #[serde(default)]
+        section: Option<u32>,
+        #[serde(default)]
+        offset: i64,
+        #[serde(default)]
+        range: Option<usize>,
+        #[serde(default)]
+        count: Option<usize>,
+        #[serde(default)]
+        patterns: Vec<String>,
+        #[serde(default)]
+        min: Option<usize>,
+        #[serde(default)]
+        negate: bool,
+        #[serde(default)]
+        excludes: Vec<String>,
+    },
+
+    /// The first `length` bytes at the anchor repeat at least `min` (default 1)
+    /// time(s) elsewhere in the file.
+    ByteRepeat {
+        #[serde(default = "default_anchor")]
+        anchor: String,
+        #[serde(default)]
+        section: Option<u32>,
+        #[serde(default)]
+        offset: i64,
+        length: usize,
+        #[serde(default)]
+        min: Option<usize>,
+    },
+
+    /// True when the file does not start with the `MZ` DOS header magic.
+    NotMz,
+
+    /// PE Authenticode code-signing check: `signed: true|false` and/or a glob
+    /// over certificate subject CN / O / OU strings.
+    Authenticode {
+        #[serde(default)]
+        signed: Option<bool>,
+        #[serde(default)]
+        subject_glob: Option<String>,
+    },
+
+    /// PE `RT_VERSION` (`VS_VERSIONINFO`) check: `absent: true` when no version
+    /// resource exists, or a map of field names (or slot numbers `0`..`11`) to
+    /// glob patterns.
+    VersionInfo {
+        #[serde(default)]
+        fields: std::collections::BTreeMap<String, String>,
+        #[serde(default)]
+        absent: bool,
+    },
+
+    /// Match PE resources by type glob, byte size bounds and/or hex patterns
+    /// inside the resource data.
+    ResourceMatch {
+        #[serde(default)]
+        type_glob: Option<String>,
+        #[serde(default)]
+        size_min: Option<u64>,
+        #[serde(default)]
+        size_max: Option<u64>,
+        #[serde(default)]
+        data_patterns: Vec<String>,
+        #[serde(default)]
+        min: Option<usize>,
+    },
+
+    /// Any PE resource's MD5 (32 hex) or SHA-256 (64 hex) matches one of `values`.
+    ResourceHashAny {
+        values: Vec<String>,
+    },
+
+    /// The PE has no resources (missing or empty resource directory).
+    ResourcesAbsent,
+
+    /// Windows Registry key existence check, optionally searching for a value
+    /// name regex in the key or its subtree.
+    RegistryKey {
+        key: String,
+        #[serde(default)]
+        recursive: bool,
+        #[serde(default)]
+        value_pattern: Option<String>,
+    },
+
+    /// Windows Registry value filter over a key or subtree.
+    RegistryValue {
+        key: String,
+        #[serde(default)]
+        recursive: bool,
+        #[serde(default)]
+        value_regex: Option<String>,
+        #[serde(default)]
+        data_regex: Option<String>,
+        #[serde(default)]
+        data_hex: Option<String>,
+        #[serde(default)]
+        md5: Option<String>,
+        #[serde(default)]
+        sha256: Option<String>,
+        #[serde(default)]
+        min: Option<usize>,
+    },
+
+    /// COM `CLSID` registration check, optionally matching `InprocServer32`
+    /// default data against `inproc_regex`.
+    Clsid {
+        guids: Vec<String>,
+        #[serde(default)]
+        inproc_regex: Option<String>,
+    },
+
+    /// Match a line in the system `hosts` file by IP glob and/or hostname regex.
+    HostsEntry {
+        #[serde(default)]
+        ip: Option<String>,
+        #[serde(default)]
+        host: Option<String>,
+    },
+
+    /// Match raw disk or volume sectors (`physical0`, `volume:C`, `\\.\PhysicalDrive0`).
+    SectorPattern {
+        device: String,
+        #[serde(default)]
+        lba: u64,
+        #[serde(default = "default_sector_count")]
+        count: u32,
+        patterns: Vec<String>,
+        #[serde(default)]
+        min: Option<usize>,
+        #[serde(default)]
+        excludes: Vec<String>,
+    },
+
+    /// Match the scanned file path against a wildcard glob (`*`, `**`, `?`, `#`)
+    /// with `%VAR%` expansion.
+    PathGlob {
+        pattern: String,
+    },
+
+    /// Check that at least `min` (default: all) numeric feature bounds hold.
+    FeatureBounds {
+        bounds: Vec<FeatureBound>,
+        #[serde(default)]
+        min: Option<usize>,
+    },
+
+    /// Aggregate properties over all PE sections in table order:
+    /// total raw size (`size[sections]`), concatenated raw section hashes
+    /// (`md5[sections]`, `crc32[sections]`, `sha1`, `sha256`) and section count.
+    PeSectionsSummary {
+        #[serde(default)]
+        total_raw_size: Option<u64>,
+        #[serde(default)]
+        total_raw_size_min: Option<u64>,
+        #[serde(default)]
+        total_raw_size_max: Option<u64>,
+        #[serde(default)]
+        md5: Option<String>,
+        #[serde(default)]
+        sha1: Option<String>,
+        #[serde(default)]
+        sha256: Option<String>,
+        #[serde(default)]
+        crc32: Option<String>,
+        #[serde(default)]
+        count: Option<usize>,
+        #[serde(default)]
+        count_min: Option<usize>,
+        #[serde(default)]
+        count_max: Option<usize>,
+    },
+
+    /// Match the PE export table hash (`md5[exports]`).
+    ExportHashAny {
+        values: Vec<String>,
+    },
+
+    /// Match `IMAGE_FILE_HEADER.TimeDateStamp` by exact integer, hex string or bounds.
+    PeTimestamp {
+        #[serde(default)]
+        value: Option<u32>,
+        #[serde(default)]
+        hex: Option<String>,
+        #[serde(default)]
+        min: Option<u32>,
+        #[serde(default)]
+        max: Option<u32>,
+    },
+
+    /// Match the file's modification timestamp, raw DOS/Unix hex timestamp (`timestampraw[file]`)
+    /// or age in days (`age[file]`).
+    FileTimestamp {
+        #[serde(default)]
+        equals: Option<String>,
+        #[serde(default)]
+        after: Option<String>,
+        #[serde(default)]
+        before: Option<String>,
+        #[serde(default)]
+        raw_hex: Option<String>,
+        #[serde(default)]
+        age_days_min: Option<u64>,
+        #[serde(default)]
+        age_days_max: Option<u64>,
+    },
+
+    /// Match file attributes (`attribs=A+D-H-L-R-S-` or explicit `required`/`forbidden` flags).
+    FileAttributes {
+        #[serde(default)]
+        spec: Option<String>,
+        #[serde(default)]
+        required: Vec<String>,
+        #[serde(default)]
+        forbidden: Vec<String>,
+    },
+}
+
+/// Numeric feature bound used by [`RuleCondition::FeatureBounds`].
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FeatureBound {
+    pub feature: String,
+    #[serde(default)]
+    pub min: Option<f64>,
+    #[serde(default)]
+    pub max: Option<f64>,
 }
 
 /// One step of an `emulated_sequence` condition.
@@ -576,4 +867,12 @@ pub struct ByteScope {
 
 fn default_true() -> bool {
     true
+}
+
+fn default_anchor() -> String {
+    "absolute".to_string()
+}
+
+fn default_sector_count() -> u32 {
+    1
 }

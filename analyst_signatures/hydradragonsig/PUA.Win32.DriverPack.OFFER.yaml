@@ -1,0 +1,23 @@
+rules:
+- id: VK-PUA-DRIVERPACK-OFFER
+  title: DriverPack offer installers
+  description: NSIS / 7-Zip SFX offer installers that DriverPack drops into %APPDATA%\DRPSu\PROGRAMS (SearcherBar, Internet-Start, RuntimePack, ...)
+  severity: medium
+  verdict: pua
+  confidence: 85
+  score: 60
+  family: PUA.Win32.DriverPack.OFFER
+  tags: [analyst, pua, bundler, driverpack, offer]
+  logic: all
+  conditions:
+  - type: file_type
+    values: [pe]
+  - type: path_regex
+    pattern: '(?i)\\DRPSu\\PROGRAMS\\[^\\]+\.exe$'
+  - type: string_set
+    min: 1
+    values:
+    - "NSIS Error"
+    - "7z SFX"
+    - "7-Zip SFX"
+    - "7ZSfxNew"

@@ -30,7 +30,7 @@ jobs:
     steps:
       - name: Enable Git long paths
         run: git config --global core.longpaths true
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - name: Set up Rust (Nightly)
         uses: dtolnay/rust-toolchain@nightly
       - name: Cargo check
@@ -44,7 +44,7 @@ jobs:
     steps:
       - name: Enable Git long paths
         run: git config --global core.longpaths true
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@nightly
       - name: Update Cargo.lock

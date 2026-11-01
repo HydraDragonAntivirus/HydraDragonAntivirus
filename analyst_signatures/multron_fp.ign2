@@ -1,0 +1,827 @@
+# 2026-10-14 19:46 UTC | analyst: Emirhan Uçan | sample: eddbb0c08f33d4b67ec64d458df2cea6bacfb5185019b4180308d072ae78c100 SOURCES64.7z
+# reason: FP: Certificate indicator matching a Microsoft signing certificate
+DITEKSHEN_INDICATOR_KB_CERT_330000026551Ae1Bbd005Cbfbd000000000265
+
+# 2026-10-14 19:46 UTC | analyst: Emirhan Uçan | sample: 008ff8e4d1e7764bbb2c24c35962fc7b43894101b27e2ba310e040b80b1d1e8f adguardadblocker@adguard.com.xpi
+# reason: FP: Hits AdGuard tswebextension.js
+MyWebSearchSample
+
+# 2026-10-14 19:46 UTC | analyst: Emirhan Uçan | sample: 02d41cc4d683747723028f4c5cfe737f3ccb525ed18e714fddddb3f81cb21bcf cpuidsdk.dll
+# reason: FP: Capability rule, hits CPUID SDK
+write_msr
+
+# 2026-10-14 19:46 UTC | analyst: Emirhan Uçan | sample: 100ac04e146983684553d9fedc8442e7b0c619a832a1cf414f2482334ed472c9 no_tab_explorer.exe
+# reason: FP: Compiler identification
+AutoHotkey_ResourceName
+
+# 2026-10-14 19:46 UTC | analyst: Emirhan Uçan | sample: f11a0150d87ef69a5509348e91f761358b0bd8c3bbefd8c8e7686b4dfb792dee Revo Uninstaller Help.pdf
+# reason: FP: Hits a PDF help file
+multiple_versions_ren
+
+# 2026-10-14 19:46 UTC | analyst: Emirhan Uçan | sample: 81b4d05e84e61891ac043dd76e97de616af17adf53b2ee2fe984d8b0bbbfcc21 Everything.exe
+# reason: FP: Hits signed voidtools Everything
+tdl3
+
+# 2026-10-14 19:46 UTC | analyst: Emirhan Uçan | sample: 5fe83e43f83cd9c5015701e97587463d57b9483bc39c226892417a65fa336cc1 QHActiveDefense.exe
+# reason: FP: Crypto-constant rule: matches any MD5 implementation
+MD5_constants__32_lil_AND_
+
+# 2026-10-14 19:46 UTC | analyst: Emirhan Uçan | sample: 1f5c6218ea6235b851e8c10354e7d2a8feacc62c21c655832dfecf92575036b1 PopWndLog.exe
+# reason: FP: Certificate indicator matching every validly signed Qihoo 360 binary
+DITEKSHEN_INDICATOR_KB_CERT_0A1F3A057A1Dce4Bf7D76D0C7Adf837E
+
+# 2026-10-14 19:46 UTC | analyst: Emirhan Uçan | sample: 481140e6c3a8146bb39465f0771ab45fb67a335928aa8f74765c3475734879ff safesvr.exe
+# reason: FP: Generic warning rule, hits Windows ieframe.dll.mun and signed 360 files
+warning_mime_mso_embedded_flash
+
+# 2026-10-14 19:46 UTC | analyst: Emirhan Uçan | sample: 98e243873e43e3a6f66a4e388d76b06b872b7e07e89f04c80a9a5da387077bb8 AVEngine.dll
+# reason: FP: Packer-style rule, hits signed 360 AV engine only
+Win_Trojan_Packed_122
+
+# 2026-10-14 19:46 UTC | analyst: Emirhan Uçan | sample: 98e243873e43e3a6f66a4e388d76b06b872b7e07e89f04c80a9a5da387077bb8 AVEngine.dll
+# reason: FP: Packer identification
+MaskPEV20yzkzero
+
+# 2026-10-14 19:46 UTC | analyst: Emirhan Uçan | sample: 98e243873e43e3a6f66a4e388d76b06b872b7e07e89f04c80a9a5da387077bb8 AVEngine.dll
+# reason: FP: Packer identification
+_MaskPE_V20__yzkzero_
+
+# 2026-10-14 19:46 UTC | analyst: Emirhan Uçan | sample: 98e243873e43e3a6f66a4e388d76b06b872b7e07e89f04c80a9a5da387077bb8 AVEngine.dll
+# reason: FP: Packer identification
+aspr11c
+
+# 2026-10-14 19:46 UTC | analyst: Emirhan Uçan | sample: 98e243873e43e3a6f66a4e388d76b06b872b7e07e89f04c80a9a5da387077bb8 AVEngine.dll
+# reason: FP: Packer identification
+execryptor1x
+
+# 2026-10-14 19:46 UTC | analyst: Emirhan Uçan | sample: 98e243873e43e3a6f66a4e388d76b06b872b7e07e89f04c80a9a5da387077bb8 AVEngine.dll
+# reason: FP: Packer identification
+telock_070
+
+# 2026-10-14 19:46 UTC | analyst: Emirhan Uçan | sample: 98e243873e43e3a6f66a4e388d76b06b872b7e07e89f04c80a9a5da387077bb8 AVEngine.dll
+# reason: FP: Packer identification
+telock_071
+
+# 2026-10-14 19:46 UTC | analyst: Emirhan Uçan | sample: 98e243873e43e3a6f66a4e388d76b06b872b7e07e89f04c80a9a5da387077bb8 AVEngine.dll
+# reason: FP: Packer identification
+telock_080
+
+# 2026-10-14 19:46 UTC | analyst: Emirhan Uçan | sample: 3a83a34b68a906cbf722efc0a38d4f9a33585bd34a2083c3c7e4ab8fe9d30ede aswEngin.dll
+# reason: FP: Packer identification
+EnigmaProtector11X13XSukhovVladimirSergeNMarkin
+
+# 2026-10-14 19:46 UTC | analyst: Emirhan Uçan | sample: 3a83a34b68a906cbf722efc0a38d4f9a33585bd34a2083c3c7e4ab8fe9d30ede aswEngin.dll
+# reason: FP: Packer identification
+_Enigma_Protector_11X13X__Sukhov_Vladimir__Serge_N_Markin_
+
+# 2026-10-14 19:46 UTC | analyst: Emirhan Uçan | sample: 3a83a34b68a906cbf722efc0a38d4f9a33585bd34a2083c3c7e4ab8fe9d30ede aswEngin.dll
+# reason: FP: Packer identification
+tElockv06x
+
+# 2026-10-14 19:46 UTC | analyst: Emirhan Uçan | sample: 3a83a34b68a906cbf722efc0a38d4f9a33585bd34a2083c3c7e4ab8fe9d30ede aswEngin.dll
+# reason: FP: Hunting heuristic
+Methodology_Mutation_StackPush_Common_PE_Strings
+
+# 2026-10-14 19:46 UTC | analyst: Emirhan Uçan | sample: 3a83a34b68a906cbf722efc0a38d4f9a33585bd34a2083c3c7e4ab8fe9d30ede aswEngin.dll
+# reason: FP: Hunting heuristic
+TTP_Mutation_StackPush_Windows_DLLs
+
+# 2026-10-14 19:46 UTC | analyst: Emirhan Uçan | sample: 3a83a34b68a906cbf722efc0a38d4f9a33585bd34a2083c3c7e4ab8fe9d30ede aswEngin.dll
+# reason: FP: Hunting heuristic
+SUSP_kernel32_mutation_stackpush
+
+# 2026-10-14 19:46 UTC | analyst: Emirhan Uçan | sample: 044e64ff20ed27df3a86202e7eea53ef4e7b0b31939a472bc4c1982cf5e6708f rfcomm.sys
+# reason: FP: Crypto-constant rule (CRC table)
+CRC_8_ATM_poly_0x07__8_byt_refl_True_
+
+# 2026-10-14 19:46 UTC | analyst: Emirhan Uçan | sample: f78fcf5f3b0df61c13efffdf3ebdedc4792d68f734fbf089dd0ba5dc610e1634 taskbarcpl.dll
+# reason: FP: Hits Windows taskbarcpl.dll
+Win_Dropper_Agent_36275
+
+# 2026-10-14 19:46 UTC | analyst: Emirhan Uçan | sample: 1403a0b16b4d3aec1cd2ba6197c850858c1bac975a8f5f2c3c7ea87a485984f8 nettrace.dll
+# reason: FP: Hits Windows nettrace.dll
+nbtstat
+
+# 2026-10-14 19:46 UTC | analyst: Emirhan Uçan | sample: 2f5444f225c19437719b1b234161f3b548a2b5143c8d440286127d7bbe8a8158 msmpeg2adec.dll
+# reason: FP: Codec-constant rule (libfaad2)
+libfaad2_drc_pow2_table__flt32___32_lil_188_
+
+# 2026-10-14 19:46 UTC | analyst: Emirhan Uçan | sample: 84156dcff7dc7096db3fc04cf930e9da48d403a600a96f923894e854979a879f codsp.exe
+# reason: FP: Packer/DRM identification, not malware
+SafeDiscv4
+
+# 2026-10-14 19:46 UTC | analyst: Emirhan Uçan | sample: 84156dcff7dc7096db3fc04cf930e9da48d403a600a96f923894e854979a879f codsp.exe
+# reason: FP: Packer/DRM identification, not malware
+_SafeDisc_v4_
+
+# 2026-10-14 19:46 UTC | analyst: Emirhan Uçan | sample: 84156dcff7dc7096db3fc04cf930e9da48d403a600a96f923894e854979a879f codsp.exe
+# reason: FP: Constant-table rule
+Quake_3_msg_hData__huffman___32_lil_1024_
+
+# 2026-10-14 19:46 UTC | analyst: Emirhan Uçan | sample: d24bfcd6db823ff1b9781a1de5fb3997366f954ff12868f9a915b8dcee0995d2 avcodec-60.dll
+# reason: FP: Codec-constant rule
+libavcodec_AAN_ff_inv_aanscales__16_lil_128_
+
+# 2026-10-14 19:46 UTC | analyst: Emirhan Uçan | sample: d24bfcd6db823ff1b9781a1de5fb3997366f954ff12868f9a915b8dcee0995d2 avcodec-60.dll
+# reason: FP: Codec-constant rule
+libavcodec_sp5x_data_dqt__8_byt_134_
+
+# 2026-10-14 19:46 UTC | analyst: Emirhan Uçan | sample: ac3693bcdc5855fcb6c007d872643a13f2f44c05abc3fa9273013ed1f4c63bef socketscance.exe
+# reason: FP: File-format identification
+InstallShield_Cabinet_Archive
+
+# 2026-10-14 19:46 UTC | analyst: Emirhan Uçan | sample: 43478e4e28c775519f45f15cb2540442fb5aefe994256c8abcb903000fcb6214 UninstallMonitor.exe
+# reason: FP: Hunting rule (not a detection), hits signed IObit Uninstaller
+hunt_skyproj_backdoor
+
+# 2026-10-14 19:46 UTC | analyst: Emirhan Uçan | sample: 3ae3c7ca5f7ebfc14f7f64895804c94aa9d821402f57d27603bd586bce756882 OperaGXSetup.exe
+# reason: FP: Hits signed Opera GX installer
+Win_Spyware_SpyEyes_100
+
+# 2026-10-14 19:46 UTC | analyst: Emirhan Uçan | sample: 3ae3c7ca5f7ebfc14f7f64895804c94aa9d821402f57d27603bd586bce756882 OperaGXSetup.exe
+# reason: FP: Generic hunting rule, hits signed Opera installer
+SUSP_Obfuscated_Mozilla_b64
+
+# 2026-10-14 19:46 UTC | analyst: Emirhan Uçan | sample: 851e715c6cf297fed576a6338eeabfef53fd6462a98d856eafc9130c6170fd30 MBSetup-076886.076886-Consumer.exe
+# reason: FP: Hunting rule (not a detection), hits signed Malwarebytes setup
+HUNT_Ransomware_generic_strings
+
+# 2026-10-14 19:46 UTC | analyst: Emirhan Uçan | sample: 1f917aca4f43b642bae4eecce4588061cf845a42f00854237c4bf9c79799ccd2 PdaNetPC.exe
+# reason: FP: Crypto-constant rule (OpenSSL)
+OpenSSL_obj_dat_h_lvalues__8_byt_5106_
+
+# 2026-10-14 19:46 UTC | analyst: Emirhan Uçan | sample: 1f917aca4f43b642bae4eecce4588061cf845a42f00854237c4bf9c79799ccd2 PdaNetPC.exe
+# reason: FP: Crypto-constant rule (EC curve)
+EC_curve__EC_NIST_CHAR2_163B_SEED__8_byt_20_
+
+# 2026-10-14 19:46 UTC | analyst: Emirhan Uçan | sample: 1f917aca4f43b642bae4eecce4588061cf845a42f00854237c4bf9c79799ccd2 PdaNetPC.exe
+# reason: FP: Crypto-constant rule (EC curve)
+EC_curve__EC_SECG_CHAR2_163R1_SEED__8_byt_20_
+
+# 2026-10-14 19:46 UTC | analyst: Emirhan Uçan | sample: 23e8bc2460cdf378ecde919dc1856d3b8e3206ee54fdf3a3e99f6e1f3087248e Patch générique Revo Uninstaller Pro 1.2 - Majax31.exe
+# reason: FP: File-format identification
+_WinRAR_SFX_
+
+# 2026-10-14 19:46 UTC | analyst: Emirhan Uçan | sample: 23e8bc2460cdf378ecde919dc1856d3b8e3206ee54fdf3a3e99f6e1f3087248e Patch générique Revo Uninstaller Pro 1.2 - Majax31.exe
+# reason: FP: File-format identification
+winrar_sfx_Kevin
+
+# 2026-10-14 19:46 UTC | analyst: Emirhan Uçan | sample: 53f89aa63cadb19c8fa6c32314be86c7bdcbc6355916928032edaed1a99ce51c sonymvd2pro_xp.dll
+# reason: FP: Codec-constant rule
+Electronic_Arts_TQI_base_table2__32_lil_256_
+
+# 2026-10-14 19:46 UTC | analyst: Emirhan Uçan | sample: efc9dd2f24b8ba41ad52e8cd30bd17377c79b778951b23d2d0355d3db4dc232f mc_mux_mp4.dll
+# reason: FP: Codec-constant rule: matches AAC decoders
+AAC_pred_max_bands_tbl__avcodec___32_lil_64_
+
+# 2026-10-14 19:46 UTC | analyst: Emirhan Uçan | sample: ca867e9ae15230452911fc9132bb26f82c7f2083fd0d567011651f48da76c1d1 mc_enc_avc.dll
+# reason: FP: Codec-constant rule: matches H.264 codecs
+libavcodec_H_26L_H_264_AVC_JVT_14496_10_ff_h264_norm_shift_old__8_byt_128_
+
+# 2026-10-14 19:46 UTC | analyst: Emirhan Uçan | sample: 1a2f60dbca42644e26fe942cf200221bfa4ba7fd84ec993b9d06a8436acbdd86 mc_mfimport.dll
+# reason: FP: Codec-constant rule
+Electronic_Arts_TQI_base_table2__32_big_256_
+
+# 2026-10-14 19:46 UTC | analyst: Emirhan Uçan | sample: 0c06e7726c1c010bbbf67208f0478200a251f1de790982acd3c03d319933def0 mc_dec_aac.dll
+# reason: FP: Codec-constant rule (AAC TNS)
+TNS_filter_tnsMaxBands__combined___32_big_256_
+
+# 2026-10-14 19:46 UTC | analyst: Emirhan Uçan | sample: 0c06e7726c1c010bbbf67208f0478200a251f1de790982acd3c03d319933def0 mc_dec_aac.dll
+# reason: FP: Codec-constant rule (AAC TNS)
+TNS_filter_tnsMaxBands__combined___32_lil_256_
+
+# 2026-10-14 19:46 UTC | analyst: Emirhan Uçan | sample: 6a300dd36bd3d67ccd56bc753ffb4d388a665309ee380d92ddb401dac34bfcca atracplug.dll
+# reason: FP: Codec-constant rule
+libavcodec_atrac_subbandTab__16_lil_66_
+
+# 2026-10-14 19:46 UTC | analyst: Emirhan Uçan | sample: e934ea4e342e3eebd5db64401f0197f5ffa3890e39fc545ac51c7b10676e0f62 mp3plug2.dll
+# reason: FP: Codec-constant rule (libfaad2)
+libfaad2_pow05_table__flt32___32_lil_28_
+
+# 2026-10-14 19:46 UTC | analyst: Emirhan Uçan | sample: 2a248d5905b41e0bf28fe28a33d5c64a6d61e165474c58924602c69f703570f4 KerishDoctor.exe
+# reason: FP: Packer identification
+_Enigma_Protector_V11XV15X__Sukhov_Vladimir__Serge_N_Markin_
+
+# 2026-10-14 19:46 UTC | analyst: Emirhan Uçan | sample: 2a248d5905b41e0bf28fe28a33d5c64a6d61e165474c58924602c69f703570f4 KerishDoctor.exe
+# reason: FP: Packer identification
+Enigma_Protector_V1_1X_V1_5X____Sukhov_Vladimir___Serge_N__Markin_____Sign_By_fly
+
+# 2026-10-14 19:46 UTC | analyst: Emirhan Uçan | sample: f1f1800339884a333b40ca6f17bb960fdddc70b174cabeaf9ca1da2a8d2e11eb avcodec-62.dll
+# reason: FP: Codec-constant rule
+libavcodec_DV_dv_audio_shuffle525__8_byt_90_
+
+# 2026-10-14 19:46 UTC | analyst: Emirhan Uçan | sample: f1f1800339884a333b40ca6f17bb960fdddc70b174cabeaf9ca1da2a8d2e11eb avcodec-62.dll
+# reason: FP: Codec-constant rule
+libavcodec_DV_dv_audio_shuffle625__8_byt_108_
+
+# 2026-10-14 19:46 UTC | analyst: Emirhan Uçan | sample: f1f1800339884a333b40ca6f17bb960fdddc70b174cabeaf9ca1da2a8d2e11eb avcodec-62.dll
+# reason: FP: Codec-constant rule
+libavcodec_dnxhd_1252_ac_codes__16_lil_514_
+
+# 2026-10-14 19:46 UTC | analyst: Emirhan Uçan | sample: f1f1800339884a333b40ca6f17bb960fdddc70b174cabeaf9ca1da2a8d2e11eb avcodec-62.dll
+# reason: FP: Codec-constant rule
+libavcodec_ff_mlp_huffman_tables__8_byt_106_
+
+# 2026-10-18 20:03 UTC | analyst: Claude | sample: d347dc02b5831b61bf5f7094e5b94fef0cea873935cacb85a07c0a86f4484563 Argente.StartupManager.dll
+# reason: FP: "%PDF" byte in the first KB plus high entropy; only ever matched signed Argente Utilities .NET DLLs (file-signature table: NTFS, %PDF-, EXFAT, PNG, 7z magics). 14 hits in the archive, all Argente, no other detection.
+header_evasion
+
+# 2026-10-18 20:03 UTC | analyst: Claude | sample: d347dc02b5831b61bf5f7094e5b94fef0cea873935cacb85a07c0a86f4484563 Argente.StartupManager.dll
+# reason: FP: same logic as header_evasion; only ever matched the 14 Argente Utilities DLLs.
+suspicious_version_ren
+
+# 2026-10-18 20:03 UTC | analyst: Claude | sample: 90286628363adfe51b7692b48eca6ea683a767cbdd5f3d29dc02e078a5ae0c36 IronPython.dll
+# reason: FP: typelib GUID is IronPython's own; matches the genuine IronPython.dll (Microsoft-signed, Power Automate).
+HKTL_NET_GUID_IronKit
+
+# 2026-10-18 20:03 UTC | analyst: Claude | sample: 19754b52a4b5f2ad2c6378a2b59861f18cc744faec1cf331897d9b1af1f9403f HiFiDAX2API.dll
+# reason: FP: auto-generated MSVC opcode sequences; matched a signed Dolby audio DLL.
+win_kleptoparasite_stealer_auto
+
+# 2026-10-18 20:03 UTC | analyst: Claude | sample: 71534df4c3dd0bb71c324f3c11a7a1da68578e7853367f00cac34a72ddc2311e libeay32.dll
+# reason: FP: Linux Exim exploit rule ("ELF" + digit strings) matching OpenSSL libeay32.dll.
+EXIM_CVE_2019_10149
+
+# 2026-10-18 20:03 UTC | analyst: Claude | sample: 94c91cf3d913c988bfe32c4b74e13f6542a6f9ef7c4d92a31372335ae4fbe2f7 dcmdirtv.ocx
+# reason: FP: generic MSVC SEH epilogue blocks; matched a DICOM viewer OCX.
+OutlookBackdoor
+
+# 2026-10-18 20:03 UTC | analyst: Claude | sample: 235fb32d2cbd7c61e9a0ddf1a9693e6614bcc2654fc48bae65a2478797b43cdb somkernl.dll
+# reason: FP: single string "WebShield.exe"; matched a 360 Total Security DLL.
+AdwarePullUpdateSample
+
+# 2026-10-18 20:03 UTC | analyst: Claude | sample: 797f0917162e74e64f556fd467cc13d10401e826309c3ed889574889a96b88c7 rkill64.exe
+# reason: FP: indicator rule (names of security tools); matched BleepingComputer RKill.
+INDICATOR_SUSPICIOUS_References_SecTools
+
+# 2026-10-18 20:03 UTC | analyst: Claude | sample: a521534c20569eb1d2e83119d7481a8ca75b9782b29d5a2270ea3b92e2a8f105 Wintoys.dll
+# reason: FP: indicator rule (WMI hardware queries); matched the Wintoys Store app.
+DITEKSHEN_INDICATOR_SUSPICIOUS_EXE_WMI_Enumeratevideodevice
+
+# 2026-10-18 20:03 UTC | analyst: Claude | sample: 34451e1175206606bb4da395a4b0505ab092792be5033d4e96099eac43ce79de CONEQMSAPO.dll
+# reason: FP: crypto-constant table (CRC-8); matched a signed Realtek/Real Sound Lab audio APO DLL.
+CRC_8_Dallas_Maxim_poly_0x31__8_byt_refl_False_
+
+# 2026-10-18 20:03 UTC | analyst: Claude | sample: 990343845b4a570b09aaafc26dd91bd9be133dd856b6c2515fa41e8c9e4a1a7f tspf.exe
+# reason: FP: crypto-constant table (CRC-64); matched signed Toolstone Photo Finder.
+CRC_64_ISO_poly_0x000000000000001B__64_lil_refl_True_
+
+# 2026-10-18 20:03 UTC | analyst: Claude | sample: 98e243873e43e3a6f66a4e388d76b06b872b7e07e89f04c80a9a5da387077bb8 AVEngine.dll
+# reason: FP: packer-ID rule (tElock stub bytes); matched signed 360 Total Security engine DLLs.
+telock_085f
+
+# 2026-10-18 20:03 UTC | analyst: Claude | sample: 98e243873e43e3a6f66a4e388d76b06b872b7e07e89f04c80a9a5da387077bb8 AVEngine.dll
+# reason: FP: packer-ID rule; matched signed 360 engine DLLs.
+tElockv04_v05
+
+# 2026-10-18 20:03 UTC | analyst: Claude | sample: 98e243873e43e3a6f66a4e388d76b06b872b7e07e89f04c80a9a5da387077bb8 AVEngine.dll
+# reason: FP: packer-ID rule; matched signed 360 engine DLLs.
+tElockv042_ren
+
+# 2026-10-18 20:03 UTC | analyst: Claude | sample: 98e243873e43e3a6f66a4e388d76b06b872b7e07e89f04c80a9a5da387077bb8 AVEngine.dll
+# reason: FP: packer-ID rule; matched signed 360 engine DLLs.
+tElockv051_ren
+
+# 2026-10-18 20:03 UTC | analyst: Claude | sample: 98e243873e43e3a6f66a4e388d76b06b872b7e07e89f04c80a9a5da387077bb8 AVEngine.dll
+# reason: FP: packer-ID rule; matched signed 360 engine DLLs.
+tElockv060_ren
+
+# 2026-10-18 20:03 UTC | analyst: Claude | sample: b971c11a0632f9e568c8da6191b84fdabb90571b6adfa2ab2818f827181a36bc ArPotEx64.dll
+# reason: FP: RMM-tool inventory string (action1_agent.exe); matched Avast Browser anti-RMM DLLs.
+action1
+
+# 2026-10-18 20:03 UTC | analyst: Claude | sample: 3a83a34b68a906cbf722efc0a38d4f9a33585bd34a2083c3c7e4ab8fe9d30ede aswEngin.dll
+# reason: FP: tool inventory string (openvpn.exe); matched Avast engine DLL.
+OPENVPN
+
+# 2026-10-18 20:03 UTC | analyst: Claude | sample: 032a18a7e011a12ce543243dd90d616f1b701480f333beef11a2c18545c55d3c DropboxPlugin.fpi
+# reason: FP: tool inventory string (Dropbox URL); matched Foxit Reader Dropbox plugin.
+dropbox
+
+# 2026-10-18 20:03 UTC | analyst: Claude | sample: 1fd414b1213b0429726f75a626c80d390e5b31ac144f65de78980b661d3cf8cc hamachi-2.exe
+# reason: FP: tool inventory string; matched genuine signed LogMeIn Hamachi.
+LogMeIn
+
+# 2026-10-18 20:03 UTC | analyst: Claude | sample: e478aa0f48524b10c98338b77f9fd82a865cf174bb3f30b9f678d8f7a99e8ce5 DriverGenius.exe
+# reason: FP: single string "net localgroup"; matched Driver Genius.
+net
+
+# 2026-10-18 20:03 UTC | analyst: Claude | sample: 03a234060541b686ac4265754aff43df9325c21383f90e17f831e67965d717f8 Optimizer-16.7.exe
+# reason: FP: single string "reg add HKLM"; matched the open-source Optimizer tweaker.
+reg
+
+# 2026-10-18 20:03 UTC | analyst: Claude | sample: d658632cccb47d03aa99dcb61dff7adbe40ca016aaa56ac78f96895d2a242a42 ModernHomeUpdater.Core.dll
+# reason: FP: tool inventory; matched PatchMyPC Home Updater (app catalog).
+advanced_ip_scanner_
+
+# 2026-10-18 20:03 UTC | analyst: Claude | sample: d658632cccb47d03aa99dcb61dff7adbe40ca016aaa56ac78f96895d2a242a42 ModernHomeUpdater.Core.dll
+# reason: FP: tool inventory; matched PatchMyPC Home Updater (app catalog).
+nirsoft_tools
+
+# 2026-10-18 20:03 UTC | analyst: Claude | sample: d658632cccb47d03aa99dcb61dff7adbe40ca016aaa56ac78f96895d2a242a42 ModernHomeUpdater.Core.dll
+# reason: FP: tool inventory; matched PatchMyPC Home Updater (app catalog).
+aeroadmin
+
+# 2026-10-18 20:03 UTC | analyst: Claude | sample: d658632cccb47d03aa99dcb61dff7adbe40ca016aaa56ac78f96895d2a242a42 ModernHomeUpdater.Core.dll
+# reason: FP: tool inventory; matched PatchMyPC Home Updater (app catalog).
+Ahk2Exe
+
+# 2026-10-18 20:03 UTC | analyst: Claude | sample: d658632cccb47d03aa99dcb61dff7adbe40ca016aaa56ac78f96895d2a242a42 ModernHomeUpdater.Core.dll
+# reason: FP: tool inventory; matched PatchMyPC Home Updater (app catalog).
+RemoteUtilities
+
+# 2026-10-18 20:03 UTC | analyst: Claude | sample: d658632cccb47d03aa99dcb61dff7adbe40ca016aaa56ac78f96895d2a242a42 ModernHomeUpdater.Core.dll
+# reason: FP: tool inventory; matched PatchMyPC Home Updater (app catalog).
+RustDesk
+
+# 2026-10-18 20:03 UTC | analyst: Claude | sample: d658632cccb47d03aa99dcb61dff7adbe40ca016aaa56ac78f96895d2a242a42 ModernHomeUpdater.Core.dll
+# reason: FP: tool inventory; matched PatchMyPC Home Updater (app catalog).
+teamviewer
+
+# 2026-10-18 20:03 UTC | analyst: Claude | sample: d658632cccb47d03aa99dcb61dff7adbe40ca016aaa56ac78f96895d2a242a42 ModernHomeUpdater.Core.dll
+# reason: FP: tool inventory; matched PatchMyPC Home Updater (app catalog).
+UltraVNC
+
+# 2026-10-18 20:23 UTC | analyst: Claude | sample: (archive members: Sims 4 base.zip/core.zip, Ventoy plugson.tar.xz, ASUS BootSetting zip)
+# reason: FP: file-type identification rule (not a threat signature); matched ordinary archive members.
+flash_cws
+
+# 2026-10-18 20:23 UTC | analyst: Claude | sample: (archive members: Sims 4 base.zip/core.zip, Ventoy plugson.tar.xz, ASUS BootSetting zip)
+# reason: FP: file-type identification rule (not a threat signature); matched ordinary archive members.
+ft_swf_cws
+
+# 2026-10-18 20:23 UTC | analyst: Claude | sample: (archive members: Sims 4 base.zip/core.zip, Ventoy plugson.tar.xz, ASUS BootSetting zip)
+# reason: FP: file-type identification rule (not a threat signature); matched ordinary archive members.
+head_szdd
+
+# 2026-10-18 20:23 UTC | analyst: Claude | sample: (archive members: Sims 4 base.zip/core.zip, Ventoy plugson.tar.xz, ASUS BootSetting zip)
+# reason: FP: file-type identification rule (not a threat signature); matched ordinary archive members.
+lang_python_bytecode
+
+# 2026-10-18 21:25 UTC | analyst: Claude | sample: eddbb0c08f33d4b67ec64d458df2cea6bacfb5185019b4180308d072ae78c100 SOURCES64.7z
+# reason: FP: only hit in the archive is sources\wpx.dll (Windows Setup component).
+lowers_security
+
+# 2026-10-20 13:35 UTC | analyst: Emirhan Uçan | sample: dc61a0803af1611497e13346b81cef5d59ddf8c9ddd39429d6ec2fb1e904be1e YunDetectService.exe
+# reason: VMProtect doesn't mean it's malicious
+INDICATOR_EXE_Packed_VMProtect
+
+# 2026-10-21 15:23 UTC | analyst: Emirhan Uçan | sample: 117d1775903fe68b1e322fac272109feb2e4727fa82b8c0e4c3dd6ca12cf1cd9 plugin.jar
+# reason: This yara rule detects sqlserver files as false positive
+Java0daycve2012xxxx_generic
+
+# 2026-10-23 13:33 UTC | analyst: Emirhan Uçan | sample: ce3946ee288b5f674c862d7ad7f7ac37d643c86c4f5aa147edf959f62629dc99 182.jar
+# reason: Renamed disable signatures from YARA-X
+blackhole_basic_ren
+
+# 2026-10-23 13:35 UTC | analyst: Emirhan Uçan | sample: 018c43412a8725cb2bf7975e146d2779c525f3cff7632e4ce3ff84bde11acd78 YuantaServiSignWorker.exe
+# reason: not-a-virus-signature
+RijnDael_AES_RCON
+
+# 2026-10-23 13:36 UTC | analyst: Emirhan Uçan | sample: 01e360611ece619ca2941406f1ae467637ca2827c3656973c547da9609dd20df ttxssh.dll
+# reason: not-a-virus-signature-2
+RC4SboxKeyGen
+
+# 2026-10-23 13:39 UTC | analyst: Emirhan Uçan | sample: 0415f1b12df2667f18693252725e6f17fe6339cea0969140561401f99c95705f taikojiro.exe
+# reason: not-a-virus
+SurtrStrings
+
+# 2026-10-23 13:41 UTC | analyst: Emirhan Uçan | sample: 0cf9a600efdfb81e660b09537b784150b6b53eb5c4dfb188f611cae2836d8993 tabservicepack.exe
+# reason: CAPE converted rule to YARA causing false positive
+CAPE_Agentteslaxor
+
+# 2026-10-23 13:48 UTC | analyst: Emirhan Uçan | sample: 108e6cb56a8ac359032a9af98c79978f2f86cf41a8275fb49f92ea3ec85fa95a WintonLvPatcher.exe
+# reason: Only MaxSecure flags  on virustotal
+libavcodec_wp_log2_table__8_byt_256_
+
+# 2026-10-23 13:54 UTC | analyst: Emirhan Uçan | sample: 18dec18da275415207ccfcb18ee0b8afc537dca29b75e0f5099eb7deb867197c DuplicateCleanerProPortable.exe
+# reason: This suspicious rule causing false positives
+sus_nsis_tampered_signature
+
+# 2026-10-23 13:54 UTC | analyst: Emirhan Uçan | sample: 1a95c90908d90d045326a49494699873940b9587e66db6985abe682941a1dce2 SoftwareUpdateNotificationService.exe
+# reason: Nobody flagged on virustotal known benign file
+obsidium1110
+
+# 2026-10-23 13:59 UTC | analyst: Emirhan Uçan | sample: 2305f3160819fb174bfe2a2ad913ed53a902f6b0b27b9954e5352e4856ed6367 FTPServer.exe
+# reason: not-a-virus signature
+System_Network_Discovery
+
+# 2026-10-23 14:00 UTC | analyst: Emirhan Uçan | sample: 2305f3160819fb174bfe2a2ad913ed53a902f6b0b27b9954e5352e4856ed6367 FTPServer.exe
+# reason: yet another not malicious signature
+lookupip
+
+# 2026-10-23 14:09 UTC | analyst: Emirhan Uçan | sample: 305b6f28518639bee04a512fe590b9f388a368ee7c0afe96edcb332771048d06 lame_enc.dll
+# reason: Nobody flagged on virustotal
+ReplayGainAnalysis_ABYule__flt32___32_lil_756_
+
+# 2026-10-23 14:09 UTC | analyst: Emirhan Uçan | sample: 305b6f28518639bee04a512fe590b9f388a368ee7c0afe96edcb332771048d06 lame_enc.dll
+# reason: Nobody flagged on virustotal  (2)
+ReplayGainAnalysis_ABButter__flt32___32_lil_180_
+
+# 2026-10-23 14:16 UTC | analyst: Emirhan Uçan | sample: 294c8c21027e1b1ca4bc11db9a007a09ffb7524eae98ce4bf07bd1ab1ec4f525 skypert.dll
+# reason: not a virus signature as name suggests
+CRC_8_Dallas_Maxim_poly_0x31__8_byt_refl_True_
+
+# 2026-10-23 14:17 UTC | analyst: Emirhan Uçan | sample: cdb6926a4af21687c0199e4fee16ef83bd07ac2da52940ce6e1e6e22dd841320 wbdi.dll
+# reason: not a virus signature
+Crypton_kp__32_big_16_
+
+# 2026-10-23 16:50 UTC | analyst: Emirhan Uçan | sample: 388af83e7ab90e23beb0f662c3e08211f63230a7f985e92d4b4d559d8d62b556 MegaDownloader.exe
+# reason: not-a-virus-signature
+mpress_2_xx_net
+
+# 2026-10-23 16:50 UTC | analyst: Emirhan Uçan | sample: 388af83e7ab90e23beb0f662c3e08211f63230a7f985e92d4b4d559d8d62b556 MegaDownloader.exe
+# reason: not-a-virus-signature mpress net
+mpress_071_212_Net
+
+# 2026-10-23 16:51 UTC | analyst: Emirhan Uçan | sample: 3a41a5780ebb3b6ccec3fe26ccd883dd91da85e6fd7eab0e3e391552dafab1ad Au3Info.exe
+# reason: diteekshen fp rule
+DITEKSHEN_INDICATOR_KB_CERT_010000000001302693Cb45
+
+# 2026-10-23 16:52 UTC | analyst: Emirhan Uçan | sample: 404c3bac6e88ea9fb812e9e349652662ab5aebf55ef5f801203289a0b033ffe0 bassopus.dll
+# reason: Petite is not virus
+PEtitevxx
+
+# 2026-10-23 16:52 UTC | analyst: Emirhan Uçan | sample: 404c3bac6e88ea9fb812e9e349652662ab5aebf55ef5f801203289a0b033ffe0 bassopus.dll
+# reason: petite not a virus
+Petitev14
+
+# 2026-10-23 16:53 UTC | analyst: Emirhan Uçan | sample: 404c3bac6e88ea9fb812e9e349652662ab5aebf55ef5f801203289a0b033ffe0 bassopus.dll
+# reason: petite v14 not a virus
+_Petite_v14_
+
+# 2026-10-24 13:18 UTC | analyst: Emirhan Uçan | sample: 6b890c68c00c78642081500ab99d44bec7978180435bfcefbd0d2b0a86f1af91 passfab-for-rar_11792539092927843501.exe
+# reason: False positive caused file has no detections on Virustotal
+HeartBleedWin32
+
+# 2026-10-24 13:21 UTC | analyst: Emirhan Uçan | sample: abbeab03ec30e988cbc7eb8c1641ae797e2005c1b3564e687fb7f80867dbb2d2 libdeviceauth_service.dll
+# reason: No detections from virustotal
+ARIA_encryption_KRK__32_big_48_
+
+# 2026-10-24 13:21 UTC | analyst: Emirhan Uçan | sample: 0cf2eaec1634f30243019af76c2f89539d17d2c1c1892d62ffb39f1ec623bea5 RDXService.dll
+# reason: No detections from virustotal for this suspicious rule
+DITEKSHEN_INDICATOR_SUSPICIOUS_VM_Evasion_Macaddrcomb
+
+# 2026-10-24 15:13 UTC | analyst: Emirhan Uçan | sample: 665060b8a30f7a90a1e39da936390bb8d0aa77824527d575b620715a4f826fee ir50_32.dll
+# reason: msvc is not malicious
+msvc_prvt2
+
+# 2026-10-24 15:48 UTC | analyst: Claude | sample: 735ed7adcd9ccf0895b86bfa21aa076f3f38b893353af23f6ce4ef588861a307 PowerISO9-x64.exe
+# reason: FP: LAME MP3 encoder psychoacoustic table (lame_enc.dll, StarBurn, PowerISO) - algorithm constant, not malware
+psymodel_table1__flt32___32_lil_100_
+
+# 2026-10-24 15:48 UTC | analyst: Claude | sample: 735ed7adcd9ccf0895b86bfa21aa076f3f38b893353af23f6ce4ef588861a307 PowerISO9-x64.exe
+# reason: FP: LAME MP3 encoder psychoacoustic table (lame_enc.dll, StarBurn, PowerISO) - algorithm constant, not malware
+psymodel_table3__flt32___32_lil_56_
+
+# 2026-10-24 15:48 UTC | analyst: Claude | sample: 8c1c1fea369aa749f3911638e1b9feb244b2b6096f000ddbd7ace0c4a170b1f8 libspandsp-2.dll
+# reason: FP: LPC-10 voice codec table in spandsp (libspandsp-2.dll) - algorithm constant
+lpc_decode_detau_table__32_big_512_
+
+# 2026-10-24 15:48 UTC | analyst: Claude | sample: 8c1c1fea369aa749f3911638e1b9feb244b2b6096f000ddbd7ace0c4a170b1f8 libspandsp-2.dll
+# reason: FP: LPC-10 voice codec table in spandsp (libspandsp-2.dll) - algorithm constant
+lpc_decode_detau_table__32_lil_512_
+
+# 2026-10-24 15:48 UTC | analyst: Claude | sample: 8c1c1fea369aa749f3911638e1b9feb244b2b6096f000ddbd7ace0c4a170b1f8 libspandsp-2.dll
+# reason: FP: LPC-10 voice codec table in spandsp (libspandsp-2.dll) - algorithm constant
+lpc_encode_rmst_table__32_lil_256_
+
+# 2026-10-24 15:48 UTC | analyst: Claude | sample: 8c1c1fea369aa749f3911638e1b9feb244b2b6096f000ddbd7ace0c4a170b1f8 libspandsp-2.dll
+# reason: FP: LPC-10 voice codec table in spandsp (libspandsp-2.dll) - algorithm constant
+NSA_LPC_10_Voice_Coder_TAU__32_lil_240_
+
+# 2026-10-24 15:48 UTC | analyst: Claude | sample: 8c1c1fea369aa749f3911638e1b9feb244b2b6096f000ddbd7ace0c4a170b1f8 libspandsp-2.dll
+# reason: FP: LPC-10 voice codec table in spandsp (libspandsp-2.dll) - algorithm constant
+bsynz_int_kexc_table__int___32_lil_100_
+
+# 2026-10-24 15:48 UTC | analyst: Claude | sample: de67baa0ee2a1186e57cee8c2cf85ad100e36ce7f4512676c2310a71b5f98faf è ³ç©´1.exe
+# reason: FP: FFmpeg libavcodec Nellymoser table - codec constant
+libavcodec_ff_nelly_dequantization_table__flt32___32_lil_508_
+
+# 2026-10-24 15:48 UTC | analyst: Claude | sample: 6b938115b35ea72aea5391dde0311df1ca83f4b6f39d472c0e43a3b3c68f0bb3 IPED_ipcamera_for_pc.exe
+# reason: FP: FFmpeg libavcodec AC3 table - codec constant
+libavcodec_AC3_ff_ac3_window__16_lil_512_
+
+# 2026-10-24 15:48 UTC | analyst: Claude | sample: 6b938115b35ea72aea5391dde0311df1ca83f4b6f39d472c0e43a3b3c68f0bb3 IPED_ipcamera_for_pc.exe
+# reason: FP: FFmpeg libavcodec AC3 table - codec constant
+libavcodec_AC3_ff_ac3_log_add_tab__8_byt_260_
+
+# 2026-10-24 15:48 UTC | analyst: Claude | sample: 6b938115b35ea72aea5391dde0311df1ca83f4b6f39d472c0e43a3b3c68f0bb3 IPED_ipcamera_for_pc.exe
+# reason: FP: FFmpeg libavcodec AC3 table - codec constant
+libavcodec_AC3_ff_ac3_hearing_threshold_tab__16_lil_300_
+
+# 2026-10-24 15:48 UTC | analyst: Claude | sample: caec1e3887bc9c9bcbfaba81b84cafb87614822bec6b5f365cdee75533ea9581 GOMPLAYERGLOBALSETUP_CHROME.EXE
+# reason: FP: liba52 AC3 decoder table (GOM Player) - codec constant
+liba52_scale_factor_float__flt64___64_lil_200_
+
+# 2026-10-24 15:48 UTC | analyst: Claude | sample: 6474e27edd4ab0a8b74d2fd9bbae770507207577f24e5ae0cb81256fc81c5336 everest_bench.dll
+# reason: FP: libtheora VP3 table (EVEREST benchmark) - codec constant
+libtheora_old_FrequencyCounts_VP3__32_lil_8188_
+
+# 2026-10-24 15:48 UTC | analyst: Claude | sample: e3096847ac4270d304e9b112d153642a72b66b42e13f83a32f06eecfb4ce7e48 audacity-win-3.7.9-64bit.exe
+# reason: FP: G.721 ADPCM codec table (Audacity) - codec constant
+G_721__fitab__16_big_32_
+
+# 2026-10-24 15:48 UTC | analyst: Claude | sample: 205cf4342eb47eb9b5905242b1a5d17fd51a1621bb011782e67b39804db24247 fmod.dll
+# reason: FP: mp3lib MP3 decoder table (FMOD) - codec constant
+mp3lib_bandInfo__8_byt_2592_
+
+# 2026-10-24 15:48 UTC | analyst: Claude | sample: a012917b4567830f38b557f7466bf4a9a6b8af74f34bb7d336edefb1c93f3b09 Esdll.dll
+# reason: FP: MELP speech codec table - codec constant
+Melp_fsvq_cb__flt32___32_lil_8188_
+
+# 2026-10-24 15:48 UTC | analyst: Claude | sample: f9b2fdb5ebc8e659c7ac132c213fcfd2eb059a1195a129121bb68ca21699e5e1 smackw32.dll
+# reason: FP: RAD Smacker video codec table (smackw32.dll) - codec constant
+Smacker_sizetable__32_lil_256_
+
+# 2026-10-24 15:48 UTC | analyst: Claude | sample: c795563b1202989e9b69513a4ef18ba3a241d94894e3f58f810dc74ebf6a201c ATMXHRService.exe
+# reason: FP: ASCII/EBCDIC conversion table (banking ATM service) - charset constant
+US_ASCII_to_EBCDIC__character_set_IBM_1047__table__8_byt_256_
+
+# 2026-10-24 15:48 UTC | analyst: Claude | sample: 39752ad1999ed24f65243e7356ca66c30cd6a95310d34a1d938fdda18c6d8422 CTBCLocalServer.exe
+# reason: FP: 512-bit prime constant (crypto library) - algorithm constant
+Pkep_prime512__8_byt_64_
+
+# 2026-10-24 15:48 UTC | analyst: Claude | sample: 6b938115b35ea72aea5391dde0311df1ca83f4b6f39d472c0e43a3b3c68f0bb3 IPED_ipcamera_for_pc.exe
+# reason: FP: TEA cipher constants - used by many legit programs
+TEA_encryption_decryption__0xc6ef3720__0x61c88647___32_lil_AND_
+
+# 2026-10-24 15:48 UTC | analyst: Claude | sample: f162aee8043d91369b5279bcc0010065a86a881f590925ad4ef7407039187852 PDFNetC.dll
+# reason: FP: generic bitmask table (PDFTron PDFNetC.dll) - algorithm constant
+Generic_bitmask_table__32_big_128_
+
+# 2026-10-24 15:48 UTC | analyst: Claude | sample: f162aee8043d91369b5279bcc0010065a86a881f590925ad4ef7407039187852 PDFNetC.dll
+# reason: FP: generic bitmask table (PDFTron PDFNetC.dll) - algorithm constant
+bitmask__32_big_128_
+
+# 2026-10-24 15:48 UTC | analyst: Claude | sample: f162aee8043d91369b5279bcc0010065a86a881f590925ad4ef7407039187852 PDFNetC.dll
+# reason: FP: LZX decompression table (PDFTron PDFNetC.dll) - algorithm constant
+unlzx_table_three__32_big_64_
+
+# 2026-10-24 15:48 UTC | analyst: Claude | sample: 611707240fb63bc00b7a6cb0d4d78b766a2fe2f77192a18c88d0e1db74e59542 Linux_Writer.exe
+# reason: FP: file type identifier (CAB archive), not a malware signature
+ft_cab
+
+# 2026-10-24 15:48 UTC | analyst: Claude | sample: de67baa0ee2a1186e57cee8c2cf85ad100e36ce7f4512676c2310a71b5f98faf è ³ç©´1.exe
+# reason: FP: file type identifier (SWF), not a malware signature
+ft_swf_fws
+
+# 2026-10-24 15:48 UTC | analyst: Claude | sample: d53d0b7715cda85c9ddf47bc223bffc732778ee4c108977576d5b68fddaf2815 BlackDesert_Installer_TW.exe
+# reason: FP: file type identifier (Electron ASAR archive), not a malware signature
+file_asar
+
+# 2026-10-24 15:48 UTC | analyst: Claude | sample: 86f4eaabecda29860d0307eac78d7228345d0a5119fbfb7ddfa7827481a38574 daemon4091-x86.exe
+# reason: FP: installer identifier (NSIS), not a malware signature
+_Nullsoft_Install_System_206_
+
+# 2026-10-24 15:48 UTC | analyst: Claude | sample: de36645745b69d8e7081d6f50311072b4c4a21c0d48e67b1789449b2de1bd90f tzcb26.exe
+# reason: FP: installer identifier (Inno Setup), not a malware signature
+inno_installer_405
+
+# 2026-10-24 15:48 UTC | analyst: Claude | sample: de67baa0ee2a1186e57cee8c2cf85ad100e36ce7f4512676c2310a71b5f98faf è ³ç©´1.exe
+# reason: FP: Macromedia Flash projector identifier, not a malware signature
+flash6
+
+# 2026-10-24 15:48 UTC | analyst: Claude | sample: de67baa0ee2a1186e57cee8c2cf85ad100e36ce7f4512676c2310a71b5f98faf è ³ç©´1.exe
+# reason: FP: Macromedia Flash projector identifier, not a malware signature
+_Macromedia_Windows_Flash_ProjectorPlayer_v50_
+
+# 2026-10-24 15:48 UTC | analyst: Claude | sample: de67baa0ee2a1186e57cee8c2cf85ad100e36ce7f4512676c2310a71b5f98faf è ³ç©´1.exe
+# reason: FP: Macromedia Flash projector identifier, not a malware signature
+Macromedia_Windows_Flash_Projector_Player_v6_0
+
+# 2026-10-24 15:48 UTC | analyst: Claude | sample: 60b5e6a7b3e05136501f2a611cbda0b3f8a5e1ede6e6f7a0f016b65007209718 sigdb3.dfx
+# reason: FP: product/string identifier (MEGAsync) hitting AV signature DB sigdb3.dfx
+MEGAsync
+
+# 2026-10-24 15:48 UTC | analyst: Claude | sample: 60b5e6a7b3e05136501f2a611cbda0b3f8a5e1ede6e6f7a0f016b65007209718 sigdb3.dfx
+# reason: FP: product/string identifier (WeTransfer) hitting AV signature DB sigdb3.dfx
+wetransfer
+
+# 2026-10-24 15:48 UTC | analyst: Claude | sample: 5bc1c52ad78112364742d9854cdc3fd000fe8b151209d2eb07f37d38802228bb zkecap.exe
+# reason: FP: packer/bundler identifier, not a malware signature
+_ExeBundle_v30_standard_loader_
+
+# 2026-10-24 15:48 UTC | analyst: Claude | sample: fc629960dd68c94dd3b9a4a0bc820f322a655bc8d9238a273d31aa11758d724a è ¢å¹ ç §ç ¸æ© .exe
+# reason: FP: packer identifier (PECompact), not a malware signature
+PECompact_1xx
+
+# 2026-10-24 15:48 UTC | analyst: Claude | sample: fc629960dd68c94dd3b9a4a0bc820f322a655bc8d9238a273d31aa11758d724a è ¢å¹ ç §ç ¸æ© .exe
+# reason: FP: packer identifier (PECompact), not a malware signature
+pec156
+
+# 2026-10-24 15:48 UTC | analyst: Claude | sample: fc629960dd68c94dd3b9a4a0bc820f322a655bc8d9238a273d31aa11758d724a è ¢å¹ ç §ç ¸æ© .exe
+# reason: FP: packer identifier (PECompact), not a malware signature
+pec14_h
+
+# 2026-10-24 15:48 UTC | analyst: Claude | sample: fc629960dd68c94dd3b9a4a0bc820f322a655bc8d9238a273d31aa11758d724a è ¢å¹ ç §ç ¸æ© .exe
+# reason: FP: compression algorithm identifier (JCALG1), not a malware signature
+JCAlg1
+
+# 2026-10-24 15:48 UTC | analyst: Claude | sample: fc629960dd68c94dd3b9a4a0bc820f322a655bc8d9238a273d31aa11758d724a è ¢å¹ ç §ç ¸æ© .exe
+# reason: FP: protector identifier, not a malware signature
+PrivateEXEProtector197SetiSoft
+
+# 2026-10-24 15:48 UTC | analyst: Claude | sample: fc629960dd68c94dd3b9a4a0bc820f322a655bc8d9238a273d31aa11758d724a è ¢å¹ ç §ç ¸æ© .exe
+# reason: FP: protector identifier, not a malware signature
+_Private_EXE_Protector_197__SetiSoft_
+
+# 2026-10-24 15:48 UTC | analyst: Claude | sample: fc629960dd68c94dd3b9a4a0bc820f322a655bc8d9238a273d31aa11758d724a è ¢å¹ ç §ç ¸æ© .exe
+# reason: FP: protector identifier, not a malware signature
+_Private_EXE_Protector_197__SetiSoft_h_
+
+# 2026-10-24 15:48 UTC | analyst: Claude | sample: 62b1c9c674bf7784cf6fc1e050ea811b83a89fadbf5245928a95c8311b5d11c2 Letarm.dll
+# reason: FP: protector identifier (VMProtect), used by many legit programs
+vmprotect
+
+# 2026-10-24 15:57 UTC | analyst: Claude | sample: bb8b592787c82438ecf7965eb8364a7e8dfb6c6a7b7b2a4904a170a2ec000cf5 ConEmuC64.exe
+# reason: FP: hunting/methodology rule, hits signed ConEmu (ConEmuC/ConEmuC64)
+Methodology_Mutation_FLIPFLOP_Windows_Wininet_Functions
+
+# 2026-10-24 15:57 UTC | analyst: Claude | sample: ea6c0af54298a996a7c608befe6acd72806043f1ceae434a39d09389b237d96c unins000.exe
+# reason: FP: generic string rule, hits signed CFCA InfoService and Inno Setup uninstaller
+netstat
+
+# 2026-10-24 15:57 UTC | analyst: Claude | sample: 4ca89b2dddfc99530f39a397e6b2fa7092aca130841c8c52f5e152560604d6d6 kwpsaidraftcli.exe
+# reason: FP: hits signed WPS Office component kwpsaidraftcli.exe
+openxml_remote_content
+
+# 2026-10-24 15:57 UTC | analyst: Claude | sample: 32debd21dbe46268e2305271fd63b96afa4284ffa3cf7ae005f1b70e79699ff1 namebench-1.3.1-Windows.exe
+# reason: FP: XOR-IP pattern hits signed WeMod CELib_x64.dll and Google namebench
+hc_fallchill__hiddencobra__xor_ip
+
+# 2026-10-24 15:57 UTC | analyst: Claude | sample: 32debd21dbe46268e2305271fd63b96afa4284ffa3cf7ae005f1b70e79699ff1 namebench-1.3.1-Windows.exe
+# reason: FP: capability rule, hits Google namebench
+System_Discovery
+
+# 2026-10-24 15:57 UTC | analyst: Claude | sample: 32debd21dbe46268e2305271fd63b96afa4284ffa3cf7ae005f1b70e79699ff1 namebench-1.3.1-Windows.exe
+# reason: FP: capability rule, hits Google namebench
+lookupgeo
+
+# 2026-10-24 15:57 UTC | analyst: Claude | sample: a1fd7616b900e812cf82382c568755cf43257dd322ec9c2f1d19ef4b7c9fd011 agent-setup-2.12.10.exe
+# reason: FP: plain log strings, hits signed TightVNC viewer (GlavSoft)
+mal_sugarghost_ee5982_log_strings_plain
+
+# 2026-10-24 15:57 UTC | analyst: Claude | sample: a1fd7616b900e812cf82382c568755cf43257dd322ec9c2f1d19ef4b7c9fd011 agent-setup-2.12.10.exe
+# reason: FP: generic logging-strings TTP rule, hits a signed agent installer
+ttp_logging_42fnn_strings
+
+# 2026-10-24 15:57 UTC | analyst: Claude | sample: 9e77641d596707c01c44b61dfeb84b1d19817016b0ce05cbe992cb5d15b484b1 fzsftp.exe
+# reason: FP: auto-generated rule, hits FileZilla fzsftp.exe (PuTTY-based)
+Win_Dropper_Agent_36335
+
+# 2026-10-24 15:57 UTC | analyst: Claude | sample: 9e77641d596707c01c44b61dfeb84b1d19817016b0ce05cbe992cb5d15b484b1 fzsftp.exe
+# reason: FP: auto-generated rule, hits FileZilla fzsftp.exe (PuTTY-based)
+Win_Dropper_Agent_36336
+
+# 2026-10-24 15:57 UTC | analyst: Claude | sample: 9e77641d596707c01c44b61dfeb84b1d19817016b0ce05cbe992cb5d15b484b1 fzsftp.exe
+# reason: FP: auto-generated rule, hits FileZilla fzsftp.exe (PuTTY-based)
+Win_Dropper_Agent_36337
+
+# 2026-10-24 15:57 UTC | analyst: Claude | sample: 9e77641d596707c01c44b61dfeb84b1d19817016b0ce05cbe992cb5d15b484b1 fzsftp.exe
+# reason: FP: auto-generated rule, hits FileZilla fzsftp.exe (PuTTY-based)
+Win_Dropper_Agent_36338
+
+# 2026-10-24 15:57 UTC | analyst: Claude | sample: 9e77641d596707c01c44b61dfeb84b1d19817016b0ce05cbe992cb5d15b484b1 fzsftp.exe
+# reason: FP: auto-generated rule, hits FileZilla fzsftp.exe (PuTTY-based)
+Win_Dropper_Agent_36339
+
+# 2026-10-24 15:57 UTC | analyst: Claude | sample: 9e77641d596707c01c44b61dfeb84b1d19817016b0ce05cbe992cb5d15b484b1 fzsftp.exe
+# reason: FP: auto-generated rule, hits FileZilla fzsftp.exe (PuTTY-based)
+Win_Dropper_Agent_36340
+
+# 2026-10-24 15:57 UTC | analyst: Claude | sample: 9e77641d596707c01c44b61dfeb84b1d19817016b0ce05cbe992cb5d15b484b1 fzsftp.exe
+# reason: FP: auto-generated rule, hits FileZilla fzsftp.exe (PuTTY-based)
+Win_Dropper_Agent_36344
+
+# 2026-10-24 15:57 UTC | analyst: Claude | sample: 9e77641d596707c01c44b61dfeb84b1d19817016b0ce05cbe992cb5d15b484b1 fzsftp.exe
+# reason: FP: auto-generated rule, hits FileZilla fzsftp.exe (PuTTY-based)
+Win_Dropper_Agent_36348
+
+# 2026-10-24 15:57 UTC | analyst: Claude | sample: e8a67f936c1927a53180588ad9f3be48cdfe08aa61852e9065103f2fe9ff408f XMedia Recode.exe
+# reason: FP: auto-generated rule, hits XMedia Recode and Xprinter Designer (Inno Setup)
+Win_Trojan_Agent_34674
+
+# 2026-10-24 15:57 UTC | analyst: Claude | sample: f0b08dd99e9d1464a5c29996cf8c043786e23d86e72c0780c67749e67122f120 libxml2.dll
+# reason: FP: auto-generated rule, hits XMedia Recode libxml2.dll
+UOmCgbXygCe_14335
+
+# 2026-10-24 15:57 UTC | analyst: Claude | sample: f139899b3aa0481cebf4b9930c22b5f9d60bf64e3de426c357941fb6f60c8895 DontSleep_x64_p.exe
+# reason: FP: tool indicator, hits signed SoftwareOK DontSleep (Nenad Hrg)
+DITEKSHEN_INDICATOR_TOOL_Dontsleep
+
+# 2026-10-24 15:57 UTC | analyst: Claude | sample: f139899b3aa0481cebf4b9930c22b5f9d60bf64e3de426c357941fb6f60c8895 DontSleep_x64_p.exe
+# reason: FP: hits signed SoftwareOK DontSleep and QuickMemoryTestOK (Nenad Hrg)
+case_15184_dontsleep
+
+# 2026-10-24 15:57 UTC | analyst: Claude | sample: 26d5748ffe6bd95e3fee6ce184d388a1a681006dc23a0f08d53c083c593c193b Advanced_IP_Scanner_2.5.4594.1.exe
+# reason: FP: hits signed Advanced IP Scanner (Famatech)
+SIGNATURE_BASE_Sig_Remoteadmin_1
+
+# 2026-10-24 15:57 UTC | analyst: Claude | sample: 8c9523f9d3e59e7787d162a71db2bdb703ee5dd31b96c2f21a9dc3ef9a5ff1b9 Winhance.dll
+# reason: FP: generic PowerShell rule, hits Winhance (open-source Windows tweaker)
+GEN_PowerShell
+
+# 2026-10-24 15:57 UTC | analyst: Claude | sample: 5f21575642ecf7d38be30aef50be623f74dc3644603e0cb48d1b297ae2066614 Dumpuper.exe
+# reason: FP: hits Qihoo 360 signed Dumpuper.exe
+CIMplant
+
+# 2026-10-24 15:57 UTC | analyst: Claude | sample: 54de6123bed8e53335031293c0df8e53e574201e1456dcce80ebd85dbd76c08f wtSchedule.exe
+# reason: FP: Malpedia auto rule, hits signed Winton System wtSchedule.exe
+win_rakhni_auto
+
+# 2026-10-24 16:58 UTC | analyst: Claude | sample: ac648470a3b8b261924801d6db9832a31c9c7a4a374e7c35a0d1e44e7aea9d99 ThisMenu.exe
+# reason: FP: auto-generated rule, the only string is VB6 compiler boilerplate (push/lea [ebp-x] x20 before __vbaFreeVarList cleaning 16-byte Variants); matches any VB6 program with 20+ local Variants. Hit: ThisMenu.exe (Taiwan NHI clinic menu, THESE)
+Win_Trojan_VB_73722
+
+# 2026-10-26 11:48 UTC | analyst: Emirhan Uçan | sample: 100927923aaa13c952de409f5f56dbd3717313ffa9fc0b33b830b0d04059b27f aegen.dll
+# reason: Zero detections on virustotal
+FSG
+
+# 2026-10-26 11:49 UTC | analyst: Emirhan Uçan | sample: 15b095cf6e87ca8c1f449a734451346b644f290c131f5e63f654e0b285c74cc5 Phoebus_x64.exe
+# reason: Only SecureAge detects on Virustotal
+ntdll_fallchill
+
+# 2026-10-26 11:49 UTC | analyst: Emirhan Uçan | sample: 2f3a0802018d2a1982ee18f94e4d3814bea81880d984b2eedb31030ee5976e0c castool.exe
+# reason: Only MaxSecure detects it
+MALPEDIA_Win_Unidentified_098_Auto
+
+# 2026-10-26 11:50 UTC | analyst: Emirhan Uçan | sample: 3910d2395a461dc17c166d49736c07b49a099dd5914c98d6dc83e37f309b7a05 aerdl.dll
+# reason: aspack is not virus
+aspack_10804
+
+# 2026-10-26 11:50 UTC | analyst: Emirhan Uçan | sample: 44389b33dedc9920034339e45fe67064ad2dc4ff48b7ec2d87c564c5ff4a2289 RestSID.dll
+# reason: Nobody detects on virustotal
+INDICATOR_TOOL_EXP_SeriousSAM02
+
+# 2026-10-26 11:52 UTC | analyst: Emirhan Uçan | sample: 659ea2dba1a12d7df4fe2b6f23f60fd9414ae61aca1b014ee8fa37c5e09b930b fpcalc.exe
+# reason: Nobodyd etects on virustotal
+LD_CELP_G_728_cb_gain__flt32___32_lil_32_
+
+# 2026-10-26 11:52 UTC | analyst: Emirhan Uçan | sample: 659ea2dba1a12d7df4fe2b6f23f60fd9414ae61aca1b014ee8fa37c5e09b930b fpcalc.exe
+# reason: Nobody detects on virustotal 2
+libavcodec_mpc8_cnk_lost__32_lil_2108_
+
+# 2026-10-26 11:52 UTC | analyst: Emirhan Uçan | sample: 659ea2dba1a12d7df4fe2b6f23f60fd9414ae61aca1b014ee8fa37c5e09b930b fpcalc.exe
+# reason: Nobody detects on virustotal 3
+libavcodec_real_audio_288_syn_bw_tab__flt32___32_lil_144_
+
+# 2026-10-26 11:53 UTC | analyst: Emirhan Uçan | sample: 659ea2dba1a12d7df4fe2b6f23f60fd9414ae61aca1b014ee8fa37c5e09b930b fpcalc.exe
+# reason: Nobody detects on virustotal 4
+LD_CELP_G_728_hw_gain__flt32___32_lil_136_
+
+# 2026-10-26 11:53 UTC | analyst: Emirhan Uçan | sample: 659ea2dba1a12d7df4fe2b6f23f60fd9414ae61aca1b014ee8fa37c5e09b930b fpcalc.exe
+# reason: Nobody detects on virustotal 5
+LD_CELP_G_728_hw_synth__flt32___32_lil_420_
+
+# 2026-10-26 11:53 UTC | analyst: Emirhan Uçan | sample: 659ea2dba1a12d7df4fe2b6f23f60fd9414ae61aca1b014ee8fa37c5e09b930b fpcalc.exe
+# reason: Nobody detects on virustotal 6
+libavcodec_ff_fc_2pulses_9bits_track2_gray__8_byt_32_
+
+# 2026-10-26 11:54 UTC | analyst: Emirhan Uçan | sample: 659ea2dba1a12d7df4fe2b6f23f60fd9414ae61aca1b014ee8fa37c5e09b930b fpcalc.exe
+# reason: Nobody detects on virustotal 7
+libavcodec_ff_fc_2pulses_9bits_track1_gray__8_byt_16_
+
+# 2026-10-26 11:54 UTC | analyst: Emirhan Uçan | sample: 659ea2dba1a12d7df4fe2b6f23f60fd9414ae61aca1b014ee8fa37c5e09b930b fpcalc.exe
+# reason: Nobody detects on virustotal 8
+BGMC_Cumulative_frequency_table_6__16_lil_386_
+
+# 2026-10-26 12:00 UTC | analyst: Emirhan Uçan | sample: cdb0ba95e80e2de076d5209d813c9597988eb39a5797c6ced93b4854aa4818b5 tsMuxeR.exe
+# reason: zero detections on virustotal also not a virus signature
+CRC_16_IBM_poly_0x8005__16_big_refl_False_
+
+# 2026-10-26 12:00 UTC | analyst: Emirhan Uçan | sample: df56bccc0f7bf83c01f15cfc939953fd46374af158404fd86529dde38cd393f0 ac3filter64.acm
+# reason: not a  virus signature
+AC3_starting_frequency_coeeficients_bndtab__avcodec___liba52___8_byt_30_
+
+# 2026-10-26 12:01 UTC | analyst: Emirhan Uçan | sample: df56bccc0f7bf83c01f15cfc939953fd46374af158404fd86529dde38cd393f0 ac3filter64.acm
+# reason: not a  virus signature
+libavcodec_dca_dca_downmix_coeffs__flt32___32_lil_260_
+
+# 2026-10-26 12:01 UTC | analyst: Emirhan Uçan | sample: df56bccc0f7bf83c01f15cfc939953fd46374af158404fd86529dde38cd393f0 ac3filter64.acm
+# reason: not a  virus signature
+libavcodec_dca_lossy_quant_d__flt32___32_lil_128_
+
+# 2026-10-26 12:01 UTC | analyst: Emirhan Uçan | sample: df56bccc0f7bf83c01f15cfc939953fd46374af158404fd86529dde38cd393f0 ac3filter64.acm
+# reason: not a  virus signature
+libavcodec_AC3_ff_eac3_gaq_remap_1__16_lil_24_
+
+# 2026-10-26 12:01 UTC | analyst: Emirhan Uçan | sample: df56bccc0f7bf83c01f15cfc939953fd46374af158404fd86529dde38cd393f0 ac3filter64.acm
+# reason: not a  virus signature
+libavcodec_AC3_quantization_tab__8_byt_16_
+
+# 2026-10-26 12:01 UTC | analyst: Emirhan Uçan | sample: df56bccc0f7bf83c01f15cfc939953fd46374af158404fd86529dde38cd393f0 ac3filter64.acm
+# reason: not a  virus signature
+libavcodec_dca_lossless_quant__32_lil_128_
+
+# 2026-10-26 12:02 UTC | analyst: Emirhan Uçan | sample: df56bccc0f7bf83c01f15cfc939953fd46374af158404fd86529dde38cd393f0 ac3filter64.acm
+# reason: not a  virus signature
+libavcodec_dca_lossless_quant_d__flt32___32_lil_128_
+
+# 2026-10-26 12:02 UTC | analyst: Emirhan Uçan | sample: df56bccc0f7bf83c01f15cfc939953fd46374af158404fd86529dde38cd393f0 ac3filter64.acm
+# reason: not a  virus signature
+libavcodec_dcahuff_scales_codes__16_lil_1290_
+
+# 2026-10-26 12:03 UTC | analyst: Emirhan Uçan | sample: eba018e39dca51d174912984be7c114d4a701b45c967be5822b304bdc26aeb47 Microsoft.CSharp.ni.dll
+# reason: no detections from virustotal
+ClamAV_Emotet_String_Aggregate

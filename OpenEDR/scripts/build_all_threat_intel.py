@@ -6,18 +6,30 @@ Processes all 37 datasets in `websitenobloom`:
 - Applies Popularity & Exact Whitelists (WhiteListDomains, WhiteListIPv4, etc.).
 - Normalizes protocols (http://), ports, paths, and trailing dots.
 - Generates per-category text files, CIDR lists, and combined malicious sets.
-- Automatically executes xorfilter_writer to produce BinaryFuse16 (.xf) binaries.
+- Leaves CDN address space (cdn_ranges/, see strip_cdn_from_cidr_blacklist.py) and the
+  CIDR whitelists out of the IP sets and CIDR blacklists: a CDN IP serves thousands of
+  clean sites, and the engine checks the CIDR blacklist before any whitelist.
+- Automatically executes xorfilter_writer to produce BinaryFuse32 (.xf) binaries: the
+  engine (openedr_static domain_intel.rs) loads <category>.xf from xorfilter_rules/
+  and rejects BinaryFuse16, whose one-in-65 536 false match would flag clean sites.
+- Reads <Name>.optimized.csv, or <Name>.csv when there is no optimized copy (the
+  hydradragon/website lists as they are in the repository).
 
 Usage:
     python build_all_threat_intel.py <websitenobloom_dir> <output_threat_intel_dir> [xorfilter_writer_exe]
 """
 
+import bisect
 import csv
+import ipaddress
 import json
 import os
 import subprocess
 import sys
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from strip_cdn_from_cidr_blacklist import load_cdn_ranges, merge, net_range, subtract_all  # noqa: E402
 
 
 def clean_item(raw: str, is_ip: bool = False) -> str:
@@ -28,19 +40,29 @@ def clean_item(raw: str, is_ip: bool = False) -> str:
         raw = raw.split("/", 1)[0]
     if ":" in raw and not is_ip:
         raw = raw.split(":", 1)[0]
-    if raw.ends_with("."):
+    if raw.endswith("."):
         raw = raw[:-1]
     return raw.strip()
 
 
+def resolve(filepath: Path) -> Path:
+    """<Name>.optimized.csv, else <Name>.csv next to it."""
+    if not filepath.exists() and filepath.name.endswith(".optimized.csv"):
+        plain = filepath.with_name(filepath.name[: -len(".optimized.csv")] + ".csv")
+        if plain.exists():
+            return plain
+    return filepath
+
+
 def extract_csv_items(filepath: Path, skip_zero: bool = True, is_ip: bool = False) -> set:
     items = set()
+    filepath = resolve(filepath)
     if not filepath.exists():
         return items
     with open(filepath, "r", encoding="utf-8", errors="ignore") as f:
         for row in csv.reader(f):
-            if not row or not row[0].strip() or row[0].startswith("#"):
-                continue
+            if not row or not row[0].strip() or row[0].startswith("#") or row[0].strip().lower() == "entry":
+                continue  # comment, or the "entry,reference" header
             if skip_zero and len(row) >= 2 and row[1].strip() == "0":
                 continue
             cleaned = clean_item(row[0], is_ip=is_ip)
@@ -64,9 +86,33 @@ def extract_urls_from_file(filepath: Path) -> set:
     return urls
 
 
-def process_cidrs(filepath: Path, out_path: Path):
+def load_ip_allow_ranges(datasets_dir: Path) -> list:
+    """CDN ranges plus the CIDR whitelists, merged: no IP inside them is blacklisted."""
+    ranges = [r for rs in load_cdn_ranges().values() for r in rs]
+    for name in ("CIDRWhiteListIPv4.optimized.csv", "CIDRWhiteListIPv6.optimized.csv"):
+        p = resolve(datasets_dir / name)
+        if not p.exists():
+            continue
+        with open(p, "r", encoding="utf-8", errors="ignore") as f:
+            for row in csv.reader(f):
+                if row and (r := net_range(row[0])):
+                    ranges.append(r)
+    return merge(ranges)
+
+
+def in_ranges(ip: str, ranges: list) -> bool:
+    r = net_range(ip)
+    if not r:
+        return False
+    v, x, _ = r
+    i = bisect.bisect_right(ranges, (v, x, 1 << 130)) - 1
+    return i >= 0 and ranges[i][0] == v and ranges[i][1] <= x <= ranges[i][2]
+
+
+def process_cidrs(filepath: Path, out_path: Path, allow: list):
     cidrs = []
     seen = set()
+    filepath = resolve(filepath)
     if not filepath.exists():
         return
     with open(filepath, "r", encoding="utf-8", errors="ignore") as f:
@@ -75,10 +121,16 @@ def process_cidrs(filepath: Path, out_path: Path):
                 continue
             if len(row) >= 2 and row[1].strip() == "0":
                 continue
-            cidr = row[0].strip()
-            if cidr not in seen:
-                seen.add(cidr)
-                cidrs.append(cidr)
+            r = net_range(row[0])
+            if not r:
+                continue
+            # A range partly inside a CDN / whitelisted range keeps the rest.
+            for v, a, b in subtract_all([r], allow):
+                for net in ipaddress.summarize_address_range(ipaddress.ip_address(a), ipaddress.ip_address(b)):
+                    cidr = str(net)
+                    if cidr not in seen:
+                        seen.add(cidr)
+                        cidrs.append(cidr)
 
     out_path.parent.mkdir(parents=True, exist_ok=True)
     with open(out_path, "w", encoding="utf-8", newline="\n") as f:
@@ -115,7 +167,7 @@ def main():
         "SubDomainsPopularityWhiteList.optimized.csv",
     ]
     for wl_file in wl_files:
-        p = datasets_dir / wl_file
+        p = resolve(datasets_dir / wl_file)
         if p.exists():
             w_items = extract_csv_items(p, skip_zero=False)
             whitelist |= w_items
@@ -134,6 +186,7 @@ def main():
 
     # Malware
     categories["malware"] = (
+        extract_csv_items(datasets_dir / "MalwareDomains.optimized.csv", skip_zero=True) |
         extract_csv_items(datasets_dir / "MalwareSubDomains.optimized.csv", skip_zero=True)
     ) - whitelist
 
@@ -161,7 +214,9 @@ def main():
         extract_csv_items(datasets_dir / "MaliciousMailSubDomains.optimized.csv")
     ) - whitelist
 
-    # IP Malware & Threats
+    # IP Malware & Threats, without CDN / whitelisted address space
+    allow = load_ip_allow_ranges(datasets_dir)
+    print(f"  [ALLOW] CDN + CIDR whitelist: {len(allow):,} ranges")
     categories["ipmalware"] = (
         extract_csv_items(datasets_dir / "IPv4Malware.optimized.csv", skip_zero=True, is_ip=True) |
         extract_csv_items(datasets_dir / "IPv6Malware.optimized.csv", skip_zero=True, is_ip=True) |
@@ -172,6 +227,9 @@ def main():
         extract_csv_items(datasets_dir / "IPv6DDoS.optimized.csv", skip_zero=True, is_ip=True) |
         extract_csv_items(datasets_dir / "IPv6Spam.optimized.csv", skip_zero=True, is_ip=True)
     ) - whitelist
+    before = len(categories["ipmalware"])
+    categories["ipmalware"] = {ip for ip in categories["ipmalware"] if not in_ranges(ip, allow)}
+    print(f"  [ALLOW] ipmalware: {before - len(categories['ipmalware']):,} CDN / whitelisted IPs left out")
 
     # Combined Malicious Set
     combined = set()
@@ -180,8 +238,8 @@ def main():
 
     # 3. CIDR Subnets
     print("\n--- Processing CIDR Subnets ---")
-    process_cidrs(datasets_dir / "CIDRBlackListIPv4.optimized.csv", output_dir / "CIDRBlackListIPv4.txt")
-    process_cidrs(datasets_dir / "CIDRBlackListIPv6.optimized.csv", output_dir / "CIDRBlackListIPv6.txt")
+    process_cidrs(datasets_dir / "CIDRBlackListIPv4.optimized.csv", output_dir / "CIDRBlackListIPv4.txt", allow)
+    process_cidrs(datasets_dir / "CIDRBlackListIPv6.optimized.csv", output_dir / "CIDRBlackListIPv6.txt", allow)
 
     # 4. Write Staging Text Files
     print("\n--- Writing Stage Text Files ---")
@@ -207,10 +265,12 @@ def main():
 
     # 5. Generate .xf Filters via xorfilter_writer
     if writer_exe and writer_exe.exists():
-        print("\n--- Generating BinaryFuse16 (.xf) Filters ---")
+        print("\n--- Generating BinaryFuse32 (.xf) Filters ---")
         for stem, txt_file in stage_files.items():
+            if stem == "malicious" or not txt_file.stat().st_size:
+                continue  # the engine reads the category lists, not the union
             xf_out = output_dir / f"{stem}.xf"
-            cmd = [str(writer_exe), str(txt_file), str(xf_out)]
+            cmd = [str(writer_exe), "--bf32", str(txt_file), str(xf_out)]
             try:
                 subprocess.run(cmd, capture_output=True, text=True, check=True)
                 print(f"  [OK] Built {xf_out.name}")

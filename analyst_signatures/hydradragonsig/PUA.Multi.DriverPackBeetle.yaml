@@ -1,0 +1,40 @@
+rules:
+- id: VK-PUA-DRP-CERT
+  title: DriverPack-repacked installer (drp.su certificate)
+  description: Installers re-signed with the DriverPack (artx@drp.su) certificate, e.g. bundled uTorrent.
+  severity: medium
+  verdict: pua
+  confidence: 85
+  score: 60
+  family: PUA.Win32.DriverPack
+  tags:
+  - analyst
+  - pua
+  - driverpack
+  logic: all
+  conditions:
+  - type: string_contains
+    value: artx@drp.su
+- id: VK-PUA-DRP-SCRIPTS
+  title: DriverPack beetle installer scripts
+  description: DriverPack offer/installer logic (drp.su endpoints, offer catalogue, bugreport HTA, beetle archive).
+  severity: medium
+  verdict: pua
+  confidence: 85
+  score: 60
+  family: PUA.JS.DriverPack
+  tags:
+  - analyst
+  - pua
+  - driverpack
+  logic: all
+  conditions:
+  - type: string_set
+    values:
+    - auth.drp.su
+    - update.drp.su/v2/soft
+    - dl.driverpack.io/soft/
+    - DriverPack Solution Bugreport
+    - -pbeetle arc.7z
+    min: 1
+    nocase: true

@@ -1,0 +1,320 @@
+# Generic file infectors (appenders), written with pe_section only: no family,
+# no byte pattern. Polymorphic bodies change per file; these structural traits do not.
+rules:
+- id: VK-VIRUS-APPENDER-RELOC-64
+  title: Appender keeps the relocation table in its encrypted last section (64-bit)
+  description: 'The base relocation directory points into a large, encrypted last section that is not marked as code. Linkers put relocations in their own small .reloc section; an infector that appends
+    its body there moves them. Retrohunt: 0 of ~34000 clean PE. Excludes a last section that also holds the resource directory (genuine UPX keeps relocations behind compressed resources).'
+  severity: critical
+  verdict: malware
+  confidence: 90
+  score: 100
+  family: Virus.Win64.Appender.RELOC
+  tags:
+  - analyst
+  - virus
+  - infector
+  - polymorphic
+  - generic
+  logic: all
+  conditions:
+  - type: native_signature
+    expression: PE64
+  - type: pe_section
+    select: last
+    flags_none:
+    - code
+    entropy_min: 7.8
+    raw_size_min: 32768
+    directories_any:
+    - basereloc
+    directories_none:
+    - resource
+- id: VK-VIRUS-APPENDER-RELOC-32
+  title: Appender keeps the relocation table in its encrypted last section (32-bit)
+  description: 32-bit form of VK-VIRUS-APPENDER-RELOC-64. Excludes a last section that also holds the resource directory (genuine UPX keeps relocations behind compressed resources).
+  severity: critical
+  verdict: malware
+  confidence: 90
+  score: 100
+  family: Virus.Win32.Appender.RELOC
+  tags:
+  - analyst
+  - virus
+  - infector
+  - polymorphic
+  - generic
+  logic: all
+  conditions:
+  - type: native_signature
+    expression: PE32
+  - type: pe_section
+    select: last
+    flags_none:
+    - code
+    entropy_min: 7.8
+    raw_size_min: 32768
+    directories_any:
+    - basereloc
+    directories_none:
+    - resource
+- id: VK-VIRUS-APPENDER-EP-64
+  title: Entry point in a writable, executable, encrypted last section (64-bit)
+  description: Classic appender that moves the entry point to its body. Retrohunt 0 of ~34000 clean PE.
+  severity: critical
+  verdict: malware
+  confidence: 85
+  score: 100
+  family: Virus.Win64.Appender.EP
+  tags:
+  - analyst
+  - virus
+  - infector
+  - polymorphic
+  - generic
+  logic: all
+  conditions:
+  - type: native_signature
+    expression: PE64
+  - type: pe_section
+    select: last
+    flags_all:
+    - write
+    - execute
+    entropy_min: 7.8
+    raw_size_min: 32768
+    has_entry: true
+- id: VK-VIRUS-APPENDER-EP-32
+  title: Entry point in a writable, executable, encrypted last section (32-bit)
+  description: 32-bit form of VK-VIRUS-APPENDER-EP-64.
+  severity: critical
+  verdict: malware
+  confidence: 85
+  score: 100
+  family: Virus.Win32.Appender.EP
+  tags:
+  - analyst
+  - virus
+  - infector
+  - polymorphic
+  - generic
+  logic: all
+  conditions:
+  - type: native_signature
+    expression: PE32
+  - type: pe_section
+    select: last
+    flags_all:
+    - write
+    - execute
+    entropy_min: 7.8
+    raw_size_min: 32768
+    has_entry: true
+- id: VK-VIRUS-APPENDER-RWX-64
+  title: Writable, executable, encrypted last section the entry point does not use (64-bit)
+  description: 'Entry-point-obscuring appender: the body is a large encrypted RWX last section, but the entry point stays in the host and the body is reached from patched host code. Packers keep their entry
+    point in the packed section, so it is excluded (has_entry false). Retrohunt 0 of ~34000 clean PE.'
+  severity: critical
+  verdict: malware
+  confidence: 85
+  score: 100
+  family: Virus.Win64.Appender.RWX
+  tags:
+  - analyst
+  - virus
+  - infector
+  - polymorphic
+  - generic
+  logic: all
+  conditions:
+  - type: native_signature
+    expression: PE64
+  - type: pe_section
+    select: last
+    flags_all:
+    - write
+    - execute
+    has_entry: false
+    entropy_min: 7.6
+    raw_size_min: 262144
+    directories_none:
+    - export
+- id: VK-VIRUS-APPENDER-RWX-32
+  title: Writable, executable, encrypted last section the entry point does not use (32-bit)
+  description: 'Entry-point-obscuring appender: the body is a large encrypted RWX last section, but the entry point stays in the host and the body is reached from patched host code. Packers keep their entry
+    point in the packed section, so it is excluded (has_entry false). Retrohunt 0 of ~34000 clean PE.'
+  severity: critical
+  verdict: malware
+  confidence: 85
+  score: 100
+  family: Virus.Win32.Appender.RWX
+  tags:
+  - analyst
+  - virus
+  - infector
+  - polymorphic
+  - generic
+  logic: all
+  conditions:
+  - type: native_signature
+    expression: PE32
+  - type: pe_section
+    select: last
+    flags_all:
+    - write
+    - execute
+    has_entry: false
+    entropy_min: 7.6
+    raw_size_min: 262144
+    directories_none:
+    - export
+- id: VK-VIRUS-APPENDER-DIR-64
+  title: Small host table followed by an encrypted body in the last section (64-bit)
+  description: 'The last section starts with a small table of the host (relocations, exception data or imports) and the rest is an encrypted body: the infector appended itself to that section. Resources
+    are not counted: a legitimate .rsrc can hold a small resource tree plus large compressed data (Spybot Anti-Beacon). The security directory is not counted either (signed installers keep their signature
+    there). Retrohunt 0 of ~34000 clean PE.'
+  severity: critical
+  verdict: malware
+  confidence: 85
+  score: 100
+  family: Virus.Win64.Appender.DIR
+  tags:
+  - analyst
+  - virus
+  - infector
+  - polymorphic
+  - generic
+  logic: all
+  conditions:
+  - type: native_signature
+    expression: PE64
+  - type: pe_section
+    select: last
+    flags_none:
+    - code
+    entropy_min: 7.8
+    raw_size_min: 262144
+    directories_any:
+    - basereloc
+    - exception
+    - import
+    directory_share_max: 0.12
+    directories_none:
+    - export
+    - resource
+- id: VK-VIRUS-APPENDER-DIR-32
+  title: Small host table followed by an encrypted body in the last section (32-bit)
+  description: 'The last section starts with a small table of the host (relocations, exception data or imports) and the rest is an encrypted body: the infector appended itself to that section. Resources
+    are not counted: a legitimate .rsrc can hold a small resource tree plus large compressed data (Spybot Anti-Beacon). The security directory is not counted either (signed installers keep their signature
+    there). Retrohunt 0 of ~34000 clean PE.'
+  severity: critical
+  verdict: malware
+  confidence: 85
+  score: 100
+  family: Virus.Win32.Appender.DIR
+  tags:
+  - analyst
+  - virus
+  - infector
+  - polymorphic
+  - generic
+  logic: all
+  conditions:
+  - type: native_signature
+    expression: PE32
+  - type: pe_section
+    select: last
+    flags_none:
+    - code
+    entropy_min: 7.8
+    raw_size_min: 262144
+    directories_any:
+    - basereloc
+    - exception
+    - import
+    directory_share_max: 0.12
+    directories_none:
+    - export
+    - resource
+- id: VK-VIRUS-APPENDER-DATA-64
+  title: Large encrypted writable data section at the end, nothing points into it (64-bit)
+  description: 'The last section is writable data (not code, not executable), at least 600 KB, nearly random (entropy >= 7.9) and no data directory points into it: an appended encrypted body the host''s
+    patched code decrypts and runs. Retrohunt 0 of ~34000 clean PE.'
+  severity: critical
+  verdict: malware
+  confidence: 80
+  score: 100
+  family: Virus.Win64.Appender.DATA
+  tags:
+  - analyst
+  - virus
+  - infector
+  - polymorphic
+  - generic
+  logic: all
+  conditions:
+  - type: native_signature
+    expression: PE64
+  - type: pe_section
+    select: last
+    flags_all:
+    - write
+    flags_none:
+    - code
+    - execute
+    entropy_min: 7.9
+    raw_size_min: 614400
+    directories_none:
+    - export
+    - import
+    - resource
+    - exception
+    - security
+    - basereloc
+    - debug
+    - tls
+    - load_config
+    - iat
+    - delay_import
+    - clr
+- id: VK-VIRUS-APPENDER-DATA-32
+  title: Large encrypted writable data section at the end, nothing points into it (32-bit)
+  description: 'The last section is writable data (not code, not executable), at least 600 KB, nearly random (entropy >= 7.9) and no data directory points into it: an appended encrypted body the host''s
+    patched code decrypts and runs. Retrohunt 0 of ~34000 clean PE.'
+  severity: critical
+  verdict: malware
+  confidence: 80
+  score: 100
+  family: Virus.Win32.Appender.DATA
+  tags:
+  - analyst
+  - virus
+  - infector
+  - polymorphic
+  - generic
+  logic: all
+  conditions:
+  - type: native_signature
+    expression: PE32
+  - type: pe_section
+    select: last
+    flags_all:
+    - write
+    flags_none:
+    - code
+    - execute
+    entropy_min: 7.9
+    raw_size_min: 614400
+    directories_none:
+    - export
+    - import
+    - resource
+    - exception
+    - security
+    - basereloc
+    - debug
+    - tls
+    - load_config
+    - iat
+    - delay_import
+    - clr

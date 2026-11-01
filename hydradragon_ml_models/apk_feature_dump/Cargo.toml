@@ -1,0 +1,11 @@
+[package]
+name = "apk_feature_dump"
+version = "0.1.0"
+edition = "2024"
+description = "Writes APK ML features with the exact OpenEDR/openedr_static extractor, for train_apk_lgbm.py"
+
+[dependencies]
+openedr_static = { path = "../../OpenEDR/openedr_static" }
+
+[profile.release]
+opt-level = 3

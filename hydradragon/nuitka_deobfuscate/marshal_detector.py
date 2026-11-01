@@ -295,7 +295,7 @@ def detect_version_from_bytecode_chunk(bytecode_chunk: bytes) -> str | None:
     - Pass 2: full xdis parse via try_detect_code_object (strict, scored).
     - Return the highest-scoring or first structurally-matching version.
     """
-    # 1. Try native marshal check first (safe, fast, and highly accurate for current runner)
+    # 1. Try native marshal check only if structural check confirms
     payloads = _extract_first_marshal_payloads_from_bytecode_chunk(bytecode_chunk, max_entries=1)
     if payloads:
         try:
@@ -303,7 +303,8 @@ def detect_version_from_bytecode_chunk(bytecode_chunk: bytes) -> str | None:
             obj = builtin_marshal.loads(payloads[0])
             if type(obj).__name__ == "code":
                 run_ver = f"{sys.version_info[0]}.{sys.version_info[1]}"
-                if run_ver in by_version:
+                mi = get_magic_int(run_ver)
+                if mi and looks_like_code_header(payloads[0], 0, mi):
                     return run_ver
         except Exception:
             pass

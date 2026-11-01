@@ -102,6 +102,248 @@ api_specs! {
     "exitprocess"(1) -> 0;
     "getcurrentprocess"(0) -> 0xFFFFFFFFFFFFFFFFu64;
     "getcurrentprocessid"(0) -> 1234;
+    // CRT start-up (security cookie): no arguments, so the call site has no pushes to
+    // count and the run used to stop here as "indeterminate argument count".
+    "getcurrentthreadid"(0) -> 1236;
+    "getcurrentthread"(0) -> 0xFFFFFFFFFFFFFFFEu64;
+    "getsystemtimeasfiletime"(1) -> 0;
+    // Start-up calls that stopped the run for lack of an argument count (the most
+    // frequent stops over clean and malicious samples). Plain values only.
+    "initializecriticalsectionex"(3) -> 1;
+    "seterrormode"(1) -> 0;
+    "getprocessheap"(0) -> 0x150000;
+
+    // --- Heap, process environment and CRT startup (handlers in handle_api_call) ---
+    "heapcreate"(3) -> 0x150000;
+    "heapalloc"(3) -> 0;
+    "heaprealloc"(4) -> 0;
+    "heapfree"(3) -> 1;
+    "rtlallocateheap"(3) -> 0;
+    "rtlfreeheap"(3) -> 1;
+    "getcommandlinea"(0) -> 0;
+    "getcommandlinew"(0) -> 0;
+    "getenvironmentstrings"(0) -> 0;
+    "getenvironmentstringsa"(0) -> 0;
+    "getenvironmentstringsw"(0) -> 0;
+    "freeenvironmentstringsa"(1) -> 1;
+    "freeenvironmentstringsw"(1) -> 1;
+    "getwindowsdirectorya"(2) -> 0;
+    "getwindowsdirectoryw"(2) -> 0;
+    "getsystemdirectorya"(2) -> 0;
+    "getsystemdirectoryw"(2) -> 0;
+    "encodepointer"(1) -> 0;
+    "decodepointer"(1) -> 0;
+    "lstrcpyna"(3) -> 0;
+    "lstrcpynw"(3) -> 0;
+    "lstrcpya"(2) -> 0;
+    "lstrcpyw"(2) -> 0;
+    "initializecriticalsection"(1) -> 0;
+    "initializecriticalsectionandspincount"(2) -> 1;
+    "entercriticalsection"(1) -> 0;
+    "leavecriticalsection"(1) -> 0;
+    "deletecriticalsection"(1) -> 0;
+    "coinitialize"(1) -> 0;
+    "coinitializeex"(2) -> 0;
+    "getdc"(1) -> 0x1234;
+    "releasedc"(2) -> 1;
+    "isbadreadptr"(2) -> 0;
+    "isbadwriteptr"(2) -> 0;
+    "getsystemdefaultlangid"(0) -> 0x409;
+    "getuserdefaultlangid"(0) -> 0x409;
+    "enumdesktopsa"(3) -> 1;
+    "createwindowexa"(12) -> 0x2000;
+    "createwindowexw"(12) -> 0x2000;
+    // msvcrt / ucrt (cdecl through their DLL name)
+    "p__fmode"(0) -> 0;
+    "p__commode"(0) -> 0;
+    "getmainargs"(5) -> 0;
+    "wgetmainargs"(5) -> 0;
+    "get_initial_narrow_environment"(0) -> 0;
+    "getversion"(0) -> 0x23F00206;
+    "createeventw"(4) -> 0x1100;
+    "createeventa"(4) -> 0x1104;
+    "etweventunregister"(1) -> 0;
+    // CRT (cdecl, see `is_cdecl_api`): no initializer table run, no app type. Keys are
+    // normalized names: leading underscores are dropped (`normalize_api_name`).
+    "initterm"(2) -> 0;
+    "set_app_type"(1) -> 0;
+    "cexit"(0) -> 0;
+    // Fiber / thread local storage: a slot index, empty slots.
+    "flsalloc"(1) -> 1;
+    "flsgetvalue"(1) -> 0;
+    "flssetvalue"(2) -> 1;
+    "tlsalloc"(0) -> 1;
+    "tlsgetvalue"(1) -> 0;
+    "tlssetvalue"(2) -> 1;
+    // Succeeds with the caller's zeroed version structure.
+    "getversionexw"(1) -> 1;
+    "getversionexa"(1) -> 1;
+    // Previous top-level filter: none.
+    "setunhandledexceptionfilter"(1) -> 0;
+    // Atomic operations on a caller's variable (handlers in handle_api_call).
+    "interlockedincrement"(1) -> 1;
+    "interlockeddecrement"(1) -> 0;
+    "interlockedexchange"(2) -> 0;
+    "interlockedexchangeadd"(2) -> 0;
+    "interlockedcompareexchange"(3) -> 0;
+    "getacp"(0) -> 1252;
+    "getoemcp"(0) -> 437;
+    "getsystemdefaultlcid"(0) -> 0x409;
+    "getuserdefaultlcid"(0) -> 0x409;
+    // CRT SEH frame handlers (msvcrt, cdecl), reached through the SEH dispatch:
+    // ExceptionContinueSearch, so the next frame handles it. 0 would retry the
+    // faulting instruction until the SEH limit.
+    "except_handler3"(4) -> 1;
+    "except_handler4_common"(6) -> 1;
+
+    // --- System information, strings, UI and threads (handlers in handle_api_call
+    // where the value alone is not enough). The runs that stopped here for want of an
+    // argument count (profile 2026-10-30): PathFileExistsA 34, comctl32 #17 20,
+    // WideCharToMultiByte 12, and one or two each for the rest.
+    "getsysteminfo"(1) -> 0;
+    "getnativesysteminfo"(1) -> 0;
+    "iswow64process"(2) -> 1;
+    "getvolumeinformationa"(8, [ (0, Ansi) ]) -> 1;
+    "getvolumeinformationw"(8, [ (0, Wide) ]) -> 1;
+    "getlogicaldrivestringsa"(2) -> 0;
+    "getlogicaldrivestringsw"(2) -> 0;
+    "getthreadlocale"(0) -> 0x409;
+    // Not there: a dropper checking for its own copy goes on installing.
+    "pathfileexistsa"(1, [ (0, Ansi) ]) -> 0;
+    "pathfileexistsw"(1, [ (0, Wide) ]) -> 0;
+    "widechartomultibyte"(8) -> 0;
+    "multibytetowidechar"(6) -> 0;
+    "charnexta"(1) -> 0;
+    "charnextw"(1) -> 0;
+    "charpreva"(2) -> 0;
+    "charprevw"(2) -> 0;
+    "lstrlena"(1) -> 0;
+    "lstrlenw"(1) -> 0;
+    "lstrcmpa"(2) -> 0;
+    "lstrcmpw"(2) -> 0;
+    "lstrcmpia"(2) -> 0;
+    "lstrcmpiw"(2) -> 0;
+    "findatoma"(1, [ (0, Ansi) ]) -> 0;
+    "findatomw"(1, [ (0, Wide) ]) -> 0;
+    "addatoma"(1, [ (0, Ansi) ]) -> 0xC000;
+    "addatomw"(1, [ (0, Wide) ]) -> 0xC000;
+    "globalfindatoma"(1, [ (0, Ansi) ]) -> 0;
+    "globalfindatomw"(1, [ (0, Wide) ]) -> 0;
+    "globaladdatoma"(1, [ (0, Ansi) ]) -> 0xC000;
+    "globaladdatomw"(1, [ (0, Wide) ]) -> 0xC000;
+    // A thread handle; the thread itself is not run.
+    "createthread"(6) -> 0x1200;
+    "waitforsingleobject"(2) -> 0;
+    "waitformultipleobjects"(4) -> 0;
+    "ntqueryinformationtoken"(5) -> 0;
+    "cocreateguid"(1) -> 0;
+    "registerclassa"(1) -> 0xC001;
+    "registerclassw"(1) -> 0xC001;
+    "registerclassexa"(1) -> 0xC001;
+    "registerclassexw"(1) -> 0xC001;
+    "sendmessagea"(4) -> 0;
+    "sendmessagew"(4) -> 0;
+    "postmessagea"(4) -> 1;
+    "postmessagew"(4) -> 1;
+    "loadicona"(2) -> 0x2100;
+    "loadiconw"(2) -> 0x2100;
+    "loadcursora"(2) -> 0x2104;
+    "loadcursorw"(2) -> 0x2104;
+    "getdcex"(3) -> 0x1234;
+    "initcommoncontrols"(0) -> 0;
+    "initcommoncontrolsex"(1) -> 1;
+    "p__environ"(0) -> 0;
+    "p__wenviron"(0) -> 0;
+    // Second round (profile 2026-10-30): CreateDirectory 30, the rest one or two each.
+    "createdirectorya"(2, [ (0, Ansi) ]) -> 1;
+    "createdirectoryw"(2, [ (0, Wide) ]) -> 1;
+    "createdirectoryexa"(3, [ (1, Ansi) ]) -> 1;
+    "createdirectoryexw"(3, [ (1, Wide) ]) -> 1;
+    // A snapshot with nothing in it: the First calls say there is no entry.
+    "createtoolhelp32snapshot"(2) -> 0x1300;
+    "process32first"(2) -> 0;
+    "process32firstw"(2) -> 0;
+    "process32next"(2) -> 0;
+    "process32nextw"(2) -> 0;
+    "module32first"(2) -> 0;
+    "module32firstw"(2) -> 0;
+    "module32next"(2) -> 0;
+    "module32nextw"(2) -> 0;
+    "thread32first"(2) -> 0;
+    "thread32next"(2) -> 0;
+    "oleinitialize"(1) -> 0;
+    "oleuninitialize"(0) -> 0;
+    "couninitialize"(0) -> 0;
+    "registerwindowmessagea"(1, [ (0, Ansi) ]) -> 0xC100;
+    "registerwindowmessagew"(1, [ (0, Wide) ]) -> 0xC100;
+    "getmessageextrainfo"(0) -> 0;
+    "mapvirtualkeya"(2) -> 0;
+    "mapvirtualkeyw"(2) -> 0;
+    "freeconsole"(0) -> 1;
+    "allocconsole"(0) -> 1;
+    "getthreaddesktop"(1) -> 0x30;
+    "colorcorrectpalette"(4) -> 1;
+    // Third round (profile 2026-10-30): GetStartupInfoA 34, MessageBoxIndirect 34.
+    "getstartupinfoa"(1) -> 0;
+    "getstartupinfow"(1) -> 0;
+    // IDOK: nobody is there to press another button.
+    "messageboxa"(4, [ (1, Ansi), (2, Ansi) ]) -> 1;
+    "messageboxw"(4, [ (1, Wide), (2, Wide) ]) -> 1;
+    "messageboxexa"(5, [ (1, Ansi), (2, Ansi) ]) -> 1;
+    "messageboxexw"(5, [ (1, Wide), (2, Wide) ]) -> 1;
+    "messageboxindirecta"(1) -> 1;
+    "messageboxindirectw"(1) -> 1;
+    // STD_INPUT / OUTPUT / ERROR_HANDLE (-10 / -11 / -12) -> a console handle each.
+    "getstdhandle"(1) -> 0x14;
+    "setstdhandle"(2) -> 1;
+    "setfileattributesa"(2, [ (0, Ansi) ]) -> 1;
+    "setfileattributesw"(2, [ (0, Wide) ]) -> 1;
+    "seturlcacheentryinfoa"(3, [ (0, Ansi) ]) -> 1;
+    "seturlcacheentryinfow"(3, [ (0, Wide) ]) -> 1;
+    // S_OK with the caller's DLLVERSIONINFO left as it is.
+    "dllgetversion"(1) -> 0;
+    "isuseranadmin"(0) -> 1;
+    // Fourth round: what the runs that got past GetStartupInfo met next.
+    // Global / Local memory: blocks of the HeapAlloc arena (fixed: handle = pointer).
+    // GlobalAlloc used to return 0 for want of a stub: the program got a null block.
+    "globalalloc"(2) -> 0;
+    "localalloc"(2) -> 0;
+    "globalrealloc"(3) -> 0;
+    "localrealloc"(3) -> 0;
+    "globalfree"(1) -> 0;
+    "localfree"(1) -> 0;
+    "globallock"(1) -> 0;
+    "locallock"(1) -> 0;
+    "globalunlock"(1) -> 1;
+    "localunlock"(1) -> 1;
+    "globalhandle"(1) -> 0;
+    "localhandle"(1) -> 0;
+    "globalsize"(1) -> 0;
+    "localsize"(1) -> 0;
+    // Condition variables and slim locks: one thread, nothing to wait for.
+    "initializeconditionvariable"(1) -> 0;
+    "wakeconditionvariable"(1) -> 0;
+    "wakeallconditionvariable"(1) -> 0;
+    "sleepconditionvariablecs"(3) -> 1;
+    "sleepconditionvariablesrw"(4) -> 1;
+    "initializesrwlock"(1) -> 0;
+    "acquiresrwlockexclusive"(1) -> 0;
+    "acquiresrwlockshared"(1) -> 0;
+    "releasesrwlockexclusive"(1) -> 0;
+    "releasesrwlockshared"(1) -> 0;
+    "tryacquiresrwlockexclusive"(1) -> 1;
+    "tryacquiresrwlockshared"(1) -> 1;
+    "arefileapisansi"(0) -> 1;
+    "getcpinfo"(2) -> 1;
+    "getusernamea"(2) -> 1;
+    "getusernamew"(2) -> 1;
+    // Not found.
+    "searchpatha"(6, [ (1, Ansi) ]) -> 0;
+    "searchpathw"(6, [ (1, Wide) ]) -> 0;
+    "urlcombinea"(5, [ (0, Ansi), (1, Ansi) ]) -> 0x80004005;
+    "urlcombinew"(5, [ (0, Wide), (1, Wide) ]) -> 0x80004005;
+    "isappthemed"(0) -> 0;
+    "setfiletime"(4) -> 1;
 
     // --- Network APIs ---
     "winhttpopen"(5, [ (0, Wide) ]) -> 0x3000;
@@ -169,10 +411,10 @@ api_specs! {
     "rtlremovevectoredexceptionhandler"(1) -> 1;
 
     // --- Module & Memory APIs ---
-    "loadlibrarya"(1, [ (0, Ansi) ]) -> 0x50000000;
-    "loadlibraryw"(1, [ (0, Wide) ]) -> 0x50000000;
-    "loadlibraryexa"(3, [ (0, Ansi) ]) -> 0x50000000;
-    "loadlibraryexw"(3, [ (0, Wide) ]) -> 0x50000000;
+    "loadlibrarya"(1, [ (0, Ansi) ]) -> FAKE_MODULE_BASE;
+    "loadlibraryw"(1, [ (0, Wide) ]) -> FAKE_MODULE_BASE;
+    "loadlibraryexa"(3, [ (0, Ansi) ]) -> FAKE_MODULE_BASE;
+    "loadlibraryexw"(3, [ (0, Wide) ]) -> FAKE_MODULE_BASE;
     "freelibrary"(1) -> 1;
     "getprocaddress"(2, [ (1, Ansi) ]) -> 0x7F080000;
     "getmodulehandlea"(1, [ (0, Ansi) ]) -> 0x400000;
@@ -212,6 +454,20 @@ pub fn get_api_spec(api_name: &str) -> Option<&'static ApiStubSpec> {
     API_STUB_TABLE.iter().find(|spec| spec.name == normalized)
 }
 
+/// Stub metadata for an API imported by ordinal, which only means something with
+/// its DLL: comctl32 #17 is InitCommonControls, shell32 #680 IsUserAnAdmin.
+pub fn get_ordinal_spec(api_name: &str, dll_name: Option<&str>) -> Option<&'static ApiStubSpec> {
+    let dll = dll_name?.to_ascii_lowercase();
+    let dll = dll.trim_end_matches(".dll");
+    let ordinal = normalize_api_name(api_name);
+    let ordinal = ordinal.trim_start_matches("ordinal").trim_start_matches('_');
+    match (dll, ordinal) {
+        ("comctl32", "17") => get_api_spec("initcommoncontrols"),
+        ("shell32", "680") => get_api_spec("isuseranadmin"),
+        _ => None,
+    }
+}
+
 /// State kept across emulated API calls (handle generation, search iterations, simulated ticks, dynamic hooks, mapped buffers).
 #[derive(Debug, Clone)]
 pub struct ApiState {
@@ -230,6 +486,13 @@ pub struct ApiState {
     pub net_stub_base: u64,
     pub net_stub_offset: u64,
     pub net_stub_mapped: u64,
+    /// Bump allocator for HeapAlloc: [heap_cur, heap_end) is mapped and free.
+    pub heap_cur: u64,
+    pub heap_end: u64,
+    /// Size of every block HeapAlloc gave out (HeapReAlloc copies that much).
+    pub heap_sizes: HashMap<u64, u64>,
+    /// Command line, environment, CRT globals: written once per run.
+    pub scratch: HashMap<&'static str, u64>,
 }
 
 impl Default for ApiState {
@@ -237,7 +500,7 @@ impl Default for ApiState {
         Self {
             next_file_handle: 0x1000,
             next_hook_addr: 0x7F080000,
-            next_alloc_addr: 0x20000000,
+            next_alloc_addr: ALLOC_BASE,
             image_base: 0x400000,
             dll_bases: HashMap::new(),
             find_handles: HashMap::new(),
@@ -250,6 +513,10 @@ impl Default for ApiState {
             net_stub_base: 0x78000000,
             net_stub_offset: 0,
             net_stub_mapped: 0,
+            heap_cur: 0,
+            heap_end: 0,
+            heap_sizes: HashMap::new(),
+            scratch: HashMap::new(),
         }
     }
 }
@@ -648,7 +915,237 @@ pub fn write_fake_find_data_w(uc: &mut Unicorn<'_, ()>, addr: u64, filename: &st
     uc.mem_write(addr, &data).is_ok()
 }
 
+/// Path the CRT startup is told the program runs from.
+const PROGRAM_PATH: &str = "C:\\Users\\user\\Desktop\\sample.exe";
+const WINDOWS_DIR: &str = "C:\\Windows";
+const SYSTEM_DIR: &str = "C:\\Windows\\system32";
+/// Heap arena mapped at a time; blocks above `HEAP_DIRECT` get pages of their own.
+const HEAP_ARENA: u64 = 16 << 20;
+const HEAP_DIRECT: u64 = 1 << 20;
+
+/// The VirtualAlloc / heap area: allocations without a requested address are
+/// placed in `[ALLOC_BASE, ALLOC_END)`.
+pub const ALLOC_BASE: u64 = 0x2000_0000;
+pub const ALLOC_END: u64 = 0x7000_0000;
+
+/// `size` zeroed bytes from fresh pages in the VirtualAlloc area (0 when out of room).
+fn alloc_pages(uc: &mut Unicorn<'_, ()>, st: &mut ApiState, size: u64) -> u64 {
+    let len = (size.clamp(1, 64 << 20) + 0xFFF) & !0xFFF;
+    let addr = st.next_alloc_addr;
+    if addr.saturating_add(len) >= ALLOC_END || uc.mem_map(addr, len, Prot::ALL).is_err() {
+        return 0;
+    }
+    st.next_alloc_addr = addr + len + 0x10000;
+    addr
+}
+
+/// HeapAlloc: 16-byte aligned blocks from a mapped arena (fresh Unicorn pages are
+/// zeroed), so thousands of small allocations do not each become a mapped region.
+fn heap_alloc(uc: &mut Unicorn<'_, ()>, st: &mut ApiState, size: u64) -> u64 {
+    let size = size.max(1);
+    let addr = if size > HEAP_DIRECT {
+        alloc_pages(uc, st, size)
+    } else {
+        let need = (size + 15) & !15;
+        if st.heap_cur == 0 || st.heap_cur + need > st.heap_end {
+            let arena = alloc_pages(uc, st, HEAP_ARENA);
+            if arena == 0 {
+                return 0;
+            }
+            st.heap_cur = arena;
+            st.heap_end = arena + HEAP_ARENA;
+        }
+        let a = st.heap_cur;
+        st.heap_cur += need;
+        a
+    };
+    if addr != 0 {
+        st.heap_sizes.insert(addr, size);
+    }
+    addr
+}
+
+/// `bytes` written once per run under `key`; its address afterwards.
+fn scratch(uc: &mut Unicorn<'_, ()>, st: &mut ApiState, key: &'static str, bytes: &[u8]) -> u64 {
+    if let Some(&a) = st.scratch.get(key) {
+        return a;
+    }
+    let a = heap_alloc(uc, st, bytes.len() as u64);
+    if a != 0 && uc.mem_write(a, bytes).is_ok() {
+        st.scratch.insert(key, a);
+        return a;
+    }
+    0
+}
+
+fn ansi_z(s: &str) -> Vec<u8> {
+    let mut v = s.as_bytes().to_vec();
+    v.push(0);
+    v
+}
+
+fn wide_z(s: &str) -> Vec<u8> {
+    s.encode_utf16().chain(std::iter::once(0)).flat_map(|c| c.to_le_bytes()).collect()
+}
+
+/// A pointer-sized little-endian value (4 or 8 bytes).
+fn ptr_bytes(v: u64, is_64: bool) -> Vec<u8> {
+    if is_64 { v.to_le_bytes().to_vec() } else { (v as u32).to_le_bytes().to_vec() }
+}
+
+/// GetWindowsDirectory / GetSystemDirectory: the text when it fits in `cap` characters
+/// (returns its length), else the size needed (with the NUL), as Windows does.
+fn write_dir(uc: &mut Unicorn<'_, ()>, buf: u64, cap: u64, dir: &str, wide: bool) -> u64 {
+    let n = dir.len() as u64;
+    if buf < 0x10000 || cap <= n {
+        return n + 1;
+    }
+    let bytes = if wide { wide_z(dir) } else { ansi_z(dir) };
+    if uc.mem_write(buf, &bytes).is_err() {
+        return 0;
+    }
+    n
+}
+
+/// Fake modules (DLLs the emulator does not load): one 64 KB slot each in
+/// `[FAKE_MODULE_BASE, FAKE_MODULE_END)`, between the allocation area and the network stubs.
+pub const FAKE_MODULE_BASE: u64 = 0x7000_0000;
+const FAKE_MODULE_END: u64 = 0x7800_0000;
+
+/// LoadLibrary of a DLL that is not loaded: a page with a minimal PE header (so
+/// `cmp word [eax], 'MZ'` holds) at a base of its own, registered under its name
+/// so GetModuleHandle finds it and GetProcAddress knows which DLL a function is
+/// from. A slot a real DLL already occupies is skipped. 0 when none is left.
+fn fake_module(uc: &mut Unicorn<'_, ()>, st: &mut ApiState, name: &str) -> u64 {
+    let file = name.rsplit(['\\', '/']).next().unwrap_or(name).trim().to_ascii_lowercase();
+    let file = if file.contains('.') { file } else { format!("{file}.dll") };
+    let mut base = FAKE_MODULE_BASE + st.dll_bases.values().filter(|b| (FAKE_MODULE_BASE..FAKE_MODULE_END).contains(*b)).count() as u64 * 0x1_0000;
+    while base < FAKE_MODULE_END {
+        if uc.mem_map(base, 0x1000, Prot::ALL).is_ok() {
+            let mut hdr = vec![0u8; 0x1000];
+            hdr[0..2].copy_from_slice(b"MZ");
+            hdr[0x3C..0x40].copy_from_slice(&0x80u32.to_le_bytes());
+            hdr[0x80..0x84].copy_from_slice(b"PE\0\0");
+            let _ = uc.mem_write(base, &hdr);
+            st.dll_bases.insert(file, base);
+            return base;
+        }
+        base += 0x1_0000;
+    }
+    0
+}
+
+/// SYSTEM_INFO of a 4-core x86 / x64 machine (4 KB pages, 64 KB granularity).
+fn system_info(is_64: bool) -> Vec<u8> {
+    let mut s = Vec::with_capacity(48);
+    s.extend_from_slice(&(if is_64 { 9u16 } else { 0u16 }).to_le_bytes()); // wProcessorArchitecture
+    s.extend_from_slice(&0u16.to_le_bytes());
+    s.extend_from_slice(&0x1000u32.to_le_bytes()); // dwPageSize
+    if is_64 {
+        s.extend_from_slice(&0x1_0000u64.to_le_bytes());
+        s.extend_from_slice(&0x7FFF_FFFE_FFFFu64.to_le_bytes());
+        s.extend_from_slice(&0xFu64.to_le_bytes()); // dwActiveProcessorMask
+    } else {
+        s.extend_from_slice(&0x1_0000u32.to_le_bytes());
+        s.extend_from_slice(&0x7FFE_FFFFu32.to_le_bytes());
+        s.extend_from_slice(&0xFu32.to_le_bytes());
+    }
+    s.extend_from_slice(&4u32.to_le_bytes()); // dwNumberOfProcessors
+    s.extend_from_slice(&(if is_64 { 8664u32 } else { 586u32 }).to_le_bytes()); // dwProcessorType
+    s.extend_from_slice(&0x1_0000u32.to_le_bytes()); // dwAllocationGranularity
+    s.extend_from_slice(&6u16.to_le_bytes()); // wProcessorLevel
+    s.extend_from_slice(&0x9E0Au16.to_le_bytes()); // wProcessorRevision
+    s
+}
+
+/// Characters of `unit` bytes at `addr`: `count` of them, or up to and with the
+/// NUL when `count` is -1 (at most 64K). None when unreadable.
+fn read_units(uc: &Unicorn<'_, ()>, addr: u64, count: i32, unit: u64) -> Option<Vec<u32>> {
+    if addr < 0x10000 {
+        return None;
+    }
+    let max = if count < 0 { 1 << 16 } else { count as u64 };
+    let mut out = Vec::new();
+    let mut c = [0u8; 2];
+    for i in 0..max {
+        uc.mem_read(addr + i * unit, &mut c[..unit as usize]).ok()?;
+        let v = if unit == 2 { u16::from_le_bytes(c) as u32 } else { c[0] as u32 };
+        out.push(v);
+        if count < 0 && v == 0 {
+            return Some(out);
+        }
+    }
+    (count >= 0).then_some(out)
+}
+
+/// The WideCharToMultiByte / MultiByteToWideChar result: with no buffer (`cap` 0)
+/// the size needed, else the `unit`-byte characters written (0 when it does not fit).
+fn write_units(uc: &mut Unicorn<'_, ()>, dst: u64, cap: usize, data: &[u8], unit: usize) -> u64 {
+    let n = data.len() / unit;
+    if cap == 0 {
+        return n as u64;
+    }
+    if dst < 0x10000 || n > cap || uc.mem_write(dst, data).is_err() {
+        return 0;
+    }
+    n as u64
+}
+
+/// lstrcpy(n): copies at most `max` characters of the NUL-terminated `src` (the last one
+/// becomes the NUL), units of 1 or 2 bytes. Returns `dst`, or 0 when it cannot.
+fn copy_z(uc: &mut Unicorn<'_, ()>, dst: u64, src: u64, max: u64, unit: u64) -> u64 {
+    if dst < 0x10000 || src < 0x10000 || max == 0 {
+        return 0;
+    }
+    let mut c = [0u8; 2];
+    for i in 0..max.min(1 << 16) {
+        let last = i + 1 == max;
+        let ch = if last || uc.mem_read(src + i * unit, &mut c[..unit as usize]).is_err() { [0, 0] } else { c };
+        if uc.mem_write(dst + i * unit, &ch[..unit as usize]).is_err() {
+            return 0;
+        }
+        if ch[..unit as usize].iter().all(|&b| b == 0) {
+            break;
+        }
+    }
+    dst
+}
+
 /// Executes stub emulation logic for a resolved Windows API.
+/// Makes `[target, target + len)` readable, writable and executable for a
+/// VirtualAlloc at a given address: unmapped pages are mapped and mapped ones get the
+/// protection, each as runs of consecutive pages (one mem_map / mem_protect per run).
+/// A page at a time made a 64 MB request 16384 calls; every protect splits Unicorn's
+/// regions, so a sample calling VirtualAlloc again and again over its own image spent
+/// minutes inside the API hook, where the run's time limit cannot stop it. False when
+/// a run cannot be mapped.
+fn map_pages_at(uc: &mut Unicorn<'_, ()>, target: u64, len: u64) -> bool {
+    // (start, mapped) of the run being collected.
+    let mut run: Option<(u64, bool)> = None;
+    for offset in (0..len).step_by(0x1000).chain(std::iter::once(len)) {
+        let page_addr = target.saturating_add(offset);
+        let mapped = if offset < len {
+            let mut test = [0u8; 1];
+            Some(uc.mem_read(page_addr, &mut test).is_ok())
+        } else {
+            None // end: close the last run
+        };
+        if let Some((start, was_mapped)) = run {
+            if mapped == Some(was_mapped) {
+                continue;
+            }
+            let run_len = page_addr - start;
+            if was_mapped {
+                let _ = uc.mem_protect(start, run_len, Prot::ALL);
+            } else if uc.mem_map(start, run_len, Prot::ALL).is_err() {
+                return false;
+            }
+        }
+        run = mapped.map(|m| (page_addr, m));
+    }
+    true
+}
+
 pub fn handle_api_call(
     uc: &mut Unicorn<'_, ()>,
     api_name: &str,
@@ -800,10 +1297,15 @@ pub fn handle_api_call(
             let allocated_hook = api_state.next_hook_addr;
             api_state.next_hook_addr = api_state.next_hook_addr.wrapping_add(8);
 
-            dllname_to_functionlist
-                .entry("dynamic".to_string())
-                .or_default()
-                .push((func_name, allocated_hook));
+            // The DLL of the module handle: its calling convention (msvcrt is cdecl)
+            // and the rebuilt import table depend on it.
+            let module = args.first().copied().unwrap_or(0);
+            let dll = api_state
+                .dll_bases
+                .iter()
+                .find(|&(_, &base)| base == module && module != 0)
+                .map_or_else(|| "dynamic".to_string(), |(name, _)| name.clone());
+            dllname_to_functionlist.entry(dll).or_default().push((func_name, allocated_hook));
 
             allocated_hook
         }
@@ -981,20 +1483,7 @@ pub fn handle_api_call(
                     return base;
                 }
             }
-            // If the DLL is not preloaded in dll_bases, map a valid dummy PE header at 0x50000000
-            // so that manual PE header checks (e.g. `cmp word ptr [eax], 'MZ'`) succeed without faults.
-            let fallback_base = 0x50000000u64;
-            let mut test_byte = [0u8; 1];
-            if uc.mem_read(fallback_base, &mut test_byte).is_err() {
-                if uc.mem_map(fallback_base, 0x1000, Prot::ALL).is_ok() {
-                    let mut pe_hdr = vec![0u8; 0x1000];
-                    pe_hdr[0..2].copy_from_slice(b"MZ");
-                    pe_hdr[0x3C..0x40].copy_from_slice(&0x80u32.to_le_bytes()); // e_lfanew = 0x80
-                    pe_hdr[0x80..0x84].copy_from_slice(b"PE\0\0"); // PE signature
-                    let _ = uc.mem_write(fallback_base, &pe_hdr);
-                }
-            }
-            fallback_base
+            fake_module(uc, api_state, name.as_deref().unwrap_or("unknown.dll"))
         }
         "freelibrary" => 1,
         "getmodulehandlea" | "getmodulehandlew" => {
@@ -1030,22 +1519,14 @@ pub fn handle_api_call(
 
             if req_addr >= 0x10000 {
                 let target = req_addr & !0xFFF;
-                for offset in (0..page_aligned).step_by(0x1000) {
-                    let page_addr = target.saturating_add(offset);
-                    let mut test = [0u8; 1];
-                    if uc.mem_read(page_addr, &mut test).is_err() {
-                        if uc.mem_map(page_addr, 0x1000, Prot::ALL).is_err() {
-                            return 0;
-                        }
-                    } else {
-                        let _ = uc.mem_protect(page_addr, 0x1000, Prot::ALL);
-                    }
+                if !map_pages_at(uc, target, page_aligned) {
+                    return 0;
                 }
                 target
             } else {
                 let addr = api_state.next_alloc_addr;
                 // Guard against upper bound collision with HOOK_ADDR (0x7F000000) or DLL regions
-                if addr.saturating_add(page_aligned) >= 0x70000000 {
+                if addr.saturating_add(page_aligned) >= ALLOC_END {
                     return 0; // Out of memory
                 }
                 if uc.mem_map(addr, page_aligned, Prot::ALL).is_err() {
@@ -1063,21 +1544,13 @@ pub fn handle_api_call(
 
             if req_addr >= 0x10000 {
                 let target = req_addr & !0xFFF;
-                for offset in (0..page_aligned).step_by(0x1000) {
-                    let page_addr = target.saturating_add(offset);
-                    let mut test = [0u8; 1];
-                    if uc.mem_read(page_addr, &mut test).is_err() {
-                        if uc.mem_map(page_addr, 0x1000, Prot::ALL).is_err() {
-                            return 0;
-                        }
-                    } else {
-                        let _ = uc.mem_protect(page_addr, 0x1000, Prot::ALL);
-                    }
+                if !map_pages_at(uc, target, page_aligned) {
+                    return 0;
                 }
                 target
             } else {
                 let addr = api_state.next_alloc_addr;
-                if addr.saturating_add(page_aligned) >= 0x70000000 {
+                if addr.saturating_add(page_aligned) >= ALLOC_END {
                     return 0;
                 }
                 if uc.mem_map(addr, page_aligned, Prot::ALL).is_err() {
@@ -1095,6 +1568,26 @@ pub fn handle_api_call(
             }
             1
         }
+        "interlockedincrement" | "interlockeddecrement" | "interlockedexchange" | "interlockedexchangeadd"
+        | "interlockedcompareexchange" => {
+            let target = args.first().copied().unwrap_or(0);
+            let arg = |i: usize| args.get(i).copied().unwrap_or(0) as u32;
+            let mut cur = [0u8; 4];
+            if target < 0x10000 || uc.mem_read(target, &mut cur).is_err() {
+                return 0;
+            }
+            let old = u32::from_le_bytes(cur);
+            let (new, ret) = match norm.as_str() {
+                "interlockedincrement" => (old.wrapping_add(1), old.wrapping_add(1)),
+                "interlockeddecrement" => (old.wrapping_sub(1), old.wrapping_sub(1)),
+                "interlockedexchange" => (arg(1), old),
+                "interlockedexchangeadd" => (old.wrapping_add(arg(1)), old),
+                _ => (if old == arg(2) { arg(1) } else { old }, old),
+            };
+            let _ = uc.mem_write(target, &new.to_le_bytes());
+            ret as u64
+        }
+        "except_handler3" | "except_handler4_common" => 1,
         "isdebuggerpresent" => 0,
         "checkremotedebuggerpresent" => {
             let pb_debugger_present = args.get(1).copied().unwrap_or(0);
@@ -1104,6 +1597,219 @@ pub fn handle_api_call(
             1
         }
         "getlasterror" | "setlasterror" => 0,
+
+        // --- System information ---
+        "getstartupinfoa" | "getstartupinfow" => {
+            // STARTUPINFO: cb, then all zero (no window flags, no std handles).
+            let out = args.first().copied().unwrap_or(0);
+            let cb: u32 = if api_state.is_64 { 104 } else { 68 };
+            if out >= 0x10000 {
+                let mut si = vec![0u8; cb as usize];
+                si[..4].copy_from_slice(&cb.to_le_bytes());
+                let _ = uc.mem_write(out, &si);
+            }
+            0
+        }
+        "getstdhandle" => match args.first().copied().unwrap_or(0) as u32 {
+            n @ 0xFFFF_FFF4..=0xFFFF_FFF6 => 0x10 + (0xFFFF_FFF6 - n) as u64 * 4,
+            _ => u64::MAX, // INVALID_HANDLE_VALUE
+        },
+        "getsysteminfo" | "getnativesysteminfo" => {
+            let out = args.first().copied().unwrap_or(0);
+            if out >= 0x10000 {
+                let _ = uc.mem_write(out, &system_info(api_state.is_64));
+            }
+            0
+        }
+        "iswow64process" => {
+            let out = args.get(1).copied().unwrap_or(0);
+            if out >= 0x10000 {
+                let _ = uc.mem_write(out, &0u32.to_le_bytes());
+            }
+            1
+        }
+        "getvolumeinformationa" | "getvolumeinformationw" => {
+            let serial = args.get(4).copied().unwrap_or(0);
+            if serial >= 0x10000 {
+                let _ = uc.mem_write(serial, &0x5A3C_91E2u32.to_le_bytes());
+            }
+            1
+        }
+        "getlogicaldrivestringsa" | "getlogicaldrivestringsw" => {
+            let (cap, buf) = (args.first().copied().unwrap_or(0), args.get(1).copied().unwrap_or(0));
+            let wide = norm.ends_with('w');
+            let text: Vec<u8> = if wide { wide_z("C:\\").into_iter().chain([0, 0]).collect() } else { b"C:\\\0\0".to_vec() };
+            let chars = text.len() as u64 / if wide { 2 } else { 1 };
+            if buf < 0x10000 || cap < chars {
+                return chars;
+            }
+            if uc.mem_write(buf, &text).is_err() {
+                return 0;
+            }
+            chars - 1
+        }
+        // --- Strings ---
+        "widechartomultibyte" => {
+            let (src, cch, dst, cap) = (args.get(2).copied().unwrap_or(0), args.get(3).copied().unwrap_or(0) as u32 as i32, args.get(4).copied().unwrap_or(0), args.get(5).copied().unwrap_or(0) as usize);
+            let Some(units) = read_units(uc, src, cch, 2) else { return 0 };
+            let bytes: Vec<u8> = char::decode_utf16(units.iter().map(|&u| u as u16)).map(|c| c.ok().filter(|c| (*c as u32) < 0x100).map_or(b'?', |c| c as u8)).collect();
+            write_units(uc, dst, cap, &bytes, 1)
+        }
+        "multibytetowidechar" => {
+            let (src, cch, dst, cap) = (args.get(2).copied().unwrap_or(0), args.get(3).copied().unwrap_or(0) as u32 as i32, args.get(4).copied().unwrap_or(0), args.get(5).copied().unwrap_or(0) as usize);
+            let Some(units) = read_units(uc, src, cch, 1) else { return 0 };
+            let wide: Vec<u8> = units.iter().flat_map(|&u| (u as u16).to_le_bytes()).collect();
+            write_units(uc, dst, cap, &wide, 2)
+        }
+        "charnexta" | "charnextw" => {
+            let p = args.first().copied().unwrap_or(0);
+            let unit = if norm.ends_with('w') { 2 } else { 1 };
+            match uc.mem_read_as_vec(p, unit as usize) {
+                Ok(c) if c.iter().any(|&b| b != 0) => p + unit,
+                _ => p,
+            }
+        }
+        "charpreva" | "charprevw" => {
+            let (start, p) = (args.first().copied().unwrap_or(0), args.get(1).copied().unwrap_or(0));
+            let unit = if norm.ends_with('w') { 2 } else { 1 };
+            if p > start { p - unit } else { start }
+        }
+        "lstrlena" | "lstrlenw" => {
+            let unit = if norm.ends_with('w') { 2 } else { 1 };
+            read_units(uc, args.first().copied().unwrap_or(0), -1, unit).map_or(0, |u| u.len().saturating_sub(1) as u64)
+        }
+        "lstrcmpa" | "lstrcmpw" | "lstrcmpia" | "lstrcmpiw" => {
+            let unit = if norm.ends_with('w') { 2 } else { 1 };
+            let fold = norm.starts_with("lstrcmpi");
+            let (Some(a), Some(b)) = (read_units(uc, args.first().copied().unwrap_or(0), -1, unit), read_units(uc, args.get(1).copied().unwrap_or(0), -1, unit)) else {
+                return 0;
+            };
+            let key = |s: &[u32]| -> Vec<u32> { s.iter().map(|&c| if fold && c < 0x80 { (c as u8).to_ascii_lowercase() as u32 } else { c }).collect() };
+            match key(&a).cmp(&key(&b)) {
+                std::cmp::Ordering::Less => (-1i64) as u64,
+                std::cmp::Ordering::Equal => 0,
+                std::cmp::Ordering::Greater => 1,
+            }
+        }
+        "p__environ" | "p__wenviron" => {
+            let is_64 = api_state.is_64;
+            let envp = scratch(uc, api_state, "envp", &ptr_bytes(0, is_64));
+            scratch(uc, api_state, "penvp", &ptr_bytes(envp, is_64))
+        }
+
+        // --- Global / Local memory (fixed blocks: the handle is the pointer) ---
+        "globalalloc" | "localalloc" => {
+            let size = args.get(1).copied().unwrap_or(0);
+            heap_alloc(uc, api_state, size)
+        }
+        "globalrealloc" | "localrealloc" => {
+            let (old, size) = (args.first().copied().unwrap_or(0), args.get(1).copied().unwrap_or(0));
+            let new = heap_alloc(uc, api_state, size);
+            let keep = api_state.heap_sizes.get(&old).copied().unwrap_or(0).min(size);
+            if new != 0 && old >= 0x10000 && keep > 0 {
+                if let Ok(data) = uc.mem_read_as_vec(old, keep as usize) {
+                    let _ = uc.mem_write(new, &data);
+                }
+            }
+            new
+        }
+        "globallock" | "locallock" | "globalhandle" | "localhandle" => args.first().copied().unwrap_or(0),
+        "globalsize" | "localsize" => api_state.heap_sizes.get(&args.first().copied().unwrap_or(0)).copied().unwrap_or(0),
+        "getcpinfo" => {
+            // CPINFO: MaxCharSize 1, DefaultChar "?", no lead bytes.
+            let out = args.get(1).copied().unwrap_or(0);
+            if out >= 0x10000 {
+                let mut info = [0u8; 18];
+                info[..4].copy_from_slice(&1u32.to_le_bytes());
+                info[4] = b'?';
+                let _ = uc.mem_write(out, &info);
+            }
+            1
+        }
+        "getusernamea" | "getusernamew" => {
+            let (buf, size_ptr) = (args.first().copied().unwrap_or(0), args.get(1).copied().unwrap_or(0));
+            let wide = norm.ends_with('w');
+            let name = if wide { wide_z("user") } else { ansi_z("user") };
+            let chars = 5u32;
+            let cap = if size_ptr >= 0x10000 { uc.mem_read_as_vec(size_ptr, 4).ok().map_or(0, |b| u32::from_le_bytes([b[0], b[1], b[2], b[3]])) } else { 0 };
+            if size_ptr >= 0x10000 {
+                let _ = uc.mem_write(size_ptr, &chars.to_le_bytes());
+            }
+            if buf < 0x10000 || cap < chars || uc.mem_write(buf, &name).is_err() {
+                return 0;
+            }
+            1
+        }
+
+        // --- Heap ---
+        "heapalloc" | "rtlallocateheap" => {
+            let size = args.get(2).copied().unwrap_or(0);
+            heap_alloc(uc, api_state, size)
+        }
+        "heaprealloc" => {
+            let (old, size) = (args.get(2).copied().unwrap_or(0), args.get(3).copied().unwrap_or(0));
+            let new = heap_alloc(uc, api_state, size);
+            let keep = api_state.heap_sizes.get(&old).copied().unwrap_or(0).min(size);
+            if new != 0 && old >= 0x10000 && keep > 0 {
+                if let Ok(data) = uc.mem_read_as_vec(old, keep as usize) {
+                    let _ = uc.mem_write(new, &data);
+                }
+            }
+            new
+        }
+        // --- Process environment ---
+        "getcommandlinea" => scratch(uc, api_state, "cmdline_a", &ansi_z(&format!("\"{PROGRAM_PATH}\""))),
+        "getcommandlinew" => scratch(uc, api_state, "cmdline_w", &wide_z(&format!("\"{PROGRAM_PATH}\""))),
+        "getenvironmentstrings" | "getenvironmentstringsa" => {
+            scratch(uc, api_state, "env_a", b"PATH=C:\\Windows\\system32\0\0")
+        }
+        "getenvironmentstringsw" => {
+            let mut w = wide_z("PATH=C:\\Windows\\system32");
+            w.extend_from_slice(&[0, 0]);
+            scratch(uc, api_state, "env_w", &w)
+        }
+        "getwindowsdirectorya" | "getwindowsdirectoryw" | "getsystemdirectorya" | "getsystemdirectoryw" => {
+            let dir = if norm.starts_with("getwindows") { WINDOWS_DIR } else { SYSTEM_DIR };
+            let (buf, cap) = (args.get(0).copied().unwrap_or(0), args.get(1).copied().unwrap_or(0));
+            write_dir(uc, buf, cap, dir, norm.ends_with('w'))
+        }
+        "encodepointer" | "decodepointer" => args.get(0).copied().unwrap_or(0),
+        "lstrcpyna" | "lstrcpynw" => {
+            let unit = if norm.ends_with('w') { 2 } else { 1 };
+            copy_z(uc, args.get(0).copied().unwrap_or(0), args.get(1).copied().unwrap_or(0), args.get(2).copied().unwrap_or(0), unit)
+        }
+        "lstrcpya" | "lstrcpyw" => {
+            let unit = if norm.ends_with('w') { 2 } else { 1 };
+            copy_z(uc, args.get(0).copied().unwrap_or(0), args.get(1).copied().unwrap_or(0), 4096, unit)
+        }
+        // --- CRT startup (msvcrt / ucrt) ---
+        "p__fmode" => scratch(uc, api_state, "fmode", &[0u8; 4]),
+        "p__commode" => scratch(uc, api_state, "commode", &[0u8; 4]),
+        "get_initial_narrow_environment" => {
+            let is_64 = api_state.is_64;
+            scratch(uc, api_state, "envp", &ptr_bytes(0, is_64))
+        }
+        // __getmainargs(int *argc, char ***argv, char ***envp, int wildcard, _startupinfo *)
+        "getmainargs" | "wgetmainargs" => {
+            let is_64 = api_state.is_64;
+            let wide = norm.starts_with('w');
+            let path = if wide { scratch(uc, api_state, "argv0_w", &wide_z(PROGRAM_PATH)) } else { scratch(uc, api_state, "argv0_a", &ansi_z(PROGRAM_PATH)) };
+            let mut argv = ptr_bytes(path, is_64);
+            argv.extend(ptr_bytes(0, is_64));
+            let argv = scratch(uc, api_state, if wide { "argv_w" } else { "argv_a" }, &argv);
+            let envp = scratch(uc, api_state, "envp", &ptr_bytes(0, is_64));
+            let out = |i: usize| args.get(i).copied().unwrap_or(0);
+            if out(0) >= 0x10000 {
+                let _ = uc.mem_write(out(0), &1u32.to_le_bytes());
+            }
+            if out(1) >= 0x10000 {
+                let _ = uc.mem_write(out(1), &ptr_bytes(argv, is_64));
+            }
+            if out(2) >= 0x10000 {
+                let _ = uc.mem_write(out(2), &ptr_bytes(envp, is_64));
+            }
+            0
+        }
 
         // --- Fallback ---
         _ => {
@@ -1269,6 +1975,118 @@ mod tests {
     }
 
     #[test]
+    fn test_string_and_system_info_handlers() {
+        let mut uc = Unicorn::new(Arch::X86, Mode::MODE_32).expect("Unicorn new");
+        let mut st = ApiState::default();
+        let mut dll_map = HashMap::new();
+        let mut call = |uc: &mut Unicorn<'_, ()>, st: &mut ApiState, name: &str, args: &[u64]| handle_api_call(uc, name, args, st, &mut dll_map);
+        let buf = call(&mut uc, &mut st, "HeapAlloc", &[0x150000, 0, 0x400]);
+        let (a, w, out) = (buf, buf + 0x100, buf + 0x200);
+        uc.mem_write(a, b"Hello\0").unwrap();
+        uc.mem_write(w, &wide_z("hello")).unwrap();
+
+        // WideCharToMultiByte: size query, then the conversion (with the NUL).
+        assert_eq!(call(&mut uc, &mut st, "WideCharToMultiByte", &[0, 0, w, u32::MAX as u64, 0, 0, 0, 0]), 6);
+        assert_eq!(call(&mut uc, &mut st, "WideCharToMultiByte", &[0, 0, w, u32::MAX as u64, out, 6, 0, 0]), 6);
+        assert_eq!(read_ansi_string(&uc, out, 16).unwrap(), "hello");
+        assert_eq!(call(&mut uc, &mut st, "WideCharToMultiByte", &[0, 0, w, u32::MAX as u64, out, 3, 0, 0]), 0, "too small a buffer");
+        assert_eq!(call(&mut uc, &mut st, "MultiByteToWideChar", &[0, 0, a, 5, out, 16]), 5);
+        assert_eq!(read_wide_string(&uc, out, 5).unwrap().chars().take(5).collect::<String>(), "Hello");
+
+        // lstrcmp / lstrcmpi / lstrlen / CharNext.
+        assert_eq!(call(&mut uc, &mut st, "lstrcmpiA", &[a, a]), 0);
+        uc.mem_write(out, b"HELLO\0").unwrap();
+        assert_eq!(call(&mut uc, &mut st, "lstrcmpiA", &[a, out]), 0);
+        assert_ne!(call(&mut uc, &mut st, "lstrcmpA", &[a, out]), 0);
+        uc.mem_write(out, b"World\0").unwrap();
+        assert_eq!(call(&mut uc, &mut st, "lstrcmpiA", &[a, out]) as u32, u32::MAX, "less than");
+        assert_eq!(call(&mut uc, &mut st, "lstrlenA", &[a]), 5);
+        assert_eq!(call(&mut uc, &mut st, "lstrlenW", &[w]), 5);
+        assert_eq!(call(&mut uc, &mut st, "CharNextA", &[a]), a + 1);
+        assert_eq!(call(&mut uc, &mut st, "CharNextA", &[a + 5]), a + 5, "stays on the NUL");
+        assert_eq!(call(&mut uc, &mut st, "CharNextW", &[w]), w + 2);
+
+        // GetSystemInfo: page size and allocation granularity where x86 has them.
+        call(&mut uc, &mut st, "GetSystemInfo", &[out]);
+        let si = uc.mem_read_as_vec(out, 36).unwrap();
+        assert_eq!(u32::from_le_bytes(si[4..8].try_into().unwrap()), 0x1000);
+        assert_eq!(u32::from_le_bytes(si[28..32].try_into().unwrap()), 0x1_0000);
+        assert_eq!(system_info(true).len(), 48);
+        assert_eq!(system_info(false).len(), 36);
+
+        // GetStartupInfo: cb set, the rest zero; GetStdHandle: one handle per stream.
+        uc.mem_write(out, &[0xAA; 68]).unwrap();
+        call(&mut uc, &mut st, "GetStartupInfoA", &[out]);
+        let si = uc.mem_read_as_vec(out, 68).unwrap();
+        assert_eq!(u32::from_le_bytes(si[..4].try_into().unwrap()), 68);
+        assert!(si[4..].iter().all(|&b| b == 0));
+        // GlobalAlloc / Lock / Size / ReAlloc: real blocks, contents kept.
+        let g = call(&mut uc, &mut st, "GlobalAlloc", &[0x40, 16]);
+        assert!(g >= 0x10000);
+        assert_eq!(call(&mut uc, &mut st, "GlobalLock", &[g]), g);
+        assert_eq!(call(&mut uc, &mut st, "GlobalSize", &[g]), 16);
+        uc.mem_write(g, b"keep").unwrap();
+        let g2 = call(&mut uc, &mut st, "GlobalReAlloc", &[g, 64, 0]);
+        assert_eq!(uc.mem_read_as_vec(g2, 4).unwrap(), b"keep");
+        // GetUserNameA: the size first, then the name.
+        uc.mem_write(out + 0x100, &0u32.to_le_bytes()).unwrap();
+        assert_eq!(call(&mut uc, &mut st, "GetUserNameA", &[out, out + 0x100]), 0);
+        assert_eq!(uc.mem_read_as_vec(out + 0x100, 4).unwrap(), 5u32.to_le_bytes());
+        assert_eq!(call(&mut uc, &mut st, "GetUserNameA", &[out, out + 0x100]), 1);
+        assert_eq!(read_ansi_string(&uc, out, 16).unwrap(), "user");
+        let std: Vec<u64> = [-10i64, -11, -12].iter().map(|&n| call(&mut uc, &mut st, "GetStdHandle", &[n as u64])).collect();
+        assert_eq!(std, [0x10, 0x14, 0x18]);
+        assert_eq!(call(&mut uc, &mut st, "GetStdHandle", &[5]) as u32, u32::MAX);
+
+        // An ordinal means something only with its DLL (GetProcAddress by ordinal
+        // names it `ordinal_N`, the import table `OrdinalN`).
+        assert_eq!(get_ordinal_spec("Ordinal17", Some("comctl32.dll")).map(|s| s.arg_count), Some(0));
+        assert_eq!(get_ordinal_spec("ordinal_680", Some("shell32.dll")).map(|s| s.name), Some("isuseranadmin"));
+        assert!(get_ordinal_spec("Ordinal17", Some("ws2_32.dll")).is_none());
+    }
+
+    #[test]
+    fn test_crt_startup_heap_and_environment() {
+        let mut uc = Unicorn::new(Arch::X86, Mode::MODE_32).expect("Unicorn new");
+        let mut st = ApiState::default();
+        let mut dll_map = HashMap::new();
+        let mut call = |uc: &mut Unicorn<'_, ()>, st: &mut ApiState, name: &str, args: &[u64]| handle_api_call(uc, name, args, st, &mut dll_map);
+
+        // Heap blocks are distinct, zeroed, and HeapReAlloc keeps the old contents.
+        let a = call(&mut uc, &mut st, "HeapAlloc", &[0x150000, 0, 8]);
+        let b = call(&mut uc, &mut st, "HeapAlloc", &[0x150000, 0, 8]);
+        assert!(a >= 0x10000 && b >= a + 8);
+        uc.mem_write(a, b"abcdefgh").unwrap();
+        let c = call(&mut uc, &mut st, "HeapReAlloc", &[0x150000, 0, a, 32]);
+        assert_eq!(uc.mem_read_as_vec(c, 8).unwrap(), b"abcdefgh");
+
+        // The command line is written once and keeps its address.
+        let cmd = call(&mut uc, &mut st, "GetCommandLineA", &[]);
+        assert_eq!(read_ansi_string(&uc, cmd, 512).unwrap(), format!("\"{PROGRAM_PATH}\""));
+        assert_eq!(call(&mut uc, &mut st, "GetCommandLineA", &[]), cmd);
+
+        // GetWindowsDirectory: length when it fits, size needed otherwise.
+        let buf = call(&mut uc, &mut st, "HeapAlloc", &[0x150000, 0, 64]);
+        assert_eq!(call(&mut uc, &mut st, "GetWindowsDirectoryA", &[buf, 64]), WINDOWS_DIR.len() as u64);
+        assert_eq!(read_ansi_string(&uc, buf, 64).unwrap(), WINDOWS_DIR);
+        assert_eq!(call(&mut uc, &mut st, "GetWindowsDirectoryA", &[buf, 4]), WINDOWS_DIR.len() as u64 + 1);
+
+        // __getmainargs: argc = 1, argv[0] = the program, argv[1] = NULL.
+        let outs = call(&mut uc, &mut st, "HeapAlloc", &[0x150000, 0, 12]);
+        assert_eq!(call(&mut uc, &mut st, "__getmainargs", &[outs, outs + 4, outs + 8, 0, 0]), 0);
+        let rd = |uc: &Unicorn<'_, ()>, a: u64| u32::from_le_bytes(uc.mem_read_as_vec(a, 4).unwrap().try_into().unwrap()) as u64;
+        assert_eq!(rd(&uc, outs), 1);
+        let argv = rd(&uc, outs + 4);
+        assert_eq!(read_ansi_string(&uc, rd(&uc, argv), 512).unwrap(), PROGRAM_PATH);
+        assert_eq!(rd(&uc, argv + 4), 0);
+
+        // InterlockedIncrement returns the new value and stores it.
+        uc.mem_write(buf, &41u32.to_le_bytes()).unwrap();
+        assert_eq!(call(&mut uc, &mut st, "InterlockedIncrement", &[buf]), 42);
+        assert_eq!(rd(&uc, buf), 42);
+    }
+
+    #[test]
     fn test_virtualalloc_mapping_and_out_pointers() {
         let mut uc = Unicorn::new(Arch::X86, Mode::MODE_32).expect("Unicorn new");
         let mut state = ApiState::default();
@@ -1358,12 +2176,25 @@ mod tests {
         let huge_alloc = handle_api_call(&mut uc, "VirtualAlloc", &[0, u64::MAX, 0x1000, 0x40], &mut state, &mut dll_map);
         assert!(huge_alloc >= 0x10000);
 
-        // LoadLibrary for unknown DLL maps dummy PE header with MZ signature at 0x50000000
+        // LoadLibrary of a DLL that is not loaded maps a dummy PE header of its own.
         let h_dyn = handle_api_call(&mut uc, "LoadLibraryA", &[0], &mut state, &mut dll_map);
-        assert_eq!(h_dyn, 0x50000000);
+        assert_eq!(h_dyn, FAKE_MODULE_BASE);
         let mut mz_buf = [0u8; 2];
-        assert!(uc.mem_read(0x50000000, &mut mz_buf).is_ok());
+        assert!(uc.mem_read(FAKE_MODULE_BASE, &mut mz_buf).is_ok());
         assert_eq!(&mz_buf, b"MZ");
+
+        // Each DLL its own base, the same one every time, found by GetModuleHandle;
+        // GetProcAddress files a function under the DLL of the handle it was given.
+        let name = handle_api_call(&mut uc, "HeapAlloc", &[0x150000, 0, 64], &mut state, &mut dll_map);
+        uc.mem_write(name, b"C:\\Windows\\System32\\MSVCRT\0").unwrap();
+        let msvcrt = handle_api_call(&mut uc, "LoadLibraryA", &[name], &mut state, &mut dll_map);
+        assert!(msvcrt > h_dyn);
+        assert_eq!(handle_api_call(&mut uc, "LoadLibraryA", &[name], &mut state, &mut dll_map), msvcrt);
+        assert_eq!(handle_api_call(&mut uc, "GetModuleHandleA", &[name], &mut state, &mut dll_map), msvcrt);
+        uc.mem_write(name, b"strlen\0").unwrap();
+        let proc = handle_api_call(&mut uc, "GetProcAddress", &[msvcrt, name], &mut state, &mut dll_map);
+        assert_eq!(resolve_api_and_dll(proc, &dll_map), (Some("strlen".into()), Some("msvcrt.dll".into())));
+        assert!(is_cdecl_api("strlen", Some("msvcrt.dll")));
     }
 
     #[test]

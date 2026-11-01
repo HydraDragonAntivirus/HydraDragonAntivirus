@@ -1,0 +1,31 @@
+rules:
+- id: VK-BOOTKIT-MBR-OVERWRITE-CRASH
+  title: Small MBR overwriter that crashes the machine (OIETIF / Leurak-style)
+  description: PE that opens \\.\PhysicalDrive0 and writes it, then raises a hard error / forces a reboot (RtlAdjustPrivilege + NtRaiseHardError). Disk tools do not combine raw MBR writes with a forced
+    crash.
+  severity: high
+  verdict: malware
+  confidence: 85
+  score: 90
+  family: Bootkit.Win32.OIETIF
+  tags:
+  - analyst
+  - bootkit
+  - mbr
+  logic: all
+  conditions:
+  - type: file_type
+    values:
+    - pe
+  - type: string_contains
+    value: \\.\PhysicalDrive0
+    nocase: true
+  - type: import_any
+    names:
+    - kernel32.dll!WriteFile
+  - type: string_set
+    min: 2
+    values:
+    - NtRaiseHardError
+    - RtlAdjustPrivilege
+    - SeShutdownPrivilege

@@ -137,8 +137,8 @@ fn read_list(file: &str) -> Vec<String> {
     std::fs::read_to_string(crate::human_review::analyst_dir().join(file))
         .unwrap_or_default()
         .lines()
-        .map(str::trim)
-        .filter(|l| !l.is_empty() && !l.starts_with('#'))
+        .map(|l| l.split('#').next().unwrap_or("").trim())
+        .filter(|l| !l.is_empty())
         .map(str::to_string)
         .collect()
 }

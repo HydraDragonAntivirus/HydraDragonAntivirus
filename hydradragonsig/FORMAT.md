@@ -57,6 +57,7 @@ Keys are case-sensitive and must be spelled exactly. Enum values (`severity`,
 | `threshold` | with `logic: threshold` | | How many conditions must match. |
 | `conditions` | yes | | List of conditions (section 5). A rule without conditions never matches. |
 | `file_path` | no | | Only evaluate the rule for this exact path, e.g. `%SystemRoot%\System32\drivers\etc\hosts`. `%VAR%` is expanded from the scanning machine's environment; the comparison is a full-path, case-insensitive match (no wildcards). |
+| `remediation` | no | `[]` | Declarative remediation actions run when `--remediate` is passed (section 5.9). |
 
 ## 3. Logic
 
@@ -139,21 +140,38 @@ Imports are stored as `dll!function` (or `dll!ord<N>` for imports by ordinal).
 | `section_entropy` | `min` | Some section's raw data has entropy ≥ `min` (0-8 bits per byte). |
 | `section_name_regex` | `pattern` | The regex matches a section name. |
 | `packed_pe` | | Two or more suspicious sections (entropy ≥ 7.2, `UPX*` / `.packed*` / empty name), a `UPX*` section, or at most 3 sections with one at entropy ≥ 7.4. |
-| `pe_section` | `select`, `name_regex`, `flags_all`, `flags_none`, `entropy_min`, `entropy_max`, `raw_size_min`, `raw_size_max`, `code_xrefs_min`, `has_entry`, `directories_any`, `directories_none`, `directory_share_max` | The chosen section passes every key that is given (see below). |
+| `pe_section` | `select`, `index`, `name`, `name_regex`, `flags_all`, `flags_none`, `characteristics`, `entropy_min`, `entropy_max`, `raw_size`, `raw_size_min`, `raw_size_max`, `raw_offset`, `virtual_address`, `virtual_size`, `virtual_size_min`, `virtual_size_max`, `md5`, `sha1`, `sha256`, `crc32`, `code_xrefs_min`, `has_entry`, `directories_any`, `directories_none`, `directory_share_max` | The chosen section passes every key that is given (see below). |
+| `pe_sections_summary` | `total_raw_size`, `total_raw_size_min`, `total_raw_size_max`, `md5`, `sha1`, `sha256`, `crc32`, `count`, `count_min`, `count_max` | Aggregate across all PE sections in table order: sum of `SizeOfRawData`, section count, and hashes of the concatenated raw section bytes (`md5[sections]`, `crc32[sections]`). |
+| `export_hash_any` | `values` | The PE's export table MD5 (`md5[exports]`, 32 hex) is in `values`. |
+| `pe_timestamp` | `value`, `hex`, `min`, `max` | `IMAGE_FILE_HEADER.TimeDateStamp` matches the exact integer, 32-bit hex string or range bounds. |
+| `pe_anchor_pattern` | `anchor`, `section`, `offset`, `range`, `count`, `patterns`, `min`, `negate`, `excludes` | Hex pattern(s) (`??`, `!!` non-zero, `4?` nibble) match at `anchor` (`absolute`, `entry`, `section`, `overlay`, `eof`) + signed `offset` (or within `range` bytes, `count` times). `negate: true` inverts the match. |
+| `byte_repeat` | `anchor`, `section`, `offset`, `length`, `min` (default 1) | The first `length` bytes at `anchor` + `offset` repeat at least `min` time(s) elsewhere in the file. |
+| `authenticode` | `signed`, `subject_glob` | Checks whether the PE carries an Authenticode `WIN_CERTIFICATE` (`signed: true|false`) and/or matches a certificate subject CN / O / OU against `subject_glob`. |
+| `version_info` | `fields`, `absent` | `absent: true` matches when no `RT_VERSION` resource exists; `fields` maps `VS_VERSIONINFO` string keys (`CompanyName`, `FileDescription`, `ProductName`, ... or numeric slot indices `0`..`11`) to glob patterns (`%NULL%` matches an empty/missing field; leading `!` negates). |
+| `resource_match` | `type_glob`, `size_min`, `size_max`, `data_patterns`, `min` (default 1) | At least `min` PE resources match the given type/language glob (`RT_RCDATA`, `BINARY`, `0003:0419`, ...), byte size bounds and hex `data_patterns`. |
+| `resource_hash_any` | `values` | Any PE resource's MD5 (32 hex) or SHA-256 (64 hex) is in `values`. |
+| `resources_absent` | | The PE has no resource directory or zero resource data entries. |
 
 #### `pe_section`
 
 Describes one section, so file infectors, packers and protectors can be written
-as rules instead of code. `select` picks the section: `any` (default: one
+as rules instead of code. `index` picks a specific 0-based section index
+(`sectionindex=0..N`); otherwise `select` picks the section: `any` (default: one
 section must pass), `last` (last in the section table) or `entry` (the one with
 the entry point). Every other key is optional; all given keys must hold.
 
 | Key | Meaning |
 |---|---|
-| `name_regex` | Regex on the section name (the name ends at the first NUL). |
+| `index` | 0-based section table index (`0` = first section). |
+| `name` / `name_regex` | Exact section name (`.text`, `/4`, `/19`) or regex on the section name (the name ends at the first NUL). |
 | `flags_all` / `flags_none` | Characteristics that must all be set / must all be clear: `code`, `initialized_data`, `uninitialized_data`, `discardable`, `not_cached`, `not_paged`, `shared`, `execute`, `read`, `write`. |
+| `characteristics` | Exact 32-bit `Characteristics` field (e.g. `0x60000020`). |
 | `entropy_min` / `entropy_max` | Entropy of the section's raw data (0-8). |
-| `raw_size_min` / `raw_size_max` | SizeOfRawData in bytes. |
+| `raw_size` / `raw_size_min` / `raw_size_max` | Exact or bounded `SizeOfRawData` in bytes (`size[section]` / `physicalsize[section]`). |
+| `raw_offset` | Exact `PointerToRawData` in bytes (`physicaladdress[section]`). |
+| `virtual_address` | Exact `VirtualAddress` RVA (`virtualaddress[section]`). |
+| `virtual_size` / `virtual_size_min` / `virtual_size_max` | Exact or bounded `VirtualSize` (`virtualsize[section]`). |
+| `md5` / `sha1` / `sha256` / `crc32` | Hash of the section's raw byte slice (`md5[section]`, `md5[sectionindex]`). |
 | `has_entry` | `true`: the entry point is inside it; `false`: it is not. |
 | `directories_any` | One of these data directories points inside it: `export`, `import`, `resource`, `exception`, `security`, `basereloc`, `debug`, `architecture`, `globalptr`, `tls`, `load_config`, `bound_import`, `iat`, `delay_import`, `clr`. |
 | `directories_none` | None of these data directories points inside it. |
@@ -184,11 +202,16 @@ require the whole function name, or `kernel32.dll!VirtualAlloc` to pin the DLL.
 | `file_type` | `values` | The file has one of these types (section 8). |
 | `file_size_gte` / `file_size_lte` | `bytes` | Size ≥ / ≤ `bytes`. |
 | `file_entropy` | `min` | Whole-file entropy ≥ `min`. |
-| `hash_sha256` / `hash_md5` | `value` | The file hash equals `value` (case-insensitive). |
+| `hash_sha256` / `hash_md5` / `hash_sha1` / `hash_crc32` | `value` | The file hash equals `value` (case-insensitive; `hash_crc32` is 8 hex digits). |
 | `imphash_any` | `values` | The PE's import hash is one of `values` (32 hex characters, case-insensitive). Same imphash as pefile / Mandiant and the Multron server's imphash signatures. Every program built the same way shares an imphash, and every .NET program has the same one: combine it with other conditions or check it on clean files first. |
 | `path_regex` | `pattern` | The regex matches the scanned path (as given; memory scans use `memory://<id>`, archive members `archive://<parent>!<member>`). |
+| `path_glob` | `pattern` | The wildcard glob (`*`, `**`, `?`, `#` alphanumeric) with `%VAR%` and `<$VAR>` (`<$PROFILE>`, `<$WINDIR>`, `<$SYSDIR>`, ...) expansion matches the scanned path. |
+| `file_timestamp` | `equals`, `after`, `before`, `raw_hex`, `age_days_min`, `age_days_max` | Matches the file's modification timestamp (`YYYY-MM-DD HH:MM:SS`), raw DOS/Unix 32-bit hex (`timestampraw[file]`) or age in days (`age[file]`). |
+| `file_attributes` | `spec`, `required`, `forbidden` | Matches Windows file attributes via compact spec (`A+D-H-L-R-S-`) or `required` / `forbidden` flag lists (`archive`, `directory`, `hidden`, `reparse`, `readonly`, `system`). |
+| `not_mz` | | The file does not begin with the `MZ` DOS header signature. |
 | `feature_gte` | `name`, `value` | A numeric feature is ≥ `value` (section 9). |
 | `feature_lte` | `name`, `value` | A numeric feature is ≤ `value` (section 9), e.g. `pe_import_count` ≤ 10 for a thin stub. |
+| `feature_bounds` | `bounds: [{feature, min, max}]`, `min` (default all) | At least `min` numeric feature range checks (`min`..=`max`) hold. |
 
 ### 5.4 Bytes
 
@@ -308,6 +331,34 @@ combine the diff with a malicious capability before giving `verdict: malware`.
 
 Icons are shared by many unrelated files (stolen icons, installers): use them as
 one signal next to others, not alone.
+
+### 5.8 System, registry and raw-sector conditions (Windows)
+
+On non-Windows hosts these conditions log a one-time warning and never match.
+
+| Type | Keys | Matches when |
+|---|---|---|
+| `registry_key` | `key`, `recursive` (false), `value_pattern` | The registry key path (with optional glob segments) exists, and when `value_pattern` is set, a value name matching that regex exists in the key (or subtree if `recursive: true`). |
+| `registry_value` | `key`, `recursive` (false), `value_regex`, `data_regex`, `data_hex`, `md5`, `sha256`, `min` (default 1) | At least `min` registry values under `key` pass all supplied filters. |
+| `clsid` | `guids`, `inproc_regex` | Any listed COM `CLSID` is registered under `HKCR\CLSID` or `HKLM\SOFTWARE\Classes\CLSID` (and its `InprocServer32` default value matches `inproc_regex` when set). |
+| `hosts_entry` | `ip`, `host` | A non-comment line in `%SystemRoot%\System32\drivers\etc\hosts` matches the `ip` glob and/or `host` regex. |
+| `sector_pattern` | `device`, `lba` (0), `count` (1, max 64), `patterns`, `min` (default 1), `excludes` | Raw 512-byte sectors read from `device` (`physical0`, `volume:C`, `\\.\PhysicalDrive0`) at `lba` match at least `min` hex patterns and no `excludes`. |
+
+### 5.9 Remediation (`remediation`)
+
+Rules may attach declarative remediation steps executed by the CLI when
+`--remediate` is passed (dry-run by default; pass `--yes` to apply, and
+`--remediate-allow-commands` to permit `command` steps):
+
+| Type | Keys | Action |
+|---|---|---|
+| `file_delete` | `path` (optional) | Delete `path` (with `%VAR%` and glob expansion), or the detected file itself when `path` is omitted. |
+| `text_delete_line` | `path`, `pattern` | Remove lines matching `pattern` (substring or glob) from `path`. |
+| `text_replace` | `path`, `pattern`, `replacement` | Replace `pattern` (substring or line glob) with `replacement` in `path`. |
+| `text_delete_string` | `path`, `pattern` | Remove occurrences of `pattern` from `path`. |
+| `registry_delete_value` | `key`, `value` | Delete registry value `value` under `key` via `reg.exe DELETE`. |
+| `registry_delete_key` | `key` | Delete registry key `key` via `reg.exe DELETE`. |
+| `command` | `program`, `args` | Run an external command (requires `--remediate-allow-commands`). |
 
 ## 6. native_signature
 

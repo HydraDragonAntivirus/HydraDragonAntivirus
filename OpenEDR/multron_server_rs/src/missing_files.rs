@@ -70,6 +70,56 @@ pub fn get(sha: &str) -> Option<Missing> {
     map().read().unwrap().get(&sha.to_ascii_lowercase()).cloned().filter(|m| m.reason != "kept")
 }
 
+fn quota_verdict(detail: &str) -> Option<(&str, &str)> {
+    let (cat, rest) = detail.split_once(", ")?;
+    let v = match cat {
+        "xorfilter_malicious" => "malicious",
+        "xorfilter_clean" => "clean",
+        other => other,
+    };
+    Some((v, rest))
+}
+
+/// `(SHA-256 upper-case hex, verdict)` of quota-dropped files whose recorded category
+/// is one of `verdicts`.
+pub fn verdict_hashes(verdicts: &[&str]) -> Vec<(String, String)> {
+    map()
+        .read()
+        .unwrap()
+        .values()
+        .filter(|m| m.reason == "quota")
+        .filter_map(|m| {
+            let (v, _) = quota_verdict(&m.detail)?;
+            verdicts.contains(&v).then(|| (m.sha256.to_ascii_uppercase(), v.to_string()))
+        })
+        .collect()
+}
+
+/// Replaces a non-unknown category in a quota-dropped record's `detail` with `unknown`
+/// (keeps `at` and the rest of `detail`).
+pub fn set_unknown(sha: &str) -> bool {
+    let key = sha.to_ascii_lowercase();
+    let updated = {
+        let mut g = map().write().unwrap();
+        let Some(m) = g.get_mut(&key) else { return false };
+        if m.reason != "quota" {
+            return false;
+        }
+        let Some((v, rest)) = quota_verdict(&m.detail) else { return false };
+        if v == "unknown" {
+            return false;
+        }
+        m.detail = format!("unknown, {rest}");
+        m.clone()
+    };
+    if let Ok(line) = serde_json::to_string(&updated) {
+        if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(path()) {
+            let _ = writeln!(f, "{line}");
+        }
+    }
+    true
+}
+
 /// Error text for "this file is not kept on the server".
 pub fn explain(sha: &str) -> String {
     if let Some(a) = crate::archived::get(sha) {

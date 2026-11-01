@@ -1,0 +1,98 @@
+rules:
+- id: VK-HACKTOOL-TOGGLEDEFENDER
+  title: AveYo Toggle Defender
+  description: Turns Microsoft Defender and SmartScreen off.
+  severity: high
+  verdict: suspicious
+  confidence: 85
+  score: 70
+  family: HackTool.Batch.ToggleDefender
+  tags:
+  - analyst
+  - defense-evasion
+  logic: all
+  conditions:
+  - type: string_contains
+    value: '## Toggle Defender, AveYo'
+- id: VK-RISKWARE-CLEARDEFHIST
+  title: Defender history wiper
+  description: Wipes Defender detection history, quarantine and CFA history.
+  severity: medium
+  verdict: suspicious
+  confidence: 85
+  score: 60
+  family: Riskware.Batch.ClearDefenderHistory
+  tags:
+  - analyst
+  - anti-forensics
+  logic: all
+  conditions:
+  - type: string_set
+    values:
+    - $ClearAV
+    - $ClearQuarantine
+    - $ClearCFA
+- id: VK-RISKWARE-LOCALSERVICE-ADMIN
+  title: LocalService added to Administrators
+  description: Script adds the LocalService account to the Administrators group.
+  severity: medium
+  verdict: suspicious
+  confidence: 85
+  score: 60
+  family: Riskware.Batch.NetReset
+  tags:
+  - analyst
+  - privilege
+  logic: all
+  conditions:
+  - type: string_contains
+    value: net localgroup administrators localservice /add
+    nocase: true
+- id: VK-RISKWARE-PRIVESCWORKSHOP
+  title: Local Privilege Escalation Workshop installer
+  description: Creates deliberately vulnerable configuration for training.
+  severity: medium
+  verdict: suspicious
+  confidence: 85
+  score: 60
+  family: Riskware.Batch.PrivescWorkshop
+  tags:
+  - analyst
+  - riskware
+  logic: all
+  conditions:
+  - type: string_contains
+    value: Local Privilege Escalation Workshop
+- id: VK-RISKWARE-HIDDEN-CLEAREVENTLOG
+  title: Hidden PowerShell event-log wiper
+  description: Batch launching a hidden PowerShell that clears event logs.
+  severity: high
+  verdict: suspicious
+  confidence: 85
+  score: 70
+  family: Riskware.Batch.ClearEventLogs
+  tags:
+  - analyst
+  - anti-forensics
+  logic: all
+  conditions:
+  - type: string_regex
+    pattern: (?i)powershell[^\r\n]*-windowstyle\s+hidden[^\r\n]*clear-?eventlog
+- id: VK-HACKTOOL-REG-DEFENDEROFF
+  title: Registry file disabling Defender
+  description: .reg that sets DisableAntiSpyware=1 under Windows Defender policies.
+  severity: high
+  verdict: suspicious
+  confidence: 85
+  score: 70
+  family: HackTool.Reg.DefenderOff
+  tags:
+  - analyst
+  - defense-evasion
+  logic: all
+  conditions:
+  - type: string_contains
+    value: Windows Registry Editor
+    wide: true
+  - type: string_regex
+    pattern: (?i)"DisableAntiSpyware"=dword:0*1

@@ -1,0 +1,395 @@
+# Generic Ransom.Win32.Generic: steps the malware class has to take, no family strings.
+# Helpers are private; the verdict rule is the last one(s). Tested on the benign corpus with hydradragonsig/tools/corpus_eval.py.
+rules:
+- id: VK-RANSOM-INHIBIT
+  title: 'Helper: recovery inhibition commands'
+  severity: info
+  private: true
+  logic: any
+  conditions:
+  - type: string_set
+    min: 1
+    nocase: true
+    ascii: true
+    wide: true
+    decoded: true
+    values:
+    - vssadmin delete shadows
+    - vssadmin.exe delete shadows
+    - delete shadows /all
+    - shadowcopy delete
+    - shadowcopy where
+    - wbadmin delete catalog
+    - wbadmin delete systemstatebackup
+    - wbadmin delete backup
+    - recoveryenabled no
+  # FP fix 2026-10-24: "resize shadowstorage /for", "bootstatuspolicy ignoreallfailures" and plain
+  # win32_shadowcopy queries are used by disk cloning / cleanup tools (Samsung MigDLL, Argus Cleaner).
+  - type: string_set
+    min: 1
+    regex: true
+    decoded: true
+    values:
+    - (?i)win32_shadowcopy.{0,160}(\.delete\(|remove-(wmi|cim)object)
+  family: Ransom.Win32.Generic
+  tags:
+  - analyst
+  - helper
+- id: VK-RANSOM-WALK-IMPORTS
+  title: 'Helper: directory walk + drive / share enumeration imports'
+  severity: info
+  private: true
+  logic: all
+  conditions:
+  - type: import_any
+    names:
+    - '!FindFirstFileW'
+    - '!FindFirstFileExW'
+    - '!FindFirstFileA'
+    - '!FindFirstFileExA'
+    - '!NtQueryDirectoryFile'
+  - type: import_any
+    names:
+    - '!GetLogicalDrives'
+    - '!GetLogicalDriveStringsW'
+    - '!GetLogicalDriveStringsA'
+    - '!GetDriveTypeW'
+    - '!GetDriveTypeA'
+    - '!NetShareEnum'
+    - '!WNetOpenEnumW'
+    - '!WNetEnumResourceW'
+  family: Ransom.Win32.Generic
+  tags:
+  - analyst
+  - helper
+- id: VK-RANSOM-WALK
+  title: 'Helper: drive / directory enumeration'
+  severity: info
+  private: true
+  logic: any
+  conditions:
+  - type: rule_match
+    ids:
+    - VK-RANSOM-WALK-IMPORTS
+  - type: string_set
+    min: 3
+    ascii: true
+    wide: true
+    values:
+    - FindFirstFileW
+    - FindNextFileW
+    - GetLogicalDrives
+    - GetDriveTypeW
+    - GetLogicalDriveStringsW
+    - EnumerateFiles
+    - GetDirectories
+    - GetDrives
+    - EnumerateDirectories
+  - type: string_set
+    min: 4
+    nocase: true
+    ascii: true
+    wide: true
+    decoded: true
+    values:
+    - $Recycle.Bin
+    - System Volume Information
+    - $WINDOWS.~BT
+    - $Windows.~WS
+    - Windows.old
+    - MSOCache
+    - PerfLogs
+    - Tor Browser
+    - Program Files (x86)
+    - Boot
+    - ProgramData
+    - All Users
+  family: Ransom.Win32.Generic
+  tags:
+  - analyst
+  - helper
+- id: VK-RANSOM-CRYPTO
+  title: 'Helper: encryption APIs or embedded cipher constants / public key'
+  severity: info
+  private: true
+  logic: any
+  conditions:
+  - type: import_set
+    min: 2
+    names:
+    - '!CryptAcquireContextA'
+    - '!CryptAcquireContextW'
+    - '!CryptGenKey'
+    - '!CryptEncrypt'
+    - '!CryptHashData'
+    - '!CryptExportKey'
+    - '!CryptImportKey'
+    - '!CryptCreateHash'
+    - '!CryptSetKeyParam'
+    - '!CryptDeriveKey'
+    - '!CryptGenRandom'
+    - '!SystemFunction036'
+    - '!BCryptOpenAlgorithmProvider'
+    - '!BCryptGenerateKeyPair'
+    - '!BCryptEncrypt'
+    - '!BCryptImportKey'
+    - '!BCryptImportKeyPair'
+    - '!BCryptExportKey'
+    - '!BCryptDeriveKey'
+    - '!BCryptFinalizeKeyPair'
+    - '!BCryptGenerateSymmetricKey'
+    - '!BCryptSetProperty'
+    - '!BCryptSecretAgreement'
+    - '!BCryptGenRandom'
+    - '!NCryptEncrypt'
+    - '!NCryptImportKey'
+    - '!NCryptCreatePersistedKey'
+    - '!NCryptExportKey'
+    - '!NCryptSecretAgreement'
+    - '!NCryptDeriveKey'
+    - '!NCryptFinalizeKey'
+    - '!RtlEncryptMemory'
+  - type: string_set
+    min: 2
+    ascii: true
+    wide: true
+    values:
+    - RijndaelManaged
+    - AesCryptoServiceProvider
+    - AesManaged
+    - CreateEncryptor
+    - RSACryptoServiceProvider
+    - BCryptEncrypt
+    - CryptEncrypt
+    - CryptImportKey
+    - CryptGenKey
+  - type: string_set
+    min: 1
+    ascii: true
+    values:
+    - expand 32-byte k
+    - expand 16-byte k
+  - type: byte_pattern
+    pattern: '{ 63 7C 77 7B F2 6B 6F C5 30 01 67 2B FE D7 AB 76 }'
+  - type: byte_set
+    min: 1
+    patterns:
+    - '{ 06 02 00 00 00 A4 00 00 52 53 41 31 }'
+    - '{ 52 53 41 31 00 08 00 00 03 00 00 00 }'
+    - '{ 52 53 41 31 00 10 00 00 03 00 00 00 }'
+  - type: string_set
+    min: 1
+    ascii: true
+    wide: true
+    values:
+    - MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA
+    - MIICIjANBgkqhkiG9w0BAQEFAAOCAg8AMIICCgKCAgEA
+    - <RSAKeyValue><Modulus>
+    - BEGIN RSA PUBLIC KEY
+  family: Ransom.Win32.Generic
+  tags:
+  - analyst
+  - helper
+- id: VK-RANSOM-NOTE
+  title: 'Helper: ransom note text with a payment / contact channel'
+  severity: info
+  private: true
+  logic: all
+  conditions:
+  - type: string_set
+    min: 2
+    nocase: true
+    ascii: true
+    wide: true
+    decoded: true
+    values:
+    - your files have been encrypted
+    - your files are encrypted
+    - files have been encrypted
+    - files were encrypted
+    - has been encrypted
+    - all your files
+    - decrypt your files
+    - recover your files
+    - restore your files
+    - files will be decrypted
+    - decrypt 1 file
+    - decrypt one file
+    - pay the ransom
+    - your company is fully
+    - your network has been
+    - Install TOR Browser
+    - Download Tor
+    - Decryption ID
+    - decryption key
+    - do not rename encrypted
+    - do not try to decrypt
+  - type: string_set
+    min: 1
+    nocase: true
+    ascii: true
+    wide: true
+    decoded: true
+    values:
+    - .onion
+    - bitcoin
+    - BTC wallet
+    - monero
+    - torproject.org
+    - '@protonmail'
+    - '@onionmail'
+    - '@tutanota'
+    - '@cock.li'
+    - qtox
+    - Tox ID
+    - personal ID
+    - Decryption ID
+    - decryptor
+  family: Ransom.Win32.Generic
+  tags:
+  - analyst
+  - helper
+- id: VK-RANSOM-RENAME-MARK
+  title: 'Helper: ransom note file name or locker extension'
+  description: 'FP fix 2026-10-24: ".locked" and "_readme.txt" used to be raw substrings and matched code identifiers
+    (this.locked, LockedAxisMode, llvm ...loadw.locked) and openvpn_readme.txt. They are now whole-string regexes.
+
+    '
+  severity: info
+  private: true
+  logic: any
+  conditions:
+  - type: string_set
+    min: 1
+    nocase: true
+    ascii: true
+    wide: true
+    decoded: true
+    values:
+    - '!!!READ_ME!!!'
+  # FP fix 2026-10-24: note names as nocase substrings matched Delphi fields such as
+  # FCurrentRestore_FilesProcessed (Ashampoo WinOptimizer WO28.exe); now they need a non-alphanumeric boundary.
+  - type: string_set
+    min: 1
+    regex: true
+    decoded: true
+    values:
+    - (?i)^\*?\.(locked|lockbit)$
+    - (?i)(^|[\\/])_readme\.txt$
+    - (?i)(^|[^a-z0-9])(how[_-]to[_-](recover|decrypt)|restore[_-](my[_-])?files|readme_for_decrypt|decrypt_instructions|recover-files|read_me_to_decrypt)([^a-z0-9]|$)
+  family: Ransom.Win32.Generic
+  tags:
+  - analyst
+  - helper
+- id: VK-RANSOM-RENAME
+  title: 'Helper: rename APIs + ransom note file name or locker extension'
+  severity: info
+  private: true
+  logic: all
+  conditions:
+  - type: import_any
+    names:
+    - '!MoveFileExW'
+    - '!MoveFileW'
+    - '!MoveFileExA'
+    - '!MoveFileA'
+    - '!MoveFileWithProgressW'
+    - '!SetFileInformationByHandle'
+  - type: rule_match
+    ids:
+    - VK-RANSOM-RENAME-MARK
+  family: Ransom.Win32.Generic
+  tags:
+  - analyst
+  - helper
+- id: VK-RANSOM-INHIBIT-PLUS
+  title: 'Helper: recovery inhibition with two other ransomware steps'
+  severity: info
+  private: true
+  logic: all
+  conditions:
+  - type: rule_match
+    ids:
+    - VK-RANSOM-INHIBIT
+  - type: rule_match
+    min: 2
+    ids:
+    - VK-RANSOM-CRYPTO
+    - VK-RANSOM-WALK
+    - VK-RANSOM-NOTE
+    - VK-RANSOM-RENAME
+  family: Ransom.Win32.Generic
+  tags:
+  - analyst
+  - helper
+- id: VK-RANSOM-ENCRYPT-CHAIN
+  title: 'Helper: encryption + enumeration + note or rename'
+  severity: info
+  private: true
+  logic: all
+  conditions:
+  - type: rule_match
+    ids:
+    - VK-RANSOM-CRYPTO
+    - VK-RANSOM-WALK
+  - type: rule_match
+    min: 1
+    ids:
+    - VK-RANSOM-NOTE
+    - VK-RANSOM-RENAME
+  family: Ransom.Win32.Generic
+  tags:
+  - analyst
+  - helper
+- id: VK-RANSOM-GENERIC
+  title: Generic ransomware (encryption chain or recovery inhibition)
+  description: 'Recovery inhibition together with two other ransomware steps, or file encryption together with drive / directory
+    enumeration and a ransom note or locker rename. Each step alone is common in benign software; the chain is not.
+
+    '
+  severity: critical
+  verdict: malware
+  confidence: 90
+  family: Ransom.Win32.Generic
+  score: 99
+  tags:
+  - analyst
+  - ransomware
+  - encryption
+  - recovery-inhibition
+  mitre:
+  - id: T1486
+    name: Data Encrypted for Impact
+    tactic: Impact
+  - id: T1490
+    name: Inhibit System Recovery
+    tactic: Impact
+  conditions:
+  - type: rule_match
+    min: 1
+    ids:
+    - VK-RANSOM-INHIBIT-PLUS
+    - VK-RANSOM-ENCRYPT-CHAIN
+- id: VK-RANSOM-RECOVERY-INHIBIT
+  title: Recovery inhibition commands
+  description: 'Deletes shadow copies / the backup catalog or disables boot recovery. Ransomware does this before encrypting,
+    but so do some admin and cleanup scripts: suspicious.
+
+    '
+  severity: medium
+  verdict: suspicious
+  confidence: 60
+  family: Generic.Win32.RecoveryInhibit
+  score: 40
+  tags:
+  - analyst
+  - ransomware
+  - recovery-inhibition
+  mitre:
+  - id: T1490
+    name: Inhibit System Recovery
+    tactic: Impact
+  conditions:
+  - type: rule_match
+    ids:
+    - VK-RANSOM-INHIBIT

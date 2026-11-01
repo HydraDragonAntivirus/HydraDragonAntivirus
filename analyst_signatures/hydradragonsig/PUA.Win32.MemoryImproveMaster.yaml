@@ -1,0 +1,22 @@
+rules:
+- id: VK-PUA-MEMORYIMPROVEMASTER
+  title: Memory Improve Master optimizer
+  description: Memory optimizer with exaggerated claims.
+  severity: medium
+  verdict: pua
+  confidence: 85
+  score: 60
+  family: PUA.Win32.MemoryImproveMaster
+  tags:
+  - analyst
+  - pua
+  - optimizer
+  logic: all
+  conditions:
+  - type: string_set
+    values:
+    - memoryimprovemaster.com
+    - Memory Improve Master Studio
+    - digicf.com
+    min: 2
+    wide: true

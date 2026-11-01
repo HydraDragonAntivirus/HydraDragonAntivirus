@@ -1,0 +1,21 @@
+rules:
+- id: VK-HACKTOOL-IOBIT-ACTIVATOR
+  title: IObit Pro activator / UZ1 patched library
+  description: IObit Uninstaller & Driver Booster activator (ActVer) or UZ1-patched IObit library.
+  severity: medium
+  verdict: suspicious
+  confidence: 85
+  score: 60
+  family: HackTool.Win32.Crack.IObit
+  tags:
+  - analyst
+  - hacktool
+  - crack
+  logic: all
+  conditions:
+  - type: string_set
+    values:
+    - IObit [Uninstaller&DriverBooster] Pro Activator
+    - IObit UZ1
+    min: 1
+    wide: true

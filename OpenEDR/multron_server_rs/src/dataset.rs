@@ -353,10 +353,10 @@ pub struct ArchivedSample {
 
 impl UserFile {
     /// From a threat-intel record: effective verdict (human first) and file names.
-    pub fn new(sha256: &str, verdict: &str, names: &[String], first_seen: &str) -> Self {
+    pub fn new<N: AsRef<str>>(sha256: &str, verdict: &str, names: &[N], first_seen: &str) -> Self {
         UserFile {
             sha256: sha256.to_string(),
-            platform: names.iter().find_map(|n| platform_of_name(n)),
+            platform: names.iter().find_map(|n| platform_of_name(n.as_ref())),
             label: human_label(verdict),
             added: chrono::DateTime::parse_from_rfc3339(first_seen).map_or(0, |d| d.timestamp().max(0) as u64),
         }
@@ -1649,11 +1649,11 @@ mod tests {
         let first_seen = chrono::DateTime::from_timestamp(now as i64, 0).unwrap().to_rfc3339();
         let users = vec![
             // Already in the own malware folder: not counted again.
-            UserFile::new(&sha(&a), "malicious", &["a.exe".into()], &first_seen),
-            UserFile::new(&sha(&b).to_ascii_lowercase(), "malicious", &["b.dll".into()], &first_seen),
-            UserFile::new(&sha(&b), "malicious", &["b.dll".into()], &first_seen),
-            UserFile::new(&"C".repeat(64), "unknown", &["photo.jpg".into()], &first_seen),
-            UserFile::new(&"D".repeat(64), "clean", &["app.apk".into()], "not a date"),
+            UserFile::new(&sha(&a), "malicious", &["a.exe"], &first_seen),
+            UserFile::new(&sha(&b).to_ascii_lowercase(), "malicious", &["b.dll"], &first_seen),
+            UserFile::new(&sha(&b), "malicious", &["b.dll"], &first_seen),
+            UserFile::new(&"C".repeat(64), "unknown", &["photo.jpg"], &first_seen),
+            UserFile::new(&"D".repeat(64), "clean", &["app.apk"], "not a date"),
         ];
         let st = ds.public_stats_at(now, &users);
         let c = |p: &str, l: &str| (st.cells[p][l].counts.own_only, st.cells[p][l].counts.users_only, st.cells[p][l].total);
@@ -1682,8 +1682,8 @@ mod tests {
         let archived = vec![arch(sha(&a)), arch(sha(&b).to_ascii_lowercase())];
         // Both were uploaded by users too: counted once, not as users_only.
         let users = vec![
-            UserFile::new(&sha(&a), "clean", &["a.exe".into()], &first_seen),
-            UserFile::new(&sha(&b), "clean", &["b.exe".into()], &first_seen),
+            UserFile::new(&sha(&a), "clean", &["a.exe"], &first_seen),
+            UserFile::new(&sha(&b), "clean", &["b.exe"], &first_seen),
         ];
         let st = ds.public_stats_full(now, &users, &archived);
         let c = &st.cells["windows"]["clean"];
@@ -1707,7 +1707,7 @@ mod tests {
         let left = ds.recent_conflicts(10);
         assert_eq!(left.len(), 1, "old empty-file line pruned, label conflict kept");
         assert_eq!(left[0]["sha256"], "AB");
-        let users = [UserFile::new(&EMPTY_SHA256.to_ascii_lowercase(), "unknown", &[], "")];
+        let users = [UserFile::new(&EMPTY_SHA256.to_ascii_lowercase(), "unknown", &[] as &[&str], "")];
         assert_eq!(ds.public_stats(&users).unwrap().cells["all"]["all"].total, 0);
         let _ = std::fs::remove_dir_all(&root);
     }
