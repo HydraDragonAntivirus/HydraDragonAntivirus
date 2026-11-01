@@ -604,3 +604,90 @@ rules:
 
     let _ = std::fs::remove_dir_all(&dir);
 }
+/// `domain_blocklist`: file references a listed host of an accepted category;
+/// per-rule `db` file keeps tests independent of the global CLI DB.
+#[test]
+fn domain_blocklist_matches_and_filters_by_category() {
+    let dir = std::env::temp_dir().join(format!(
+        "hydradragonsig_domain_blocklist_{}",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+
+    let db_path = dir.join("blocklist.txt");
+    std::fs::write(
+        &db_path,
+        "# comment\nbad.example-cdn.internal:MALWARE|tracked-ads.example: UNWANTED \nplain.malware.host:MALWARE\n",
+    )
+    .unwrap();
+
+    let bytes = b"GET /gate HTTP/1.0\r\nHost: www.bad.example-cdn.internal\r\nextra https://tracked-ads.example/click/x9\r\n";
+
+    let db_yaml = db_path.to_string_lossy().replace('\\', "\\\\");
+
+    let yaml = format!(
+        r#"
+rules:
+  - id: TEST-DOMAIN-BLOCKLIST
+    title: "listed host referenced"
+    severity: medium
+    conditions:
+      - type: domain_blocklist
+        db: {db}
+        categories: [MALWARE, UNWANTED]
+"#,
+        db = db_yaml
+    );
+    let rules = RuleSet::from_yaml_str_strict(&yaml).expect("valid rules");
+    let report = scan_bytes(bytes, &rules, &ScanOptions::default());
+    let ids: Vec<&str> = report.findings.iter().map(|f| f.rule_id.as_str()).collect();
+    assert!(
+        ids.contains(&"TEST-DOMAIN-BLOCKLIST"),
+        "expected TEST-DOMAIN-BLOCKLIST in {ids:?}"
+    );
+
+    // Wrong category set: no match.
+    let yaml_neg = format!(
+        r#"
+rules:
+  - id: TEST-DOMAIN-BLOCKLIST-NEG
+    title: "wrong categories"
+    severity: medium
+    conditions:
+      - type: domain_blocklist
+        db: {db}
+        categories: [OTHERS]
+"#,
+        db = db_yaml
+    );
+    let rules_neg = RuleSet::from_yaml_str_strict(&yaml_neg).expect("valid rules");
+    let report_neg = scan_bytes(bytes, &rules_neg, &ScanOptions::default());
+    assert!(report_neg.findings.is_empty(), "OTHERS-only must not match");
+
+    // min: 2 distinct listed domains - exactly two are referenced, so it matches.
+    let yaml_min = format!(
+        r#"
+rules:
+  - id: TEST-DOMAIN-BLOCKLIST-MIN2
+    title: "min 2 listed domains"
+    severity: medium
+    conditions:
+      - type: domain_blocklist
+        db: {db}
+        min: 2
+"#,
+        db = db_yaml
+    );
+    let rules_min = RuleSet::from_yaml_str_strict(&yaml_min).expect("valid rules");
+    let report_min = scan_bytes(bytes, &rules_min, &ScanOptions::default());
+    assert!(
+        report_min
+            .findings
+            .iter()
+            .any(|f| f.rule_id == "TEST-DOMAIN-BLOCKLIST-MIN2"),
+        "min 2 must match (two listed domains referenced)"
+    );
+
+    let _ = std::fs::remove_dir_all(&dir);
+}

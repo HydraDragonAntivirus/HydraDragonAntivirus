@@ -360,6 +360,70 @@ Rules may attach declarative remediation steps executed by the CLI when
 | `registry_delete_key` | `key` | Delete registry key `key` via `reg.exe DELETE`. |
 | `command` | `program`, `args` | Run an external command (requires `--remediate-allow-commands`). |
 
+### 5.10 Host blocklist and scan whitelist
+
+#### `domain_blocklist`
+
+Cross-references hostnames, domains and URLs found in the scanned file (ASCII
+and UTF-16LE strings, optionally the decoded base64/hex strings) with an
+external categorized blocklist DB and reports at least `min` (default 1)
+distinct listed domains of an accepted category:
+
+| Key | Default | Meaning |
+|---|---|---|
+| `db` | global CLI DB | Optional path to a `domain:CATEGORY` text file for this rule. None set = DB loaded once with the CLI flag below; a path set here is loaded and cached on first use. |
+| `categories` | `[]` (any) | Uppercase categories to report; `*` or an empty list accepts every category. |
+| `decoded` | `false` | Also search the decoded (base64/hex) strings. |
+| `min` | 1 | Minimum distinct listed domains that must be referenced. |
+
+The rule carries only category names, never the blocked domains themselves.
+Without any DB (`--domain-db` not passed and no `db` field) the condition logs
+a one-time warning and never matches.
+
+Example:
+
+```yaml
+conditions:
+  - type: domain_blocklist
+    categories: [MALWARE, PHISHING]
+    min: 1
+```
+
+DB file syntax (one entry per line, `|`-separated entries in one line also
+work, `#` comments, leading `www.` is tolerated on both sides):
+
+```
+# domain:category
+sub.example-cdn.internal:MALWARE
+tracked-ads.example:UNWANTED
+```
+
+Load it with `hydradragonsig --domain-db blocklist.txt ...`; an entry count is
+printed to stderr on load. `tools/decode_containers.py` converts captured
+container databases into this text format.
+
+#### `--smart-whitelist` (scan-level depth whitelist)
+
+The CLI accepts `--smart-whitelist FILE` with one `path:MAX_DEPTH` entry per
+line (blank lines and `#` comments ignored, `%VAR%` placeholders like
+`%CHROMEPROFILE%` expand). While walking the scan roots, every candidate file
+is measured against its nearest (longest) matching whitelist prefix: when the
+file lies deeper than `MAX_DEPTH` directory levels below the prefix it is
+skipped.
+
+```
+# path:MAX_DEPTH
+%CHROMEPROFILE%:0
+%CHROMEPROFILE%\Extensions:3
+%COMMONDOWNLOADS%:32767
+%APPDATA%:2
+```
+
+`0` skips all files inside the prefix (but not files directly in it, which are
+level 0); a large number effectively never skips; the longest prefix wins, so
+a deeper entry can re-enable scanning under a blocked path. A summary of
+skipped paths is printed to stderr.
+
 ## 6. native_signature
 
 YARA-like atoms plus a boolean expression:

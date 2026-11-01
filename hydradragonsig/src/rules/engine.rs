@@ -44,6 +44,176 @@ struct ScanView {
     matched_rules: std::collections::HashSet<String>,
 }
 
+/// Categorized host blocklist loaded from an external text file:
+/// one `domain:CATEGORY` entry per line, or several entries joined with `|`.
+/// Lines starting with `#` are comments. Domains are lowercased, categories
+/// uppercased. Used by [`RuleCondition::DomainBlocklist`].
+#[derive(Debug, Default)]
+pub struct DomainCategoryDb {
+    map: HashMap<String, String>,
+    pub entries: usize,
+}
+
+impl DomainCategoryDb {
+    pub fn load(path: &Path) -> Result<Self> {
+        let text = std::fs::read_to_string(path)
+            .with_context(|| format!("failed to read blocklist DB {}", path.display()))?;
+        Ok(Self::from_text(&text))
+    }
+
+    pub fn from_text(text: &str) -> Self {
+        let mut map = HashMap::new();
+        let mut entries = 0usize;
+        for line in text.replace(['\r', '\n'], "|").split('|') {
+            let line = line.trim();
+            if line.is_empty() || line.starts_with('#') {
+                continue;
+            }
+            let Some((domain, category)) = line.rsplit_once(':') else {
+                continue;
+            };
+            let domain = domain
+                .trim()
+                .trim_start_matches('.')
+                .trim_end_matches('.')
+                .to_ascii_lowercase();
+            if domain.is_empty() || domain.contains(|c: char| c.is_whitespace() || c == '/') {
+                continue;
+            }
+            map.insert(domain, category.trim().to_ascii_uppercase());
+            entries += 1;
+        }
+        Self { map, entries }
+    }
+
+    /// Category of `domain`, or `None` when it is not listed.
+    /// Accepts hostnames with a leading `www.` or `.` prefix.
+    pub fn category(&self, domain: &str) -> Option<&str> {
+        let domain = domain.trim().trim_start_matches('.').trim_end_matches('.');
+        if let Some(category) = self.map.get(domain) {
+            return Some(category.as_str());
+        }
+        if let Some(stripped) = domain.strip_prefix("www.") {
+            return self.map.get(stripped).map(|c| c.as_str());
+        }
+        None
+    }
+}
+
+/// Global DB set from the CLI (`--domain-db`) and used by `domain_blocklist`
+/// conditions that do not name their own `db` file.
+static GLOBAL_DOMAIN_DB: Mutex<Option<Arc<DomainCategoryDb>>> = Mutex::new(None);
+
+/// Per-`db` file cache for `domain_blocklist` conditions with a `db` field.
+static DOMAIN_DB_CACHE: Lazy<Mutex<HashMap<String, Arc<DomainCategoryDb>>>> =
+    Lazy::new(|| Mutex::new(HashMap::new()));
+
+/// Loads a categorized blocklist DB and installs it as the global DB used by
+/// every `domain_blocklist` condition that has no `db` field of its own.
+pub fn set_global_domain_db(path: &Path) -> Result<usize> {
+    let db = DomainCategoryDb::load(path)?;
+    let entries = db.entries;
+    *GLOBAL_DOMAIN_DB.lock().unwrap() = Some(Arc::new(db));
+    Ok(entries)
+}
+
+/// A loaded global DB and its size (`None` when no `--domain-db` was passed).
+pub fn global_domain_db() -> Option<(usize, usize)> {
+    let db = GLOBAL_DOMAIN_DB.lock().unwrap().clone()?;
+    Some((db.entries, db.map.len()))
+}
+
+fn domain_db_for(rule_db: Option<&str>) -> Option<Arc<DomainCategoryDb>> {
+    if let Some(spec) = rule_db {
+        let key = spec.trim().to_ascii_lowercase();
+        let mut cache = DOMAIN_DB_CACHE.lock().unwrap();
+        if let Some(db) = cache.get(&key) {
+            return Some(db.clone());
+        }
+        match Path::new(spec).canonicalize() {
+            Ok(path) => match DomainCategoryDb::load(&path) {
+                Ok(db) => {
+                    let db = Arc::new(db);
+                    cache.insert(key, db.clone());
+                    return Some(db);
+                }
+                Err(err) => {
+                    eprintln!("[HydraDragonSig] Warning: domain_blocklist db `{spec}`: {err:#}");
+                }
+            },
+            Err(err) => {
+                eprintln!(
+                    "[HydraDragonSig] Warning: domain_blocklist db `{spec}` not found ({err})"
+                );
+            }
+        }
+        cache.entry(key.clone())
+            .or_insert_with(|| Arc::new(DomainCategoryDb::default()));
+        return cache.get(&key).cloned();
+    }
+    GLOBAL_DOMAIN_DB.lock().unwrap().clone()
+}
+
+static DOMAIN_TOKEN_RE: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r"(?i)(?:[a-z0-9](?:[a-z0-9_-]{0,61}[a-z0-9])?\.)+(?:[a-z]{2,63}|xn--[a-z0-9-]{1,59})")
+        .unwrap()
+});
+
+/// `domain_blocklist`: returns the matched `domain=CATEGORY` pairs (at most the
+/// first few) when at least `min` distinct listed domains of an accepted
+/// category are referenced by the file strings (plain and decoded).
+fn domain_blocklist_evidence(
+    db: &DomainCategoryDb,
+    categories: &[String],
+    min: usize,
+    report: &ScanReport,
+    view: &ScanView,
+) -> Option<String> {
+    let accepts = |category: &str| -> bool {
+        categories.is_empty()
+            || categories.iter().any(|c| {
+                let c = c.trim().to_ascii_uppercase();
+                c == "*" || c == "ANY" || c == category
+            })
+    };
+    let mut found: Vec<(String, String)> = Vec::new();
+    let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut texts: Vec<&str> = Vec::with_capacity(report.strings.len());
+    for hit in &report.strings {
+        texts.push(&hit.value);
+    }
+    for value in &view.decoded_lower {
+        texts.push(value);
+    }
+    'search: for text in texts {
+        for token in DOMAIN_TOKEN_RE.find_iter(text) {
+            let domain = token.as_str().to_ascii_lowercase();
+            let Some(category) = db.category(&domain) else { continue };
+            if !accepts(category) || !seen.insert(domain.clone()) {
+                continue;
+            }
+            found.push((domain, category.to_string()));
+            if found.len() >= min.max(8) {
+                break 'search;
+            }
+        }
+    }
+    if found.len() < min {
+        return None;
+    }
+    let evidence = found
+        .iter()
+        .map(|(d, c)| format!("`{d}`={c}"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    Some(format!(
+        "domain_blocklist {}/{} listed domains referenced: {}",
+        found.len(),
+        min,
+        evidence
+    ))
+}
+
 impl ScanView {
     fn new(report: &ScanReport) -> Self {
         // Keep a complete lowercase view so case-insensitive matching stays fast
@@ -1616,6 +1786,12 @@ fn evaluate_rule_with_matches(
                 }
             }
             RuleCondition::EnvReference { .. } => view.ensure_env(report, bytes),
+            RuleCondition::DomainBlocklist { decoded, .. } => {
+                view.ensure_strings(report, bytes);
+                if *decoded {
+                    view.ensure_decoded(report, bytes);
+                }
+            }
             RuleCondition::FeatureGte { .. }
             | RuleCondition::FeatureLte { .. }
             | RuleCondition::FeatureDeltaGte { .. }
@@ -2802,6 +2978,12 @@ fn evaluate_condition(
             required,
             forbidden,
         ),
+        RuleCondition::DomainBlocklist { db, categories, min, .. } => {
+            let Some(db) = domain_db_for(db.as_deref()) else {
+                return None;
+            };
+            domain_blocklist_evidence(&db, categories, min.unwrap_or(1).max(1), report, view)
+        }
     }
 }
 

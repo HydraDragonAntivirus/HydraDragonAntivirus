@@ -102,6 +102,7 @@ pub const CONDITION_KEYS: &[(&str, &[&str])] = &[
     ("pe_timestamp", &["value", "hex", "min", "max"]),
     ("file_timestamp", &["equals", "after", "before", "raw_hex", "age_days_min", "age_days_max"]),
     ("file_attributes", &["spec", "required", "forbidden"]),
+    ("domain_blocklist", &["db", "categories", "decoded", "min"]),
 ];
 
 /// Values accepted by `file_type` conditions.
@@ -868,6 +869,26 @@ fn check_condition(cond: &RuleCondition, rules: &[Rule], own_id: &str, known_ids
                 }
             }
         }
+        RuleCondition::DomainBlocklist { db, categories, min, .. } => {
+            if let Some(d) = db && d.trim().is_empty() {
+                out.push("empty `db` path".into());
+            }
+            for c in categories {
+                let c = c.trim().to_ascii_uppercase();
+                if c.is_empty() {
+                    out.push("empty category in domain_blocklist".into());
+                }
+                let known = c == "*" || c == "ANY" || c.chars().all(|ch| ch.is_ascii_alphanumeric() || ch == '_');
+                if !known {
+                    out.push(format!(
+                        "invalid category `{c}` (uppercase letters, digits, `_`, `*`/`ANY`)"
+                    ));
+                }
+            }
+            if let Some(m) = min && *m == 0 {
+                out.push("domain_blocklist `min` must be at least 1".into());
+            }
+        }
         _ => {}
     }
     out
@@ -904,7 +925,7 @@ mod tests {
             "rule_match" => "        ids: [x]\n",
             "unpacker_any" => "        signatures: []\n",
             "image_fuzzy_hash_any" => "        hashes: []\n",
-            "packed_pe" | "env_reference" | "pe_icon_any" | "has_parent" | "pe_section" | "not_mz" | "authenticode" | "version_info" | "resource_match" | "resources_absent" | "hosts_entry" | "pe_sections_summary" | "pe_timestamp" | "file_timestamp" | "file_attributes" => "",
+            "packed_pe" | "env_reference" | "pe_icon_any" | "has_parent" | "pe_section" | "not_mz" | "authenticode" | "version_info" | "resource_match" | "resources_absent" | "hosts_entry" | "pe_sections_summary" | "pe_timestamp" | "file_timestamp" | "file_attributes" | "domain_blocklist" => "",
             "registry_key" | "registry_value" => "        key: HKLM\\\\Software\n",
             "clsid" => "        guids: [x]\n",
             "sector_pattern" => "        device: physical0\n        patterns: [4D5A]\n",

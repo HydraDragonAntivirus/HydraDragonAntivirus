@@ -341,6 +341,22 @@ struct Cli {
     /// Allow `type: command` remediation steps when used with --remediate --yes.
     #[arg(long)]
     remediate_allow_commands: bool,
+
+    /// Categorized host blocklist DB for `domain_blocklist` conditions: a UTF-8
+    /// text file of `domain:CATEGORY` entries (one per line; `|`-separated
+    /// entries in one line also work, `#` starts a comment line). Repeatable
+    /// usage is not needed - one file may hold several categories.
+    #[arg(long, value_name = "FILE")]
+    domain_db: Option<PathBuf>,
+
+    /// Depth-based scan whitelist: a UTF-8 text file with one `path:MAX_DEPTH`
+    /// entry per line (blank lines and `#` comments are ignored). Paths support
+    /// `%VAR%` environment placeholders. While walking the scan roots, a file is
+    /// skipped when its nearest (longest) whitelist prefix allows less depth
+    /// than the file's directory levels below that prefix: `0` skips all files
+    /// inside the prefix, a large number effectively never skips.
+    #[arg(long, value_name = "FILE")]
+    smart_whitelist: Option<PathBuf>,
 }
 
 fn main() -> Result<()> {
@@ -379,6 +395,29 @@ fn main() -> Result<()> {
         );
     }
 
+    if let Some(db_path) = &cli.domain_db {
+        let entries = hydradragonsig::rules::set_global_domain_db(db_path)
+            .with_context(|| format!("failed to load --domain-db {}", db_path.display()))?;
+        eprintln!(
+            "[HydraDragonSig] domain blocklist DB: {} entries from {}",
+            entries,
+            db_path.display()
+        );
+    }
+    if rules.rules().iter().any(|r| {
+        r.conditions.iter().any(|c| matches!(c, hydradragonsig::rules::RuleCondition::DomainBlocklist { db: None, .. }))
+    }) && cli.domain_db.is_none()
+    {
+        eprintln!(
+            "[HydraDragonSig] Warning: domain_blocklist conditions without a `db` field never match without --domain-db"
+        );
+    }
+
+    let smart_whitelist = match &cli.smart_whitelist {
+        Some(path) => Some(SmartWhitelist::load(path)?),
+        None => None,
+    };
+
     let scan_roots = collect_scan_roots(&paths, &scan_paths, &cli.path_lists)?;
     let include_patterns = compile_glob_patterns(&cli.include_globs)?;
     let exclude_patterns = compile_glob_patterns(&cli.exclude_globs)?;
@@ -393,9 +432,17 @@ fn main() -> Result<()> {
         &exclude_patterns,
         &include_types,
         &exclude_types,
+        smart_whitelist.as_ref(),
     )?;
     if files.is_empty() {
-        anyhow::bail!("no files selected for scanning after recursive/path filters");
+        anyhow::bail!("no files selected for scanning after recursive/path/whitelist filters");
+    }
+    if let Some(wl) = &smart_whitelist {
+        eprintln!(
+            "[HydraDragonSig] scan whitelist: {} entries, {} path(s) skipped",
+            wl.entries.len(),
+            wl.skipped.load(std::sync::atomic::Ordering::Relaxed)
+        );
     }
     let pb = if cli.no_progress || files.len() <= 1 {
         ProgressBar::hidden()
@@ -681,6 +728,7 @@ fn collect_files_from_roots(
     exclude_patterns: &[Regex],
     include_types: &HashSet<String>,
     exclude_types: &HashSet<String>,
+    whitelist: Option<&SmartWhitelist>,
 ) -> Result<Vec<PathBuf>> {
     let mut out = Vec::new();
     let walker_depth = if recursive {
@@ -691,7 +739,8 @@ fn collect_files_from_roots(
 
     for root in roots {
         if root.is_file() {
-            if path_allowed(root, include_patterns, exclude_patterns)
+            if whitelist.is_none_or(|wl| wl.allows(root))
+                && path_allowed(root, include_patterns, exclude_patterns)
                 && file_type_allowed(root, include_types, exclude_types)?
             {
                 out.push(root.clone());
@@ -712,7 +761,8 @@ fn collect_files_from_roots(
                 continue;
             }
             let path = entry.path().to_path_buf();
-            if path_allowed(&path, include_patterns, exclude_patterns)
+            if whitelist.is_none_or(|wl| wl.allows(&path))
+                && path_allowed(&path, include_patterns, exclude_patterns)
                 && file_type_allowed(&path, include_types, exclude_types)?
             {
                 out.push(path);
@@ -724,6 +774,93 @@ fn collect_files_from_roots(
     out.dedup();
     Ok(out)
 }
+
+/// Scan whitelist loaded from a text file of `path:MAX_DEPTH` lines (`%VAR%`
+/// placeholders supported, `#` comments and blank lines ignored). A scanned
+/// file is skipped when its nearest (longest) matching whitelist prefix
+/// contains it deeper than `MAX_DEPTH` directory levels: the file is then
+/// skipped, otherwise it is scanned.
+#[derive(Debug, Default)]
+struct SmartWhitelist {
+    entries: Vec<(String, u64, usize)>,
+    skipped: std::sync::atomic::AtomicUsize,
+}
+
+impl SmartWhitelist {
+    fn load(path: &Path) -> Result<Self> {
+        let text = std::fs::read_to_string(path)
+            .with_context(|| format!("failed to read whitelist {}", path.display()))?;
+        let mut entries = Vec::new();
+        for (line_no, line) in text.lines().enumerate() {
+            let line = line.trim();
+            if line.is_empty() || line.starts_with('#') {
+                continue;
+            }
+            let Some((spec, depth)) = line.rsplit_once(':') else {
+                anyhow::bail!(
+                    "whitelist line {} needs `path:MAX_DEPTH`: `{}`",
+                    line_no + 1,
+                    line
+                );
+            };
+            let depth: u64 = depth.trim().parse().with_context(|| {
+                format!(
+                    "whitelist line {} has an invalid depth in `{}` (expected `path:MAX_DEPTH`)",
+                    line_no + 1,
+                    line
+                )
+            })?;
+            let expanded = hydradragonsig::rules::system_windows::expand_windows_vars(spec.trim());
+            let norm = normalize_for_whitelist(Path::new(&expanded));
+            let components = norm.split('/').filter(|c| !c.is_empty()).count();
+            entries.push((norm, depth, components));
+        }
+        Ok(Self {
+            entries,
+            skipped: std::sync::atomic::AtomicUsize::new(0),
+        })
+    }
+
+    /// Whitelist decision for a file or directory path.
+    fn allows(&self, path: &Path) -> bool {
+        if self.entries.is_empty() {
+            return true;
+        }
+        let norm = normalize_for_whitelist(path);
+        let components = norm.split('/').filter(|c| !c.is_empty()).count();
+        let mut best: Option<&(String, u64, usize)> = None;
+        for entry in &self.entries {
+            let (prefix, _depth, _comps) = entry;
+            if prefix.is_empty() {
+                continue;
+            }
+            let matches = norm == prefix.as_str()
+                || (norm.len() > prefix.len()
+                    && norm.starts_with(prefix.as_str())
+                    && norm.as_bytes()[prefix.len()] == b'/');
+            if matches && best.is_none_or(|b| prefix.len() > b.0.len()) {
+                best = Some(entry);
+            }
+        }
+        let Some((_prefix, depth, prefix_comps)) = best else {
+            return true;
+        };
+        let allowed =
+            (components as i64) - (*prefix_comps as i64) <= (*depth as i64).max(0);
+        if !allowed {
+            self.skipped
+                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        }
+        allowed
+    }
+}
+
+fn normalize_for_whitelist(path: &Path) -> String {
+    let s = path.to_string_lossy().replace('\\', "/");
+    let s = s.strip_prefix("//?/").unwrap_or(&s);
+    s.to_ascii_lowercase()
+}
+
 
 fn path_allowed(path: &Path, include_patterns: &[Regex], exclude_patterns: &[Regex]) -> bool {
     let text = normalize_path_for_match(path);

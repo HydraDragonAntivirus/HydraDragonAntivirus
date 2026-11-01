@@ -805,6 +805,31 @@ pub enum RuleCondition {
         #[serde(default)]
         forbidden: Vec<String>,
     },
+
+    /// Cross-reference the hostnames, domains and URLs found in the scanned file
+    /// (plain and decoded strings) against an external categorized blocklist DB.
+    /// The DB is a text file of `domain:CATEGORY` entries (one per line, `|`
+    /// separated entries also accepted); it is loaded once via the CLI
+    /// `--domain-db` flag or, per rule, the `db` field. The rule never carries
+    /// the blocked domains themselves, only which categories to report.
+    ///
+    /// Matches when at least `min` (default 1) distinct listed domains of an
+    /// accepted category are referenced by the file. `categories: ["*"]` or an
+    /// empty list accepts every category in the DB.
+    DomainBlocklist {
+        /// Optional `domain:CATEGORY` text file; defaults to the global CLI DB.
+        #[serde(default)]
+        db: Option<String>,
+        /// Categories to report (uppercase). `*` or empty = any category.
+        #[serde(default)]
+        categories: Vec<String>,
+        /// Also look the domains up in the decoded (base64 / hex) strings.
+        #[serde(default)]
+        decoded: bool,
+        /// Minimum distinct domains that must match.
+        #[serde(default)]
+        min: Option<usize>,
+    },
 }
 
 /// Numeric feature bound used by [`RuleCondition::FeatureBounds`].
