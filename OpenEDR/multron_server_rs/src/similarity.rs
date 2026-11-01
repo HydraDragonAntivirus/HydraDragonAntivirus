@@ -121,6 +121,49 @@ struct KnownTlsh {
     size: u64,
 }
 
+#[derive(Default)]
+struct KnownList {
+    all: Vec<KnownTlsh>,
+    named_sized: Vec<usize>,
+    named_unsized: Vec<usize>,
+}
+
+impl KnownList {
+    fn new(all: Vec<KnownTlsh>) -> Self {
+        let mut named_sized: Vec<usize> = (0..all.len()).filter(|&i| all[i].threat.is_some() && all[i].size > 0).collect();
+        named_sized.sort_by_key(|&i| all[i].size);
+        let named_unsized = (0..all.len()).filter(|&i| all[i].threat.is_some() && all[i].size == 0).collect();
+        KnownList { all, named_sized, named_unsized }
+    }
+
+    fn has_named(&self) -> bool {
+        !self.named_sized.is_empty() || !self.named_unsized.is_empty()
+    }
+
+    fn named_candidates(&self, len: f64) -> impl Iterator<Item = (usize, &KnownTlsh)> {
+        let size = |i: &usize| self.all[*i].size as f64;
+        let lo = self.named_sized.partition_point(|i| size(i) * ANALYST_TLSH_SIZE_FACTOR < len);
+        let hi = self.named_sized.partition_point(|i| size(i) <= len * ANALYST_TLSH_SIZE_FACTOR);
+        self.named_sized[lo..hi.max(lo)]
+            .iter()
+            .chain(self.named_unsized.iter())
+            .map(|&i| (i, &self.all[i]))
+    }
+}
+
+pub struct TlshQuery {
+    tlsh: Tlsh,
+    len: f64,
+}
+
+impl TlshQuery {
+    pub fn of(data: &[u8]) -> Option<Self> {
+        let body = trim_trailing_padding(data);
+        let tlsh = crate::analyzer::tlsh_digest(body)?.parse::<Tlsh>().ok()?;
+        Some(TlshQuery { tlsh, len: body.len() as f64 })
+    }
+}
+
 /// A match against a TLSH blacklist digest with a virus name.
 #[derive(Debug, Clone)]
 pub struct BlacklistMatch {
@@ -192,7 +235,7 @@ pub struct SimilarityIndex {
     corpus_shas: RwLock<HashSet<String>>,
     files: RwLock<Vec<Entry>>,
     seen: RwLock<HashSet<String>>,
-    known_malware: RwLock<Vec<KnownTlsh>>,
+    known_malware: RwLock<KnownList>,
     analyst_sigs: RwLock<Vec<AnalystSig>>,
     writer: Mutex<Option<std::fs::File>>,
 }
@@ -337,17 +380,20 @@ impl SimilarityIndex {
         removed
     }
 
+    pub fn has_analyst_sigs(&self) -> bool {
+        !self.analyst_sigs.read().unwrap().is_empty()
+    }
+
     /// Closest analyst signature within `ANALYST_TLSH_MAX_DIST` of `data` (padding
     /// stripped), ignoring the file's own signature.
-    pub fn analyst_match(&self, data: &[u8], sha256: &str) -> Option<(AnalystTlsh, u32)> {
+    pub fn analyst_match(&self, query: &TlshQuery, sha256: &str) -> Option<(AnalystTlsh, u32)> {
         let sigs = self.analyst_sigs.read().unwrap();
         if sigs.is_empty() {
             return None;
         }
-        let body = trim_trailing_padding(data);
-        let q = crate::analyzer::tlsh_digest(body)?.parse::<Tlsh>().ok()?;
+        let q = &query.tlsh;
         let own = sha256.to_ascii_lowercase();
-        let len = body.len() as f64;
+        let len = query.len;
         sigs.iter()
             .filter(|s| s.meta.sha256 != own)
             .filter(|s| {
@@ -435,32 +481,29 @@ impl SimilarityIndex {
             );
         }
         let n = list.len();
-        *self.known_malware.write().unwrap() = list;
+        *self.known_malware.write().unwrap() = KnownList::new(list);
         n
+    }
+
+    pub fn has_named_malware(&self) -> bool {
+        self.known_malware.read().unwrap().has_named()
     }
 
     /// Closest blacklist digest with a virus name within `blacklist_max_dist()` and,
     /// when its size is known, `ANALYST_TLSH_SIZE_FACTOR` (trailing 00 padding
     /// stripped, as for analyst TLSH signatures).
-    pub fn blacklist_match(&self, data: &[u8]) -> Option<BlacklistMatch> {
+    pub fn blacklist_match(&self, query: &TlshQuery) -> Option<BlacklistMatch> {
         let list = self.known_malware.read().unwrap();
-        if !list.iter().any(|k| k.threat.is_some()) {
+        if !list.has_named() {
             return None;
         }
-        let body = trim_trailing_padding(data);
-        let q = crate::analyzer::tlsh_digest(body)?.parse::<Tlsh>().ok()?;
-        let len = body.len() as f64;
+        let q = &query.tlsh;
         let max = blacklist_max_dist();
-        list.iter()
-            .filter(|k| k.threat.is_some())
-            .filter(|k| k.size == 0 || {
-                let sz = k.size as f64;
-                len.max(sz) <= len.min(sz) * ANALYST_TLSH_SIZE_FACTOR
-            })
-            .map(|k| (k, q.compare(&k.tlsh)))
-            .filter(|(_, d)| *d <= max)
-            .min_by_key(|(_, d)| *d)
-            .map(|(k, d)| BlacklistMatch {
+        list.named_candidates(query.len)
+            .map(|(i, k)| (i, k, q.compare(&k.tlsh)))
+            .filter(|(_, _, d)| *d <= max)
+            .min_by_key(|(i, _, d)| (*d, *i))
+            .map(|(_, k, d)| BlacklistMatch {
                 threat: k.threat.clone().unwrap_or_default(),
                 distance: d,
                 tlsh: k.tlsh.to_string(),
@@ -516,7 +559,7 @@ impl SimilarityIndex {
                 })
             })
             .collect();
-        for k in self.known_malware.read().unwrap().iter() {
+        for k in self.known_malware.read().unwrap().all.iter() {
             let d = q.compare(&k.tlsh);
             if d <= max_dist {
                 out.push(SimilarFile {
@@ -544,9 +587,10 @@ impl SimilarityIndex {
             .read()
             .unwrap()
             .iter()
+            .filter(|e| is_clean(&e.sha256))
             .filter_map(|e| {
                 let d = q.compare(&e.tlsh);
-                (d <= SMART_WL_MAX_DIST && is_clean(&e.sha256)).then(|| (e.sha256.clone(), d))
+                (d <= SMART_WL_MAX_DIST).then(|| (e.sha256.clone(), d))
             })
             .collect();
         v.sort_by_key(|x| x.1);

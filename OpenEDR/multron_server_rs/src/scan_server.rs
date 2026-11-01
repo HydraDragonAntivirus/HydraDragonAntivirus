@@ -36,6 +36,7 @@ const MAX_WS_MESSAGE: usize = 1024 * 1024;
 const MIN_UPLOAD_BYTES_PER_SEC: i64 = 64 * 1024;
 /// Upload window per client = pipeline × this (see `session_loop`).
 const UPLOAD_WINDOW_FACTOR: usize = 4;
+const LZMA_UPLOAD_MEM_LIMIT_KB: u32 = 64 * 1024;
 
 /// 3 = hash-first: the client sends `check` batches of SHA-256s and uploads only the
 /// files the server answers with `need_upload`. Version 2 clients (scan only) still work.
@@ -68,7 +69,7 @@ struct ClientMessage {
     /// Client asked for a fresh scan: skip the shared verdict cache.
     #[serde(default)]
     pub rescan: bool,
-    /// Upload encoding: "" (raw) or "br" (Brotli). Only sent when hello_ok listed it.
+    /// Upload encoding: "" (raw), "br" (Brotli) or "lzma" (.lzma format). Only sent when hello_ok listed it.
     #[serde(default)]
     pub encoding: String,
     /// Bytes on the wire when `encoding` is set; `size` stays the original size.
@@ -1166,7 +1167,7 @@ async fn session_loop(
             "checksPerSec": server.limits.checks_per_sec(),
             "maxMB": server.limits.max_mb(),
             // Compressed uploads the client may use (it falls back to raw otherwise).
-            "encodings": ["br"],
+            "encodings": ["br", "lzma"],
             // Seamless update in progress: scans go on; the connection is moved to the
             // new version in a few seconds (reconnect when it closes).
             "updating": server.updating(),
@@ -1392,16 +1393,18 @@ async fn handle_scan(
     }
     let size = msg.size;
     // Bytes that actually cross the network: the compressed size for Brotli uploads.
-    let brotli = match msg.encoding.as_str() {
-        "" => false,
-        "br" => true,
+    let (brotli, lzma) = match msg.encoding.as_str() {
+        "" => (false, false),
+        "br" => (true, false),
+        "lzma" => (false, true),
         _ => {
             send_error(out, Some(id), "unsupported upload encoding");
             return Ok(());
         }
     };
-    let wire = if brotli { msg.csize } else { size };
-    if brotli && (wire <= 0 || wire >= size) {
+    let compressed = brotli || lzma;
+    let wire = if compressed { msg.csize } else { size };
+    if compressed && (wire <= 0 || wire >= size) {
         server.limiter.strike(&session.address);
         send_error(out, Some(id), "invalid compressed size");
         return Err("invalid compressed size".into());
@@ -1445,21 +1448,28 @@ async fn handle_scan(
         }
     }
 
-    if brotli {
+    if compressed {
         // Decode with a hard cap: one byte more than announced means a lie or a bomb.
-        let mut plain: Vec<u8> = Vec::with_capacity(size as usize);
-        let res = {
+        let packed = std::mem::take(&mut data);
+        let decoded = tokio::task::spawn_blocking(move || {
             use std::io::Read;
-            brotli_decompressor::Decompressor::new(&data[..], 64 * 1024)
-                .take(size as u64 + 1)
-                .read_to_end(&mut plain)
-        };
-        if res.is_err() || plain.len() as i64 != size {
+            let mut plain: Vec<u8> = Vec::with_capacity(size as usize);
+            let res = if lzma {
+                lzma_rust2::LzmaReader::new_mem_limit(&packed[..], LZMA_UPLOAD_MEM_LIMIT_KB, None)
+                    .and_then(|r| r.take(size as u64 + 1).read_to_end(&mut plain))
+            } else {
+                brotli_decompressor::Decompressor::new(&packed[..], 64 * 1024)
+                    .take(size as u64 + 1)
+                    .read_to_end(&mut plain)
+            };
+            (res.is_ok() && plain.len() as i64 == size).then_some(plain)
+        }).await.ok().flatten();
+        let Some(plain) = decoded else {
             server.limiter.strike(&session.address);
             reject_file(server, session, out, id, &name, size, &sha_hex,
                 "compressed upload could not be decoded to the announced size");
             return Ok(());
-        }
+        };
         data = plain;
         server.stats.bytes_saved_compression.fetch_add(size - wire, Ordering::Relaxed);
     }
@@ -1781,14 +1791,20 @@ fn verdict_message(sha_hex: &str, v: CachedVerdict, action: &str, source: &str) 
 /// flagged when it is a near-copy of a file an analyst marked malicious, e.g. the same
 /// sample with 00 bytes appended. Only raises unknown / possible_clean / suspicious
 /// results; never touches an engine-clean file or one an analyst marked clean.
-pub fn apply_analyst_tlsh(ti: &crate::threat_intel::ThreatIntelStore, data: &[u8], res: &mut ResultMessage) {
-    if !matches!(res.verdict.as_str(), "unknown" | "possible_clean" | "suspicious") {
+pub fn apply_analyst_tlsh(
+    ti: &crate::threat_intel::ThreatIntelStore,
+    data: &[u8],
+    query: &std::cell::OnceCell<Option<crate::similarity::TlshQuery>>,
+    res: &mut ResultMessage,
+) {
+    if !matches!(res.verdict.as_str(), "unknown" | "possible_clean" | "suspicious") || !ti.similarity.has_analyst_sigs() {
         return;
     }
     if ti.reviews.completed(&res.sha256).and_then(|r| r.verdict).as_deref() == Some("clean") {
         return;
     }
-    let Some((sig, d)) = ti.similarity.analyst_match(data, &res.sha256) else { return };
+    let Some(q) = query.get_or_init(|| crate::similarity::TlshQuery::of(data)) else { return };
+    let Some((sig, d)) = ti.similarity.analyst_match(q, &res.sha256) else { return };
     crate::engine_adapter::apply_analyst_hit(
         res,
         &crate::analyst_engine::AnalystHit { engine: "analyst_tlsh", name: sig.threat.clone(), verdict: "malicious" },
@@ -1811,14 +1827,20 @@ pub fn apply_analyst_tlsh(ti: &crate::threat_intel::ThreatIntelStore, data: &[u8
 /// from its copy infected by a prepender (Neshta), and the blacklist has no analyst
 /// behind each digest. Same files as before get the note: unknown / possible_clean /
 /// suspicious results that no analyst marked clean.
-pub fn apply_tlsh_blacklist(ti: &crate::threat_intel::ThreatIntelStore, data: &[u8], res: &mut ResultMessage) {
-    if !matches!(res.verdict.as_str(), "unknown" | "possible_clean" | "suspicious") {
+pub fn apply_tlsh_blacklist(
+    ti: &crate::threat_intel::ThreatIntelStore,
+    data: &[u8],
+    query: &std::cell::OnceCell<Option<crate::similarity::TlshQuery>>,
+    res: &mut ResultMessage,
+) {
+    if !matches!(res.verdict.as_str(), "unknown" | "possible_clean" | "suspicious") || !ti.similarity.has_named_malware() {
         return;
     }
     if ti.reviews.completed(&res.sha256).and_then(|r| r.verdict).as_deref() == Some("clean") {
         return;
     }
-    let Some(m) = ti.similarity.blacklist_match(data) else { return };
+    let Some(q) = query.get_or_init(|| crate::similarity::TlshQuery::of(data)) else { return };
+    let Some(m) = ti.similarity.blacklist_match(q) else { return };
     let info = format!(
         "TLSH blacklist (info only): {} — distance {} to {}{}",
         m.threat,
@@ -1879,8 +1901,9 @@ pub fn apply_threat_intel(
     name: &str,
     res: &mut ResultMessage,
 ) -> Option<crate::analyzer::FileReport> {
-    apply_analyst_tlsh(ti, data, res);
-    apply_tlsh_blacklist(ti, data, res);
+    let query = std::cell::OnceCell::new();
+    apply_analyst_tlsh(ti, data, &query, res);
+    apply_tlsh_blacklist(ti, data, &query, res);
     apply_imphash_sigs(ti, data, res);
     apply_smart_whitelist(ti, data, name, res)
 }
