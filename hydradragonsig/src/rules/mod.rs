@@ -6,6 +6,7 @@ mod types;
 pub mod validate;
 
 pub mod glob;
+pub mod pack;
 pub mod pe_anchor;
 pub mod pe_extra;
 pub mod remediation;

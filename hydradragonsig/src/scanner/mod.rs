@@ -7,6 +7,7 @@ pub mod ftm;
 pub mod pe;
 pub mod scripts;
 pub mod strings;
+pub mod vba;
 
 use crate::models::{
     ArchiveMemberResult, CoreInitOptions, DecodedString, EnvHit, FileTypeInfo, MemoryScanContext,

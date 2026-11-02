@@ -309,10 +309,15 @@ impl ScanView {
         // FromBase64String, atob, VBScript Chr chains) appends to the same
         // list, so `decoded` conditions see script payloads like any other
         // decoded text.
-        let script_hits = crate::scanner::scripts::script_decoded_strings(
-            &report.strings,
-            &crate::scanner::scripts::ScriptDecodeConfig::default(),
-        );
+        let script_cfg = crate::scanner::scripts::ScriptDecodeConfig::default();
+        let mut script_hits = crate::scanner::scripts::script_decoded_strings(&report.strings, &script_cfg);
+        // Office macros: the VBA project's compressed module sources, one
+        // `vba_source` entry per line.
+        if crate::scanner::cfb::is_cfb(bytes) {
+            if let Some(info) = crate::scanner::vba::extract(bytes) {
+                script_hits.extend(crate::scanner::vba::decoded_strings(&info, &script_cfg));
+            }
+        }
         if !script_hits.is_empty() {
             let seen: std::collections::HashSet<(String, String)> = report
                 .decoded_strings

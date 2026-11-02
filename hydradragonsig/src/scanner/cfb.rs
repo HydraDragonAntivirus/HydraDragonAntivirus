@@ -3,9 +3,14 @@
 //! the scanner can treat each stream as an archive member, and unwraps
 //! `\x01Ole10Native` packager streams to the file they embed.
 //!
-//! Format: [MS-CFB]. Sector chains are walked with loop and length guards,
-//! the directory tree with a depth limit and a visited set; every read is
-//! bounds-checked, so a hostile file yields fewer streams, never a panic.
+//! Format: [MS-CFB]. Files are read with the `cfb` crate, which validates the
+//! structure (chain loops, out-of-range sectors, directory tree cycles) and
+//! returns errors instead of panicking. Files it rejects as malformed — a common
+//! way to slip past strict parsers while the host application still opens
+//! them — go through the tolerant reader below: sector chains are walked with
+//! loop and length guards, the directory tree with a depth limit and a visited
+//! set, every read is bounds-checked, so a hostile file yields fewer streams,
+//! never a panic.
 
 const SIGNATURE: [u8; 8] = [0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1];
 const HEADER_LEN: usize = 512;
@@ -216,10 +221,51 @@ fn printable_name(name: &str) -> String {
     out
 }
 
-/// Every stream of the file with its storage path. Each stream is read up to
-/// `max_stream` bytes and at most `max_total` bytes are read overall.
-/// `None` when `data` is not a readable compound file.
+/// Every stream of the file with its storage path, sorted by path. Each stream
+/// is read up to `max_stream` bytes and at most `max_total` bytes are read
+/// overall. `None` when `data` is not a readable compound file.
 pub fn read_streams(data: &[u8], max_stream: usize, max_total: usize) -> Option<Vec<CfbStream>> {
+    if !is_cfb(data) {
+        return None;
+    }
+    read_streams_strict(data, max_stream, max_total).or_else(|| read_streams_tolerant(data, max_stream, max_total))
+}
+
+/// The `cfb` crate's reader; `None` when it rejects the file.
+fn read_streams_strict(data: &[u8], max_stream: usize, max_total: usize) -> Option<Vec<CfbStream>> {
+    use std::io::Read;
+    let mut file = cfb::CompoundFile::open(std::io::Cursor::new(data)).ok()?;
+    let entries: Vec<(std::path::PathBuf, u64)> = file
+        .walk()
+        .filter(|e| e.is_stream())
+        .take(MAX_STREAMS)
+        .map(|e| (e.path().to_path_buf(), e.len()))
+        .collect();
+    let mut out = Vec::with_capacity(entries.len());
+    let mut total = 0usize;
+    for (path, size) in entries {
+        let name = path
+            .components()
+            .filter_map(|c| match c {
+                std::path::Component::Normal(part) => Some(printable_name(&part.to_string_lossy())),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+            .join("/");
+        let budget = max_stream.min(max_total.saturating_sub(total));
+        let mut bytes = Vec::new();
+        if let Ok(stream) = file.open_stream(&path) {
+            // A stream cut short by a bad chain keeps what was read before the error.
+            let _ = stream.take(budget as u64).read_to_end(&mut bytes);
+        }
+        total += bytes.len();
+        out.push(CfbStream { path: name, size, data: bytes });
+    }
+    out.sort_by(|a, b| a.path.cmp(&b.path));
+    Some(out)
+}
+
+fn read_streams_tolerant(data: &[u8], max_stream: usize, max_total: usize) -> Option<Vec<CfbStream>> {
     let mut cfb = parse_header(data)?;
     let dir_start = u32_at(data, 0x30)?;
     let dir_bytes = cfb.read_chain(dir_start, MAX_DIR_ENTRIES * DIR_ENTRY_LEN);
@@ -439,5 +485,46 @@ pub(crate) mod tests {
         looped[512 + 4 * 4..512 + 4 * 4 + 4].copy_from_slice(&4u32.to_le_bytes());
         let _ = read_streams(&looped, usize::MAX, usize::MAX);
         assert!(ole10native_payload(b"\x00\x00").is_none());
+    }
+
+    /// A compound file written by the `cfb` crate; `/`-separated paths create
+    /// their storages.
+    pub(crate) fn write_cfb(streams: &[(&str, &[u8])]) -> Vec<u8> {
+        use std::io::Write;
+        let mut file = cfb::CompoundFile::create(std::io::Cursor::new(Vec::new())).unwrap();
+        for (path, data) in streams {
+            let path = format!("/{path}");
+            let mut parent = String::new();
+            for part in path.trim_start_matches('/').split('/').collect::<Vec<_>>().split_last().unwrap().1 {
+                parent = format!("{parent}/{part}");
+                if !file.exists(&parent) {
+                    file.create_storage(&parent).unwrap();
+                }
+            }
+            file.create_stream(&path).unwrap().write_all(data).unwrap();
+        }
+        file.flush().unwrap();
+        file.into_inner().into_inner()
+    }
+
+    #[test]
+    fn strict_reader_handles_well_formed_files() {
+        let big: Vec<u8> = (0..9000u32).map(|i| (i % 253) as u8).collect();
+        let file = write_cfb(&[("Macros/VBA/Module1", b"Attribute VB_Name"), ("WordDocument", &big), ("\u{5}SummaryInformation", b"si")]);
+        let strict = read_streams_strict(&file, usize::MAX, usize::MAX).expect("cfb crate reads its own output");
+        let paths: Vec<&str> = strict.iter().map(|s| s.path.as_str()).collect();
+        assert_eq!(paths, vec!["Macros/VBA/Module1", "WordDocument", "\\x05SummaryInformation"]);
+        assert_eq!(strict[1].data, big);
+        assert_eq!(read_streams(&file, usize::MAX, usize::MAX), Some(strict));
+    }
+
+    #[test]
+    fn tolerant_reader_takes_over_when_strict_rejects() {
+        let mut file = write_cfb(&[("Payload", b"still scanned")]);
+        let dir = (u32_at(&file, 0x30).unwrap() as usize + 1) * (1usize << u16_at(&file, 0x1e).unwrap());
+        file[dir + 0x43] = 7; // root entry colour: neither red nor black
+        assert!(read_streams_strict(&file, usize::MAX, usize::MAX).is_none());
+        let streams = read_streams(&file, usize::MAX, usize::MAX).expect("tolerant fallback");
+        assert_eq!(streams, vec![CfbStream { path: "Payload".into(), size: 13, data: b"still scanned".to_vec() }]);
     }
 }

@@ -1027,3 +1027,74 @@ rules:
     assert!(text_report.findings.is_empty(), "non-DEX file must fail all DEX conditions");
     assert!(text_report.dex.is_none(), "non-DEX report must have dex = None");
 }
+
+/// [MS-OVBA] container holding only literal tokens (valid, uncompressed in effect).
+fn ovba_literals(text: &[u8]) -> Vec<u8> {
+    let mut out = vec![0x01u8];
+    for chunk in text.chunks(4096) {
+        let mut body = Vec::new();
+        for group in chunk.chunks(8) {
+            body.push(0u8);
+            body.extend_from_slice(group);
+        }
+        out.extend_from_slice(&(0xb000u16 | (body.len() + 2 - 3) as u16).to_le_bytes());
+        out.extend_from_slice(&body);
+    }
+    out
+}
+
+fn macro_doc(module_source: &str) -> Vec<u8> {
+    use std::io::Write;
+    let mut module = vec![0xccu8; 21];
+    module.extend(ovba_literals(module_source.as_bytes()));
+    let mut file = cfb::CompoundFile::create(std::io::Cursor::new(Vec::new())).unwrap();
+    file.create_stream("/WordDocument").unwrap().write_all(&[0u8; 64]).unwrap();
+    file.create_storage("/Macros").unwrap();
+    file.create_storage("/Macros/VBA").unwrap();
+    file.create_stream("/Macros/VBA/AutoMod").unwrap().write_all(&module).unwrap();
+    file.flush().unwrap();
+    file.into_inner().into_inner()
+}
+
+#[test]
+fn vba_macro_source_feeds_decoded_conditions() {
+    let doc = macro_doc(
+        "Attribute VB_Name = \"AutoMod\"\r\nSub AutoOpen()\r\n    Set o = CreateObject(\"WScript.Shell\")\r\n    o.Run \"cmd /c whoami\"\r\nEnd Sub\r\n",
+    );
+    // A flag byte every 8 source bytes splits the call in the raw file: only
+    // the decompressed source can match.
+    let needle = b"CreateObject(\"WScript.Shell\")";
+    assert!(!doc.windows(needle.len()).any(|w| w == needle));
+    let rules = RuleSet::from_yaml_str(
+        r#"
+rules:
+  - id: TEST-VBAMACRO-SHELL
+    title: macro starts a shell object
+    severity: high
+    verdict: malware
+    logic: all
+    conditions:
+      - type: string_contains
+        value: "CreateObject(\"WScript.Shell\")"
+        nocase: true
+        decoded: true
+      - type: string_regex
+        pattern: "(?i)sub\\s+autoopen"
+        decoded: true
+"#,
+    )
+    .unwrap();
+    assert!(rules.warnings().is_empty(), "{:?}", rules.warnings());
+    let report = scan_bytes(&doc, &rules, &ScanOptions::default());
+    let finding = report.findings.iter().find(|f| f.rule_id == "TEST-VBAMACRO-SHELL").expect("macro rule matched");
+    assert_eq!(report.verdict, Verdict::Malware);
+    assert!(finding.evidence.iter().any(|e| e.to_ascii_lowercase().contains("wscript.shell")), "{:?}", finding.evidence);
+    let vba: Vec<_> = report.decoded_strings.iter().filter(|d| d.method == "vba_source").collect();
+    assert!(vba.iter().any(|d| d.source == "AutoMod:3" && d.decoded.contains("CreateObject")), "{vba:?}");
+    let json = serde_json::to_value(&report).unwrap();
+    assert!(json["decoded_strings"].as_array().unwrap().iter().any(|d| d["method"] == "vba_source"));
+    assert!(json.get("dex").is_none());
+
+    let off = scan_bytes(&doc, &rules, &ScanOptions { decode_obfuscated_strings: false, ..ScanOptions::default() });
+    assert!(off.decoded_strings.iter().all(|d| d.method != "vba_source"), "--no-decode skips macro sources");
+}

@@ -145,7 +145,7 @@ impl FpRemoveSelector {
 )]
 struct Cli {
     /// File(s) or directory root(s) to scan. Multiple roots are supported.
-    #[arg(value_name = "PATH", required_unless_present = "check_rules", num_args = 1..)]
+    #[arg(value_name = "PATH", required_unless_present_any = ["check_rules", "create_rules_pack"], num_args = 1..)]
     paths: Vec<PathBuf>,
 
     /// Add an extra scan root without putting it in the positional PATH list.
@@ -159,9 +159,39 @@ struct Cli {
     path_lists: Vec<PathBuf>,
 
     /// External Yamdle/YAML rule file or directory. Repeat this flag to load multiple packs.
-    /// There are no built-in rules; at least one external rule source is required.
-    #[arg(short, long, value_name = "YAMDLE", required = true, action = ArgAction::Append)]
+    /// There are no built-in rules; at least one external rule source (or --rules-pack) is required.
+    #[arg(
+        short,
+        long,
+        value_name = "YAMDLE",
+        required_unless_present_any = ["rules_pack", "create_rules_pack"],
+        conflicts_with = "rules_pack",
+        action = ArgAction::Append
+    )]
     rules: Vec<PathBuf>,
+
+    /// Load rules from a signature pack manifest (`rule_pack.yml`): every listed
+    /// file is checked against its sha256 and size first, and nothing is loaded
+    /// unless all of them match (exit code 2 otherwise). Replaces --rules.
+    #[arg(long, value_name = "MANIFEST")]
+    rules_pack: Option<PathBuf>,
+
+    /// Write a signature pack manifest for these rule files or directories to
+    /// --out and exit. Files must lie under the manifest's directory.
+    #[arg(long, value_name = "PATH", num_args = 1.., requires = "out")]
+    create_rules_pack: Vec<PathBuf>,
+
+    /// Manifest file written by --create-rules-pack.
+    #[arg(long, value_name = "FILE")]
+    out: Option<PathBuf>,
+
+    /// Version number written by --create-rules-pack.
+    #[arg(long, value_name = "N", default_value_t = 1)]
+    pack_version: u32,
+
+    /// Free-form notes written by --create-rules-pack.
+    #[arg(long, value_name = "TEXT")]
+    pack_notes: Option<String>,
 
     /// Output format.
     #[arg(short, long, value_enum, default_value_t = OutputFormat::Pretty)]
@@ -381,16 +411,42 @@ fn main() -> Result<()> {
         anyhow::bail!("--fp-remove requires --fp-remove-levels, for example: --fp-remove-levels suspicious,malware");
     }
 
-    if cli.rules.is_empty() {
-        anyhow::bail!("--rules <YAMDLE> is required for scan mode; pass at least one rule file or directory");
+    if !cli.create_rules_pack.is_empty() {
+        let out = cli.out.as_deref().context("--create-rules-pack needs --out <FILE>")?;
+        let files = collect_rule_files_from_sources(&cli.create_rules_pack)?;
+        let pack = hydradragonsig::rules::pack::write_manifest(
+            &files,
+            hydradragonsig::rules::pack::manifest_dir(out),
+            cli.pack_version,
+            cli.pack_notes.clone(),
+        )?;
+        std::fs::write(out, pack.to_yaml()?).with_context(|| format!("failed to write {}", out.display()))?;
+        println!("rule pack v{} with {} file(s) written to {}", pack.version, pack.files.len(), out.display());
+        return Ok(());
     }
 
     let paths = cli.paths.clone();
     let scan_paths = cli.scan_paths.clone();
     let recursive = cli.recursive;
 
-    let rule_sources = cli.rules.clone();
-    let rule_files = collect_rule_files_from_sources(&rule_sources)?;
+    let rule_files = match &cli.rules_pack {
+        Some(manifest) => match hydradragonsig::rules::pack::load_manifest(manifest) {
+            Ok(pack) => {
+                eprintln!("[HydraDragonSig] rule pack v{} verified: {} file(s)", pack.version, pack.files.len());
+                pack.load_paths(hydradragonsig::rules::pack::manifest_dir(manifest))
+            }
+            Err(err) => {
+                eprintln!("[HydraDragonSig] rule pack verification failed: {err:#}");
+                std::process::exit(2);
+            }
+        },
+        None => {
+            if cli.rules.is_empty() {
+                anyhow::bail!("--rules <YAMDLE> or --rules-pack <MANIFEST> is required for scan mode");
+            }
+            collect_rule_files_from_sources(&cli.rules)?
+        }
+    };
 
     // The magic DB names are valid `file_type` values: load it before rules
     // are validated (`--check-rules` and the scan load alike).

@@ -19,6 +19,7 @@ cli = ["dep:clap", "dep:colored", "dep:env_logger", "dep:indicatif"]
 anyhow = "1.0.102"
 daachorse = "5.0.0"
 base64 = "0.22.1"
+cfb = "0.16.0"
 chrono = { version = "0.4.44", features = ["serde"] }
 clap = { version = "4.6.1", features = ["derive"], optional = true }
 colored = { version = "3.1.1", optional = true }

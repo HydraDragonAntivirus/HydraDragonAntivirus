@@ -607,6 +607,95 @@ file it embeds as `<stream>/<embedded name>`, so `path_regex` /
 `path_glob` rules can target dropped payloads. Stream and total sizes follow
 the archive limits.
 
+### 5.15 Office macro preprocessing (VBA)
+
+Compound-file Office documents (`.doc`, `.xls`, `.ppt` and other OLE2
+containers) are searched for VBA projects: every storage named `VBA`
+(`Macros/VBA`, `_VBA_PROJECT_CUR/VBA`, ...). Module sources are stored
+compressed ([MS-OVBA] 2.4.1), so the raw bytes never hold readable macro code.
+The engine reads the project's `dir` stream for the module names and the
+offset of each compressed source, decompresses every module and adds each
+non-blank source line to `report.decoded_strings`:
+
+| Field | Value |
+|---|---|
+| `method` | `vba_source` |
+| `source` | `<module>:<line>` (e.g. `AutoMod:3`) |
+| `decoded` | The source line; lines longer than 512 characters become overlapping pieces, so no part is dropped. |
+
+When `dir` is missing or damaged, module streams are searched for the
+compressed `Attribute VB_Name` header instead. There is no new condition: every
+`decoded` consumer sees macro code (`string_contains` / `string_set` /
+`string_regex` with `decoded: true`, `native_signature` atoms with
+`decoded: true`, the `decoded_string_count` feature).
+
+```yaml
+- id: TEST-VBAMACRO-SHELL
+  title: macro starts a shell object
+  severity: high
+  verdict: malware
+  logic: all
+  conditions:
+    - type: string_contains
+      value: "CreateObject(\"WScript.Shell\")"
+      nocase: true
+      decoded: true
+    - type: string_regex
+      pattern: "(?i)sub\\s+(auto_?open|document_open|workbook_open)"
+      decoded: true
+```
+
+Limits: 1 MiB per decompressed module, 512 modules, 2000 `vba_source`
+entries per file. `--no-decode` turns macro extraction off with the rest of the
+decoded layer.
+
+### 5.16 Signature pack manifest (`--rules-pack`)
+
+A pack manifest pins the exact rule files of a release, so a scanner never runs
+a partially updated or modified pack:
+
+```yaml
+# HydraDragonSig rule pack manifest: every file must match its sha256 and size.
+version: 2                              # positive integer
+generated_at: "2026-11-02T12:00:00Z"    # informational
+notes: "generic pack"                   # optional
+files:
+  - path: base.yaml                     # relative to the manifest's directory
+    sha256: 6b4d624d9c1bf029f04b7a20352d943c987764ae331827ee7278eac2e1031a23
+    size: 153
+  - path: rules/macro.yaml
+    sha256: b2a19582c57585354e0f1abf5d62889dc568074936bfd7819246b2effd22b3ec
+    size: 251
+```
+
+| Key | Required | Meaning |
+|---|---|---|
+| `version` | yes | Pack version, at least 1. |
+| `generated_at` | no | Creation time, not checked. |
+| `notes` | no | Free text. |
+| `files[].path` | yes | Rule file, `/`-separated, relative to the manifest; absolute paths and `..` are refused. Listed once each. |
+| `files[].sha256` | yes | SHA-256 of the file bytes (64 hex). |
+| `files[].size` | yes | File size in bytes. |
+
+Unknown keys are an error. Hashes cover the exact bytes: converting a rule
+file's line endings (CRLF/LF, e.g. by a git checkout setting) is a mismatch,
+so ship packs with their line endings fixed.
+
+Flow:
+
+1. `hydradragonsig --create-rules-pack <files or dirs> --out pack/rule_pack.yml
+   [--pack-version N] [--pack-notes TEXT]` hashes the `.yaml`/`.yml` files
+   (directories are walked) and writes the manifest. Every file must lie under
+   the manifest's directory.
+2. `hydradragonsig --rules-pack pack/rule_pack.yml <paths>` checks every file
+   (present, regular file, not a symbolic link, size, then SHA-256) before
+   anything is loaded. On any mismatch it prints each failing file and exits
+   with code 2; otherwise the files are loaded in manifest order, replacing
+   `--rules` (the two flags cannot be combined).
+3. `--rules-pack ... --check-rules` verifies the pack, then runs the usual
+   load checks (section 7). The verification is the dry run: no separate
+   verify-only flag is needed.
+
 ## 6. native_signature
 
 YARA-like atoms plus a boolean expression:
