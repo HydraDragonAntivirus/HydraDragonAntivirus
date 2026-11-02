@@ -20,8 +20,10 @@
 //!      registry keys, network targets, processes)
 //!   3. The disassembler / decompiler-lite (`hydradragondecompiler`: CodeRef strings,
 //!      StackStrings built via immediate-to-memory MOVs, and OpcodePatterns)
-//! - These features are ONLY routed to the unpacked/content PE model (`pe_model_inner`),
-//!   NEVER to the packed/unpacked-failed outer shell model (`pe_model_shell`).
+//! - The content PE model (`pe_model_inner`) reads these features over the unpacked /
+//!   content image. The outer shell model (`pe_model_shell`) reads the same six features
+//!   over the file's own bytes (`extract_shell_pe_string_ml`): its structure changes with
+//!   every build of a packer or wrapper, whether its strings are known benign does not.
 
 use std::fs::File;
 use std::io::{Read, Seek, SeekFrom};
@@ -282,8 +284,8 @@ impl PeStringMlEngine {
     }
 }
 
-/// 6 String + Disassembler + Unicorn ML features computed exclusively for the unpacked /
-/// content PE (`inner`), NEVER for the outer shell (`pe_model_shell`):
+/// 6 String + Disassembler + Unicorn ML features, computed over the unpacked / content
+/// PE (`inner`) for `pe_model_inner` and over the file itself for `pe_model_shell`:
 /// 1. `mal_str_hits`: `ln(1 + unique_malicious_strings)` (not in Multron WL and not in yarGen Benign)
 /// 2. `ben_str_hits`: `ln(1 + unique_benign_strings)` (in Multron Dynamic WL or yarGen Benign)
 /// 3. `mal_ben_str_ratio`: `mal_unique / (ben_unique + 1.0)`
@@ -476,6 +478,18 @@ pub fn extract_inner_pe_string_ml(
     trace: Option<&BehaviorTrace>,
 ) -> PeStringMlMetrics {
     extract_inner_pe_string_ml_with_overlay(data, None, trace)
+}
+
+/// The same six features over the file as it is, for the shell model (`pe_trees_shell.bin`):
+/// the strings of the outer PE and its overlay, the decompiler pass over it and, when the
+/// file itself was emulated, the strings of that run. A packed or wrapped file keeps the
+/// strings of its stub, resources and version info from build to build while its layout,
+/// entropy and size move; a benign one carries strings the whitelist knows.
+pub fn extract_shell_pe_string_ml(
+    data: &[u8],
+    trace: Option<&BehaviorTrace>,
+) -> PeStringMlMetrics {
+    classify_inner_pe_strings(data, None, trace).metrics()
 }
 
 /// Every unique inner string split by what the filters say about it. Shown in

@@ -44,8 +44,15 @@ successfully unpacked inner PEs. If the inner model is absent, it does not subst
 the shell model for that sample, avoiding a shell-driven ML verdict.
 
 The second command trains the complementary shell-only model from samples without a
-successfully unpacked parseable inner PE. It uses only the outer PE structure, shell
-strings, and shell .NET marker; inner and combined features are excluded. It writes
+successfully unpacked parseable inner PE. It uses the outer PE structure, shell
+string counts, the shell .NET marker, shell mimicry, and string ML over the file's own
+strings (benign / malicious filter hits, decompiler and emulator-trace strings); inner
+and combined features are excluded. A shell's layout, entropy and size change with
+every build, but the strings it carries do not, so the string features keep verdicts on
+rebuilt benign shells from flipping. Chunks dumped before the shell string features
+existed lack those columns; rebuild them (a new `pe_feature_dump` build does so
+automatically) to train with them. A shell bin trained without them keeps working,
+because the string columns come after every column it reads. It writes
 `pe_trees_shell.bin`, `pe_model_shell.onnx`, and `pe_trees_shell_threshold.json`, then
 syncs the tree bundle to both scanner model folders. At scan time, a parseable
 unpacked inner PE selects `pe_trees_inner.bin`; every other PE selects

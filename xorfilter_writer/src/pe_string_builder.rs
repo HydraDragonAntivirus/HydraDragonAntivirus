@@ -34,7 +34,12 @@ pub const MULTRON_DYNAMIC_STRING_WHITELIST_DIR: &str =
 
 const MIN_STR_LEN: usize = 6;
 const MAX_STR_LEN: usize = 160;
-const MAX_FILE_READ_BYTES: usize = 2 * 1024 * 1024; // 2 MB cap per sample for fast harvesting
+/// Bytes read per sample: the same bound the engine's shell string ML reads
+/// (`openedr_static` `pe_combined::INNER_MAX_BYTES`), so a string past the first few MB of
+/// a large wrapper (resources, overlay) can still become a malicious hit at scan time.
+const MAX_FILE_READ_BYTES: usize = 64 * 1024 * 1024;
+/// A worker's read buffer is given back down to this after a large sample.
+const KEEP_READ_BUFFER_BYTES: usize = 4 * 1024 * 1024;
 const NUM_SHARDS: usize = 256;
 
 #[inline]
@@ -546,7 +551,7 @@ pub fn run_build_pe_string_ml(benign_only: bool) {
             s.spawn(move || {
                 let mut shard_bufs: Vec<Vec<u64>> =
                     (0..NUM_SHARDS).map(|_| Vec::with_capacity(512)).collect();
-                let mut raw_buf = vec![0u8; MAX_FILE_READ_BYTES];
+                let mut raw_buf: Vec<u8> = Vec::with_capacity(KEEP_READ_BUFFER_BYTES);
                 let mut file_keys = Vec::with_capacity(2048);
 
                 loop {
@@ -558,17 +563,13 @@ pub fn run_build_pe_string_ml(benign_only: bool) {
                     let chunk = &files_ref[start..end];
 
                     for path in chunk {
-                        let Ok(mut f) = File::open(path) else {
+                        let Ok(f) = File::open(path) else {
                             continue;
                         };
-                        let mut total_read = 0usize;
-                        while total_read < MAX_FILE_READ_BYTES {
-                            match f.read(&mut raw_buf[total_read..]) {
-                                Ok(0) => break,
-                                Ok(n) => total_read += n,
-                                Err(_) => break,
-                            }
-                        }
+                        raw_buf.clear();
+                        // A read error keeps what was read before it, as before.
+                        let _ = f.take(MAX_FILE_READ_BYTES as u64).read_to_end(&mut raw_buf);
+                        let total_read = raw_buf.len();
                         if total_read < MIN_STR_LEN {
                             continue;
                         }
@@ -587,6 +588,7 @@ pub fn run_build_pe_string_ml(benign_only: bool) {
                         for &xk in &file_keys {
                             shard_bufs[(xk as usize) & (NUM_SHARDS - 1)].push(xk);
                         }
+                        raw_buf.shrink_to(KEEP_READ_BUFFER_BYTES);
                     }
 
                     for (idx, local_vec) in shard_bufs.iter_mut().enumerate() {

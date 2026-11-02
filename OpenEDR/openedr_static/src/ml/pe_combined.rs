@@ -23,7 +23,7 @@
 
 use super::features::PeFeatureVector;
 use super::pe_features::{extract_pe_features, extract_pe_mimicry, PeMimicryMetrics};
-use super::pe_string_ml::{extract_inner_pe_string_ml_with_overlay, PeStringMlMetrics};
+use super::pe_string_ml::{extract_inner_pe_string_ml_with_overlay, extract_shell_pe_string_ml, PeStringMlMetrics};
 
 /// Strings shorter than this are not counted (`pe_strings::MIN_LEN`).
 const MIN_STRING: usize = crate::pe_strings::MIN_LEN;
@@ -371,23 +371,37 @@ pub fn dotnet_kind(data: &[u8]) -> u8 {
 
 /// Shell 65 + shell strings 3 + inner 65 + inner strings 3 + meta 4 + combined strings 3
 /// + shell / inner `dotnet_kind` + shell / inner `PeMimicryMetrics` + inner `PeStringMlMetrics`
-/// (last, so the earlier positions stay where they were; string ML is ONLY on inner content,
-/// NEVER on the outer shell model).
-pub const PE_V2_FEATURE_COUNT: usize = 65 + 3 + 65 + 3 + 4 + 3 + 2 + 2 * PeMimicryMetrics::LEN + PeStringMlMetrics::LEN;
+/// + shell `PeStringMlMetrics` (each block appended last, so the earlier positions stay
+/// where they were and a shell model trained before the shell string block still reads
+/// the same columns).
+pub const PE_V2_FEATURE_COUNT: usize = 65 + 3 + 65 + 3 + 4 + 3 + 2 + 2 * PeMimicryMetrics::LEN + 2 * PeStringMlMetrics::LEN;
 pub const PE_INNER_FEATURE_COUNT: usize = 65 + 3 + 1 + PeMimicryMetrics::LEN + PeStringMlMetrics::LEN;
-pub const PE_SHELL_FEATURE_COUNT: usize = 65 + 3 + 1 + PeMimicryMetrics::LEN;
-/// Where the shell / inner `PeMimicryMetrics` and inner `PeStringMlMetrics` start in the v2 vector.
+pub const PE_SHELL_FEATURE_COUNT: usize = 65 + 3 + 1 + PeMimicryMetrics::LEN + PeStringMlMetrics::LEN;
+/// Where the shell / inner `PeMimicryMetrics` and inner / shell `PeStringMlMetrics` start in the v2 vector.
 const SHELL_MIMICRY: usize = 145;
 const INNER_MIMICRY: usize = SHELL_MIMICRY + PeMimicryMetrics::LEN;
+const INNER_STRING_ML: usize = INNER_MIMICRY + PeMimicryMetrics::LEN;
+const SHELL_STRING_ML: usize = INNER_STRING_ML + PeStringMlMetrics::LEN;
 
-/// Shell-only feature set for files whose content was not successfully unpacked.
-/// Does NOT include `PeStringMlMetrics` (unpacked/failed outer shells are evaluated
-/// purely on structural and mimicry features).
+/// The file goes to the content model (`pe_trees_inner.bin`): its inner part is content
+/// (unpacked, an installer member, or its own image) and parses as a PE. Every other
+/// PE goes to the shell model (`pe_trees_shell.bin`).
+pub fn routes_to_inner(source: f32, inner_is_pe: f32) -> bool {
+    InnerSource::is_content(source) && inner_is_pe == 1.0
+}
+
+/// Shell-only feature set for files whose content was not successfully unpacked:
+/// structure, string counts and mimicry of the file as it is, plus `PeStringMlMetrics`
+/// over the file's own strings. The packer stub, section layout and entropy change
+/// with every build of a shell; whether its strings are known benign or known
+/// malicious does not, so the string block keeps the verdict on stable evidence.
+/// Placed last: a shell bin trained before it existed never reads those columns.
 pub fn pe_v2_shell_model_features(v: &[f32; PE_V2_FEATURE_COUNT]) -> [f32; PE_SHELL_FEATURE_COUNT] {
     let mut out = [0.0; PE_SHELL_FEATURE_COUNT];
     out[..68].copy_from_slice(&v[..68]);
     out[68] = v[143];
-    out[69..].copy_from_slice(&v[SHELL_MIMICRY..INNER_MIMICRY]);
+    out[69..69 + PeMimicryMetrics::LEN].copy_from_slice(&v[SHELL_MIMICRY..INNER_MIMICRY]);
+    out[69 + PeMimicryMetrics::LEN..].copy_from_slice(&v[SHELL_STRING_ML..]);
     out
 }
 
@@ -396,8 +410,7 @@ pub fn pe_v2_shell_model_features(v: &[f32; PE_V2_FEATURE_COUNT]) -> [f32; PE_SH
 /// malicious + Unicorn trace + Disassembler strings).
 pub fn extract_unpacked_inner_features(data: &[u8]) -> Option<[f32; PE_INNER_FEATURE_COUNT]> {
     let v = extract_pe_features_v2(data)?;
-    (InnerSource::is_content(v[136]) && v[137] == 1.0)
-        .then(|| extract_unpacked_inner_features_from_v2(&v))
+    routes_to_inner(v[136], v[137]).then(|| extract_unpacked_inner_features_from_v2(&v))
 }
 
 pub fn extract_unpacked_inner_features_from_v2(v: &[f32; PE_V2_FEATURE_COUNT]) -> [f32; PE_INNER_FEATURE_COUNT] {
@@ -405,7 +418,7 @@ pub fn extract_unpacked_inner_features_from_v2(v: &[f32; PE_V2_FEATURE_COUNT]) -
     out[..65].copy_from_slice(&v[68..133]);
     out[65..68].copy_from_slice(&v[133..136]);
     out[68] = v[144];
-    out[69..].copy_from_slice(&v[INNER_MIMICRY..]);
+    out[69..].copy_from_slice(&v[INNER_MIMICRY..SHELL_STRING_ML]);
     out
 }
 
@@ -426,6 +439,7 @@ pub fn pe_shell_feature_names_static() -> &'static [&'static str] {
         let mut names: Vec<String> = PeFeatureVector::NAMES.iter().map(|s| format!("shell_{s}")).collect();
         names.extend(["shell_ascii_strings", "shell_utf16_strings", "shell_ascii_unicode_ratio", "shell_is_dotnet"].map(String::from));
         names.extend(PeMimicryMetrics::NAMES.iter().map(|s| format!("shell_{s}")));
+        names.extend(PeStringMlMetrics::NAMES.iter().map(|s| format!("shell_{s}")));
         names.into_iter().map(|s| &*Box::leak(s.into_boxed_str())).collect()
     })
 }
@@ -473,12 +487,26 @@ pub fn extract_pe_features_v2(data: &[u8]) -> Option<[f32; PE_V2_FEATURE_COUNT]>
             extract_inner_pe_string_ml_with_overlay(p, extra_raw, inner.trace.as_ref()).to_array()
         });
     put(&inner_str_ml);
+    // The file's own strings, for the shell model only: computed when the file routes
+    // there (zeros otherwise; the content model never reads them), so a file going to
+    // the content model is not string-scanned twice. Training sees the same zeros on
+    // those rows, which the shell model is not trained on anyway. The emulator trace is
+    // the run of this file, except for an archive (its trace is of a member). Bounded like
+    // the inner bytes.
+    let shell_str_ml = if routes_to_inner(inner.source as u8 as f32, inner.pe.is_some() as u8 as f32) {
+        [0.0; PeStringMlMetrics::LEN]
+    } else {
+        let trace = inner.trace.as_ref().filter(|_| inner.source != InnerSource::Extracted);
+        extract_shell_pe_string_ml(&data[..data.len().min(INNER_MAX_BYTES)], trace).to_array()
+    };
+    put(&shell_str_ml);
     Some(v)
 }
 
 /// The inner PE's strings split into malicious / benign / unknown, for the report.
 /// Reuses the cached emulation of `extract_pe_features_v2`, so call it before
-/// `forget_emulation`. `None` when there is no inner PE (the shell model never reads strings).
+/// `forget_emulation`. `None` when there is no inner PE (the shell model's own string
+/// features come from `extract_shell_pe_string_ml`).
 pub fn pe_inner_string_breakdown(data: &[u8]) -> Option<super::pe_string_ml::PeStringBreakdown> {
     let inner = inner_of(data);
     let pe = inner.pe.as_deref()?;
@@ -506,6 +534,7 @@ pub fn pe_v2_feature_names() -> Vec<String> {
     n.extend(PeMimicryMetrics::NAMES.iter().map(|s| format!("shell_{s}")));
     n.extend(PeMimicryMetrics::NAMES.iter().map(|s| format!("inner_{s}")));
     n.extend(PeStringMlMetrics::NAMES.iter().map(|s| format!("inner_{s}")));
+    n.extend(PeStringMlMetrics::NAMES.iter().map(|s| format!("shell_{s}")));
     n
 }
 
@@ -566,6 +595,20 @@ mod tests {
         assert_eq!(names[143], "shell_is_dotnet");
         assert_eq!(names[SHELL_MIMICRY], "shell_code_to_import_ratio");
         assert_eq!(names[INNER_MIMICRY], "inner_code_to_import_ratio");
+        assert_eq!(names[INNER_STRING_ML], "inner_mal_str_hits");
+        assert_eq!(names[SHELL_STRING_ML], "shell_mal_str_hits");
+        // The shell vector keeps the columns a shell bin trained before the string block reads.
+        assert_eq!(pe_shell_feature_names_static()[69 + PeMimicryMetrics::LEN], "shell_mal_str_hits");
+        let mut v = [0f32; PE_V2_FEATURE_COUNT];
+        for (i, x) in v.iter_mut().enumerate() {
+            *x = i as f32;
+        }
+        let shell = pe_v2_shell_model_features(&v);
+        assert_eq!(shell[68], 143.0);
+        assert_eq!(shell[69], SHELL_MIMICRY as f32);
+        assert_eq!(shell[69 + PeMimicryMetrics::LEN], SHELL_STRING_ML as f32);
+        let inner = extract_unpacked_inner_features_from_v2(&v);
+        assert_eq!(inner[PE_INNER_FEATURE_COUNT - 1], (SHELL_STRING_ML - 1) as f32);
         assert_eq!(pe_shell_feature_names_static().len(), PE_SHELL_FEATURE_COUNT);
         assert_eq!(pe_inner_feature_names_static().len(), PE_INNER_FEATURE_COUNT);
         assert!(extract_pe_features_v2(b"not a pe").is_none());

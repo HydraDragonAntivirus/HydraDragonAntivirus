@@ -33,7 +33,7 @@ from apk_train import apk_features
 MODELS = {
     "pe": ("pe_model.onnx", 65),
     "pe_inner": ("pe_model_inner.onnx", 79),
-    "pe_shell": ("pe_model_shell.onnx", 73),
+    "pe_shell": ("pe_model_shell.onnx", 79),
     "generic": ("generic_model.onnx", 20),
     "js": ("js_model.onnx", 51),
     "apk": ("apk_model.onnx", 24),
@@ -119,9 +119,11 @@ def evaluate_pe_v2_inner_or_shell(filepath: str):
         sel = list(range(names.index("shell_size_of_optional_header"), names.index("shell_size_of_optional_header") + 65))
         sel += [names.index(f"shell_{n}") for n in ("ascii_strings", "utf16_strings", "ascii_unicode_ratio", "is_dotnet")]
         sel += [names.index(f"shell_{n}") for n in PE_MIMICRY_NAMES if f"shell_{n}" in names]
+        sel += [names.index(f"shell_{n}") for n in PE_STRING_ML_NAMES if f"shell_{n}" in names]
         vec = [row[i] for i in sel]
         prob = predict_prob("pe_shell", vec)
-        return {"kind": "pe_shell", "prob": prob, "str_metrics": {}}
+        str_metrics = {n: row[names.index(f"shell_{n}")] for n in PE_STRING_ML_NAMES if f"shell_{n}" in names}
+        return {"kind": "pe_shell", "prob": prob, "str_metrics": str_metrics}
 
 
 def detect_type(data: bytes, path: str):
