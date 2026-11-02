@@ -58,6 +58,7 @@ Keys are case-sensitive and must be spelled exactly. Enum values (`severity`,
 | `conditions` | yes | | List of conditions (section 5). A rule without conditions never matches. |
 | `file_path` | no | | Only evaluate the rule for this exact path, e.g. `%SystemRoot%\System32\drivers\etc\hosts`. `%VAR%` is expanded from the scanning machine's environment; the comparison is a full-path, case-insensitive match (no wildcards). |
 | `remediation` | no | `[]` | Declarative remediation actions run when `--remediate` is passed (section 5.9). |
+| `assign_types` | no | `[]` | File type tags added to the file when the rule matches (section 5.11). Alias: `assign_file_type`. |
 
 ## 3. Logic
 
@@ -104,7 +105,9 @@ Where strings are matched:
   `native_signature` regex atoms run on these.
 - **Decoded strings** (`decoded: true`): extracted strings that look like base64
   or hex are decoded and kept when the result is readable text (ASCII/UTF-8 or
-  UTF-16LE). Off when the scan disables decoding (`--no-decode`).
+  UTF-16LE), plus the script/IL decoders of section 5.12 whose decoded outputs
+  carry `method` tags (`ps_encodedcommand`, `ps_frombase64string`, `js_atob`,
+  `vbs_chr_chain`). Off when the scan disables decoding (`--no-decode`).
 
 Encoding flags: `ascii` (default on) and `utf8` search the value's UTF-8 bytes,
 `wide` its UTF-16LE form, `utf16` its UTF-16BE form. `nocase` folds ASCII letters
@@ -423,6 +426,118 @@ skipped.
 level 0); a large number effectively never skips; the longest prefix wins, so
 a deeper entry can re-enable scanning under a blocked path. A summary of
 skipped paths is printed to stderr.
+
+### 5.11 File type magic DB and rule-assigned types
+
+#### `--ftm` (file type magic signatures)
+
+`--ftm FILE` loads a file type magic DB consulted during classification for
+every scanned file. Line format (one entry per line, `#` comments):
+
+```
+Name:Type:Offset:Magic[:MIN_FLC[:MAX_FLC[:ALIAS[:MAGIC_VERSION]]]]
+```
+
+| Field | Meaning |
+|---|---|
+| `Name` | Type name; its normalized form becomes a `file_type.tags` entry and known names (`msexe`, `elf`, `mach-o`, `zip`, `rar`, `mscab`, `gzip`, `tar`, `7z`, `jar`, `pdf`, `msole2`, `dex`, script/mail names, ...) raise the dedicated format flags. |
+| `Type` | Numeric type code, informational. |
+| `Offset` | 0-based byte offset of the magic; **negative** counts from EOF (`-7` = magic ends 7 bytes before end). |
+| `Magic` | Comma-separated hex bytes (`4D,5A`); **empty** matches any content at the offset (combine with `MIN_FLC`). |
+| `MIN_FLC` / `MAX_FLC` | File length bounds, `0` = unbounded. |
+| `ALIAS` | Report the entry as this type name instead of `Name`. |
+
+An unresolved `primary` (the built-in classifier found nothing) adopts the
+first matching type name. The matched entries appear in the report's
+`file_type.tags`, so extractors, emulators and external engines route on the
+same classification; an unknown name never blocks `--include-type`-style use
+beyond that tag. `--include-type` / `--exclude-type` accept both builtin types
+(filter at walk time, before scanning) and the rule-assigned tags of the next
+paragraph plus these ftm names (decided after the rules ran, because that is
+when the tags exist).
+
+#### `assign_types` (rules that classify)
+
+A rule may add tags to the file type when it fires:
+
+```yaml
+- id: COMPONENT-VERIFIER
+  title: recognizable update utility layout
+  severity: low
+  private: true
+  conditions:
+    - type: string_contains
+      value: "VerifyUpdateSignature"
+      nocase: true
+  assign_types: [update_verifier]
+```
+
+Every matched rule's `assign_types` tag is appended to `file_type.tags`
+(alias `assign_file_type`), freeing later rules to gate on it with a normal
+`file_type` condition (`- type: file_type / values: [update_verifier]`),
+routing tools to see it in the JSON report and external components to receive
+the classification. Tag names are free-form; they are treated exactly like
+`ftm` tags (normalized letters/digits/`_`).
+
+#### Magic DB names in `file_type` and the type filters
+
+`file_type` values and `--include-type` / `--exclude-type` accept the `Name`
+and the `ALIAS` of a loaded `--ftm` entry exactly as written in the DB; no
+renaming is needed:
+
+```yaml
+- type: file_type
+  values: [MY_TYPE_ZIP, MY_TYPE_PDF, myalias]
+```
+
+```
+--ftm types.ftm --include-type MY_TYPE_ZIP --exclude-type myalias
+```
+
+Both sides go through the same normalizer (ASCII letters and digits
+lowercased, every other run of characters becomes one `_`, outer `_`
+trimmed), so `MY_TYPE_ZIP`, `my-type-zip` and `my_type_zip` are the same
+type. A matching entry contributes both its normalized `Name` and its
+normalized `ALIAS` as `file_type.tags`, so a rule may name the entry either
+way. Load checks (`--check-rules` included, section 7) accept these names
+when `--ftm` is given; a name that is neither builtin, nor assigned by a
+rule, nor in the loaded DB is still reported as `unknown file type`. The
+filters decide magic DB names at walk time, like builtin types, since the
+classification already holds their tags before the rules run.
+
+A namespaced name of the form `<prefix>_TYPE_<format>` raises the same
+dedicated flags as the bare `<format>`, so builtin `file_type` values keep
+working on files the DB classifies:
+
+| `<format>` | Flags |
+|---|---|
+| `zip`, `rar` / `rar5`, `7z`, `gzip`, `tar`, `jar` | the matching `is_*` flag and `is_archive` |
+| `msexe` | `is_pe`, `is_binary` |
+| `pdf` | `is_pdf`, `is_binary` |
+| `msole2` | `is_office`, `is_microsoft_compound` |
+| `java_class` | `is_java_class` |
+| `dex` | `is_dex` |
+
+For example a file tagged `my_type_zip` also matches `file_type: [archive]`
+and `[zip]`, and one tagged `my_type_msexe` matches `[pe]`.
+
+### 5.12 Script/IL preprocessing
+
+Before the generic base64/hex pass, extracted strings run through focused
+script decoders that turn obfuscated script payloads into readable decoded
+strings. They feed the same `report.decoded_strings` list, so every `decoded`
+consumer sees them: `string_contains`, `string_set`, `string_regex`, the
+`decoded_string_count` feature and `env_reference` hits.
+
+| `method` | Source pattern in the file | Decoded result |
+|---|---|---|
+| `ps_encodedcommand` | `powershell` style `-EncodedCommand` / `-enc` / `-e <base64-token>` | The payload text (UTF-16LE first, then UTF-8). |
+| `ps_frombase64string` | `[Convert]::FromBase64String("...")` (single quotes allowed) | The payload text. |
+| `js_atob` | `atob("...")` | The payload text. |
+| `vbs_chr_chain` | `Chr(104)&Chr(97)...` chains of 3+ members (`ChrW` included) | The joined characters. |
+
+Rules expect readable decoding results (8+ characters count); short or binary
+decodes are dropped. `--no-decode` disables the whole decoded layer.
 
 ## 6. native_signature
 

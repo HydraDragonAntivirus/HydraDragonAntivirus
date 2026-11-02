@@ -151,7 +151,7 @@ pub fn classify_strings(strings: &[StringHit], cfg: &DecodeConfig) -> Vec<Decode
     out
 }
 
-fn decode_base64(raw: &str) -> Option<Vec<u8>> {
+pub fn decode_base64(raw: &str) -> Option<Vec<u8>> {
     use base64::Engine as _;
     let trimmed = raw.trim_end_matches('=');
     base64::engine::general_purpose::STANDARD_NO_PAD.decode(trimmed).ok()
@@ -159,7 +159,7 @@ fn decode_base64(raw: &str) -> Option<Vec<u8>> {
 
 /// Decoded bytes as text: printable ASCII (UTF-8 allowed), or UTF-16LE with ASCII
 /// characters. None for binary data.
-fn readable_text(bytes: &[u8]) -> Option<String> {
+pub fn readable_text(bytes: &[u8]) -> Option<String> {
     let printable = |b: u8| b == b'\t' || b == b'\n' || b == b'\r' || (0x20..=0x7e).contains(&b);
     if bytes.len() >= 4 && bytes.len() % 2 == 0 && bytes.iter().skip(1).step_by(2).all(|&b| b == 0) {
         let narrow: Vec<u8> = bytes.iter().step_by(2).copied().collect();

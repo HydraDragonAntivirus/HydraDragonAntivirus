@@ -192,11 +192,17 @@ struct Cli {
     exclude_globs: Vec<String>,
 
     /// Include only detected file types. Repeatable and comma-separated.
-    /// Examples: --include-type pe,elf --include-type apk --include-type text
+    /// Accepts builtin types (`--include-type pe,elf --include-type apk`),
+    /// Name/ALIAS values of the `--ftm` magic DB as written,
+    /// and rule-assigned tags (`assign_types`, e.g. a `file_type` matching
+    /// tag produced by a rule when it fires; those files are post-scan
+    /// filtered because the tag exists only after rules run).
     #[arg(long = "include-type", alias = "type", value_name = "TYPE", value_delimiter = ',', action = ArgAction::Append)]
     include_types: Vec<String>,
 
-    /// Exclude detected file types. Repeatable and comma-separated.
+    /// Exclude detected file types. Repeatable and comma-separated; builtin
+    /// types, `--ftm` Name/ALIAS values and rule-assigned `assign_types`
+    /// tags are accepted.
     /// Examples: --exclude-type archive --exclude-type text
     #[arg(long = "exclude-type", value_name = "TYPE", value_delimiter = ',', action = ArgAction::Append)]
     exclude_types: Vec<String>,
@@ -357,6 +363,14 @@ struct Cli {
     /// inside the prefix, a large number effectively never skips.
     #[arg(long, value_name = "FILE")]
     smart_whitelist: Option<PathBuf>,
+
+    /// File type magic signature DB: a text file with one
+    /// `Name:Type:Offset:Magic[:MIN_FLC[:MAX_FLC[:ALIAS[:VERSION]]]]` entry per
+    /// line, `#` comments allowed. Matching entries extend the file type info
+    /// of every scanned file (tags and the dedicated format flags), so
+    /// extractors, emulators and external engines receive consistent types.
+    #[arg(long, value_name = "FTM")]
+    ftm: Option<PathBuf>,
 }
 
 fn main() -> Result<()> {
@@ -377,6 +391,13 @@ fn main() -> Result<()> {
 
     let rule_sources = cli.rules.clone();
     let rule_files = collect_rule_files_from_sources(&rule_sources)?;
+
+    // The magic DB names are valid `file_type` values: load it before rules
+    // are validated (`--check-rules` and the scan load alike).
+    if let Some(ftm_path) = &cli.ftm {
+        hydradragonsig::scanner::ftm::set_global_db(ftm_path)
+            .with_context(|| format!("failed to load --ftm {}", ftm_path.display()))?;
+    }
 
     if cli.check_rules {
         let rules = load_external_rules_from_files(&rule_files)?;
@@ -421,8 +442,21 @@ fn main() -> Result<()> {
     let scan_roots = collect_scan_roots(&paths, &scan_paths, &cli.path_lists)?;
     let include_patterns = compile_glob_patterns(&cli.include_globs)?;
     let exclude_patterns = compile_glob_patterns(&cli.exclude_globs)?;
-    let include_types = normalize_type_filters(&cli.include_types)?;
-    let exclude_types = normalize_type_filters(&cli.exclude_types)?;
+    let assigned_types: HashSet<String> = rules
+        .rules()
+        .iter()
+        .flat_map(|rule| rule.assign_types.iter())
+        .map(|tag| filetype::normalize_file_type_alias(tag))
+        .filter(|tag| !tag.is_empty())
+        .collect();
+    let (include_builtin, include_assigned) = normalize_type_filters(&cli.include_types, "include", &assigned_types)?;
+    let (exclude_builtin, exclude_assigned) = normalize_type_filters(&cli.exclude_types, "exclude", &assigned_types)?;
+    let type_filter = TypeFilter {
+        include_builtin,
+        include_assigned,
+        exclude_builtin,
+        exclude_assigned,
+    };
     let files = collect_files_from_roots(
         &scan_roots,
         recursive,
@@ -430,8 +464,7 @@ fn main() -> Result<()> {
         cli.follow_links,
         &include_patterns,
         &exclude_patterns,
-        &include_types,
-        &exclude_types,
+        &type_filter,
         smart_whitelist.as_ref(),
     )?;
     if files.is_empty() {
@@ -537,6 +570,14 @@ fn main() -> Result<()> {
             .collect()
     };
     pb.finish_and_clear();
+
+    // Final type view: rule-assigned tags decide here. Reports the
+    // walk-time filter left undecided (possible assigned include tags) drop
+    // now, plus builtin excludes.
+    let reports: Vec<_> = reports
+        .into_iter()
+        .filter(|report| type_filter.allows_report(report))
+        .collect();
 
     match cli.output {
         OutputFormat::Pretty => {
@@ -726,8 +767,7 @@ fn collect_files_from_roots(
     follow_links: bool,
     include_patterns: &[Regex],
     exclude_patterns: &[Regex],
-    include_types: &HashSet<String>,
-    exclude_types: &HashSet<String>,
+    type_filter: &TypeFilter,
     whitelist: Option<&SmartWhitelist>,
 ) -> Result<Vec<PathBuf>> {
     let mut out = Vec::new();
@@ -741,7 +781,7 @@ fn collect_files_from_roots(
         if root.is_file() {
             if whitelist.is_none_or(|wl| wl.allows(root))
                 && path_allowed(root, include_patterns, exclude_patterns)
-                && file_type_allowed(root, include_types, exclude_types)?
+                && file_type_allowed(root, type_filter)?
             {
                 out.push(root.clone());
             }
@@ -763,7 +803,7 @@ fn collect_files_from_roots(
             let path = entry.path().to_path_buf();
             if whitelist.is_none_or(|wl| wl.allows(&path))
                 && path_allowed(&path, include_patterns, exclude_patterns)
-                && file_type_allowed(&path, include_types, exclude_types)?
+                && file_type_allowed(&path, type_filter)?
             {
                 out.push(path);
             }
@@ -874,39 +914,105 @@ fn path_allowed(path: &Path, include_patterns: &[Regex], exclude_patterns: &[Reg
     included && !excluded
 }
 
-fn normalize_type_filters(values: &[String]) -> Result<HashSet<String>> {
-    let mut out = HashSet::new();
+fn normalize_type_filters(values: &[String], label: &str, assigned: &HashSet<String>) -> Result<(HashSet<String>, HashSet<String>)> {
+    let mut builtin = HashSet::new();
+    let mut known_assigned = HashSet::new();
     for value in values {
         let normalized = filetype::normalize_file_type_alias(value);
         if normalized.is_empty() {
             continue;
         }
-        if !filetype::is_known_file_type_alias(&normalized) {
+        // Magic DB names are classification tags too: decided at walk time.
+        if filetype::is_known_file_type_alias(&normalized)
+            || hydradragonsig::scanner::ftm::is_known_type_name(&normalized)
+        {
+            builtin.insert(normalized);
+        } else if assigned.contains(&normalized) {
+            known_assigned.insert(normalized);
+        } else {
             anyhow::bail!(
-                "unknown file type filter `{}`; known types: {}",
+                "unknown file type filter `{}` for --{}-type; builtin types: {}, a Name/ALIAS of the --ftm magic DB, or any rule assign_types tag",
                 value,
+                label,
                 filetype::known_file_type_aliases().join(", ")
             );
         }
-        out.insert(normalized);
     }
-    Ok(out)
+    Ok((builtin, known_assigned))
+}
+
+/// Type filters across the two levels: builtin types route at walk time
+/// (`classify_path`), rule-assigned `assign_types` tags exist only after the
+/// rules ran, so they decide the final report inclusion instead.
+#[derive(Debug, Default, Clone)]
+struct TypeFilter {
+    include_builtin: HashSet<String>,
+    include_assigned: HashSet<String>,
+    exclude_builtin: HashSet<String>,
+    exclude_assigned: HashSet<String>,
+}
+
+impl TypeFilter {
+    fn is_empty(&self) -> bool {
+        self.include_builtin.is_empty()
+            && self.include_assigned.is_empty()
+            && self.exclude_builtin.is_empty()
+            && self.exclude_assigned.is_empty()
+    }
+
+    /// Walk-time decision on the classified type. Files that may later gain a
+    /// rule-assigned include tag stay in the walk (decided after the scan).
+    fn allows_path<'a>(&self, info: &'a hydradragonsig::models::FileTypeInfo) -> bool {
+        if !self.exclude_builtin.is_empty()
+            && self.exclude_builtin.iter().any(|ty| info.matches_type(ty))
+        {
+            return false;
+        }
+        if self.include_builtin.is_empty() {
+            return true;
+        }
+        let matches_builtin = self.include_builtin.iter().any(|ty| info.matches_type(ty));
+        matches_builtin || !self.include_assigned.is_empty()
+    }
+
+    /// Final decision after the rules ran: assigned tags now live in
+    /// `report.file_type.tags` (or already have for builtin types).
+    fn allows_report<'a>(&self, report: &'a hydradragonsig::models::ScanReport) -> bool {
+        let include_empty =
+            self.include_builtin.is_empty() && self.include_assigned.is_empty();
+        if include_empty {
+            return self.exclude_builtin.is_empty() && self.exclude_assigned.is_empty()
+                || self
+                    .exclude_builtin
+                    .iter()
+                    .chain(&self.exclude_assigned)
+                    .all(|ty| !report.file_type.matches_type(ty));
+        }
+        let included = self
+            .include_builtin
+            .iter()
+            .chain(&self.include_assigned)
+            .any(|ty| report.file_type.matches_type(ty));
+        let excluded = self
+            .exclude_builtin
+            .iter()
+            .chain(&self.exclude_assigned)
+            .any(|ty| report.file_type.matches_type(ty));
+        included && !excluded
+    }
 }
 
 fn file_type_allowed(
     path: &Path,
-    include_types: &HashSet<String>,
-    exclude_types: &HashSet<String>,
+    filter: &TypeFilter,
 ) -> Result<bool> {
-    if include_types.is_empty() && exclude_types.is_empty() {
+    if filter.is_empty() {
         return Ok(true);
     }
 
     let info = filetype::classify_path(path)
         .with_context(|| format!("file type classification failed for {}", path.display()))?;
-    let included = include_types.is_empty() || include_types.iter().any(|ty| info.matches_type(ty));
-    let excluded = exclude_types.iter().any(|ty| info.matches_type(ty));
-    Ok(included && !excluded)
+    Ok(filter.allows_path(&info))
 }
 
 fn normalize_path_for_match(path: &Path) -> String {

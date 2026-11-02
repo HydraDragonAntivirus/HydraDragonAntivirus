@@ -1,6 +1,8 @@
 pub mod env;
 pub mod filetype;
+pub mod ftm;
 pub mod pe;
+pub mod scripts;
 pub mod strings;
 
 use crate::models::{

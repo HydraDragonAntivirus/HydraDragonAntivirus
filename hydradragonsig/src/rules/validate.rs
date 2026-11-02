@@ -14,7 +14,7 @@ use std::collections::HashSet;
 const FILE_KEYS: &[&str] = &["name", "version", "rules"];
 const RULE_KEYS: &[&str] = &[
     "id", "title", "description", "severity", "verdict", "confidence", "family", "score", "tags", "mitre", "private",
-    "logic", "threshold", "conditions", "file_path", "required_path", "remediation",
+    "logic", "threshold", "conditions", "file_path", "required_path", "remediation", "assign_types", "assign_file_type",
 ];
 const MITRE_KEYS: &[&str] = &["id", "name", "tactic"];
 const ATOM_KEYS: &[&str] = &[
@@ -226,6 +226,15 @@ pub fn check_rules(rules: &[Rule], known_ids: &HashSet<String>) -> Vec<String> {
         for (ci, cond) in rule.conditions.iter().enumerate() {
             for problem in check_condition(cond, rules, &rule.id, known_ids) {
                 p(format!("condition {}: {problem}", ci + 1));
+            }
+        }
+        for ty in &rule.assign_types {
+            if ty.trim().is_empty() {
+                p("empty tag in `assign_types`".into());
+            }
+            let normalized = crate::scanner::filetype::normalize_file_type_alias(ty);
+            if normalized.is_empty() {
+                p(format!("`assign_types` tag `{ty}` only holds separators"));
             }
         }
     }
@@ -440,6 +449,24 @@ fn check_condition(cond: &RuleCondition, rules: &[Rule], own_id: &str, known_ids
         }
         RuleCondition::FileType { values } => {
             list_problems("values", values, None, &mut out);
+            // Tags a rule assigns via `assign_types` / `assign_file_type` are
+            // first-class file types for every later `file_type` condition.
+            let assigned: HashSet<String> = rules
+                .iter()
+                .flat_map(|r| r.assign_types.iter())
+                .map(|ty| {
+                    let mut norm = String::new();
+                    for ch in ty.trim().chars() {
+                        if ch.is_ascii_alphanumeric() {
+                            norm.push(ch.to_ascii_lowercase());
+                        } else if !norm.ends_with('_') {
+                            norm.push('_');
+                        }
+                    }
+                    norm.trim_matches('_').to_string()
+                })
+                .filter(|norm| !norm.is_empty())
+                .collect();
             for v in values {
                 let mut norm = String::new();
                 for ch in v.trim().chars() {
@@ -450,7 +477,12 @@ fn check_condition(cond: &RuleCondition, rules: &[Rule], own_id: &str, known_ids
                     }
                 }
                 let norm = norm.trim_matches('_').to_string();
-                if !FILE_TYPES.contains(&norm.as_str()) {
+                // Names of the loaded file type magic DB (`--ftm`): `Name`,
+                // `ALIAS` and type name are tags of the files they classify.
+                if !FILE_TYPES.contains(&norm.as_str())
+                    && !assigned.contains(&norm)
+                    && !crate::scanner::ftm::is_known_type_name(&norm)
+                {
                     out.push(format!("unknown file type `{v}`"));
                 }
             }

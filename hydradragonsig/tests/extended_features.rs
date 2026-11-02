@@ -691,3 +691,201 @@ rules:
 
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// The magic DB is process-global and tests run in parallel: every ftm test
+/// installs this same DB, so none of them sees another one's entries vanish.
+fn install_test_ftm() {
+    let db = hydradragonsig::scanner::ftm::parse_ftm_text(
+        "# comment\n\
+HYMARKER:9:2:48,59\n\
+RAR5CONTAINER:4:0:52,61,72,21,1A,07,01,00:0:0:rar\n\
+TAILTAG:5:-2:7E,7E\n\
+QZ_TYPE_ZIP:61:0:51,5A,46,54,4D,01\n\
+QZ_TYPE_PDF:62:0:51,5A,46,54,4D,02:0:0:qzdoc\n",
+    )
+    .expect("parse ok");
+    hydradragonsig::scanner::ftm::install(db);
+}
+
+/// `--ftm` file type magic DB: entries extend `file_type.tags` during
+/// classification, including flag mapping for known names.
+#[test]
+fn ftm_magic_db_classifies_bytes() {
+    install_test_ftm();
+
+    // `48,59` at offset 2, NUL prefix keeps the bytes binary.
+    let info = hydradragonsig::scanner::filetype::classify_bytes_only(b"\x00\x00HY\x00\x00\x00");
+    assert!(
+        info.tags.iter().any(|t| t == "hymarker"),
+        "wanted hymarker tag in {:?}",
+        info.tags
+    );
+    assert_eq!(info.primary, "hymarker", "unresolved primary adopts the ftm name");
+
+    // Alias `rar` raises the archive flags for the RAR5 layout bytes.
+    let rar = hydradragonsig::scanner::filetype::classify_bytes_only(b"Rar!\x1A\x07\x01\x00FTMTEST");
+    assert!(rar.is_rar && rar.is_archive, "rar flags from ftm: {:?}", rar.tags);
+    assert!(rar.tags.iter().any(|t| t == "rar"));
+
+    // Negative offset: `~~` must be the last two bytes.
+    let tail = hydradragonsig::scanner::filetype::classify_bytes_only(b"data--~~");
+    assert!(tail.tags.iter().any(|t| t == "tailtag"));
+    let not_tail = hydradragonsig::scanner::filetype::classify_bytes_only(b"~~tail--");
+    assert!(!not_tail.tags.iter().any(|t| t == "tailtag"));
+}
+
+/// `assign_types`: a matching rule adds a tag that later rules gate on with a
+/// plain `file_type` condition.
+#[test]
+fn rule_assign_types_add_file_type_tags() {
+    let yaml = r#"
+rules:
+  - id: TEST-ASSIGN-SOURCE
+    title: marks the type
+    severity: low
+    private: true
+    conditions:
+      - type: string_contains
+        value: "MARKER_ASSIGN_SOURCE"
+        nocase: true
+    assign_types: [update_verifier]
+  - id: TEST-ASSIGN-DEP
+    title: depends on the assigned tag
+    severity: medium
+    conditions:
+      - type: file_type
+        values: [update_verifier]
+"#;
+    let rules = RuleSet::from_yaml_str_strict(yaml).expect("valid rules");
+    let bytes = b"nothing here MARKER_ASSIGN_SOURCE ok";
+    let report = scan_bytes(bytes, &rules, &ScanOptions::default());
+    assert!(
+        report
+            .file_type
+            .tags
+            .iter()
+            .any(|t| t == "update_verifier"),
+        "assigned type missing in {:?}",
+        report.file_type.tags
+    );
+    assert!(
+        report
+            .findings
+            .iter()
+            .any(|f| f.rule_id == "TEST-ASSIGN-DEP"),
+        "dependent rule must fire after the assignment"
+    );
+}
+/// Script/IL preprocessing: PowerShell encoded payloads and VBScript Chr
+/// chains land in `decoded_strings` and satisfy `decoded` conditions.
+#[test]
+fn script_decoded_payloads_feed_decoded_conditions() {
+    let yaml = r#"
+rules:
+  - id: TEST-PS-ENC
+    title: powershell encoded payload
+    severity: medium
+    conditions:
+      - type: string_contains
+        value: "invoice reminder --timestamp"
+        decoded: true
+  - id: TEST-VBS-CHR
+    title: vbs chr chain payload
+    severity: low
+    conditions:
+      - type: string_contains
+        value: "download-payloc"
+        decoded: true
+"#;
+    let rules = RuleSet::from_yaml_str_strict(yaml).expect("valid rules");
+    let bytes = format!(
+        "x -enc aQBuAHYAbwBpAGMAZQAgAHIAZQBtAGkAbgBkAGUAcgAgAC0ALQB0AGkAbQBlAHMAdABhAG0AcAAgADIAMAAyADYA\r\n\
+(installed) FromBase64String(\"Y2RuLWFsZXJ0LXJ1bm5lciBib290\")\r\n\
+(state) Chr(100)&Chr(111)&Chr(119)&Chr(110)&Chr(108)&Chr(111)&Chr(97)&Chr(100)&Chr(45)&Chr(112)&Chr(97)&Chr(121)&Chr(108)&Chr(111)&Chr(99) ok"
+    )
+    .into_bytes();
+    // Both rules must be evaluated: the library default stops at the first detection.
+    let options = ScanOptions { stop_on_detection: false, ..ScanOptions::default() };
+    let report = scan_bytes(&bytes, &rules, &options);
+    assert!(
+        report.findings.iter().any(|f| f.rule_id == "TEST-PS-ENC"),
+        "ps decoded payload condition must match"
+    );
+    assert!(
+        report.findings.iter().any(|f| f.rule_id == "TEST-VBS-CHR"),
+        "vbs chr chain condition must match"
+    );
+    assert!(
+        report.decoded_strings.iter().any(|d| d.method == "ps_frombase64string" && d.decoded == "cdn-alert-runner boot"),
+        "script decoders must publish constructs: {:?}",
+        report.decoded_strings
+    );
+    assert!(
+        report.decoded_strings.iter().any(|d| d.method == "ps_encodedcommand"),
+        "encodedcommand decoder must publish"
+    );
+}
+
+/// Magic DB names are `file_type` values as written: a rule matches through
+/// the entry's `Name` and its `ALIAS`, and namespaced names raise the flags of
+/// the bare format so builtin values keep working.
+#[test]
+fn ftm_names_usable_as_file_type_values() {
+    install_test_ftm();
+    let yaml = r#"
+rules:
+  - id: TEST-FTM-BY-NAME
+    title: ftm entry by name
+    severity: low
+    conditions:
+      - type: file_type
+        values: [QZ_TYPE_PDF]
+  - id: TEST-FTM-BY-ALIAS
+    title: ftm entry by alias
+    severity: low
+    conditions:
+      - type: file_type
+        values: [qzdoc]
+  - id: TEST-FTM-BUILTIN-FLAG
+    title: ftm entry by builtin flag
+    severity: low
+    conditions:
+      - type: file_type
+        values: [pdf]
+"#;
+    let rules = RuleSet::from_yaml_str_strict(yaml).expect("ftm names validate");
+    let options = ScanOptions { stop_on_detection: false, ..ScanOptions::default() };
+    let report = scan_bytes(b"QZFTM\x02 ftm name payload", &rules, &options);
+    for id in ["TEST-FTM-BY-NAME", "TEST-FTM-BY-ALIAS", "TEST-FTM-BUILTIN-FLAG"] {
+        assert!(
+            report.findings.iter().any(|f| f.rule_id == id),
+            "{id} must match: tags {:?}",
+            report.file_type.tags
+        );
+    }
+
+    let zip = hydradragonsig::scanner::filetype::classify_bytes_only(b"QZFTM\x01 zip-like");
+    assert!(zip.is_zip && zip.is_archive, "zip flags from the namespaced name: {:?}", zip.tags);
+    assert!(zip.matches_type("QZ_TYPE_ZIP") && zip.matches_type("archive"));
+}
+
+/// Load checks accept the names of the loaded magic DB and still report names
+/// that are neither builtin, assigned nor loaded.
+#[test]
+fn ftm_names_pass_file_type_validation() {
+    install_test_ftm();
+    let known = "rules:\n  - id: R\n    title: t\n    severity: low\n    conditions:\n      - type: file_type\n        values: [QZ_TYPE_ZIP, QZ_TYPE_PDF, qzdoc]\n";
+    let set = RuleSet::from_yaml_str(known).unwrap();
+    assert!(
+        !set.warnings().iter().any(|w| w.contains("unknown file type")),
+        "{:?}",
+        set.warnings()
+    );
+    let unknown = "rules:\n  - id: R\n    title: t\n    severity: low\n    conditions:\n      - type: file_type\n        values: [QZ_TYPE_NOT_LOADED]\n";
+    let set = RuleSet::from_yaml_str(unknown).unwrap();
+    assert!(
+        set.warnings().iter().any(|w| w.contains("unknown file type `QZ_TYPE_NOT_LOADED`")),
+        "{:?}",
+        set.warnings()
+    );
+}

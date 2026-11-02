@@ -56,6 +56,7 @@ pub fn classify_bytes(path: &Path, data: &[u8]) -> FileTypeInfo {
     apply_archive_markers(&mut info, data);
     apply_known_formats(&mut info, data);
     apply_language_and_text_markers(&mut info, path, data);
+    super::ftm::apply_to_info(&mut info, data);
     finalize_file_type(&mut info);
     info
 }

@@ -81,6 +81,21 @@ pub struct Rule {
     /// Declarative post-detection remediation steps (`--remediate`).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub remediation: Vec<super::remediation::Remediation>,
+
+    /// File type tags assigned to the file when this rule matches
+    /// (`assign_types`; alias `assign_file_type`). Custom tags make rules act
+    /// as file type classifiers: later rules can require them with a
+    /// `file_type` condition, `--include-type` style routing tools and report
+    /// consumers see them in `file_type.tags`, and the automatic
+    /// `required_types` inference treats the rule's own conditions as usual.
+    /// Tag names are free-form (letters, digits, `_`); every assigned tag is
+    /// also pushed as-is so components can route on familiar names.
+    #[serde(
+        default,
+        alias = "assign_file_type",
+        skip_serializing_if = "Vec::is_empty"
+    )]
+    pub assign_types: Vec<String>,
 }
 
 impl Rule {

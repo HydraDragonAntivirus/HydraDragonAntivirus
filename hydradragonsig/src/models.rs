@@ -318,18 +318,20 @@ impl Default for FileTypeInfo {
 }
 
 impl FileTypeInfo {
+    /// `value` is compared through the shared file type normalizer, so a
+    /// magic DB name written as-is (`MY_TYPE_ZIP`) matches its `my_type_zip` tag.
     pub fn matches_type(&self, value: &str) -> bool {
-        let needle = normalize_file_type_name(value);
+        let needle = crate::scanner::filetype::normalize_file_type_alias(value);
         if needle.is_empty() {
             return false;
         }
-        if normalize_file_type_name(&self.primary) == needle {
+        if crate::scanner::filetype::normalize_file_type_alias(&self.primary) == needle {
             return true;
         }
         if self
             .tags
             .iter()
-            .any(|tag| normalize_file_type_name(tag) == needle)
+            .any(|tag| crate::scanner::filetype::normalize_file_type_alias(tag) == needle)
         {
             return true;
         }
@@ -369,18 +371,6 @@ impl FileTypeInfo {
             _ => false,
         }
     }
-}
-
-fn normalize_file_type_name(value: &str) -> String {
-    let mut out = String::new();
-    for ch in value.trim().chars() {
-        if ch.is_ascii_alphanumeric() {
-            out.push(ch.to_ascii_lowercase());
-        } else if !out.ends_with('_') {
-            out.push('_');
-        }
-    }
-    out.trim_matches('_').to_string()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -704,5 +694,18 @@ pub struct MitreTechnique {
 impl Default for ScanResultCode {
     fn default() -> Self {
         Self::Ok
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn matches_type_normalizes_db_names_as_written() {
+        let info = FileTypeInfo { tags: vec!["my_type_zip".to_string()], ..FileTypeInfo::default() };
+        assert!(info.matches_type("MY_TYPE_ZIP"));
+        assert!(info.matches_type("my-type-zip"));
+        assert!(!info.matches_type("MY_TYPE_PDF"));
     }
 }

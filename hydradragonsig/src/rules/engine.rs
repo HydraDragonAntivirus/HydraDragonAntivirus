@@ -301,6 +301,26 @@ impl ScanView {
             &report.strings,
             &crate::scanner::strings::DecodeConfig::default(),
         );
+        // Script-level preprocessing (PowerShell -EncodedCommand /
+        // FromBase64String, atob, VBScript Chr chains) appends to the same
+        // list, so `decoded` conditions see script payloads like any other
+        // decoded text.
+        let script_hits = crate::scanner::scripts::script_decoded_strings(
+            &report.strings,
+            &crate::scanner::scripts::ScriptDecodeConfig::default(),
+        );
+        if !script_hits.is_empty() {
+            let seen: std::collections::HashSet<(String, String)> = report
+                .decoded_strings
+                .iter()
+                .map(|d| (d.method.clone(), d.source.clone()))
+                .collect();
+            report
+                .decoded_strings
+                .extend(script_hits.into_iter().filter(|d| {
+                    !seen.contains(&(d.method.clone(), d.source.clone()))
+                }));
+        }
         self.decoded_lower = report.decoded_strings.iter().map(|hit| hit.decoded.to_ascii_lowercase()).collect();
     }
 
@@ -1150,6 +1170,7 @@ impl RuleSet {
             push_rule_eval_result(report, eval_res);
             if matched {
                 view.matched_rules.insert(rule.id.clone());
+                apply_assign_types(rule, report);
             }
             // A private rule only feeds `rule_match`: it never ends the scan.
             if options.stop_on_detection && matched && !rule.private {
@@ -1227,11 +1248,33 @@ impl RuleSet {
             push_rule_eval_result(report, eval_res);
             if matched {
                 view.matched_rules.insert(rule.id.clone());
+                apply_assign_types(rule, report);
             }
             // A private rule only feeds `rule_match`: it never ends the scan.
             if options.stop_on_detection && matched && !rule.private {
                 break;
             }
+        }
+    }
+}
+
+/// Rule-declared file type tags (`assign_types`) are pushed into
+/// `report.file_type.tags` when the rule matches, so a rule pack acts as a
+/// file type classifier: later rules can depend on the new tag with a
+/// `file_type` condition, the report output shows it and external components
+/// (emulator, secondary engines) route on it.
+fn apply_assign_types(rule: &Rule, report: &mut ScanReport) {
+    for ty in &rule.assign_types {
+        let tag = crate::scanner::filetype::normalize_file_type_alias(ty);
+        if tag.is_empty() {
+            continue;
+        }
+        if !report.file_type.tags.iter().any(|existing| existing == &tag) {
+            report.file_type.tags.push(tag.clone());
+            report.file_type.is_binary = !report.file_type.is_plain_text;
+        }
+        if report.file_type.primary == "unknown" || report.file_type.primary.is_empty() {
+            report.file_type.primary = tag;
         }
     }
 }
