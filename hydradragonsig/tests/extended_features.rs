@@ -889,3 +889,141 @@ fn ftm_names_pass_file_type_validation() {
         set.warnings()
     );
 }
+
+fn build_synthetic_dex(strings: &[&str], types: &[u32], classes: &[u32], methods: &[(u16, u32)]) -> Vec<u8> {
+    let mut buf = vec![0u8; 0x70];
+    buf[0..8].copy_from_slice(b"dex\n035\0");
+    let put = |buf: &mut Vec<u8>, at: usize, v: u32| buf[at..at + 4].copy_from_slice(&v.to_le_bytes());
+
+    let string_ids_off = buf.len();
+    buf.resize(string_ids_off + strings.len() * 4, 0);
+    let type_ids_off = buf.len();
+    buf.resize(type_ids_off + types.len() * 4, 0);
+    let method_ids_off = buf.len();
+    buf.resize(method_ids_off + methods.len() * 8, 0);
+    let class_defs_off = buf.len();
+    buf.resize(class_defs_off + classes.len() * 32, 0);
+
+    for (i, s) in strings.iter().enumerate() {
+        let data_off = buf.len() as u32;
+        put(&mut buf, string_ids_off + i * 4, data_off);
+        let mut n = s.encode_utf16().count() as u32;
+        loop {
+            let byte = (n & 0x7f) as u8;
+            n >>= 7;
+            if n == 0 {
+                buf.push(byte);
+                break;
+            }
+            buf.push(byte | 0x80);
+        }
+        buf.extend_from_slice(s.as_bytes());
+        buf.push(0);
+    }
+    for (i, t) in types.iter().enumerate() {
+        put(&mut buf, type_ids_off + i * 4, *t);
+    }
+    for (i, (class_idx, name_idx)) in methods.iter().enumerate() {
+        let at = method_ids_off + i * 8;
+        buf[at..at + 2].copy_from_slice(&class_idx.to_le_bytes());
+        put(&mut buf, at + 4, *name_idx);
+    }
+    for (i, c) in classes.iter().enumerate() {
+        put(&mut buf, class_defs_off + i * 32, *c);
+    }
+
+    put(&mut buf, 0x38, strings.len() as u32);
+    put(&mut buf, 0x3c, string_ids_off as u32);
+    put(&mut buf, 0x40, types.len() as u32);
+    put(&mut buf, 0x44, type_ids_off as u32);
+    put(&mut buf, 0x58, methods.len() as u32);
+    put(&mut buf, 0x5c, method_ids_off as u32);
+    put(&mut buf, 0x60, classes.len() as u32);
+    put(&mut buf, 0x64, class_defs_off as u32);
+    buf
+}
+
+#[test]
+fn dex_conditions_and_report_facts() {
+    let dex = build_synthetic_dex(
+        &["Lcom/foo/Bar;", "android/receiver", "onCreate", "V", "trojan_payload_indicator"],
+        &[0, 3],
+        &[0],
+        &[(0, 2), (1, 2)],
+    );
+
+    let yaml = r#"
+rules:
+  - id: TEST-DEX-CLASS
+    title: dex class match
+    severity: high
+    conditions:
+      - type: dex_class_regex
+        pattern: '^com\.foo\.Bar$'
+  - id: TEST-DEX-STRING
+    title: dex string match
+    severity: high
+    conditions:
+      - type: dex_string_regex
+        pattern: "trojan_payload_indicator"
+  - id: TEST-DEX-METHOD-COUNT-OK
+    title: method count ok
+    severity: low
+    conditions:
+      - type: dex_method_count
+        min: 2
+  - id: TEST-DEX-METHOD-COUNT-HIGH
+    title: method count unmet
+    severity: low
+    conditions:
+      - type: dex_method_count
+        min: 10
+"#;
+    let rules = RuleSet::from_yaml_str_strict(yaml).expect("valid dex rules");
+    let options = ScanOptions { stop_on_detection: false, ..ScanOptions::default() };
+
+    // 1. Scan the synthetic DEX
+    let report = scan_bytes(&dex, &rules, &options);
+    assert!(
+        report.findings.iter().any(|f| f.rule_id == "TEST-DEX-CLASS"),
+        "dex_class_regex must trigger on com.foo.Bar"
+    );
+    assert!(
+        report.findings.iter().any(|f| f.rule_id == "TEST-DEX-STRING"),
+        "dex_string_regex must trigger on trojan_payload_indicator"
+    );
+    assert!(
+        report.findings.iter().any(|f| f.rule_id == "TEST-DEX-METHOD-COUNT-OK"),
+        "dex_method_count >= 2 must match"
+    );
+    assert!(
+        !report.findings.iter().any(|f| f.rule_id == "TEST-DEX-METHOD-COUNT-HIGH"),
+        "dex_method_count >= 10 must NOT match (actual = 2)"
+    );
+
+    // 2. Report DEX facts in JSON
+    assert!(report.dex.is_some(), "DEX facts must be present in report");
+    let dex_facts = report.dex.as_ref().unwrap();
+    assert_eq!(dex_facts.classes, 1);
+    assert_eq!(dex_facts.methods, 2);
+    assert_eq!(dex_facts.strings, 5);
+    assert_eq!(dex_facts.class_names, vec!["com.foo.Bar"]);
+
+    let json = serde_json::to_string(&report).expect("report serializes to JSON");
+    assert!(json.contains(r#""dex":{"#), "JSON report must contain dex field");
+    assert!(json.contains(r#""classes":1"#));
+    assert!(json.contains(r#""methods":2"#));
+    assert!(json.contains(r#""strings":5"#));
+    assert!(json.contains(r#""class_names":["com.foo.Bar"]"#));
+
+    // Verify skip_serializing_if for empty vectors
+    let empty_dex = hydradragonsig::models::DexInfo::default();
+    let empty_json = serde_json::to_string(&empty_dex).expect("DexInfo serializes");
+    assert!(!empty_json.contains("class_names"), "empty class_names must be skipped");
+    assert!(!empty_json.contains("method_names"), "empty method_names must be skipped");
+
+    // 3. Scan plain text file: DEX rules must NOT match
+    let text_report = scan_bytes(b"This is a plain text file without DEX magic.", &rules, &options);
+    assert!(text_report.findings.is_empty(), "non-DEX file must fail all DEX conditions");
+    assert!(text_report.dex.is_none(), "non-DEX report must have dex = None");
+}

@@ -51,6 +51,11 @@ pub fn refresh_features(report: &mut ScanReport) {
         &report.file_type,
         report.pe.as_ref(),
     );
+    if let Some(apk) = &report.apk {
+        for (name, value) in &apk.features {
+            report.features.insert(format!("apk_{name}"), json!(value));
+        }
+    }
 }
 
 pub fn build_report(ctx: ScanContext) -> ScanReport {
@@ -88,5 +93,7 @@ pub fn build_report(ctx: ScanContext) -> ScanReport {
         mitre_techniques: Vec::new(), // Initialize empty - will be populated by rule engine
         parent: None,
         behavior: None,
+        dex: None,
+        apk: None,
     }
 }

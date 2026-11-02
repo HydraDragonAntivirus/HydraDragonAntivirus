@@ -359,7 +359,8 @@ pub(crate) mod tests {
     #[test]
     fn string_ids_out_of_bounds_and_oversized() {
         let mut dex = sample();
-        dex[OFF_STRING_IDS_OFF..OFF_STRING_IDS_OFF + 4].copy_from_slice(&(dex.len() as u32 + 10).to_le_bytes());
+        let bad_off = (dex.len() as u32 + 10).to_le_bytes();
+        dex[OFF_STRING_IDS_OFF..OFF_STRING_IDS_OFF + 4].copy_from_slice(&bad_off);
         assert!(parse_dex_string_table(&dex).is_none());
         let mut dex = sample();
         dex[OFF_STRING_IDS_SIZE..OFF_STRING_IDS_SIZE + 4].copy_from_slice(&300_000u32.to_le_bytes());

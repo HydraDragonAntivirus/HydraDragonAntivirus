@@ -1,3 +1,6 @@
+pub mod apk;
+pub mod cfb;
+pub mod dex;
 pub mod env;
 pub mod filetype;
 pub mod ftm;

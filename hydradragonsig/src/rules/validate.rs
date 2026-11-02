@@ -103,6 +103,11 @@ pub const CONDITION_KEYS: &[(&str, &[&str])] = &[
     ("file_timestamp", &["equals", "after", "before", "raw_hex", "age_days_min", "age_days_max"]),
     ("file_attributes", &["spec", "required", "forbidden"]),
     ("domain_blocklist", &["db", "categories", "decoded", "min"]),
+    ("dex_string_regex", &["pattern"]),
+    ("dex_class_regex", &["pattern", "min"]),
+    ("dex_method_regex", &["pattern", "min"]),
+    ("dex_class_count", &["min"]),
+    ("dex_method_count", &["min"]),
 ];
 
 /// Values accepted by `file_type` conditions.
@@ -125,6 +130,14 @@ pub const FEATURES: &[&str] = &[
     "pe_section_count",
     "pe_suspicious_import_count",
 ];
+
+/// `FEATURES` plus the APK profile, exposed as `apk_<name>` on Android packages.
+fn known_feature(name: &str) -> bool {
+    FEATURES.contains(&name)
+        || name
+            .strip_prefix("apk_")
+            .is_some_and(|n| crate::scanner::apk::APK_TREE_FEATURE_NAMES.contains(&n))
+}
 
 /// Features a parent summary always carries (`ParentInfo::from_bytes`).
 pub const PARENT_FEATURES: &[&str] = &[
@@ -505,9 +518,9 @@ fn check_condition(cond: &RuleCondition, rules: &[Rule], own_id: &str, known_ids
         RuleCondition::FeatureGte { name, .. }
         | RuleCondition::FeatureLte { name, .. }
         | RuleCondition::FeatureDeltaGte { name, .. }
-            if !FEATURES.contains(&name.as_str()) =>
+            if !known_feature(name) =>
         {
-            out.push(format!("unknown feature `{name}` (known: {})", FEATURES.join(", ")));
+            out.push(format!("unknown feature `{name}` (known: {}, apk_*)", FEATURES.join(", ")));
         }
         RuleCondition::ParentFeatureGte { name, .. } | RuleCondition::ParentFeatureLte { name, .. }
             if !PARENT_FEATURES.contains(&name.as_str()) =>
@@ -515,8 +528,8 @@ fn check_condition(cond: &RuleCondition, rules: &[Rule], own_id: &str, known_ids
             out.push(format!("unknown parent feature `{name}` (known: {})", PARENT_FEATURES.join(", ")));
         }
         RuleCondition::NewImportSet { names, min } => list_problems("names", names, *min, &mut out),
-        RuleCondition::FeatureGte { name, .. } if !FEATURES.contains(&name.as_str()) => {
-            out.push(format!("unknown feature `{name}` (known: {})", FEATURES.join(", ")));
+        RuleCondition::FeatureGte { name, .. } if !known_feature(name) => {
+            out.push(format!("unknown feature `{name}` (known: {}, apk_*)", FEATURES.join(", ")));
         }
         RuleCondition::BytePattern { pattern, excludes, .. } => {
             out.extend(byte_problem(pattern));
@@ -785,7 +798,7 @@ fn check_condition(cond: &RuleCondition, rules: &[Rule], own_id: &str, known_ids
                 ));
             }
             for b in bounds {
-                if !FEATURES.contains(&b.feature.as_str())
+                if !known_feature(&b.feature)
                     && !matches!(
                         b.feature.as_str(),
                         "entropy" | "file_entropy" | "size" | "file_size"
@@ -921,6 +934,31 @@ fn check_condition(cond: &RuleCondition, rules: &[Rule], own_id: &str, known_ids
                 out.push("domain_blocklist `min` must be at least 1".into());
             }
         }
+        RuleCondition::DexStringRegex { pattern } => {
+            out.extend(regex_problem(pattern));
+        }
+        RuleCondition::DexClassRegex { pattern, min } => {
+            out.extend(regex_problem(pattern));
+            if let Some(m) = min && *m == 0 {
+                out.push("dex_class_regex `min` must be at least 1".into());
+            }
+        }
+        RuleCondition::DexMethodRegex { pattern, min } => {
+            out.extend(regex_problem(pattern));
+            if let Some(m) = min && *m == 0 {
+                out.push("dex_method_regex `min` must be at least 1".into());
+            }
+        }
+        RuleCondition::DexClassCount { min } => {
+            if let Some(m) = min && *m == 0 {
+                out.push("dex_class_count `min` must be at least 1".into());
+            }
+        }
+        RuleCondition::DexMethodCount { min } => {
+            if let Some(m) = min && *m == 0 {
+                out.push("dex_method_count `min` must be at least 1".into());
+            }
+        }
         _ => {}
     }
     out
@@ -944,7 +982,8 @@ mod tests {
     fn sample_fields(ctype: &str) -> &'static str {
         match ctype {
             "string_contains" | "hash_sha256" | "hash_md5" | "hash_sha1" | "hash_crc32" => "        value: x\n",
-            "string_regex" | "import_regex" | "dll_regex" | "section_name_regex" | "path_regex" | "byte_pattern" | "path_glob" => "        pattern: x\n",
+            "string_regex" | "import_regex" | "dll_regex" | "section_name_regex" | "path_regex" | "byte_pattern" | "path_glob" | "dex_string_regex" | "dex_class_regex" | "dex_method_regex" => "        pattern: x\n",
+            "dex_class_count" | "dex_method_count" => "        min: 1\n",
             "string_set" | "file_type" | "imphash_any" | "resource_hash_any" | "export_hash_any" => "        values: [x]\n",
             "native_signature" => "        atoms: []\n        expression: x\n",
             "suspicious_import_count" | "file_entropy" | "section_entropy" => "        min: 1\n",
@@ -967,5 +1006,48 @@ mod tests {
             "emulated_count_gte" => "        api: x\n        min: 1\n",
             _ => "        names: [x]\n",
         }
+    }
+
+    #[test]
+    fn dex_rule_yaml_validation() {
+        let valid_yaml = r#"
+rules:
+  - id: TEST-DEX-DROPPER
+    title: dex dropper class r f
+    severity: high
+    conditions:
+      - type: dex_class_regex
+        pattern: "(net\\.alchemy|lepplix).*dropper"
+        min: 1
+      - type: dex_method_count
+        min: 200
+"#;
+        let set = crate::rules::RuleSet::from_yaml_str(valid_yaml).expect("valid yaml");
+        assert!(set.warnings().is_empty(), "unexpected warnings: {:?}", set.warnings());
+
+        let min_zero_yaml = r#"
+rules:
+  - id: TEST-DEX-ZERO
+    title: min 0
+    severity: high
+    conditions:
+      - type: dex_class_regex
+        pattern: "com\\.foo"
+        min: 0
+"#;
+        let set = crate::rules::RuleSet::from_yaml_str(min_zero_yaml).expect("parsed");
+        assert!(set.warnings().iter().any(|w| w.contains("`min` must be at least 1")), "{:?}", set.warnings());
+
+        let bad_regex_yaml = r#"
+rules:
+  - id: TEST-DEX-BAD-RE
+    title: bad regex
+    severity: high
+    conditions:
+      - type: dex_string_regex
+        pattern: "[a-z"
+"#;
+        let set = crate::rules::RuleSet::from_yaml_str(bad_regex_yaml).expect("parsed");
+        assert!(set.warnings().iter().any(|w| w.contains("invalid regex")), "{:?}", set.warnings());
     }
 }

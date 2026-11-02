@@ -42,6 +42,8 @@ struct ScanView {
     decode_strings: bool,
     /// Ids of the rules that matched so far in this scan (`rule_match` conditions).
     matched_rules: std::collections::HashSet<String>,
+    dex_loaded: bool,
+    dex_strings: Vec<String>,
 }
 
 /// Categorized host blocklist loaded from an external text file:
@@ -272,6 +274,8 @@ impl ScanView {
             imports_lower,
             dlls_lower,
             exports_lower,
+            dex_loaded: false,
+            dex_strings: Vec::new(),
         }
     }
 
@@ -354,6 +358,21 @@ impl ScanView {
             report.entropy = crate::utils::entropy::byte_entropy(bytes);
         }
         crate::report::refresh_features(report);
+    }
+
+    fn ensure_dex(&mut self, report: &mut ScanReport, bytes: &[u8]) {
+        if self.dex_loaded {
+            return;
+        }
+        self.dex_loaded = true;
+        if crate::scanner::dex::is_dex(bytes) {
+            if let Some(parsed) = crate::scanner::dex::parse_dex_full(bytes) {
+                if report.dex.is_none() {
+                    report.dex = Some(parsed.info);
+                }
+                self.dex_strings = parsed.strings;
+            }
+        }
     }
 
     fn update_pe(&mut self, pe: &crate::models::PeInfo) {
@@ -1338,7 +1357,10 @@ fn warm_rule_caches(rule: &Rule) {
             | RuleCondition::ImportRegex { pattern }
             | RuleCondition::DllRegex { pattern }
             | RuleCondition::SectionNameRegex { pattern }
-            | RuleCondition::PathRegex { pattern } => {
+            | RuleCondition::PathRegex { pattern }
+            | RuleCondition::DexStringRegex { pattern }
+            | RuleCondition::DexClassRegex { pattern, .. }
+            | RuleCondition::DexMethodRegex { pattern, .. } => {
                 let _ = cached_regex(pattern);
             }
             RuleCondition::PeSection { name_regex: Some(pattern), .. } => {
@@ -1839,6 +1861,11 @@ fn evaluate_rule_with_matches(
             | RuleCondition::FeatureLte { .. }
             | RuleCondition::FeatureDeltaGte { .. }
             | RuleCondition::FeatureBounds { .. } => view.ensure_features(report, bytes),
+            RuleCondition::DexStringRegex { .. }
+            | RuleCondition::DexClassRegex { .. }
+            | RuleCondition::DexMethodRegex { .. }
+            | RuleCondition::DexClassCount { .. }
+            | RuleCondition::DexMethodCount { .. } => view.ensure_dex(report, bytes),
             RuleCondition::NewImportSet { .. } => view.ensure_pe(report, bytes),
             RuleCondition::RuleMatch { ids, min } => {
                 let needed = set_needed(*min, ids.len());
@@ -3026,6 +3053,63 @@ fn evaluate_condition(
                 return None;
             };
             domain_blocklist_evidence(&db, categories, min.unwrap_or(1).max(1), report, view)
+        }
+        RuleCondition::DexStringRegex { pattern } => {
+            let _dex = report.dex.as_ref()?;
+            let re = cached_regex(pattern)?;
+            if let Some(hit) = view.dex_strings.iter().find(|s| re.is_match(s)) {
+                return Some(format!("dex_string_regex `{pattern}` matched `{hit}`"));
+            }
+            if view.dex_strings.is_empty() && crate::scanner::dex::is_dex(bytes) {
+                if let Some(strings) = crate::scanner::dex::parse_dex_string_table(bytes) {
+                    if let Some(hit) = strings.iter().find(|s| re.is_match(s)) {
+                        return Some(format!("dex_string_regex `{pattern}` matched `{hit}`"));
+                    }
+                }
+            }
+            None
+        }
+        RuleCondition::DexClassRegex { pattern, min } => {
+            let dex = report.dex.as_ref()?;
+            let re = cached_regex(pattern)?;
+            let needed = min.unwrap_or(1);
+            let hits: Vec<&str> = dex.class_names.iter().filter(|c| re.is_match(c)).map(String::as_str).collect();
+            if hits.len() >= needed && !hits.is_empty() {
+                let sample = hits.iter().take(3).copied().collect::<Vec<_>>().join(", ");
+                Some(format!("dex_class_regex `{pattern}` matched {} classes: {sample}", hits.len()))
+            } else {
+                None
+            }
+        }
+        RuleCondition::DexMethodRegex { pattern, min } => {
+            let dex = report.dex.as_ref()?;
+            let re = cached_regex(pattern)?;
+            let needed = min.unwrap_or(1);
+            let hits: Vec<&str> = dex.method_names.iter().filter(|m| re.is_match(m)).map(String::as_str).collect();
+            if hits.len() >= needed && !hits.is_empty() {
+                let sample = hits.iter().take(3).copied().collect::<Vec<_>>().join(", ");
+                Some(format!("dex_method_regex `{pattern}` matched {} methods: {sample}", hits.len()))
+            } else {
+                None
+            }
+        }
+        RuleCondition::DexClassCount { min } => {
+            let dex = report.dex.as_ref()?;
+            let needed = min.unwrap_or(1);
+            if dex.classes >= needed {
+                Some(format!("dex_class_count {} >= {needed}", dex.classes))
+            } else {
+                None
+            }
+        }
+        RuleCondition::DexMethodCount { min } => {
+            let dex = report.dex.as_ref()?;
+            let needed = min.unwrap_or(1);
+            if dex.methods >= needed {
+                Some(format!("dex_method_count {} >= {needed}", dex.methods))
+            } else {
+                None
+            }
         }
     }
 }

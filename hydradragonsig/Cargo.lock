@@ -525,6 +525,7 @@ dependencies = [
  "daachorse",
  "digest 0.11.3",
  "env_logger",
+ "flate2",
  "hex",
  "iced-x86",
  "image",

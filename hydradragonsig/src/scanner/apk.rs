@@ -1037,7 +1037,9 @@ pub(crate) mod tests {
         assert_eq!(feature(&v, "is_protector_packed"), 1.0);
         assert_eq!(feature(&v, "has_non_standard_dex"), 0.0);
         assert_eq!(feature(&v, "mal_str_hits"), 0.0);
-        assert!(feature(&v, "unknown_str_ratio") > 0.9);
+        // 9 distinct strings: 4 DEX table entries, 2 method refs, 3 ELF strings.
+        assert_eq!(feature(&v, "unknown_str_ratio"), 9.0 / 10.0);
+        assert_eq!(feature(&v, "total_unique_strings_log"), 10f32.ln());
     }
 
     struct EverythingMalicious;

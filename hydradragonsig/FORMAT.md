@@ -539,6 +539,74 @@ consumer sees them: `string_contains`, `string_set`, `string_regex`, the
 Rules expect readable decoding results (8+ characters count); short or binary
 decodes are dropped. `--no-decode` disables the whole decoded layer.
 
+### 5.13 DEX conditions (Android payloads)
+
+Dalvik executable (`classes.dex`) structure is parsed lazily: header counts, string table, defined classes and method references. Non-DEX files never match these conditions. DEX yapısı parse ediliyor (veri tablosu + class + method tabloları).
+
+| Type | Keys | Matches when |
+|---|---|---|
+| `dex_string_regex` | `pattern` | Regex matches any entry in the DEX string table. |
+| `dex_class_regex` | `pattern`, `min` (default 1) | Dotted class name (`com.foo.Bar`) matches regex at least `min` times. |
+| `dex_method_regex` | `pattern`, `min` (default 1) | Method reference (`com.foo.Bar->name`) matches regex at least `min` times. |
+| `dex_class_count` | `min` (default 1) | Number of class definitions (`classes`) is at least `min`. |
+| `dex_method_count` | `min` (default 1) | Number of method references (`methods`) is at least `min`. |
+
+Example:
+
+```yaml
+rules:
+  - id: TEST-DEX-DROPPER
+    title: dex dropper class and method counts
+    severity: high
+    conditions:
+      - type: dex_class_regex
+        pattern: "(net\\.alchemy|lepplix).*dropper"
+        min: 1
+      - type: dex_method_count
+        min: 200
+```
+
+### 5.14 Android packages and compound files
+
+**APK profile.** An Android package (`file_type: apk`) gets `report.apk`: a
+58-value structural profile (package layout, manifest summary and capability
+permissions, DEX counts, native library architectures and symbols, Dalvik API
+references, packaging anomalies, string statistics). Every value is also a
+feature named `apk_<name>`, so `feature_gte`, `feature_lte` and
+`feature_bounds` read it:
+
+```yaml
+- id: TEST-APK-SMS-TRIO
+  title: premium sms permission trio
+  severity: high
+  logic: all
+  conditions:
+    - type: feature_gte
+      name: apk_sms_trio
+      value: 1
+    - type: feature_gte
+      name: apk_api_sms_send_calls
+      value: 0.5
+```
+
+`*_log` sizes, the `so_*` symbol counts, every `api_*` count,
+`assets_entry_count` and the `*_hits` counts are stored as `ln(1 + n)`
+(`apk_api_sms_send_calls >= 0.5` means at least one reference); the other
+counts (`dex_*`, `perm_total`, `dangerous_perm_count`, ...) are raw, and flags
+are 0 or 1. The string statistics
+(`mal_str_hits` ... `total_unique_strings_log`) need a string model supplied by
+the embedding engine; without one every string counts as unknown. The members
+of the APK (`classes.dex`, libraries) are still scanned one by one, so DEX
+conditions (5.13) apply to each `classes*.dex`.
+
+**Compound files (OLE2 / CFB).** Legacy Office documents, MSI and other
+structured storage files are opened like archives: every stream is scanned as a
+member named by its storage path (`Macros/VBA/Module1`; control characters
+written as `\x01`). An OLE packager stream (`\x01Ole10Native`) also yields the
+file it embeds as `<stream>/<embedded name>`, so `path_regex` /
+`path_glob` rules can target dropped payloads. Stream and total sizes follow
+the archive limits.
+
 ## 6. native_signature
 
 YARA-like atoms plus a boolean expression:
@@ -635,6 +703,30 @@ parse (for example `MZ` without a valid PE header).
 `string_count`, `decoded_string_count`, `env_hit_count`,
 `file_entropy_bits_per_byte`, `pe_import_count`, `pe_export_count`,
 `pe_section_count`, `pe_suspicious_import_count`.
+
+Android packages add `apk_<name>` for each APK profile value (section 5.14):
+`apk_dex_classes`, `apk_dex_strings`, `apk_dex_methods`, `apk_dex_files`,
+`apk_elf_so_count`, `apk_perm_total`, `apk_activities`, `apk_services`,
+`apk_receivers`, `apk_min_sdk`, `apk_target_sdk`, `apk_entropy`,
+`apk_entry_count`, `apk_file_size_log`, `apk_manifest_size_log`,
+`apk_dex_size_log`, `apk_so_size_log`, `apk_dangerous_perm_count`,
+`apk_sms_trio`, `apk_has_manifest`, `apk_multidex`, `apk_compression_ratio`,
+`apk_avg_entry_size_log`, `apk_native_with_perms`, `apk_has_arm64`,
+`apk_has_arm32`, `apk_has_x86`, `apk_has_x86_64`, `apk_so_exported_jni_count`,
+`apk_so_imported_symbols_count`, `apk_so_suspicious_imports_count`,
+`apk_perm_boot_completed`, `apk_perm_accessibility_service`,
+`apk_perm_device_admin`, `apk_perm_system_alert_window`,
+`apk_perm_install_packages`, `apk_perm_read_phone_state`,
+`apk_perm_external_storage_write`, `apk_api_reflection_calls`,
+`apk_api_dynamic_dex_loading`, `apk_api_crypto_cipher_calls`,
+`apk_api_process_exec_calls`, `apk_api_sms_send_calls`,
+`apk_api_device_id_calls`, `apk_api_network_http_calls`,
+`apk_api_package_manager_queries`, `apk_api_anti_debug_root_calls`,
+`apk_assets_entry_count`, `apk_assets_size_log`,
+`apk_has_hidden_payload_in_assets`, `apk_is_protector_packed`,
+`apk_has_non_standard_dex`, `apk_mal_str_hits`, `apk_ben_str_hits`,
+`apk_mal_ben_str_ratio`, `apk_mal_str_density`, `apk_unknown_str_ratio`,
+`apk_total_unique_strings_log`.
 
 ## 10. Writing good signatures
 

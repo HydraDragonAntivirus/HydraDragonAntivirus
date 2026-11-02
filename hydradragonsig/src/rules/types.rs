@@ -135,6 +135,15 @@ impl Rule {
                         types.push("pe".to_string());
                     }
                 }
+                RuleCondition::DexStringRegex { .. }
+                | RuleCondition::DexClassRegex { .. }
+                | RuleCondition::DexMethodRegex { .. }
+                | RuleCondition::DexClassCount { .. }
+                | RuleCondition::DexMethodCount { .. } => {
+                    if !types.contains(&"dex".to_string()) {
+                        types.push("dex".to_string());
+                    }
+                }
                 RuleCondition::FileType { values } => {
                     for v in values {
                         if !types.contains(v) {
@@ -842,6 +851,33 @@ pub enum RuleCondition {
         #[serde(default)]
         decoded: bool,
         /// Minimum distinct domains that must match.
+        #[serde(default)]
+        min: Option<usize>,
+    },
+
+    /// DEX string table matches regular expression.
+    DexStringRegex {
+        pattern: String,
+    },
+    /// Dotted Java class name defined in the DEX matches regular expression.
+    DexClassRegex {
+        pattern: String,
+        #[serde(default)]
+        min: Option<usize>,
+    },
+    /// Method reference (`com.foo.Bar->name`) matches regular expression.
+    DexMethodRegex {
+        pattern: String,
+        #[serde(default)]
+        min: Option<usize>,
+    },
+    /// Number of class definitions in the DEX header is at least `min`.
+    DexClassCount {
+        #[serde(default)]
+        min: Option<usize>,
+    },
+    /// Number of method references in the DEX header is at least `min`.
+    DexMethodCount {
         #[serde(default)]
         min: Option<usize>,
     },

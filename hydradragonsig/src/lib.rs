@@ -163,6 +163,12 @@ fn finalize_scan_context(
     let mut report = report::build_report(ctx);
     report.parent = options.parent.clone();
     report.behavior = options.behavior.clone();
+    if report.dex.is_none() && (report.file_type.is_dex || crate::scanner::dex::is_dex(&bytes)) {
+        report.dex = crate::scanner::dex::parse_dex(&bytes);
+    }
+    if report.apk.is_none() && report.file_type.is_apk {
+        report.apk = crate::scanner::apk::apk_info(&bytes);
+    }
     evaluate_rules(&mut report, &bytes, rules, options);
     // Strings / PE data may have been loaded lazily by the rules.
     report::refresh_features(&mut report);
@@ -267,7 +273,10 @@ fn should_scan_archive(
     {
         return false;
     }
-    report.file_type.is_zip || report.file_type.is_apk || report.file_type.is_jar
+    report.file_type.is_zip
+        || report.file_type.is_apk
+        || report.file_type.is_jar
+        || report.file_type.is_microsoft_compound
 }
 
 #[derive(Debug, Default)]
@@ -284,6 +293,9 @@ fn scan_archive_members_from_bytes(
     scanner_config: &ScannerConfig,
     depth: u32,
 ) -> Result<ArchiveScanOutput> {
+    if scanner::cfb::is_cfb(bytes) {
+        return Ok(scan_cfb_members(parent_path, bytes, rules, options, scanner_config, depth));
+    }
     let mut output = ArchiveScanOutput::default();
     let mut archive = match ZipArchive::new(Cursor::new(bytes)) {
         Ok(archive) => archive,
@@ -316,10 +328,7 @@ fn scan_archive_members_from_bytes(
         let name = member.name().replace('\\', "/");
         let virtual_path = format!("archive://{}!{}", parent_path.display(), name);
         let size = member.size();
-        let member_limit = options
-            .max_file_size
-            .unwrap_or(options.unpack_config.max_archive_size)
-            .min(options.unpack_config.max_archive_size);
+        let member_limit = member_limit(options);
 
         if size > member_limit {
             output.members.push(ArchiveMemberResult {
@@ -357,45 +366,7 @@ fn scan_archive_members_from_bytes(
             continue;
         }
 
-        let member_report = match HydraScanner::scan_bytes(member_bytes, PathBuf::from(virtual_path.clone()), scanner_config)
-            .and_then(|ctx| finalize_scan_context(ctx, rules, options, scanner_config, depth))
-        {
-            Ok(r) => r,
-            Err(_) => {
-                output.members.push(ArchiveMemberResult {
-                    name,
-                    path: virtual_path,
-                    result_code: ScanResultCode::OpenError,
-                    threat_name: None,
-                    size,
-                    depth,
-                });
-                continue;
-            }
-        };
-        let result_code = member_report.result_code;
-        let threat_name = member_report.threat_name.clone();
-        let scanned_size = member_report.file_size;
-
-        output.members.push(ArchiveMemberResult {
-            name,
-            path: virtual_path.clone(),
-            result_code,
-            threat_name,
-            size: scanned_size,
-            depth,
-        });
-        output
-            .members
-            .extend(member_report.archive_members.iter().cloned());
-
-        let mut member_findings = member_report.findings.clone();
-        prefix_archive_findings(&mut member_findings, &virtual_path);
-        output.findings.extend(member_findings);
-
-        if (options.unpack_config.break_on_threat || options.core_options.break_archive_scan)
-            && result_code.is_infected()
-        {
+        if scan_member(&mut output, name, virtual_path, member_bytes, size, rules, options, scanner_config, depth) {
             break;
         }
     }
@@ -403,10 +374,206 @@ fn scan_archive_members_from_bytes(
     Ok(output)
 }
 
+fn member_limit(options: &ScanOptions) -> u64 {
+    options
+        .max_file_size
+        .unwrap_or(options.unpack_config.max_archive_size)
+        .min(options.unpack_config.max_archive_size)
+}
+
+/// Scan one extracted member and record it. Returns true when the archive scan
+/// should stop (a threat was found and break-on-threat is set).
+#[allow(clippy::too_many_arguments)]
+fn scan_member(
+    output: &mut ArchiveScanOutput,
+    name: String,
+    virtual_path: String,
+    member_bytes: Vec<u8>,
+    size: u64,
+    rules: &RuleSet,
+    options: &ScanOptions,
+    scanner_config: &ScannerConfig,
+    depth: u32,
+) -> bool {
+    let member_report = match HydraScanner::scan_bytes(member_bytes, PathBuf::from(virtual_path.clone()), scanner_config)
+        .and_then(|ctx| finalize_scan_context(ctx, rules, options, scanner_config, depth))
+    {
+        Ok(r) => r,
+        Err(_) => {
+            output.members.push(ArchiveMemberResult {
+                name,
+                path: virtual_path,
+                result_code: ScanResultCode::OpenError,
+                threat_name: None,
+                size,
+                depth,
+            });
+            return false;
+        }
+    };
+    let result_code = member_report.result_code;
+
+    output.members.push(ArchiveMemberResult {
+        name,
+        path: virtual_path.clone(),
+        result_code,
+        threat_name: member_report.threat_name.clone(),
+        size: member_report.file_size,
+        depth,
+    });
+    output.members.extend(member_report.archive_members.iter().cloned());
+
+    let mut member_findings = member_report.findings;
+    prefix_archive_findings(&mut member_findings, &virtual_path);
+    output.findings.extend(member_findings);
+
+    (options.unpack_config.break_on_threat || options.core_options.break_archive_scan) && result_code.is_infected()
+}
+
+/// Streams of a compound file (OLE2) as members; a `\x01Ole10Native` stream
+/// also yields the file it embeds, as `<stream>/<embedded name>`.
+fn scan_cfb_members(
+    parent_path: &Path,
+    bytes: &[u8],
+    rules: &RuleSet,
+    options: &ScanOptions,
+    scanner_config: &ScannerConfig,
+    depth: u32,
+) -> ArchiveScanOutput {
+    let mut output = ArchiveScanOutput::default();
+    let limit = member_limit(options);
+    let cap = usize::try_from(limit).unwrap_or(usize::MAX);
+    let total = usize::try_from(options.unpack_config.max_archive_size).unwrap_or(usize::MAX);
+    let Some(streams) = scanner::cfb::read_streams(bytes, cap, total) else {
+        return output;
+    };
+    for stream in streams {
+        let virtual_path = format!("archive://{}!{}", parent_path.display(), stream.path);
+        if stream.size > limit {
+            output.members.push(ArchiveMemberResult {
+                name: stream.path,
+                path: virtual_path,
+                result_code: ScanResultCode::FileTooLarge,
+                threat_name: None,
+                size: stream.size,
+                depth,
+            });
+            continue;
+        }
+        let embedded = stream
+            .path
+            .ends_with("\\x01Ole10Native")
+            .then(|| scanner::cfb::ole10native_payload(&stream.data))
+            .flatten();
+        if scan_member(&mut output, stream.path.clone(), virtual_path, stream.data, stream.size, rules, options, scanner_config, depth) {
+            break;
+        }
+        if let Some((file_name, payload)) = embedded {
+            let name = format!("{}/{}", stream.path, file_name);
+            let path = format!("archive://{}!{}", parent_path.display(), name);
+            let size = payload.len() as u64;
+            if scan_member(&mut output, name, path, payload, size, rules, options, scanner_config, depth) {
+                break;
+            }
+        }
+    }
+    output
+}
+
 fn prefix_archive_findings(findings: &mut [Finding], virtual_path: &str) {
     for finding in findings {
         finding
             .evidence
             .insert(0, format!("archive_member {}", virtual_path));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn scan(bytes: Vec<u8>, yaml: &str) -> ScanReport {
+        let rules = RuleSet::from_yaml_str(yaml).expect("rules");
+        assert!(rules.warnings().is_empty(), "{:?}", rules.warnings());
+        let ctx = MemoryScanContext { buffer: bytes, identifier: "sample".into(), base_address: None };
+        scan_memory(&ctx, &rules, &ScanOptions::default()).expect("scan")
+    }
+
+    #[test]
+    fn apk_profile_in_report_and_feature_rules() {
+        let dex = scanner::dex::tests::build_dex(&["Lcom/foo/Bar;", "onCreate"], &[0], &[0], &[(0, 1)]);
+        let manifest = b"\x03\x00\x08\x00 android.permission.SEND_SMS android.permission.READ_SMS android.permission.RECEIVE_SMS ";
+        let apk = scanner::apk::tests::zip_of(&[("AndroidManifest.xml", manifest), ("classes.dex", &dex)]);
+        let report = scan(
+            apk,
+            r#"
+rules:
+  - id: TEST-APK-SMS-TRIO
+    title: premium sms permission trio
+    severity: high
+    verdict: suspicious
+    logic: all
+    conditions:
+      - type: feature_gte
+        name: apk_sms_trio
+        value: 1
+      - type: feature_gte
+        name: apk_dex_classes
+        value: 1
+"#,
+        );
+        let apk = report.apk.as_ref().expect("apk profile");
+        assert_eq!(apk.features.len(), scanner::apk::APK_TREE_FEATURE_COUNT);
+        assert_eq!(apk.features["sms_trio"], 1.0);
+        assert_eq!(report.features["apk_dex_methods"], serde_json::json!(1.0));
+        assert!(report.findings.iter().any(|f| f.rule_id == "TEST-APK-SMS-TRIO"), "{:?}", report.findings);
+        let json = serde_json::to_value(&report).unwrap();
+        assert!(json["apk"]["features"]["dex_classes"].is_number());
+        assert!(json.get("dex").is_none(), "the APK itself is not a DEX");
+    }
+
+    #[test]
+    fn unknown_apk_feature_is_a_load_warning() {
+        let rules = RuleSet::from_yaml_str(
+            "rules:\n  - id: X\n    title: x\n    severity: low\n    conditions:\n      - type: feature_gte\n        name: apk_no_such_feature\n        value: 1\n",
+        )
+        .unwrap();
+        assert!(rules.warnings().iter().any(|w| w.contains("apk_no_such_feature")), "{:?}", rules.warnings());
+    }
+
+    #[test]
+    fn compound_file_streams_and_embedded_objects_are_scanned() {
+        let big = vec![0x41u8; 4096];
+        let native = scanner::cfb::tests::ole10native("dropper.js", b"var s = new ActiveXObject('WScript.Shell');");
+        let file = scanner::cfb::tests::build_cfb(b"plain stream text", &big, &native);
+
+        let report = scan(
+            file.clone(),
+            r#"
+rules:
+  - id: TEST-OLE-EMBEDDED-SCRIPT
+    title: script embedded through the OLE packager
+    severity: high
+    verdict: malware
+    logic: all
+    conditions:
+      - type: path_regex
+        pattern: "Ole10Native/dropper\\.js$"
+      - type: string_contains
+        value: "WScript.Shell"
+"#,
+        );
+        let names: Vec<&str> = report.archive_members.iter().map(|m| m.name.as_str()).collect();
+        assert!(names.contains(&"Big") && names.contains(&"Small"), "{names:?}");
+        let finding = report.findings.iter().find(|f| f.rule_id == "TEST-OLE-EMBEDDED-SCRIPT").expect("finding");
+        assert!(finding.evidence[0].ends_with("Store/\\x01Ole10Native/dropper.js"), "{:?}", finding.evidence);
+        assert_eq!(report.verdict, Verdict::Malware);
+
+        let clean = scan(
+            file,
+            "rules:\n  - id: NOPE\n    title: x\n    severity: low\n    conditions:\n      - type: string_contains\n        value: \"never-present-marker\"\n",
+        );
+        assert_eq!(clean.archive_members.len(), 4, "3 streams + 1 embedded file: {:?}", clean.archive_members);
+        assert!(clean.findings.is_empty());
     }
 }
