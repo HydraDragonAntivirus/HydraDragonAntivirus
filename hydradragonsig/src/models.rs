@@ -592,6 +592,31 @@ pub struct BehaviorTrace {
     pub truncated: bool,
 }
 
+/// Structure of a Dalvik executable (`classes.dex`), read by the `dex_*` conditions.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DexInfo {
+    /// `class_defs_size` from the header.
+    pub classes: usize,
+    /// `string_ids_size` from the header.
+    pub strings: usize,
+    /// `method_ids_size` from the header.
+    pub methods: usize,
+    /// Classes defined in the file, dotted (`com.foo.Bar`); capped.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub class_names: Vec<String>,
+    /// Referenced methods as `com.foo.Bar->name`; capped.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub method_names: Vec<String>,
+}
+
+/// Android package profile: the APK tree-model feature vector, by name
+/// (see `scanner::apk::APK_TREE_FEATURE_NAMES`). The same values are exposed
+/// to `feature_gte` / `feature_lte` as `apk_<name>`.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct ApkInfo {
+    pub features: BTreeMap<String, f64>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ScanReport {
     pub path: PathBuf,
@@ -641,6 +666,14 @@ pub struct ScanReport {
     /// emulator (`ScanOptions::behavior`). The `emulated_*` conditions read it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub behavior: Option<BehaviorTrace>,
+
+    /// DEX structure, when the file is a Dalvik executable.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dex: Option<DexInfo>,
+
+    /// APK feature profile, when the file is an Android package.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub apk: Option<ApkInfo>,
 }
 
 impl Default for ScanReport {
@@ -672,6 +705,8 @@ impl Default for ScanReport {
             mitre_techniques: Vec::new(),
             parent: None,
             behavior: None,
+            dex: None,
+            apk: None,
         }
     }
 }
