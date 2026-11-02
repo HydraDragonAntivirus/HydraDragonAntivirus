@@ -692,6 +692,87 @@ rules:
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// `domain_blocklist` with a uBlock Origin filter list: the `CATEGORY=PATH`
+/// spec categorizes the list, URL patterns match scanned URLs (also
+/// scheme-less `host/path`), `@@` exceptions win, cosmetic lines are ignored.
+#[test]
+fn domain_blocklist_matches_ubo_filter_list() {
+    let dir = std::env::temp_dir().join(format!(
+        "hydradragonsig_domain_blocklist_ubo_{}",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+
+    let list_path = dir.join("badware.txt");
+    std::fs::write(
+        &list_path,
+        "[Adblock Plus 2.0]\n! Title: test list\n\
+         ||evil-cdn.example^$doc,important\n\
+         ||drop.example/payload/*.exe\n\
+         @@||drop.example/payload/signed/*\n\
+         ||trusted.example^\n@@||trusted.example^\n\
+         cosmetic.example##.ad\n\
+         0.0.0.0 hosts-entry.example\n\
+         !#if false\n||never.example^\n!#endif\n",
+    )
+    .unwrap();
+    let spec = format!("MALWARE={}", list_path.display()).replace('\\', "\\\\");
+    let rule = |id: &str, min: usize| {
+        format!(
+            r#"
+rules:
+  - id: {id}
+    title: "uBO-listed host referenced"
+    severity: high
+    conditions:
+      - type: domain_blocklist
+        db: "{spec}"
+        categories: [MALWARE]
+        min: {min}
+"#
+        )
+    };
+    let scan = |bytes: &[u8], id: &str, min: usize| {
+        let rules = RuleSet::from_yaml_str_strict(&rule(id, min)).expect("valid rules");
+        scan_bytes(bytes, &rules, &ScanOptions::default())
+            .findings
+            .into_iter()
+            .find(|f| f.rule_id == id)
+    };
+
+    // Four distinct hits: subdomain of a hostname filter, a URL pattern,
+    // a scheme-less URL pattern reference and a hosts-file entry.
+    let bytes = b"cfg=https://a.evil-cdn.example/x\0\
+        url=https://drop.example/payload/stage/run.exe\0\
+        alt drop.example/payload/v2.exe\0\
+        h=hosts-entry.example\0";
+    let hit = scan(bytes, "TEST-UBO-HIT", 4).expect("four listed references");
+    let evidence = format!("{hit:?}");
+    assert!(evidence.contains("https://drop.example/payload/stage/run.exe"), "{evidence}");
+    assert!(evidence.contains("a.evil-cdn.example"), "{evidence}");
+
+    // Exceptions, cosmetic-only hosts and inactive `!#if` blocks never match.
+    let clean = b"u=https://drop.example/payload/signed/tool.exe\0\
+        t=https://www.trusted.example/x\0\
+        c=https://cosmetic.example/\0\
+        n=https://never.example/\0\
+        p=https://drop.example/readme.txt\0";
+    assert!(scan(clean, "TEST-UBO-CLEAN", 1).is_none(), "excepted/ignored entries matched");
+
+    // Scanning the list file itself never reports its own entries; a copy
+    // of it elsewhere still does.
+    let rules = RuleSet::from_yaml_str_strict(&rule("TEST-UBO-SELF", 1)).expect("valid rules");
+    let own = scan_path(&list_path, &rules, &ScanOptions::default()).expect("scan list");
+    assert!(own.findings.iter().all(|f| f.rule_id != "TEST-UBO-SELF"), "list file flagged itself");
+    let copy_path = dir.join("copy.txt");
+    std::fs::copy(&list_path, &copy_path).unwrap();
+    let copy = scan_path(&copy_path, &rules, &ScanOptions::default()).expect("scan copy");
+    assert!(copy.findings.iter().any(|f| f.rule_id == "TEST-UBO-SELF"), "copy of the list not flagged");
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// The magic DB is process-global and tests run in parallel: every ftm test
 /// installs this same DB, so none of them sees another one's entries vanish.
 fn install_test_ftm() {

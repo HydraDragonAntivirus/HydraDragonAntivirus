@@ -405,6 +405,100 @@ Load it with `hydradragonsig --domain-db blocklist.txt ...`; an entry count is
 printed to stderr on load. `tools/decode_containers.py` converts captured
 container databases into this text format.
 
+#### uBlock Origin / Adblock Plus filter lists and hosts files
+
+A DB file may also be (or contain) a uBlock Origin / Adblock Plus filter list
+(syntax of `uBlockOrigin/uAssets` `filters/`) or a hosts file. Lines are
+classified one by one, so `domain:CATEGORY` lines keep working unchanged and
+may be mixed with filter lines in one file.
+
+**Category.** Filter-list and hosts entries have no category of their own; they
+take the category of their list. Give it in the DB spec as `CATEGORY=PATH`
+(both `--domain-db` and the rule's `db` field accept it), for example
+`--domain-db MALWARE=badware.txt --domain-db PHISHING=phish.txt`.
+`--domain-db` is repeatable; all lists are merged into one DB, and `@@`
+exceptions of any list apply to all of them. Without a spec category the
+entries are `UNWANTED`. A `! Category: NAME` comment line inside a list
+changes the category of the entries that follow it. Use broad category names
+(`MALWARE`, `PHISHING`, `UNWANTED`, ...).
+
+Accepted lines:
+
+| Line | Meaning |
+|---|---|
+| `\|\|host^`, `\|\|host^\|`, `\|\|host` | Hostname filter: `host` and all its subdomains. |
+| `host.tld` (plain hostname, at least one dot) | Same as `\|\|host.tld^`. |
+| `0.0.0.0 host [host...]`, `127.0.0.1 host`, `:: host` | Hosts-file entry (any IP first; `localhost`, `broadcasthost`, `ip6-*` are skipped; `#` ends the line). |
+| `\|\|host/path*.exe`, `\|\|host^*/x^` | URL pattern anchored at the hostname or one of its parent-domain label boundaries. |
+| `\|https://host/x\|` | URL pattern anchored at the URL start (`\|` at the end anchors the URL end). |
+| `/path-part/`-style patterns without an anchor | URL substring pattern (at least 4 literal characters). |
+| `/regex/` | Regular expression on the URL (case-insensitive, ASCII `\w`/`\d`/`\s` as in JavaScript). Lookaround and backreferences run on a backtracking engine limited to 100k steps per URL; hitting the limit counts as no match. |
+| `*$doc,ipaddress=IP` (pattern empty or `*`) | Blocks the literal IP address as a host. `ipaddress=` with `lan`, ranges or a URL pattern needs DNS and is skipped. |
+| `@@` + any of the above | Exception: wins over every block except `$important` ones. |
+
+In patterns, `*` matches any run of characters and `^` matches one separator
+(any character except a letter, digit, `_`, `-`, `.`, `%`) or the URL end.
+Hostname filters match every hostname found in the file (as before); URL
+patterns and regexes match the URLs found in the file (`http(s)://`, `ftp(s)://`,
+`ws(s)://`, and scheme-less `host/path` / `host:port/...` references, which are
+treated as `http://` URLs). A URL-pattern hit is reported with the URL instead
+of the hostname.
+
+Options (`$...`):
+
+- `$important` makes the block win over `@@` exceptions.
+- `$badfilter` disables the identical filter (a hostname filter is disabled
+  for its host regardless of its other options).
+- `$domain=` / `$from=` with at least one non-negated entry restrict the filter
+  to pages the scanner does not have, so the filter is skipped; only negated
+  entries (`~site`) are ignored.
+- Filters whose effect is not blocking are skipped: `removeparam`, `csp`,
+  `header`, `replace`, `permissions`, `redirect-rule`, `urlskip`,
+  `uritransform`, `cname`, and the cosmetic/partial exception
+  options (`generichide`/`ghide`, `elemhide`/`ehide`, `specifichide`/`shide`,
+  `genericblock`, `inline-script`, `inline-font`, ...). `@@||site^$ghide` is
+  therefore not a whitelist.
+- Every other option (`$doc`, `$all`, `$3p`, `$1p`, `$script`, `$popup`,
+  `$redirect=`, `$denyallow=`, `$to=`, `$match-case`, ...) is ignored.
+
+Skipped lines: `!` comments, `[Adblock Plus ...]` headers, cosmetic, scriptlet
+and HTML filters (`##`, `#@#`, `#?#`, `#@?#`, `#$#`, `#%#`, `##+js(...)`,
+`$$`, `$@$`), and patterns that would match almost anything (no literal letter
+or digit, e.g. `*$image`, or fewer than 4 literal characters without an anchor).
+
+Preprocessor directives: `!#if` / `!#else` / `!#endif` are evaluated with uBO's
+desktop tokens true (`ext_ublock`, `env_chromium`, `env_firefox`, `env_edge`,
+`cap_html_filtering`, `cap_user_stylesheet`) and every other token false
+(`env_mobile`, `env_safari`, `adguard`, `false`, ...); `!`, `&&` and `||` are
+supported, a parenthesized condition is false. `!#include NAME` reads a file
+next to the including list (no absolute paths, `..` or URLs, at most 2
+levels). Unknown `!#` directives are ignored.
+
+List files are untrusted: files over 256 MiB are refused, and lines over 8 KiB,
+lines past 8 million, filters past 4 million and regex filters past 8192 are
+rejected instead of loaded. Malformed lines are rejected one by one, never the
+whole list. The CLI prints the block / exception / ignored / rejected / include
+counts on load, followed by the first 16 rejected lines.
+
+`OpenMalwareScannerPortable/hydradragonsig_rules/domain_lists/` holds verbatim
+copies of uBlock Origin's malware protection lists (badware, URLhaus,
+phishing) with their sources and licenses; see its README. Its
+`domain_lists.txt` manifest (one `[CATEGORY=]FILE` per line, relative to the
+manifest) is loaded into the global DB by the scan engine
+(`set_global_domain_db_manifest`), where `domain_blocklist_rules.yaml` uses it.
+
+```
+[Adblock Plus 2.0]
+! Title: local badware list
+! Category: MALWARE
+||evil-cdn.example^$doc
+||drop.example/payload/*.exe
+@@||drop.example/payload/signed/*
+/^https?:\/\/[a-z]{8}\.top\/[0-9]+$/
+example.com##.ad-banner
+0.0.0.0 tracker.example
+```
+
 #### `--smart-whitelist` (scan-level depth whitelist)
 
 The CLI accepts `--smart-whitelist FILE` with one `path:MAX_DEPTH` entry per
