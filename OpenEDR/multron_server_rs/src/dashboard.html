@@ -261,6 +261,16 @@
       return orig(url, init);
     };
   })();
+  // Refreshes fn every ms, but only after the previous run has finished. With
+  // setInterval a slow server (a busy engine, a long SQLite query) made the requests
+  // pile up until the browser refused new ones (net::ERR_INSUFFICIENT_RESOURCES).
+  function every(ms, fn) {
+    const tick = async () => {
+      try { await fn(); } catch (_) {}
+      setTimeout(tick, ms);
+    };
+    setTimeout(tick, ms);
+  }
   let theme = localStorage.getItem("theme");
   if (!theme) theme = window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
   document.documentElement.setAttribute("data-theme", theme);
@@ -1934,7 +1944,7 @@ window.sigKey = (list) => list && list.length ? `${list[0].layer}: ${list[0].nam
   $("uiRvClose").onclick = () => { $("uiReview").hidden = true; $("uiLayout").className = ""; };
   $("uiSearch").oninput = () => { clearTimeout(uiTimer); uiTimer = setTimeout(updateUrlInsights, 300); };
   $("uiVerdict").onchange = updateUrlInsights;
-  setInterval(updateUrlInsights, 10000);
+  every(10000, updateUrlInsights);
   updateUrlInsights();
 
   const updateInsightsStats = async () => {
@@ -1965,7 +1975,7 @@ window.sigKey = (list) => list && list.length ? `${list[0].layer}: ${list[0].nam
       }
     } catch (_) {}
   };
-  setInterval(updateInsightsStats, 3000);
+  every(3000, updateInsightsStats);
   updateInsightsStats();
 
   $("hashSearchBtn").onclick = async () => {
@@ -2515,9 +2525,13 @@ window.sigKey = (list) => list && list.length ? `${list[0].layer}: ${list[0].nam
     catch (e) { $("hfMsg").textContent = e.message; return; }
     $("hfRun").disabled = true;
     clearInterval(hfPoll);
+    let hfBusy = false;
     hfPoll = setInterval(async () => {
+      if (hfBusy) return; // the last status request has not answered yet
       let st;
+      hfBusy = true;
       try { st = await (await fetch("/api/folder-wl/status", { cache: "no-store" })).json(); } catch (_) { return; }
+      finally { hfBusy = false; }
       hfShow(st);
       if (st.running) return;
       clearInterval(hfPoll);
@@ -2535,7 +2549,7 @@ window.sigKey = (list) => list && list.length ? `${list[0].layer}: ${list[0].nam
   fetch("/api/folder-wl/status", { cache: "no-store" }).then(r => r.json()).then(st => { if (st.path) $("hfPath").value = st.path; hfShow(st); }).catch(() => {});
 
   haLoad();
-  setInterval(() => { if (!document.hidden) haLoad(); }, 10000);
+  every(10000, () => { if (!document.hidden) return haLoad(); });
 
   // ---------------- Signature room ----------------
   let nbCurrent = "";
@@ -2805,7 +2819,7 @@ window.sigKey = (list) => list && list.length ? `${list[0].layer}: ${list[0].nam
     } catch (_) {}
   };
   load();
-  setInterval(load, 3000);
+  every(3000, load);
   $q("sqAll").onchange = load;
 
   const mb = (v) => v >= 1024 ? (v / 1024).toFixed(2) + " GB" : v.toFixed(v < 10 ? 1 : 0) + " MB";
@@ -2838,7 +2852,7 @@ window.sigKey = (list) => list && list.length ? `${list[0].layer}: ${list[0].nam
     } catch (_) {}
   };
   loadMem();
-  setInterval(loadMem, 5000);
+  every(5000, loadMem);
 })();
 </script>
 <script>
