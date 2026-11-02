@@ -203,19 +203,20 @@ impl YaraScanner {
             return Vec::new();
         }
 
-        let mut hits = Vec::new();
-        for rules in &self.rules {
-            let mut scanner = Scanner::new(rules);
-            if let Ok(results) = scanner.scan(data) {
-                for m in results.matching_rules() {
-                    if !self.ignored.contains(m.identifier()) {
-                        hits.push(m.identifier().to_string());
+        crate::memtrack::measure("scan:yara", crate::memtrack::Kind::Scan, data.len(), || {
+            let mut hits = Vec::new();
+            for rules in &self.rules {
+                let mut scanner = Scanner::new(rules);
+                if let Ok(results) = scanner.scan(data) {
+                    for m in results.matching_rules() {
+                        if !self.ignored.contains(m.identifier()) {
+                            hits.push(m.identifier().to_string());
+                        }
                     }
                 }
             }
-        }
-
-        hits
+            hits
+        })
     }
 
     /// Rule name and file byte range `[start, end)` of every pattern match (rules

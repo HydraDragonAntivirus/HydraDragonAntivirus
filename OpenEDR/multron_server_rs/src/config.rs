@@ -330,11 +330,9 @@ pub struct SavedSettings {
     #[serde(default = "default_tlsh_blacklist_dist")]
     pub tlsh_blacklist_max_dist: u32,
     /// ML decision thresholds (dashboard): a file whose model probability is at least
-    /// PE thresholds are separate by feature source; None uses the engine defaults.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub ml_pe_inner_threshold: Option<f32>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub ml_pe_shell_threshold: Option<f32>,
+    /// this is flagged; None uses the engine default.
+    #[serde(default, skip_serializing_if = "Option::is_none", alias = "ml_pe_inner_threshold")]
+    pub ml_pe_threshold: Option<f32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ml_js_threshold: Option<f32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -365,8 +363,7 @@ impl Default for SavedSettings {
             lzma_low_disk: false,
             low_disk_gb: 5,
             tlsh_blacklist_max_dist: default_tlsh_blacklist_dist(),
-            ml_pe_inner_threshold: None,
-            ml_pe_shell_threshold: None,
+            ml_pe_threshold: None,
             ml_js_threshold: None,
             ml_apk_threshold: None,
             limits: None,

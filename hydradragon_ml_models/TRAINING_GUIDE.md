@@ -1,17 +1,21 @@
 # PE model training
 
-`train_pe_lgbm.py` produces two PE models: one for successfully unpacked PE contents
-and one for samples without a parseable unpacked PE. Runtime uses only these models;
-the old single PE model and combined v2 model are not loaded for inference.
+`train_pe_lgbm.py --features v2` produces the one PE model the scanner uses: a tree
+ensemble over the full v2 feature vector (165 features, `openedr_static`
+`ml/pe_combined.rs`). The vector describes the file as it is (shell), what is inside it
+(the image after emulation, the payload it unpacks to, or the PE an archive / installer
+holds), where that inner part came from, and the string counts of both together. The
+model sees `inner_source` and `inner_is_pe` as features, so it learns on its own how
+much to trust the shell or the content; there is no separate inner / shell model.
 
 ## Prerequisites
 
 - Install packages from `requirements.txt` in the Python environment used for training.
-- For v2 extraction, build `pe_feature_dump` in release mode and make sure
-  `OpenMalwareScannerPortable` (which contains `unicorn.dll`) is available at the
-  configured path. The trainer adds that folder to `PATH` when it invokes the dumper.
-- Configure the normal malicious and benign PE dataset folders using
-  `dataset_paths.py` options or `dataset_paths.json`.
+- Build `pe_feature_dump` in release mode and make sure `OpenMalwareScannerPortable`
+  (which contains `unicorn.dll`) is available at the configured path. The trainer adds
+  that folder to `PATH` when it invokes the dumper.
+- Configure the malicious and benign PE dataset folders using `dataset_paths.py`
+  options or `dataset_paths.json`.
 
 From the repository root, build the feature dumper:
 
@@ -21,66 +25,45 @@ cargo build --release
 cd ..
 ```
 
-## Train the unpacked-content model
+## Train
 
-Run from `hydradragon_ml_models` to train both sides of the inference split:
-
-```powershell
-python train_pe_lgbm.py --features v2 --inner-only
-python train_pe_lgbm.py --features v2 --not-unpacked-only
-```
-
-This extracts v2 features into `cache_chunks_pe_v2`, then trains from samples where
-the emulator successfully produced a parseable inner PE (`inner_source = Unpacked`,
-`inner_is_pe = 1`). It excludes extracted archive members and failed/no-unpack samples.
-The training columns are only the 65 inner PE features, inner ASCII/UTF-16 string
-features, and the inner .NET marker. Shell, combined-string, and shell-relative
-features are not used.
-
-The run writes `pe_trees_inner.bin`, `pe_model_inner.onnx`, and
-`pe_trees_inner_threshold.json`, and copies the tree bundle to the `openedr_static`
-and portable scanner model folders when present. The scanner uses this model for
-successfully unpacked inner PEs. If the inner model is absent, it does not substitute
-the shell model for that sample, avoiding a shell-driven ML verdict.
-
-The second command trains the complementary shell-only model from samples without a
-successfully unpacked parseable inner PE. It uses the outer PE structure, shell
-string counts, the shell .NET marker, shell mimicry, and string ML over the file's own
-strings (benign / malicious filter hits, decompiler and emulator-trace strings); inner
-and combined features are excluded. A shell's layout, entropy and size change with
-every build, but the strings it carries do not, so the string features keep verdicts on
-rebuilt benign shells from flipping. Chunks dumped before the shell string features
-existed lack those columns; rebuild them (a new `pe_feature_dump` build does so
-automatically) to train with them. A shell bin trained without them keeps working,
-because the string columns come after every column it reads. It writes
-`pe_trees_shell.bin`, `pe_model_shell.onnx`, and `pe_trees_shell_threshold.json`, then
-syncs the tree bundle to both scanner model folders. At scan time, a parseable
-unpacked inner PE selects `pe_trees_inner.bin`; every other PE selects
-`pe_trees_shell.bin`. There is no PE model fallback: if the model for the selected
-route is missing, that sample receives no PE ML score.
-
-The scanner's PE cutoffs are independent: dashboard/API field `peInner` applies to
-the inner model and `peShell` to the shell model. Both defaults are `0.95`. Validate
-thresholds on held-out samples before deployment.
-
-To reuse already extracted v2 chunks and skip feature extraction:
+Run from `hydradragon_ml_models`:
 
 ```powershell
-python train_pe_lgbm.py --features v2 --inner-only --train-only
-python train_pe_lgbm.py --features v2 --not-unpacked-only --train-only
+python train_pe_lgbm.py --features v2
 ```
 
-Use `--chunk-dir PATH` if the cached chunks are elsewhere. If you only want to create
-or refresh the raw v2 chunks first:
+This extracts v2 features into `cache_chunks_pe_v2` with `pe_feature_dump` (the
+engine's own extractor, so training and scanning see the same numbers), trains on
+every sample, and writes `pe_trees.bin`, `pe_model.onnx` and `pe_trees_threshold.json`.
+The tree bundle is copied to the `openedr_static` and portable scanner model folders
+(`--no-sync` skips that). The scanner loads `models/pe_trees.bin`; without it, PEs get
+no ML score.
+
+To reuse already extracted chunks and skip feature extraction:
+
+```powershell
+python train_pe_lgbm.py --features v2 --train-only
+```
+
+Use `--chunk-dir PATH` if the cached chunks are elsewhere. To only create or refresh
+the chunks:
 
 ```powershell
 python train_pe_lgbm.py --features v2 --extract-only
 ```
 
-Check the training report and calibrated threshold before deploying a newly trained
-model. Inner-model coverage depends on how many benign and malicious samples actually
-unpack to a valid PE; samples that do not unpack successfully are not part of this
-model's training set.
+A new `pe_feature_dump` build makes the next run rebuild the chunks.
+
+## Threshold
+
+The report shows recall and false-positive rate on a held-out test set at 0.50, 0.90
+and the threshold calibrated for `--target-fpr` (default 0.1 %). The scanner's default
+cutoff is `0.95`; change it in the dashboard (ML thresholds, PE) or with
+`POST /api/ml-thresholds {"pe": 0.90}`. Validate on held-out samples before deploying.
+
+`python train_pe_lgbm.py` without `--features v2` still trains the old 65-feature v1
+model; the scanner does not use it.
 
 See `dataset_paths.py --help` and `python train_pe_lgbm.py --help` for dataset and
 training options.

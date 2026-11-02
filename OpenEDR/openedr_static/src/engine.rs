@@ -22,18 +22,15 @@ use crate::yara::YaraScanner;
 /// APK tree-model decision threshold. Tuned to 0.85 for 0% FPR (FP=0, TN=421) on benign APKs.
 pub const APK_TREE_THRESHOLD: f32 = 0.85;
 
-/// Separate route defaults: shell-only scores need a stricter cutoff because
-/// packer stubs are less representative of the payload than successfully unpacked PEs.
-pub const PE_INNER_TREE_THRESHOLD: f32 = 0.95;
-pub const PE_SHELL_TREE_THRESHOLD: f32 = 0.95;
+/// Unified PE tree-model decision threshold (single model on the full v2 vector).
+pub const PE_TREE_THRESHOLD: f32 = 0.95;
 
 /// JS tree-model decision threshold. Set to 0.90 (Malicious cutoff) to eliminate
 /// false positives in the 0.75-0.84 suspicious range on minified/bundled JS files.
 pub const JS_TREE_THRESHOLD: f32 = 0.90;
 
 // Thresholds in use (f32 bits): the defaults above until configured.
-static PE_INNER_THRESHOLD_BITS: AtomicU32 = AtomicU32::new(0);
-static PE_SHELL_THRESHOLD_BITS: AtomicU32 = AtomicU32::new(0);
+static PE_THRESHOLD_BITS: AtomicU32 = AtomicU32::new(0);
 static JS_THRESHOLD_BITS: AtomicU32 = AtomicU32::new(0);
 static APK_THRESHOLD_BITS: AtomicU32 = AtomicU32::new(0);
 
@@ -52,19 +49,10 @@ fn env_threshold(keys: &[&str], default: f32) -> f32 {
 }
 
 /// ML thresholds in use: a file whose probability is at least this is flagged.
-pub fn pe_inner_tree_threshold() -> f32 {
-    let bits = PE_INNER_THRESHOLD_BITS.load(Ordering::Relaxed);
+pub fn pe_tree_threshold() -> f32 {
+    let bits = PE_THRESHOLD_BITS.load(Ordering::Relaxed);
     if bits == 0 {
-        env_threshold(&["PE_INNER_THRESHOLD", "PE_INNER_ML_THRESHOLD", "PE_ML_THRESHOLD", "ML_THRESHOLD"], PE_INNER_TREE_THRESHOLD)
-    } else {
-        f32::from_bits(bits)
-    }
-}
-
-pub fn pe_shell_tree_threshold() -> f32 {
-    let bits = PE_SHELL_THRESHOLD_BITS.load(Ordering::Relaxed);
-    if bits == 0 {
-        env_threshold(&["PE_SHELL_THRESHOLD", "PE_SHELL_ML_THRESHOLD", "PE_ML_THRESHOLD", "ML_THRESHOLD"], PE_SHELL_TREE_THRESHOLD)
+        env_threshold(&["PE_THRESHOLD", "PE_ML_THRESHOLD", "ML_THRESHOLD"], PE_TREE_THRESHOLD)
     } else {
         f32::from_bits(bits)
     }
@@ -88,24 +76,13 @@ pub fn apk_tree_threshold() -> f32 {
     }
 }
 
-/// Set route-specific PE cutoffs. `None` restores the route default.
-pub fn set_pe_route_thresholds(inner: Option<f32>, shell: Option<f32>) -> (f32, f32) {
-    let put = |cell: &AtomicU32, v: Option<f32>| {
-        let bits = v.filter(|x| x.is_finite())
-            .map(|x| x.clamp(ML_THRESHOLD_RANGE.0, ML_THRESHOLD_RANGE.1).to_bits())
-            .unwrap_or(0);
-        cell.store(bits, Ordering::Relaxed);
-    };
-    put(&PE_INNER_THRESHOLD_BITS, inner);
-    put(&PE_SHELL_THRESHOLD_BITS, shell);
-    (pe_inner_tree_threshold(), pe_shell_tree_threshold())
-}
-
-fn pe_threshold_for_model(kind: crate::ml::scanner::PeModelKind) -> f32 {
-    match kind {
-        crate::ml::scanner::PeModelKind::Inner => pe_inner_tree_threshold(),
-        crate::ml::scanner::PeModelKind::Shell => pe_shell_tree_threshold(),
-    }
+/// Set the PE ML cutoff. `None` restores the default.
+pub fn set_pe_threshold(v: Option<f32>) -> f32 {
+    let bits = v.filter(|x| x.is_finite())
+        .map(|x| x.clamp(ML_THRESHOLD_RANGE.0, ML_THRESHOLD_RANGE.1).to_bits())
+        .unwrap_or(0);
+    PE_THRESHOLD_BITS.store(bits, Ordering::Relaxed);
+    pe_tree_threshold()
 }
 
 /// Sets the JS / APK ML thresholds for every scan (None = default).
@@ -229,7 +206,7 @@ impl StaticEngine {
     /// Initialize the static engine using a root directory containing rule subfolders:
     /// - `database/` for ClamAV
     /// - `yara_rules/` for YARA (.yar, .yara, .yrc)
-    /// - `models/` for ML models (pe_trees_inner.bin, pe_trees_shell.bin, js_trees.bin, url_trees.bin, apk_trees.bin)
+    /// - `models/` for ML models (pe_trees.bin, js_trees.bin, url_trees.bin, apk_trees.bin)
     /// - `signer_rules/` for trusted_signers.yaml, etc.
     /// - `xorfilter_rules/` for benign_sha256.xf (signer+hash benign whitelist)
     ///   and url_whitelist.xf (Tranco 1M domain/IP whitelist for URLs)
@@ -249,7 +226,7 @@ impl StaticEngine {
         macro_rules! timed {
             ($name:literal, $e:expr) => {{
                 let t0 = std::time::Instant::now();
-                let v = $e;
+                let v = crate::memtrack::measure($name, crate::memtrack::Kind::Load, 0, || $e);
                 diagnostics::log(
                     "init-step",
                     &format!("{}={}ms", $name, t0.elapsed().as_millis()),
@@ -468,6 +445,26 @@ impl StaticEngine {
                             let n = string_rules.ignore(&ignored);
                             diagnostics::log("hydrasig-ignore", &format!("{} id(s) listed, {} rule(s) dropped", ignored.len(), n));
                         }
+                        // Domain/URL lists (uBO filter lists, hosts files, `domain:CATEGORY`)
+                        // for `domain_blocklist` conditions without a `db` field.
+                        let manifest = dir.join("domain_lists").join("domain_lists.txt");
+                        if manifest.is_file() {
+                            match hydradragonsig::rules::set_global_domain_db_manifest(&manifest) {
+                                Ok((entries, stats, rejected)) => diagnostics::log(
+                                    "hydrasig-domain-lists",
+                                    &format!(
+                                        "{} entries ({} blocks, {} exceptions, {} ignored, {} rejected){}",
+                                        entries,
+                                        stats.blocks,
+                                        stats.exceptions,
+                                        stats.ignored,
+                                        stats.rejected,
+                                        rejected.first().map(|l| format!("; first rejected: {l}")).unwrap_or_default()
+                                    ),
+                                ),
+                                Err(err) => diagnostics::log("hydrasig-domain-lists", &format!("{err:#}")),
+                            }
+                        }
                     }
                 }
             });
@@ -501,7 +498,7 @@ impl StaticEngine {
         diagnostics::log(
             "engine-status",
             &format!(
-                "base={}; clam_dir_exists={}; clam_loaded={}; yara_dir={}; yara_loaded={}; yara_rule_bundles={}; models_dir={}; pe_inner_model_file={}; pe_shell_model_file={}; pe_loaded={}; js_model_file={}; js_loaded={}; url_model_file={}; url_loaded={}; apk_model_file={}; apk_loaded={}; signer_dir={}; signer_counts={}/{}/{}; benign_whitelist={}; url_whitelist_file={}; url_whitelist_loaded={}; registry_rules={}; registry_patterns={}; string_rules={}; hayabusa_dir={}; hayabusa_loaded={}; url_rules_file={}; url_rules={}; url_unwhitelisted_hosts={}; cidr_dir={}; cidr_counts={}/{}/{}/{}",
+                "base={}; clam_dir_exists={}; clam_loaded={}; yara_dir={}; yara_loaded={}; yara_rule_bundles={}; models_dir={}; pe_model_file={}; pe_loaded={}; js_model_file={}; js_loaded={}; url_model_file={}; url_loaded={}; apk_model_file={}; apk_loaded={}; signer_dir={}; signer_counts={}/{}/{}; benign_whitelist={}; url_whitelist_file={}; url_whitelist_loaded={}; registry_rules={}; registry_patterns={}; string_rules={}; hayabusa_dir={}; hayabusa_loaded={}; url_rules_file={}; url_rules={}; url_unwhitelisted_hosts={}; cidr_dir={}; cidr_counts={}/{}/{}/{}",
                 base.display(),
                 database_dir.is_dir(),
                 clam.is_loaded(),
@@ -509,8 +506,7 @@ impl StaticEngine {
                 yara.is_loaded(),
                 yara.rule_count(),
                 models_dir.display(),
-                models_dir.join("pe_trees_inner.bin").is_file(),
-                models_dir.join("pe_trees_shell.bin").is_file(),
+                models_dir.join("pe_trees.bin").is_file(),
                 ml.pe_loaded(),
                 models_dir.join("js_trees.bin").is_file(),
                 ml.js_loaded(),
@@ -988,11 +984,11 @@ impl StaticEngine {
                 report.max_threat_score = report.max_threat_score.max(score);
             }
             if buf.starts_with(b"MZ") && pefile_rs::PE::parse(&buf).is_ok() {
-                let predicted = self.ml.predict_pe_with_model(&buf);
+                let predicted = self.ml.predict_pe(&buf);
                 // No unpack step follows here: drop the emulation the model cached.
                 crate::ml::pe_combined::forget_emulation();
-                if let Some((prob, model_kind)) = predicted {
-                    if prob >= pe_threshold_for_model(model_kind) {
+                if let Some(prob) = predicted {
+                    if prob >= pe_tree_threshold() {
                         report.detections.push(DetectionItem {
                             layer: "Memory_ML".to_string(),
                             name: "Memory.PE.HighConfidence".to_string(),
@@ -1128,12 +1124,10 @@ impl StaticEngine {
         let mut string_breakdown: Option<crate::ml::pe_string_ml::PeStringBreakdown> = None;
         let ml = if is_pe {
             let kind = format!("PE tree ensemble ({} features)", self.ml.pe_feature_count());
-            let explained = self.ml.explain_pe_with_model(data);
-            if matches!(explained, Some((_, crate::ml::scanner::PeModelKind::Inner))) {
-                string_breakdown = crate::ml::pe_combined::pe_inner_string_breakdown(data);
-            }
+            let explained = self.ml.explain_pe(data);
+            string_breakdown = crate::ml::pe_combined::pe_inner_string_breakdown(data);
             crate::ml::pe_combined::forget_emulation();
-            explained.map(|(e, model_kind)| (e, "MalwareNet.PE.HighConfidence", pe_threshold_for_model(model_kind), kind))
+            explained.map(|e| (e, "MalwareNet.PE.HighConfidence", pe_tree_threshold(), kind))
         } else if is_js_content(data) {
             if let Ok(src) = std::str::from_utf8(data) {
                 string_breakdown = crate::ml::js_features::js_deobfuscated_string_breakdown(src);
@@ -1337,10 +1331,10 @@ impl StaticEngine {
 
         // 4. ML (PE / JS)
         if is_pe {
-            let predicted = self.ml.predict_pe_with_model(bytes);
+            let predicted = self.ml.predict_pe(bytes);
             crate::ml::pe_combined::forget_emulation();
-            if let Some((prob, model_kind)) = predicted {
-                if prob >= pe_threshold_for_model(model_kind) {
+            if let Some(prob) = predicted {
+                if prob >= pe_tree_threshold() {
                     let det_name = if origin_prefix.is_empty() {
                         "MalwareNet.PE.HighConfidence".to_string()
                     } else {
@@ -1899,8 +1893,8 @@ impl StaticEngine {
 
         if !is_apk_file {
             if is_pe {
-                if let Some((prob, model_kind)) = self.ml.predict_pe_with_model(data) {
-                    if prob >= pe_threshold_for_model(model_kind) {
+                if let Some(prob) = self.ml.predict_pe(data) {
+                    if prob >= pe_tree_threshold() {
                         detections.push(DetectionItem {
                             layer: "PE_ML".to_string(),
                             name: "MalwareNet.PE.HighConfidence".to_string(),
@@ -2242,7 +2236,9 @@ impl StaticEngine {
 
         // 10. Archive Recursive Extraction & Zip Bomb Detection
         if hydradragonextractor::detect_format(data).is_some() {
-            match hydradragonextractor::extract_archive_from_bytes(data, false) {
+            match crate::memtrack::measure("scan:archive_extract", crate::memtrack::Kind::Scan, data.len(), || {
+                hydradragonextractor::extract_archive_from_bytes(data, false)
+            }) {
                 Ok(entries) => {
                     let mut member_emulations = 0usize;
                     let mut member_emulation_time = std::time::Duration::ZERO;
