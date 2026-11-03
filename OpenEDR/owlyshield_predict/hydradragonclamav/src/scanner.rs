@@ -354,7 +354,19 @@ impl Engine {
             database.container.len());
         let bc = crate::bytecode::BytecodeSet::load_from_dir(path);
 
-        let (engine, report) = Self::finish_engine_init(&mut database, &mut report, bc, t0, None);
+        // The atom filter is a pure function of the loaded signatures and of
+        // this build's parser/builder code, so it is kept on disk keyed by both
+        // and rebuilt only when either changes.
+        let cache = atomfilter_cache_path(path);
+        let stamp = cache.as_ref().and_then(|_| atomfilter_stamp(path));
+        let cached = cache.as_deref().zip(stamp.as_ref()).and_then(|(file, stamp)| read_atomfilter_cache(file, stamp));
+        let from_cache = cached.is_some();
+        let (engine, report) = Self::finish_engine_init(&mut database, &mut report, bc, t0, cached);
+        if !from_cache {
+            if let (Some(file), Some(stamp)) = (cache, stamp) {
+                write_atomfilter_cache(&file, &stamp, &engine.atomfilter_db);
+            }
+        }
 
         Ok((engine, report))
     }
@@ -429,6 +441,23 @@ impl Engine {
         }
         rust_timing_log!("from_database_dir :: bytecode={}ms loaded={}", t_bc.elapsed().as_millis(), report.bytecodes_loaded);
         let t_pf = Instant::now();
+        // A cache that does not cover exactly these signatures is never used.
+        let atomfilter_cache = atomfilter_cache.filter(|cache| {
+            let fits = cache.ext_slot.len() == database.extended.len()
+                && cache.log_subsig_slots.len() == database.logical.len()
+                && cache.log_subsig_slots.iter().zip(&database.logical).all(|(slots, sig)| slots.len() == sig.subsignatures.len())
+                && cache.slots.iter().all(|slot| match slot.target {
+                    crate::atomfilter::SlotTarget::Extended { sig_index } => (sig_index as usize) < database.extended.len(),
+                    crate::atomfilter::SlotTarget::LogicalSubsig { sig_index, subsig_index } => database
+                        .logical
+                        .get(sig_index as usize)
+                        .is_some_and(|sig| (subsig_index as usize) < sig.subsignatures.len()),
+                });
+            if !fits {
+                rust_timing_log!("atomfilter_build :: cache does not match the signatures, rebuilding");
+            }
+            fits
+        });
         let atomfilter_db = match atomfilter_cache {
             Some(cache) => {
                 rust_timing_log!("atomfilter_build :: using cache");
@@ -717,21 +746,18 @@ impl Engine {
         let builtin_target = detect_builtin_target(&probe);
         let confident_target = detected_target.or(builtin_target);
 
-        // Run the ClamAV engine (prefilter + extended + logical) on files
-        // whose type is either unknown or positively identified as a supported
-        // type.  Known-but-unsupported desktop targets (OLE2, Mail, Mach-O,
-        // Java, …) are skipped outright — this avoids paying for the whole-buffer
-        // atom prefilter only to have `target_matches` reject every candidate.
-        if !skip_clamav {
-            if confident_target.is_some() && clamav_target_allowed(confident_target)
-                || confident_target.is_none() && is_text_like(data)
-            {
-                self.scan_clamav_view(
-                    data, object_path, detected_target, builtin_target, ScanView::Raw,
-                    container_type, container_size_real, container_file_pos,
-                    &container_entry_name, &pe_shared, options, timing, &mut state.matches,
-                );
-            }
+        // Run the ClamAV engine (prefilter + extended + logical) on every file,
+        // as libclamav's `cli_scan_fmap` does: a file of a type we cannot name
+        // is CL_TYPE_BINARY_DATA there and still gets every Target:0 signature
+        // (`target_matches` keeps the type-specific ones off it). Compiled
+        // detection rules are the exception: they hold the very strings the
+        // signatures look for, so every rule file would be "infected".
+        if !skip_clamav && !is_detection_rule_container(data) {
+            self.scan_clamav_view(
+                data, object_path, detected_target, builtin_target, ScanView::Raw,
+                container_type, container_size_real, container_file_pos,
+                &container_entry_name, &pe_shared, options, timing, &mut state.matches,
+            );
 
             // ClamAV normalization (cli_scanhtml / cli_scanscript): target-3 and
             // target-7 signatures are written against the normalized views, so
@@ -2014,18 +2040,6 @@ impl Engine {
     }
 }
 
-/// ClamAV target codes worth running the ClamAV engine on at all: PE(1),
-/// HTML(3), Graphics(5), ELF(6), ASCII text(7), PDF(10), SWF(11), DEX(16),
-/// APK(17), generic ZIP(18).
-/// Anything else — a confidently-typed desktop-only format or a type we can't
-/// classify — never runs, so `scan_object` skips the whole engine
-/// for it rather than relying on `target_matches` to reject each candidate.
-const CLAMAV_ALLOWED_TARGETS: [u32; 10] = [1, 3, 5, 6, 7, 10, 11, 16, 17, 18];
-
-fn clamav_target_allowed(target: Option<u32>) -> bool {
-    target.map_or(false, |t| CLAMAV_ALLOWED_TARGETS.contains(&t))
-}
-
 fn target_matches(target: Option<u32>, ctx: &ScanContext<'_>, sig_name: &str) -> bool {
     let want = target.unwrap_or(0);
 
@@ -2145,6 +2159,9 @@ fn detect_builtin_target(ctx: &ScanContext<'_>) -> Option<u32> {
     {
         return Some(11); // CL_TYPE_SWF
     }
+    if let Some(t) = binary_magic_target(d) {
+        return Some(t);
+    }
     // Heuristic-based detection (no fixed magic) for format-agnostic types
     // that ClamAV signatures legitimately target.  The same heuristics are
     // also used in `target_matches` as a per-signature fallback — adding them
@@ -2155,6 +2172,32 @@ fn detect_builtin_target(ctx: &ScanContext<'_>) -> Option<u32> {
     }
     if looks_like_ascii_text(d) {
         return Some(7); // CL_TYPE_ASCII_TEXT
+    }
+    None
+}
+
+/// Compiled YARA-X rules and ClamAV CVD/CLD/CUD databases, by header.
+fn is_detection_rule_container(d: &[u8]) -> bool {
+    d.starts_with(b"YARA-X\0\0") || d.starts_with(b"ClamAV-VDB:")
+}
+
+/// OLE2 (2), thin Mach-O (9) and Java class (12) by magic (libclamav
+/// filetypes_int.h). `CAFEBABE` is both a Java class and a Mach-O universal
+/// binary; as in libclamav's `cli_scanmacho_unibin` check, a big-endian arch
+/// count below 45 (the first Java major version) means the universal binary,
+/// which is a container and is left untyped.
+fn binary_magic_target(d: &[u8]) -> Option<u32> {
+    if d.starts_with(&[0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1]) {
+        return Some(2);
+    }
+    if d.len() >= 4 && matches!(d[..4], [0xfe, 0xed, 0xfa, 0xce | 0xcf] | [0xce | 0xcf, 0xfa, 0xed, 0xfe]) {
+        return Some(9);
+    }
+    if d.len() >= 8 && d[..4] == [0xca, 0xfe, 0xba, 0xbe] {
+        let major = u16::from_be_bytes([d[6], d[7]]);
+        if major >= 45 {
+            return Some(12);
+        }
     }
     None
 }
@@ -2185,6 +2228,12 @@ fn builtin_type_name(d: &[u8]) -> Option<&'static str> {
     }
     if d.len() >= 3 && (d[0] == b'F' || d[0] == b'C' || d[0] == b'Z') && d[1] == b'W' && d[2] == b'S' {
         return Some("CL_TYPE_SWF");
+    }
+    match binary_magic_target(d) {
+        Some(2) => return Some("CL_TYPE_MSOLE2"),
+        Some(9) => return Some("CL_TYPE_MACHO"),
+        Some(12) => return Some("CL_TYPE_JAVA"),
+        _ => {}
     }
     if looks_like_html(d) {
         return Some("CL_TYPE_HTML");
@@ -2284,11 +2333,13 @@ fn td_isutf16(buf: &[u8]) -> u8 {
 }
 
 fn clamav_type_to_target(clamav_type: &str) -> Option<u32> {
-    // OLE2/MSOLE2 have no arm: legacy MS Office documents aren't scanned —
-    // target 2 isn't in `CLAMAV_ALLOWED_TARGETS`, so mapping it would be
-    // dead weight that never reaches the scan path.
+    // libclamav matcher.h `targets[]`. A Mach-O universal binary is a container
+    // there (its members are typed CL_TYPE_MACHO), so it stays untyped here.
     Some(match clamav_type {
         "CL_TYPE_MSEXE" => 1,
+        "CL_TYPE_MSOLE2" => 2,
+        "CL_TYPE_MACHO" => 9,
+        "CL_TYPE_JAVA" => 12,
         "CL_TYPE_HTML" => 3,
         "CL_TYPE_GRAPHICS" | "CL_TYPE_GIF" | "CL_TYPE_PNG" | "CL_TYPE_JPEG" => 5,
         "CL_TYPE_ELF" => 6,
@@ -3460,3 +3511,86 @@ mod tests {
 
 }
 
+/// Cache format version, bumped whenever the stamp or the blob layout changes.
+const ATOMFILTER_CACHE_MAGIC: &[u8; 8] = b"HDAFC\0\0\x01";
+
+/// `<db dir>.atomfilter.cache` beside the database: never inside it, where
+/// the recursive loader would read it as a signature file.
+fn atomfilter_cache_path(db: &Path) -> Option<std::path::PathBuf> {
+    let name = db.file_name()?;
+    let mut file = name.to_os_string();
+    file.push(".atomfilter.cache");
+    Some(db.with_file_name(file))
+}
+
+/// SHA-256 over every database file (path, size, mtime, in load order) and
+/// the running executable (so a rebuilt parser or builder never reuses an
+/// old filter).
+fn atomfilter_stamp(db: &Path) -> Option<[u8; 32]> {
+    use sha2::{Digest, Sha256};
+    fn add(h: &mut Sha256, file: &Path) -> io::Result<()> {
+        let meta = std::fs::metadata(file)?;
+        let mtime = meta.modified()?.duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0);
+        let name = file.to_string_lossy();
+        h.update((name.len() as u64).to_le_bytes());
+        h.update(name.as_bytes());
+        h.update(meta.len().to_le_bytes());
+        h.update(mtime.to_le_bytes());
+        Ok(())
+    }
+    fn walk(h: &mut Sha256, path: &Path) -> io::Result<()> {
+        if path.is_file() {
+            return add(h, path);
+        }
+        for entry in std::fs::read_dir(path)? {
+            let path = entry?.path();
+            if path.is_dir() {
+                walk(h, &path)?;
+            } else if path.is_file() {
+                add(h, &path)?;
+            }
+        }
+        Ok(())
+    }
+    let mut h = Sha256::new();
+    h.update(ATOMFILTER_CACHE_MAGIC);
+    add(&mut h, &std::env::current_exe().ok()?).ok()?;
+    walk(&mut h, db).ok()?;
+    Some(h.finalize().into())
+}
+
+fn read_atomfilter_cache(file: &Path, stamp: &[u8; 32]) -> Option<crate::atomfilter::AtomFilterDb> {
+    let t = Instant::now();
+    let bytes = std::fs::read(file).ok()?;
+    let body = bytes.strip_prefix(ATOMFILTER_CACHE_MAGIC.as_slice())?.strip_prefix(stamp.as_slice())?;
+    let db = crate::atomfilter::AtomFilterDb::from_bytes(body);
+    match &db {
+        Some(_) => { rust_timing_log!("atomfilter_build :: cache read in {}ms ({} MB)", t.elapsed().as_millis(), bytes.len() >> 20); }
+        None => { rust_timing_log!("atomfilter_build :: cache {} is damaged, rebuilding", file.display()); }
+    }
+    db
+}
+
+/// Written to a temporary file and renamed into place, so a crash mid-write
+/// leaves either the old cache or none. Failure only costs the next start.
+fn write_atomfilter_cache(file: &Path, stamp: &[u8; 32], db: &crate::atomfilter::AtomFilterDb) {
+    let t = Instant::now();
+    let blob = db.to_bytes();
+    let tmp = file.with_extension("cache.tmp");
+    let written = (|| -> io::Result<()> {
+        use std::io::Write;
+        let mut out = std::io::BufWriter::new(std::fs::File::create(&tmp)?);
+        out.write_all(ATOMFILTER_CACHE_MAGIC)?;
+        out.write_all(stamp)?;
+        out.write_all(&blob)?;
+        out.into_inner().map_err(|e| e.into_error())?.sync_all()?;
+        std::fs::rename(&tmp, file)
+    })();
+    match written {
+        Ok(()) => { rust_timing_log!("atomfilter_build :: cache written in {}ms ({} MB)", t.elapsed().as_millis(), blob.len() >> 20); }
+        Err(e) => {
+            let _ = std::fs::remove_file(&tmp);
+            rust_timing_log!("atomfilter_build :: cache {} not written: {e}", file.display());
+        }
+    }
+}
