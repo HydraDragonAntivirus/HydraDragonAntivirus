@@ -1,3 +1,4 @@
+mod arm64;
 pub(crate) mod bytecode;
 mod engine;
 mod expr;

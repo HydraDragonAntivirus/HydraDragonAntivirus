@@ -2178,7 +2178,7 @@ fn ensure_condition_data(cond: &RuleCondition, report: &mut ScanReport, view: &m
         | RuleCondition::PeSectionsSummary { .. }
         | RuleCondition::ExportHashAny { .. }
         | RuleCondition::PeTimestamp { .. }
-        | RuleCondition::OpcodePattern { .. } => view.ensure_pe(report, bytes),
+        | RuleCondition::OpcodePattern { arch: None, .. } => view.ensure_pe(report, bytes),
         RuleCondition::HashSha256 { .. }
         | RuleCondition::HashMd5 { .. }
         | RuleCondition::HashSha1 { .. }
@@ -2231,6 +2231,12 @@ fn ensure_condition_data(cond: &RuleCondition, report: &mut ScanReport, view: &m
         | RuleCondition::DexClassCount { .. }
         | RuleCondition::DexMethodCount { .. } => view.ensure_dex(report, bytes),
         RuleCondition::NewImportSet { .. } => view.ensure_pe(report, bytes),
+        // `arch` gives ELF / Mach-O regions too.
+        RuleCondition::OpcodePattern { arch: Some(_), .. } => {
+            view.ensure_pe(report, bytes);
+            view.formats.ensure(super::formats::Format::Elf, report, bytes);
+            view.formats.ensure(super::formats::Format::Macho, report, bytes);
+        }
         RuleCondition::Bytecode { apis, .. } => {
             // `pe_rawaddr` / `get_pe_section` and the facts read the PE.
             view.ensure_pe(report, bytes);
@@ -2510,7 +2516,10 @@ fn evaluate_condition(
                 .map(|section| format!("section_name_regex `{}` matched {}", pattern, section.name))
         }
         RuleCondition::PeSection { .. } => super::pe_section::evaluate(cond, report.pe.as_ref()?, bytes),
-        RuleCondition::OpcodePattern { .. } => super::opcode::evaluate(cond, report.pe.as_ref(), bytes, &view.opcode_listings),
+        RuleCondition::OpcodePattern { .. } => {
+            let exe = super::opcode::Exe { pe: report.pe.as_ref(), elf: report.elf.as_ref(), macho: report.macho.as_ref() };
+            super::opcode::evaluate(cond, exe, bytes, &view.opcode_listings)
+        }
         RuleCondition::PackedPe => {
             let pe = report.pe.as_ref()?;
             pe.likely_packed

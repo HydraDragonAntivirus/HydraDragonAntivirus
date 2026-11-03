@@ -449,6 +449,11 @@ pub enum RuleCondition {
         /// Direct `call` / `jmp` (rel32) from the other executable sections into it.
         #[serde(default)]
         code_xrefs_min: Option<usize>,
+        /// Count `code_xrefs_min` over the code reachable from the entry point
+        /// (control-flow walk) instead of a linear sweep, so bytes after a
+        /// `ret` / `jmp` / `int3` are not read as code.
+        #[serde(default)]
+        cfg_xrefs: bool,
         /// Holds the entry point.
         #[serde(default)]
         has_entry: Option<bool>,
@@ -736,6 +741,29 @@ pub enum RuleCondition {
         /// Mnemonic globs left out before matching (junk filler such as `nop`).
         #[serde(default)]
         skip: Vec<String>,
+        /// `linear` (default) or `cfg`: decode along direct jumps / branches
+        /// from the region start (see `opcode`).
+        #[serde(default)]
+        mode: Option<String>,
+        /// `auto`, `x86`, `x64` or `arm64`. Without it a PE decodes as x86 of
+        /// its own bitness and only PE regions exist; with `auto` the PE
+        /// machine, ELF `e_machine` or Mach-O CPU type decides, and ELF /
+        /// Mach-O `entry` / `code` regions exist.
+        #[serde(default)]
+        arch: Option<String>,
+        /// `mode: cfg` blocks (default 256, at most 2048).
+        #[serde(default)]
+        max_blocks: Option<usize>,
+        /// `mode: cfg` instructions (default 8192, at most 65536).
+        #[serde(default)]
+        max_insns: Option<usize>,
+        /// `mode: cfg`: also walk into direct calls.
+        #[serde(default)]
+        follow_calls: bool,
+        /// `mode: cfg`: continue at the target of an unconditional direct jump
+        /// as if the code were contiguous (default true).
+        #[serde(default)]
+        follow_jumps: Option<bool>,
     },
 
     /// True when the file does not start with the `MZ` DOS header magic.

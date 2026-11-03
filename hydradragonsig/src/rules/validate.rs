@@ -51,7 +51,7 @@ pub const CONDITION_KEYS: &[(&str, &[&str])] = &[
     ("pe_section", &[
         "select", "index", "name", "name_regex", "flags_all", "flags_none", "characteristics", "entropy_min", "entropy_max",
         "raw_size", "raw_size_min", "raw_size_max", "raw_offset", "virtual_address", "virtual_size", "virtual_size_min",
-        "virtual_size_max", "md5", "sha1", "sha256", "crc32", "code_xrefs_min", "has_entry", "directories_any",
+        "virtual_size_max", "md5", "sha1", "sha256", "crc32", "code_xrefs_min", "cfg_xrefs", "has_entry", "directories_any",
         "directories_none", "directory_share_max",
     ]),
     ("packed_pe", &[]),
@@ -82,7 +82,10 @@ pub const CONDITION_KEYS: &[(&str, &[&str])] = &[
     ("emulated_count_gte", &["api", "min", "distinct"]),
     ("pe_anchor_pattern", &["anchor", "section", "offset", "range", "count", "patterns", "min", "negate", "excludes"]),
     ("byte_repeat", &["anchor", "section", "offset", "length", "min"]),
-    ("opcode_pattern", &["pattern", "patterns", "min", "region", "max_bytes", "bitness", "skip"]),
+    ("opcode_pattern", &[
+        "pattern", "patterns", "min", "region", "max_bytes", "bitness", "skip", "mode", "arch", "max_blocks", "max_insns",
+        "follow_calls", "follow_jumps",
+    ]),
     ("bytecode", &["program", "entry_func", "max_ops", "params", "expect_return", "virname_glob", "apis"]),
     ("not_mz", &[]),
     ("authenticode", &["signed", "subject_glob"]),
@@ -471,6 +474,7 @@ fn check_condition(cond: &RuleCondition, rules: &[Rule], own_id: &str, known_ids
             sha256,
             crc32,
             code_xrefs_min,
+            cfg_xrefs,
             has_entry,
             directories_any,
             directories_none,
@@ -521,6 +525,9 @@ fn check_condition(cond: &RuleCondition, rules: &[Rule], own_id: &str, known_ids
             }
             if code_xrefs_min == &Some(0) {
                 out.push("code_xrefs_min: 0 always holds".into());
+            }
+            if *cfg_xrefs && code_xrefs_min.is_none() {
+                out.push("cfg_xrefs needs code_xrefs_min".into());
             }
             let empty = index.is_none()
                 && name.is_none()
@@ -739,12 +746,61 @@ fn check_condition(cond: &RuleCondition, rules: &[Rule], own_id: &str, known_ids
                 }
             }
         }
-        RuleCondition::OpcodePattern { pattern, patterns, min, region, max_bytes, bitness, skip } => {
+        RuleCondition::OpcodePattern {
+            pattern,
+            patterns,
+            min,
+            region,
+            max_bytes,
+            bitness,
+            skip,
+            mode,
+            arch,
+            max_blocks,
+            max_insns,
+            follow_calls,
+            follow_jumps,
+        } => {
             let all: Vec<&String> = pattern.iter().chain(patterns.iter()).collect();
             list_problems("patterns", &all, *min, &mut out);
+            // The instruction sets a pattern may be matched against.
+            let lower = arch.as_deref().map(|a| a.trim().to_ascii_lowercase());
+            let (x86, arm) = match lower.as_deref() {
+                Some("arm64" | "aarch64") => (false, true),
+                Some("auto") => (true, true),
+                _ => (true, false),
+            };
             for p in &all {
-                if let Err(e) = super::opcode::compile(p) {
-                    out.push(format!("opcode pattern `{p}`: {e}"));
+                let x = x86.then(|| super::opcode::compile(p).err());
+                let a = arm.then(|| super::opcode::compile_arm64(p).err());
+                // `auto`: the pattern must fit at least one instruction set.
+                match (x, a) {
+                    (Some(Some(e)), None) | (None, Some(Some(e))) => out.push(format!("opcode pattern `{p}`: {e}")),
+                    (Some(Some(e)), Some(Some(_))) => out.push(format!("opcode pattern `{p}` fits neither x86 nor arm64: {e}")),
+                    _ => {}
+                }
+            }
+            if let Some(a) = arch && !super::opcode::valid_arch(a) {
+                out.push(format!("invalid arch `{a}` (auto, x86, x64, arm64)"));
+            }
+            if let Some(m) = mode && !super::opcode::valid_mode(m) {
+                out.push(format!("invalid mode `{m}` (linear, cfg)"));
+            }
+            let cfg = mode.as_deref().is_some_and(|m| m.trim().eq_ignore_ascii_case("cfg"));
+            if let Some(n) = max_blocks && (*n == 0 || *n > super::opcode::MAX_MAX_BLOCKS) {
+                out.push(format!("max_blocks must be 1..={}", super::opcode::MAX_MAX_BLOCKS));
+            }
+            if let Some(n) = max_insns && (*n == 0 || *n > super::opcode::MAX_MAX_INSNS) {
+                out.push(format!("max_insns must be 1..={}", super::opcode::MAX_MAX_INSNS));
+            }
+            if !cfg && (max_blocks.is_some() || max_insns.is_some() || *follow_calls || follow_jumps.is_some()) {
+                out.push("max_blocks / max_insns / follow_calls / follow_jumps need `mode: cfg`".into());
+            }
+            for s in skip {
+                let x = x86.then(|| super::opcode::mnemonic_set(s).err()).flatten();
+                let a = arm.then(|| super::opcode::arm64_mnemonic_set(s).err()).flatten();
+                if (x.is_some() || !x86) && (a.is_some() || !arm) {
+                    out.push(format!("skip `{s}`: {}", x.or(a).unwrap_or_default()));
                 }
             }
             if !super::opcode::valid_region(region) {
@@ -755,11 +811,6 @@ fn check_condition(cond: &RuleCondition, rules: &[Rule], own_id: &str, known_ids
             }
             if bitness.is_some_and(|b| !matches!(b, 16 | 32 | 64)) {
                 out.push("bitness must be 16, 32 or 64".into());
-            }
-            for s in skip {
-                if let Err(e) = super::opcode::mnemonic_set(s) {
-                    out.push(format!("skip `{s}`: {e}"));
-                }
             }
         }
         RuleCondition::ByteRepeat {

@@ -8,6 +8,7 @@
 //! YAML (FORMAT.md 5.2).
 
 use iced_x86::{Decoder, DecoderOptions, FlowControl, OpKind};
+use std::cell::OnceCell;
 
 use super::types::{PeSectionSelect, RuleCondition};
 use crate::models::{PeInfo, PeSectionInfo};
@@ -96,8 +97,16 @@ fn code_xrefs_into(pe: &PeInfo, bytes: &[u8], target: &PeSectionInfo, need: usiz
     found
 }
 
-/// Why `s` passes every key of the condition, or None.
-fn check(cond: &RuleCondition, pe: &PeInfo, bytes: &[u8], s: &PeSectionInfo) -> Option<String> {
+/// Direct branches found by the control-flow walk from the entry point
+/// (`cfg_xrefs`) whose source lies outside `target` and target inside it.
+fn cfg_xrefs_into(pe: &PeInfo, edges: &[(u64, u64)], target: &PeSectionInfo) -> usize {
+    let rva = |va: u64| va.wrapping_sub(pe.image_base);
+    edges.iter().filter(|(from, to)| !contains(target, rva(*from)) && contains(target, rva(*to))).count()
+}
+
+/// Why `s` passes every key of the condition, or None. `edges` holds the
+/// control-flow walk once a `cfg_xrefs` check needed it.
+fn check(cond: &RuleCondition, pe: &PeInfo, bytes: &[u8], s: &PeSectionInfo, edges: &OnceCell<Vec<(u64, u64)>>) -> Option<String> {
     let RuleCondition::PeSection {
         name,
         name_regex,
@@ -119,6 +128,7 @@ fn check(cond: &RuleCondition, pe: &PeInfo, bytes: &[u8], s: &PeSectionInfo) -> 
         sha256,
         crc32,
         code_xrefs_min,
+        cfg_xrefs,
         has_entry,
         directories_any,
         directories_none,
@@ -261,30 +271,35 @@ fn check(cond: &RuleCondition, pe: &PeInfo, bytes: &[u8], s: &PeSectionInfo) -> 
         }
     }
     if let Some(min) = code_xrefs_min {
-        let n = code_xrefs_into(pe, bytes, s, (*min).max(1));
+        let n = if *cfg_xrefs {
+            cfg_xrefs_into(pe, edges.get_or_init(|| super::opcode::pe_cfg_edges(pe, bytes)), s)
+        } else {
+            code_xrefs_into(pe, bytes, s, (*min).max(1))
+        };
         if n < *min {
             return None;
         }
-        why.push(format!("code_xrefs>={n}"));
+        why.push(format!("code_xrefs>={n}{}", if *cfg_xrefs { " (cfg)" } else { "" }));
     }
     Some(why.join(" "))
 }
 
 pub fn evaluate(cond: &RuleCondition, pe: &PeInfo, bytes: &[u8]) -> Option<String> {
     let RuleCondition::PeSection { select, index, .. } = cond else { return None };
+    let edges = OnceCell::new();
     if let Some(idx) = index {
         let s = pe.sections.get(*idx)?;
-        let found = check(cond, pe, bytes, s)?;
+        let found = check(cond, pe, bytes, s, &edges)?;
         return Some(format!("pe_section index={idx}: {found}"));
     }
     let found = match select {
-        PeSectionSelect::Any => pe.sections.iter().find_map(|s| check(cond, pe, bytes, s)),
-        PeSectionSelect::Last => pe.sections.last().and_then(|s| check(cond, pe, bytes, s)),
+        PeSectionSelect::Any => pe.sections.iter().find_map(|s| check(cond, pe, bytes, s, &edges)),
+        PeSectionSelect::Last => pe.sections.last().and_then(|s| check(cond, pe, bytes, s, &edges)),
         PeSectionSelect::Entry => pe
             .sections
             .iter()
             .find(|s| contains(s, pe.entry))
-            .and_then(|s| check(cond, pe, bytes, s)),
+            .and_then(|s| check(cond, pe, bytes, s, &edges)),
     }?;
     let which = match select {
         PeSectionSelect::Any => "any",
@@ -409,4 +424,48 @@ pub fn evaluate_export_hash_any(values: &[String], pe: &PeInfo, bytes: &[u8]) ->
         }
     }
     None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// `.text` (entry, VA 0x1000) and `.stub` (VA 0x2000), both executable.
+    fn two_sections(text: &[u8]) -> (PeInfo, Vec<u8>) {
+        let sec = |name: &str, va: u64, raw: u64| PeSectionInfo {
+            name: name.into(),
+            virtual_size: 0x200,
+            raw_size: 0x200,
+            characteristics: 0x6000_0020,
+            virtual_address: va,
+            raw_offset: raw,
+            ..Default::default()
+        };
+        let pe = PeInfo { image_base: 0x40_0000, entry: 0x1000, sections: vec![sec(".text", 0x1000, 0x200), sec(".stub", 0x2000, 0x400)], ..Default::default() };
+        let mut bytes = vec![0xCCu8; 0x600];
+        bytes[0x200..0x200 + text.len()].copy_from_slice(text);
+        (pe, bytes)
+    }
+
+    fn stub_xrefs(cfg: bool, pe: &PeInfo, bytes: &[u8]) -> Option<String> {
+        let yaml = format!("type: pe_section
+name: .stub
+code_xrefs_min: 1
+cfg_xrefs: {cfg}
+");
+        let cond: RuleCondition = yaml_serde::from_str(&yaml).unwrap();
+        evaluate(&cond, pe, bytes)
+    }
+
+    #[test]
+    fn cfg_xrefs_ignore_dead_code() {
+        // ret, then a dead `call .stub` the linear sweep still reads.
+        let (pe, bytes) = two_sections(&[0xC3, 0xE8, 0xFA, 0x0F, 0x00, 0x00]);
+        assert!(stub_xrefs(false, &pe, &bytes).is_some());
+        assert!(stub_xrefs(true, &pe, &bytes).is_none());
+        // A live `call .stub` from the entry point.
+        let (pe, bytes) = two_sections(&[0xE8, 0xFB, 0x0F, 0x00, 0x00, 0xC3]);
+        let hit = stub_xrefs(true, &pe, &bytes).unwrap();
+        assert!(hit.contains("code_xrefs>=1 (cfg)"), "{hit}");
+    }
 }
