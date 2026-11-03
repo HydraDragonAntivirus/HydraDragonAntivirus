@@ -143,7 +143,7 @@ Imports are stored as `dll!function` (or `dll!ord<N>` for imports by ordinal).
 | `section_entropy` | `min` | Some section's raw data has entropy ≥ `min` (0-8 bits per byte). |
 | `section_name_regex` | `pattern` | The regex matches a section name. |
 | `packed_pe` | | Two or more suspicious sections (entropy ≥ 7.2, `UPX*` / `.packed*` / empty name), a `UPX*` section, or at most 3 sections with one at entropy ≥ 7.4. |
-| `pe_section` | `select`, `index`, `name`, `name_regex`, `flags_all`, `flags_none`, `characteristics`, `entropy_min`, `entropy_max`, `raw_size`, `raw_size_min`, `raw_size_max`, `raw_offset`, `virtual_address`, `virtual_size`, `virtual_size_min`, `virtual_size_max`, `md5`, `sha1`, `sha256`, `crc32`, `code_xrefs_min`, `has_entry`, `directories_any`, `directories_none`, `directory_share_max` | The chosen section passes every key that is given (see below). |
+| `pe_section` | `select`, `index`, `name`, `name_regex`, `flags_all`, `flags_none`, `characteristics`, `entropy_min`, `entropy_max`, `raw_size`, `raw_size_min`, `raw_size_max`, `raw_offset`, `virtual_address`, `virtual_size`, `virtual_size_min`, `virtual_size_max`, `md5`, `sha1`, `sha256`, `crc32`, `code_xrefs_min`, `cfg_xrefs`, `has_entry`, `directories_any`, `directories_none`, `directory_share_max` | The chosen section passes every key that is given (see below). |
 | `pe_sections_summary` | `total_raw_size`, `total_raw_size_min`, `total_raw_size_max`, `md5`, `sha1`, `sha256`, `crc32`, `count`, `count_min`, `count_max` | Aggregate across all PE sections in table order: sum of `SizeOfRawData`, section count, and hashes of the concatenated raw section bytes (`md5[sections]`, `crc32[sections]`). |
 | `export_hash_any` | `values` | The PE's export table MD5 (`md5[exports]`, 32 hex) is in `values`. |
 | `pe_timestamp` | `value`, `hex`, `min`, `max` | `IMAGE_FILE_HEADER.TimeDateStamp` matches the exact integer, 32-bit hex string or range bounds. |
@@ -180,6 +180,7 @@ the entry point). Every other key is optional; all given keys must hold.
 | `directories_none` | None of these data directories points inside it. |
 | `directory_share_max` | With `directories_any`: those directories cover at most this share (0-1) of the section. An infector that appends its body to the section holding a small table (relocations, exception data) leaves a share near 0. |
 | `code_xrefs_min` | At least this many direct near `call` / `jmp` / `jcc` from the other executable sections land inside it (iced-x86 linear sweep, so code reached only through data or after misaligned bytes is not counted). |
+| `cfg_xrefs` | With `code_xrefs_min`: count the branches found by walking the code from the entry point along direct jumps, branches and calls (2048 blocks, 65536 instructions) instead of the linear sweep, so bytes after a `ret` / `jmp` / `int3` are not read as code. x86 / x64 only. |
 
 Example, an appender that keeps the relocation table in its own writable,
 executable, encrypted last section:
@@ -245,7 +246,7 @@ Byte pattern syntax (braces optional, case-insensitive hex):
 
 Example: `{ 4D 5A [2-4] ( 90 | 91 ) ~00 }`.
 
-#### `opcode_pattern` (x86 / x64 instructions)
+#### `opcode_pattern` (x86 / x64 and AArch64 instructions)
 
 Matches instructions, not bytes: the region is disassembled (iced-x86, linear
 sweep) and the pattern is compared with what the bytes decode to. Every encoding
@@ -260,6 +261,12 @@ of an instruction matches the same step (`89 D8` and `8B C3` are both
 | `max_bytes` | 4096 for `entry`, 4 MiB otherwise | Bytes decoded from the start of the region (per section for `code`; at most 16 MiB). |
 | `bitness` | `32` | `16`, `32` or `64` for `file` / `overlay` code that is not a PE. A PE always uses its own. |
 | `skip` | `[]` | Mnemonics left out before matching (junk filler), e.g. `[nop, fnop]`; globs allowed. |
+| `arch` | | `auto`, `x86`, `x64` or `arm64`. Without it, only the PE regions exist and a PE decodes as x86 of its own bitness. `auto` takes the PE `Machine` (`0xAA64` = arm64), ELF `e_machine` or Mach-O CPU type, and also gives ELF / Mach-O files `entry` and `code` regions; `file` / `overlay` keep `bitness` unless `arch` names an instruction set. |
+| `mode` | `linear` | `linear`, or `cfg`: decode along the control flow from the region start (below). |
+| `max_blocks` | `256` | `mode: cfg`: blocks walked (at most 2048). |
+| `max_insns` | `8192` | `mode: cfg`: instructions decoded (at most 65536). |
+| `follow_calls` | `false` | `mode: cfg`: also walk into the targets of direct calls. |
+| `follow_jumps` | `true` | `mode: cfg`: continue at the target of an unconditional direct jump as if the code were contiguous. |
 
 A pattern is a list of steps separated by `;` or new lines:
 
@@ -287,7 +294,40 @@ a PE, 0-based for `file` / `overlay`), so write `*` for them.
 ```
 
 The finding names the file offset and the instructions that matched. A region is
-decoded once per scan and shared by every `opcode_pattern` of that scan.
+decoded once per scan and shared by every `opcode_pattern` of that scan (per
+region, instruction set and mode).
+
+**`mode: cfg`.** Conditional branches (and with `follow_calls` direct calls)
+start new blocks; an unconditional direct `jmp` / `b` is left out and decoding
+continues at its target; a run stops at a return, an indirect branch, an
+invalid instruction or code already decoded. Each run is matched on its own, so
+code split into islands by jumps over junk bytes matches like straight-line
+code, without emulating anything:
+
+```yaml
+  - type: opcode_pattern
+    region: entry
+    mode: cfg
+    pattern: "push ebp; mov ebp, esp; [0-6]; xor byte ptr [*], imm; inc reg; loop *"
+```
+
+**AArch64** (`arch: arm64`, or `auto` on an AArch64 file). Decoded instructions:
+branches, hints and system, data processing (immediate and register) and
+integer loads / stores, with the usual aliases (`mov`, `cmp`, `cmn`, `tst`,
+`mvn`, `neg`, `mul`, `lsl`, `lsr`, `asr`, `ror`, `cset`); anything else
+(SIMD / FP, atomics) is `unknown`. Operands are written lower case without
+spaces or `#`: `x0`, `w1`, `sp`, `xzr`, immediates in hex (`0x10`, `-0x10`),
+memory `[x0]`, `[x0,0x10]`, `[sp,-0x10]!` (a post-index offset is a separate
+operand: `[x0],0x1`), branch targets as absolute hex. `#` and spaces in a
+pattern are ignored, so the assembler form can be pasted; commas inside `[...]`
+do not split operands.
+
+```yaml
+  - type: opcode_pattern
+    arch: auto
+    skip: [nop, hint]
+    pattern: "stp x29, x30, [sp, #-0x10]!; [0-4]; eor w*, w*, w*; [0-2]; b.ne *"
+```
 
 #### `bytecode` (ClamAV bytecode programs)
 
@@ -390,9 +430,10 @@ Where the parent comes from:
 | Type | Keys | Matches when |
 |---|---|---|
 | `has_parent` | | The scan has a parent. |
-| `parent_feature_gte` / `parent_feature_lte` | `name`, `value` | A parent feature is ≥ / ≤ `value`. Parent features: `file_entropy_bits_per_byte`, `pe_import_count`, `pe_export_count`, `pe_section_count`, `pe_suspicious_import_count` (PE ones only when the parent is a PE). |
+| `parent_feature_gte` / `parent_feature_lte` | `name`, `value` | A parent feature is ≥ / ≤ `value`. Parent features: `file_entropy_bits_per_byte`, `pe_import_count`, `pe_export_count`, `pe_section_count`, `pe_suspicious_import_count` (PE ones only when the parent is a PE), `elf_import_count`, `elf_export_count`, `elf_section_count`, `elf_rwx_segment_count` (when it is an ELF). |
 | `feature_delta_gte` | `name`, `value` | This file's feature minus the parent's is ≥ `value`, e.g. `pe_suspicious_import_count` grew by 5 after unpacking. Both sides must have the feature. |
 | `new_import_set` | `names`, `min` (default **1**) | At least `min` names match an import of this file that the parent does **not** import (same suffix matching as `import_set`). PE condition. |
+| `new_elf_import_set` | `names`, `min` (default **1**) | At least `min` names are imported symbols of this ELF that the parent ELF does **not** import (exact names). ELF condition. |
 
 Example: a packed shell with a handful of imports whose dump imports
 process-hollowing APIs.
@@ -882,6 +923,109 @@ Flow:
    load checks (section 7). The verification is the dry run: no separate
    verify-only flag is needed.
 
+**Signed packs.** A manifest may carry an Ed25519 signature:
+
+```yaml
+signature:
+  algorithm: ed25519
+  key_id: "hds-prod-2026-01"
+  value: "<128 hex characters>"
+```
+
+The signature covers a fixed transcript, not the YAML text: `HDS-PACK-V1`, the
+version, the length-prefixed `generated_at`, `notes` and `key_id` (`-` when
+absent), then one `path<TAB>size<TAB>sha256` line per file sorted by path.
+Reformatting, comments, key order and the order of `files` leave it valid; any
+change to a listed value breaks it. Paths may not hold control characters.
+
+| Flag | Meaning |
+|---|---|
+| `--pack-keygen PREFIX [--pack-key-id ID]` | Writes `PREFIX.key` (64 hex seed; owner-only on Unix) and `PREFIX.pub` (`ID:<64 hex public key>`); never overwrites. |
+| `--create-rules-pack ... --pack-sign-key FILE [--pack-key-id ID]` | Signs the written manifest. |
+| `--pack-pubkey KEY` | Trusted key(s): a `.pub` / keyring file (`id:<hex>` or bare `<hex>` per line, `#` comments) or one key inline; repeatable. The pack must be signed by a key with the signature's `key_id` (a bare key accepts any id). |
+| `--require-signed-pack` | Refuse unsigned packs (needs `--pack-pubkey`). |
+| `--min-pack-version N` | Refuse a pack whose `version` is below N (rollback). |
+
+Checks run in this order and the first failure exits with code 2: manifest
+shape and unknown keys, `version >= N`, the signature (before any rule file is
+opened), then every file's type, size and SHA-256. Without `--pack-pubkey` /
+`--require-signed-pack` a signature is only checked for its shape. Library:
+`rules::pack::load_manifest_with_policy(path, &PackVerifyPolicy { trusted_keys,
+require_signature, min_version })`, keys from `rules::pack::parse_public_keys`.
+
+### 5.17 .NET metadata
+
+CLR metadata of a PE is read when a rule needs it: the CLI header, the `BSJB`
+root, the streams and the TypeRef, TypeDef, MethodDef, MemberRef, ModuleRef,
+ImplMap, Assembly and CustomAttribute tables. A PE with that metadata gets the
+file type `dotnet`; other files never match these conditions.
+
+| Type | Keys | Matches when |
+|---|---|---|
+| `dotnet_guid_any` | `values` | The module MVID or the assembly's `GuidAttribute` (type library id) is one of `values` (case, `{}` and `-` ignored). |
+| `dotnet_type_regex` | `pattern`, `min` (default 1) | At least `min` defined or referenced types (`Namespace.Type`) match. |
+| `dotnet_method_regex` | `pattern`, `min` (default 1) | At least `min` defined methods or member references (`Namespace.Type::Method`) match. |
+| `dotnet_pinvoke_any` | `names` | A P/Invoke import (`module.dll!function`; a module without extension gets `.dll`) ends with one of `names`, case-insensitive (as `import_any`). |
+| `dotnet_pinvoke_set` | `names`, `min` (default 1) | At least `min` names match P/Invoke imports. |
+| `dotnet_stream_any` | `names` | A metadata stream has one of these names (`#Confuser`, `#SuppressIldasm`, ...; case-insensitive). |
+| `dotnet_user_string_regex` | `pattern`, `min` (default 1) | At least `min` `#US` strings match. |
+
+`#US` strings of 8 or more characters (4096 at most, 1 MiB) are decoded strings
+with method `dotnet_us`, so `decoded: true` conditions see them.
+
+### 5.18 ELF
+
+32/64-bit ELF of either byte order: header, sections, program headers, dynamic
+tags, `.dynsym` (or `.symtab`) symbols and the `NT_GNU_BUILD_ID` note. Other
+files never match.
+
+| Type | Keys | Matches when |
+|---|---|---|
+| `elf_import_any` / `elf_import_set` | `names` (`min`, default 1) | Undefined (imported) symbols, exact names. |
+| `elf_import_regex` | `pattern`, `min` (default 1) | At least `min` imported symbols match. |
+| `elf_export_any` / `elf_export_set` | `names` (`min`, default 1) | Defined global / weak function and object symbols. |
+| `elf_needed_any` | `names`, `nocase` | A `DT_NEEDED` library is one of `names`. |
+| `elf_section` | `select` (`any`, `last`, `entry`), `index`, `name`, `name_regex`, `flags_all`, `flags_none` (`alloc`, `write`, `exec`), `entropy_min`, `entropy_max`, `size_min`, `size_max`, `md5`, `sha256` | The chosen section passes every given key (as `pe_section`). |
+| `elf_segment` | `seg_type` (`load`, `dynamic`, `interp`, `note`, `phdr`, `tls`, `gnu_stack`, `gnu_relro`, `gnu_eh_frame`, ... or a number), `flags_all`, `flags_none` (`r`, `w`, `x`), `memsz_minus_filesz_min`, `entropy_min` | A program header passes every given key: an RWX `load`, an executable `gnu_stack`, a large in-memory gap. |
+| `elf_build_id_any` | `values` | The GNU build id (hex) is one of `values`. |
+| `new_elf_import_set` | `names`, `min` | See 5.6. |
+
+### 5.19 Mach-O
+
+Thin 32/64-bit Mach-O and Universal (fat) binaries; every architecture slice is
+read and a condition holds when one slice satisfies it.
+
+| Type | Keys | Matches when |
+|---|---|---|
+| `macho_dylib_any` | `names` | A loaded dylib (`LC_LOAD_DYLIB`, weak, re-export, lazy, upward) path ends with one of `names`, case-insensitive. |
+| `macho_sym_any` | `names`, `min` (default 1) | External symbols (`_ptrace` also matches `ptrace`). |
+| `macho_sym_regex` | `pattern`, `min` (default 1) | At least `min` external symbols match. |
+| `macho_segment` | `name`, `flags_all`, `flags_none` (`r`, `w`, `x` of the initial protection), `entropy_min`, `entropy_max` | A segment passes every given key. |
+| `macho_uuid_any` | `values` | `LC_UUID` is one of `values` (case and `-` ignored). |
+| `macho_signed` | `signed`, `adhoc`, `identifier_glob`, `team_id` | `LC_CODE_SIGNATURE` has (`signed: true`) or lacks a code directory; ad-hoc (`CS_ADHOC` or no CMS signature), signing identifier glob, team id. |
+| `macho_entitlement_any` | `keys` | The embedded entitlements hold one of these keys (e.g. `com.apple.security.cs.disable-library-validation`). |
+
+The entitlements XML is a decoded string with method `macho_entitlements`.
+
+### 5.20 PDF
+
+The PDF is scanned without its cross-reference table: `%PDF-` within the first
+KiB, every `N G obj` block, names unescaped (`/#4A#61#76#61#53#63#72#69#70#74`
+is `/JavaScript`), streams decoded through `FlateDecode`, `ASCIIHexDecode`,
+`ASCII85Decode`, `RunLengthDecode` (and `Fl`, `AHx`, `A85`, `RL`) and `/ObjStm`
+object streams opened. Budgets: 2 MiB per decoded stream, 16 MiB per file, 4
+filters per chain, 4096 objects; past a budget a stream is cut, never fully
+inflated. Nothing is executed.
+
+| Type | Keys | Matches when |
+|---|---|---|
+| `pdf_keyword` | `names`, `min` (default 1) | At least `min` of these names occur (`JavaScript`, `JS`, `OpenAction`, `AA`, `Launch`, `EmbeddedFiles`, `RichMedia`, `XFA`, `AcroForm`, `JBIG2Decode`, ...; with or without `/`). |
+| `pdf_stream_match` | `patterns`, `min` (default 1), `filter_any`, `decoded` (default true) | At least `min` patterns (text, or a `{ hex }` byte pattern) occur in a stream, decoded unless `decoded: false`, only in streams whose filter chain has one of `filter_any` when given. |
+
+`/JS` payloads (inline or in a referenced stream), `/URI` targets, `/Launch`
+`/F` / `/P` values and mostly printable decoded streams are decoded strings
+with methods `pdf_js`, `pdf_uri`, `pdf_launch` and `pdf_stream`.
+
 ## 6. native_signature
 
 YARA-like atoms plus a boolean expression:
@@ -931,14 +1075,33 @@ Expression grammar (case-insensitive keywords):
 | `any of ($a, $b*)`, `3 of ($s*)`, `all of ($*)` | Over a list; `$x*` selects every atom whose id starts with `x`. |
 | `$a at 0x40`, `$a in (0..1024)` | An occurrence at / inside this offset range (decimal or `0x` hex). |
 | `$a at $b + 16`, `$a at $b - 4` | An occurrence of `a` exactly that far from one of `b`. |
-| `@a < @b`, `@a[8] == @b`, `@a >= 0x100` | Compare occurrence offsets (`== != < <= > >=`). `[n]` **adds n bytes** to the offset (it is not YARA's occurrence index). |
+| `@a < @b`, `@a[8] == @b`, `@a >= 0x100` | Compare occurrence offsets (`== != < <= > >=`): holds when any pair of occurrences does. `[n]` **adds n bytes** to the offset (it is not YARA's occurrence index). |
 | `filesize < 500KB` | Size comparison; `KB`, `MB`, `GB` are powers of 1024. |
-| `uint16(0) == 0x5A4D`, `uint32(0x3c) == 0x4550`, `uint32(uint32(0x3c)) == 0x4550` | Little-endian values at an offset (only `==`). |
-| `PE`, `PE32`, `PE64`, `DotNet`, `ELF`, `ELF32`, `ELF64`, `MachO`, `APK`, `ZIP`, `JAR`, `DEX`, `Archive`, `Text`, `PlainText`, `Script` | File type tests. |
-| `and`, `or`, `not`, `( )` | Precedence: `not` > `and` > `or`. |
+| `uint16(0) == 0x5A4D`, `uint32(0x3c) == 0x4550`, `uint32(uint32(0x3c)) == 0x4550` | Little-endian values at an offset. |
+| `#a`, `#a in (0..512)` | Number of occurrences (in the inclusive start-offset range). |
+| `!a`, `!a[2]` | Length of the first / 2nd occurrence (text and byte atoms). |
+| `@a#2` | Offset of the 2nd occurrence (1-based; `@a#i`, `@a#(expr)`). `@a` in arithmetic is the first. |
+| `uint8`, `uint16`, `uint32`, `uint16be`, `uint32be`, `int8`, `int16`, `int32`, `int16be`, `int32be` | Integer at an offset (little endian unless `be`; `int*` signed). |
+| `entrypoint` | Raw file offset of the PE / ELF / Mach-O entry point. |
+| `+ - * / % & \| ^ << >> ~`, `== != < <= > >=` | 64-bit integer arithmetic and comparisons on any integer expression. |
+| `for any of ($s*) : ( @ >= entrypoint and ! > 16 )` | `any`, `all`, `none`, `N` or `N%` of the atoms satisfy the body; in it a bare `$`, `#`, `@`, `!` (`@#i`, `![i]`) mean the current atom. |
+| `for all i in (0..15) : ( uint8(i) != 0 )` | `any`, `all`, `none`, `N` of the integers satisfy the body (at most 4096 values). |
+| `PE`, `PE32`, `PE64`, `DotNet`, `ELF`, `ELF32`, `ELF64`, `MachO`, `MachO64`, `ARM64`, `APK`, `ZIP`, `JAR`, `DEX`, `PDF`, `OLE`, `Office`, `Archive`, `Text`, `PlainText`, `Script` | File type tests. |
+| `and`, `or`, `not`, `( )` | Precedence: `not` > `and` > `or` > comparisons > `\|` > `^` > `&` > shifts > `+ -` > `* / %` > unary `- ~`. |
 
-Not supported (refused at load time): `#a` counts, `!a` lengths, `for` loops,
-`uint8`, arithmetic, modules (`pe.`, `math.`).
+A value can be undefined: an atom that did not match (`!a`, `@a#3`), a read past
+the end of the file, division or modulo by zero, overflow, `entrypoint` of a
+file that has none. A comparison with an undefined value is false. Integers
+are not conditions: `#a > 0`, not `#a`.
+
+A `for .. in` loop over more than 4096 values is refused at load time when its
+bounds are numbers, and evaluates to false when they are computed; nested loops
+share a budget of 2,000,000 steps. Expressions written only with the original
+forms (atoms, `of`, `at`, `in`, `@a[n]` comparisons, `filesize`, `uint16` /
+`uint32 ==`, type words) are evaluated exactly as before.
+
+Not supported (refused at load time): modules (`pe.`, `math.`), `uint64`,
+string comparisons, `for .. in` over lists.
 
 ## 7. Load checks
 
@@ -968,7 +1131,8 @@ is written `''`.
 `rar`, `gzip`, `tar`, `jar`, `dex`, `java_class`, `asar`, `pdf`, `office`,
 `openxml`, `ole`, `text`, `script`, `powershell`, `batch`, `javascript`, `vbs`,
 `python`, `shell`, `binary`, `unknown`, `broken`, `broken_executable`,
-`broken_pe`, `broken_elf`, `broken_macho`, `broken_apk`.
+`broken_pe`, `broken_elf`, `broken_macho`, `broken_apk`, `dotnet` (a PE with CLR
+metadata).
 
 `broken_*`: the file starts with the format's magic but its header does not
 parse (for example `MZ` without a valid PE header).
@@ -978,6 +1142,14 @@ parse (for example `MZ` without a valid PE header).
 `string_count`, `decoded_string_count`, `env_hit_count`,
 `file_entropy_bits_per_byte`, `pe_import_count`, `pe_export_count`,
 `pe_section_count`, `pe_suspicious_import_count`.
+
+Structural features, present only for files of that format: `dotnet_type_count`,
+`dotnet_method_count`, `dotnet_pinvoke_count`, `dotnet_user_string_count`,
+`dotnet_stream_count`; `elf_import_count`, `elf_export_count`,
+`elf_section_count`, `elf_rwx_segment_count`; `macho_dylib_count`,
+`macho_section_count`, `macho_rwx_segment_count`; `pdf_obj_count`,
+`pdf_stream_count`, `pdf_objstm_count`, `pdf_js_count`, `pdf_openaction_count`,
+`pdf_embedded_file_count`, `pdf_uri_count`.
 
 Android packages add `apk_<name>` for each APK profile value (section 5.14):
 `apk_dex_classes`, `apk_dex_strings`, `apk_dex_methods`, `apk_dex_files`,
