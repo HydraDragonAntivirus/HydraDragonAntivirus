@@ -535,13 +535,13 @@ impl ThreatIntelStore {
             c.sightings += entry.seen_count - old_seen;
             drop(c);
 
-            (old_verdict, entry.sha256.text().to_string(), entry.verdict.to_string(), entry.threat_name.as_ref().map(|t| t.to_string()))
+            // History: a new verdict (a first "unknown" placeholder is not one).
+            let new_verdict = entry.verdict.as_str();
+            let history = old_verdict.as_deref() != Some(new_verdict) && !(old_verdict.is_none() && new_verdict == "unknown");
+            history.then(|| (old_verdict, entry.sha256.text().to_string(), entry.verdict.to_string(), entry.threat_name.as_ref().map(|t| t.to_string())))
         });
-        let Some((old_verdict, sha, new_verdict, threat_name)) = changed else { return };
-        // History: a new verdict (a first "unknown" placeholder is not one).
-        if old_verdict.as_deref() != Some(new_verdict.as_str()) && !(old_verdict.is_none() && new_verdict == "unknown") {
-            crate::verdict_history::record(&sha, "engine", old_verdict.as_deref(), &new_verdict, threat_name.as_deref(), "scan", "");
-        }
+        let Some(Some((old_verdict, sha, new_verdict, threat_name))) = changed else { return };
+        crate::verdict_history::record(&sha, "engine", old_verdict.as_deref(), &new_verdict, threat_name.as_deref(), "scan", "");
     }
 
     /// Adds a folder the file was seen in (see `ThreatInsight::folders`), its full
@@ -667,6 +667,18 @@ impl ThreatIntelStore {
         if let Some(i) = self.hot.read().unwrap().get(&sha) {
             return Some((i.verdict.to_string(), i.threat_name.as_ref().map(|t| t.to_string())));
         }
+        self.stored_verdict(&sha)
+    }
+
+    pub fn recorded_as_unknown(&self, sha: &Sha) -> bool {
+        if let Some(i) = self.hot.read().unwrap().get(sha) {
+            return i.verdict == "unknown";
+        }
+        self.stored_verdict(sha).is_some_and(|(v, _)| v == "unknown")
+    }
+
+    fn stored_verdict(&self, sha: &Sha) -> Option<(String, Option<String>)> {
+        let sha = *sha;
         let cols = self.db.lookup(|c| {
             let mut st = c.prepare_cached("SELECT verdict, threat FROM insights WHERE sha = ?1")?;
             let mut rows = st.query([&sha[..]])?;
@@ -1321,7 +1333,8 @@ fn db_path_for(jsonl_path: &Path, archive: bool) -> PathBuf {
 
 fn open_db(jsonl_path: &Path, archive: bool) -> Arc<crate::insight_db::InsightDb> {
     let p = db_path_for(jsonl_path, archive);
-    match crate::insight_db::InsightDb::open(&p) {
+    let opened = if crate::config::is_standby() { crate::insight_db::InsightDb::open(&p) } else { crate::insight_db::InsightDb::open_upgraded(&p) };
+    match opened {
         Ok(db) => Arc::new(db),
         Err(e) => {
             // Telemetry still works for this run; nothing of it is kept.
@@ -1941,6 +1954,45 @@ mod store_tests {
         let types = ti.type_stats(7);
         assert_eq!(types["all"]["total"], (st.malicious_count - 1 + st.suspicious_count) as u64);
 
+        drop(ti);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    #[ignore]
+    fn check_path_speed() {
+        let (ti, dir) = store("speed");
+        let n = HOT_MAX + 50_000;
+        for i in 0..n {
+            ti.record(&sha(i), "clean", None, Some("f.exe"), Some(100), 0.0);
+            ti.add_folder(&sha(i), "10.0.0.1", "", "C:\\Users\\a\\dir");
+        }
+        assert!(ti.flush(Duration::from_secs(60)));
+        let hot: Vec<String> = (0..n).map(sha).filter(|s| ti.hot.read().unwrap().contains_key(&parse_sha(s).unwrap())).take(20_000).collect();
+        let cold: Vec<String> = (0..n).map(sha).filter(|s| !ti.hot.read().unwrap().contains_key(&parse_sha(s).unwrap())).take(20_000).collect();
+        for (label, set) in [("hot", &hot), ("cold", &cold)] {
+            let t = std::time::Instant::now();
+            for s in set.iter() {
+                std::hint::black_box(ti.get(s).is_some_and(|i| i.verdict == "unknown"));
+            }
+            let get = t.elapsed().as_secs_f64();
+            let t = std::time::Instant::now();
+            for s in set.iter() {
+                std::hint::black_box(ti.recorded_as_unknown(&parse_sha(s).unwrap()));
+            }
+            let quick = t.elapsed().as_secs_f64();
+            let t = std::time::Instant::now();
+            for s in set.iter() {
+                ti.record(s, "clean", None, Some("f.exe"), Some(100), 0.0);
+                ti.set_detections(s, "clean", &[], false);
+                ti.add_folder(s, "10.0.0.2", "", "");
+                ti.add_folder(s, "10.0.0.2", "dir", "C:\\Users\\b\\dir");
+            }
+            let rest = t.elapsed().as_secs_f64();
+            let per = |secs: f64| set.len() as f64 / secs;
+            println!("{label:<5} get {:>9.0}/s  recorded_as_unknown {:>9.0}/s  record+detections+2 folders {:>9.0}/s", per(get), per(quick), per(rest));
+            assert!(ti.flush(Duration::from_secs(60)));
+        }
         drop(ti);
         let _ = std::fs::remove_dir_all(&dir);
     }

@@ -22,16 +22,22 @@ use crate::cache::Sha;
 
 /// SQLite page cache of each connection, in KiB (negative `cache_size`).
 const WRITE_CACHE_KIB: i64 = 64 * 1024;
-const LOOKUP_CACHE_KIB: i64 = 32 * 1024;
+const LOOKUP_CACHE_KIB: i64 = 16 * 1024;
+const LOOKUP_CONNECTIONS: usize = 8;
 const SCAN_CACHE_KIB: i64 = 8 * 1024;
 const WAL_CHECKPOINT_PAGES: i64 = 10_000;
+const PAGE_SIZE: i64 = 16_384;
+const UPGRADE_CACHE_KIB: i64 = 512 * 1024;
+const INSIGHT_INDEXES: &str = "CREATE INDEX IF NOT EXISTS insights_seq ON insights(seq);
+     CREATE INDEX IF NOT EXISTS insights_verdict ON insights(verdict);
+     CREATE INDEX IF NOT EXISTS insights_first_seen ON insights(first_seen);";
 
 pub struct InsightDb {
     path: PathBuf,
     /// None when opened read-only.
     write: Option<Mutex<Connection>>,
     /// Short lookups by hash (every scan asks for a verdict).
-    lookup: Mutex<Connection>,
+    lookup: Vec<Mutex<Connection>>,
 }
 
 /// One sighting row (see `ThreatInsight::sightings`).
@@ -69,6 +75,13 @@ fn open_read(path: &Path, cache_kib: i64) -> Res<Connection> {
     Ok(conn)
 }
 
+fn thread_slot() -> usize {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    static NEXT: AtomicUsize = AtomicUsize::new(0);
+    thread_local!(static SLOT: usize = NEXT.fetch_add(1, Ordering::Relaxed));
+    SLOT.with(|s| *s)
+}
+
 fn has_column(conn: &Connection, table: &str, column: &str) -> Res<bool> {
     let mut st = conn.prepare(&format!("PRAGMA table_info({table})"))?;
     let names = st.query_map([], |r| r.get::<_, String>(1))?;
@@ -83,17 +96,32 @@ fn has_column(conn: &Connection, table: &str, column: &str) -> Res<bool> {
 impl InsightDb {
     /// Opens (creating when missing) the database for reading and writing.
     pub fn open(path: &Path) -> Res<Self> {
+        Self::open_with(path, false)
+    }
+
+    pub fn open_upgraded(path: &Path) -> Res<Self> {
+        Self::open_with(path, true)
+    }
+
+    fn open_with(path: &Path, upgrade: bool) -> Res<Self> {
         let conn = Connection::open(path)?;
         tune(&conn, WRITE_CACHE_KIB)?;
+        conn.pragma_update(None, "page_size", PAGE_SIZE)?;
         conn.pragma_update(None, "journal_mode", "WAL")?;
         conn.pragma_update(None, "synchronous", "NORMAL")?;
         conn.pragma_update(None, "wal_autocheckpoint", WAL_CHECKPOINT_PAGES)?;
         conn.execute_batch(
             "CREATE TABLE IF NOT EXISTS insights (
-                 sha  BLOB PRIMARY KEY,
-                 seq  INTEGER NOT NULL,
-                 data BLOB NOT NULL
-             ) WITHOUT ROWID;
+                 sha        BLOB NOT NULL UNIQUE,
+                 seq        INTEGER NOT NULL,
+                 data       BLOB NOT NULL,
+                 verdict    TEXT,
+                 threat     TEXT,
+                 first_seen TEXT,
+                 last_seen  TEXT,
+                 seen_count INTEGER,
+                 cols_seq   INTEGER
+             );
              CREATE INDEX IF NOT EXISTS insights_seq ON insights(seq);
              CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
              CREATE TABLE IF NOT EXISTS sightings (
@@ -121,18 +149,19 @@ impl InsightDb {
                 conn.execute_batch(&format!("ALTER TABLE insights ADD COLUMN {col} {ty}"))?;
             }
         }
-        conn.execute_batch(
-            "CREATE INDEX IF NOT EXISTS insights_verdict ON insights(verdict);
-             CREATE INDEX IF NOT EXISTS insights_first_seen ON insights(first_seen);",
-        )?;
-        let lookup = open_read(path, LOOKUP_CACHE_KIB)?;
-        Ok(Self { path: path.to_path_buf(), write: Some(Mutex::new(conn)), lookup: Mutex::new(lookup) })
+        conn.execute_batch(INSIGHT_INDEXES)?;
+        if upgrade {
+            upgrade_layout(&conn, path);
+        }
+        let n = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4).clamp(1, LOOKUP_CONNECTIONS);
+        let lookup = (0..n).map(|_| open_read(path, LOOKUP_CACHE_KIB).map(Mutex::new)).collect::<Res<Vec<_>>>()?;
+        Ok(Self { path: path.to_path_buf(), write: Some(Mutex::new(conn)), lookup })
     }
 
     /// Opens an existing database for reading only (the standby's first look).
     pub fn open_readonly(path: &Path) -> Res<Self> {
         let lookup = open_read(path, SCAN_CACHE_KIB)?;
-        Ok(Self { path: path.to_path_buf(), write: None, lookup: Mutex::new(lookup) })
+        Ok(Self { path: path.to_path_buf(), write: None, lookup: vec![Mutex::new(lookup)] })
     }
 
     fn writer(&self) -> Res<std::sync::MutexGuard<'_, Connection>> {
@@ -144,7 +173,14 @@ impl InsightDb {
 
     /// A short query on the shared lookup connection (one row by hash and the like).
     pub fn lookup<T>(&self, f: impl FnOnce(&Connection) -> Res<T>) -> Res<T> {
-        f(&self.lookup.lock().unwrap())
+        let n = self.lookup.len();
+        let own = thread_slot() % n;
+        for k in 0..n {
+            if let Ok(c) = self.lookup[(own + k) % n].try_lock() {
+                return f(&c);
+            }
+        }
+        f(&self.lookup[own].lock().unwrap())
     }
 
     /// A long read (walks many rows) on a connection of its own, so lookups by hash
@@ -300,6 +336,62 @@ impl InsightDb {
             rows.collect()
         })
     }
+}
+
+fn upgrade_layout(conn: &Connection, path: &Path) {
+    let without_rowid = conn
+        .query_row("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'insights'", [], |r| r.get::<_, String>(0))
+        .map(|sql| sql.to_ascii_uppercase().contains("WITHOUT ROWID"))
+        .unwrap_or(false);
+    let page: i64 = conn.query_row("PRAGMA page_size", [], |r| r.get(0)).unwrap_or(PAGE_SIZE);
+    if !without_rowid && page >= PAGE_SIZE {
+        return;
+    }
+    let started = std::time::Instant::now();
+    eprintln!("[telemetry] moving {} to the faster layout (once)", path.display());
+    let _ = conn.pragma_update(None, "cache_size", -UPGRADE_CACHE_KIB);
+    if without_rowid {
+        let moved = conn.execute_batch(&format!(
+            "BEGIN IMMEDIATE;
+             CREATE TABLE insights_new (
+                 sha        BLOB NOT NULL UNIQUE,
+                 seq        INTEGER NOT NULL,
+                 data       BLOB NOT NULL,
+                 verdict    TEXT,
+                 threat     TEXT,
+                 first_seen TEXT,
+                 last_seen  TEXT,
+                 seen_count INTEGER,
+                 cols_seq   INTEGER
+             );
+             INSERT INTO insights_new(sha, seq, data, verdict, threat, first_seen, last_seen, seen_count, cols_seq)
+                 SELECT sha, seq, data, verdict, threat, first_seen, last_seen, seen_count, cols_seq FROM insights ORDER BY seq;
+             DROP TABLE insights;
+             ALTER TABLE insights_new RENAME TO insights;
+             {INSIGHT_INDEXES}
+             COMMIT;"
+        ));
+        if let Err(e) = moved {
+            let _ = conn.execute_batch("ROLLBACK");
+            eprintln!("[telemetry] layout change failed, keeping the old one: {e}");
+            return;
+        }
+        eprintln!("[telemetry] table moved in {:.1} s", started.elapsed().as_secs_f64());
+    }
+    if page < PAGE_SIZE {
+        let alone = conn.pragma_update_and_check(None, "journal_mode", "DELETE", |r| r.get::<_, String>(0)).map(|m| m.eq_ignore_ascii_case("delete")).unwrap_or(false);
+        if alone {
+            let vacuumed = conn.pragma_update(None, "page_size", PAGE_SIZE).and_then(|_| conn.execute_batch("VACUUM"));
+            if let Err(e) = vacuumed {
+                eprintln!("[telemetry] page size change failed, keeping {page}: {e}");
+            }
+        }
+        if let Err(e) = conn.pragma_update(None, "journal_mode", "WAL") {
+            eprintln!("[telemetry] journal_mode=WAL failed: {e}");
+        }
+    }
+    let _ = conn.pragma_update(None, "cache_size", -WRITE_CACHE_KIB);
+    eprintln!("[telemetry] layout ready in {:.1} s", started.elapsed().as_secs_f64());
 }
 
 fn write_sightings(tx: &Connection, row: &InsightRow) -> Res<()> {
@@ -460,6 +552,33 @@ mod tests {
         w.upsert_batch(&[row([8u8; 32], "w", "clean", &[])]).unwrap();
         assert_eq!(r.changes_since(1, 10).unwrap().len(), 1);
         assert!(r.set_meta("k", "v").is_err(), "read-only");
+    }
+
+    #[test]
+    fn old_layout_is_moved_with_its_rows() {
+        let p = tmp("upgrade");
+        {
+            let c = Connection::open(&p).unwrap();
+            c.execute_batch(
+                "PRAGMA journal_mode=WAL;
+                 CREATE TABLE insights (sha BLOB PRIMARY KEY, seq INTEGER NOT NULL, data BLOB NOT NULL) WITHOUT ROWID;
+                 CREATE INDEX insights_seq ON insights(seq);",
+            )
+            .unwrap();
+            c.execute("INSERT INTO insights(sha, seq, data) VALUES(?1, 1, x'61')", [&[1u8; 32][..]]).unwrap();
+        }
+        let db = InsightDb::open_upgraded(&p).unwrap();
+        let sql: String = db.lookup(|c| c.query_row("SELECT sql FROM sqlite_master WHERE name = 'insights'", [], |r| r.get(0))).unwrap();
+        assert!(!sql.to_ascii_uppercase().contains("WITHOUT ROWID"));
+        let page: i64 = db.lookup(|c| c.query_row("PRAGMA page_size", [], |r| r.get(0))).unwrap();
+        assert_eq!(page, PAGE_SIZE);
+        let mode: String = db.lookup(|c| c.query_row("PRAGMA journal_mode", [], |r| r.get(0))).unwrap();
+        assert_eq!(mode, "wal");
+        assert_eq!(db.get(&[1u8; 32]).unwrap().as_deref(), Some(&b"a"[..]));
+        assert_eq!(db.stale_rows(&[0u8; 32], 10).unwrap().len(), 1, "columns are still filled later");
+        db.upsert_batch(&[row([1u8; 32], "b", "clean", &[]), row([2u8; 32], "c", "clean", &[])]).unwrap();
+        assert_eq!(db.count().unwrap(), 2);
+        assert_eq!(db.max_seq().unwrap(), 3);
     }
 
     #[test]

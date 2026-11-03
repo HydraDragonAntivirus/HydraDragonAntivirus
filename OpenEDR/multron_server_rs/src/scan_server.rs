@@ -567,7 +567,7 @@ async fn handle_health(State(server): State<Arc<ScanServer>>) -> impl IntoRespon
         }
         if self.cfg.cache() && !skip_cache {
             if let Some(v) = self.cache.get(sha) {
-                if v.verdict != "unknown" && self.threat_intel.get(sha_hex).is_some_and(|i| i.verdict == "unknown") {
+                if v.verdict != "unknown" && self.threat_intel.recorded_as_unknown(sha) {
                     self.cache.forget(&[*sha].into_iter().collect());
                 } else {
                     self.stats.cache_hits.fetch_add(1, Ordering::Relaxed);
