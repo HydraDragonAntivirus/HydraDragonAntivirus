@@ -1,4 +1,8 @@
 use super::types::*;
+use super::ubo_filters::{
+    read_list, split_spec, url_host_range, Block as UboBlock, ListStats, UboFilters,
+    DEFAULT_CATEGORY as DEFAULT_LIST_CATEGORY, MAX_URL_LEN,
+};
 use crate::models::{Finding, MitreTechnique, RulePerformance, ScanReport, Verdict};
 use daachorse::DoubleArrayAhoCorasick;
 use anyhow::{Context, Result};
@@ -46,52 +50,121 @@ struct ScanView {
     dex_strings: Vec<String>,
 }
 
-/// Categorized host blocklist loaded from an external text file:
-/// one `domain:CATEGORY` entry per line, or several entries joined with `|`.
+/// Categorized host blocklist loaded from external text files: one
+/// `domain:CATEGORY` entry per line, or several entries joined with `|`.
 /// Lines starting with `#` are comments. Domains are lowercased, categories
-/// uppercased. Used by [`RuleCondition::DomainBlocklist`].
+/// uppercased. The same files may also hold uBlock Origin / Adblock Plus
+/// network filters and hosts-file lines (see [`super::ubo_filters`]), which
+/// take the category of their list. Used by [`RuleCondition::DomainBlocklist`].
 #[derive(Debug, Default)]
 pub struct DomainCategoryDb {
     map: HashMap<String, String>,
     pub entries: usize,
+    legacy_entries: usize,
+    ubo: UboFilters,
+    /// Canonical paths of the loaded list files: scanning a list itself must
+    /// not report every entry in it.
+    sources: Vec<std::path::PathBuf>,
+}
+
+/// One line of the original `domain:CATEGORY` syntax (`|`-joined entries).
+fn insert_legacy_line(map: &mut HashMap<String, String>, entries: &mut usize, line: &str) {
+    for line in line.split('|') {
+        let line = line.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        let Some((domain, category)) = line.rsplit_once(':') else {
+            continue;
+        };
+        let domain = domain
+            .trim()
+            .trim_start_matches('.')
+            .trim_end_matches('.')
+            .to_ascii_lowercase();
+        if domain.is_empty() || domain.contains(|c: char| c.is_whitespace() || c == '/') {
+            continue;
+        }
+        map.insert(domain, category.trim().to_ascii_uppercase());
+        *entries += 1;
+    }
 }
 
 impl DomainCategoryDb {
+    /// Loads one list; `path` may also be a `CATEGORY=PATH` spec.
     pub fn load(path: &Path) -> Result<Self> {
-        let text = std::fs::read_to_string(path)
+        Self::load_spec(&path.to_string_lossy())
+    }
+
+    /// Loads one `PATH` or `CATEGORY=PATH` list. The category is given to the
+    /// list's uBO-syntax entries; `domain:CATEGORY` lines keep their own.
+    pub fn load_spec(spec: &str) -> Result<Self> {
+        let mut db = Self::default();
+        db.add_list_spec(spec)?;
+        db.finish();
+        Ok(db)
+    }
+
+    fn add_list_spec(&mut self, spec: &str) -> Result<()> {
+        let (category, path) = split_spec(spec);
+        self.add_list(Path::new(path), category.as_deref())
+    }
+
+    fn add_list(&mut self, path: &Path, category: Option<&str>) -> Result<()> {
+        let text = read_list(path)
             .with_context(|| format!("failed to read blocklist DB {}", path.display()))?;
-        Ok(Self::from_text(&text))
+        self.add_text(&text, path.parent(), category.unwrap_or(DEFAULT_LIST_CATEGORY));
+        if let Ok(canonical) = path.canonicalize() {
+            self.sources.push(canonical);
+        }
+        Ok(())
+    }
+
+    /// `path` is one of the list files this DB was loaded from.
+    fn is_source(&self, path: &Path) -> bool {
+        let Some(name) = path.file_name() else { return false };
+        self.sources.iter().any(|s| s.file_name() == Some(name))
+            && path
+                .canonicalize()
+                .is_ok_and(|canonical| self.sources.contains(&canonical))
+    }
+
+    fn add_text(&mut self, text: &str, base_dir: Option<&Path>, category: &str) {
+        let Self { map, legacy_entries, ubo, .. } = self;
+        ubo.parse_list(text, base_dir, category, 0, &mut |line| {
+            insert_legacy_line(map, legacy_entries, line)
+        });
+    }
+
+    fn finish(&mut self) {
+        self.ubo.finish();
+        self.entries = self.legacy_entries + self.ubo.stats.blocks + self.ubo.stats.exceptions;
     }
 
     pub fn from_text(text: &str) -> Self {
-        let mut map = HashMap::new();
-        let mut entries = 0usize;
-        for line in text.replace(['\r', '\n'], "|").split('|') {
-            let line = line.trim();
-            if line.is_empty() || line.starts_with('#') {
-                continue;
-            }
-            let Some((domain, category)) = line.rsplit_once(':') else {
-                continue;
-            };
-            let domain = domain
-                .trim()
-                .trim_start_matches('.')
-                .trim_end_matches('.')
-                .to_ascii_lowercase();
-            if domain.is_empty() || domain.contains(|c: char| c.is_whitespace() || c == '/') {
-                continue;
-            }
-            map.insert(domain, category.trim().to_ascii_uppercase());
-            entries += 1;
-        }
-        Self { map, entries }
+        Self::from_text_with_category(text, DEFAULT_LIST_CATEGORY)
     }
 
-    /// Category of `domain`, or `None` when it is not listed.
-    /// Accepts hostnames with a leading `www.` or `.` prefix.
-    pub fn category(&self, domain: &str) -> Option<&str> {
-        let domain = domain.trim().trim_start_matches('.').trim_end_matches('.');
+    /// Like [`Self::from_text`], with the category of uBO-syntax entries
+    /// (`!#include` needs a list directory, so it is not followed here).
+    pub fn from_text_with_category(text: &str, category: &str) -> Self {
+        let mut db = Self::default();
+        db.add_text(text, None, category);
+        db.finish();
+        db
+    }
+
+    /// What loading did with uBO-syntax lines.
+    pub fn list_stats(&self) -> ListStats {
+        self.ubo.stats
+    }
+
+    /// The first rejected uBO-syntax lines (truncated), for load diagnostics.
+    pub fn rejected_samples(&self) -> &[String] {
+        &self.ubo.rejected_samples
+    }
+
+    fn legacy_category(&self, domain: &str) -> Option<&str> {
         if let Some(category) = self.map.get(domain) {
             return Some(category.as_str());
         }
@@ -99,6 +172,37 @@ impl DomainCategoryDb {
             return self.map.get(stripped).map(|c| c.as_str());
         }
         None
+    }
+
+    /// Category of `domain`, or `None` when it is not listed or a uBO `@@`
+    /// exception covers it. Accepts hostnames with a leading `www.` or `.`
+    /// prefix; uBO hostname filters also cover subdomains.
+    pub fn category(&self, domain: &str) -> Option<&str> {
+        let domain = domain.trim().trim_start_matches('.').trim_end_matches('.');
+        let ubo = self.ubo.host_block(domain);
+        if !self.ubo.host_excepted(domain) {
+            return self.legacy_category(domain).or(ubo.map(|b| b.category));
+        }
+        ubo.filter(|b| b.important).map(|b| b.category)
+    }
+
+    /// Blocking verdict for a lowercase URL whose hostname is `url[host]`:
+    /// hostname entries first, then uBO URL patterns; `@@` exceptions win
+    /// over everything except `$important` blocks.
+    fn url_block(&self, url: &str, host: std::ops::Range<usize>) -> Option<UboBlock<'_>> {
+        let host_str = url.get(host.clone())?;
+        let ubo_host = self.ubo.host_block(host_str);
+        let block = self
+            .legacy_category(host_str)
+            .map(|category| UboBlock { category, important: false, by_url: false })
+            .or(ubo_host)
+            .or_else(|| self.ubo.url_block(url, host.clone(), false))?;
+        if !self.ubo.host_excepted(host_str) && !self.ubo.url_excepted(url, host.clone()) {
+            return Some(block);
+        }
+        ubo_host
+            .filter(|b| b.important)
+            .or_else(|| self.ubo.url_block(url, host, true))
     }
 }
 
@@ -113,16 +217,50 @@ static DOMAIN_DB_CACHE: Lazy<Mutex<HashMap<String, Arc<DomainCategoryDb>>>> =
 /// Loads a categorized blocklist DB and installs it as the global DB used by
 /// every `domain_blocklist` condition that has no `db` field of its own.
 pub fn set_global_domain_db(path: &Path) -> Result<usize> {
-    let db = DomainCategoryDb::load(path)?;
-    let entries = db.entries;
+    set_global_domain_dbs(&[path.to_string_lossy().into_owned()]).map(|(entries, ..)| entries)
+}
+
+/// Loads several `PATH` / `CATEGORY=PATH` lists into one global DB (uBO
+/// `@@` exceptions of any list apply to all of them). Returns the entry count,
+/// the uBO line statistics and the first rejected lines.
+pub fn set_global_domain_dbs(specs: &[String]) -> Result<(usize, ListStats, Vec<String>)> {
+    let mut db = DomainCategoryDb::default();
+    for spec in specs {
+        db.add_list_spec(spec)?;
+    }
+    db.finish();
+    let result = (db.entries, db.ubo.stats, db.ubo.rejected_samples.clone());
     *GLOBAL_DOMAIN_DB.lock().unwrap() = Some(Arc::new(db));
-    Ok(entries)
+    Ok(result)
+}
+
+/// Loads the lists named by a manifest file into the global DB: one
+/// `[CATEGORY=]FILE` per line (`#` comments), FILE relative to the manifest's
+/// folder. Same result as [`set_global_domain_dbs`].
+pub fn set_global_domain_db_manifest(manifest: &Path) -> Result<(usize, ListStats, Vec<String>)> {
+    let text = read_list(manifest)
+        .with_context(|| format!("failed to read domain list manifest {}", manifest.display()))?;
+    let base = manifest.parent().unwrap_or_else(|| Path::new(""));
+    let specs: Vec<String> = text
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty() && !line.starts_with('#'))
+        .map(|line| {
+            let (category, file) = split_spec(line);
+            let path = base.join(file);
+            match category {
+                Some(category) => format!("{category}={}", path.display()),
+                None => path.display().to_string(),
+            }
+        })
+        .collect();
+    set_global_domain_dbs(&specs)
 }
 
 /// A loaded global DB and its size (`None` when no `--domain-db` was passed).
 pub fn global_domain_db() -> Option<(usize, usize)> {
     let db = GLOBAL_DOMAIN_DB.lock().unwrap().clone()?;
-    Some((db.entries, db.map.len()))
+    Some((db.entries, db.map.len() + db.ubo.host_entries()))
 }
 
 fn domain_db_for(rule_db: Option<&str>) -> Option<Arc<DomainCategoryDb>> {
@@ -132,8 +270,16 @@ fn domain_db_for(rule_db: Option<&str>) -> Option<Arc<DomainCategoryDb>> {
         if let Some(db) = cache.get(&key) {
             return Some(db.clone());
         }
-        match Path::new(spec).canonicalize() {
-            Ok(path) => match DomainCategoryDb::load(&path) {
+        let (category, path) = split_spec(spec);
+        let loaded = Path::new(path).canonicalize().map(|path| {
+            let mut db = DomainCategoryDb::default();
+            db.add_list(&path, category.as_deref()).map(|()| {
+                db.finish();
+                db
+            })
+        });
+        match loaded {
+            Ok(result) => match result {
                 Ok(db) => {
                     let db = Arc::new(db);
                     cache.insert(key, db.clone());
@@ -161,9 +307,32 @@ static DOMAIN_TOKEN_RE: Lazy<Regex> = Lazy::new(|| {
         .unwrap()
 });
 
+/// URLs checked against uBO URL patterns (lists with uBO syntax only).
+static URL_RE: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r#"(?i)(?:https?|ftps?|wss?)://[^\s"'<>\\^`{}|\x00-\x1f\x7f]+"#).unwrap()
+});
+
+/// URL checks per `domain_blocklist` evaluation.
+const MAX_URLS_PER_SCAN: usize = 16 * 1024;
+/// Longest URL shown in the evidence.
+const MAX_URL_EVIDENCE: usize = 160;
+
+fn truncate_at_char(s: &str, max: usize) -> &str {
+    if s.len() <= max {
+        return s;
+    }
+    let mut end = max;
+    while !s.is_char_boundary(end) {
+        end -= 1;
+    }
+    &s[..end]
+}
+
 /// `domain_blocklist`: returns the matched `domain=CATEGORY` pairs (at most the
 /// first few) when at least `min` distinct listed domains of an accepted
-/// category are referenced by the file strings (plain and decoded).
+/// category are referenced by the file strings (plain and decoded). With uBO
+/// lists loaded, URLs are also matched as a whole (hostname filters, URL
+/// patterns, `@@` exceptions); a URL-pattern hit is reported as the URL.
 fn domain_blocklist_evidence(
     db: &DomainCategoryDb,
     categories: &[String],
@@ -187,15 +356,73 @@ fn domain_blocklist_evidence(
     for value in &view.decoded_lower {
         texts.push(value);
     }
+    let mut record = |label: &str, category: &str| -> bool {
+        let label = truncate_at_char(label, MAX_URL_EVIDENCE);
+        if accepts(category) && seen.insert(label.to_string()) {
+            found.push((label.to_string(), category.to_string()));
+        }
+        found.len() >= min.max(8)
+    };
+    let check_urls = !db.ubo.is_empty();
+    let url_patterns = db.ubo.has_url_filters();
+    let mut urls_checked = 0usize;
     'search: for text in texts {
+        // Hostnames already decided through their URL (uBO lists only).
+        let mut url_hosts: Vec<std::ops::Range<usize>> = Vec::new();
+        let mut url_spans: Vec<std::ops::Range<usize>> = Vec::new();
+        let lower = if check_urls { text.to_ascii_lowercase() } else { String::new() };
+        if check_urls {
+            for m in URL_RE.find_iter(&lower) {
+                if urls_checked >= MAX_URLS_PER_SCAN {
+                    break;
+                }
+                urls_checked += 1;
+                let url = truncate_at_char(m.as_str(), MAX_URL_LEN);
+                let Some(host) = url_host_range(url) else { continue };
+                url_spans.push(m.range());
+                url_hosts.push(m.start() + host.start..m.start() + host.end);
+                if let Some(block) = db.url_block(url, host.clone()) {
+                    let label = if block.by_url { url } else { &url[host] };
+                    if record(label, block.category) {
+                        break 'search;
+                    }
+                }
+            }
+        }
         for token in DOMAIN_TOKEN_RE.find_iter(text) {
-            let domain = token.as_str().to_ascii_lowercase();
-            let Some(category) = db.category(&domain) else { continue };
-            if !accepts(category) || !seen.insert(domain.clone()) {
+            if url_hosts.contains(&token.range()) {
                 continue;
             }
-            found.push((domain, category.to_string()));
-            if found.len() >= min.max(8) {
+            let domain = token.as_str().to_ascii_lowercase();
+            // Scheme-less `host/path` or `host:port/...` reference.
+            if url_patterns
+                && urls_checked < MAX_URLS_PER_SCAN
+                && lower[token.end()..].starts_with(['/', ':'])
+                && !url_spans.iter().any(|s| s.contains(&token.start()))
+            {
+                let tail = &lower[token.start()..];
+                let len = tail
+                    .find(|c: char| {
+                        c.is_whitespace() || matches!(c, '"' | '\'' | '<' | '>' | '`' | '|' | '\0')
+                    })
+                    .unwrap_or(tail.len());
+                let url = format!(
+                    "http://{}",
+                    truncate_at_char(&tail[..len], MAX_URL_LEN - "http://".len())
+                );
+                if let Some(host) = url_host_range(&url) {
+                    urls_checked += 1;
+                    if let Some(block) = db.url_block(&url, host.clone()) {
+                        let label = if block.by_url { &url[..] } else { &url[host] };
+                        if record(label, block.category) {
+                            break 'search;
+                        }
+                    }
+                    continue;
+                }
+            }
+            let Some(category) = db.category(&domain) else { continue };
+            if record(&domain, category) {
                 break 'search;
             }
         }
@@ -3057,6 +3284,9 @@ fn evaluate_condition(
             let Some(db) = domain_db_for(db.as_deref()) else {
                 return None;
             };
+            if db.is_source(&report.path) {
+                return None;
+            }
             domain_blocklist_evidence(&db, categories, min.unwrap_or(1).max(1), report, view)
         }
         RuleCondition::DexStringRegex { pattern } => {

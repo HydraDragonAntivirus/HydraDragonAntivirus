@@ -7,14 +7,11 @@ use super::tree_model::TreeEnsembleModel;
 /// Master router input width: [is_pe, is_js, is_apk, is_url, pe, js, apk, url].
 pub const MASTER_FEATURE_COUNT: usize = 8;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum PeModelKind { Inner, Shell }
-
 pub struct MlScanner {
-    /// Dedicated model trained only on successfully unpacked inner PE features.
-    pe_inner_trees: Option<TreeEnsembleModel>,
-    /// Shell-only model for samples without a successful inner PE.
-    pe_shell_trees: Option<TreeEnsembleModel>,
+    /// Unified PE model trained on the full v2 feature vector (shell + inner +
+    /// meta + combined). The model sees `inner_source` and `inner_is_pe` as
+    /// features and learns the routing itself.
+    pe_trees: Option<TreeEnsembleModel>,
     js_trees: Option<TreeEnsembleModel>,
     url_trees: Option<TreeEnsembleModel>,
     apk_trees: Option<TreeEnsembleModel>,
@@ -23,15 +20,13 @@ pub struct MlScanner {
 
 impl MlScanner {
     pub fn new(models_dir: &Path) -> Self {
-        let pe_inner_trees = TreeEnsembleModel::from_bin_file(&models_dir.join("pe_trees_inner.bin"));
-        let pe_shell_trees = TreeEnsembleModel::from_bin_file(&models_dir.join("pe_trees_shell.bin"));
+        let pe_trees = TreeEnsembleModel::from_bin_file(&models_dir.join("pe_trees.bin"));
         let js_trees = TreeEnsembleModel::from_bin_file(&models_dir.join("js_trees.bin"));
         let url_trees = TreeEnsembleModel::from_bin_file(&models_dir.join("url_trees.bin"));
         let apk_trees = TreeEnsembleModel::from_bin_file(&models_dir.join("apk_trees.bin"));
 
         Self {
-            pe_inner_trees,
-            pe_shell_trees,
+            pe_trees,
             js_trees,
             url_trees,
             apk_trees,
@@ -39,7 +34,7 @@ impl MlScanner {
         }
     }
 
-    /// Runtime model load: kind 1=JS, 2=URL, 3=APK, 4=master, 5=PE inner, 6=PE shell.
+    /// Runtime model load: kind 1=JS, 2=URL, 3=APK, 4=master, 5=PE.
     /// Returns false when bytes don't parse or kind is unknown.
     pub fn load_model_bytes(&mut self, kind: u32, data: &[u8]) -> bool {
         let model = match TreeEnsembleModel::from_bin_bytes(data) {
@@ -51,53 +46,30 @@ impl MlScanner {
             2 => self.url_trees = Some(model),
             3 => self.apk_trees = Some(model),
             4 => self.master_trees = Some(model),
-            5 => self.pe_inner_trees = Some(model),
-            6 => self.pe_shell_trees = Some(model),
+            5 | 6 => self.pe_trees = Some(model),
             _ => return false,
         }
         true
     }
 
     pub fn predict_pe(&self, data: &[u8]) -> Option<f32> {
-        self.predict_pe_with_model(data).map(|(p, _)| p)
-    }
-
-    pub fn predict_pe_with_model(&self, data: &[u8]) -> Option<(f32, PeModelKind)> {
-        // Route strictly to the model matching the observed feature domain.
-        let raw = super::pe_combined::extract_pe_features_v2(data)?;
-        if super::pe_combined::routes_to_inner(raw[136], raw[137]) {
-            let inner = super::pe_combined::extract_unpacked_inner_features_from_v2(&raw);
-            return self.pe_inner_trees.as_ref().map(|m| (m.predict_probability(&inner), PeModelKind::Inner));
-        }
-        let trees = self.pe_shell_trees.as_ref()?;
-        let arr = super::pe_combined::pe_v2_shell_model_features(&raw);
-        Some((trees.predict_probability(&arr), PeModelKind::Shell))
+        let trees = self.pe_trees.as_ref()?;
+        let v = super::pe_combined::extract_pe_features_v2(data)?;
+        Some(trees.predict_probability(&v))
     }
 
     /// Why the PE model scored this file: probability and every feature with its
     /// value and contribution to the log-odds, strongest first.
     pub fn explain_pe(&self, data: &[u8]) -> Option<MlExplanation> {
-        self.explain_pe_with_model(data).map(|(e, _)| e)
+        let trees = self.pe_trees.as_ref()?;
+        let v = super::pe_combined::extract_pe_features_v2(data)?;
+        Some(MlExplanation::new(trees.explain(&v), &v, super::pe_combined::pe_v2_feature_names_static()))
     }
 
-    pub fn explain_pe_with_model(&self, data: &[u8]) -> Option<(MlExplanation, PeModelKind)> {
-        let raw = super::pe_combined::extract_pe_features_v2(data)?;
-        if super::pe_combined::routes_to_inner(raw[136], raw[137]) {
-            let arr = super::pe_combined::extract_unpacked_inner_features_from_v2(&raw);
-            let trees = self.pe_inner_trees.as_ref()?;
-            return Some((MlExplanation::new(trees.explain(&arr), &arr, super::pe_combined::pe_inner_feature_names_static()), PeModelKind::Inner));
-        }
-        let trees = self.pe_shell_trees.as_ref()?;
-        let arr = super::pe_combined::pe_v2_shell_model_features(&raw);
-        Some((MlExplanation::new(trees.explain(&arr), &arr, super::pe_combined::pe_shell_feature_names_static()), PeModelKind::Shell))
-    }
-
-    /// Features in either specialist model (0 when neither is loaded).
+    /// Features in the PE model (0 when not loaded).
     pub fn pe_feature_count(&self) -> usize {
-        if self.pe_inner_trees.is_some() {
-            super::pe_combined::PE_INNER_FEATURE_COUNT
-        } else if self.pe_shell_trees.is_some() {
-            super::pe_combined::PE_SHELL_FEATURE_COUNT
+        if self.pe_trees.is_some() {
+            super::pe_combined::PE_V2_FEATURE_COUNT
         } else {
             0
         }
@@ -142,7 +114,7 @@ impl MlScanner {
     }
 
     pub fn pe_loaded(&self) -> bool {
-        self.pe_inner_trees.is_some() || self.pe_shell_trees.is_some()
+        self.pe_trees.is_some()
     }
 
     pub fn js_loaded(&self) -> bool {
@@ -164,8 +136,7 @@ impl MlScanner {
     }
 
     pub fn is_loaded(&self) -> bool {
-        self.pe_inner_trees.is_some()
-            || self.pe_shell_trees.is_some()
+        self.pe_trees.is_some()
             || self.js_trees.is_some()
             || self.url_trees.is_some()
             || self.apk_trees.is_some()
@@ -207,6 +178,9 @@ mod tests {
         let dir = models_dir();
         let s = MlScanner::new(&dir);
         assert!(s.url_loaded(), "url_trees.bin must load");
+        assert!(s.pe_loaded(), "pe_trees.bin must load");
+        let max_feature = s.pe_trees.as_ref().unwrap().trees.iter().flat_map(|t| &t.nodes).filter(|n| !n.is_leaf).map(|n| n.feature_id as usize).max().unwrap();
+        assert!(max_feature < super::super::pe_combined::PE_V2_FEATURE_COUNT, "pe_trees.bin reads feature {max_feature}: not a v2 model");
     }
 }
 

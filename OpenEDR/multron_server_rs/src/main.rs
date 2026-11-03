@@ -38,8 +38,10 @@ mod events;
 mod handoff;
 mod limits;
 mod liveness;
+mod memwatch;
 mod ratelimit;
 mod scan_server;
+mod scan_timing;
 mod scheduler;
 mod threat_intel;
 mod uptime;
@@ -61,6 +63,10 @@ use scan_server::ScanServer;
 /// a startup error), one JSON line each. The console window closes with the message,
 /// so Multron Updater reads it when a server it started stops right away.
 const EXIT_LOG: &str = "multron_server_exit.log";
+
+/// Counts heap use per engine component (dashboard Memory panel, spike events).
+#[global_allocator]
+static ALLOC: openedr_static::memtrack::TrackingAlloc = openedr_static::memtrack::TrackingAlloc;
 
 fn exit_report(message: &str) {
     use std::io::Write;
@@ -177,7 +183,9 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     let lengths = standby.then(handoff::lengths);
-    let threat_intel = threat_intel::ThreatIntelStore::new(None);
+    let threat_intel = openedr_static::memtrack::measure("server:threat_intel", openedr_static::memtrack::Kind::Load, 0, || {
+        threat_intel::ThreatIntelStore::new(None)
+    });
     verdict_history::start();
 
     // Standby: wait for the engine (calling the running server every few seconds and
@@ -265,6 +273,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         Arc::clone(&events),
         Arc::clone(&threat_intel),
     );
+    memwatch::spawn(Arc::clone(&scan_server));
     if args.archive {
         crate::archive::spawn_reloader(Arc::clone(&scan_server));
     } else {

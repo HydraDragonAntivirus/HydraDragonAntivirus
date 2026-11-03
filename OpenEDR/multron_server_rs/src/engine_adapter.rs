@@ -1033,73 +1033,94 @@ impl EngineAdapter {
             return Ok(res);
         }
 
-        let safe_filename = file_system_name(name);
-        let mut temp_path: Option<PathBuf> = None;
+        // Time per stage, so a slow scan shows which engine took its seconds
+        // (dashboard: Engine time).
+        let (out, stages) = openedr_static::memtrack::time_scan(|| {
+            let safe_filename = file_system_name(name);
+            let mut temp_path: Option<PathBuf> = None;
 
-        let report = if let Some(ref dir) = self.work_dir {
-            let seq = self.file_seq.fetch_add(1, Ordering::Relaxed);
-            let path = dir.join(format!("{:08}_{}", seq % 100_000_000, temp_name(&safe_filename, data)));
-            let rep = if std::fs::write(&path, data).is_ok() {
-                temp_path = Some(path.clone());
-                Some(engine.scan_file(&path))
+            let report = if let Some(ref dir) = self.work_dir {
+                let seq = self.file_seq.fetch_add(1, Ordering::Relaxed);
+                let path = dir.join(format!("{:08}_{}", seq % 100_000_000, temp_name(&safe_filename, data)));
+                let written = {
+                    let _t = openedr_static::memtrack::stage("server:temp_write");
+                    std::fs::write(&path, data).is_ok()
+                };
+                let rep = if written {
+                    temp_path = Some(path.clone());
+                    Some(engine.scan_file(&path))
+                } else {
+                    None
+                };
+                match rep {
+                    Some(r) if !r.verdict.eq_ignore_ascii_case("Error") => r,
+                    _ => engine.scan_bytes(data, name),
+                }
             } else {
-                None
+                engine.scan_bytes(data, name)
             };
-            match rep {
-                Some(r) if !r.verdict.eq_ignore_ascii_case("Error") => r,
-                _ => engine.scan_bytes(data, name),
-            }
-        } else {
-            engine.scan_bytes(data, name)
-        };
 
-        if report.verdict.eq_ignore_ascii_case("Error") {
-            if let Some(p) = temp_path {
+            if report.verdict.eq_ignore_ascii_case("Error") {
+                if let Some(p) = temp_path {
+                    let _ = std::fs::remove_file(p);
+                }
+                let err_msg = report
+                    .detections
+                    .first()
+                    .map(|d| d.name.clone())
+                    .unwrap_or_else(|| "unknown engine error".to_string());
+                return Err(err_msg);
+            }
+
+            let mut res = build_result(&report, sha);
+            {
+                let _t = openedr_static::memtrack::stage("server:xorfilter");
+                self.apply_xorfilter(&engine, &mut res, sha);
+            }
+            // Analyst company lists (Authenticode signer): allow -> clean, block -> malicious.
+            // Matched against the publisher, the issuing CA, the countersigning
+            // authority and the leaf thumbprint, not the publisher alone.
+            match report
+                .signer_info
+                .as_ref()
+                .and_then(|s| self.analyst.company_decision_for(s))
+            {
+                Some(crate::analyst_engine::CompanyDecision::Block(company)) => apply_analyst_hit(
+                    &mut res,
+                    &crate::analyst_engine::AnalystHit {
+                        engine: "company_blocklist",
+                        name: format!("Riskware.Multi.BlockedSigner ({company})"),
+                        verdict: "malicious",
+                    },
+                ),
+                Some(crate::analyst_engine::CompanyDecision::Allow(company)) => apply_company_allow(&mut res, &company),
+                None => {}
+            }
+            // Analyst ClamAV / HydraDragonSig signatures can only raise the verdict, and
+            // never over an allow-listed signer (see `apply_analyst_hit`).
+            let analyst_hits = {
+                let _t = openedr_static::memtrack::stage("server:analyst_signatures");
+                self.analyst.scan(data, name)
+            };
+            for hit in analyst_hits {
+                apply_analyst_hit(&mut res, &hit);
+            }
+            {
+                let _t = openedr_static::memtrack::stage("server:threat_intel");
+                refine(&mut res);
+            }
+            res.scan_ms = started.elapsed().as_millis() as i64;
+
+            let _t = openedr_static::memtrack::stage("server:keep_file");
+            if keep {
+                self.keep_or_remove(temp_path.as_deref(), data, &res, sha, &safe_filename);
+            } else if let Some(p) = temp_path {
                 let _ = std::fs::remove_file(p);
             }
-            let err_msg = report
-                .detections
-                .first()
-                .map(|d| d.name.clone())
-                .unwrap_or_else(|| "unknown engine error".to_string());
-            return Err(err_msg);
-        }
-
-        let mut res = build_result(&report, sha);
-        self.apply_xorfilter(&engine, &mut res, sha);
-        // Analyst company lists (Authenticode signer): allow -> clean, block -> malicious.
-        // Matched against the publisher, the issuing CA, the countersigning
-        // authority and the leaf thumbprint, not the publisher alone.
-        match report
-            .signer_info
-            .as_ref()
-            .and_then(|s| self.analyst.company_decision_for(s))
-        {
-            Some(crate::analyst_engine::CompanyDecision::Block(company)) => apply_analyst_hit(
-                &mut res,
-                &crate::analyst_engine::AnalystHit {
-                    engine: "company_blocklist",
-                    name: format!("Riskware.Multi.BlockedSigner ({company})"),
-                    verdict: "malicious",
-                },
-            ),
-            Some(crate::analyst_engine::CompanyDecision::Allow(company)) => apply_company_allow(&mut res, &company),
-            None => {}
-        }
-        // Analyst ClamAV / HydraDragonSig signatures can only raise the verdict, and
-        // never over an allow-listed signer (see `apply_analyst_hit`).
-        for hit in self.analyst.scan(data, name) {
-            apply_analyst_hit(&mut res, &hit);
-        }
-        refine(&mut res);
-        res.scan_ms = started.elapsed().as_millis() as i64;
-
-        if keep {
-            self.keep_or_remove(temp_path.as_deref(), data, &res, sha, &safe_filename);
-        } else if let Some(p) = temp_path {
-            let _ = std::fs::remove_file(p);
-        }
-        Ok(res)
+            Ok(res)
+        });
+        crate::scan_timing::record(name, sha, data.len(), started.elapsed(), out.as_ref().ok().map(|r| r.verdict.as_str()), stages);
+        out
     }
 
     /// Unknown, possible-clean (TLSH smart whitelist), suspicious and malicious (for

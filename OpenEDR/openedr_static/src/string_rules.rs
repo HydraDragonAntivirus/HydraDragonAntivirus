@@ -122,6 +122,24 @@ impl PeStringRules {
         parent: Option<&ParentInfo>,
         behavior: Option<&hydradragonsig::models::BehaviorTrace>,
     ) -> Vec<Hit> {
+        crate::memtrack::measure("scan:hydrasig", crate::memtrack::Kind::Scan, data.len(), || {
+            self.scan_bytes_with_behavior_inner(data, target_name, sha256_hex, strings, is_pe, is_apk, cap, parent, behavior)
+        })
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn scan_bytes_with_behavior_inner(
+        &self,
+        data: &[u8],
+        target_name: &str,
+        sha256_hex: &str,
+        strings: &[String],
+        is_pe: bool,
+        is_apk: bool,
+        cap: usize,
+        parent: Option<&ParentInfo>,
+        behavior: Option<&hydradragonsig::models::BehaviorTrace>,
+    ) -> Vec<Hit> {
         let rs = match self.ruleset.as_ref() {
             Some(rs) if (!data.is_empty() || !strings.is_empty() || behavior.is_some()) && cap > 0 => rs,
             _ => return Vec::new(),

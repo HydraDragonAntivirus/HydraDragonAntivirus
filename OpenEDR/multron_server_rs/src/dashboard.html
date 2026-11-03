@@ -261,6 +261,16 @@
       return orig(url, init);
     };
   })();
+  // Refreshes fn every ms, but only after the previous run has finished. With
+  // setInterval a slow server (a busy engine, a long SQLite query) made the requests
+  // pile up until the browser refused new ones (net::ERR_INSUFFICIENT_RESOURCES).
+  function every(ms, fn) {
+    const tick = async () => {
+      try { await fn(); } catch (_) {}
+      setTimeout(tick, ms);
+    };
+    setTimeout(tick, ms);
+  }
   let theme = localStorage.getItem("theme");
   if (!theme) theme = window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
   document.documentElement.setAttribute("data-theme", theme);
@@ -372,15 +382,14 @@
       <div class="hint">Information only: a match never changes the verdict, it is noted in the result (<code>tlsh_blacklist_info</code>) and shown in the TLSH neighbours. TLSH alone is too coarse to decide (a clean host is a few points from its Neshta-infected copy). Default 10. Analyst TLSH signatures (from human malicious verdicts) still decide, with their own limit.</div>
       <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:12px">
         ML thresholds:
-        <label style="display:flex;gap:4px;align-items:center">PE inner <input id="mlPeInner" type="number" min="0.5" max="0.9999" step="0.005" style="width:90px"></label>
-        <label style="display:flex;gap:4px;align-items:center">PE shell <input id="mlPeShell" type="number" min="0.5" max="0.9999" step="0.005" style="width:90px"></label>
+        <label style="display:flex;gap:4px;align-items:center">PE <input id="mlPe" type="number" min="0.5" max="0.9999" step="0.005" style="width:90px"></label>
         <label style="display:flex;gap:4px;align-items:center">JS <input id="mlJs" type="number" min="0.5" max="0.9999" step="0.005" style="width:90px"></label>
         <label style="display:flex;gap:4px;align-items:center">APK <input id="mlApk" type="number" min="0.5" max="0.9999" step="0.005" style="width:90px"></label>
         <button class="ghost" id="mlSave">Save</button>
         <button class="ghost" id="mlReset">Defaults</button>
         <span class="hint" id="mlMsg" style="margin:0"></span>
       </div>
-      <div class="hint">A file whose model probability is at least the threshold is flagged. Higher means fewer false positives and more misses. Successfully unpacked PEs use PE inner; files without a parseable unpacked PE use PE shell. Defaults: <span id="mlDefaults">inner 0.95, shell 0.95, JS 0.90, APK 0.80</span>. Needs an analyst key. Applies to new scans; rescan files with cached verdicts.</div>
+      <div class="hint">A file whose model probability is at least the threshold is flagged. Higher means fewer false positives and more misses. One PE model scores every PE on the full feature vector (the file itself, what it unpacks to or holds, and both together). Defaults: <span id="mlDefaults">PE 0.95, JS 0.90, APK 0.85</span>. Needs an analyst key. Applies to new scans; rescan files with cached verdicts.</div>
       <label style="display:flex;gap:8px;align-items:center;margin-top:12px">
         <input type="checkbox" id="keepPossibleClean" style="width:auto">
         Keep <b>possible clean</b> files (TLSH smart whitelist) in <code>multron_incoming/possible_clean/</code>
@@ -506,6 +515,31 @@
         <tbody id="sqRows"><tr><td colspan="6" class="empty">Loading…</td></tr></tbody></table>
       </div>
       <div class="hint" id="sqMore"></div>
+    </section>
+
+    <section class="card" id="memoryCard">
+      <div class="feedbar" style="margin:0 0 8px"><h2 style="margin:0">Memory</h2><span class="hint" id="memSummary" style="margin:0">—</span></div>
+      <div class="hint" style="margin-top:0">Heap per component, largest first. <b>Live</b>: held now by scans of that stage still running. <b>Kept</b>: what a loader built and keeps (rule sets, models, lists). <b>Peak</b>: the highest a single call went (with the size of that file). Only the calling thread is counted, not threads a stage starts. A spike (private memory up 512 MB or 25 % within a minute) is written to the live feed with what held it. Refreshes every 5 s.</div>
+      <div class="hint" id="memSpike" style="color:var(--red)"></div>
+      <div class="tablewrap" style="max-height:420px">
+        <table><thead><tr><th>Component</th><th>Type</th><th class="num">Live</th><th class="num">Kept</th><th class="num">Last peak</th><th class="num">Max peak</th><th class="num">Max peak file</th><th class="num">Calls</th></tr></thead>
+        <tbody id="memRows"><tr><td colspan="8" class="empty">Loading…</td></tr></tbody></table>
+      </div>
+      <div class="hint" id="memFiles"></div>
+    </section>
+
+    <section class="card" id="engineTimeCard">
+      <div class="feedbar" style="margin:0 0 8px"><h2 style="margin:0">Engine time</h2><span class="hint" id="etSummary" style="margin:0">—</span><span class="spacer"></span><label class="chk"><input type="checkbox" id="etSlowest"> Slowest since start</label></div>
+      <div class="hint" style="margin-top:0">Where scan time goes, per engine stage. A stage's time is its own: stages that ran inside it (YARA on an archive member, the scan of an unpacked payload) are counted under their own name, not twice. <b>server:</b> stages are the server's own work around the engine. Refreshes every 5 s.</div>
+      <div class="tablewrap" style="max-height:360px">
+        <table><thead><tr><th>Stage</th><th class="num">Share</th><th class="num">Total</th><th class="num">Calls</th><th class="num">Average</th><th class="num">Longest call</th></tr></thead>
+        <tbody id="etRows"><tr><td colspan="6" class="empty">Loading…</td></tr></tbody></table>
+      </div>
+      <h3 style="margin:14px 0 6px" id="etScansTitle">Slow scans</h3>
+      <div class="tablewrap" style="max-height:420px">
+        <table><thead><tr><th>Time</th><th>File</th><th class="num">Size</th><th>Verdict</th><th class="num">Scan</th><th>Where the time went</th></tr></thead>
+        <tbody id="etScans"><tr><td colspan="6" class="empty">Loading…</td></tr></tbody></table>
+      </div>
     </section>
 
     <section class="card" id="signatureRoom">
@@ -1252,11 +1286,11 @@ window.sigKey = (list) => list && list.length ? `${list[0].layer}: ${list[0].nam
     }
     if (document.activeElement !== $("keepPossibleClean")) $("keepPossibleClean").checked = !!l.keepPossibleClean;
     if (l.mlThresholds) {
-      for (const [id, k] of [["mlPeInner", "peInner"], ["mlPeShell", "peShell"], ["mlJs", "js"], ["mlApk", "apk"]]) {
+      for (const [id, k] of [["mlPe", "pe"], ["mlJs", "js"], ["mlApk", "apk"]]) {
         if (document.activeElement !== $(id) && !$(id).dataset.dirty) $(id).value = Number(l.mlThresholds[k]).toFixed(4);
       }
       const d = l.mlThresholds.defaults || {};
-      $("mlDefaults").textContent = `inner ${d.peInner}, shell ${d.peShell}, JS ${d.js}, APK ${d.apk}`;
+      $("mlDefaults").textContent = `PE ${d.pe}, JS ${d.js}, APK ${d.apk}`;
     }
     if (l.tlshBlacklistDistances && document.activeElement !== $("tlshBlacklistDist")) {
       const sel = $("tlshBlacklistDist");
@@ -1789,18 +1823,18 @@ window.sigKey = (list) => list && list.length ? `${list[0].layer}: ${list[0].nam
     try { await post("/api/tlsh-blacklist-distance", { distance: +e.target.value }); }
     catch (err) { alert(err.message); }
   };
-  for (const id of ["mlPeInner", "mlPeShell", "mlJs", "mlApk"]) $(id).oninput = () => { $(id).dataset.dirty = "1"; };
+  for (const id of ["mlPe", "mlJs", "mlApk"]) $(id).oninput = () => { $(id).dataset.dirty = "1"; };
   const mlSend = async (body) => {
     try {
       const r = await post("/api/ml-thresholds", body);
-      for (const id of ["mlPeInner", "mlPeShell", "mlJs", "mlApk"]) delete $(id).dataset.dirty;
-      $("mlPeInner").value = r.peInner.toFixed(4); $("mlPeShell").value = r.peShell.toFixed(4);
+      for (const id of ["mlPe", "mlJs", "mlApk"]) delete $(id).dataset.dirty;
+      $("mlPe").value = r.pe.toFixed(4);
       $("mlJs").value = r.js.toFixed(4); $("mlApk").value = r.apk.toFixed(4);
       $("mlMsg").textContent = "Saved.";
     } catch (err) { $("mlMsg").textContent = "Error: " + err.message; }
   };
-  $("mlSave").onclick = () => mlSend({ peInner: +$("mlPeInner").value, peShell: +$("mlPeShell").value, js: +$("mlJs").value, apk: +$("mlApk").value });
-  $("mlReset").onclick = () => mlSend({ peInner: null, peShell: null, js: null, apk: null });
+  $("mlSave").onclick = () => mlSend({ pe: +$("mlPe").value, js: +$("mlJs").value, apk: +$("mlApk").value });
+  $("mlReset").onclick = () => mlSend({ pe: null, js: null, apk: null });
   $("keepPossibleClean").onchange = async (e) => {
     try { await post("/api/keep-possible-clean", { enabled: e.target.checked }); }
     catch (_) { e.target.checked = !e.target.checked; }
@@ -1924,7 +1958,7 @@ window.sigKey = (list) => list && list.length ? `${list[0].layer}: ${list[0].nam
   $("uiRvClose").onclick = () => { $("uiReview").hidden = true; $("uiLayout").className = ""; };
   $("uiSearch").oninput = () => { clearTimeout(uiTimer); uiTimer = setTimeout(updateUrlInsights, 300); };
   $("uiVerdict").onchange = updateUrlInsights;
-  setInterval(updateUrlInsights, 10000);
+  every(10000, updateUrlInsights);
   updateUrlInsights();
 
   const updateInsightsStats = async () => {
@@ -1955,7 +1989,7 @@ window.sigKey = (list) => list && list.length ? `${list[0].layer}: ${list[0].nam
       }
     } catch (_) {}
   };
-  setInterval(updateInsightsStats, 3000);
+  every(3000, updateInsightsStats);
   updateInsightsStats();
 
   $("hashSearchBtn").onclick = async () => {
@@ -2505,9 +2539,13 @@ window.sigKey = (list) => list && list.length ? `${list[0].layer}: ${list[0].nam
     catch (e) { $("hfMsg").textContent = e.message; return; }
     $("hfRun").disabled = true;
     clearInterval(hfPoll);
+    let hfBusy = false;
     hfPoll = setInterval(async () => {
+      if (hfBusy) return; // the last status request has not answered yet
       let st;
+      hfBusy = true;
       try { st = await (await fetch("/api/folder-wl/status", { cache: "no-store" })).json(); } catch (_) { return; }
+      finally { hfBusy = false; }
       hfShow(st);
       if (st.running) return;
       clearInterval(hfPoll);
@@ -2525,7 +2563,7 @@ window.sigKey = (list) => list && list.length ? `${list[0].layer}: ${list[0].nam
   fetch("/api/folder-wl/status", { cache: "no-store" }).then(r => r.json()).then(st => { if (st.path) $("hfPath").value = st.path; hfShow(st); }).catch(() => {});
 
   haLoad();
-  setInterval(() => { if (!document.hidden) haLoad(); }, 10000);
+  every(10000, () => { if (!document.hidden) return haLoad(); });
 
   // ---------------- Signature room ----------------
   let nbCurrent = "";
@@ -2795,15 +2833,85 @@ window.sigKey = (list) => list && list.length ? `${list[0].layer}: ${list[0].nam
     } catch (_) {}
   };
   load();
-  setInterval(load, 3000);
+  every(3000, load);
   $q("sqAll").onchange = load;
+
+  const mb = (v) => v >= 1024 ? (v / 1024).toFixed(2) + " GB" : v.toFixed(v < 10 ? 1 : 0) + " MB";
+  const loadMem = async () => {
+    if (document.hidden) return;
+    try {
+      const r = await fetch("/api/memory", { cache: "no-store" });
+      if (!r.ok) return;
+      const d = await r.json();
+      const p = d.process;
+      $q("memSummary").textContent = `private ${mb(p.privateMB)} · working set ${mb(p.workingSetMB)} (peak ${mb(p.peakWorkingSetMB)}) · loaded ${mb(d.loadedMB)} · scans now ${mb(d.scanLiveMB)} · upload buffers ${mb(d.uploadBuffersMB)}`;
+      if (!d.tracking) {
+        $q("memRows").innerHTML = `<tr><td colspan="8" class="empty">Per-component counting is off in this build.</td></tr>`;
+      } else {
+        $q("memRows").innerHTML = d.components.map(c => `<tr>
+          <td><b>${esc(c.name)}</b></td>
+          <td>${c.kind === "load" ? "loaded" : "per scan"}</td>
+          <td class="num">${c.kind === "scan" ? mb(c.liveMB) : "—"}</td>
+          <td class="num">${c.kind === "load" ? mb(c.retainedMB) : "—"}</td>
+          <td class="num">${mb(c.lastPeakMB)}</td>
+          <td class="num">${mb(c.maxPeakMB)}</td>
+          <td class="num">${c.kind === "scan" ? mb(c.maxPeakInputMB) : "—"}</td>
+          <td class="num">${c.calls}</td>
+        </tr>`).join("") || `<tr><td colspan="8" class="empty">Nothing counted yet.</td></tr>`;
+      }
+      $q("memFiles").textContent = d.largestScanning.length
+        ? `Largest files in the engine now: ${d.largestScanning.map(f => `${f.file} (${mb(f.sizeMB)})`).join(", ")}` : "";
+      const s = d.lastSpike;
+      $q("memSpike").textContent = s ? `Last spike ${new Date(s.at).toLocaleString()}: ${s.message}` : "";
+    } catch (_) {}
+  };
+  loadMem();
+  every(5000, loadMem);
+
+  const msText = (v) => v >= 60000 ? dur(Math.round(v / 1000)) : v >= 1000 ? (v / 1000).toFixed(v < 10000 ? 2 : 1) + " s" : v.toFixed(v < 10 ? 1 : 0) + " ms";
+  const verdictTag = (v) => `<span class="tag t-${esc(v === "error" ? "error" : v)}">${esc(v)}</span>`;
+  const loadEngineTime = async () => {
+    if (document.hidden) return;
+    try {
+      const r = await fetch("/api/engine-time", { cache: "no-store" });
+      if (!r.ok) return;
+      const d = await r.json();
+      $q("etSummary").textContent = `${d.scans.toLocaleString()} scans · average ${msText(d.avgScanMs)} · ${d.slowScans.toLocaleString()} took ${msText(d.slowFromMs)} or longer`;
+      $q("etRows").innerHTML = d.stages.map(s => `<tr>
+          <td><b>${esc(s.name)}</b></td>
+          <td class="num" style="min-width:120px"><div class="bar" style="margin:0 0 2px"><div style="width:${Math.min(100, s.share)}%"></div></div>${s.share.toFixed(1)} %</td>
+          <td class="num">${msText(s.totalMs)}</td>
+          <td class="num">${s.calls.toLocaleString()}</td>
+          <td class="num">${msText(s.avgMs)}</td>
+          <td class="num">${msText(s.maxMs)}</td>
+        </tr>`).join("") || `<tr><td colspan="6" class="empty">No scan yet.</td></tr>`;
+      const slowest = $q("etSlowest").checked;
+      $q("etScansTitle").textContent = slowest ? "Slowest scans since start" : `Recent slow scans (${msText(d.slowFromMs)} or longer)`;
+      $q("etScans").innerHTML = (slowest ? d.slowest : d.recent).map(s => {
+        const parts = s.stages.map(t => `<b>${esc(t.name)}</b> ${msText(t.ms)}${t.calls > 1 ? ` ×${t.calls}` : ""} (${t.share.toFixed(0)} %)`);
+        if (s.otherStagesMs >= 1) parts.push(`other stages ${msText(s.otherStagesMs)}`);
+        if (s.unstagedMs >= 1) parts.push(`outside the stages ${msText(s.unstagedMs)}`);
+        return `<tr data-sha="${esc(s.sha256)}" data-name="${esc(s.file)}">
+          <td>${esc(new Date(s.at).toLocaleTimeString())}</td>
+          <td class="file" title="${esc(s.file)}"><b>${esc(s.file)}</b></td>
+          <td class="num">${size(s.size)}</td>
+          <td>${verdictTag(s.verdict)}</td>
+          <td class="num"><b>${msText(s.totalMs)}</b></td>
+          <td>${parts.join(" · ")}</td>
+        </tr>`;
+      }).join("") || `<tr><td colspan="6" class="empty">No scan took ${msText(d.slowFromMs)} or longer yet.</td></tr>`;
+    } catch (_) {}
+  };
+  loadEngineTime();
+  every(5000, loadEngineTime);
+  $q("etSlowest").onchange = loadEngineTime;
 })();
 </script>
 <script>
 (() => {
   // Right-click menu for file rows: queue, verdicts, rescan log, scan queue.
   const esc = (s) => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
-  const ROWS = "#haRows tr.it, #haRecentRows tr[data-sha], #rsRows tr[data-sha], #sqRows tr[data-sha], #feed tr[data-sha], #srcFiles tr[data-sha], #rhList tr[data-sha]";
+  const ROWS = "#haRows tr.it, #haRecentRows tr[data-sha], #rsRows tr[data-sha], #sqRows tr[data-sha], #etScans tr[data-sha], #feed tr[data-sha], #srcFiles tr[data-sha], #rhList tr[data-sha]";
   let menu = null;
   const toast = (msg) => {
     let t = document.getElementById("ctxToast");

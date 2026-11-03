@@ -35,7 +35,9 @@ impl ClamScanner {
         if data.len() > options.max_child_size {
             return Vec::new();
         }
-        engine.scan_bytes_named(data, file_name, options, &[])
+        crate::memtrack::measure("scan:clamav", crate::memtrack::Kind::Scan, data.len(), || {
+            engine.scan_bytes_named(data, file_name, options, &[])
+        })
     }
 
     pub fn scan_bytes(&self, data: &[u8], file_name: &str) -> Vec<ScanMatch> {
@@ -48,21 +50,26 @@ impl ClamScanner {
             return Vec::new();
         }
 
-        let mut matches = Vec::new();
-        let direct = engine.scan_bytes_named(data, file_name, options, &[]);
-        matches.extend(direct);
+        crate::memtrack::measure("scan:clamav", crate::memtrack::Kind::Scan, data.len(), || {
+            let mut matches = Vec::new();
+            let direct = engine.scan_bytes_named(data, file_name, options, &[]);
+            matches.extend(direct);
 
-        // Recursive archive inspection via hydradragonextractor
-        if options.scan_archives {
-            if let Ok(entries) = hydradragonextractor::extract_archive_from_bytes(data, false) {
-                for entry in entries {
-                    let child_matches = engine.scan_bytes_named(&entry.data, &entry.name, options, &[]);
-                    matches.extend(child_matches);
+            // Recursive archive inspection via hydradragonextractor
+            if options.scan_archives {
+                let entries = crate::memtrack::measure("scan:archive_extract", crate::memtrack::Kind::Scan, data.len(), || {
+                    hydradragonextractor::extract_archive_from_bytes(data, false)
+                });
+                if let Ok(entries) = entries {
+                    for entry in entries {
+                        let child_matches = engine.scan_bytes_named(&entry.data, &entry.name, options, &[]);
+                        matches.extend(child_matches);
+                    }
                 }
             }
-        }
 
-        matches
+            matches
+        })
     }
 
     /// Signature name and file byte range `[start, end)` of every byte-pattern match

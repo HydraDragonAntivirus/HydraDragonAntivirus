@@ -380,10 +380,12 @@ struct Cli {
 
     /// Categorized host blocklist DB for `domain_blocklist` conditions: a UTF-8
     /// text file of `domain:CATEGORY` entries (one per line; `|`-separated
-    /// entries in one line also work, `#` starts a comment line). Repeatable
-    /// usage is not needed - one file may hold several categories.
-    #[arg(long, value_name = "FILE")]
-    domain_db: Option<PathBuf>,
+    /// entries in one line also work, `#` starts a comment line), and/or a
+    /// uBlock Origin / Adblock Plus filter list or hosts file. `CATEGORY=FILE`
+    /// gives the list's uBO/hosts entries that category (default UNWANTED).
+    /// Repeatable: all lists are merged into one DB.
+    #[arg(long, value_name = "[CATEGORY=]FILE")]
+    domain_db: Vec<String>,
 
     /// Depth-based scan whitelist: a UTF-8 text file with one `path:MAX_DEPTH`
     /// entry per line (blank lines and `#` comments are ignored). Paths support
@@ -472,18 +474,27 @@ fn main() -> Result<()> {
         );
     }
 
-    if let Some(db_path) = &cli.domain_db {
-        let entries = hydradragonsig::rules::set_global_domain_db(db_path)
-            .with_context(|| format!("failed to load --domain-db {}", db_path.display()))?;
+    if !cli.domain_db.is_empty() {
+        let (entries, stats, rejected) = hydradragonsig::rules::set_global_domain_dbs(&cli.domain_db)
+            .with_context(|| format!("failed to load --domain-db {}", cli.domain_db.join(", ")))?;
         eprintln!(
             "[HydraDragonSig] domain blocklist DB: {} entries from {}",
             entries,
-            db_path.display()
+            cli.domain_db.join(", ")
         );
+        if stats != hydradragonsig::rules::ListStats::default() {
+            eprintln!(
+                "[HydraDragonSig] filter lists: {} blocks, {} exceptions, {} ignored, {} rejected, {} includes",
+                stats.blocks, stats.exceptions, stats.ignored, stats.rejected, stats.includes
+            );
+        }
+        for line in &rejected {
+            eprintln!("[HydraDragonSig] filter lists: rejected `{line}`");
+        }
     }
     if rules.rules().iter().any(|r| {
         r.conditions.iter().any(|c| matches!(c, hydradragonsig::rules::RuleCondition::DomainBlocklist { db: None, .. }))
-    }) && cli.domain_db.is_none()
+    }) && cli.domain_db.is_empty()
     {
         eprintln!(
             "[HydraDragonSig] Warning: domain_blocklist conditions without a `db` field never match without --domain-db"

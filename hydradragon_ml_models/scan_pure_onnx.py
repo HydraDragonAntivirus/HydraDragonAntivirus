@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 HydraDragon Pure ONNX Scanner - Zero Automata, Instant Inference.
-PE (v1 65 + v2 Inner/Shell with Multron Dynamic String WL + yarGen .xf + Unicorn + Disassembler)
+PE (unified v2 vector with Multron Dynamic String WL + yarGen .xf + Unicorn + Disassembler)
 + Generic Whole-Buffer (20) + JS (51) + APK (24) + URL (32) + Master (8) -> all ONNX.
 """
 
@@ -17,23 +17,14 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, BASE_DIR)
 sys.path.insert(0, os.path.join(os.path.dirname(BASE_DIR), "OpenEDR", "openedr_web", "tools"))
 
-from train_pe_lgbm import (
-    extract_pe_features_from_file,
-    extract_pe_features_from_data,
-    PE_DUMP_EXE,
-    UNICORN_DIR,
-    PE_MIMICRY_NAMES,
-    PE_STRING_ML_NAMES,
-)
+from train_pe_lgbm import PE_DUMP_EXE, UNICORN_DIR, PE_STRING_ML_NAMES
 from train_js_lgbm import extract_js_features_from_file, extract_js_features_from_source
 from train_url_lgbm import extract_url_features
 from train_generic_lgbm import featurize_buffer
 from apk_train import apk_features
 
 MODELS = {
-    "pe": ("pe_model.onnx", 65),
-    "pe_inner": ("pe_model_inner.onnx", 79),
-    "pe_shell": ("pe_model_shell.onnx", 79),
+    "pe": ("pe_model.onnx", None),
     "generic": ("generic_model.onnx", 20),
     "js": ("js_model.onnx", 51),
     "apk": ("apk_model.onnx", 24),
@@ -78,9 +69,9 @@ def predict_prob(kind, feats):
         return 0.0
 
 
-def evaluate_pe_v2_inner_or_shell(filepath: str):
+def evaluate_pe_v2(filepath: str):
     """Runs pe_feature_dump.exe --v2 (Unicorn + Disassembler + Multron Dynamic String WL + yarGen .xf)
-    and routes to pe_model_inner.onnx (unpacked/content) or pe_model_shell.onnx (outer shell)."""
+    and predicts with the unified pe_model.onnx on the full v2 feature vector."""
     if not filepath or not os.path.isfile(filepath) or not os.path.isfile(PE_DUMP_EXE):
         return None
     with tempfile.TemporaryDirectory() as tmpdir:
@@ -102,28 +93,9 @@ def evaluate_pe_v2_inner_or_shell(filepath: str):
             names = names[1:]
             row = [float(v) for v in row_raw[1:]]
 
-    source_i = names.index("inner_source")
-    is_pe_i = names.index("inner_is_pe")
-    is_unpacked_content = (row[source_i] in (1.0, 2.0, 4.0)) and (row[is_pe_i] == 1.0)
-
-    if is_unpacked_content:
-        sel = list(range(names.index("inner_size_of_optional_header"), names.index("inner_size_of_optional_header") + 65))
-        sel += [names.index(f"inner_{n}") for n in ("ascii_strings", "utf16_strings", "ascii_unicode_ratio", "is_dotnet")]
-        sel += [names.index(f"inner_{n}") for n in PE_MIMICRY_NAMES if f"inner_{n}" in names]
-        sel += [names.index(f"inner_{n}") for n in PE_STRING_ML_NAMES if f"inner_{n}" in names]
-        vec = [row[i] for i in sel]
-        prob = predict_prob("pe_inner", vec)
-        str_metrics = {n: row[names.index(f"inner_{n}")] for n in PE_STRING_ML_NAMES if f"inner_{n}" in names}
-        return {"kind": "pe_inner", "prob": prob, "str_metrics": str_metrics}
-    else:
-        sel = list(range(names.index("shell_size_of_optional_header"), names.index("shell_size_of_optional_header") + 65))
-        sel += [names.index(f"shell_{n}") for n in ("ascii_strings", "utf16_strings", "ascii_unicode_ratio", "is_dotnet")]
-        sel += [names.index(f"shell_{n}") for n in PE_MIMICRY_NAMES if f"shell_{n}" in names]
-        sel += [names.index(f"shell_{n}") for n in PE_STRING_ML_NAMES if f"shell_{n}" in names]
-        vec = [row[i] for i in sel]
-        prob = predict_prob("pe_shell", vec)
-        str_metrics = {n: row[names.index(f"shell_{n}")] for n in PE_STRING_ML_NAMES if f"shell_{n}" in names}
-        return {"kind": "pe_shell", "prob": prob, "str_metrics": str_metrics}
+    prob = predict_prob("pe", row)
+    str_metrics = {n: row[names.index(f"inner_{n}")] for n in PE_STRING_ML_NAMES if f"inner_{n}" in names}
+    return {"kind": "pe_v2", "prob": prob, "str_metrics": str_metrics}
 
 
 def detect_type(data: bytes, path: str):
@@ -174,20 +146,13 @@ def scan_bytes_pure_onnx(data: bytes, path_hint=""):
         pass
 
     if ftype == "pe" and data.startswith(b"MZ"):
-        try:
-            pf = extract_pe_features_from_data(data)
-            if pf is not None:
-                pe_prob = predict_prob("pe", pf)
-                detail["pe_v1"] = pe_prob
-        except Exception:
-            pass
         if path_hint and os.path.isfile(path_hint):
-            v2_info = evaluate_pe_v2_inner_or_shell(path_hint)
+            v2_info = evaluate_pe_v2(path_hint)
             if v2_info is not None:
                 detail[v2_info["kind"]] = v2_info["prob"]
                 if v2_info["str_metrics"]:
                     detail["inner_string_ml"] = v2_info["str_metrics"]
-                pe_prob = max(pe_prob, v2_info["prob"])
+                pe_prob = v2_info["prob"]
     elif ftype == "apk":
         try:
             af = apk_features(data)
@@ -238,14 +203,6 @@ def scan_bytes_pure_onnx(data: bytes, path_hint=""):
             except Exception:
                 pass
         else:
-            if data.startswith(b"MZ"):
-                try:
-                    pf = extract_pe_features_from_data(data)
-                    if pf is not None:
-                        pe_prob = predict_prob("pe", pf)
-                        detail["pe"] = pe_prob
-                except Exception:
-                    pass
             try:
                 af = apk_features(data)
                 if af is not None:

@@ -8,6 +8,7 @@ pub mod embedded_url;
 pub mod engine;
 pub mod hayabusa_scanner;
 pub mod hosts;
+pub mod memtrack;
 pub mod ml;
 pub mod pe_strings;
 pub mod ptm_registry;
@@ -1012,8 +1013,10 @@ pub extern "C" fn openedr_static_restore_hosts_file(hosts_path: *const c_char, c
     }
 }
 
-/// Set ML detection thresholds across all models (PE inner, PE shell, JS, APK).
+/// Set ML detection thresholds across all models (PE, JS, APK).
 /// Pass -1.0 or any value outside [0.50, 0.9999] to leave unchanged / keep current.
+/// `pe_inner` is used as the unified PE threshold; `pe_shell` is accepted for backward
+/// compatibility (the higher of the two valid values wins).
 #[unsafe(no_mangle)]
 pub extern "C" fn openedr_static_set_ml_thresholds(
     pe_inner: f32,
@@ -1022,9 +1025,9 @@ pub extern "C" fn openedr_static_set_ml_thresholds(
     apk: f32,
 ) {
     let opt = |v: f32| if (0.50..=0.9999).contains(&v) { Some(v) } else { None };
-    let (p_in, p_sh) = (opt(pe_inner), opt(pe_shell));
-    if p_in.is_some() || p_sh.is_some() {
-        engine::set_pe_route_thresholds(p_in, p_sh);
+    let pe = opt(pe_inner).or(opt(pe_shell));
+    if pe.is_some() {
+        engine::set_pe_threshold(pe);
     }
     let (j_val, a_val) = (opt(js), opt(apk));
     if j_val.is_some() || a_val.is_some() {
@@ -1033,6 +1036,7 @@ pub extern "C" fn openedr_static_set_ml_thresholds(
 }
 
 /// Retrieve currently active ML detection thresholds across all models.
+/// `pe_inner` and `pe_shell` both receive the unified PE threshold.
 #[unsafe(no_mangle)]
 pub extern "C" fn openedr_static_get_ml_thresholds(
     pe_inner: *mut f32,
@@ -1041,11 +1045,12 @@ pub extern "C" fn openedr_static_get_ml_thresholds(
     apk: *mut f32,
 ) {
     unsafe {
+        let pe = engine::pe_tree_threshold();
         if !pe_inner.is_null() {
-            *pe_inner = engine::pe_inner_tree_threshold();
+            *pe_inner = pe;
         }
         if !pe_shell.is_null() {
-            *pe_shell = engine::pe_shell_tree_threshold();
+            *pe_shell = pe;
         }
         if !js.is_null() {
             *js = engine::js_tree_threshold();
