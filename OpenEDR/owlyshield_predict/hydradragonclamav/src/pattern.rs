@@ -865,6 +865,21 @@ impl Pattern {
     /// the exact `best_literal` if present, else the lowercased `nocase_run`. This
     /// lets `find_all_at` thread nocase patterns (keyword subsigs) at their hint
     /// positions instead of falling back to a whole-buffer scan.
+    /// The exact bytes of the best literal when it sits behind a bounded
+    /// variable-width element (`e8??000000{-50}8a03…`): `find_all` can only
+    /// anchor on the constant-offset run before the gap (`e8`, `000000`), which
+    /// occurs everywhere in code, while `find_all_at` fed with this literal's
+    /// occurrences probes a few windows. `None` when the literal has a constant
+    /// offset (`find_all` already anchors on it) or an open gap precedes it.
+    pub fn post_gap_literal(&self) -> Option<Vec<u8>> {
+        let (off, len) = self.best_literal()?;
+        let (min, max) = self.prefix_range_to(off)?;
+        if min == max || max - min > 4096 {
+            return None;
+        }
+        Some((off..off + len).map(|i| (self.instructions.get_u16(i) & 0xff) as u8).collect())
+    }
+
     fn atom_prefix_range(&self) -> Option<(usize, usize)> {
         let off = match self.best_literal() {
             Some((o, _)) => o,

@@ -1255,8 +1255,9 @@ impl Engine {
         slot_counts: &crate::atomscan::SlotCounts,
     ) {
         let items = self.extended_candidates(ctx, slot_counts);
+        let hints = LiteralHints::default();
         self.par_eval_items(&items, |si, out| {
-            self.scan_one_extended(si, ctx, out);
+            self.scan_one_extended(si, ctx, &hints, out);
         }, matches);
     }
 
@@ -1265,6 +1266,7 @@ impl Engine {
         &self,
         si: usize,
         ctx: &ScanContext<'_>,
+        hints: &LiteralHints,
         matches: &mut Vec<ScanMatch>,
     ) {
         let signature = &self.database.extended[si];
@@ -1312,7 +1314,12 @@ impl Engine {
                         break;
                     }
                 }
-            } else if !pattern.find_all(ctx.data, &ranges, 1).is_empty() {
+            } else if !match pattern.post_gap_literal().and_then(|lit| hints.get(ctx.data, lit)) {
+                Some(at) => pattern.find_all_at(ctx.data, &ranges, 1, &at),
+                None => pattern.find_all(ctx.data, &ranges, 1),
+            }
+            .is_empty()
+            {
                 matched = true;
                 break;
             }
@@ -3509,6 +3516,45 @@ mod tests {
         assert_eq!(hit[0].name, "TwinWave.EvilDoc.DOCXSTRGOOD.RTFSTR.I_E_X.210820");
     }
 
+}
+
+/// Occurrences of post-gap literals in one buffer, shared by the extended
+/// signatures verified against it: the polymorphic Virut family alone has
+/// ~390 bodies over ~100 distinct literals, and each used to rescan the whole
+/// buffer anchored on its leading `e8`/`000000` (seconds on a large PE).
+#[derive(Default)]
+struct LiteralHints {
+    found: std::sync::Mutex<std::collections::HashMap<Vec<u8>, Option<std::sync::Arc<[u32]>>>>,
+}
+
+impl LiteralHints {
+    /// Past this many occurrences `find_all_at` would fall back to `find_all`
+    /// anyway (its probe budget), so the list is not kept.
+    const MAX: usize = 16_384;
+
+    fn get(&self, data: &[u8], lit: Vec<u8>) -> Option<std::sync::Arc<[u32]>> {
+        if let Some(known) = self.found.lock().ok()?.get(&lit) {
+            return known.clone();
+        }
+        // Every occurrence, overlapping ones included (`8a8a` in `8a8a8a`):
+        // `find_iter` skips those. An absent literal gives an empty list: the
+        // body cannot match at all.
+        let finder = memchr::memmem::Finder::new(&lit);
+        let mut at = Vec::new();
+        let mut too_many = false;
+        let mut from = 0;
+        while let Some(rel) = data.get(from..).and_then(|rest| finder.find(rest)) {
+            if at.len() == Self::MAX {
+                too_many = true;
+                break;
+            }
+            at.push((from + rel) as u32);
+            from += rel + 1;
+        }
+        let at: Option<std::sync::Arc<[u32]>> = (!too_many).then(|| at.into());
+        self.found.lock().ok()?.insert(lit, at.clone());
+        at
+    }
 }
 
 /// Cache format version, bumped whenever the stamp or the blob layout changes.
