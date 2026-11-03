@@ -643,6 +643,31 @@ pub enum RuleCondition {
         min: Option<usize>,
     },
 
+    /// x86 / x64 instruction pattern(s) over the disassembled code of `region`
+    /// (`entry`, `code`, `section_N`, `overlay`, `file`): steps such as
+    /// `xor byte ptr [*], *; inc reg; [0-2]; loop *`, matched on what the bytes
+    /// decode to, so every encoding of an instruction matches (see `opcode`).
+    OpcodePattern {
+        #[serde(default)]
+        pattern: Option<String>,
+        #[serde(default)]
+        patterns: Vec<String>,
+        #[serde(default)]
+        min: Option<usize>,
+        #[serde(default = "default_opcode_region")]
+        region: String,
+        /// Bytes decoded from the start of the region (entry: 4096, else 4 MiB).
+        #[serde(default)]
+        max_bytes: Option<usize>,
+        /// 16, 32 or 64 for code that is not a PE (`file`, `overlay` of a non-PE);
+        /// a PE always uses its own.
+        #[serde(default)]
+        bitness: Option<u32>,
+        /// Mnemonic globs left out before matching (junk filler such as `nop`).
+        #[serde(default)]
+        skip: Vec<String>,
+    },
+
     /// True when the file does not start with the `MZ` DOS header magic.
     NotMz,
 
@@ -947,6 +972,10 @@ fn default_true() -> bool {
 
 fn default_anchor() -> String {
     "absolute".to_string()
+}
+
+fn default_opcode_region() -> String {
+    "entry".to_string()
 }
 
 fn default_sector_count() -> u32 {

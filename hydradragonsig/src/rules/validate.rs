@@ -81,6 +81,7 @@ pub const CONDITION_KEYS: &[(&str, &[&str])] = &[
     ("emulated_count_gte", &["api", "min", "distinct"]),
     ("pe_anchor_pattern", &["anchor", "section", "offset", "range", "count", "patterns", "min", "negate", "excludes"]),
     ("byte_repeat", &["anchor", "section", "offset", "length", "min"]),
+    ("opcode_pattern", &["pattern", "patterns", "min", "region", "max_bytes", "bitness", "skip"]),
     ("not_mz", &[]),
     ("authenticode", &["signed", "subject_glob"]),
     ("version_info", &["fields", "absent"]),
@@ -643,6 +644,29 @@ fn check_condition(cond: &RuleCondition, rules: &[Rule], own_id: &str, known_ids
                 }
             }
         }
+        RuleCondition::OpcodePattern { pattern, patterns, min, region, max_bytes, bitness, skip } => {
+            let all: Vec<&String> = pattern.iter().chain(patterns.iter()).collect();
+            list_problems("patterns", &all, *min, &mut out);
+            for p in &all {
+                if let Err(e) = super::opcode::compile(p) {
+                    out.push(format!("opcode pattern `{p}`: {e}"));
+                }
+            }
+            if !super::opcode::valid_region(region) {
+                out.push(format!("invalid region `{region}` (entry, code, section_N, overlay, file)"));
+            }
+            if max_bytes.is_some_and(|m| m == 0 || m > super::opcode::MAX_REGION_BYTES) {
+                out.push(format!("max_bytes must be 1..={}", super::opcode::MAX_REGION_BYTES));
+            }
+            if bitness.is_some_and(|b| !matches!(b, 16 | 32 | 64)) {
+                out.push("bitness must be 16, 32 or 64".into());
+            }
+            for s in skip {
+                if let Err(e) = super::opcode::mnemonic_set(s) {
+                    out.push(format!("skip `{s}`: {e}"));
+                }
+            }
+        }
         RuleCondition::ByteRepeat {
             anchor,
             section,
@@ -993,6 +1017,7 @@ mod tests {
             }
             "byte_set" | "pe_anchor_pattern" => "        patterns: [x]\n",
             "byte_repeat" => "        length: 4\n",
+            "opcode_pattern" => "        pattern: nop\n",
             "rule_match" => "        ids: [x]\n",
             "unpacker_any" => "        signatures: []\n",
             "image_fuzzy_hash_any" => "        hashes: []\n",

@@ -1,6 +1,7 @@
 mod engine;
 mod icon;
 mod icon_metric;
+mod opcode;
 mod pe_section;
 mod types;
 mod ubo_filters;

@@ -245,6 +245,50 @@ Byte pattern syntax (braces optional, case-insensitive hex):
 
 Example: `{ 4D 5A [2-4] ( 90 | 91 ) ~00 }`.
 
+#### `opcode_pattern` (x86 / x64 instructions)
+
+Matches instructions, not bytes: the region is disassembled (iced-x86, linear
+sweep) and the pattern is compared with what the bytes decode to. Every encoding
+of an instruction matches the same step (`89 D8` and `8B C3` are both
+`mov eax,ebx`), and operand globs cover register and constant changes.
+
+| Key | Default | Meaning |
+|---|---|---|
+| `pattern` / `patterns` | | One pattern, or a list of them. |
+| `min` | `1` | How many of the patterns must match. |
+| `region` | `entry` | `entry` (from the entry point), `code` (every executable section), `section_N` / `%PEN%` (section N, 1-based), `overlay`, `file` (the whole file as code, for shellcode and decrypted bodies that are not a PE). |
+| `max_bytes` | 4096 for `entry`, 4 MiB otherwise | Bytes decoded from the start of the region (per section for `code`; at most 16 MiB). |
+| `bitness` | `32` | `16`, `32` or `64` for `file` / `overlay` code that is not a PE. A PE always uses its own. |
+| `skip` | `[]` | Mnemonics left out before matching (junk filler), e.g. `[nop, fnop]`; globs allowed. |
+
+A pattern is a list of steps separated by `;` or new lines:
+
+| Step | Meaning |
+|---|---|
+| `inc eax` | The mnemonic with these operands. |
+| `loop` | The mnemonic with any operands. |
+| `mov\|lea reg, mem` | Alternatives (`\|`) for the mnemonic. |
+| `j* *` | Mnemonic glob (`*`, `?`): every jump with one operand. |
+| `* reg` | Any instruction with one register operand. |
+| `[2]`, `[1-3]`, `[2-]`, `[-]` | 2 / 1 to 3 / 2 or more / any number of other instructions in between (at most 64). |
+
+Operands are separated by `,`; with operands the count must be the same. An
+operand is `reg`, `mem`, `imm`, `*`, or a glob (alternatives with `|`, e.g.
+`eax|ecx`) over the operand as the Intel formatter writes it: lower case, spaces ignored, numbers in hex with `0x`
+(`0x5a`, never decimal), memory with its size (`byte ptr [eax+0x4]`; the size may be
+left out: `[e?x+*]`). Branch targets are absolute addresses (image base + RVA for
+a PE, 0-based for `file` / `overlay`), so write `*` for them.
+
+```yaml
+  - type: opcode_pattern
+    region: entry
+    skip: [nop]
+    pattern: "pushad; call *; pop reg; [0-4]; xor byte ptr [*], imm; inc reg; loop *"
+```
+
+The finding names the file offset and the instructions that matched. A region is
+decoded once per scan and shared by every `opcode_pattern` of that scan.
+
 ### 5.5 Combining rules
 
 | Type | Keys | Matches when |

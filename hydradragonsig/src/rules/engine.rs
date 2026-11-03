@@ -48,6 +48,8 @@ struct ScanView {
     matched_rules: std::collections::HashSet<String>,
     dex_loaded: bool,
     dex_strings: Vec<String>,
+    /// Code regions decoded for `opcode_pattern` conditions.
+    opcode_listings: super::opcode::ListingCache,
 }
 
 /// Categorized host blocklist loaded from external text files: one
@@ -503,6 +505,7 @@ impl ScanView {
             exports_lower,
             dex_loaded: false,
             dex_strings: Vec::new(),
+            opcode_listings: Default::default(),
         }
     }
 
@@ -2049,7 +2052,8 @@ fn evaluate_rule_with_matches(
             | RuleCondition::ResourcesAbsent
             | RuleCondition::PeSectionsSummary { .. }
             | RuleCondition::ExportHashAny { .. }
-            | RuleCondition::PeTimestamp { .. } => view.ensure_pe(report, bytes),
+            | RuleCondition::PeTimestamp { .. }
+            | RuleCondition::OpcodePattern { .. } => view.ensure_pe(report, bytes),
             RuleCondition::HashSha256 { .. }
             | RuleCondition::HashMd5 { .. }
             | RuleCondition::HashSha1 { .. }
@@ -2480,6 +2484,7 @@ fn evaluate_condition(
                 .map(|section| format!("section_name_regex `{}` matched {}", pattern, section.name))
         }
         RuleCondition::PeSection { .. } => super::pe_section::evaluate(cond, report.pe.as_ref()?, bytes),
+        RuleCondition::OpcodePattern { .. } => super::opcode::evaluate(cond, report.pe.as_ref(), bytes, &view.opcode_listings),
         RuleCondition::PackedPe => {
             let pe = report.pe.as_ref()?;
             pe.likely_packed
