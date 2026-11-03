@@ -384,6 +384,17 @@ impl SimilarityIndex {
         !self.analyst_sigs.read().unwrap().is_empty()
     }
 
+    /// Analyst TLSH signatures loaded (for the slow threat-intel log).
+    pub fn analyst_sig_count(&self) -> usize {
+        self.analyst_sigs.read().unwrap().len()
+    }
+
+    /// Blacklist digests with a virus name (for the slow threat-intel log).
+    pub fn named_malware_count(&self) -> usize {
+        let l = self.known_malware.read().unwrap();
+        l.named_sized.len() + l.named_unsized.len()
+    }
+
     /// Closest analyst signature within `ANALYST_TLSH_MAX_DIST` of `data` (padding
     /// stripped), ignoring the file's own signature.
     pub fn analyst_match(&self, query: &TlshQuery, sha256: &str) -> Option<(AnalystTlsh, u32)> {
@@ -580,19 +591,22 @@ impl SimilarityIndex {
     }
 
     /// Analyst-clean files within the smart-whitelist distance, closest first.
+    /// Distance first: a TLSH compare is a few table lookups, while `is_clean` looks
+    /// up (and copies) a human review, which on every one of hundreds of thousands
+    /// of indexed files made this the slowest part of a scan.
     pub fn clean_references(&self, tlsh: &str, is_clean: impl Fn(&str) -> bool) -> Vec<(String, u32)> {
         let Ok(q) = tlsh.parse::<Tlsh>() else { return Vec::new() };
-        let mut v: Vec<(String, u32)> = self
+        let near: Vec<(String, u32)> = self
             .files
             .read()
             .unwrap()
             .iter()
-            .filter(|e| is_clean(&e.sha256))
             .filter_map(|e| {
                 let d = q.compare(&e.tlsh);
                 (d <= SMART_WL_MAX_DIST).then(|| (e.sha256.clone(), d))
             })
             .collect();
+        let mut v: Vec<(String, u32)> = near.into_iter().filter(|(sha, _)| is_clean(sha)).collect();
         v.sort_by_key(|x| x.1);
         v.truncate(8);
         v
@@ -600,6 +614,21 @@ impl SimilarityIndex {
 }
 
 // ------------------------------------------------------------------ smart whitelist
+
+/// Where `smart_whitelist` spent its time, for the slow threat-intel log.
+#[derive(Default)]
+pub struct SmartWlTrace {
+    /// Files in the similarity index compared by TLSH distance.
+    pub indexed: usize,
+    pub index_scan: std::time::Duration,
+    /// Analyst-clean neighbours whose stored static report was read from disk.
+    pub reports_loaded: usize,
+    pub report_load: std::time::Duration,
+    pub corpus_compared: usize,
+    pub corpus_scan: std::time::Duration,
+    /// References whose structure was checked (`accept`), closest first.
+    pub refs_tried: usize,
+}
 
 /// Decision for one file: Some((reference sha256, distance, description)) when the
 /// smart whitelist applies. References are analyst-clean files (their stored static
@@ -609,6 +638,7 @@ pub fn smart_whitelist(
     index: &SimilarityIndex,
     candidate: &Value,
     is_analyst_clean: impl Fn(&str) -> bool,
+    trace: &mut SmartWlTrace,
 ) -> Option<(String, u32, String)> {
     let hashes = &candidate["hashes"];
     let tlsh = hashes["dex_tlsh"].as_str().or(hashes["tlsh"].as_str())?;
@@ -617,22 +647,36 @@ pub fn smart_whitelist(
 
     // (distance, sha, structure, origin)
     let mut refs: Vec<(u32, String, Structure, &'static str)> = Vec::new();
-    for (sha, d) in index.clean_references(tlsh, is_analyst_clean) {
+    let t = std::time::Instant::now();
+    trace.indexed = index.files.read().unwrap().len();
+    let clean = index.clean_references(tlsh, is_analyst_clean);
+    trace.index_scan = t.elapsed();
+    let t = std::time::Instant::now();
+    for (sha, d) in clean {
+        trace.reports_loaded += 1;
         if let Some(st) = crate::reports::load(&sha).as_ref().and_then(Structure::from_report) {
             refs.push((d, sha, st, "analyst-verified clean"));
         }
     }
-    for r in index.corpus_refs.read().unwrap().iter() {
-        let d = q.compare(&r.tlsh);
-        if d <= SMART_WL_MAX_DIST {
-            refs.push((d, r.sha256.clone(), r.st.clone(), "benign reference corpus"));
+    trace.report_load = t.elapsed();
+    let t = std::time::Instant::now();
+    {
+        let corpus = index.corpus_refs.read().unwrap();
+        trace.corpus_compared = corpus.len();
+        for r in corpus.iter() {
+            let d = q.compare(&r.tlsh);
+            if d <= SMART_WL_MAX_DIST {
+                refs.push((d, r.sha256.clone(), r.st.clone(), "benign reference corpus"));
+            }
         }
     }
+    trace.corpus_scan = t.elapsed();
     refs.sort_by_key(|r| r.0);
     refs.truncate(16);
 
     let mut last_reason = String::new();
     for (d, sha, st, origin) in refs {
+        trace.refs_tried += 1;
         match accept(d, &cand, &st) {
             Ok(()) => {
                 let what = if matches!(st, Structure::Apk(_)) { "DEX TLSH" } else { "TLSH" };
@@ -663,6 +707,56 @@ pub fn fill_verdicts(list: &mut [SimilarFile], lookup: VerdictLookup<'_>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn clean_references_checks_reviews_only_for_near_files() {
+        // Pseudo-random digests around one query; every 1000th file is analyst-clean.
+        let query = "T1AAB36A0A33D420FDD0575274CDB69A15D3B2BC2A4274934F27A47B6A1F733926D2E722";
+        let mut x: u64 = 0x9e3779b97f4a7c15;
+        let mut files = Vec::new();
+        for i in 0..300_000u32 {
+            let mut t = query.as_bytes().to_vec();
+            for _ in 0..(i % 24) {
+                x ^= x << 13;
+                x ^= x >> 7;
+                x ^= x << 17;
+                let pos = 8 + (x as usize % (t.len() - 8));
+                t[pos] = b"0123456789ABCDEF"[(x >> 40) as usize % 16];
+            }
+            let Ok(tlsh) = std::str::from_utf8(&t).unwrap().parse::<Tlsh>() else { continue };
+            files.push(Entry { sha256: format!("{i:064x}"), tlsh, size: 0 });
+        }
+        let index = SimilarityIndex::default();
+        *index.files.write().unwrap() = files;
+        let clean = |sha: &str| u64::from_str_radix(&sha[48..], 16).unwrap() % 1000 == 0;
+        let lookups = std::cell::Cell::new(0usize);
+        let t = std::time::Instant::now();
+        let got = index.clean_references(query, |sha| {
+            lookups.set(lookups.get() + 1);
+            clean(sha)
+        });
+        let took = t.elapsed();
+
+        // Same answer as checking every file's review first.
+        let q = query.parse::<Tlsh>().unwrap();
+        let mut want: Vec<(String, u32)> = index
+            .files
+            .read()
+            .unwrap()
+            .iter()
+            .filter(|e| clean(&e.sha256))
+            .filter_map(|e| {
+                let d = q.compare(&e.tlsh);
+                (d <= SMART_WL_MAX_DIST).then(|| (e.sha256.clone(), d))
+            })
+            .collect();
+        want.sort_by_key(|x| x.1);
+        want.truncate(8);
+        assert_eq!(got, want);
+        assert!(!got.is_empty());
+        assert!(lookups.get() < index.files.read().unwrap().len() / 2, "{} review lookups", lookups.get());
+        eprintln!("clean_references over 300k files: {took:?}, {} review lookups", lookups.get());
+    }
 
     #[test]
     fn blacklist_lines() {

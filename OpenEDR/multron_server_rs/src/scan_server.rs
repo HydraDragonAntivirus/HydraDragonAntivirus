@@ -1799,6 +1799,7 @@ pub fn apply_analyst_tlsh(
     ti: &crate::threat_intel::ThreatIntelStore,
     data: &[u8],
     query: &std::cell::OnceCell<Option<crate::similarity::TlshQuery>>,
+    trace: &TiTrace,
     res: &mut ResultMessage,
 ) {
     if !matches!(res.verdict.as_str(), "unknown" | "possible_clean" | "suspicious") || !ti.similarity.has_analyst_sigs() {
@@ -1807,8 +1808,12 @@ pub fn apply_analyst_tlsh(
     if ti.reviews.completed(&res.sha256).and_then(|r| r.verdict).as_deref() == Some("clean") {
         return;
     }
-    let Some(q) = query.get_or_init(|| crate::similarity::TlshQuery::of(data)) else { return };
-    let Some((sig, d)) = ti.similarity.analyst_match(q, &res.sha256) else { return };
+    let Some(q) = tlsh_query(data, query, trace) else { return };
+    let hit = trace.step("server:ti_analyst_tlsh", |d| {
+        *d = format!("{} signatures", ti.similarity.analyst_sig_count());
+        ti.similarity.analyst_match(q, &res.sha256)
+    });
+    let Some((sig, d)) = hit else { return };
     crate::engine_adapter::apply_analyst_hit(
         res,
         &crate::analyst_engine::AnalystHit { engine: "analyst_tlsh", name: sig.threat.clone(), verdict: "malicious" },
@@ -1835,6 +1840,7 @@ pub fn apply_tlsh_blacklist(
     ti: &crate::threat_intel::ThreatIntelStore,
     data: &[u8],
     query: &std::cell::OnceCell<Option<crate::similarity::TlshQuery>>,
+    trace: &TiTrace,
     res: &mut ResultMessage,
 ) {
     if !matches!(res.verdict.as_str(), "unknown" | "possible_clean" | "suspicious") || !ti.similarity.has_named_malware() {
@@ -1843,8 +1849,12 @@ pub fn apply_tlsh_blacklist(
     if ti.reviews.completed(&res.sha256).and_then(|r| r.verdict).as_deref() == Some("clean") {
         return;
     }
-    let Some(q) = query.get_or_init(|| crate::similarity::TlshQuery::of(data)) else { return };
-    let Some(m) = ti.similarity.blacklist_match(q) else { return };
+    let Some(q) = tlsh_query(data, query, trace) else { return };
+    let hit = trace.step("server:ti_tlsh_blacklist", |d| {
+        *d = format!("{} named digests", ti.similarity.named_malware_count());
+        ti.similarity.blacklist_match(q)
+    });
+    let Some(m) = hit else { return };
     let info = format!(
         "TLSH blacklist (info only): {} — distance {} to {}{}",
         m.threat,
@@ -1860,7 +1870,7 @@ pub fn apply_tlsh_blacklist(
 /// Analyst imphash signatures (`imphash_sigs`): same limits as the TLSH blacklist —
 /// only raises unknown / possible_clean / suspicious results, never a file an analyst
 /// marked clean. Costs nothing while there are no imphash signatures.
-pub fn apply_imphash_sigs(ti: &crate::threat_intel::ThreatIntelStore, data: &[u8], res: &mut ResultMessage) {
+pub fn apply_imphash_sigs(ti: &crate::threat_intel::ThreatIntelStore, data: &[u8], trace: &TiTrace, res: &mut ResultMessage) {
     if !crate::imphash_sigs::any() || !data.starts_with(b"MZ") {
         return;
     }
@@ -1870,8 +1880,12 @@ pub fn apply_imphash_sigs(ti: &crate::threat_intel::ThreatIntelStore, data: &[u8
     if ti.reviews.completed(&res.sha256).and_then(|r| r.verdict).as_deref() == Some("clean") {
         return;
     }
-    let Some((imphash, _, _)) = crate::analyzer::pe_imphash(data) else { return };
-    let Some(sig) = crate::imphash_sigs::lookup(&imphash) else { return };
+    let found = trace.step("server:ti_imphash", |d| {
+        let (imphash, _, _) = crate::analyzer::pe_imphash(data)?;
+        *d = format!("imphash {imphash}");
+        crate::imphash_sigs::lookup(&imphash)
+    });
+    let Some(sig) = found else { return };
     let before = res.verdict.clone();
     crate::engine_adapter::apply_analyst_hit(
         res,
@@ -1905,17 +1919,94 @@ pub fn apply_threat_intel(
     name: &str,
     res: &mut ResultMessage,
 ) -> Option<crate::analyzer::FileReport> {
+    let trace = TiTrace::new();
     let query = std::cell::OnceCell::new();
-    apply_analyst_tlsh(ti, data, &query, res);
-    apply_tlsh_blacklist(ti, data, &query, res);
-    apply_imphash_sigs(ti, data, res);
-    apply_smart_whitelist(ti, data, name, res)
+    apply_analyst_tlsh(ti, data, &query, &trace, res);
+    apply_tlsh_blacklist(ti, data, &query, &trace, res);
+    apply_imphash_sigs(ti, data, &trace, res);
+    let report = apply_smart_whitelist(ti, data, name, &trace, res);
+    trace.log_if_slow(name, data.len(), res);
+    report
+}
+
+/// The file's TLSH, computed once for every step that needs it.
+fn tlsh_query<'q>(
+    data: &[u8],
+    query: &'q std::cell::OnceCell<Option<crate::similarity::TlshQuery>>,
+    trace: &TiTrace,
+) -> Option<&'q crate::similarity::TlshQuery> {
+    query
+        .get_or_init(|| trace.step("server:ti_tlsh_hash", |_| crate::similarity::TlshQuery::of(data)))
+        .as_ref()
+}
+
+/// A threat-intel pass at least this long prints its steps, like the ClamAV
+/// engine's `[SLOW-...]` lines.
+const SLOW_TI: Duration = Duration::from_millis(500);
+
+/// Per-step times of one `apply_threat_intel` pass. Each step is also a memtrack
+/// stage (`server:ti_*`), so the dashboard's engine-time card splits threat intel
+/// the same way. A step's time is its own: the TLSH hash computed inside the
+/// analyst step is counted under `tlsh_hash`, not twice.
+pub struct TiTrace {
+    started: std::time::Instant,
+    inner: std::cell::Cell<Duration>,
+    steps: std::cell::RefCell<Vec<(&'static str, Duration, String)>>,
+}
+
+impl TiTrace {
+    fn new() -> Self {
+        TiTrace { started: std::time::Instant::now(), inner: Default::default(), steps: Default::default() }
+    }
+
+    fn step<T>(&self, name: &'static str, f: impl FnOnce(&mut String) -> T) -> T {
+        let _stage = openedr_static::memtrack::stage(name);
+        let outer = self.inner.replace(Duration::ZERO);
+        let t = std::time::Instant::now();
+        let mut detail = String::new();
+        let out = f(&mut detail);
+        let total = t.elapsed();
+        let own = total.saturating_sub(self.inner.get());
+        self.inner.set(outer + total);
+        self.steps.borrow_mut().push((name.trim_start_matches("server:ti_"), own, detail));
+        out
+    }
+
+    fn log_if_slow(&self, name: &str, size: usize, res: &ResultMessage) {
+        let total = self.started.elapsed();
+        if total < SLOW_TI {
+            return;
+        }
+        let mut steps = self.steps.borrow_mut();
+        steps.sort_by(|a, b| b.1.cmp(&a.1));
+        let ms = |d: Duration| d.as_secs_f64() * 1000.0;
+        let counted: Duration = steps.iter().map(|s| s.1).sum();
+        let mut out = format!(
+            "[SLOW-TI] {:.0}ms {name} ({} KB, sha256 {}) verdict={}",
+            ms(total),
+            size / 1024,
+            res.sha256.get(..16).unwrap_or(&res.sha256),
+            res.verdict
+        );
+        for (step, d, detail) in steps.iter() {
+            out.push_str(&format!("\n[SLOW-TI]   {step} {:.0}ms", ms(*d)));
+            if !detail.is_empty() {
+                out.push_str(&format!(" ({detail})"));
+            }
+        }
+        out.push_str(&format!(
+            "\n[SLOW-TI]   outside the steps {:.0}ms (review lookups, waiting for locks)",
+            ms(total.saturating_sub(counted))
+        ));
+        eprintln!("{out}");
+    }
 }
 
 pub fn apply_smart_whitelist(
     ti: &crate::threat_intel::ThreatIntelStore,
     data: &[u8],
     name: &str,
+    trace: &TiTrace,
     res: &mut ResultMessage,
 ) -> Option<crate::analyzer::FileReport> {
     if res.verdict != "unknown" || !(data.starts_with(b"MZ") || data.starts_with(b"PK\x03\x04")) {
@@ -1923,7 +2014,7 @@ pub fn apply_smart_whitelist(
     }
     // The exact file is in the verified benign corpus: that is a known file, not a
     // look-alike, so it is clean (possible_clean is for TLSH neighbours only).
-    if ti.similarity.in_benign_corpus(&res.sha256) {
+    if trace.step("server:ti_benign_corpus", |_| ti.similarity.in_benign_corpus(&res.sha256)) {
         crate::engine_adapter::mark_clean(
             res,
             "Known benign: exact SHA-256 match in the verified benign reference corpus".into(),
@@ -1931,11 +2022,31 @@ pub fn apply_smart_whitelist(
         );
         return None;
     }
-    let rep = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| crate::analyzer::analyze(data, name))).ok()?;
-    if let Ok(cand) = serde_json::to_value(&rep) {
+    let rep = trace.step("server:ti_static_report", |_| {
+        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| crate::analyzer::analyze(data, name))).ok()
+    })?;
+    if let Ok(cand) = trace.step("server:ti_report_json", |_| serde_json::to_value(&rep)) {
         let reviews = &ti.reviews;
-        let decision = crate::similarity::smart_whitelist(&ti.similarity, &cand, |sha| {
-            reviews.completed(sha).and_then(|r| r.verdict).as_deref() == Some("clean")
+        let decision = trace.step("server:ti_smart_whitelist", |d| {
+            let mut t = crate::similarity::SmartWlTrace::default();
+            let decision = crate::similarity::smart_whitelist(
+                &ti.similarity,
+                &cand,
+                |sha| reviews.completed(sha).and_then(|r| r.verdict).as_deref() == Some("clean"),
+                &mut t,
+            );
+            let ms = |x: Duration| x.as_secs_f64() * 1000.0;
+            *d = format!(
+                "{} indexed files compared, analyst-clean neighbours found in {:.0}ms, {} clean reports read in {:.0}ms, {} corpus refs compared in {:.0}ms, {} structures checked",
+                t.indexed,
+                ms(t.index_scan),
+                t.reports_loaded,
+                ms(t.report_load),
+                t.corpus_compared,
+                ms(t.corpus_scan),
+                t.refs_tried
+            );
+            decision
         });
         if let Some((_ref_sha, _d, detail)) = decision {
             crate::engine_adapter::mark_possible_clean(res, detail, "smart_whitelist/tlsh");
