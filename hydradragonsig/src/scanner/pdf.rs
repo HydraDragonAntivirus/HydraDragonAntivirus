@@ -22,6 +22,8 @@ pub const MAX_OBJECTS: usize = 4096;
 pub const HEADER_WINDOW: usize = 1024;
 const MAX_STRINGS: usize = 1024;
 const MAX_STRING_LEN: usize = 64 * 1024;
+/// Text kept per payload list (`javascript`, `uris`, `launches`).
+const MAX_LIST_BYTES: usize = 1024 * 1024;
 
 /// Counts and extracted payloads of a PDF (decoded stream bytes are kept
 /// apart, in [`PdfStreams`]).
@@ -488,7 +490,7 @@ pub fn parse_pdf(bytes: &[u8]) -> Option<(PdfInfo, PdfStreams)> {
         streams.streams.push(PdfStream { object: obj.num, filters, raw: range, decoded });
     }
 
-    let stream_of = |num: u32| streams.streams.iter().find(|s| s.object == num).map(|s| s.decoded.clone());
+    let stream_of = |num: u32| streams.streams.iter().find(|s| s.object == num).map(|s| s.decoded.as_slice());
     for text in &texts {
         let all = names(text);
         for (name, end, escaped) in &all {
@@ -503,12 +505,12 @@ pub fn parse_pdf(bytes: &[u8]) -> Option<(PdfInfo, PdfStreams)> {
                 _ => None,
             };
             let Some(list) = target else { continue };
-            if list.len() >= MAX_STRINGS {
+            if list.len() >= MAX_STRINGS || list.iter().map(String::len).sum::<usize>() >= MAX_LIST_BYTES {
                 continue;
             }
-            let payload = match value_at(text, *end) {
-                Value::Text(t) => Some(t),
-                Value::Ref(n) => stream_of(n),
+            let payload: Option<std::borrow::Cow<[u8]>> = match value_at(text, *end) {
+                Value::Text(t) => Some(t.into()),
+                Value::Ref(n) => stream_of(n).map(Into::into),
                 Value::None => None,
             };
             if let Some(p) = payload.filter(|p| !p.is_empty()) {
