@@ -34,9 +34,21 @@ impl LazyRegex {
     }
 
     /// The compiled regex, compiling it on first call. `None` if it can't compile.
+    ///
+    /// Byte mode first, as ClamAV compiles PCREs without `PCRE2_UTF`: `.` and
+    /// `\xNN` are single bytes and `\b`/`\w` are ASCII. It is also what keeps
+    /// the lazy DFA usable on binary data, where a Unicode `\b` drops to the
+    /// PikeVM (one `\bpowershell\b` rule: 1.3 s → 50 ms over an 8 MB DLL). A
+    /// pattern that only compiles with Unicode (`\p{…}`) keeps that mode.
     pub fn get(&self) -> Option<&Regex> {
         self.compiled
-            .get_or_init(|| RegexBuilder::new(&self.source).build().ok())
+            .get_or_init(|| {
+                RegexBuilder::new(&self.source)
+                    .unicode(false)
+                    .build()
+                    .or_else(|_| RegexBuilder::new(&self.source).build())
+                    .ok()
+            })
             .as_ref()
     }
 

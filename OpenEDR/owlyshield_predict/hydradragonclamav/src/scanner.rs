@@ -1431,11 +1431,12 @@ impl Engine {
         verify_results: &[bool],
     ) {
         let items = self.logical_candidates(slot_counts);
+        let hints = LiteralHints::default();
         self.par_eval_items(&items, |si, out| {
             LOGICAL_BUFS.with(|cell| {
                 let mut bufs = cell.borrow_mut();
                 let t = std::time::Instant::now();
-                self.scan_one_logical(si, slot_counts, ctx, out, &mut bufs, verify_results);
+                self.scan_one_logical(si, slot_counts, ctx, out, &mut bufs, verify_results, &hints);
                 let ms = t.elapsed().as_millis();
                 if ms >= 50 {
                     rust_timing_log!("[SLOW-LOG] {ms}ms {}", self.database.logical[si].name);
@@ -1539,6 +1540,7 @@ impl Engine {
         matches: &mut Vec<ScanMatch>,
         bufs: &mut LogicalScanBufs,
         verify_results: &[bool],
+        hints: &LiteralHints,
     ) {
         let signature = &self.database.logical[si];
         if !target_matches(signature.target, ctx, &signature.name) {
@@ -1817,7 +1819,14 @@ impl Engine {
                         }
                     }
                 } else {
-                    let (phits, plast) = pattern.count_all(ctx.data, &ranges, remaining);
+                    // Same distinct-start count and last start as `count_all`.
+                    let (phits, plast) = match pattern.post_gap_literal().and_then(|lit| hints.get(ctx.data, lit)) {
+                        Some(at) => {
+                            let found = pattern.find_all_at(ctx.data, &ranges, remaining, &at);
+                            (found.len(), found.last().map(|m| m.start))
+                        }
+                        None => pattern.count_all(ctx.data, &ranges, remaining),
+                    };
                     hits += phits;
                     if let Some(p) = plast {
                         last = Some(p);
@@ -2746,6 +2755,29 @@ mod tests {
     }
 
     #[test]
+    fn pcre_matches_bytes_not_utf8() {
+        // ClamAV compiles PCREs without PCRE2_UTF: `\xe9` is the byte 0xE9 and
+        // `.` one byte, never a UTF-8 sequence.
+        let (sig, _) = crate::logical::parse_logical_signature(
+            "Test.PcreBytes;Target:0;0&1;414141;0/\\xe9.\\xff/",
+            SourceLocation {
+                path: std::sync::Arc::from(std::path::Path::new("t.ldb")),
+                line: 1,
+            },
+        )
+        .unwrap();
+        let database = Database {
+            logical: vec![sig],
+            ..Default::default()
+        };
+        let atomfilter_db = crate::atomfilter_build::AtomFilterBuilder::build(&database);
+        let engine = Engine { database, atomfilter_db, yara: Vec::new() };
+        let hit = |d: &[u8]| engine.scan_bytes(d, ScanOptions::default()).iter().any(|m| m.name == "Test.PcreBytes");
+        assert!(hit(b"AAA \xe9\x80\xff"));
+        assert!(!hit("AAA \u{e9}\u{ff}".as_bytes()));
+    }
+
+    #[test]
     fn scans_pcre_logical_signature() {
         let (sig, warnings) = crate::logical::parse_logical_signature(
             "Test.Pcre;Target:0;0&1;414141;0/world/",
@@ -3519,7 +3551,7 @@ mod tests {
 }
 
 /// Occurrences of post-gap literals in one buffer, shared by the extended
-/// signatures verified against it: the polymorphic Virut family alone has
+/// signatures and logical subsignatures verified against it: the polymorphic Virut family alone has
 /// ~390 bodies over ~100 distinct literals, and each used to rescan the whole
 /// buffer anchored on its leading `e8`/`000000` (seconds on a large PE).
 #[derive(Default)]
