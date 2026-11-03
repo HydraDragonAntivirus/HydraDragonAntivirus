@@ -41,6 +41,7 @@ mod liveness;
 mod memwatch;
 mod ratelimit;
 mod scan_server;
+mod scan_timing;
 mod scheduler;
 mod threat_intel;
 mod uptime;

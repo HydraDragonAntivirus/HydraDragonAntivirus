@@ -315,6 +315,7 @@ pub fn dashboard_router(state: Arc<AppState>) -> Router {
         .route("/api/state", get(handle_state))
         .route("/api/scan-queue", get(handle_scan_queue))
         .route("/api/memory", get(handle_memory))
+        .route("/api/engine-time", get(handle_engine_time))
         .route("/api/alyzer/open", post(crate::alyzer::handle_open))
         .route("/api/alyzer/list", get(crate::alyzer::handle_list))
         .route("/api/alyzer/bytes", get(crate::alyzer::handle_bytes))
@@ -1804,6 +1805,14 @@ async fn handle_memory(State(app): State<Arc<AppState>>) -> impl IntoResponse {
     let mut headers = HeaderMap::new();
     headers.insert("Cache-Control", "no-store".parse().unwrap());
     (headers, Json(crate::memwatch::report(&app.scan_server)))
+}
+
+/// Time per engine stage since the start, and the stage times of recent and of the
+/// slowest scans (one second or longer).
+async fn handle_engine_time() -> impl IntoResponse {
+    let mut headers = HeaderMap::new();
+    headers.insert("Cache-Control", "no-store".parse().unwrap());
+    (headers, Json(crate::scan_timing::report()))
 }
 
 async fn handle_scan_queue(State(app): State<Arc<AppState>>, Query(q): Query<AllQuery>) -> impl IntoResponse {

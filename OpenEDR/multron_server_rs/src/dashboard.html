@@ -528,6 +528,20 @@
       <div class="hint" id="memFiles"></div>
     </section>
 
+    <section class="card" id="engineTimeCard">
+      <div class="feedbar" style="margin:0 0 8px"><h2 style="margin:0">Engine time</h2><span class="hint" id="etSummary" style="margin:0">—</span><span class="spacer"></span><label class="chk"><input type="checkbox" id="etSlowest"> Slowest since start</label></div>
+      <div class="hint" style="margin-top:0">Where scan time goes, per engine stage. A stage's time is its own: stages that ran inside it (YARA on an archive member, the scan of an unpacked payload) are counted under their own name, not twice. <b>server:</b> stages are the server's own work around the engine. Refreshes every 5 s.</div>
+      <div class="tablewrap" style="max-height:360px">
+        <table><thead><tr><th>Stage</th><th class="num">Share</th><th class="num">Total</th><th class="num">Calls</th><th class="num">Average</th><th class="num">Longest call</th></tr></thead>
+        <tbody id="etRows"><tr><td colspan="6" class="empty">Loading…</td></tr></tbody></table>
+      </div>
+      <h3 style="margin:14px 0 6px" id="etScansTitle">Slow scans</h3>
+      <div class="tablewrap" style="max-height:420px">
+        <table><thead><tr><th>Time</th><th>File</th><th class="num">Size</th><th>Verdict</th><th class="num">Scan</th><th>Where the time went</th></tr></thead>
+        <tbody id="etScans"><tr><td colspan="6" class="empty">Loading…</td></tr></tbody></table>
+      </div>
+    </section>
+
     <section class="card" id="signatureRoom">
       <h2>Signature room</h2>
       <div class="hint" style="margin-top:0">Analyst rules live in <code id="sigFolder">analyst_signatures/</code>, apart from the shipped rule folders. Names follow <b>Category.Platform.Family[.Variant]</b>. HydraDragonSig format: <a href="https://viruskov.com/wiki/hydradragonsig.html" target="_blank" rel="noopener" style="color:var(--accent)">format guide &#8599;</a></div>
@@ -2853,13 +2867,51 @@ window.sigKey = (list) => list && list.length ? `${list[0].layer}: ${list[0].nam
   };
   loadMem();
   every(5000, loadMem);
+
+  const msText = (v) => v >= 60000 ? dur(Math.round(v / 1000)) : v >= 1000 ? (v / 1000).toFixed(v < 10000 ? 2 : 1) + " s" : v.toFixed(v < 10 ? 1 : 0) + " ms";
+  const verdictTag = (v) => `<span class="tag t-${esc(v === "error" ? "error" : v)}">${esc(v)}</span>`;
+  const loadEngineTime = async () => {
+    if (document.hidden) return;
+    try {
+      const r = await fetch("/api/engine-time", { cache: "no-store" });
+      if (!r.ok) return;
+      const d = await r.json();
+      $q("etSummary").textContent = `${d.scans.toLocaleString()} scans · average ${msText(d.avgScanMs)} · ${d.slowScans.toLocaleString()} took ${msText(d.slowFromMs)} or longer`;
+      $q("etRows").innerHTML = d.stages.map(s => `<tr>
+          <td><b>${esc(s.name)}</b></td>
+          <td class="num" style="min-width:120px"><div class="bar" style="margin:0 0 2px"><div style="width:${Math.min(100, s.share)}%"></div></div>${s.share.toFixed(1)} %</td>
+          <td class="num">${msText(s.totalMs)}</td>
+          <td class="num">${s.calls.toLocaleString()}</td>
+          <td class="num">${msText(s.avgMs)}</td>
+          <td class="num">${msText(s.maxMs)}</td>
+        </tr>`).join("") || `<tr><td colspan="6" class="empty">No scan yet.</td></tr>`;
+      const slowest = $q("etSlowest").checked;
+      $q("etScansTitle").textContent = slowest ? "Slowest scans since start" : `Recent slow scans (${msText(d.slowFromMs)} or longer)`;
+      $q("etScans").innerHTML = (slowest ? d.slowest : d.recent).map(s => {
+        const parts = s.stages.map(t => `<b>${esc(t.name)}</b> ${msText(t.ms)}${t.calls > 1 ? ` ×${t.calls}` : ""} (${t.share.toFixed(0)} %)`);
+        if (s.otherStagesMs >= 1) parts.push(`other stages ${msText(s.otherStagesMs)}`);
+        if (s.unstagedMs >= 1) parts.push(`outside the stages ${msText(s.unstagedMs)}`);
+        return `<tr data-sha="${esc(s.sha256)}" data-name="${esc(s.file)}">
+          <td>${esc(new Date(s.at).toLocaleTimeString())}</td>
+          <td class="file" title="${esc(s.file)}"><b>${esc(s.file)}</b></td>
+          <td class="num">${size(s.size)}</td>
+          <td>${verdictTag(s.verdict)}</td>
+          <td class="num"><b>${msText(s.totalMs)}</b></td>
+          <td>${parts.join(" · ")}</td>
+        </tr>`;
+      }).join("") || `<tr><td colspan="6" class="empty">No scan took ${msText(d.slowFromMs)} or longer yet.</td></tr>`;
+    } catch (_) {}
+  };
+  loadEngineTime();
+  every(5000, loadEngineTime);
+  $q("etSlowest").onchange = loadEngineTime;
 })();
 </script>
 <script>
 (() => {
   // Right-click menu for file rows: queue, verdicts, rescan log, scan queue.
   const esc = (s) => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
-  const ROWS = "#haRows tr.it, #haRecentRows tr[data-sha], #rsRows tr[data-sha], #sqRows tr[data-sha], #feed tr[data-sha], #srcFiles tr[data-sha], #rhList tr[data-sha]";
+  const ROWS = "#haRows tr.it, #haRecentRows tr[data-sha], #rsRows tr[data-sha], #sqRows tr[data-sha], #etScans tr[data-sha], #feed tr[data-sha], #srcFiles tr[data-sha], #rhList tr[data-sha]";
   let menu = null;
   const toast = (msg) => {
     let t = document.getElementById("ctxToast");

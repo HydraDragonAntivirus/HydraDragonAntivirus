@@ -1386,11 +1386,14 @@ impl StaticEngine {
         let next = std::sync::atomic::AtomicUsize::new(0);
         let slots: Vec<std::sync::Mutex<Option<ExtractedObject>>> =
             (0..count).map(|_| std::sync::Mutex::new(None)).collect();
-        std::thread::scope(|scope| {
+        // The workers' stage times belong to the scan that started them.
+        let ctx = crate::memtrack::scan_context();
+        crate::memtrack::parallel_section(|| std::thread::scope(|scope| {
             for _ in 0..threads {
+                let ctx = ctx.clone();
                 let _ = std::thread::Builder::new()
                     .stack_size(OBJECT_THREAD_STACK)
-                    .spawn_scoped(scope, || loop {
+                    .spawn_scoped(scope, || crate::memtrack::in_scan_context(ctx, || loop {
                         let i = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                         if i >= count {
                             break;
@@ -1399,9 +1402,9 @@ impl StaticEngine {
                         if let Ok(mut slot) = slots[i].lock() {
                             *slot = Some(result);
                         }
-                    });
+                    }));
             }
-        });
+        }));
         slots
             .into_iter()
             .enumerate()
@@ -1415,6 +1418,7 @@ impl StaticEngine {
     }
 
     pub fn scan_object(&self, object: &ScanObject) -> ExtractedObject {
+        let _t = crate::memtrack::stage("scan:object");
         let mut obj_detections = Vec::new();
         let mut obj_max_score = 0.0f32;
 
@@ -1524,7 +1528,7 @@ impl StaticEngine {
         // layer below needs to know whether the format compresses its payload;
         // `detect` is not cheap on a large file (it can parse a PE header), so
         // it is called once per scan rather than twice.
-        let file_type = filetype::detect(data);
+        let file_type = { let _t = crate::memtrack::stage("scan:filetype"); filetype::detect(data) };
         if file_type.is_unknown {
             return StaticScanReport {
                 target: target_name.to_string(),
@@ -1557,6 +1561,7 @@ impl StaticEngine {
         // 1. Authenticode & Signer Check
         let mut signer_details = None;
         if let Some(p) = disk_path {
+            let _t = crate::memtrack::stage("scan:authenticode");
             let info = verify_authenticode(p);
             let mut trusted_by_yaml = false;
 
@@ -1731,6 +1736,7 @@ impl StaticEngine {
         // Runs even without the bundle so APKs never return Error.
         let is_apk_file = apk::is_apk(data, target_name);
         if is_apk_file {
+            let _t = crate::memtrack::stage("scan:apk");
             if let Some(feats) = apk::apk_tree_features(data) {
                 if let Some(prob) = self.ml.predict_apk(&feats) {
                     if prob >= apk_tree_threshold() {
@@ -1851,6 +1857,7 @@ impl StaticEngine {
         // the engine only tags the file (validated PE or not). Strings
         // capped to first 16 MB so giant files stay panic-free.
         if !is_apk_file {
+            let _t = crate::memtrack::stage("scan:hydrasig_prepare");
             let is_pe = find_valid_embedded_pe(data) == Some(0);
             let capped: &[u8] = if data.len() > 16 * 1024 * 1024 {
                 &data[..16 * 1024 * 1024]
@@ -1892,6 +1899,7 @@ impl StaticEngine {
             || is_js_content(data);
 
         if !is_apk_file {
+            let _t = crate::memtrack::stage("scan:ml");
             if is_pe {
                 if let Some(prob) = self.ml.predict_pe(data) {
                     if prob >= pe_tree_threshold() {
@@ -1923,6 +1931,7 @@ impl StaticEngine {
 
         // 5b. Deobfuscated JavaScript, scanned as an object of its own.
         if is_js && !is_apk_file {
+            let _t = crate::memtrack::stage("scan:js_deobfuscate");
             if let Some(deob) = self.scan_deobfuscated_js(data, target_name, 1) {
                 merge_deobfuscated(&deob, &mut detections, &mut max_score);
                 extracted_objects.push(deob);
@@ -1939,6 +1948,7 @@ impl StaticEngine {
         let should_unpack = is_pe_candidate && (max_score < 0.95);
 
         if should_unpack {
+            let _t = crate::memtrack::stage("scan:unpack");
             // The same bounded run as the ML features (`pe_combined::emulate`), done once
             // per file: when the PE model already looked inside, this is a cache hit.
             let emu_start = std::time::Instant::now();
@@ -2042,6 +2052,7 @@ impl StaticEngine {
         // decrypted body is scanned like any other object, so a family signature
         // written for the decrypted bytes matches every infected copy.
         if is_pe_candidate {
+            let _t = crate::memtrack::stage("scan:infector");
             if let Some(f) = hydradragonunicorn::infector::find_self_decrypting_body(data) {
                 let is64 = data
                     .get(0x3c..0x40)
@@ -2104,6 +2115,7 @@ impl StaticEngine {
         // e_lfanew + PE\0\0), the only format where a big null tail is a
         // real packer/inflater signal.
         if !is_apk_file && find_valid_embedded_pe(data) == Some(0) {
+            let _t = crate::memtrack::stage("scan:null_tail");
             let non_zero_end = data.iter().rposition(|&b| b != 0).map_or(0, |idx| idx + 1);
             let trailing_zeros = data.len() - non_zero_end;
             let is_inflated = (trailing_zeros >= 65536)
@@ -2149,6 +2161,7 @@ impl StaticEngine {
 
         // 8. Heuristic: PE Overlay Extraction & Embedded Executable Rescan
         if data.starts_with(b"MZ") && data.len() >= 0x200 {
+            let _t = crate::memtrack::stage("scan:pe_overlay");
             if let Ok(pe) = pefile_rs::PE::parse(data) {
                 let mut max_pe_offset: usize = 0;
                 for sec in &pe.sections {
@@ -2224,7 +2237,8 @@ impl StaticEngine {
         }
 
         // 9. Archive heuristics (encrypted bait, RLO names)
-        for hit in hydradragonextractor::heuristics::inspect_archive(data) {
+        let archive_hits = { let _t = crate::memtrack::stage("scan:archive_heuristics"); hydradragonextractor::heuristics::inspect_archive(data) };
+        for hit in archive_hits {
             detections.push(DetectionItem {
                 layer: "Heuristic_Archive".to_string(),
                 name: hit.name.to_string(),
@@ -2236,6 +2250,7 @@ impl StaticEngine {
 
         // 10. Archive Recursive Extraction & Zip Bomb Detection
         if hydradragonextractor::detect_format(data).is_some() {
+            let _t = crate::memtrack::stage("scan:archive");
             match crate::memtrack::measure("scan:archive_extract", crate::memtrack::Kind::Scan, data.len(), || {
                 hydradragonextractor::extract_archive_from_bytes(data, false)
             }) {

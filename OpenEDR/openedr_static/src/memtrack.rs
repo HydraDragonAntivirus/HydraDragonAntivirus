@@ -1,5 +1,6 @@
 //! Heap use per component: what each part of the engine keeps after loading, and how
-//! high each scan stage goes while it runs.
+//! high each scan stage goes while it runs. Also the time each stage takes (`stage`,
+//! `time_scan`; see the notes at `StageTime`).
 //!
 //! Counting needs `TrackingAlloc` as the program's global allocator (multron_server
 //! sets it); without it every number stays 0 and `installed()` is false. Counters are
@@ -15,7 +16,8 @@
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::cell::Cell;
 use std::sync::atomic::{AtomicBool, AtomicI64, Ordering::Relaxed};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
+use std::time::Instant;
 
 pub struct TrackingAlloc;
 
@@ -144,9 +146,10 @@ fn slot(name: &'static str, kind: Kind) -> usize {
     s.len() - 1
 }
 
-/// Runs `f` and counts its heap use under `name` (see the module notes).
-/// `input_len` is the size of what it works on (0 for loaders).
+/// Runs `f` and counts its heap use under `name` (see the module notes), and its time
+/// (see [`stage`]). `input_len` is the size of what it works on (0 for loaders).
 pub fn measure<T>(name: &'static str, kind: Kind, input_len: usize, f: impl FnOnce() -> T) -> T {
+    let _time = stage(name);
     if !installed() {
         return f();
     }
@@ -197,6 +200,128 @@ pub fn snapshot() -> Vec<ComponentMem> {
     out
 }
 
+// ---------------------------------------------------------------------------------
+// Time per stage: which engine a slow scan spent its seconds in. Unlike the heap
+// counters this needs no allocator and is always on (two clock reads per stage).
+//
+// A stage's time is its own time: stages that ran inside it on the same thread are
+// left out of it (an archive member's YARA time is YARA's, not the archive's), so the
+// stages of one scan add up to the scan instead of counting nested work twice. Work a
+// scan hands to worker threads is counted where `in_scan_context` carries it.
+
+thread_local! {
+    /// Time of the stages that ran inside the current one on this thread.
+    static INNER_NS: Cell<u64> = const { Cell::new(0) };
+    /// The scan this thread works for (`time_scan`, `in_scan_context`).
+    static SCAN: std::cell::RefCell<Option<Arc<ScanTimes>>> = const { std::cell::RefCell::new(None) };
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct StageTime {
+    pub name: &'static str,
+    pub calls: u64,
+    /// Own time of all calls (nested stages left out).
+    pub self_ns: u64,
+    /// Longest own time of one call.
+    pub max_ns: u64,
+}
+
+static TIMES: Mutex<Vec<StageTime>> = Mutex::new(Vec::new());
+
+/// The stage times of one scan, from every thread that worked on it.
+#[derive(Default)]
+pub struct ScanTimes {
+    stages: Mutex<Vec<StageTime>>,
+}
+
+fn add_time(list: &Mutex<Vec<StageTime>>, name: &'static str, ns: u64) {
+    let mut l = list.lock().unwrap_or_else(|e| e.into_inner());
+    match l.iter_mut().find(|s| s.name == name) {
+        Some(s) => {
+            s.calls += 1;
+            s.self_ns += ns;
+            s.max_ns = s.max_ns.max(ns);
+        }
+        None => l.push(StageTime { name, calls: 1, self_ns: ns, max_ns: ns }),
+    }
+}
+
+/// Times the scope it lives in (until it is dropped) under `name`.
+pub struct StageTimer {
+    name: &'static str,
+    start: Instant,
+    outer_inner: u64,
+}
+
+/// Starts timing a stage: `let _t = memtrack::stage("scan:clamav");`. For stages that
+/// are not a closure (blocks with early returns); `measure` times its closure itself.
+pub fn stage(name: &'static str) -> StageTimer {
+    StageTimer { name, start: Instant::now(), outer_inner: INNER_NS.try_with(|c| c.replace(0)).unwrap_or(0) }
+}
+
+impl Drop for StageTimer {
+    fn drop(&mut self) {
+        let total = self.start.elapsed().as_nanos() as u64;
+        let inner = INNER_NS.try_with(|c| c.replace(self.outer_inner + total)).unwrap_or(0);
+        let own = total.saturating_sub(inner);
+        add_time(&TIMES, self.name, own);
+        let _ = SCAN.try_with(|s| {
+            if let Some(t) = s.borrow().as_ref() {
+                add_time(&t.stages, self.name, own);
+            }
+        });
+    }
+}
+
+/// Puts the previous scan context back, also when the scan panics (threads are reused).
+struct ScanGuard(Option<Option<Arc<ScanTimes>>>);
+
+impl Drop for ScanGuard {
+    fn drop(&mut self) {
+        if let Some(prev) = self.0.take() {
+            let _ = SCAN.try_with(|s| *s.borrow_mut() = prev);
+        }
+    }
+}
+
+/// Runs a scan and returns, next to its result, the time each stage took in it,
+/// slowest first.
+pub fn time_scan<T>(f: impl FnOnce() -> T) -> (T, Vec<StageTime>) {
+    let times = Arc::new(ScanTimes::default());
+    let v = in_scan_context(Some(Arc::clone(&times)), f);
+    let mut stages = std::mem::take(&mut *times.stages.lock().unwrap_or_else(|e| e.into_inner()));
+    stages.sort_by_key(|s| std::cmp::Reverse(s.self_ns));
+    (v, stages)
+}
+
+/// The scan this thread works for, to hand to worker threads it starts.
+pub fn scan_context() -> Option<Arc<ScanTimes>> {
+    SCAN.try_with(|s| s.borrow().clone()).ok().flatten()
+}
+
+/// Runs `f` (on a worker thread) as part of the scan `ctx` came from.
+pub fn in_scan_context<T>(ctx: Option<Arc<ScanTimes>>, f: impl FnOnce() -> T) -> T {
+    let _guard = ScanGuard(SCAN.try_with(|s| s.replace(ctx)).ok());
+    f()
+}
+
+/// Runs `f`, whose work is done by worker threads timed on their own, and leaves its
+/// time out of the enclosing stage (it only waited for them).
+pub fn parallel_section<T>(f: impl FnOnce() -> T) -> T {
+    let start = Instant::now();
+    let v = f();
+    let waited = start.elapsed().as_nanos() as u64;
+    let _ = INNER_NS.try_with(|c| c.set(c.get() + waited));
+    v
+}
+
+/// Time per stage since the start, most own time first.
+pub fn time_snapshot() -> Vec<StageTime> {
+    let mut out = TIMES.lock().unwrap_or_else(|e| e.into_inner()).clone();
+    out.sort_by_key(|s| std::cmp::Reverse(s.self_ns));
+    out
+}
+
 /// Memory of this process from the OS: (private / commit bytes, working set bytes,
 /// peak working set bytes). Zeros when it cannot be read.
 pub fn process_memory() -> (u64, u64, u64) {
@@ -232,6 +357,31 @@ mod tests {
     fn measure_without_allocator_is_transparent() {
         // Tests run with the system allocator: no counting, value passes through.
         assert_eq!(measure("t", Kind::Scan, 3, || 41 + 1), 42);
+    }
+
+    #[test]
+    fn stage_times_leave_nested_stages_out() {
+        let spin = |ms: u64| {
+            let t = Instant::now();
+            while t.elapsed().as_millis() < ms as u128 {}
+        };
+        let ((), stages) = time_scan(|| {
+            let _outer = stage("t:outer");
+            spin(20);
+            measure("t:inner", Kind::Scan, 0, || spin(30));
+            let ctx = scan_context();
+            parallel_section(|| {
+                std::thread::scope(|s| {
+                    s.spawn(|| in_scan_context(ctx, || measure("t:worker", Kind::Scan, 0, || spin(30))));
+                });
+            });
+        });
+        let ms = |n: &str| stages.iter().find(|s| s.name == n).map(|s| s.self_ns / 1_000_000).unwrap();
+        assert!((20..40).contains(&ms("t:outer")), "outer own time {}", ms("t:outer"));
+        assert!(ms("t:inner") >= 30);
+        assert!(ms("t:worker") >= 30, "worker time is part of the scan");
+        assert!(stages.windows(2).all(|w| w[0].self_ns >= w[1].self_ns), "slowest first");
+        assert!(scan_context().is_none(), "context put back after the scan");
     }
 
     #[test]
