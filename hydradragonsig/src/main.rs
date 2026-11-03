@@ -145,7 +145,7 @@ impl FpRemoveSelector {
 )]
 struct Cli {
     /// File(s) or directory root(s) to scan. Multiple roots are supported.
-    #[arg(value_name = "PATH", required_unless_present_any = ["check_rules", "create_rules_pack"], num_args = 1..)]
+    #[arg(value_name = "PATH", required_unless_present_any = ["check_rules", "create_rules_pack", "pack_keygen"], num_args = 1..)]
     paths: Vec<PathBuf>,
 
     /// Add an extra scan root without putting it in the positional PATH list.
@@ -164,7 +164,7 @@ struct Cli {
         short,
         long,
         value_name = "YAMDLE",
-        required_unless_present_any = ["rules_pack", "create_rules_pack"],
+        required_unless_present_any = ["rules_pack", "create_rules_pack", "pack_keygen"],
         conflicts_with = "rules_pack",
         action = ArgAction::Append
     )]
@@ -192,6 +192,33 @@ struct Cli {
     /// Free-form notes written by --create-rules-pack.
     #[arg(long, value_name = "TEXT")]
     pack_notes: Option<String>,
+
+    /// Generate an Ed25519 pack signing key pair, `<PREFIX>.key` (secret seed)
+    /// and `<PREFIX>.pub` (`key_id:<hex>`), and exit.
+    #[arg(long, value_name = "PREFIX")]
+    pack_keygen: Option<PathBuf>,
+
+    /// Key id written by --pack-keygen / --pack-sign-key.
+    #[arg(long, value_name = "ID", default_value = "hds-pack")]
+    pack_key_id: String,
+
+    /// Sign the manifest written by --create-rules-pack with this key file.
+    #[arg(long, value_name = "KEY_FILE", requires = "create_rules_pack")]
+    pack_sign_key: Option<PathBuf>,
+
+    /// Trusted public key(s) for --rules-pack: a `.pub` / keyring file
+    /// (`key_id:<hex>` or bare `<hex>` per line) or one key given inline.
+    /// The pack must be signed by one of them. Repeatable.
+    #[arg(long, value_name = "PUBKEY", action = ArgAction::Append, requires = "rules_pack")]
+    pack_pubkey: Vec<String>,
+
+    /// Refuse an unsigned --rules-pack (needs --pack-pubkey).
+    #[arg(long, requires = "rules_pack")]
+    require_signed_pack: bool,
+
+    /// Refuse a --rules-pack whose version is below N (anti-rollback).
+    #[arg(long, value_name = "N", requires = "rules_pack")]
+    min_pack_version: Option<u32>,
 
     /// Output format.
     #[arg(short, long, value_enum, default_value_t = OutputFormat::Pretty)]
@@ -413,17 +440,28 @@ fn main() -> Result<()> {
         anyhow::bail!("--fp-remove requires --fp-remove-levels, for example: --fp-remove-levels suspicious,malware");
     }
 
+    if let Some(prefix) = &cli.pack_keygen {
+        let (key, public) = hydradragonsig::rules::pack::write_keypair(prefix, &cli.pack_key_id)?;
+        println!("signing key written to {} (keep it secret), public key to {}", key.display(), public.display());
+        return Ok(());
+    }
+
     if !cli.create_rules_pack.is_empty() {
         let out = cli.out.as_deref().context("--create-rules-pack needs --out <FILE>")?;
         let files = collect_rule_files_from_sources(&cli.create_rules_pack)?;
-        let pack = hydradragonsig::rules::pack::write_manifest(
+        let mut pack = hydradragonsig::rules::pack::write_manifest(
             &files,
             hydradragonsig::rules::pack::manifest_dir(out),
             cli.pack_version,
             cli.pack_notes.clone(),
         )?;
+        if let Some(key_file) = &cli.pack_sign_key {
+            let key = hydradragonsig::rules::pack::read_signing_key(key_file)?;
+            pack.sign(&key, &cli.pack_key_id)?;
+        }
         std::fs::write(out, pack.to_yaml()?).with_context(|| format!("failed to write {}", out.display()))?;
-        println!("rule pack v{} with {} file(s) written to {}", pack.version, pack.files.len(), out.display());
+        let signed = if pack.signature.is_some() { "signed " } else { "" };
+        println!("{signed}rule pack v{} with {} file(s) written to {}", pack.version, pack.files.len(), out.display());
         return Ok(());
     }
 
@@ -432,9 +470,15 @@ fn main() -> Result<()> {
     let recursive = cli.recursive;
 
     let rule_files = match &cli.rules_pack {
-        Some(manifest) => match hydradragonsig::rules::pack::load_manifest(manifest) {
+        Some(manifest) => match pack_policy(&cli)
+            .and_then(|policy| hydradragonsig::rules::pack::load_manifest_with_policy(manifest, &policy))
+        {
             Ok(pack) => {
-                eprintln!("[HydraDragonSig] rule pack v{} verified: {} file(s)", pack.version, pack.files.len());
+                let signed = match &pack.signature {
+                    Some(sig) if !cli.pack_pubkey.is_empty() => format!(", signature of `{}` verified", sig.key_id),
+                    _ => String::new(),
+                };
+                eprintln!("[HydraDragonSig] rule pack v{} verified: {} file(s){signed}", pack.version, pack.files.len());
                 pack.load_paths(hydradragonsig::rules::pack::manifest_dir(manifest))
             }
             Err(err) => {
@@ -724,6 +768,27 @@ fn main() -> Result<()> {
         std::process::exit(2);
     }
     Ok(())
+}
+
+/// The `--rules-pack` checks the command line asks for.
+fn pack_policy(cli: &Cli) -> Result<hydradragonsig::rules::pack::PackVerifyPolicy> {
+    let mut trusted_keys = Vec::new();
+    for spec in &cli.pack_pubkey {
+        let text = if Path::new(spec).is_file() {
+            std::fs::read_to_string(spec).with_context(|| format!("failed to read --pack-pubkey {spec}"))?
+        } else {
+            spec.clone()
+        };
+        trusted_keys.extend(hydradragonsig::rules::pack::parse_public_keys(&text).with_context(|| format!("--pack-pubkey {spec}"))?);
+    }
+    if cli.require_signed_pack && trusted_keys.is_empty() {
+        anyhow::bail!("--require-signed-pack needs --pack-pubkey");
+    }
+    Ok(hydradragonsig::rules::pack::PackVerifyPolicy {
+        trusted_keys,
+        require_signature: cli.require_signed_pack,
+        min_version: cli.min_pack_version,
+    })
 }
 
 fn load_external_rules_from_files(files: &[PathBuf]) -> Result<RuleSet> {
