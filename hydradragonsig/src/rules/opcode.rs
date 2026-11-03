@@ -396,6 +396,16 @@ fn regions(region: &str, max_bytes: Option<usize>, chosen: Option<Arch>, auto_de
                     .collect()
             }
         }
+        "exports" | "tls_callbacks" => {
+            let pe = pe?;
+            let rvas = if lower == "exports" { export_rvas(pe, bytes) } else { tls_callback_rvas(pe, bytes) };
+            rvas.into_iter()
+                .filter_map(|rva| {
+                    let (start, end) = span(pe_rva_to_offset(pe, rva, len)?, max(DEFAULT_ENTRY_BYTES))?;
+                    Some(Region { start, end, ip: pe.image_base.wrapping_add(rva), arch: pick(pe_arch?) })
+                })
+                .collect()
+        }
         "overlay" | "%eope%" => {
             let off = pe_anchor::resolve(AnchorKind::Overlay, 0, pe, len as u64)? as usize;
             let (start, end) = span(off, max(DEFAULT_REGION_BYTES))?;
@@ -418,9 +428,71 @@ fn regions(region: &str, max_bytes: Option<usize>, chosen: Option<Arch>, auto_de
     Some(out)
 }
 
+/// Most functions `exports` / `tls_callbacks` start from.
+pub const MAX_START_POINTS: usize = 256;
+
+/// File offset of an RVA inside a section's raw data.
+fn pe_rva_to_offset(pe: &PeInfo, rva: u64, len: usize) -> Option<usize> {
+    let off = pe.sections.iter().find_map(|s| {
+        let rel = rva.checked_sub(s.virtual_address)?;
+        (rel < s.raw_size).then(|| s.raw_offset.checked_add(rel)).flatten()
+    })?;
+    usize::try_from(off).ok().filter(|o| *o < len)
+}
+
+fn le_u32(bytes: &[u8], at: usize) -> Option<u32> {
+    Some(u32::from_le_bytes(bytes.get(at..at.checked_add(4)?)?.try_into().ok()?))
+}
+
+/// RVAs of the exported functions (`AddressOfFunctions`), forwarders and
+/// zero entries left out, at most [`MAX_START_POINTS`].
+fn export_rvas(pe: &PeInfo, bytes: &[u8]) -> Vec<u64> {
+    let mut out = Vec::new();
+    let Some(&(dir_rva, dir_size)) = pe.data_directories.first().filter(|d| d.0 != 0) else { return out };
+    let Some(dir) = pe_rva_to_offset(pe, u64::from(dir_rva), bytes.len()) else { return out };
+    let (Some(count), Some(table_rva)) = (le_u32(bytes, dir + 0x14), le_u32(bytes, dir + 0x1c)) else { return out };
+    let Some(table) = pe_rva_to_offset(pe, u64::from(table_rva), bytes.len()) else { return out };
+    let forwarder = |rva: u32| rva >= dir_rva && rva - dir_rva < dir_size;
+    for i in 0..(count as usize).min(65_536) {
+        let Some(rva) = le_u32(bytes, table + i * 4) else { break };
+        if rva != 0 && !forwarder(rva) && !out.contains(&u64::from(rva)) {
+            out.push(u64::from(rva));
+            if out.len() >= MAX_START_POINTS {
+                break;
+            }
+        }
+    }
+    out
+}
+
+/// RVAs of the TLS callbacks (`AddressOfCallBacks`, a NULL-terminated list of
+/// addresses), at most [`MAX_START_POINTS`].
+fn tls_callback_rvas(pe: &PeInfo, bytes: &[u8]) -> Vec<u64> {
+    let mut out = Vec::new();
+    let Some(&(dir_rva, _)) = pe.data_directories.get(9).filter(|d| d.0 != 0) else { return out };
+    let Some(dir) = pe_rva_to_offset(pe, u64::from(dir_rva), bytes.len()) else { return out };
+    let word = |at: usize| -> Option<u64> {
+        if pe.is_64 {
+            Some(u64::from_le_bytes(bytes.get(at..at.checked_add(8)?)?.try_into().ok()?))
+        } else {
+            le_u32(bytes, at).map(u64::from)
+        }
+    };
+    let (step, field) = if pe.is_64 { (8, 24) } else { (4, 12) };
+    let Some(list_va) = word(dir + field) else { return out };
+    let Some(list) = list_va.checked_sub(pe.image_base).and_then(|rva| pe_rva_to_offset(pe, rva, bytes.len())) else { return out };
+    for i in 0..MAX_START_POINTS {
+        let Some(va) = word(list + i * step).filter(|v| *v != 0) else { break };
+        if let Some(rva) = va.checked_sub(pe.image_base).filter(|r| !out.contains(r)) {
+            out.push(rva);
+        }
+    }
+    out
+}
+
 /// Whether `region` is a value `regions` understands (for validation).
 pub fn valid_region(region: &str) -> bool {
-    matches!(region.trim().to_ascii_lowercase().as_str(), "entry" | "ep" | "%ep%" | "code" | "overlay" | "%eope%" | "file")
+    matches!(region.trim().to_ascii_lowercase().as_str(), "entry" | "ep" | "%ep%" | "code" | "exports" | "tls_callbacks" | "overlay" | "%eope%" | "file")
         || matches!(pe_anchor::parse_anchor(region), Some(AnchorKind::Section(_)))
 }
 
@@ -1050,6 +1122,67 @@ mod tests {
         assert!(compile_arm64("stp x29, x30, [sp, #-0x10]!; ldrb|ldr *, mem; b.* *").is_ok());
         assert!(compile_arm64("movx x0, x1").is_err());
         assert!(compile("stp x29, x30, [sp]").is_err(), "not an x86 mnemonic");
+    }
+
+    /// PE32 with `.text` at RVA 0x1000 (raw 0x200): entry `ret`, an export
+    /// directory (one function at 0x1200 holding `XOR_LOOP`, one forwarder) and a
+    /// TLS directory with one callback at 0x1400 (`push ebp; mov ebp,esp; ret`).
+    fn pe_with_exports_and_tls() -> (PeInfo, Vec<u8>) {
+        let mut bytes = vec![0u8; 0x800];
+        let put32 = |b: &mut Vec<u8>, at: usize, v: u32| b[at..at + 4].copy_from_slice(&v.to_le_bytes());
+        let off = |rva: usize| rva - 0x1000 + 0x200;
+        bytes[off(0x1000)] = 0xC3;
+        put32(&mut bytes, off(0x1100) + 0x14, 2);
+        put32(&mut bytes, off(0x1100) + 0x1c, 0x1180);
+        put32(&mut bytes, off(0x1180), 0x1200);
+        put32(&mut bytes, off(0x1180) + 4, 0x1104);
+        bytes[off(0x1200)..off(0x1200) + XOR_LOOP.len()].copy_from_slice(XOR_LOOP);
+        put32(&mut bytes, off(0x1300) + 12, 0x40_1380);
+        put32(&mut bytes, off(0x1380), 0x40_1400);
+        bytes[off(0x1400)..off(0x1400) + 4].copy_from_slice(&[0x55, 0x89, 0xE5, 0xC3]);
+        let mut dirs = vec![(0u32, 0u32); 16];
+        dirs[0] = (0x1100, 0x40);
+        dirs[9] = (0x1300, 0x18);
+        let text = crate::models::PeSectionInfo {
+            name: ".text".into(),
+            virtual_size: 0x600,
+            raw_size: 0x600,
+            characteristics: 0x6000_0020,
+            virtual_address: 0x1000,
+            raw_offset: 0x200,
+            ..Default::default()
+        };
+        let pe = PeInfo { image_base: 0x40_0000, entry: 0x1000, sections: vec![text], data_directories: dirs, ..Default::default() };
+        (pe, bytes)
+    }
+
+    #[test]
+    fn exports_and_tls_callback_regions() {
+        let (pe, bytes) = pe_with_exports_and_tls();
+        assert_eq!(export_rvas(&pe, &bytes), [0x1200], "forwarders are left out");
+        assert_eq!(tls_callback_rvas(&pe, &bytes), [0x1400]);
+        let exe = Exe { pe: Some(&pe), ..Exe::default() };
+        let at = |region: &str, pattern: &str, cfg: bool| {
+            let mut c = cond(pattern, 32, &[]);
+            if let RuleCondition::OpcodePattern { region: r, bitness, mode, .. } = &mut c {
+                *r = region.into();
+                *bitness = None;
+                *mode = cfg.then(|| "cfg".into());
+            }
+            evaluate(&c, exe, &bytes, &ListingCache::default())
+        };
+        let xor = "xor byte ptr [eax], 0x5a; inc eax; loop *";
+        assert!(at("entry", xor, true).is_none(), "the entry walk ends at its `ret`");
+        let hit = at("exports", xor, false).expect("export region");
+        assert!(hit.contains("at 0x400"), "{hit}");
+        assert!(at("exports", xor, true).is_some());
+        assert!(at("tls_callbacks", "push ebp; mov ebp, esp; ret", false).is_some());
+        assert!(at("tls_callbacks", "push ebp; mov ebp, esp; ret", true).is_some());
+        assert!(at("tls_callbacks", xor, false).is_none());
+        // A file without the directories has no such regions.
+        let bare = PeInfo { data_directories: Vec::new(), ..pe.clone() };
+        assert!(regions("exports", None, None, false, None, Exe { pe: Some(&bare), ..Exe::default() }, &bytes).is_some_and(|r| r.is_empty()));
+        assert!(valid_region("exports") && valid_region("TLS_CALLBACKS"));
     }
 
     #[test]

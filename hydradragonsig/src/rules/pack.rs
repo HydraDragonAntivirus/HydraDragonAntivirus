@@ -349,13 +349,90 @@ pub fn parse_public_keys(text: &str) -> Result<Vec<TrustedKey>> {
     Ok(keys)
 }
 
-/// Read a key file written by [`write_keypair`] (64 hex characters, the seed).
+/// Read a signing key: the 64 hex character seed [`write_keypair`] writes, or
+/// an unencrypted PKCS#8 Ed25519 key (`-----BEGIN PRIVATE KEY-----` PEM, as
+/// `openssl genpkey -algorithm ed25519` writes it, or the raw DER).
 pub fn read_signing_key(path: &Path) -> Result<SigningKey> {
-    let text = std::fs::read_to_string(path).with_context(|| format!("failed to read signing key {}", path.display()))?;
+    let raw = std::fs::read(path).with_context(|| format!("failed to read signing key {}", path.display()))?;
+    signing_key_from_bytes(&raw).with_context(|| path.display().to_string())
+}
+
+/// [`read_signing_key`] on the file contents.
+pub fn signing_key_from_bytes(raw: &[u8]) -> Result<SigningKey> {
+    let text = std::str::from_utf8(raw).unwrap_or("").trim();
     let mut seed = [0u8; 32];
-    hex::decode_to_slice(text.trim(), &mut seed)
-        .map_err(|_| anyhow::anyhow!("{}: expected a 64 hex character Ed25519 seed", path.display()))?;
-    Ok(SigningKey::from_bytes(&seed))
+    if text.len() == 64 && hex::decode_to_slice(text, &mut seed).is_ok() {
+        return Ok(SigningKey::from_bytes(&seed));
+    }
+    if text.contains("-----BEGIN ENCRYPTED PRIVATE KEY-----") {
+        bail!("encrypted PKCS#8 keys are not supported; export the key unencrypted");
+    }
+    if let Some(body) = text.strip_prefix("-----BEGIN PRIVATE KEY-----").and_then(|r| r.split("-----END PRIVATE KEY-----").next()) {
+        use base64::Engine as _;
+        let b64: String = body.chars().filter(|c| !c.is_whitespace()).collect();
+        let der = base64::engine::general_purpose::STANDARD.decode(b64).context("PKCS#8 PEM body is not base64")?;
+        return signing_key_from_pkcs8(&der);
+    }
+    if raw.first() == Some(&0x30) {
+        return signing_key_from_pkcs8(raw);
+    }
+    bail!("expected a 64 hex character Ed25519 seed or a PKCS#8 Ed25519 private key")
+}
+
+/// One DER element at `at`: (tag, contents, offset after it). Short and
+/// one/two-byte long lengths only (an Ed25519 key never needs more).
+fn der_element(der: &[u8], at: usize) -> Result<(u8, &[u8], usize)> {
+    let tag = *der.get(at).context("PKCS#8: truncated")?;
+    let first = *der.get(at + 1).context("PKCS#8: truncated")?;
+    let (len, head) = match first {
+        0..=0x7f => (usize::from(first), 2),
+        0x81 => (usize::from(*der.get(at + 2).context("PKCS#8: truncated")?), 3),
+        0x82 => {
+            let b = der.get(at + 2..at + 4).context("PKCS#8: truncated")?;
+            (usize::from(u16::from_be_bytes([b[0], b[1]])), 4)
+        }
+        _ => bail!("PKCS#8: unsupported length encoding"),
+    };
+    let start = at + head;
+    let body = der.get(start..start + len).context("PKCS#8: element runs past the end")?;
+    Ok((tag, body, start + len))
+}
+
+/// RFC 8410 `OneAsymmetricKey` (version 1 or 2) holding an Ed25519 key.
+fn signing_key_from_pkcs8(der: &[u8]) -> Result<SigningKey> {
+    const ED25519_OID: [u8; 5] = [0x06, 0x03, 0x2b, 0x65, 0x70];
+    let (tag, seq, end) = der_element(der, 0)?;
+    if tag != 0x30 || end != der.len() {
+        bail!("PKCS#8: not a single DER sequence");
+    }
+    let (tag, version, at) = der_element(seq, 0)?;
+    if tag != 0x02 || !(version == [0] || version == [1]) {
+        bail!("PKCS#8: unsupported version");
+    }
+    let (tag, alg, at) = der_element(seq, at)?;
+    if tag != 0x30 || alg != ED25519_OID {
+        bail!("PKCS#8: not an Ed25519 key (OID 1.3.101.112)");
+    }
+    let (tag, private, mut at) = der_element(seq, at)?;
+    let (inner_tag, seed, inner_end) = der_element(private, 0)?;
+    if tag != 0x04 || inner_tag != 0x04 || seed.len() != 32 || inner_end != private.len() {
+        bail!("PKCS#8: the private key is not a 32-byte octet string");
+    }
+    let key = SigningKey::from_bytes(seed.try_into().context("PKCS#8: seed length")?);
+    // Optional [0] attributes, then the version 2 [1] public key, which must match.
+    while at < seq.len() {
+        let (tag, body, next) = der_element(seq, at)?;
+        if tag == 0x81 || tag == 0xa1 {
+            let public = if tag == 0xa1 { der_element(body, 0)?.1 } else { body };
+            if public.get(1..) != Some(key.verifying_key().as_bytes().as_slice()) {
+                bail!("PKCS#8: the public key does not belong to the private key");
+            }
+        } else if tag != 0xa0 {
+            bail!("PKCS#8: unexpected element 0x{tag:02x}");
+        }
+        at = next;
+    }
+    Ok(key)
 }
 
 /// A new random signing key.
@@ -574,6 +651,37 @@ mod tests {
             assert_eq!(std::fs::metadata(&key_path).unwrap().permissions().mode() & 0o777, 0o600);
         }
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn pkcs8_keys_are_read() {
+        let seed = [9u8; 32];
+        let want = SigningKey::from_bytes(&seed).verifying_key();
+        let mut v1 = hex::decode("302e020100300506032b657004220420").unwrap();
+        v1.extend(seed);
+        assert_eq!(signing_key_from_bytes(&v1).unwrap().verifying_key(), want);
+        use base64::Engine as _;
+        let pem = format!("-----BEGIN PRIVATE KEY-----\n{}\n-----END PRIVATE KEY-----\n", base64::engine::general_purpose::STANDARD.encode(&v1));
+        assert_eq!(signing_key_from_bytes(pem.as_bytes()).unwrap().verifying_key(), want);
+        assert_eq!(signing_key_from_bytes(hex::encode(seed).as_bytes()).unwrap().verifying_key(), want);
+        // Version 2 with the public key ([1] BIT STRING).
+        let v2 = |public: &[u8]| {
+            let mut body = hex::decode("020101300506032b657004220420").unwrap();
+            body.extend(seed);
+            body.extend([0x81, 0x21, 0x00]);
+            body.extend(public);
+            let mut der = vec![0x30, body.len() as u8];
+            der.extend(body);
+            der
+        };
+        assert_eq!(signing_key_from_bytes(&v2(want.as_bytes())).unwrap().verifying_key(), want);
+        assert!(signing_key_from_bytes(&v2(&[1u8; 32])).is_err(), "mismatched public key");
+        let mut other_alg = v1.clone();
+        other_alg[11] = 0x6e; // X25519
+        assert!(format!("{:#}", signing_key_from_bytes(&other_alg).unwrap_err()).contains("not an Ed25519"));
+        assert!(signing_key_from_bytes(&v1[..20]).is_err());
+        assert!(signing_key_from_bytes(b"-----BEGIN ENCRYPTED PRIVATE KEY-----\nAAAA\n").is_err());
+        assert!(signing_key_from_bytes(b"not a key").is_err());
     }
 
     #[test]

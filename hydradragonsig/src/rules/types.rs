@@ -722,7 +722,7 @@ pub enum RuleCondition {
     },
 
     /// x86 / x64 instruction pattern(s) over the disassembled code of `region`
-    /// (`entry`, `code`, `section_N`, `overlay`, `file`): steps such as
+    /// (`entry`, `code`, `exports`, `tls_callbacks`, `section_N`, `overlay`, `file`): steps such as
     /// `xor byte ptr [*], *; inc reg; [0-2]; loop *`, matched on what the bytes
     /// decode to, so every encoding of an instruction matches (see `opcode`).
     OpcodePattern {

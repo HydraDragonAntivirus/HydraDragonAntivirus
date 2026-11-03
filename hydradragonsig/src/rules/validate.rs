@@ -798,7 +798,7 @@ fn check_condition(cond: &RuleCondition, rules: &[Rule], own_id: &str, known_ids
                 }
             }
             if !super::opcode::valid_region(region) {
-                out.push(format!("invalid region `{region}` (entry, code, section_N, overlay, file)"));
+                out.push(format!("invalid region `{region}` (entry, code, exports, tls_callbacks, section_N, overlay, file)"));
             }
             if max_bytes.is_some_and(|m| m == 0 || m > super::opcode::MAX_REGION_BYTES) {
                 out.push(format!("max_bytes must be 1..={}", super::opcode::MAX_REGION_BYTES));

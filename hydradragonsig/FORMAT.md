@@ -257,7 +257,7 @@ of an instruction matches the same step (`89 D8` and `8B C3` are both
 |---|---|---|
 | `pattern` / `patterns` | | One pattern, or a list of them. |
 | `min` | `1` | How many of the patterns must match. |
-| `region` | `entry` | `entry` (from the entry point), `code` (every executable section), `section_N` / `%PEN%` (section N, 1-based), `overlay`, `file` (the whole file as code, for shellcode and decrypted bodies that are not a PE). |
+| `region` | `entry` | `entry` (from the entry point), `code` (every executable section), `exports` (every exported function of a PE; forwarders left out), `tls_callbacks` (every PE TLS callback), `section_N` / `%PEN%` (section N, 1-based), `overlay`, `file` (the whole file as code, for shellcode and decrypted bodies that are not a PE). `exports` / `tls_callbacks` take at most 256 functions, 4096 bytes each by default. |
 | `max_bytes` | 4096 for `entry`, 4 MiB otherwise | Bytes decoded from the start of the region (per section for `code`; at most 16 MiB). |
 | `bitness` | `32` | `16`, `32` or `64` for `file` / `overlay` code that is not a PE. A PE always uses its own. |
 | `skip` | `[]` | Mnemonics left out before matching (junk filler), e.g. `[nop, fnop]`; globs allowed. |
@@ -941,7 +941,7 @@ change to a listed value breaks it. Paths may not hold control characters.
 | Flag | Meaning |
 |---|---|
 | `--pack-keygen PREFIX [--pack-key-id ID]` | Writes `PREFIX.key` (64 hex seed; owner-only on Unix) and `PREFIX.pub` (`ID:<64 hex public key>`); never overwrites. |
-| `--create-rules-pack ... --pack-sign-key FILE [--pack-key-id ID]` | Signs the written manifest. |
+| `--create-rules-pack ... --pack-sign-key FILE [--pack-key-id ID]` | Signs the written manifest. The key file is the 64 hex seed `--pack-keygen` writes, or an unencrypted PKCS#8 Ed25519 key (`-----BEGIN PRIVATE KEY-----` PEM from `openssl genpkey -algorithm ed25519`, or the DER). |
 | `--pack-pubkey KEY` | Trusted key(s): a `.pub` / keyring file (`id:<hex>` or bare `<hex>` per line, `#` comments) or one key inline; repeatable. The pack must be signed by a key with the signature's `key_id` (a bare key accepts any id). |
 | `--require-signed-pack` | Refuse unsigned packs (needs `--pack-pubkey`). |
 | `--min-pack-version N` | Refuse a pack whose `version` is below N (rollback). |
