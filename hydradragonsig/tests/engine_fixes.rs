@@ -154,7 +154,7 @@ fn load_warnings_and_strict_mode() {
     assert!(w.contains("unknown key `sevrity`"), "{w}");
     assert!(w.contains("unknown key `offset`"), "{w}");
     assert!(w.contains("invalid regex"), "{w}");
-    assert!(w.contains("#a"), "{w}");
+    assert!(w.contains("unsupported character `.`"), "{w}");
     assert!(RuleSet::from_yaml_str_strict(doc).is_err());
 }
 
@@ -165,14 +165,15 @@ fn expression_validation() {
         ("$a and pe.is_pe", "unsupported"),
         ("$missing", "names no atom"),
         ("($a or $b", "unbalanced"),
-        ("uint8(0) == 0x4D", "unsupported"),
+        ("uint8(0) == 0x4D and pe.is_pe", "unsupported"),
+        ("#a > 1 and", "ends early"),
     ];
     for (expr, needle) in bad {
         let doc = format!("rules:\n  - id: R\n    title: t\n    severity: low\n    conditions:\n      - type: native_signature\n        expression: '{expr}'\n        atoms:\n          - id: a\n            value: x\n          - id: b\n            value: y\n");
         let set = RuleSet::from_yaml_str(&doc).unwrap();
         assert!(set.warnings().iter().any(|w| w.contains(needle)), "{expr}: {:?}", set.warnings());
     }
-    let good = ["2 of ($a, $b)", "$a and not $b", "@a < @b and filesize < 1MB", "uint16(0) == 0x5A4D or $a at 0", "any of them and PE"];
+    let good = ["2 of ($a, $b)", "$a and not $b", "@a < @b and filesize < 1MB", "uint16(0) == 0x5A4D or $a at 0", "any of them and PE", "uint8(0) == 0x4D", "#a > 2 and !a[1] == 1"];
     for expr in good {
         let doc = format!("rules:\n  - id: R\n    title: t\n    severity: low\n    conditions:\n      - type: native_signature\n        expression: '{expr}'\n        atoms:\n          - id: a\n            value: x\n          - id: b\n            value: y\n");
         let set = RuleSet::from_yaml_str(&doc).unwrap();

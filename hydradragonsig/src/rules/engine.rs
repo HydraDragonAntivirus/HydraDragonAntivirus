@@ -1850,7 +1850,7 @@ fn is_indexed_byte_pattern(pattern: &str) -> bool {
 
 /// Expression words that need the parsed PE (imports) rather than the magic bytes.
 fn expression_needs_pe(expression: &str) -> bool {
-    static RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?i)\bdotnet\b").unwrap());
+    static RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?i)\b(dotnet|entrypoint)\b").unwrap());
     RE.is_match(expression)
 }
 
@@ -2209,6 +2209,9 @@ fn ensure_condition_data(cond: &RuleCondition, report: &mut ScanReport, view: &m
             }
             if expression_needs_pe(expression) {
                 view.ensure_pe(report, bytes);
+                // `entrypoint` of an ELF / Mach-O.
+                view.formats.ensure(super::formats::Format::Elf, report, bytes);
+                view.formats.ensure(super::formats::Format::Macho, report, bytes);
             }
         }
         RuleCondition::EnvReference { .. } => view.ensure_env(report, bytes),
@@ -3750,6 +3753,9 @@ fn evaluate_native_signature(
     if let Some(result) = evaluate_simple_native_signature(report, view, bytes, atoms, expression) {
         return result;
     }
+    if let Some(node) = level5_expression(expression, atoms) {
+        return evaluate_level5_signature(report, view, bytes, atoms, expression, &node);
+    }
 
     let mut atom_hits = HashMap::new();
     let wants_offsets = expression_uses_offsets(expression);
@@ -3794,6 +3800,88 @@ fn evaluate_native_signature(
     Some(evidence.join("; "))
 }
 
+/// The parsed Level-5 form of an expression (see `expr`), or None when the
+/// original evaluator understands it (it then keeps evaluating it) or it does
+/// not parse either.
+fn level5_expression(expression: &str, atoms: &[SignatureAtom]) -> Option<Arc<super::expr::Node>> {
+    static CACHE: Lazy<Mutex<HashMap<String, Option<Arc<super::expr::Node>>>>> = Lazy::new(|| Mutex::new(HashMap::new()));
+    let ids: Vec<String> = atoms.iter().map(|a| a.id.clone()).collect();
+    let key = format!("{expression}\u{0}{}", ids.join(","));
+    if let Some(found) = CACHE.lock().unwrap_or_else(|e| e.into_inner()).get(&key) {
+        return found.clone();
+    }
+    let parsed = match validate_legacy_expression(expression, atoms) {
+        Ok(()) => None,
+        Err(_) => super::expr::parse(expression, &ids).ok().map(Arc::new),
+    };
+    CACHE.lock().unwrap_or_else(|e| e.into_inner()).insert(key, parsed.clone());
+    parsed
+}
+
+/// Raw file offset of the entry point of a PE, ELF or Mach-O.
+fn entrypoint_offset(report: &ScanReport, bytes: &[u8]) -> Option<u64> {
+    if let Some(pe) = &report.pe {
+        return super::pe_anchor::entry_file_offset(pe, bytes.len() as u64);
+    }
+    if let Some(elf) = &report.elf {
+        return elf.entry_offset;
+    }
+    report.macho.as_ref()?.slices.iter().find_map(|s| s.entry_offset)
+}
+
+fn evaluate_level5_signature(
+    report: &ScanReport,
+    view: &ScanView,
+    bytes: &[u8],
+    atoms: &[SignatureAtom],
+    expression: &str,
+    node: &super::expr::Node,
+) -> Option<String> {
+    let mut atom_hits = HashMap::new();
+    let mut hits = HashMap::new();
+    for atom in atoms {
+        let hit = match_signature_atom(report, view, bytes, atom);
+        let mut occurrences: Vec<(u64, Option<u64>)> = Vec::new();
+        if hit.matched {
+            occurrences.extend(atom_all_matches(bytes, atom).into_iter().map(|(o, l)| (o as u64, Some(l as u64))));
+            // Regex atoms report where in the extracted strings they matched.
+            for off in &hit.offsets {
+                if !occurrences.iter().any(|(o, _)| *o == *off as u64) {
+                    occurrences.push((*off as u64, None));
+                }
+            }
+            occurrences.sort_unstable_by_key(|(o, _)| *o);
+        }
+        hits.insert(atom.id.clone(), super::expr::AtomHits { matched: hit.matched, occurrences });
+        atom_hits.insert(atom.id.clone(), hit);
+    }
+    let words = |w: &str| file_type_word(w, report, bytes);
+    let ctx = super::expr::Context {
+        hits: &hits,
+        bytes,
+        filesize: report.file_size.max(bytes.len() as u64),
+        entrypoint: entrypoint_offset(report, bytes),
+        type_word: &words,
+    };
+    let (matched, aborted) = super::expr::evaluate(node, &ctx);
+    if let Some(why) = aborted {
+        log::debug!("native_signature `{}`: {why}", truncate_for_evidence(expression, 120));
+    }
+    if !matched {
+        return None;
+    }
+    let mut evidence = vec![format!("native_signature expression matched: {}", truncate_for_evidence(expression, 220))];
+    for atom in atoms {
+        if let Some(hit) = atom_hits.get(&atom.id).filter(|h| h.matched) {
+            evidence.push(hit.evidence.first().cloned().unwrap_or_else(|| format!("${} matched", atom.id)));
+        }
+        if evidence.len() >= 10 {
+            break;
+        }
+    }
+    Some(evidence.join("; "))
+}
+
 /// Most occurrences collected per atom for offset comparisons.
 const MAX_ATOM_OFFSETS: usize = 4096;
 
@@ -3805,6 +3893,11 @@ fn expression_uses_offsets(expression: &str) -> bool {
 /// Every raw-byte occurrence of an atom (plain text forms, base64 forms or byte
 /// pattern), up to `MAX_ATOM_OFFSETS`.
 fn atom_all_offsets(bytes: &[u8], atom: &SignatureAtom) -> Vec<usize> {
+    atom_all_matches(bytes, atom).into_iter().map(|(offset, _)| offset).collect()
+}
+
+/// [`atom_all_offsets`] with the length of each match.
+fn atom_all_matches(bytes: &[u8], atom: &SignatureAtom) -> Vec<(usize, usize)> {
     let mut out = Vec::new();
     match atom.kind {
         SignatureAtomKind::Text => {
@@ -3825,7 +3918,7 @@ fn atom_all_offsets(bytes: &[u8], atom: &SignatureAtom) -> Vec<usize> {
                     let Some(rel) = find_text_bytes(&bytes[pos..], &needle, nocase, false) else { break };
                     let abs = pos + rel;
                     if !atom.fullword || byte_word_boundary_at(bytes, abs, needle.len()) {
-                        out.push(abs);
+                        out.push((abs, needle.len()));
                     }
                     pos = abs + 1;
                 }
@@ -3837,7 +3930,7 @@ fn atom_all_offsets(bytes: &[u8], atom: &SignatureAtom) -> Vec<usize> {
                             break;
                         }
                         if !atom.fullword || byte_word_boundary_at(bytes, mat.start(), mat.end() - mat.start()) {
-                            out.push(mat.start());
+                            out.push((mat.start(), mat.end() - mat.start()));
                         }
                     }
                 }
@@ -3848,7 +3941,7 @@ fn atom_all_offsets(bytes: &[u8], atom: &SignatureAtom) -> Vec<usize> {
                 let mut pos = 0usize;
                 while out.len() < MAX_ATOM_OFFSETS {
                     let Some(abs) = find_byte_pattern_in(bytes, pattern.as_ref(), pos, bytes.len()) else { break };
-                    out.push(abs);
+                    out.push((abs, byte_match_len(bytes, pattern.as_ref(), abs).unwrap_or(0)));
                     pos = abs + 1;
                 }
             }
@@ -3857,8 +3950,22 @@ fn atom_all_offsets(bytes: &[u8], atom: &SignatureAtom) -> Vec<usize> {
         SignatureAtomKind::Regex => {}
     }
     out.sort_unstable();
-    out.dedup();
+    out.dedup_by_key(|(offset, _)| *offset);
     out
+}
+
+/// Length of the match of `pattern` that starts at `start`.
+fn byte_match_len(bytes: &[u8], pattern: &CompiledBytePattern, start: usize) -> Option<usize> {
+    let Some(units) = &pattern.program else {
+        return Some(pattern.tokens.len());
+    };
+    let end = std::cell::Cell::new(None);
+    let mut budget = BYTE_MATCH_BUDGET;
+    let record = |p: usize, _: &mut usize| {
+        end.set(Some(p));
+        true
+    };
+    match_units(units, &record, bytes, start, &mut budget).then(|| end.get()).flatten().map(|e| e - start)
 }
 
 fn evaluate_simple_native_signature(
@@ -4748,6 +4855,62 @@ fn replace_magic_uints(expr: &str, bytes: &[u8]) -> String {
     out
 }
 
+/// Value of a file type word of a native signature expression.
+fn file_type_word(word: &str, report: &ScanReport, bytes: &[u8]) -> Option<bool> {
+    let w = word.to_ascii_lowercase();
+    let value = match w.as_str() {
+        "macho" => report.file_type.is_macho || is_macho_magic(bytes),
+        "pe" => report.file_type.is_pe || report.pe.is_some() || is_pe_magic(bytes),
+        "pe32" => report.file_type.is_pe32,
+        "pe64" => report.file_type.is_pe64,
+        "elf" => report.file_type.is_elf || bytes.starts_with(b"\x7fELF"),
+        "elf32" => report.file_type.is_elf32,
+        "elf64" => report.file_type.is_elf64,
+        "apk" => report.file_type.is_apk,
+        "zip" => report.file_type.is_zip,
+        "archive" => report.file_type.is_archive,
+        "jar" => report.file_type.is_jar,
+        "dex" => report.file_type.is_dex,
+        "text" | "plaintext" => report.file_type.is_plain_text,
+        "script" => report.file_type.is_script,
+        "dotnet" => is_dotnet_like(report, bytes),
+        "pdf" => report.file_type.is_pdf || crate::scanner::pdf::header_offset(bytes).is_some(),
+        "ole" => report.file_type.is_microsoft_compound || crate::scanner::cfb::is_cfb(bytes),
+        "office" => report.file_type.is_office,
+        "macho64" => is_macho64(bytes),
+        "arm64" => is_arm64(bytes),
+        _ => return None,
+    };
+    Some(value)
+}
+
+/// A 64-bit thin Mach-O, or a Universal binary with a 64-bit slice.
+fn is_macho64(bytes: &[u8]) -> bool {
+    match bytes.get(0..4) {
+        Some([0xfe, 0xed, 0xfa, 0xcf]) | Some([0xcf, 0xfa, 0xed, 0xfe]) => true,
+        _ => crate::scanner::macho::is_universal(bytes)
+            && crate::scanner::macho::parse_macho(bytes).is_some_and(|m| m.slices.iter().any(|s| s.is_64)),
+    }
+}
+
+/// AArch64 code: PE machine `0xAA64`, ELF `EM_AARCH64`, Mach-O `CPU_TYPE_ARM64`
+/// (thin or any Universal slice).
+fn is_arm64(bytes: &[u8]) -> bool {
+    if is_pe_magic(bytes) {
+        let Some(at) = read_u32_le(bytes, 0x3c).map(|v| v as usize) else { return false };
+        return at.checked_add(4).and_then(|m| read_u16_le(bytes, m)) == Some(0xaa64);
+    }
+    if bytes.starts_with(b"\x7fELF") {
+        let machine = bytes.get(18..20).map(|m| if bytes.get(5) == Some(&2) { u16::from_be_bytes([m[0], m[1]]) } else { u16::from_le_bytes([m[0], m[1]]) });
+        return machine == Some(183);
+    }
+    if is_macho_magic(bytes) || crate::scanner::macho::is_universal(bytes) {
+        return crate::scanner::macho::parse_macho(bytes)
+            .is_some_and(|m| m.slices.iter().any(|s| s.cputype == crate::scanner::macho::CPU_TYPE_ARM64));
+    }
+    false
+}
+
 fn replace_file_type_words(expr: &str, report: &ScanReport, bytes: &[u8]) -> String {
     let mut out = expr.to_string();
     for (word, value) in [
@@ -4777,13 +4940,17 @@ fn replace_file_type_words(expr: &str, report: &ScanReport, bytes: &[u8]) -> Str
     ] {
         out = replace_type_word(&out, word, value);
     }
+    // Words the original list did not have.
+    for word in ["PDF", "OLE", "Office", "MachO64", "ARM64"] {
+        out = replace_type_word(&out, word, file_type_word(word, report, bytes).unwrap_or(false));
+    }
     out
 }
 
 /// File-type words of native signature expressions.
-const EXPRESSION_TYPE_WORDS: [&str; 17] = [
+pub(super) const EXPRESSION_TYPE_WORDS: [&str; 22] = [
     "Macho", "MachO", "PE", "PE32", "PE64", "ELF", "ELF32", "ELF64", "APK", "ZIP", "Archive", "JAR", "DEX", "Text",
-    "PlainText", "Script", "DotNet",
+    "PlainText", "Script", "DotNet", "PDF", "OLE", "Office", "MachO64", "ARM64",
 ];
 
 fn replace_type_word(expr: &str, word: &str, value: bool) -> String {
@@ -4794,10 +4961,27 @@ fn replace_type_word(expr: &str, word: &str, value: bool) -> String {
     }
 }
 
-/// Checks a native signature expression at load time: every `$id` / `@id` names
-/// an atom, and after the supported constructs are evaluated only `true`, `false`,
-/// `and`, `or`, `not` and balanced parentheses are left.
+/// Checks a native signature expression at load time: the original evaluator
+/// understands it, or the Level-5 parser (`expr`) does. The error is the
+/// original evaluator's for a structural mistake, else the Level-5 parser's.
 pub(crate) fn validate_signature_expression(expression: &str, atoms: &[SignatureAtom]) -> Result<(), String> {
+    let legacy = match validate_legacy_expression(expression, atoms) {
+        Ok(()) => return Ok(()),
+        Err(e) => e,
+    };
+    let ids: Vec<String> = atoms.iter().map(|a| a.id.clone()).collect();
+    match super::expr::parse(expression, &ids) {
+        Ok(_) => Ok(()),
+        // Level-5 syntax the original evaluator rejects: the Level-5 error says more.
+        Err(e) if legacy.contains("supported") || legacy.contains("without an atom id") => Err(e),
+        Err(_) => Err(legacy),
+    }
+}
+
+/// The original evaluator's check: every `$id` / `@id` names an atom, and after
+/// the supported constructs are evaluated only `true`, `false`, `and`, `or`,
+/// `not` and balanced parentheses are left.
+fn validate_legacy_expression(expression: &str, atoms: &[SignatureAtom]) -> Result<(), String> {
     if expression.trim().is_empty() {
         return Err("empty expression".into());
     }
