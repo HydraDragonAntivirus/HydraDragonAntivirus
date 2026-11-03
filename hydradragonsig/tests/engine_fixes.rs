@@ -208,6 +208,7 @@ fn with_parent(features: &[(&str, f64)], imports: &[&str]) -> ScanOptions {
         is_pe: true,
         imports: imports.iter().map(|s| s.to_ascii_lowercase()).collect(),
         features: features.iter().map(|(k, v)| (k.to_string(), *v)).collect(),
+        ..Default::default()
     };
     ScanOptions { parent: Some(parent), ..ScanOptions::default() }
 }

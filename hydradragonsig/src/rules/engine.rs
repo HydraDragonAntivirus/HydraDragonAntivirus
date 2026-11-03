@@ -50,6 +50,8 @@ struct ScanView {
     dex_strings: Vec<String>,
     /// Code regions decoded for `opcode_pattern` conditions.
     opcode_listings: super::opcode::ListingCache,
+    /// .NET / ELF / Mach-O / PDF structures parsed in this scan.
+    formats: super::formats::FormatCache,
 }
 
 /// Categorized host blocklist loaded from external text files: one
@@ -506,6 +508,7 @@ impl ScanView {
             dex_loaded: false,
             dex_strings: Vec::new(),
             opcode_listings: Default::default(),
+            formats: Default::default(),
         }
     }
 
@@ -548,6 +551,9 @@ impl ScanView {
                 script_hits.extend(crate::scanner::vba::decoded_strings(&info, &script_cfg));
             }
         }
+        // .NET `#US` strings, Mach-O entitlements, PDF scripts / URIs / streams.
+        self.formats.ensure_all(report, bytes);
+        script_hits.extend(super::formats::decoded_strings(report, &self.formats));
         if !script_hits.is_empty() {
             let seen: std::collections::HashSet<(String, String)> = report
                 .decoded_strings
@@ -589,6 +595,7 @@ impl ScanView {
         self.features_loaded = true;
         self.ensure_env(report, bytes);
         self.ensure_pe(report, bytes);
+        self.formats.ensure_all(report, bytes);
         if report.entropy == 0.0 && !bytes.is_empty() {
             report.entropy = crate::utils::entropy::byte_entropy(bytes);
         }
@@ -703,7 +710,7 @@ fn build_xor_text_ac(atom: &SignatureAtom) -> Option<Arc<XorTextAc>> {
     Some(built)
 }
 
-fn cached_byte_pattern(pattern: &str) -> Option<Arc<CompiledBytePattern>> {
+pub(super) fn cached_byte_pattern(pattern: &str) -> Option<Arc<CompiledBytePattern>> {
     if let Some(found) = BYTE_PATTERN_CACHE.lock().ok()?.get(pattern).cloned() {
         return Some(found);
     }
@@ -2232,7 +2239,11 @@ fn ensure_condition_data(cond: &RuleCondition, report: &mut ScanReport, view: &m
                 }
             }
         }
-        _ => {}
+        other => {
+            if let Some(format) = super::formats::condition_format(other) {
+                view.formats.ensure(format, report, bytes);
+            }
+        }
     }
 }
 
@@ -3399,6 +3410,32 @@ fn evaluate_condition(
                 None
             }
         }
+        RuleCondition::DotnetGuidAny { .. }
+        | RuleCondition::DotnetTypeRegex { .. }
+        | RuleCondition::DotnetMethodRegex { .. }
+        | RuleCondition::DotnetPinvokeAny { .. }
+        | RuleCondition::DotnetPinvokeSet { .. }
+        | RuleCondition::DotnetStreamAny { .. }
+        | RuleCondition::DotnetUserStringRegex { .. }
+        | RuleCondition::ElfImportAny { .. }
+        | RuleCondition::ElfImportSet { .. }
+        | RuleCondition::ElfImportRegex { .. }
+        | RuleCondition::ElfExportAny { .. }
+        | RuleCondition::ElfExportSet { .. }
+        | RuleCondition::ElfNeededAny { .. }
+        | RuleCondition::ElfSection { .. }
+        | RuleCondition::ElfSegment { .. }
+        | RuleCondition::ElfBuildIdAny { .. }
+        | RuleCondition::NewElfImportSet { .. }
+        | RuleCondition::MachoDylibAny { .. }
+        | RuleCondition::MachoSymAny { .. }
+        | RuleCondition::MachoSymRegex { .. }
+        | RuleCondition::MachoSegment { .. }
+        | RuleCondition::MachoUuidAny { .. }
+        | RuleCondition::MachoSigned { .. }
+        | RuleCondition::MachoEntitlementAny { .. }
+        | RuleCondition::PdfKeyword { .. }
+        | RuleCondition::PdfStreamMatch { .. } => super::formats::evaluate(cond, report, &view.formats, bytes),
     }
 }
 
@@ -5090,7 +5127,7 @@ struct ByteToken {
 }
 
 #[derive(Debug, Clone)]
-struct CompiledBytePattern {
+pub(super) struct CompiledBytePattern {
     tokens: Vec<ByteToken>,
     exact: Option<Vec<u8>>,
     anchor: Option<(usize, Vec<u8>)>,
@@ -5459,7 +5496,7 @@ fn hex_nibble(c: char) -> Option<(u8, u8)> {
     c.to_digit(16).map(|v| (v as u8, 0x0f))
 }
 
-fn find_byte_pattern(bytes: &[u8], pattern: &CompiledBytePattern) -> Option<usize> {
+pub(super) fn find_byte_pattern(bytes: &[u8], pattern: &CompiledBytePattern) -> Option<usize> {
     find_byte_pattern_in(bytes, pattern, 0, bytes.len())
 }
 

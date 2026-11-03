@@ -1,5 +1,6 @@
 pub(crate) mod bytecode;
 mod engine;
+mod formats;
 mod icon;
 mod icon_metric;
 mod opcode;

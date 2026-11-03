@@ -1,9 +1,14 @@
 pub mod apk;
+pub mod bin;
 pub mod cfb;
 pub mod dex;
+pub mod dotnet;
+pub mod elf;
 pub mod env;
 pub mod filetype;
 pub mod ftm;
+pub mod macho;
+pub mod pdf;
 pub mod pe;
 pub mod scripts;
 pub mod strings;

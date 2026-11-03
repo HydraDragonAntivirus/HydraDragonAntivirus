@@ -53,6 +53,10 @@ pub fn classify_bytes(path: &Path, data: &[u8]) -> FileTypeInfo {
 
     let validation = inspect_binary_formats(data);
     apply_binary_validation(&mut info, validation);
+    // A PE with a CLR directory pointing at `BSJB` metadata.
+    if info.is_pe && super::dotnet::has_clr_metadata(data) {
+        push_tag(&mut info, "dotnet");
+    }
     apply_archive_markers(&mut info, data);
     apply_known_formats(&mut info, data);
     apply_language_and_text_markers(&mut info, path, data);
@@ -138,6 +142,7 @@ pub fn known_file_type_aliases() -> &'static [&'static str] {
         "broken_executable",
         "broken_apk",
         "pe_no_code",
+        "dotnet",
     ]
 }
 
@@ -334,7 +339,8 @@ fn apply_archive_markers(info: &mut FileTypeInfo, data: &[u8]) {
         push_tag(info, "archive");
     }
 
-    if data.starts_with(b"%PDF-") {
+    // Readers accept junk before the header, within the first KiB.
+    if super::pdf::header_offset(data).is_some() {
         info.is_pdf = true;
         set_primary_if_unknown(info, "pdf");
         push_tag(info, "pdf");
@@ -655,6 +661,8 @@ fn inspect_binary_formats(data: &[u8]) -> BinaryFormatValidation {
             validation.macho = FormatValidation::Broken;
             validation.broken_type = Some("Mach-O".to_string());
         }
+    } else if super::macho::is_universal(data) {
+        validation.macho = FormatValidation::Valid;
     }
 
     if validation.pe == FormatValidation::NotDetected

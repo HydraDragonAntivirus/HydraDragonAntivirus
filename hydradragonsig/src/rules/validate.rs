@@ -111,6 +111,35 @@ pub const CONDITION_KEYS: &[(&str, &[&str])] = &[
     ("dex_method_regex", &["pattern", "min"]),
     ("dex_class_count", &["min"]),
     ("dex_method_count", &["min"]),
+    ("dotnet_guid_any", &["values"]),
+    ("dotnet_type_regex", &["pattern", "min"]),
+    ("dotnet_method_regex", &["pattern", "min"]),
+    ("dotnet_pinvoke_any", &["names"]),
+    ("dotnet_pinvoke_set", &["names", "min"]),
+    ("dotnet_stream_any", &["names"]),
+    ("dotnet_user_string_regex", &["pattern", "min"]),
+    ("elf_import_any", &["names"]),
+    ("elf_import_set", &["names", "min"]),
+    ("elf_import_regex", &["pattern", "min"]),
+    ("elf_export_any", &["names"]),
+    ("elf_export_set", &["names", "min"]),
+    ("elf_needed_any", &["names", "nocase"]),
+    ("elf_section", &[
+        "select", "index", "name", "name_regex", "flags_all", "flags_none", "entropy_min", "entropy_max", "size_min",
+        "size_max", "md5", "sha256",
+    ]),
+    ("elf_segment", &["seg_type", "flags_all", "flags_none", "memsz_minus_filesz_min", "entropy_min"]),
+    ("elf_build_id_any", &["values"]),
+    ("new_elf_import_set", &["names", "min"]),
+    ("macho_dylib_any", &["names"]),
+    ("macho_sym_any", &["names", "min"]),
+    ("macho_sym_regex", &["pattern", "min"]),
+    ("macho_segment", &["name", "flags_all", "flags_none", "entropy_min", "entropy_max"]),
+    ("macho_uuid_any", &["values"]),
+    ("macho_signed", &["signed", "adhoc", "identifier_glob", "team_id"]),
+    ("macho_entitlement_any", &["keys"]),
+    ("pdf_keyword", &["names", "min"]),
+    ("pdf_stream_match", &["filter_any", "patterns", "decoded", "min"]),
 ];
 
 /// Values accepted by `file_type` conditions.
@@ -119,7 +148,7 @@ pub const FILE_TYPES: &[&str] = &[
     "broken_macho", "apk", "android", "broken_apk", "pe_no_code", "zip", "archive", "7z", "rar", "gzip", "gz", "tar", "asar", "jar",
     "java", "dex", "java_class", "class", "text", "plain", "plain_text", "txt", "script", "powershell", "ps1", "batch",
     "bat", "cmd", "javascript", "js", "vbs", "python", "py", "shell", "pdf", "office", "openxml", "ole", "compound",
-    "microsoft_compound", "binary", "unknown", "broken", "broken_executable",
+    "microsoft_compound", "binary", "unknown", "broken", "broken_executable", "dotnet",
 ];
 
 /// Names `feature_gte` can read.
@@ -132,6 +161,25 @@ pub const FEATURES: &[&str] = &[
     "pe_export_count",
     "pe_section_count",
     "pe_suspicious_import_count",
+    "dotnet_type_count",
+    "dotnet_method_count",
+    "dotnet_pinvoke_count",
+    "dotnet_user_string_count",
+    "dotnet_stream_count",
+    "elf_import_count",
+    "elf_export_count",
+    "elf_section_count",
+    "elf_rwx_segment_count",
+    "macho_dylib_count",
+    "macho_section_count",
+    "macho_rwx_segment_count",
+    "pdf_obj_count",
+    "pdf_stream_count",
+    "pdf_objstm_count",
+    "pdf_js_count",
+    "pdf_openaction_count",
+    "pdf_embedded_file_count",
+    "pdf_uri_count",
 ];
 
 /// `FEATURES` plus the APK profile, exposed as `apk_<name>` on Android packages.
@@ -149,6 +197,10 @@ pub const PARENT_FEATURES: &[&str] = &[
     "pe_export_count",
     "pe_section_count",
     "pe_suspicious_import_count",
+    "elf_import_count",
+    "elf_export_count",
+    "elf_section_count",
+    "elf_rwx_segment_count",
 ];
 
 /// Unknown keys anywhere in the document (typos are otherwise ignored by serde).
@@ -1058,7 +1110,170 @@ fn check_condition(cond: &RuleCondition, rules: &[Rule], own_id: &str, known_ids
                 out.push("dex_method_count `min` must be at least 1".into());
             }
         }
+        RuleCondition::DotnetGuidAny { values } | RuleCondition::MachoUuidAny { values } => {
+            list_problems("values", values, None, &mut out);
+            for v in values {
+                let hex = crate::scanner::dotnet::normalize_guid(v);
+                if hex.len() != 32 || v.chars().any(|c| !(c.is_ascii_hexdigit() || "{}-".contains(c))) {
+                    out.push(format!("`{v}` is not a GUID / UUID (32 hex digits)"));
+                }
+            }
+        }
+        RuleCondition::DotnetTypeRegex { pattern, min }
+        | RuleCondition::DotnetMethodRegex { pattern, min }
+        | RuleCondition::DotnetUserStringRegex { pattern, min }
+        | RuleCondition::ElfImportRegex { pattern, min }
+        | RuleCondition::MachoSymRegex { pattern, min } => {
+            out.extend(regex_problem(pattern));
+            if *min == Some(0) {
+                out.push("`min` must be at least 1".into());
+            }
+        }
+        RuleCondition::DotnetPinvokeAny { names }
+        | RuleCondition::ElfImportAny { names }
+        | RuleCondition::ElfExportAny { names }
+        | RuleCondition::ElfNeededAny { names, .. }
+        | RuleCondition::MachoDylibAny { names } => list_problems("names", names, None, &mut out),
+        RuleCondition::MachoEntitlementAny { keys } => list_problems("keys", keys, None, &mut out),
+        RuleCondition::DotnetPinvokeSet { names, min }
+        | RuleCondition::ElfImportSet { names, min }
+        | RuleCondition::ElfExportSet { names, min }
+        | RuleCondition::NewElfImportSet { names, min }
+        | RuleCondition::MachoSymAny { names, min }
+        | RuleCondition::PdfKeyword { names, min } => list_problems("names", names, *min, &mut out),
+        RuleCondition::DotnetStreamAny { names } => {
+            list_problems("names", names, None, &mut out);
+            for n in names.iter().filter(|n| !n.is_empty() && !n.starts_with('#')) {
+                out.push(format!("metadata stream `{n}` never matches: stream names start with `#`"));
+            }
+        }
+        RuleCondition::ElfBuildIdAny { values } => {
+            list_problems("values", values, None, &mut out);
+            for v in values {
+                let v = v.trim();
+                if v.is_empty() || v.len() % 2 != 0 || !v.chars().all(|c| c.is_ascii_hexdigit()) {
+                    out.push(format!("build id `{v}` must be an even number of hex digits"));
+                }
+            }
+        }
+        RuleCondition::ElfSection {
+            index,
+            name,
+            name_regex,
+            flags_all,
+            flags_none,
+            entropy_min,
+            entropy_max,
+            size_min,
+            size_max,
+            md5,
+            sha256,
+            ..
+        } => {
+            if let Some(p) = name_regex {
+                out.extend(regex_problem(p));
+            }
+            if let Some(m) = md5 && !hex_len(m.trim(), 32) {
+                out.push("elf_section md5 must be 32 hex characters".into());
+            }
+            if let Some(s) = sha256 && !hex_len(s.trim(), 64) {
+                out.push("elf_section sha256 must be 64 hex characters".into());
+            }
+            for f in flags_all.iter().chain(flags_none) {
+                if crate::scanner::elf::section_flag(f).is_none() {
+                    out.push(format!("unknown ELF section flag `{f}` (known: alloc, write, exec)"));
+                }
+            }
+            if let Some(f) = flags_all.iter().find(|f| flags_none.contains(f)) {
+                out.push(format!("flag `{f}` in both flags_all and flags_none: never matches"));
+            }
+            out.extend(entropy_problems(*entropy_min, *entropy_max));
+            if let (Some(lo), Some(hi)) = (size_min, size_max) && lo > hi {
+                out.push("size_min is above size_max: never matches".into());
+            }
+            let empty = index.is_none()
+                && name.is_none()
+                && name_regex.is_none()
+                && flags_all.is_empty()
+                && flags_none.is_empty()
+                && entropy_min.is_none()
+                && entropy_max.is_none()
+                && size_min.is_none()
+                && size_max.is_none()
+                && md5.is_none()
+                && sha256.is_none();
+            if empty {
+                out.push("elf_section without any property matches every ELF".into());
+            }
+        }
+        RuleCondition::ElfSegment { seg_type, flags_all, flags_none, memsz_minus_filesz_min, entropy_min } => {
+            if let Some(t) = seg_type && crate::scanner::elf::segment_type(t).is_none() {
+                let names: Vec<&str> = crate::scanner::elf::SEGMENT_TYPES.iter().map(|(n, _)| *n).collect();
+                out.push(format!("unknown segment type `{t}` (known: {}, or a number)", names.join(", ")));
+            }
+            for f in flags_all.iter().chain(flags_none) {
+                if crate::scanner::elf::segment_flag(f).is_none() {
+                    out.push(format!("unknown ELF segment flag `{f}` (known: r, w, x)"));
+                }
+            }
+            out.extend(entropy_problems(*entropy_min, None));
+            if seg_type.is_none() && flags_all.is_empty() && flags_none.is_empty() && memsz_minus_filesz_min.is_none() && entropy_min.is_none() {
+                out.push("elf_segment without any property matches every ELF with a program header".into());
+            }
+        }
+        RuleCondition::MachoSegment { name, flags_all, flags_none, entropy_min, entropy_max } => {
+            for f in flags_all.iter().chain(flags_none) {
+                if crate::scanner::macho::prot_flag(f).is_none() {
+                    out.push(format!("unknown segment protection `{f}` (known: r, w, x)"));
+                }
+            }
+            out.extend(entropy_problems(*entropy_min, *entropy_max));
+            if name.is_none() && flags_all.is_empty() && flags_none.is_empty() && entropy_min.is_none() && entropy_max.is_none() {
+                out.push("macho_segment without any property matches every Mach-O".into());
+            }
+        }
+        RuleCondition::MachoSigned { signed, adhoc, identifier_glob, team_id } => {
+            if !signed && (adhoc.is_some() || identifier_glob.is_some() || team_id.is_some()) {
+                out.push("macho_signed: `signed: false` with adhoc / identifier_glob / team_id never matches".into());
+            }
+            if identifier_glob.as_deref().is_some_and(|g| g.trim().is_empty()) || team_id.as_deref().is_some_and(|t| t.trim().is_empty()) {
+                out.push("macho_signed: empty identifier_glob / team_id".into());
+            }
+        }
+        RuleCondition::PdfStreamMatch { filter_any, patterns, min, .. } => {
+            list_problems("patterns", patterns, *min, &mut out);
+            for p in patterns.iter().filter(|p| p.trim_start().starts_with('{')) {
+                out.extend(byte_problem(p));
+            }
+            if let Some(f) = filter_any {
+                if f.is_empty() {
+                    out.push("empty `filter_any` list: never matches".into());
+                }
+                for name in f.iter().filter(|n| !PDF_FILTERS.contains(&n.trim_start_matches('/'))) {
+                    out.push(format!("unknown PDF filter `{name}` (known: {})", PDF_FILTERS.join(", ")));
+                }
+            }
+        }
         _ => {}
+    }
+    out
+}
+
+/// Stream filters `pdf_stream_match` can name (abbreviations are expanded first).
+const PDF_FILTERS: &[&str] = &[
+    "FlateDecode", "ASCIIHexDecode", "ASCII85Decode", "RunLengthDecode", "LZWDecode", "DCTDecode", "CCITTFaxDecode",
+    "JBIG2Decode", "JPXDecode", "Crypt",
+];
+
+fn entropy_problems(min: Option<f64>, max: Option<f64>) -> Vec<String> {
+    let mut out = Vec::new();
+    for e in [min, max].into_iter().flatten() {
+        if !(0.0..=8.0).contains(&e) {
+            out.push(format!("entropy {e} is outside 0..8"));
+        }
+    }
+    if let (Some(lo), Some(hi)) = (min, max) && lo > hi {
+        out.push("entropy_min is above entropy_max: never matches".into());
     }
     out
 }
@@ -1105,6 +1320,13 @@ mod tests {
             "emulated_arg_regex" => "        api: x\n        pattern: x\n",
             "emulated_sequence" => "        steps: [{api: x}]\n",
             "emulated_count_gte" => "        api: x\n        min: 1\n",
+            "dotnet_guid_any" | "macho_uuid_any" | "elf_build_id_any" => "        values: [x]\n",
+            "dotnet_type_regex" | "dotnet_method_regex" | "dotnet_user_string_regex" | "elf_import_regex" | "macho_sym_regex" => {
+                "        pattern: x\n"
+            }
+            "macho_signed" => "        signed: true\n",
+            "macho_entitlement_any" => "        keys: [x]\n",
+            "pdf_stream_match" => "        patterns: [x]\n",
             _ => "        names: [x]\n",
         }
     }

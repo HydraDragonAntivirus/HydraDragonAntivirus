@@ -503,6 +503,9 @@ pub struct ParentInfo {
     pub imports: Vec<String>,
     /// Numeric features of the parent, same names as `feature_gte`.
     pub features: BTreeMap<String, f64>,
+    /// Parent ELF imported symbols (`new_elf_import_set`).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub elf_imports: Vec<String>,
 }
 
 impl ParentInfo {
@@ -521,6 +524,8 @@ impl ParentInfo {
         if let Some(pe) = crate::scanner::pe::scan_pe(bytes) {
             info.is_pe = true;
             info.set_pe(&pe);
+        } else if let Some(elf) = crate::scanner::elf::parse_elf(bytes) {
+            info.set_elf(&elf);
         }
         info
     }
@@ -541,7 +546,18 @@ impl ParentInfo {
         if let Some(pe) = &report.pe {
             info.set_pe(pe);
         }
+        if let Some(elf) = &report.elf {
+            info.set_elf(elf);
+        }
         info
+    }
+
+    fn set_elf(&mut self, elf: &crate::scanner::elf::ElfInfo) {
+        self.elf_imports = elf.imports.clone();
+        self.features.insert("elf_import_count".into(), elf.imports.len() as f64);
+        self.features.insert("elf_export_count".into(), elf.exports.len() as f64);
+        self.features.insert("elf_section_count".into(), elf.sections.len() as f64);
+        self.features.insert("elf_rwx_segment_count".into(), elf.rwx_segment_count() as f64);
     }
 
     fn set_pe(&mut self, pe: &PeInfo) {
@@ -674,6 +690,22 @@ pub struct ScanReport {
     /// APK feature profile, when the file is an Android package.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub apk: Option<ApkInfo>,
+
+    /// CLR metadata, when a rule needed it and the file is a .NET PE.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dotnet: Option<crate::scanner::dotnet::DotNetInfo>,
+
+    /// ELF structure, when a rule needed it and the file is an ELF.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub elf: Option<crate::scanner::elf::ElfInfo>,
+
+    /// Mach-O structure, when a rule needed it and the file is a Mach-O.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub macho: Option<crate::scanner::macho::MachoInfo>,
+
+    /// PDF structure, when a rule needed it and the file is a PDF.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pdf: Option<crate::scanner::pdf::PdfInfo>,
 }
 
 impl Default for ScanReport {
@@ -707,6 +739,10 @@ impl Default for ScanReport {
             behavior: None,
             dex: None,
             apk: None,
+            dotnet: None,
+            elf: None,
+            macho: None,
+            pdf: None,
         }
     }
 }

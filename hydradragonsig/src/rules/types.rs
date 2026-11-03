@@ -144,6 +144,47 @@ impl Rule {
                         types.push("dex".to_string());
                     }
                 }
+                RuleCondition::DotnetGuidAny { .. }
+                | RuleCondition::DotnetTypeRegex { .. }
+                | RuleCondition::DotnetMethodRegex { .. }
+                | RuleCondition::DotnetPinvokeAny { .. }
+                | RuleCondition::DotnetPinvokeSet { .. }
+                | RuleCondition::DotnetStreamAny { .. }
+                | RuleCondition::DotnetUserStringRegex { .. } => {
+                    if !types.contains(&"dotnet".to_string()) {
+                        types.push("dotnet".to_string());
+                    }
+                }
+                RuleCondition::ElfImportAny { .. }
+                | RuleCondition::ElfImportSet { .. }
+                | RuleCondition::ElfImportRegex { .. }
+                | RuleCondition::ElfExportAny { .. }
+                | RuleCondition::ElfExportSet { .. }
+                | RuleCondition::ElfNeededAny { .. }
+                | RuleCondition::ElfSection { .. }
+                | RuleCondition::ElfSegment { .. }
+                | RuleCondition::ElfBuildIdAny { .. }
+                | RuleCondition::NewElfImportSet { .. } => {
+                    if !types.contains(&"elf".to_string()) {
+                        types.push("elf".to_string());
+                    }
+                }
+                RuleCondition::MachoDylibAny { .. }
+                | RuleCondition::MachoSymAny { .. }
+                | RuleCondition::MachoSymRegex { .. }
+                | RuleCondition::MachoSegment { .. }
+                | RuleCondition::MachoUuidAny { .. }
+                | RuleCondition::MachoSigned { .. }
+                | RuleCondition::MachoEntitlementAny { .. } => {
+                    if !types.contains(&"macho".to_string()) {
+                        types.push("macho".to_string());
+                    }
+                }
+                RuleCondition::PdfKeyword { .. } | RuleCondition::PdfStreamMatch { .. } => {
+                    if !types.contains(&"pdf".to_string()) {
+                        types.push("pdf".to_string());
+                    }
+                }
                 RuleCondition::FileType { values } => {
                     for v in values {
                         if !types.contains(v) {
@@ -943,6 +984,202 @@ pub enum RuleCondition {
     },
     /// Number of method references in the DEX header is at least `min`.
     DexMethodCount {
+        #[serde(default)]
+        min: Option<usize>,
+    },
+
+    // --- .NET CLR metadata (`scanner::dotnet`) --------------------------------
+    /// The module MVID or the assembly's type library GUID is one of `values`
+    /// (case and `{}` / `-` are ignored).
+    DotnetGuidAny {
+        values: Vec<String>,
+    },
+    /// At least `min` defined or referenced types (`Namespace.Type`) match.
+    DotnetTypeRegex {
+        pattern: String,
+        #[serde(default)]
+        min: Option<usize>,
+    },
+    /// At least `min` defined methods or member references (`Namespace.Type::Method`) match.
+    DotnetMethodRegex {
+        pattern: String,
+        #[serde(default)]
+        min: Option<usize>,
+    },
+    /// One P/Invoke import (`module.dll!function`) ends with one of `names`
+    /// (same suffix matching as `import_any`).
+    DotnetPinvokeAny {
+        names: Vec<String>,
+    },
+    /// At least `min` of `names` are P/Invoke imports.
+    DotnetPinvokeSet {
+        names: Vec<String>,
+        #[serde(default)]
+        min: Option<usize>,
+    },
+    /// A metadata stream has one of these names (`#Confuser`, `#SuppressIldasm`, ...).
+    DotnetStreamAny {
+        names: Vec<String>,
+    },
+    /// At least `min` `#US` user strings match.
+    DotnetUserStringRegex {
+        pattern: String,
+        #[serde(default)]
+        min: Option<usize>,
+    },
+
+    // --- ELF (`scanner::elf`) -------------------------------------------------
+    /// One imported (undefined) symbol is one of `names`.
+    ElfImportAny {
+        names: Vec<String>,
+    },
+    /// At least `min` of `names` are imported symbols.
+    ElfImportSet {
+        names: Vec<String>,
+        #[serde(default)]
+        min: Option<usize>,
+    },
+    /// At least `min` imported symbols match.
+    ElfImportRegex {
+        pattern: String,
+        #[serde(default)]
+        min: Option<usize>,
+    },
+    ElfExportAny {
+        names: Vec<String>,
+    },
+    ElfExportSet {
+        names: Vec<String>,
+        #[serde(default)]
+        min: Option<usize>,
+    },
+    /// A `DT_NEEDED` library is one of `names`.
+    ElfNeededAny {
+        names: Vec<String>,
+        #[serde(default)]
+        nocase: bool,
+    },
+    /// Properties of one chosen ELF section, like `pe_section`.
+    ElfSection {
+        #[serde(default)]
+        select: PeSectionSelect,
+        #[serde(default)]
+        index: Option<usize>,
+        #[serde(default)]
+        name: Option<String>,
+        #[serde(default)]
+        name_regex: Option<String>,
+        /// `alloc`, `write`, `exec`.
+        #[serde(default)]
+        flags_all: Vec<String>,
+        #[serde(default)]
+        flags_none: Vec<String>,
+        #[serde(default)]
+        entropy_min: Option<f64>,
+        #[serde(default)]
+        entropy_max: Option<f64>,
+        #[serde(default)]
+        size_min: Option<u64>,
+        #[serde(default)]
+        size_max: Option<u64>,
+        #[serde(default)]
+        md5: Option<String>,
+        #[serde(default)]
+        sha256: Option<String>,
+    },
+    /// A program header with these properties: RWX `PT_LOAD`, executable
+    /// `PT_GNU_STACK`, large `p_memsz - p_filesz` (unpacker BSS gaps).
+    ElfSegment {
+        /// `load`, `dynamic`, `interp`, `note`, `gnu_stack`, ... or a number.
+        #[serde(default)]
+        seg_type: Option<String>,
+        /// `r`, `w`, `x`.
+        #[serde(default)]
+        flags_all: Vec<String>,
+        #[serde(default)]
+        flags_none: Vec<String>,
+        #[serde(default)]
+        memsz_minus_filesz_min: Option<u64>,
+        #[serde(default)]
+        entropy_min: Option<f64>,
+    },
+    /// The `NT_GNU_BUILD_ID` (hex) is one of `values`.
+    ElfBuildIdAny {
+        values: Vec<String>,
+    },
+    /// At least `min` of `names` are imported by this ELF and NOT by the parent.
+    NewElfImportSet {
+        names: Vec<String>,
+        #[serde(default)]
+        min: Option<usize>,
+    },
+
+    // --- Mach-O (`scanner::macho`) -------------------------------------------
+    /// A loaded dylib's path ends with one of `names` (case-insensitive).
+    MachoDylibAny {
+        names: Vec<String>,
+    },
+    /// At least `min` of `names` are external symbols.
+    MachoSymAny {
+        names: Vec<String>,
+        #[serde(default)]
+        min: Option<usize>,
+    },
+    /// At least `min` external symbols match.
+    MachoSymRegex {
+        pattern: String,
+        #[serde(default)]
+        min: Option<usize>,
+    },
+    /// A segment with these properties (`flags_*` read the initial protection).
+    MachoSegment {
+        #[serde(default)]
+        name: Option<String>,
+        /// `r`, `w`, `x`.
+        #[serde(default)]
+        flags_all: Vec<String>,
+        #[serde(default)]
+        flags_none: Vec<String>,
+        #[serde(default)]
+        entropy_min: Option<f64>,
+        #[serde(default)]
+        entropy_max: Option<f64>,
+    },
+    /// `LC_UUID` is one of `values`.
+    MachoUuidAny {
+        values: Vec<String>,
+    },
+    /// Code signature: `signed`, ad-hoc, a glob over the signing identifier, the team id.
+    MachoSigned {
+        signed: bool,
+        #[serde(default)]
+        adhoc: Option<bool>,
+        #[serde(default)]
+        identifier_glob: Option<String>,
+        #[serde(default)]
+        team_id: Option<String>,
+    },
+    /// The embedded entitlements hold one of these keys.
+    MachoEntitlementAny {
+        keys: Vec<String>,
+    },
+
+    // --- PDF (`scanner::pdf`) -------------------------------------------------
+    /// At least `min` of these names occur (after `#XX` unescaping).
+    PdfKeyword {
+        names: Vec<String>,
+        #[serde(default)]
+        min: Option<usize>,
+    },
+    /// At least `min` of `patterns` (text, or `{ hex }` byte patterns) occur in
+    /// the streams (decoded unless `decoded: false`), optionally only in
+    /// streams whose filter chain holds one of `filter_any`.
+    PdfStreamMatch {
+        #[serde(default)]
+        filter_any: Option<Vec<String>>,
+        patterns: Vec<String>,
+        #[serde(default = "default_true")]
+        decoded: bool,
         #[serde(default)]
         min: Option<usize>,
     },

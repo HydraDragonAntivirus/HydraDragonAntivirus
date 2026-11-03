@@ -56,6 +56,34 @@ pub fn refresh_features(report: &mut ScanReport) {
             report.features.insert(format!("apk_{name}"), json!(value));
         }
     }
+    let f = &mut report.features;
+    if let Some(d) = &report.dotnet {
+        f.insert("dotnet_type_count".into(), json!(d.types.len()));
+        f.insert("dotnet_method_count".into(), json!(d.methods.len()));
+        f.insert("dotnet_pinvoke_count".into(), json!(d.pinvokes.len()));
+        f.insert("dotnet_user_string_count".into(), json!(d.user_strings.len()));
+        f.insert("dotnet_stream_count".into(), json!(d.streams.len()));
+    }
+    if let Some(e) = &report.elf {
+        f.insert("elf_import_count".into(), json!(e.imports.len()));
+        f.insert("elf_export_count".into(), json!(e.exports.len()));
+        f.insert("elf_section_count".into(), json!(e.sections.len()));
+        f.insert("elf_rwx_segment_count".into(), json!(e.rwx_segment_count()));
+    }
+    if let Some(m) = &report.macho {
+        f.insert("macho_dylib_count".into(), json!(m.dylib_count()));
+        f.insert("macho_section_count".into(), json!(m.section_count()));
+        f.insert("macho_rwx_segment_count".into(), json!(m.rwx_segment_count()));
+    }
+    if let Some(p) = &report.pdf {
+        f.insert("pdf_obj_count".into(), json!(p.obj_count));
+        f.insert("pdf_stream_count".into(), json!(p.stream_count));
+        f.insert("pdf_objstm_count".into(), json!(p.objstm_count));
+        f.insert("pdf_js_count".into(), json!(p.name_count("JS")));
+        f.insert("pdf_openaction_count".into(), json!(p.name_count("OpenAction")));
+        f.insert("pdf_embedded_file_count".into(), json!(p.name_count("EmbeddedFile")));
+        f.insert("pdf_uri_count".into(), json!(p.name_count("URI")));
+    }
 }
 
 pub fn build_report(ctx: ScanContext) -> ScanReport {
@@ -95,5 +123,9 @@ pub fn build_report(ctx: ScanContext) -> ScanReport {
         behavior: None,
         dex: None,
         apk: None,
+        dotnet: None,
+        elf: None,
+        macho: None,
+        pdf: None,
     }
 }
