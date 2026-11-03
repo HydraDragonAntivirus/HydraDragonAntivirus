@@ -365,10 +365,8 @@ fn check_condition(cond: &RuleCondition, rules: &[Rule], own_id: &str, known_ids
             } else if !std::path::Path::new(program).is_file() {
                 out.push(format!("bytecode: program `{program}` not found"));
             }
-            if let Some(n) = max_ops {
-                if *n == 0 || *n > super::bytecode::MAX_MAX_OPS {
-                    out.push(format!("bytecode: `max_ops` must be 1..={}", super::bytecode::MAX_MAX_OPS));
-                }
+            if let Some(n) = max_ops && (*n == 0 || *n > super::bytecode::MAX_MAX_OPS) {
+                out.push(format!("bytecode: `max_ops` must be 1..={}", super::bytecode::MAX_MAX_OPS));
             }
             if virname_glob.as_deref().is_some_and(|g| g.trim().is_empty()) {
                 out.push("bytecode: empty `virname_glob`".into());
@@ -379,10 +377,8 @@ fn check_condition(cond: &RuleCondition, rules: &[Rule], own_id: &str, known_ids
                 if n != 1 {
                     out.push(format!("bytecode api `{name}`: give exactly one of value, param, param_arg, table, fact, condition ({n} given)"));
                 }
-                if let Some(f) = api.fact.as_deref() {
-                    if !super::bytecode::FACTS.contains(&f) {
-                        out.push(format!("bytecode api `{name}`: unknown fact `{f}` (known: {})", super::bytecode::FACTS.join(", ")));
-                    }
+                if let Some(f) = api.fact.as_deref() && !super::bytecode::FACTS.contains(&f) {
+                    out.push(format!("bytecode api `{name}`: unknown fact `{f}` (known: {})", super::bytecode::FACTS.join(", ")));
                 }
                 if let Some(c) = api.condition.as_deref() {
                     for problem in check_condition(c, rules, own_id, known_ids) {
@@ -672,10 +668,8 @@ fn check_condition(cond: &RuleCondition, rules: &[Rule], own_id: &str, known_ids
                     out.extend(regex_problem(p).map(|e| format!("step {}: {e}", i + 1)));
                 }
             }
-            if let Some(w) = within {
-                if *w + 1 < steps.len() {
-                    out.push(format!("within {w} is shorter than the {} steps: never matches", steps.len()));
-                }
+            if let Some(w) = within && *w + 1 < steps.len() {
+                out.push(format!("within {w} is shorter than the {} steps: never matches", steps.len()));
             }
         }
         RuleCondition::EmulatedCountGte { api, min, .. } => {
@@ -860,18 +854,14 @@ fn check_condition(cond: &RuleCondition, rules: &[Rule], own_id: &str, known_ids
                 out.push("version_info: `absent: true` cannot be combined with version bounds".into());
             }
             for (key, b) in bounds {
-                if let Some(b) = b {
-                    if super::pe_extra::parse_version_bound(b).is_none() {
-                        out.push(format!("version_info: `{key}: {b}` is not a version (a[.b[.c[.d]]], each part 0..65535)"));
-                    }
+                if let Some(b) = b && super::pe_extra::parse_version_bound(b).is_none() {
+                    out.push(format!("version_info: `{key}: {b}` is not a version (a[.b[.c[.d]]], each part 0..65535)"));
                 }
             }
             for (lo, hi, what) in [(file_version_min, file_version_max, "file"), (product_version_min, product_version_max, "product")] {
                 let parse = |b: &Option<String>| b.as_deref().and_then(super::pe_extra::parse_version_bound);
-                if let (Some(l), Some(h)) = (parse(lo), parse(hi)) {
-                    if l > h {
-                        out.push(format!("version_info: {what}_version_min is above {what}_version_max"));
-                    }
+                if let (Some(l), Some(h)) = (parse(lo), parse(hi)) && l > h {
+                    out.push(format!("version_info: {what}_version_min is above {what}_version_max"));
                 }
             }
         }

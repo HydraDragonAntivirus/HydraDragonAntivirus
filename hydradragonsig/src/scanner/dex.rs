@@ -226,10 +226,8 @@ fn parse_class_names(buf: &[u8], strings: &[String]) -> Vec<String> {
     }
     for i in 0..size.min(MAX_CLASS_NAMES) {
         let Some(class_idx) = read_u32_le(buf, off + i * CLASS_DEF_ITEM_LEN) else { break };
-        if let Some(desc) = type_descriptor(buf, strings, class_idx as usize) {
-            if !desc.is_empty() {
-                out.push(descriptor_to_java(desc));
-            }
+        if let Some(desc) = type_descriptor(buf, strings, class_idx as usize) && !desc.is_empty() {
+            out.push(descriptor_to_java(desc));
         }
     }
     out

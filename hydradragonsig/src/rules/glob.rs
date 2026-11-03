@@ -7,6 +7,7 @@
 //! * `?` matches exactly one character.
 //! * `#` matches exactly one alphanumeric character (digit or letter, either
 //!   case), useful as a stricter single-character wildcard.
+//!
 //! Backslashes and slashes in both pattern and text are treated the same.
 //! Matching is always case-insensitive.
 

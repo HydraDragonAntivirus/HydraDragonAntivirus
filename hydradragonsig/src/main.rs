@@ -892,6 +892,7 @@ fn collect_scan_roots(
     Ok(roots)
 }
 
+#[allow(clippy::too_many_arguments)]
 fn collect_files_from_roots(
     roots: &[PathBuf],
     recursive: bool,
@@ -1094,7 +1095,7 @@ impl TypeFilter {
 
     /// Walk-time decision on the classified type. Files that may later gain a
     /// rule-assigned include tag stay in the walk (decided after the scan).
-    fn allows_path<'a>(&self, info: &'a hydradragonsig::models::FileTypeInfo) -> bool {
+    fn allows_path(&self, info: &hydradragonsig::models::FileTypeInfo) -> bool {
         if !self.exclude_builtin.is_empty()
             && self.exclude_builtin.iter().any(|ty| info.matches_type(ty))
         {
@@ -1109,7 +1110,7 @@ impl TypeFilter {
 
     /// Final decision after the rules ran: assigned tags now live in
     /// `report.file_type.tags` (or already have for builtin types).
-    fn allows_report<'a>(&self, report: &'a hydradragonsig::models::ScanReport) -> bool {
+    fn allows_report(&self, report: &hydradragonsig::models::ScanReport) -> bool {
         let include_empty =
             self.include_builtin.is_empty() && self.include_assigned.is_empty();
         if include_empty {

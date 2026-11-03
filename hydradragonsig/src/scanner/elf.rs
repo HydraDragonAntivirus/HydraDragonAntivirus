@@ -439,11 +439,11 @@ fn read_build_id(r: &Reader, info: &mut ElfInfo) {
             if next > end || next <= at {
                 break;
             }
-            if kind == NT_GNU_BUILD_ID && r.slice(name_at, u64::from(namesz)) == Some(b"GNU\0".as_slice()) && descsz <= 64 {
-                if let Some(desc) = r.slice(desc_at, u64::from(descsz)) {
-                    info.build_id = Some(hex::encode(desc));
-                    return;
-                }
+            if kind == NT_GNU_BUILD_ID && r.slice(name_at, u64::from(namesz)) == Some(b"GNU\0".as_slice()) && descsz <= 64
+                && let Some(desc) = r.slice(desc_at, u64::from(descsz))
+            {
+                info.build_id = Some(hex::encode(desc));
+                return;
             }
             at = next;
         }
@@ -508,7 +508,7 @@ pub(crate) mod tests {
         fn place(data: &[u8], out: &mut Vec<u8>) -> u64 {
             let at = out.len() as u64;
             out.extend_from_slice(data);
-            while out.len() % 8 != 0 {
+            while !out.len().is_multiple_of(8) {
                 out.push(0);
             }
             at

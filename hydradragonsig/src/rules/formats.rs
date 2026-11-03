@@ -66,11 +66,9 @@ impl FormatCache {
             }
             Format::Pdf if !self.pdf => {
                 self.pdf = true;
-                if report.pdf.is_none() {
-                    if let Some((info, streams)) = pdf::parse_pdf(bytes) {
-                        report.pdf = Some(info);
-                        self.pdf_streams = streams;
-                    }
+                if report.pdf.is_none() && let Some((info, streams)) = pdf::parse_pdf(bytes) {
+                    report.pdf = Some(info);
+                    self.pdf_streams = streams;
                 }
             }
             _ => {}

@@ -162,7 +162,7 @@ fn push_utf16z(out: &mut Vec<u8>, text: &str) {
 }
 
 fn align4(out: &mut Vec<u8>) {
-    while out.len() % 4 != 0 {
+    while !out.len().is_multiple_of(4) {
         out.push(0);
     }
 }
@@ -911,11 +911,9 @@ rules:
         decoded: true
 "#;
     let rules = RuleSet::from_yaml_str_strict(yaml).expect("valid rules");
-    let bytes = format!(
-        "x -enc aQBuAHYAbwBpAGMAZQAgAHIAZQBtAGkAbgBkAGUAcgAgAC0ALQB0AGkAbQBlAHMAdABhAG0AcAAgADIAMAAyADYA\r\n\
+    let bytes = "x -enc aQBuAHYAbwBpAGMAZQAgAHIAZQBtAGkAbgBkAGUAcgAgAC0ALQB0AGkAbQBlAHMAdABhAG0AcAAgADIAMAAyADYA\r\n\
 (installed) FromBase64String(\"Y2RuLWFsZXJ0LXJ1bm5lciBib290\")\r\n\
-(state) Chr(100)&Chr(111)&Chr(119)&Chr(110)&Chr(108)&Chr(111)&Chr(97)&Chr(100)&Chr(45)&Chr(112)&Chr(97)&Chr(121)&Chr(108)&Chr(111)&Chr(99) ok"
-    )
+(state) Chr(100)&Chr(111)&Chr(119)&Chr(110)&Chr(108)&Chr(111)&Chr(97)&Chr(100)&Chr(45)&Chr(112)&Chr(97)&Chr(121)&Chr(108)&Chr(111)&Chr(99) ok".to_string()
     .into_bytes();
     // Both rules must be evaluated: the library default stops at the first detection.
     let options = ScanOptions { stop_on_detection: false, ..ScanOptions::default() };

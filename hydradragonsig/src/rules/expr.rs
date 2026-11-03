@@ -493,7 +493,7 @@ impl Parser<'_> {
                         if ids.len() == before {
                             return Err(format!("`${id}*` matches no atom"));
                         }
-                    } else if self.atom_ids.iter().any(|a| *a == id) {
+                    } else if self.atom_ids.contains(&id) {
                         ids.push(id);
                     } else {
                         return Err(format!("`${id}` names no atom"));
@@ -955,10 +955,10 @@ impl Eval<'_, '_> {
             }
             Node::Cmp(op, a, b) => {
                 // The original evaluator's offset comparisons: any occurrence pair.
-                if matches!(**a, Node::Offset(..)) {
-                    if let (Some(l), Some(r)) = (self.legacy_offsets(a), self.legacy_offsets(b)) {
-                        return bool_val(l.iter().any(|x| r.iter().any(|y| op.holds(*x, *y))));
-                    }
+                if matches!(**a, Node::Offset(..))
+                    && let (Some(l), Some(r)) = (self.legacy_offsets(a), self.legacy_offsets(b))
+                {
+                    return bool_val(l.iter().any(|x| r.iter().any(|y| op.holds(*x, *y))));
                 }
                 match (self.eval(a).int(), self.eval(b).int()) {
                     (Some(x), Some(y)) => bool_val(op.holds(x, y)),
@@ -1064,7 +1064,7 @@ mod tests {
         assert!(!ok("for all i in (0..8) : ( uint8(i) == 0xBA )"));
         assert!(ok("for 2 i in (1..3) : ( @a#i > 100 )"));
         assert!(ok("for all i in (1..#a) : ( !a[i] >= 4 )"));
-        assert!(ok("for any of ($a, $b) : ( @ >= entrypoint and ! < 16 )") == false);
+        assert!(!ok("for any of ($a, $b) : ( @ >= entrypoint and ! < 16 )"));
         assert!(ok("for any of ($a*, $b) : ( # >= 3 and ! > 10 )"));
         assert!(ok("for all of them : ( $ or # == 0 )"));
         assert!(ok("for none of ($c) : ( $ )"));

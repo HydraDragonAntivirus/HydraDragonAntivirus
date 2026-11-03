@@ -270,7 +270,7 @@ fn read_streams_tolerant(data: &[u8], max_stream: usize, max_total: usize) -> Op
     let dir_start = u32_at(data, 0x30)?;
     let dir_bytes = cfb.read_chain(dir_start, MAX_DIR_ENTRIES * DIR_ENTRY_LEN);
     let entries: Vec<Option<DirEntry>> = dir_bytes
-        .chunks_exact(DIR_ENTRY_LEN)
+        .as_chunks::<DIR_ENTRY_LEN>().0.iter()
         .map(|raw| parse_dir_entry(raw, cfb.major_version))
         .collect();
     let root = entries.first()?.as_ref().filter(|e| e.kind == TYPE_ROOT)?.clone();
@@ -403,8 +403,8 @@ pub(crate) mod tests {
         let mut minifat = vec![FREESECT; ss / 4];
         let small_ms = small.len().div_ceil(64).max(1);
         let native_ms = native.len().div_ceil(64).max(1);
-        for i in 0..small_ms {
-            minifat[i] = if i + 1 == small_ms { ENDOFCHAIN } else { (i + 1) as u32 };
+        for (i, slot) in minifat.iter_mut().enumerate().take(small_ms) {
+            *slot = if i + 1 == small_ms { ENDOFCHAIN } else { (i + 1) as u32 };
         }
         for i in 0..native_ms {
             let id = small_ms + i;

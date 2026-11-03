@@ -21,10 +21,12 @@ pub enum Severity {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[derive(Default)]
 pub enum Verdict {
     #[serde(alias = "Trusted", alias = "TRUSTED")]
     Trusted,
     #[serde(alias = "Clean", alias = "CLEAN")]
+    #[default]
     Clean,
     #[serde(alias = "Suspicious", alias = "SUSPICIOUS")]
     Suspicious,
@@ -36,7 +38,9 @@ pub enum Verdict {
 
 /// SDK-style scan result codes for programmatic integration.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Default)]
 pub enum ScanResultCode {
+    #[default]
     Ok = 0,
     Heuristic = 1,
     Malicious = 2,
@@ -210,11 +214,6 @@ pub struct ScanStatistics {
     pub signature_records_used: u32,
 }
 
-impl Default for Verdict {
-    fn default() -> Self {
-        Self::Clean
-    }
-}
 
 impl Verdict {
     pub fn label(self) -> &'static str {
@@ -762,11 +761,6 @@ pub struct MitreTechnique {
     pub confidence: u8,
 }
 
-impl Default for ScanResultCode {
-    fn default() -> Self {
-        Self::Ok
-    }
-}
 
 #[cfg(test)]
 mod tests {

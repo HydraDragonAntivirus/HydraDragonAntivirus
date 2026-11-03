@@ -277,8 +277,8 @@ impl<'a> Tables<'a> {
             at += 4;
         }
         let mut tables = Tables { r, rows, str_wide: heap_sizes & 1 != 0, guid_wide: heap_sizes & 2 != 0, blob_wide: heap_sizes & 4 != 0, at: [None; 0x2d] };
-        for t in 0..0x2d {
-            let size: u64 = SCHEMA[t].iter().map(|c| tables.col_width(*c)).sum();
+        for (t, cols) in SCHEMA.iter().enumerate() {
+            let size: u64 = cols.iter().map(|c| tables.col_width(*c)).sum();
             tables.at[t] = Some((at, size));
             at = at.saturating_add(size.saturating_mul(u64::from(tables.rows[t])));
         }
@@ -462,7 +462,7 @@ fn read_user_strings(heap: &[u8], out: &mut Vec<String>) {
         let start = at + used;
         let Some(end) = start.checked_add(len as usize).filter(|e| *e <= heap.len()) else { break };
         let body = &heap[start..end.saturating_sub(1).max(start)];
-        let units: Vec<u16> = body.chunks_exact(2).map(|c| u16::from_le_bytes([c[0], c[1]])).collect();
+        let units: Vec<u16> = body.as_chunks::<2>().0.iter().map(|c| u16::from_le_bytes([c[0], c[1]])).collect();
         let s = String::from_utf16_lossy(&units);
         if !s.is_empty() {
             out.push(s);

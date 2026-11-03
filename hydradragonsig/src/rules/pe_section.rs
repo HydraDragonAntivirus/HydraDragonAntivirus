@@ -139,15 +139,11 @@ fn check(cond: &RuleCondition, pe: &PeInfo, bytes: &[u8], s: &PeSectionInfo, edg
         return None;
     };
     let mut why = vec![format!("section {}", if s.name.is_empty() { "<empty>" } else { &s.name })];
-    if let Some(exact) = name {
-        if s.name != *exact {
-            return None;
-        }
+    if let Some(exact) = name && s.name != *exact {
+        return None;
     }
-    if let Some(p) = name_regex {
-        if !super::engine::cached_regex(p)?.is_match(&s.name) {
-            return None;
-        }
+    if let Some(p) = name_regex && !super::engine::cached_regex(p)?.is_match(&s.name) {
+        return None;
     }
     if let Some(want_chars) = characteristics {
         if s.characteristics != *want_chars {

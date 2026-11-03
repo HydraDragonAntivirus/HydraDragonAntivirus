@@ -66,12 +66,11 @@ pub fn sha1(bytes: &[u8]) -> [u8; 20] {
     let mut h3: u32 = 0x1032_5476;
     let mut h4: u32 = 0xC3D2_E1F0;
 
-    let mut chunks = bytes.chunks_exact(64);
-    for chunk in &mut chunks {
+    let (blocks, rem) = bytes.as_chunks::<64>();
+    for chunk in blocks {
         sha1_compress(&mut h0, &mut h1, &mut h2, &mut h3, &mut h4, chunk);
     }
 
-    let rem = chunks.remainder();
     let mut tail = [0u8; 128];
     tail[..rem.len()].copy_from_slice(rem);
     tail[rem.len()] = 0x80;
@@ -96,9 +95,9 @@ pub fn sha1(bytes: &[u8]) -> [u8; 20] {
 
 fn sha1_compress(h0: &mut u32, h1: &mut u32, h2: &mut u32, h3: &mut u32, h4: &mut u32, block: &[u8]) {
     let mut w = [0u32; 80];
-    for i in 0..16 {
+    for (i, word) in w.iter_mut().take(16).enumerate() {
         let off = i * 4;
-        w[i] = u32::from_be_bytes([block[off], block[off + 1], block[off + 2], block[off + 3]]);
+        *word = u32::from_be_bytes([block[off], block[off + 1], block[off + 2], block[off + 3]]);
     }
     for i in 16..80 {
         w[i] = (w[i - 3] ^ w[i - 8] ^ w[i - 14] ^ w[i - 16]).rotate_left(1);

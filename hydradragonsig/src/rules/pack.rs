@@ -491,7 +491,7 @@ mod tests {
         assert!(RulePack::parse(&ok).is_ok());
         for (bad, why) in [
             (ok.replace("version: 1", "version: 0"), "positive"),
-            (format!("version: 1\nfiles: []\n"), "no files"),
+            ("version: 1\nfiles: []\n".to_string(), "no files"),
             (ok.replace("r.yaml", "../r.yaml"), "leaves"),
             (ok.replace("r.yaml", "/etc/r.yaml"), "absolute"),
             (ok.replace(&hash, "abc"), "64 hex"),

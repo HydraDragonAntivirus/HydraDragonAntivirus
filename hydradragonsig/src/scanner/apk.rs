@@ -188,10 +188,10 @@ pub(crate) fn parse_central_dir(data: &[u8]) -> Option<Vec<ZipEntryMeta>> {
     }
     let mut i = data.len() - 4;
     loop {
-        if data[i..i + 4] == *b"PK\x05\x06" && i + 22 <= data.len() {
-            if let Some(entries) = parse_central_dir_at(data, i) {
-                return Some(entries);
-            }
+        if data[i..i + 4] == *b"PK\x05\x06" && i + 22 <= data.len()
+            && let Some(entries) = parse_central_dir_at(data, i)
+        {
+            return Some(entries);
         }
         if i == 0 {
             break;
@@ -297,7 +297,7 @@ fn inflate(compressed: &[u8], limit: u64, hint: usize) -> Option<Vec<u8>> {
     if compressed.is_empty() {
         return None;
     }
-    let mut out = Vec::with_capacity(hint.min(1 << 20).max(512));
+    let mut out = Vec::with_capacity(hint.clamp(512, 1 << 20));
     flate2::read::DeflateDecoder::new(compressed).take(limit).read_to_end(&mut out).ok()?;
     (!out.is_empty()).then_some(out)
 }
@@ -621,11 +621,9 @@ fn harvest_manifest_text(buf: &[u8]) -> String {
     const OUT_CAP: usize = 256 * 1024;
     let mut out = String::new();
     let flush = |run: &mut Vec<u8>, out: &mut String| {
-        if (4..=256).contains(&run.len()) {
-            if let Ok(s) = std::str::from_utf8(run) {
-                out.push(' ');
-                out.push_str(s);
-            }
+        if (4..=256).contains(&run.len()) && let Ok(s) = std::str::from_utf8(run) {
+            out.push(' ');
+            out.push_str(s);
         }
         run.clear();
     };

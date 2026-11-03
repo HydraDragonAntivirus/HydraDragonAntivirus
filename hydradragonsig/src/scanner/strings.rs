@@ -120,10 +120,8 @@ pub fn classify_strings(strings: &[StringHit], cfg: &DecodeConfig) -> Vec<Decode
         let is_suspicious = has_http || has_cmd || has_exe || has_reg || has_url || has_ps;
         let is_encoded = encoding.is_some();
 
-        if !is_suspicious && !is_encoded {
-            if raw.len() < cfg.suspicious_short_threshold {
-                continue;
-            }
+        if !is_suspicious && !is_encoded && raw.len() < cfg.suspicious_short_threshold {
+            continue;
         }
 
         match encoding {
@@ -161,7 +159,7 @@ pub fn decode_base64(raw: &str) -> Option<Vec<u8>> {
 /// characters. None for binary data.
 pub fn readable_text(bytes: &[u8]) -> Option<String> {
     let printable = |b: u8| b == b'\t' || b == b'\n' || b == b'\r' || (0x20..=0x7e).contains(&b);
-    if bytes.len() >= 4 && bytes.len() % 2 == 0 && bytes.iter().skip(1).step_by(2).all(|&b| b == 0) {
+    if bytes.len() >= 4 && bytes.len().is_multiple_of(2) && bytes.iter().skip(1).step_by(2).all(|&b| b == 0) {
         let narrow: Vec<u8> = bytes.iter().step_by(2).copied().collect();
         if narrow.iter().all(|&b| printable(b)) {
             return Some(String::from_utf8_lossy(&narrow).into_owned());
@@ -185,24 +183,20 @@ fn extract_ascii(bytes: &[u8], min_len: usize, out: &mut Vec<StringHit>) {
         let printable = b == b'\t' || b == b'\n' || b == b'\r' || (0x20..=0x7e).contains(&b);
         if printable {
             start.get_or_insert(i);
-        } else if let Some(s) = start.take() {
-            if i - s >= min_len {
-                out.push(StringHit {
-                    value: String::from_utf8_lossy(&bytes[s..i]).into_owned(),
-                    offset: s,
-                    encoding: "ascii".into(),
-                });
-            }
-        }
-    }
-    if let Some(s) = start {
-        if bytes.len() - s >= min_len {
+        } else if let Some(s) = start.take() && i - s >= min_len {
             out.push(StringHit {
-                value: String::from_utf8_lossy(&bytes[s..]).into_owned(),
+                value: String::from_utf8_lossy(&bytes[s..i]).into_owned(),
                 offset: s,
                 encoding: "ascii".into(),
             });
         }
+    }
+    if let Some(s) = start && bytes.len() - s >= min_len {
+        out.push(StringHit {
+            value: String::from_utf8_lossy(&bytes[s..]).into_owned(),
+            offset: s,
+            encoding: "ascii".into(),
+        });
     }
 }
 

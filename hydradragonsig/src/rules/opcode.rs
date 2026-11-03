@@ -264,8 +264,11 @@ fn compile_for(pattern: &str, arm: bool) -> Result<Compiled, String> {
     Ok(Compiled { steps })
 }
 
+/// Compiled patterns by (pattern, arm64).
+type PatternCache = Mutex<HashMap<(String, bool), Option<Arc<Compiled>>>>;
+
 fn cached(pattern: &str, arm: bool) -> Option<Arc<Compiled>> {
-    static CACHE: LazyLock<Mutex<HashMap<(String, bool), Option<Arc<Compiled>>>>> = LazyLock::new(Default::default);
+    static CACHE: LazyLock<PatternCache> = LazyLock::new(Default::default);
     let mut c = CACHE.lock().unwrap_or_else(|e| e.into_inner());
     c.entry((pattern.to_string(), arm)).or_insert_with(|| compile_for(pattern, arm).ok().map(Arc::new)).clone()
 }

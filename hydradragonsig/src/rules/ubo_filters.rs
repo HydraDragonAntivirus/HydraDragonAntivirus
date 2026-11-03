@@ -170,12 +170,11 @@ enum Parsed {
 /// whose prefix is not a plain category name, is all path.
 pub(crate) fn split_spec(spec: &str) -> (Option<String>, &str) {
     let spec = spec.trim();
-    if let Some((cat, path)) = spec.split_once('=') {
-        if let Some(cat) = sanitize_category(cat) {
-            if !path.trim().is_empty() && !Path::new(spec).exists() {
-                return (Some(cat), path.trim());
-            }
-        }
+    if let Some((cat, path)) = spec.split_once('=')
+        && let Some(cat) = sanitize_category(cat)
+        && !path.trim().is_empty() && !Path::new(spec).exists()
+    {
+        return (Some(cat), path.trim());
     }
     (None, spec)
 }
@@ -420,12 +419,11 @@ impl UboFilters {
                 continue;
             }
             if let Some(comment) = line.strip_prefix('!') {
-                if let Some((key, value)) = comment.trim().split_once(':') {
-                    if key.trim().eq_ignore_ascii_case("category") {
-                        if let Some(name) = sanitize_category(value) {
-                            category = self.category_id(&name);
-                        }
-                    }
+                if let Some((key, value)) = comment.trim().split_once(':')
+                    && key.trim().eq_ignore_ascii_case("category")
+                    && let Some(name) = sanitize_category(value)
+                {
+                    category = self.category_id(&name);
                 }
                 self.stats.ignored += 1;
                 continue;
@@ -658,10 +656,8 @@ impl UboFilters {
             .split(|b| !b.is_ascii_alphanumeric())
             .filter(|t| !t.is_empty())
         {
-            if seen.insert(token) {
-                if let Some(list) = self.token_index.get(token) {
-                    out.extend_from_slice(list);
-                }
+            if seen.insert(token) && let Some(list) = self.token_index.get(token) {
+                out.extend_from_slice(list);
             }
         }
         out
@@ -803,11 +799,10 @@ fn parse_network(line: &str, category: u16) -> Parsed {
                 Err(_) if !badfilter_pending(options) => return Parsed::Ignored,
                 Err(_) => {}
             },
-            n if NON_BLOCKING_OPTIONS.contains(&n) => {
-                if !badfilter_pending(options) {
+            n if NON_BLOCKING_OPTIONS.contains(&n)
+                && !badfilter_pending(options) => {
                     return Parsed::Ignored;
                 }
-            }
             _ => {}
         }
         kept_options.push(opt.to_ascii_lowercase());

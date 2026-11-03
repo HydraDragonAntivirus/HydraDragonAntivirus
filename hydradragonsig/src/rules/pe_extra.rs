@@ -67,10 +67,8 @@ const RT_NAMES: &[(u32, &str)] = &[
 ];
 
 fn type_label(id: u32, custom: Option<&str>) -> String {
-    if let Some(name) = custom {
-        if !name.is_empty() {
-            return name.to_string();
-        }
+    if let Some(name) = custom && !name.is_empty() {
+        return name.to_string();
     }
     RT_NAMES
         .iter()
@@ -113,10 +111,10 @@ pub fn resource_blobs(
                     match child {
                         pefile_rs::ResourceEntry::Directory(langs) => {
                             for (lang_id, _, child) in langs.entries.iter().take(64) {
-                                if let pefile_rs::ResourceEntry::Data(data) = child {
-                                    if let Some(blob) = blob_from(pe, bytes, data, *type_id, type_name.as_deref(), *name_id, name.as_deref(), *lang_id) {
-                                        out.push(blob);
-                                    }
+                                if let pefile_rs::ResourceEntry::Data(data) = child
+                                    && let Some(blob) = blob_from(pe, bytes, data, *type_id, type_name.as_deref(), *name_id, name.as_deref(), *lang_id)
+                                {
+                                    out.push(blob);
                                 }
                             }
                         }
@@ -149,6 +147,7 @@ pub fn resource_blobs(
 
 /// `data.offset_to_data` is an RVA into the image; remap it through the section
 /// table to a raw file offset for the blob span.
+#[allow(clippy::too_many_arguments)]
 fn blob_from(
     pe: &PeInfo,
     bytes: &[u8],
@@ -669,7 +668,7 @@ fn x509_name_values(name: &[u8]) -> Option<Vec<String>> {
                     0x13 => Some(String::from_utf8_lossy(raw).to_string()),
                     0x0C => Some(String::from_utf8_lossy(raw).to_string()),
                     0x1E => Some(String::from_utf16_lossy(
-                        &raw.chunks_exact(2)
+                        &raw.as_chunks::<2>().0.iter()
                             .map(|c| u16::from_be_bytes([c[0], c[1]]))
                             .collect::<Vec<_>>(),
                     )),

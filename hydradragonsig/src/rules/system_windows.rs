@@ -220,7 +220,7 @@ pub fn data_preview(kind: u32, raw: &[u8]) -> String {
 
 fn utf16_text(raw: &[u8], multi: bool) -> String {
     let units: Vec<u16> = raw
-        .chunks_exact(2)
+        .as_chunks::<2>().0.iter()
         .map(|c| u16::from_le_bytes([c[0], c[1]]))
         .collect();
     let joined = String::from_utf16_lossy(&units);
@@ -263,11 +263,9 @@ pub fn hosts_scan(
         let Some(ip) = parts.next() else { continue };
         let mut matched_host: Option<String> = None;
         for host in parts {
-            if let Some(regex) = host_regex {
-                if regex.is_match(host) {
-                    matched_host = Some(host.to_string());
-                    break;
-                }
+            if let Some(regex) = host_regex && regex.is_match(host) {
+                matched_host = Some(host.to_string());
+                break;
             }
         }
         let ip_ok = ip_glob.map(|glob| glob_match(glob, ip)).unwrap_or(true);
@@ -585,15 +583,11 @@ fn eval_registry_values(
         if out.len() >= MAX_HITS {
             return;
         }
-        if let Some(flag) = value_filter {
-            if !flag.is_match(&name) {
-                continue;
-            }
+        if let Some(flag) = value_filter && !flag.is_match(&name) {
+            continue;
         }
-        if let Some(hex_glob) = &query.data_hex {
-            if !is_binary_kind(kind) || !glob_match(hex_glob, &lower_hex(&raw)) {
-                continue;
-            }
+        if let Some(hex_glob) = &query.data_hex && (!is_binary_kind(kind) || !glob_match(hex_glob, &lower_hex(&raw))) {
+            continue;
         }
         if let Some(data_re) = data_filter {
             if is_binary_kind(kind) {
@@ -604,15 +598,11 @@ fn eval_registry_values(
                 continue;
             }
         }
-        if let Some(want) = &query.md5 {
-            if md5_hex(&raw) != want.to_ascii_lowercase() {
-                continue;
-            }
+        if let Some(want) = &query.md5 && md5_hex(&raw) != want.to_ascii_lowercase() {
+            continue;
         }
-        if let Some(want) = &query.sha256 {
-            if sha256_hex(&raw) != want.to_ascii_lowercase() {
-                continue;
-            }
+        if let Some(want) = &query.sha256 && sha256_hex(&raw) != want.to_ascii_lowercase() {
+            continue;
         }
         out.push(RegHit {
             key: leaf_label.to_string(),
@@ -645,9 +635,7 @@ fn registry_value_evidence_uncached(_query: &RegistryQuery) -> Option<String> {
 
 #[cfg(windows)]
 fn registry_value_evidence_uncached(query: &RegistryQuery) -> Option<String> {
-    let Some((label, hive, leaves)) = resolve_leaves(&query.key) else {
-        return None;
-    };
+    let (label, hive, leaves) = resolve_leaves(&query.key)?;
     if leaves.is_empty() {
         return None;
     }
@@ -711,9 +699,7 @@ pub fn registry_key_evidence(key: &str, recursive: bool, value_pattern: Option<&
         }
         #[cfg(windows)]
         {
-            let Some((label, hive, leaves)) = resolve_leaves(key) else {
-                return None;
-            };
+            let (label, hive, leaves) = resolve_leaves(key)?;
             if leaves.is_empty() {
                 return None;
             }
@@ -768,6 +754,7 @@ pub fn registry_key_evidence(key: &str, recursive: bool, value_pattern: Option<&
 
 /// Depth-first recursive-walk collector (bounded).
 #[cfg(windows)]
+#[allow(clippy::too_many_arguments)]
 fn walk_tree(
     hive: win::HK,
     leaf: &str,
@@ -900,10 +887,8 @@ fn sector_device_path(spec: &str) -> Option<String> {
     if let Some(rest) = lower.strip_prefix("volume") {
         let tail = rest.trim_start_matches([':', ' ']).trim();
         let mut it = tail.chars();
-        if let (Some(c), None) = (it.next(), it.next()) {
-            if c.is_ascii_alphabetic() {
-                return Some(format!("\\\\.\\{}:", c.to_ascii_uppercase()));
-            }
+        if let (Some(c), None) = (it.next(), it.next()) && c.is_ascii_alphabetic() {
+            return Some(format!("\\\\.\\{}:", c.to_ascii_uppercase()));
         }
     }
     None
@@ -934,9 +919,7 @@ pub fn sector_pattern_evidence(
         }
         #[cfg(windows)]
         {
-            let Some(bytes) = read_sectors(&device, query.lba, query.count) else {
-                return None;
-            };
+            let bytes = read_sectors(&device, query.lba, query.count)?;
             compare_sectors(&device, query, &bytes, patterns, min, excludes)
         }
     })
@@ -1096,7 +1079,7 @@ pub fn parse_attr_spec(spec: &str) -> Option<(u32, u32)> {
     let mut req = 0u32;
     let mut forbid = 0u32;
     let bytes = spec.trim().as_bytes();
-    if bytes.is_empty() || bytes.len() % 2 != 0 {
+    if bytes.is_empty() || !bytes.len().is_multiple_of(2) {
         return None;
     }
     let mut idx = 0usize;

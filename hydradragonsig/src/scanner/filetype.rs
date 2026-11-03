@@ -9,17 +9,14 @@ use std::path::Path;
 use zip::ZipArchive;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Default)]
 enum FormatValidation {
+    #[default]
     NotDetected,
     Valid,
     Broken,
 }
 
-impl Default for FormatValidation {
-    fn default() -> Self {
-        Self::NotDetected
-    }
-}
 
 #[derive(Debug, Clone, Default)]
 struct BinaryFormatValidation {
@@ -45,11 +42,10 @@ pub fn classify_path(path: &Path) -> Result<FileTypeInfo> {
 }
 
 pub fn classify_bytes(path: &Path, data: &[u8]) -> FileTypeInfo {
-    let mut info = FileTypeInfo::default();
-    info.extension = path
-        .extension()
-        .and_then(|ext| ext.to_str())
-        .map(|ext| ext.to_ascii_lowercase());
+    let mut info = FileTypeInfo {
+        extension: path.extension().and_then(|ext| ext.to_str()).map(|ext| ext.to_ascii_lowercase()),
+        ..FileTypeInfo::default()
+    };
 
     let validation = inspect_binary_formats(data);
     apply_binary_validation(&mut info, validation);

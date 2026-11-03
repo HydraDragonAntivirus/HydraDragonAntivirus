@@ -55,7 +55,7 @@ impl IconFingerprints {
         // drag the DCT toward black.
         let pixel_count = (side as usize) * (side as usize);
         let mut rgb = Vec::with_capacity(pixel_count * 3);
-        for px in icon.rgba.chunks_exact(4).take(pixel_count) {
+        for px in icon.rgba.as_chunks::<4>().0.iter().take(pixel_count) {
             let a = px[3] as u32;
             for &channel in &px[..3] {
                 let c = channel as u32 * a + 255 * (255 - a);
@@ -96,7 +96,7 @@ fn dhash_8x8(rgba: &[u8], side: u32) -> u64 {
     const LUMA: [f32; 3] = [299.0 / 1000.0, 587.0 / 1000.0, 114.0 / 1000.0];
     let n = side as usize;
     let mut gray = vec![0f32; n * n];
-    for (i, px) in rgba.chunks_exact(4).take(n * n).enumerate() {
+    for (i, px) in rgba.as_chunks::<4>().0.iter().take(n * n).enumerate() {
         gray[i] = LUMA[0] * px[0] as f32 + LUMA[1] * px[1] as f32 + LUMA[2] * px[2] as f32;
     }
 
@@ -315,7 +315,7 @@ fn decode_dib(pe: &pefile_rs::PE, rva: u32, declared_size: u32) -> Option<Decode
             let entries = 1usize << depth;
             let palette_bytes = entries * 4;
             let pal = data.get(offset..offset + palette_bytes)?;
-            for (i, chunk) in pal.chunks_exact(4).enumerate() {
+            for (i, chunk) in pal.as_chunks::<4>().0.iter().enumerate() {
                 palette[i] = u32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]);
             }
             offset += palette_bytes;
@@ -570,7 +570,7 @@ mod tests {
             })
             .collect();
         let darker: Vec<u8> = base
-            .chunks_exact(4)
+            .as_chunks::<4>().0.iter()
             .flat_map(|p| [(p[0] as u32 * 3 / 4) as u8, p[1], p[2], 0xff])
             .collect();
 

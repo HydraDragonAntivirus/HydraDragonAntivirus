@@ -92,26 +92,24 @@ pub fn script_decoded_strings(strings: &[StringHit], cfg: &ScriptDecodeConfig) -
         let raw = hit.value.as_str();
 
         for cap in PS_ENCODED_COMMAND_RE.captures_iter(raw) {
-            if let Some(token) = cap.get(1) {
-                if let Some(text) = crate::scanner::strings::decode_base64(&b64_clean(token.as_str()))
+            if let Some(token) = cap.get(1)
+                && let Some(text) = crate::scanner::strings::decode_base64(&b64_clean(token.as_str()))
                     .as_deref()
                     .and_then(crate::scanner::strings::readable_text)
                 {
                     flag("ps_encodedcommand", raw, &text, cfg, &mut seen, &mut out);
                 }
-            }
         }
 
         for (re, method) in [(&*PS_FROM_BASE64_RE, "ps_frombase64string"), (&*JS_ATOB_RE, "js_atob")] {
             for cap in re.captures_iter(raw) {
-                if let Some(token) = cap.get(1) {
-                    if let Some(text) = crate::scanner::strings::decode_base64(&b64_clean(token.as_str()))
+                if let Some(token) = cap.get(1)
+                    && let Some(text) = crate::scanner::strings::decode_base64(&b64_clean(token.as_str()))
                         .as_deref()
                         .and_then(crate::scanner::strings::readable_text)
                     {
                         flag(method, raw, &text, cfg, &mut seen, &mut out);
                     }
-                }
             }
         }
 

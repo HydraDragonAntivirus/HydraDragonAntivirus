@@ -193,7 +193,7 @@ fn hex_string(b: &[u8], start: usize) -> Option<(Vec<u8>, usize)> {
 /// Text of a PDF string (UTF-16BE with BOM, else Latin-1).
 fn pdf_text(bytes: &[u8]) -> String {
     if bytes.starts_with(&[0xfe, 0xff]) {
-        let units: Vec<u16> = bytes[2..].chunks_exact(2).map(|c| u16::from_be_bytes([c[0], c[1]])).collect();
+        let units: Vec<u16> = bytes[2..].as_chunks::<2>().0.iter().map(|c| u16::from_be_bytes([c[0], c[1]])).collect();
         return String::from_utf16_lossy(&units);
     }
     bytes.iter().map(|&c| c as char).collect()

@@ -434,10 +434,8 @@ fn parse_code_signature(blob: &[u8]) -> MachoSignature {
                 if let Some(ident) = cd.u32(20) {
                     sig.identifier = cd.cstr(u64::from(ident), MAX_NAME).filter(|s| !s.is_empty());
                 }
-                if version >= 0x20200 {
-                    if let Some(team) = cd.u32(48).filter(|t| *t != 0) {
-                        sig.team_id = cd.cstr(u64::from(team), MAX_NAME).filter(|s| !s.is_empty());
-                    }
+                if version >= 0x20200 && let Some(team) = cd.u32(48).filter(|t| *t != 0) {
+                    sig.team_id = cd.cstr(u64::from(team), MAX_NAME).filter(|s| !s.is_empty());
                 }
             }
             CSMAGIC_EMBEDDED_ENTITLEMENTS => {

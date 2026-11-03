@@ -159,9 +159,9 @@ fn getmetrics(side: u32, imagedata: &mut [u32]) -> Metrics {
 
     for y in 0..=side - ksize {
         for x in 0..=side - ksize {
-            let colsum;
-            let lightsum;
-            if x == 0 && y == 0 {
+            
+            
+            let (colsum, lightsum) = if x == 0 && y == 0 {
                 let mut cs = 0;
                 let mut ls = 0;
                 for yk in 0..ksize {
@@ -174,8 +174,7 @@ fn getmetrics(side: u32, imagedata: &mut [u32]) -> Metrics {
                         }
                     }
                 }
-                colsum = cs;
-                lightsum = ls;
+                (cs, ls)
             } else if x != 0 {
                 let mut cs = col[y * side + x - 1];
                 let mut ls = light[y * side + x - 1];
@@ -190,8 +189,7 @@ fn getmetrics(side: u32, imagedata: &mut [u32]) -> Metrics {
                         count_color(&mut res, r, g, b, delta);
                     }
                 }
-                colsum = cs;
-                lightsum = ls;
+                (cs, ls)
             } else {
                 let mut cs = col[(y - 1) * side];
                 let mut ls = light[(y - 1) * side];
@@ -206,9 +204,8 @@ fn getmetrics(side: u32, imagedata: &mut [u32]) -> Metrics {
                         count_color(&mut res, r, g, b, delta);
                     }
                 }
-                colsum = cs;
-                lightsum = ls;
-            }
+                (cs, ls)
+            };
             col[y * side + x] = colsum;
             light[y * side + x] = lightsum;
         }
@@ -361,30 +358,30 @@ fn getmetrics(side: u32, imagedata: &mut [u32]) -> Metrics {
     // Edge area sums, slid over the blurred edge map.
     for y in 0..=side - ksize {
         for x in 0..=side - 1 - ksize {
-            let sum;
-            if x == 0 && y == 0 {
+            
+            let sum = if x == 0 && y == 0 {
                 let mut s = 0;
                 for yk in 0..ksize {
                     for xk in 0..ksize {
                         s += imagedata[(y + yk) * side + x + xk] & 0xff;
                     }
                 }
-                sum = s;
+                s
             } else if x != 0 {
                 let mut s = col[y * side + x - 1];
                 for yk in 0..ksize {
                     s -= imagedata[(y + yk) * side + x - 1] & 0xff;
                     s += imagedata[(y + yk) * side + x + ksize - 1] & 0xff;
                 }
-                sum = s;
+                s
             } else {
                 let mut s = col[(y - 1) * side];
                 for xk in 0..ksize {
                     s -= imagedata[(y - 1) * side + xk] & 0xff;
                     s += imagedata[(y + ksize - 1) * side + xk] & 0xff;
                 }
-                sum = s;
-            }
+                s
+            };
             col[y * side + x] = sum;
         }
     }
@@ -738,7 +735,7 @@ pub fn compute_metrics(icon: &DecodedIcon) -> Option<(u32, Metrics)> {
     // RGBA -> ARGB.
     let pixels = (width as usize) * (height as usize);
     let mut imagedata: Vec<u32> = Vec::with_capacity(pixels);
-    for px in icon.rgba.chunks_exact(4).take(pixels) {
+    for px in icon.rgba.as_chunks::<4>().0.iter().take(pixels) {
         imagedata.push(
             ((px[3] as u32) << 24) | ((px[0] as u32) << 16) | ((px[1] as u32) << 8) | px[2] as u32,
         );

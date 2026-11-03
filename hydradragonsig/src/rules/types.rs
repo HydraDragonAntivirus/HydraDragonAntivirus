@@ -288,6 +288,9 @@ pub struct SignatureAtom {
     pub base64wide: bool,
 }
 
+// Variants are kept unboxed: rules are built and matched by field from YAML
+// and by library users; one condition per variant is small next to a scan.
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum RuleCondition {
