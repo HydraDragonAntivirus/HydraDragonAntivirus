@@ -219,6 +219,8 @@ impl PeStringRules {
             mitre_techniques: Vec::new(),
             parent: parent.cloned(),
             behavior: behavior.cloned(),
+            dex: None,
+            apk: None,
         };
         let options = RuleEvalOptions {
             profile_rules: false,

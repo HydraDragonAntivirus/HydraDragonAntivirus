@@ -24,6 +24,7 @@ use crate::cache::Sha;
 const WRITE_CACHE_KIB: i64 = 64 * 1024;
 const LOOKUP_CACHE_KIB: i64 = 32 * 1024;
 const SCAN_CACHE_KIB: i64 = 8 * 1024;
+const WAL_CHECKPOINT_PAGES: i64 = 10_000;
 
 pub struct InsightDb {
     path: PathBuf,
@@ -86,6 +87,7 @@ impl InsightDb {
         tune(&conn, WRITE_CACHE_KIB)?;
         conn.pragma_update(None, "journal_mode", "WAL")?;
         conn.pragma_update(None, "synchronous", "NORMAL")?;
+        conn.pragma_update(None, "wal_autocheckpoint", WAL_CHECKPOINT_PAGES)?;
         conn.execute_batch(
             "CREATE TABLE IF NOT EXISTS insights (
                  sha  BLOB PRIMARY KEY,
@@ -197,9 +199,15 @@ impl InsightDb {
                      verdict = excluded.verdict, threat = excluded.threat, first_seen = excluded.first_seen,
                      last_seen = excluded.last_seen, seen_count = excluded.seen_count, cols_seq = excluded.cols_seq",
             )?;
-            for row in rows {
+            let mut same_columns = tx.prepare_cached(
+                "UPDATE insights SET seq = ?2, data = ?3, last_seen = ?7, seen_count = ?8, cols_seq = ?2
+                 WHERE sha = ?1 AND verdict IS ?4 AND threat IS ?5 AND first_seen IS ?6",
+            )?;
+            let mut ordered: Vec<&InsightRow> = rows.iter().collect();
+            ordered.sort_by_key(|r| r.sha);
+            for row in ordered {
                 seq += 1;
-                st.execute(params![
+                let values = params![
                     &row.sha[..],
                     seq,
                     row.data,
@@ -208,7 +216,10 @@ impl InsightDb {
                     row.first_seen,
                     row.last_seen,
                     row.seen_count
-                ])?;
+                ];
+                if same_columns.execute(values)? == 0 {
+                    st.execute(values)?;
+                }
                 write_sightings(&tx, row)?;
             }
         }
@@ -292,12 +303,32 @@ impl InsightDb {
 }
 
 fn write_sightings(tx: &Connection, row: &InsightRow) -> Res<()> {
-    tx.prepare_cached("DELETE FROM sightings WHERE sha = ?1")?.execute([&row.sha[..]])?;
-    let mut st = tx.prepare_cached(
-        "INSERT OR REPLACE INTO sightings(sha, ip, path, first_seen, last_seen, count) VALUES(?1, ?2, ?3, ?4, ?5, ?6)",
+    let mut stored: std::collections::HashMap<(String, String), (String, String, i64)> = std::collections::HashMap::new();
+    {
+        let mut read = tx.prepare_cached("SELECT ip, path, first_seen, last_seen, count FROM sightings WHERE sha = ?1")?;
+        let rows = read.query_map([&row.sha[..]], |r| Ok(((r.get(0)?, r.get(1)?), (r.get(2)?, r.get(3)?, r.get(4)?))))?;
+        for r in rows {
+            let (key, value) = r?;
+            stored.insert(key, value);
+        }
+    }
+    let mut write = tx.prepare_cached(
+        "INSERT INTO sightings(sha, ip, path, first_seen, last_seen, count) VALUES(?1, ?2, ?3, ?4, ?5, ?6)
+         ON CONFLICT(sha, ip, path) DO UPDATE SET first_seen = excluded.first_seen, last_seen = excluded.last_seen, count = excluded.count",
     )?;
     for s in &row.sightings {
-        st.execute(params![&row.sha[..], s.ip, s.path, s.first_seen, s.last_seen, s.count])?;
+        let unchanged = stored
+            .remove(&(s.ip.clone(), s.path.clone()))
+            .is_some_and(|(first, last, count)| first == s.first_seen && last == s.last_seen && count == s.count);
+        if !unchanged {
+            write.execute(params![&row.sha[..], s.ip, s.path, s.first_seen, s.last_seen, s.count])?;
+        }
+    }
+    if !stored.is_empty() {
+        let mut remove = tx.prepare_cached("DELETE FROM sightings WHERE sha = ?1 AND ip = ?2 AND path = ?3")?;
+        for (ip, path) in stored.keys() {
+            remove.execute(params![&row.sha[..], ip, path])?;
+        }
     }
     Ok(())
 }
@@ -354,6 +385,40 @@ mod tests {
         db.upsert_batch(&[row(a, "y", "clean", &[("1.1.1.1", "C:\\b")])]).unwrap();
         let n: i64 = db.lookup(|c| c.query_row("SELECT COUNT(*) FROM sightings WHERE sha = ?1", [&a[..]], |r| r.get(0))).unwrap();
         assert_eq!(n, 1);
+    }
+
+    #[test]
+    fn only_changed_sightings_are_written() {
+        let db = InsightDb::open(&tmp("sight_diff")).unwrap();
+        let a = [5u8; 32];
+        let sighting = |ip: &str, last: &str, count: i64| SightingRow {
+            ip: ip.into(),
+            path: "C:\\x".into(),
+            first_seen: "t0".into(),
+            last_seen: last.into(),
+            count,
+        };
+        let mut r = row(a, "x", "clean", &[]);
+        r.sightings = vec![sighting("1.1.1.1", "t1", 1), sighting("2.2.2.2", "t1", 1), sighting("3.3.3.3", "t1", 1)];
+        db.upsert_batch(&[r]).unwrap();
+        let mut r = row(a, "y", "clean", &[]);
+        r.sightings = vec![sighting("1.1.1.1", "t2", 2), sighting("2.2.2.2", "t1", 1), sighting("4.4.4.4", "t2", 1)];
+        db.upsert_batch(&[r]).unwrap();
+        let rows: Vec<(String, String, i64)> = db
+            .lookup(|c| {
+                let mut st = c.prepare("SELECT ip, last_seen, count FROM sightings WHERE sha = ?1 ORDER BY ip")?;
+                let v = st.query_map([&a[..]], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?.collect();
+                v
+            })
+            .unwrap();
+        assert_eq!(
+            rows,
+            vec![
+                ("1.1.1.1".to_string(), "t2".to_string(), 2),
+                ("2.2.2.2".to_string(), "t1".to_string(), 1),
+                ("4.4.4.4".to_string(), "t2".to_string(), 1)
+            ]
+        );
     }
 
     #[test]

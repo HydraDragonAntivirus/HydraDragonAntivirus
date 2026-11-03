@@ -1439,7 +1439,7 @@ fn resync(
 ) {
     let mut g = hot.write().unwrap();
     if !crate::config::is_standby() {
-        let rows = take_dirty(&mut g);
+        let rows = rows_of(&take_dirty(&mut g));
         write_rows(db, &rows, &mut g);
     }
     if drop_clean {
@@ -1449,14 +1449,18 @@ fn resync(
 }
 
 /// The records marked `dirty`, as rows to write; the mark is cleared.
-fn take_dirty(g: &mut HashMap<Sha, ThreatInsight>) -> Vec<crate::insight_db::InsightRow> {
+fn take_dirty(g: &mut HashMap<Sha, ThreatInsight>) -> Vec<(Sha, ThreatInsight)> {
     g.iter_mut()
         .filter(|(_, i)| i.dirty)
-        .filter_map(|(sha, i)| {
+        .map(|(sha, i)| {
             i.dirty = false;
-            insight_row(*sha, i)
+            (*sha, i.clone())
         })
         .collect()
+}
+
+fn rows_of(taken: &[(Sha, ThreatInsight)]) -> Vec<crate::insight_db::InsightRow> {
+    taken.iter().filter_map(|(sha, i)| insight_row(*sha, i)).collect()
 }
 
 /// Writes the rows; a batch that fails is marked `dirty` again (in `g`) so the next
@@ -1486,7 +1490,7 @@ enum WriterMsg {
 }
 
 /// Most records written in one transaction.
-const WRITE_BATCH: usize = 2048;
+const WRITE_BATCH: usize = 8192;
 
 fn start_batch_writer(
     db: Arc<crate::insight_db::InsightDb>,
@@ -1529,7 +1533,9 @@ fn start_batch_writer(
 /// asked for stay while there is room: they carry `pending_uploads`, which is not
 /// written).
 fn flush(db: &crate::insight_db::InsightDb, hot: &RwLock<HashMap<Sha, ThreatInsight>>) {
-    let rows = take_dirty(&mut hot.write().unwrap());
+    let taken = take_dirty(&mut hot.write().unwrap());
+    let rows = rows_of(&taken);
+    drop(taken);
     let failed = failed_rows(db, &rows);
     drop(rows);
     let mut g = hot.write().unwrap();
@@ -1539,7 +1545,16 @@ fn flush(db: &crate::insight_db::InsightDb, hot: &RwLock<HashMap<Sha, ThreatInsi
         }
     }
     if g.len() > HOT_MAX {
-        g.retain(|_, i| i.dirty || i.pending_uploads > 0);
+        let excess = g.len() - HOT_MAX * 3 / 4;
+        let evict: Vec<Sha> = g
+            .iter()
+            .filter(|(_, i)| !i.dirty && i.pending_uploads == 0)
+            .map(|(sha, _)| *sha)
+            .take(excess)
+            .collect();
+        for sha in evict {
+            g.remove(&sha);
+        }
     }
     if g.len() > 4 * HOT_MAX {
         g.retain(|_, i| i.dirty);
