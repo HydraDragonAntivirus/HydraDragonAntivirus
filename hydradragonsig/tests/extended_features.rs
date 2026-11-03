@@ -17,7 +17,7 @@ fn scan_bytes(bytes: &[u8], rules: &RuleSet, options: &ScanOptions) -> ScanRepor
 /// Build a minimal valid 32-bit PE with:
 /// - Section 1 (`.text`): VA 0x1000, raw offset 0x200, raw size 0x200 (EP at RVA 0x1000)
 /// - Optional Section 2 (`.rsrc`): VA 0x2000, raw offset 0x400, raw size 0x200
-///   holding `RT_RCDATA` (id 10) and `RT_VERSION` (id 14)
+///   holding `RT_RCDATA` (id 10) and `RT_VERSION` (id 16)
 /// - Optional overlay bytes after the last section
 /// - Optional `WIN_CERTIFICATE` (PKCS#7 SignedData) appended in the security directory
 fn build_test_pe(with_resources: bool, with_overlay: bool, signer_cn: Option<&str>) -> Vec<u8> {
@@ -91,13 +91,13 @@ fn build_test_pe(with_resources: bool, with_overlay: bool, signer_cn: Option<&st
     // Populate .rsrc at file offset 0x400 (RVA 0x2000)
     if with_resources {
         let base = 0x400usize;
-        // Root directory at +0x00: 2 ID entries (type 10 = RT_RCDATA, type 14 = RT_VERSION)
+        // Root directory at +0x00: 2 ID entries (type 10 = RT_RCDATA, type 16 = RT_VERSION)
         buf[base + 14..base + 16].copy_from_slice(&2u16.to_le_bytes());
         // Entry 0: id=10, subdir at +0x20
         buf[base + 16..base + 20].copy_from_slice(&10u32.to_le_bytes());
         buf[base + 20..base + 24].copy_from_slice(&(0x8000_0020u32).to_le_bytes());
-        // Entry 1: id=14, subdir at +0x38
-        buf[base + 24..base + 28].copy_from_slice(&14u32.to_le_bytes());
+        // Entry 1: id=16, subdir at +0x38
+        buf[base + 24..base + 28].copy_from_slice(&16u32.to_le_bytes());
         buf[base + 28..base + 32].copy_from_slice(&(0x8000_0038u32).to_le_bytes());
 
         // Name directory for type 10 at +0x20: 1 ID entry (name=1 -> subdir +0x50)
@@ -105,7 +105,7 @@ fn build_test_pe(with_resources: bool, with_overlay: bool, signer_cn: Option<&st
         buf[base + 0x20 + 16..base + 0x20 + 20].copy_from_slice(&1u32.to_le_bytes());
         buf[base + 0x20 + 20..base + 0x20 + 24].copy_from_slice(&(0x8000_0050u32).to_le_bytes());
 
-        // Name directory for type 14 at +0x38: 1 ID entry (name=1 -> subdir +0x68)
+        // Name directory for type 16 at +0x38: 1 ID entry (name=1 -> subdir +0x68)
         buf[base + 0x38 + 14..base + 0x38 + 16].copy_from_slice(&1u16.to_le_bytes());
         buf[base + 0x38 + 16..base + 0x38 + 20].copy_from_slice(&1u32.to_le_bytes());
         buf[base + 0x38 + 20..base + 0x38 + 24].copy_from_slice(&(0x8000_0068u32).to_le_bytes());
@@ -115,7 +115,7 @@ fn build_test_pe(with_resources: bool, with_overlay: bool, signer_cn: Option<&st
         buf[base + 0x50 + 16..base + 0x50 + 20].copy_from_slice(&0x0409u32.to_le_bytes());
         buf[base + 0x50 + 20..base + 0x50 + 24].copy_from_slice(&0x0080u32.to_le_bytes());
 
-        // Lang directory for type 14 at +0x68: 1 ID entry (lang=0x0409 -> data entry +0x90)
+        // Lang directory for type 16 at +0x68: 1 ID entry (lang=0x0409 -> data entry +0x90)
         buf[base + 0x68 + 14..base + 0x68 + 16].copy_from_slice(&1u16.to_le_bytes());
         buf[base + 0x68 + 16..base + 0x68 + 20].copy_from_slice(&0x0409u32.to_le_bytes());
         buf[base + 0x68 + 20..base + 0x68 + 24].copy_from_slice(&0x0090u32.to_le_bytes());
@@ -314,6 +314,38 @@ rules:
     assert_eq!(report.verdict, Verdict::Malware);
     assert_eq!(report.findings.len(), 1);
     assert_eq!(report.findings[0].rule_id, "TEST-PE-ANCHORS");
+}
+
+#[test]
+fn version_info_numeric_bounds() {
+    // The fixture states FileVersion "1.2.3.4".
+    let pe = build_test_pe(true, false, Some("Acme Signer Ltd"));
+    let yaml = r#"
+rules:
+  - id: TEST-VER-IN
+    title: "1.2 up to 1.2.3.4"
+    severity: low
+    conditions:
+      - type: version_info
+        file_version_min: "1.2"
+        file_version_max: "1.2.3.4"
+  - id: TEST-VER-ABOVE
+    title: "1.10 and newer (above 1.2 as numbers, below it as text)"
+    severity: low
+    conditions:
+      - type: version_info
+        file_version_min: "1.10"
+  - id: TEST-VER-NO-PRODUCT
+    title: "the fixture has no product version"
+    severity: low
+    conditions:
+      - type: version_info
+        product_version_min: "0"
+"#;
+    let rules = RuleSet::from_yaml_str_strict(yaml).expect("valid rules");
+    let rep = scan_bytes(&pe, &rules, &ScanOptions::default());
+    let ids: Vec<&str> = rep.findings.iter().map(|f| f.rule_id.as_str()).collect();
+    assert_eq!(ids, ["TEST-VER-IN"]);
 }
 
 #[test]
@@ -1178,4 +1210,243 @@ rules:
 
     let off = scan_bytes(&doc, &rules, &ScanOptions { decode_obfuscated_strings: false, ..ScanOptions::default() });
     assert!(off.decoded_strings.iter().all(|d| d.method != "vba_source"), "--no-decode skips macro sources");
+}
+// ---------------------------------------------------------------------------
+// `bytecode` condition: a hand-encoded `.cbc` (ClamBC nibble format)
+// ---------------------------------------------------------------------------
+
+#[cfg(feature = "bytecode")]
+mod cbc {
+    /// `readNumber`: `0x60+count`, then the nibbles low first, each `0x60|nib`.
+    pub fn num(out: &mut Vec<u8>, n: u64) {
+        let mut nibbles = Vec::new();
+        let mut v = n;
+        while v != 0 {
+            nibbles.push((v & 0xf) as u8);
+            v >>= 4;
+        }
+        out.push(0x60 + nibbles.len() as u8);
+        out.extend(nibbles.into_iter().map(|b| 0x60 | b));
+    }
+
+    pub fn fixed(out: &mut Vec<u8>, n: u64, width: usize) {
+        for i in 0..width {
+            out.push(0x60 | ((n >> (4 * i)) & 0xf) as u8);
+        }
+    }
+
+    pub fn string(out: &mut Vec<u8>, s: &str) {
+        out.push(b'|');
+        let mut data = s.as_bytes().to_vec();
+        if !s.is_empty() {
+            data.push(0);
+        }
+        num(out, data.len() as u64);
+        for b in data {
+            out.push(0x60 | (b & 0xf));
+            out.push(0x60 | (b >> 4));
+        }
+    }
+
+    /// An inline constant operand of `bits` width.
+    pub fn konst(out: &mut Vec<u8>, v: u64, bits: u64) {
+        let at = out.len();
+        num(out, v);
+        out[at] &= !0x20;
+        fixed(out, bits / 8, 1);
+    }
+
+    /// v0 = file_byteat(0); v1 = file_byteat(1); v2 = hds_sections();
+    /// v3 = hds_param(0); return v0 + v1 + v2 + v3.
+    /// `file_byteat` is ClamAV API 17; `hds_sections` (201) and `hds_param` (202)
+    /// are new APIs, past ClamAV's table: the rule answers them.
+    pub fn program() -> String {
+        let mut lines: Vec<Vec<u8>> = Vec::new();
+        let mut h = b"ClamBC".to_vec();
+        num(&mut h, 7); // format level
+        num(&mut h, 0); // timestamp
+        string(&mut h, "");
+        for _ in 0..5 {
+            num(&mut h, 0); // target exclude, kind, min/max func level, max resource
+        }
+        string(&mut h, "");
+        num(&mut h, 7); // types: 4 static + i32(i32) + i32() + one unused
+        num(&mut h, 1); // functions
+        num(&mut h, 0x53e5_493e_9f3d_1c30);
+        fixed(&mut h, 42, 2);
+        h.extend_from_slice(b":4096");
+        lines.push(h);
+        lines.push(b"HydraTest.Bytecode".to_vec());
+        let mut t = b"T".to_vec();
+        fixed(&mut t, 69, 2);
+        for proto in [&[32u64, 32][..], &[32]] {
+            fixed(&mut t, 1, 1); // function type
+            num(&mut t, proto.len() as u64);
+            for &ty in proto {
+                num(&mut t, ty);
+            }
+        }
+        lines.push(t);
+        let mut e = b"E".to_vec();
+        num(&mut e, 202);
+        num(&mut e, 3);
+        for (id, tid, name) in [(17u64, 69u64, "file_byteat"), (201, 70, "hds_sections"), (202, 69, "hds_param")] {
+            num(&mut e, id);
+            num(&mut e, tid);
+            string(&mut e, name);
+        }
+        lines.push(e);
+        let mut g = b"G".to_vec();
+        num(&mut g, 0);
+        num(&mut g, 0);
+        lines.push(g);
+        let mut a = b"A".to_vec();
+        fixed(&mut a, 0, 1); // no arguments
+        num(&mut a, 32);
+        a.push(b'L');
+        num(&mut a, 7);
+        for _ in 0..7 {
+            num(&mut a, 32);
+            fixed(&mut a, 0, 1);
+        }
+        a.push(b'F');
+        num(&mut a, 8); // instructions
+        num(&mut a, 1); // basic blocks
+        lines.push(a);
+        let mut b = b"B".to_vec();
+        let call = |b: &mut Vec<u8>, dest: u64, api: u64, arg: Option<u64>| {
+            num(b, 32);
+            num(b, dest);
+            fixed(b, 33, 2); // CALL_API
+            fixed(b, u64::from(arg.is_some()), 1);
+            num(b, api);
+            if let Some(v) = arg {
+                konst(b, v, 32);
+            }
+        };
+        call(&mut b, 0, 17, Some(0));
+        call(&mut b, 1, 17, Some(1));
+        call(&mut b, 2, 201, None);
+        call(&mut b, 3, 202, Some(0));
+        for (dest, x, y) in [(4u64, 0u64, 1u64), (5, 4, 2), (6, 5, 3)] {
+            num(&mut b, 32);
+            num(&mut b, dest);
+            fixed(&mut b, 1, 2); // ADD
+            num(&mut b, x);
+            num(&mut b, y);
+        }
+        b.push(b'T');
+        fixed(&mut b, 19, 2); // RET
+        num(&mut b, 32);
+        num(&mut b, 6);
+        b.push(b'E');
+        lines.push(b);
+        lines.push(b"S".to_vec());
+        lines.into_iter().map(|l| String::from_utf8(l).unwrap()).collect::<Vec<_>>().join("\n")
+    }
+}
+
+/// The bytecode reads the PE header bytes itself (`M`+`Z` = 167) and adds what
+/// the rule's own APIs answer: `hds_sections` from a scan fact, a constant or
+/// another condition, `hds_param(0)` from `params`.
+#[cfg(feature = "bytecode")]
+#[test]
+fn test_hydradragonsig_bytecode_integration() {
+    let dir = std::env::temp_dir().join(format!("hds_bytecode_{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("sum.cbc"), cbc::program()).unwrap();
+    std::fs::write(
+        dir.join("rules.yaml"),
+        r#"
+rules:
+  - id: BC-FACT
+    title: "MZ + section count + param"
+    severity: high
+    verdict: malware
+    conditions:
+      - type: bytecode
+        program: sum.cbc
+        params: [10]
+        expect_return: 179
+        apis:
+          hds_sections: { fact: pe.sections }
+  - id: BC-CONST
+    title: "same program, the rule answers 100 sections"
+    severity: low
+    conditions:
+      - type: bytecode
+        program: sum.cbc
+        params: [10]
+        expect_return: 277
+        apis:
+          hds_sections: { value: 100 }
+  - id: BC-CONDITION
+    title: "API answered by another condition"
+    severity: low
+    conditions:
+      - type: bytecode
+        program: sum.cbc
+        expect_return: 168
+        apis:
+          hds_sections: { condition: { type: pe_section, name: ".rsrc" } }
+  - id: BC-WRONG
+    title: "wrong expected value"
+    severity: low
+    conditions:
+      - type: bytecode
+        program: sum.cbc
+        expect_return: 1
+        apis:
+          hds_sections: { value: 1 }
+  - id: BC-BUDGET
+    title: "out of instructions"
+    severity: low
+    conditions:
+      - type: bytecode
+        program: sum.cbc
+        max_ops: 3
+        apis:
+          hds_sections: { value: 1 }
+"#,
+    )
+    .unwrap();
+    // The program path is relative to the rule file.
+    let rules = RuleSet::from_yaml_file(&dir.join("rules.yaml")).expect("valid rules");
+
+    let pe = build_test_pe(true, false, None); // .text + .rsrc
+    let all = ScanOptions { stop_on_detection: false, ..ScanOptions::default() };
+    let report = scan_bytes(&pe, &rules, &all);
+    let mut ids: Vec<&str> = report.findings.iter().map(|f| f.rule_id.as_str()).collect();
+    ids.sort();
+    assert_eq!(ids, ["BC-CONDITION", "BC-CONST", "BC-FACT"]);
+    let fact = report.findings.iter().find(|f| f.rule_id == "BC-FACT").unwrap();
+    assert!(fact.evidence.iter().any(|e| e.contains("sum.cbc returned 179")), "{:?}", fact.evidence);
+
+    // Not a PE: no sections, other first bytes; the fact rule does not match.
+    let other = scan_bytes(b"hello world, not a PE", &rules, &all);
+    assert!(other.findings.iter().all(|f| f.rule_id != "BC-FACT"));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn bytecode_condition_validation() {
+    let yaml = r#"
+rules:
+  - id: BC-BAD
+    title: bad
+    severity: low
+    conditions:
+      - type: bytecode
+        program: does/not/exist.cbc
+        max_ops: 0
+        apis:
+          two_sources: { value: 1, param: 0 }
+          bad_fact: { fact: pe.nope }
+"#;
+    let rules = RuleSet::from_yaml_str(yaml).expect("parses");
+    let problems = rules.warnings().join("\n");
+    assert!(problems.contains("not found"), "{problems}");
+    assert!(problems.contains("max_ops"), "{problems}");
+    assert!(problems.contains("exactly one"), "{problems}");
+    assert!(problems.contains("unknown fact `pe.nope`"), "{problems}");
 }

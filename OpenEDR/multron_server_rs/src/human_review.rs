@@ -120,7 +120,8 @@ impl HumanReview {
             "engine_verdict": self.engine_verdict,
             "verdict": self.verdict,
             "threat_name": self.threat_name,
-            "note": self.note,
+            // A private sample's note may describe its content.
+            "note": if crate::private_samples::is_private(&self.sha256) { "" } else { self.note.as_str() },
             "analyst": self.analyst,
             "reviewed_at": self.reviewed_at,
             "response_secs": self.response_secs,

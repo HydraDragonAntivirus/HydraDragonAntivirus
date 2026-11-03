@@ -1992,6 +1992,59 @@ window.sigKey = (list) => list && list.length ? `${list[0].layer}: ${list[0].nam
   every(3000, updateInsightsStats);
   updateInsightsStats();
 
+  // Private sample: the public API (/api/v1/...) gives its verdict only — no strings,
+  // file names, PE/APK details, indicators or similar files, and no download.
+  function privateControl(box, hash, priv) {
+    const div = document.createElement("div");
+    div.style.marginTop = "8px";
+    const draw = (p) => {
+      const esc = (v) => String(v == null ? "" : v).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+      div.innerHTML = p
+        ? `<b>Private:</b> the public API shows only the verdict${p.analyst ? " (set by " + esc(p.analyst) + ")" : ""}${p.note ? " — " + esc(p.note) : ""} <button class="btn" type="button">Make public</button> <span class="hint"></span>`
+        : `<b>Public API:</b> full report <button class="btn" type="button">Make private</button> <input type="text" placeholder="Reason (optional)" style="width:220px"> <span class="hint"></span>`;
+      div.querySelector("button").onclick = async () => {
+        const note = div.querySelector("input") ? div.querySelector("input").value : "";
+        try {
+          await post("/api/private-samples", { sha256: hash, private: !p, note });
+          const d = await (await fetch(`/api/insights/${hash}`, { cache: "no-store" })).json();
+          draw(d.private);
+        } catch (err) { div.querySelector(".hint").textContent = err.message; }
+      };
+    };
+    draw(priv);
+    box.appendChild(div);
+  }
+
+  // Delete the sample on request (kept file + static report), with a reason. The
+  // verdict and telemetry stay; the server never stores the file again.
+  function deleteControl(box, hash, data) {
+    const esc = (v) => String(v == null ? "" : v).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+    const div = document.createElement("div");
+    div.style.marginTop = "8px";
+    const d = data.deleted;
+    if (d) {
+      div.innerHTML = `<b>Deleted on request</b> ${esc(d.deleted_at)}${d.analyst ? " by " + esc(d.analyst) : ""}: ${esc(d.reason)}`;
+    } else {
+      div.innerHTML = `<b>Sample:</b> ${data.kept ? "kept on this server" : "not kept here"} <input type="text" placeholder="Deletion reason (required)" style="width:260px"> <button class="btn" type="button">Delete sample</button> <span class="hint"></span>`;
+      div.querySelector("button").onclick = async () => {
+        const reason = div.querySelector("input").value.trim();
+        const hint = div.querySelector(".hint");
+        if (!reason) { hint.textContent = "Write the reason first."; return; }
+        if (!confirm(`Delete sample ${hash}?
+
+The kept file and its static report are deleted for good, and it is never stored again. The verdict stays.
+
+Reason: ${reason}`)) return;
+        try {
+          const r = await post("/api/samples/delete", { sha256: hash, reason });
+          hint.textContent = `Deleted ${r.deletion.removed.length} file(s).` + (r.archived_copy ? ` A copy is still in the archive folder: ${r.archived_copy} (delete it there by hand).` : "");
+          div.querySelector("button").disabled = true;
+        } catch (err) { hint.textContent = err.message; }
+      };
+    }
+    box.appendChild(div);
+  }
+
   $("hashSearchBtn").onclick = async () => {
     const hash = $("hashSearchInput").value.trim().toLowerCase();
     if (!hash || hash.length !== 64) {
@@ -2020,6 +2073,8 @@ window.sigKey = (list) => list && list.length ? `${list[0].layer}: ${list[0].nam
       } else {
         box.innerHTML = `<span style="color:var(--muted);">Hash not found in VirusKov telemetry (0 sightings).</span>`;
       }
+      if (data.ok) privateControl(box, hash, data.private);
+      if (data.ok) deleteControl(box, hash, data);
     } catch (e) {
       box.innerHTML = `<span style="color:var(--red);">Error searching: ${e.message}</span>`;
     }

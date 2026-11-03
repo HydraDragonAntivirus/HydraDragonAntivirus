@@ -191,6 +191,9 @@ pub struct Bc {
     pub uses_apis: Vec<u32>,
     /// Declared API calls as `(id, name)` for later prototype binding.
     pub apis: Vec<(u32, String)>,
+    /// Prototype type id of each entry of `apis` (same order): a function type
+    /// `[return, args…]`, which sizes the arguments handed to a host API.
+    pub api_tids: Vec<u16>,
     pub globals: Vec<Vec<u64>>,
     pub global_tys: Vec<u16>,
     pub lsig: Option<String>,
@@ -699,7 +702,7 @@ fn parse_apis(bc: &mut Bc, line: &mut [u8]) -> DResult<()> {
     }
     for _ in 0..calls {
         let id = r.read_number() as u32;
-        let _tid = r.read_type_id(bc);
+        let tid = r.read_type_id(bc);
         let name = r.read_string();
         if !r.ok {
             return Err(malformed("bad api declaration"));
@@ -708,6 +711,7 @@ fn parse_apis(bc: &mut Bc, line: &mut [u8]) -> DResult<()> {
         let id0 = id.wrapping_sub(1);
         bc.uses_apis.push(id0);
         bc.apis.push((id0, name.unwrap_or_default()));
+        bc.api_tids.push(tid);
     }
     Ok(())
 }
@@ -1549,6 +1553,15 @@ pub struct PeSection {
     pub ursz: u32,
 }
 
+/// Functions the caller of a run adds to the VM. A `CALL_API` whose declared name
+/// (the program's `E` line) the host answers goes to the host instead of the
+/// ClamAV API table: that is how a rule gives a program new APIs (ids past
+/// ClamAV's 107, or a ClamAV name it wants answered its own way). `args` are the
+/// integer arguments, sized by the API's prototype.
+pub trait HostApis {
+    fn call(&self, name: &str, args: &[u64]) -> Option<u64>;
+}
+
 /// Execution context for a bytecode run: the scanned buffer, the trigger's
 /// match counts/offsets, and PE info — the data ClamAV exposes via `ctx->hooks`
 /// and the file APIs. `virname` is the detection result a program sets via
@@ -1567,6 +1580,8 @@ pub struct BcCtx<'a> {
     pub ep: u32,
     /// Cap on executed opcodes (DoS bound, replaces ClamAV's wall-clock timeout).
     pub max_ops: u64,
+    /// Extra APIs from the caller (see [`HostApis`]); none for database bytecode.
+    pub host: Option<&'a dyn HostApis>,
 }
 
 impl<'a> BcCtx<'a> {
@@ -1588,6 +1603,7 @@ impl<'a> BcCtx<'a> {
             // millions of ops are overwhelmingly slow negatives; aborting them
             // trades a theoretical slow-positive for bounded scan time.
             max_ops: 12_000_000,
+            host: None,
         }
     }
 
@@ -1794,14 +1810,26 @@ impl<'a, 'c> Vm<'a, 'c> {
         }
     }
 
-    fn execute(&mut self, entry_func: usize) -> Result<i64, VmError> {
+    fn execute(&mut self, entry_func: usize, args: &[u64]) -> Result<i64, VmError> {
         // Allocate the entry frame and register it as stack region 0.
-        let f0 = &self.bc.funcs[entry_func];
+        let f0 = self.bc.funcs.get(entry_func).ok_or_else(|| VmError::Bytecode(format!("no function {entry_func}")))?;
         let mut frame_values = vec![0u8; f0.num_bytes as usize];
         // Constants live at the top of the frame (last numConstants*8 bytes).
         let cstart = f0.num_bytes as usize - (f0.num_constants as usize) * 8;
         for (k, c) in f0.constants.iter().enumerate() {
             write_le(&mut frame_values, cstart + k * 8, 8, *c);
+        }
+        // Arguments at the frame start, packed and aligned as a direct call does;
+        // missing ones stay 0, extra ones are ignored.
+        let mut j = 0usize;
+        for (i, &aty) in f0.types.iter().take(f0.num_args as usize).enumerate() {
+            let sz = type_size(self.bc, aty) as usize;
+            if !matches!(sz, 1 | 2 | 4 | 8) {
+                continue;
+            }
+            j = (j + sz - 1) & !(sz - 1);
+            write_le(&mut frame_values, j, sz, args.get(i).copied().unwrap_or(0));
+            j += sz;
         }
         self.stacks.push(frame_values);
         let mut frame = Frame {
@@ -2218,8 +2246,33 @@ impl<'a, 'c> Vm<'a, 'c> {
         } else {
             return Err(VmError::Bytecode("bad api call".into()));
         };
-        let (kind, _idx) = API_TABLE.get(api_id).copied().unwrap_or((255, 0));
         let dest = inst.dest;
+        if let Some(host) = self.ctx.host {
+            if let Some(pos) = self.bc.apis.iter().position(|(id, _)| *id as usize == api_id) {
+                let name = self.bc.apis[pos].1.as_str();
+                let proto = self.bc.api_tids.get(pos).copied().unwrap_or(0);
+                let arg_tys: Vec<u16> = match self.bc.types.get((proto & 0x7fff).wrapping_sub(65) as usize) {
+                    Some(t) if t.kind == TypeKind::Function => t.contained.iter().skip(1).copied().collect(),
+                    _ => Vec::new(),
+                };
+                let mut args = Vec::with_capacity(ops.len());
+                for (i, &op) in ops.iter().enumerate() {
+                    let n = match arg_tys.get(i).map(|&t| type_size(self.bc, t) as usize) {
+                        Some(n @ (1 | 2 | 4 | 8)) => n,
+                        _ => 4,
+                    };
+                    args.push(self.read_op(cur, op, n)?);
+                }
+                if let Some(v) = host.call(name, &args) {
+                    let n = match type_size(self.bc, inst.ty) as usize {
+                        n @ (1 | 2 | 4 | 8) => n,
+                        _ => 4,
+                    };
+                    return self.write_dest(cur, dest, n, v);
+                }
+            }
+        }
+        let (kind, _idx) = API_TABLE.get(api_id).copied().unwrap_or((255, 0));
 
         // Helper closures can't borrow self mutably twice; inline per-API below.
         match api_id {
@@ -2525,6 +2578,11 @@ impl Bc {
     /// kind, pedata) and globalBytes, then interprets. Returns the entrypoint's
     /// return value; a detection is signalled via `ctx.virname`.
     pub fn run(&self, ctx: &mut BcCtx) -> Result<i64, VmError> {
+        self.run_entry(ctx, 0, &[])
+    }
+
+    /// [`Bc::run`] from function `entry_func`, its arguments set to `args`.
+    pub fn run_entry(&self, ctx: &mut BcCtx, entry_func: usize, args: &[u64]) -> Result<i64, VmError> {
         if !self.prepared || self.skipped || self.funcs.is_empty() {
             return Err(VmError::Bytecode("bytecode not runnable".into()));
         }
@@ -2556,8 +2614,38 @@ impl Bc {
             globs,
             ops_done: 0,
         };
-        vm.execute(0)
+        vm.execute(entry_func, args)
     }
+}
+
+/// Runs a prepared program against `target_bytes` outside of a database scan (for
+/// `hydradragonsig`'s `bytecode` condition): PE layout from `sections` / `ep` /
+/// `hdr_size`, the entry function `entry_func` called with `args`, extra APIs from
+/// `host`, at most `max_ops` instructions. Returns the entry function's return
+/// value and the virus name the program set, if any. Never panics on hostile
+/// programs: every memory access is bounds-checked and errors come back as
+/// [`VmError`].
+#[allow(clippy::too_many_arguments)]
+pub fn execute_bytecode_standalone(
+    bc: &Bc,
+    target_bytes: &[u8],
+    sections: Vec<PeSection>,
+    ep: u32,
+    hdr_size: u32,
+    entry_func: usize,
+    args: &[u64],
+    max_ops: u64,
+    host: Option<&dyn HostApis>,
+) -> Result<(i64, Option<String>), VmError> {
+    let mut ctx = BcCtx::new(target_bytes);
+    ctx.nsections = sections.len().min(u16::MAX as usize) as u16;
+    ctx.sections = sections;
+    ctx.ep = ep;
+    ctx.hdr_size = hdr_size;
+    ctx.max_ops = max_ops;
+    ctx.host = host;
+    let ret = bc.run_entry(&mut ctx, entry_func, args)?;
+    Ok((ret, ctx.virname))
 }
 
 #[cfg(test)]
@@ -2781,5 +2869,60 @@ mod tests {
         bc.prepare_interpreter().unwrap();
         let mut ctx = BcCtx::new(&[]);
         assert_eq!(bc.run(&mut ctx).unwrap(), 111);
+    }
+
+    /// A program's own API (`hds_double`, id 200 — past ClamAV's table) answered
+    /// by the host: result = hds_double(const 21); return result.
+    #[test]
+    fn host_api_answers_a_declared_name() {
+        struct Host;
+        impl HostApis for Host {
+            fn call(&self, name: &str, args: &[u64]) -> Option<u64> {
+                (name == "hds_double").then(|| args[0] * 2)
+            }
+        }
+        let call = BcInst {
+            opcode: OP_BC_CALL_API,
+            ty: 32,
+            dest: 0,
+            interp_op: OP_BC_CALL_API as u8 * 5,
+            ops: Ops::Call { funcid: 200, is_api: true, ops: vec![1] },
+        };
+        let ret = BcInst { opcode: OP_BC_RET, ty: 32, dest: 0, interp_op: OP_BC_RET as u8 * 5 + 3, ops: Ops::Unary(0) };
+        let mut bc = one_func_bc(vec![call, ret], vec![21], 1);
+        bc.uses_apis = vec![200];
+        bc.apis = vec![(200, "hds_double".into())];
+        bc.api_tids = vec![32];
+        bc.prepare_interpreter().unwrap();
+        let (ret, virname) = execute_bytecode_standalone(&bc, b"", Vec::new(), 0, 0, 0, &[], 1000, Some(&Host)).unwrap();
+        assert_eq!((ret, virname), (42, None));
+        // Without the host the id is unknown to the ClamAV table: no answer of 42.
+        let mut ctx = BcCtx::new(&[]);
+        assert_ne!(bc.run(&mut ctx).ok(), Some(42));
+    }
+
+    /// Entry arguments land in the entry function's argument slots:
+    /// return arg0 + arg1.
+    #[test]
+    fn entry_function_gets_arguments() {
+        let add = BcInst { opcode: OP_BC_ADD, ty: 32, dest: 2, interp_op: OP_BC_ADD as u8 * 5 + 3, ops: Ops::Binop([0, 1]) };
+        let ret = BcInst { opcode: OP_BC_RET, ty: 32, dest: 0, interp_op: OP_BC_RET as u8 * 5 + 3, ops: Ops::Unary(2) };
+        let mut bc = one_func_bc(vec![add, ret], vec![], 1);
+        bc.funcs[0].num_args = 2;
+        bc.funcs[0].num_values = 3;
+        bc.funcs[0].types = vec![32, 32, 32];
+        bc.prepare_interpreter().unwrap();
+        let (ret, _) = execute_bytecode_standalone(&bc, b"", Vec::new(), 0, 0, 0, &[40, 2], 1000, None).unwrap();
+        assert_eq!(ret, 42);
+    }
+
+    #[test]
+    fn standalone_run_times_out() {
+        // bb0: jmp bb0 — never ends; max_ops stops it.
+        let jmp = BcInst { opcode: OP_BC_JMP, ty: 0, dest: 0, interp_op: OP_BC_JMP as u8 * 5, ops: Ops::Jump(0) };
+        let mut bc = one_func_bc(vec![jmp], vec![], 1);
+        bc.prepare_interpreter().unwrap();
+        let r = execute_bytecode_standalone(&bc, b"", Vec::new(), 0, 0, 0, &[], 500, None);
+        assert!(matches!(r, Err(VmError::Timeout)), "{r:?}");
     }
 }

@@ -31,7 +31,7 @@ url = "2.5"
 daachorse = "5.0.0"
 
 # Local engines & parsers
-hydradragonsig = { path = "../../hydradragonsig", default-features = false }
+hydradragonsig = { path = "../../hydradragonsig", default-features = false, features = ["bytecode"] }
 hydradragonclamav = { path = "../owlyshield_predict/hydradragonclamav" }
 hydradragonextractor = { path = "../../hydradragonextractor" }
 # Static JavaScript deobfuscation before the JS model looks at a script.

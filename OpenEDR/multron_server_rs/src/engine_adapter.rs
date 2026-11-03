@@ -1138,8 +1138,8 @@ impl EngineAdapter {
         let category = KeptFile::category_for_result(res);
         let is_xorfilter = category.starts_with("xorfilter_");
         // Moved by hand to an archive folder under this category (archived_dirs.json):
-        // remembered there, never stored here again.
-        if crate::archived::is_archived(sha, category) {
+        // remembered there, never stored here again. Deleted on request: never again.
+        if crate::archived::is_archived(sha, category) || crate::sample_deletions::is_deleted(sha) {
             if let Some(p) = temp {
                 let _ = std::fs::remove_file(p);
             }

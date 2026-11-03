@@ -1,3 +1,4 @@
+pub(crate) mod bytecode;
 mod engine;
 mod icon;
 mod icon_metric;

@@ -2403,6 +2403,7 @@ dependencies = [
  "fancy-regex",
  "flate2",
  "hex",
+ "hydradragonclamav",
  "iced-x86",
  "image",
  "log",

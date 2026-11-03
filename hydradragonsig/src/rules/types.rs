@@ -643,6 +643,35 @@ pub enum RuleCondition {
         min: Option<usize>,
     },
 
+    /// Runs a ClamAV bytecode program (`.cbc`) over the file in hydradragonclamav's
+    /// VM (see `bytecode`). The rule configures the run: the program, entry
+    /// function and its arguments, the instruction budget, what counts as a
+    /// match, and new APIs the program may call by the names it declares.
+    Bytecode {
+        /// `.cbc` file, relative to the rule file.
+        program: String,
+        /// Entry function index (default 0).
+        #[serde(default)]
+        entry_func: Option<usize>,
+        /// Instruction budget (default 100 000); the run stops there and the
+        /// condition does not match.
+        #[serde(default)]
+        max_ops: Option<u64>,
+        /// Arguments of the entry function; also read by the `hds_param(i)` API.
+        #[serde(default)]
+        params: Vec<u64>,
+        /// Match when the entry function returns this value. Default: a non-zero
+        /// return value or a virus name set by the program.
+        #[serde(default)]
+        expect_return: Option<i64>,
+        /// Match only when the program sets a virus name matching this glob.
+        #[serde(default)]
+        virname_glob: Option<String>,
+        /// APIs the rule gives the program, keyed by the name the program declares.
+        #[serde(default)]
+        apis: std::collections::BTreeMap<String, BytecodeApi>,
+    },
+
     /// x86 / x64 instruction pattern(s) over the disassembled code of `region`
     /// (`entry`, `code`, `section_N`, `overlay`, `file`): steps such as
     /// `xor byte ptr [*], *; inc reg; [0-2]; loop *`, matched on what the bytes
@@ -688,6 +717,17 @@ pub enum RuleCondition {
         fields: std::collections::BTreeMap<String, String>,
         #[serde(default)]
         absent: bool,
+        /// Inclusive numeric bounds on the file / product version, `a[.b[.c[.d]]]`
+        /// (missing parts are 0). Compared as four numbers, so `1.10` is above
+        /// `1.9`, which a glob on the version text cannot express.
+        #[serde(default)]
+        file_version_min: Option<String>,
+        #[serde(default)]
+        file_version_max: Option<String>,
+        #[serde(default)]
+        product_version_min: Option<String>,
+        #[serde(default)]
+        product_version_max: Option<String>,
     },
 
     /// Match PE resources by type glob, byte size bounds and/or hex patterns
@@ -980,4 +1020,28 @@ fn default_opcode_region() -> String {
 
 fn default_sector_count() -> u32 {
     1
+}
+
+/// One API a `bytecode` rule gives its program: what a call of that name returns.
+/// Exactly one source is set; `table` and `param_arg` read the call's first argument.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct BytecodeApi {
+    /// A constant.
+    #[serde(default)]
+    pub value: Option<i64>,
+    /// `params[i]` of the condition.
+    #[serde(default)]
+    pub param: Option<usize>,
+    /// `params[arg0]`.
+    #[serde(default)]
+    pub param_arg: bool,
+    /// `table[arg0]`, 0 past its end.
+    #[serde(default)]
+    pub table: Vec<i64>,
+    /// A fact about the scanned file (`bytecode::FACTS`), e.g. `pe.sections`.
+    #[serde(default)]
+    pub fact: Option<String>,
+    /// 1 when this condition matches the file, else 0.
+    #[serde(default)]
+    pub condition: Option<Box<RuleCondition>>,
 }

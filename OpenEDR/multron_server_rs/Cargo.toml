@@ -32,7 +32,7 @@ openedr_static = { path = "../openedr_static" }
 # Analyst signature room: ClamAV-format and HydraDragonSig rules kept apart from the
 # shipped databases (same crates openedr_static already builds).
 hydradragonclamav = { path = "../owlyshield_predict/hydradragonclamav" }
-hydradragonsig = { path = "../../hydradragonsig", default-features = false }
+hydradragonsig = { path = "../../hydradragonsig", default-features = false, features = ["bytecode"] }
 # Retrohunt: one saved analyst YARA document compiled on its own (same version as
 # openedr_static, so no second copy is built).
 yara-x = "1.21"

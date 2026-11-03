@@ -1276,7 +1276,13 @@ impl RuleSet {
         if !filtered_content.trim().is_empty() {
             let mut known = known_ids.clone();
             known.extend(combined_rules.rules.iter().map(|r| r.id.clone()));
-            let current_rules = Self::from_yaml_str_after(&filtered_content, &known)?;
+            let mut current_rules = Self::from_yaml_str_after(&filtered_content, &known)?;
+            // `bytecode` programs are named relative to their rule file.
+            for rule in &mut current_rules.rules {
+                for cond in &mut rule.conditions {
+                    super::bytecode::rebase_program(cond, parent);
+                }
+            }
             combined_rules.extend(current_rules);
         }
 
@@ -2027,94 +2033,7 @@ fn evaluate_rule_with_matches(
         }
 
         // Data the scanner leaves out for speed, loaded the first time a condition needs it.
-        match cond {
-            RuleCondition::ImportAny { .. }
-            | RuleCondition::ImportAll { .. }
-            | RuleCondition::ImportSet { .. }
-            | RuleCondition::ImportRegex { .. }
-            | RuleCondition::ExportAny { .. }
-            | RuleCondition::ExportAll { .. }
-            | RuleCondition::ExportSet { .. }
-            | RuleCondition::DllAny { .. }
-            | RuleCondition::DllRegex { .. }
-            | RuleCondition::SuspiciousImportCount { .. }
-            | RuleCondition::ImphashAny { .. }
-            | RuleCondition::SectionEntropy { .. }
-            | RuleCondition::SectionNameRegex { .. }
-            | RuleCondition::PeSection { .. }
-            | RuleCondition::PackedPe
-            | RuleCondition::PeAnchorPattern { .. }
-            | RuleCondition::ByteRepeat { .. }
-            | RuleCondition::Authenticode { .. }
-            | RuleCondition::VersionInfo { .. }
-            | RuleCondition::ResourceMatch { .. }
-            | RuleCondition::ResourceHashAny { .. }
-            | RuleCondition::ResourcesAbsent
-            | RuleCondition::PeSectionsSummary { .. }
-            | RuleCondition::ExportHashAny { .. }
-            | RuleCondition::PeTimestamp { .. }
-            | RuleCondition::OpcodePattern { .. } => view.ensure_pe(report, bytes),
-            RuleCondition::HashSha256 { .. }
-            | RuleCondition::HashMd5 { .. }
-            | RuleCondition::HashSha1 { .. }
-            | RuleCondition::HashCrc32 { .. } => {
-                if (report.hashes.sha256.is_empty() || report.hashes.sha1.is_empty()) && !bytes.is_empty() {
-                    report.hashes = crate::utils::hash::hashes(bytes);
-                }
-            }
-            RuleCondition::FileEntropy { .. } => {
-                if report.entropy == 0.0 && !bytes.is_empty() {
-                    report.entropy = crate::utils::entropy::byte_entropy(bytes);
-                }
-            }
-            RuleCondition::StringContains { decoded, .. }
-            | RuleCondition::StringRegex { decoded, .. }
-            | RuleCondition::StringSet { decoded, .. } => {
-                if *decoded {
-                    view.ensure_decoded(report, bytes);
-                } else {
-                    view.ensure_strings(report, bytes);
-                }
-            }
-            RuleCondition::NativeSignature { atoms, expression } => {
-                if atoms.iter().any(|a| a.decoded) {
-                    view.ensure_decoded(report, bytes);
-                } else if atoms.iter().any(|a| a.kind == SignatureAtomKind::Regex) {
-                    view.ensure_strings(report, bytes);
-                }
-                if expression_needs_pe(expression) {
-                    view.ensure_pe(report, bytes);
-                }
-            }
-            RuleCondition::EnvReference { .. } => view.ensure_env(report, bytes),
-            RuleCondition::DomainBlocklist { decoded, .. } => {
-                view.ensure_strings(report, bytes);
-                if *decoded {
-                    view.ensure_decoded(report, bytes);
-                }
-            }
-            RuleCondition::FeatureGte { .. }
-            | RuleCondition::FeatureLte { .. }
-            | RuleCondition::FeatureDeltaGte { .. }
-            | RuleCondition::FeatureBounds { .. } => view.ensure_features(report, bytes),
-            RuleCondition::DexStringRegex { .. }
-            | RuleCondition::DexClassRegex { .. }
-            | RuleCondition::DexMethodRegex { .. }
-            | RuleCondition::DexClassCount { .. }
-            | RuleCondition::DexMethodCount { .. } => view.ensure_dex(report, bytes),
-            RuleCondition::NewImportSet { .. } => view.ensure_pe(report, bytes),
-            RuleCondition::RuleMatch { ids, min } => {
-                let needed = set_needed(*min, ids.len());
-                let found: Vec<&str> = ids
-                    .iter()
-                    .filter(|id| view.matched_rules.contains(id.as_str()))
-                    .map(String::as_str)
-                    .collect();
-                return (found.len() >= needed)
-                    .then(|| format!("rule_match {}/{}: {}", found.len(), needed, found.join(", ")));
-            }
-            _ => {}
-        }
+        ensure_condition_data(cond, report, view, bytes);
 
         evaluate_condition(cond, report, view, bytes)
     };
@@ -2221,6 +2140,99 @@ fn evaluate_rule(
             }
             None
         }
+    }
+}
+
+/// Data the scanner leaves out for speed, loaded the first time a condition needs it.
+fn ensure_condition_data(cond: &RuleCondition, report: &mut ScanReport, view: &mut ScanView, bytes: &[u8]) {
+    match cond {
+        RuleCondition::ImportAny { .. }
+        | RuleCondition::ImportAll { .. }
+        | RuleCondition::ImportSet { .. }
+        | RuleCondition::ImportRegex { .. }
+        | RuleCondition::ExportAny { .. }
+        | RuleCondition::ExportAll { .. }
+        | RuleCondition::ExportSet { .. }
+        | RuleCondition::DllAny { .. }
+        | RuleCondition::DllRegex { .. }
+        | RuleCondition::SuspiciousImportCount { .. }
+        | RuleCondition::ImphashAny { .. }
+        | RuleCondition::SectionEntropy { .. }
+        | RuleCondition::SectionNameRegex { .. }
+        | RuleCondition::PeSection { .. }
+        | RuleCondition::PackedPe
+        | RuleCondition::PeAnchorPattern { .. }
+        | RuleCondition::ByteRepeat { .. }
+        | RuleCondition::Authenticode { .. }
+        | RuleCondition::VersionInfo { .. }
+        | RuleCondition::ResourceMatch { .. }
+        | RuleCondition::ResourceHashAny { .. }
+        | RuleCondition::ResourcesAbsent
+        | RuleCondition::PeSectionsSummary { .. }
+        | RuleCondition::ExportHashAny { .. }
+        | RuleCondition::PeTimestamp { .. }
+        | RuleCondition::OpcodePattern { .. } => view.ensure_pe(report, bytes),
+        RuleCondition::HashSha256 { .. }
+        | RuleCondition::HashMd5 { .. }
+        | RuleCondition::HashSha1 { .. }
+        | RuleCondition::HashCrc32 { .. } => {
+            if (report.hashes.sha256.is_empty() || report.hashes.sha1.is_empty()) && !bytes.is_empty() {
+                report.hashes = crate::utils::hash::hashes(bytes);
+            }
+        }
+        RuleCondition::FileEntropy { .. } => {
+            if report.entropy == 0.0 && !bytes.is_empty() {
+                report.entropy = crate::utils::entropy::byte_entropy(bytes);
+            }
+        }
+        RuleCondition::StringContains { decoded, .. }
+        | RuleCondition::StringRegex { decoded, .. }
+        | RuleCondition::StringSet { decoded, .. } => {
+            if *decoded {
+                view.ensure_decoded(report, bytes);
+            } else {
+                view.ensure_strings(report, bytes);
+            }
+        }
+        RuleCondition::NativeSignature { atoms, expression } => {
+            if atoms.iter().any(|a| a.decoded) {
+                view.ensure_decoded(report, bytes);
+            } else if atoms.iter().any(|a| a.kind == SignatureAtomKind::Regex) {
+                view.ensure_strings(report, bytes);
+            }
+            if expression_needs_pe(expression) {
+                view.ensure_pe(report, bytes);
+            }
+        }
+        RuleCondition::EnvReference { .. } => view.ensure_env(report, bytes),
+        RuleCondition::DomainBlocklist { decoded, .. } => {
+            view.ensure_strings(report, bytes);
+            if *decoded {
+                view.ensure_decoded(report, bytes);
+            }
+        }
+        RuleCondition::FeatureGte { .. }
+        | RuleCondition::FeatureLte { .. }
+        | RuleCondition::FeatureDeltaGte { .. }
+        | RuleCondition::FeatureBounds { .. } => view.ensure_features(report, bytes),
+        RuleCondition::DexStringRegex { .. }
+        | RuleCondition::DexClassRegex { .. }
+        | RuleCondition::DexMethodRegex { .. }
+        | RuleCondition::DexClassCount { .. }
+        | RuleCondition::DexMethodCount { .. } => view.ensure_dex(report, bytes),
+        RuleCondition::NewImportSet { .. } => view.ensure_pe(report, bytes),
+        RuleCondition::Bytecode { apis, .. } => {
+            // `pe_rawaddr` / `get_pe_section` and the facts read the PE.
+            view.ensure_pe(report, bytes);
+            for api in apis.values() {
+                if let Some(c) = api.condition.as_deref() {
+                    ensure_condition_data(c, report, view, bytes);
+                } else if api.fact.as_deref() == Some("strings.count") {
+                    view.ensure_strings(report, bytes);
+                }
+            }
+        }
+        _ => {}
     }
 }
 
@@ -2669,8 +2681,15 @@ fn evaluate_condition(
             }
             None
         }
-        // Evaluated by the rule loop, which knows the rules matched so far.
-        RuleCondition::RuleMatch { .. } => None,
+        // The rules matched so far (the rule loop runs rules in order).
+        RuleCondition::RuleMatch { ids, min } => {
+            let needed = set_needed(*min, ids.len());
+            let found: Vec<&str> = ids.iter().filter(|id| view.matched_rules.contains(id.as_str())).map(String::as_str).collect();
+            (found.len() >= needed).then(|| format!("rule_match {}/{}: {}", found.len(), needed, found.join(", ")))
+        }
+        RuleCondition::Bytecode { .. } => {
+            super::bytecode::evaluate(cond, report, bytes, &|c| evaluate_condition(c, report, view, bytes).is_some())
+        }
         RuleCondition::UnpackerAny { signatures } => {
             for signature in signatures {
                 let Some(compiled) = cached_byte_pattern(&signature.pattern) else {
@@ -2985,7 +3004,14 @@ fn evaluate_condition(
             }
             Some(format!("authenticode signed={}", auth.has_certificate))
         }
-        RuleCondition::VersionInfo { fields, absent } => {
+        RuleCondition::VersionInfo {
+            fields,
+            absent,
+            file_version_min,
+            file_version_max,
+            product_version_min,
+            product_version_max,
+        } => {
             let pe = report.pe.as_ref()?;
             let parsed = pefile_rs::PE::parse(bytes).ok()?;
             let info = parsed
@@ -2999,10 +3025,32 @@ fn evaluate_condition(
                     .then(|| "version_info absent".to_string());
             }
             let info = info.filter(|v| v.present)?;
-            if fields.is_empty() {
+            let mut matched_pairs = Vec::with_capacity(fields.len());
+            // Numeric bounds: a file without that version never matches them.
+            let bounds = [
+                ("fileversion", info.file_version4(), file_version_min, file_version_max),
+                ("productversion", info.product_version4(), product_version_min, product_version_max),
+            ];
+            for (what, actual, lo, hi) in bounds {
+                if lo.is_none() && hi.is_none() {
+                    continue;
+                }
+                let v = actual?;
+                if let Some(lo) = lo.as_deref() {
+                    if v < super::pe_extra::parse_version_bound(lo)? {
+                        return None;
+                    }
+                }
+                if let Some(hi) = hi.as_deref() {
+                    if v > super::pe_extra::parse_version_bound(hi)? {
+                        return None;
+                    }
+                }
+                matched_pairs.push(format!("{what}={}.{}.{}.{} in [{}, {}]", v.0, v.1, v.2, v.3, lo.as_deref().unwrap_or("*"), hi.as_deref().unwrap_or("*")));
+            }
+            if fields.is_empty() && matched_pairs.is_empty() {
                 return Some("version_info present".to_string());
             }
-            let mut matched_pairs = Vec::with_capacity(fields.len());
             for (raw_key, pat) in fields {
                 let canonical = normalize_version_field_key(raw_key);
                 let fallback: String;

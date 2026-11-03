@@ -780,6 +780,7 @@ async fn handle_hash_insights(
             let vt = crate::human_review::virustotal_url(&sha_clean);
 
             if let Some(insight) = server.threat_intel.get(&sha_clean) {
+                let private = crate::private_samples::is_private(&sha_clean);
                 let response = serde_json::json!({
                     "status": "success",
                     "sha256": insight.sha256,
@@ -800,9 +801,10 @@ async fn handle_hash_insights(
                     "last_seen": insight.last_seen,
                     "seen_count": insight.seen_count,
                     "prevalence": insight.prevalence(),
-                    "file_names": insight.file_names,
+                    "file_names": if private { Vec::new() } else { insight.file_names.clone() },
                     "file_size": insight.file_size,
                     "score": insight.score,
+                    "private": private,
                     "threat_intelligence": {
                         "engine": ENGINE_NAME,
                         "feed": "VirusKov Community Telemetry",
@@ -2699,7 +2701,16 @@ async fn handle_file_report(
     // e-mail addresses, paths). Only researcher API key holders get them; everyone
     // else does not even get the counts.
     // Strings of binary files are public.
-    let strings_hidden = !has_key && hide_text_strings(report.as_mut());
+    // A private sample (dashboard): verdict only, for everyone, keys included.
+    let private = crate::private_samples::is_private(&sha);
+    let strings_hidden = if private {
+        if let Some(r) = report.as_mut() {
+            crate::private_samples::redact_report(r);
+        }
+        true
+    } else {
+        !has_key && hide_text_strings(report.as_mut())
+    };
     if insight.is_none() && review.is_none() && report.is_none() {
         return json_response(StatusCode::NOT_FOUND, serde_json::json!({"status": "not_found", "sha256": sha, "virustotal": crate::human_review::virustotal_url(&sha)}), "no-store");
     }
@@ -2728,16 +2739,19 @@ async fn handle_file_report(
                 "last_seen": i.last_seen,
                 "seen_count": i.seen_count,
                 "prevalence": i.prevalence(),
-                "file_names": i.file_names,
+                "file_names": if private { Vec::new() } else { i.file_names.clone() },
                 "file_size": i.file_size,
                 "score": i.score,
             })),
             "human_analysis": review.as_ref().map(|r| r.to_public_json()),
             "report": report,
             "virustotal": crate::human_review::virustotal_url(&sha),
-            "similar": similar_files(&server.threat_intel, &sha, 10),
-            "sample_sharing": sample_keys().is_some() && matches!(verdict.as_str(), "malicious" | "suspicious"),
+            "similar": if private { Vec::new() } else { similar_files(&server.threat_intel, &sha, 10) },
+            "sample_sharing": !private && sample_keys().is_some() && matches!(verdict.as_str(), "malicious" | "suspicious"),
             "strings_hidden": strings_hidden,
+            "private": private,
+            // Deleted on request: when, not why (the reason may name the owner).
+            "sample_deleted_at": crate::sample_deletions::get(&sha).map(|d| d.deleted_at),
         }),
         if has_key { "private, no-store" } else { "public, max-age=30" },
     );
@@ -2802,7 +2816,7 @@ async fn handle_daily_feed(
                     v,
                     if *human { "human" } else { "engine" },
                     esc(threat.as_deref().unwrap_or("")),
-                    esc(i.file_names.first().map(|n| n.as_str()).unwrap_or("")),
+                    esc(if crate::private_samples::is_private(&i.sha256.text()) { "" } else { i.file_names.first().map(|n| n.as_str()).unwrap_or("") }),
                     i.file_size.unwrap_or(0),
                     i.seen_count,
                     if malicious { c.category } else { "" },
@@ -2832,7 +2846,7 @@ async fn handle_daily_feed(
                     "verdict_source": if *human { "human" } else { "engine" },
                     "classification": classification_json(v, threat.as_deref()),
                     "threat_name": threat,
-                    "file_name": i.file_names.first(),
+                    "file_name": if crate::private_samples::is_private(&i.sha256.text()) { None } else { i.file_names.first() },
                     "file_size": i.file_size,
                     "seen_count": i.seen_count,
                     "has_report": crate::reports::exists(&i.sha256.text()),
@@ -2886,6 +2900,9 @@ async fn handle_sample_download(
         .unwrap_or_else(|| "unknown".into());
     if verdict != "malicious" && verdict != "suspicious" {
         return err(StatusCode::FORBIDDEN, "only malicious or suspicious samples are shared");
+    }
+    if crate::private_samples::is_private(&sha) {
+        return err(StatusCode::FORBIDDEN, "this sample is private");
     }
     let engine = Arc::clone(&server.engine);
     let sha_upper = sha.to_ascii_uppercase();
@@ -3108,7 +3125,11 @@ async fn handle_similar(
     };
     let ti = Arc::clone(&server.threat_intel);
     let s2 = sha.clone();
-    let list = tokio::task::spawn_blocking(move || similar_files(&ti, &s2, 25)).await.unwrap_or_default();
+    let list = if crate::private_samples::is_private(&sha) {
+        Vec::new()
+    } else {
+        tokio::task::spawn_blocking(move || similar_files(&ti, &s2, 25)).await.unwrap_or_default()
+    };
     json_response(
         StatusCode::OK,
         serde_json::json!({ "status": "success", "sha256": sha, "max_distance": crate::similarity::SIMILAR_MAX_DIST, "similar": list }),

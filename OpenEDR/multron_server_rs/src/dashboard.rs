@@ -392,6 +392,9 @@ pub fn dashboard_router(state: Arc<AppState>) -> Router {
         .route("/api/signatures/delete", post(handle_signature_delete))
         .route("/api/imphash-signatures", get(handle_imphash_list).post(handle_imphash_create))
         .route("/api/imphash-signatures/delete", post(handle_imphash_delete))
+        .route("/api/private-samples", get(handle_private_list).post(handle_private_set))
+        .route("/api/samples/deleted", get(handle_deleted_list))
+        .route("/api/samples/delete", post(handle_sample_delete))
         .route("/api/yara-rule-classes", get(handle_yara_classes_list).post(handle_yara_class_set))
         .route("/api/yara-rule-classes/delete", post(handle_yara_class_delete))
         .route("/api/fp/detections/:sha256", get(handle_fp_detections))
@@ -1756,6 +1759,9 @@ async fn handle_dashboard_insights_hash(
             "found": true,
             "prevalence": insight.prevalence(),
             "insight": insight,
+            "private": crate::private_samples::get(&clean),
+            "deleted": crate::sample_deletions::get(&clean),
+            "kept": app.engine.is_kept(&clean),
             "review": app.threat_intel.reviews.get(&clean).map(|r| r.to_dashboard_json()),
             "virustotal": crate::human_review::virustotal_url(&clean),
             "history": crate::verdict_history::get(&clean),
@@ -1765,6 +1771,9 @@ async fn handle_dashboard_insights_hash(
             "ok": true,
             "found": false,
             "sha256": clean,
+            "private": crate::private_samples::get(&clean),
+            "deleted": crate::sample_deletions::get(&clean),
+            "kept": app.engine.is_kept(&clean),
             "review": app.threat_intel.reviews.get(&clean).map(|r| r.to_dashboard_json()),
             "virustotal": crate::human_review::virustotal_url(&clean),
             "history": crate::verdict_history::get(&clean),
@@ -2542,6 +2551,71 @@ async fn handle_imphash_delete(State(app): State<Arc<AppState>>, Json(b): Json<I
         }
         Ok(false) => (StatusCode::NOT_FOUND, Json(serde_json::json!({ "ok": false, "error": "no such imphash signature" }))).into_response(),
         Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({ "ok": false, "error": e.to_string() }))).into_response(),
+    }
+}
+
+async fn handle_private_list() -> impl IntoResponse {
+    Json(serde_json::json!({ "ok": true, "items": crate::private_samples::list() }))
+}
+
+#[derive(Deserialize)]
+struct PrivateSampleBody {
+    sha256: String,
+    /// false makes the sample public again.
+    private: bool,
+    #[serde(default)]
+    note: String,
+    #[serde(default)]
+    analyst: String,
+}
+
+/// Marks a sample private (the public API gives its verdict only, see
+/// `private_samples`) or public again. Applies to the next API request.
+async fn handle_private_set(State(app): State<Arc<AppState>>, who: Option<Extension<AnalystId>>, Json(mut b): Json<PrivateSampleBody>) -> Response {
+    apply_analyst(&who, &mut b.analyst);
+    let sha = b.sha256.trim().to_ascii_lowercase();
+    if sha.len() != 64 || !sha.bytes().all(|c| c.is_ascii_hexdigit()) {
+        return (StatusCode::BAD_REQUEST, Json(serde_json::json!({ "ok": false, "error": "invalid sha256" }))).into_response();
+    }
+    match crate::private_samples::set(&sha, b.private, &b.analyst, &b.note) {
+        Ok(changed) => {
+            if changed {
+                info_event(&app, format!("sample {sha} is now {}", if b.private { "private" } else { "public" }));
+            }
+            Json(serde_json::json!({ "ok": true, "private": b.private, "changed": changed })).into_response()
+        }
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({ "ok": false, "error": e.to_string() }))).into_response(),
+    }
+}
+
+async fn handle_deleted_list() -> impl IntoResponse {
+    Json(serde_json::json!({ "ok": true, "items": crate::sample_deletions::list() }))
+}
+
+#[derive(Deserialize)]
+struct SampleDeleteBody {
+    sha256: String,
+    reason: String,
+    #[serde(default)]
+    analyst: String,
+}
+
+/// Deletes a sample on request (kept file + static report, never stored again), with
+/// the reason in `sample_deletions.jsonl`; see `sample_deletions`.
+async fn handle_sample_delete(State(app): State<Arc<AppState>>, who: Option<Extension<AnalystId>>, Json(mut b): Json<SampleDeleteBody>) -> Response {
+    apply_analyst(&who, &mut b.analyst);
+    let eng = Arc::clone(&app.engine);
+    let (sha, reason, analyst) = (b.sha256.clone(), b.reason.clone(), b.analyst.clone());
+    let r = tokio::task::spawn_blocking(move || crate::sample_deletions::delete(&eng, &sha, &reason, &analyst))
+        .await
+        .unwrap_or_else(|e| Err(e.to_string()));
+    match r {
+        Ok(d) => {
+            info_event(&app, format!("sample {} deleted on request ({} files): {}", d.sha256, d.removed.len(), d.reason));
+            let archived = crate::sample_deletions::archived_copy(&d.sha256);
+            Json(serde_json::json!({ "ok": true, "deletion": d, "archived_copy": archived })).into_response()
+        }
+        Err(e) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({ "ok": false, "error": e }))).into_response(),
     }
 }
 

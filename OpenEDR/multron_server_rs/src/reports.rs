@@ -18,6 +18,10 @@ pub fn exists(sha256: &str) -> bool {
 
 /// Writes the report once; an existing report is kept (same bytes give the same report).
 pub fn save(report: &FileReport) {
+    // Deleted on request: its report (strings, names) is never written again.
+    if crate::sample_deletions::is_deleted(&report.hashes.sha256) {
+        return;
+    }
     let Some(p) = path_for(&report.hashes.sha256.to_ascii_lowercase()) else { return };
     if p.is_file() {
         return;
@@ -45,4 +49,14 @@ pub fn load(sha256: &str) -> Option<serde_json::Value> {
     let p = path_for(&sha256.to_ascii_lowercase())?;
     let bytes = std::fs::read(p).ok()?;
     serde_json::from_slice(&bytes).ok()
+}
+
+/// Deletes the stored report; its path when there was one.
+pub fn remove(sha256: &str) -> std::io::Result<Option<PathBuf>> {
+    let Some(p) = path_for(&sha256.to_ascii_lowercase()) else { return Ok(None) };
+    match std::fs::remove_file(&p) {
+        Ok(()) => Ok(Some(p)),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(e) => Err(e),
+    }
 }

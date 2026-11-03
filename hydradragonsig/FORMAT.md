@@ -150,7 +150,7 @@ Imports are stored as `dll!function` (or `dll!ord<N>` for imports by ordinal).
 | `pe_anchor_pattern` | `anchor`, `section`, `offset`, `range`, `count`, `patterns`, `min`, `negate`, `excludes` | Hex pattern(s) (`??`, `!!` non-zero, `4?` nibble) match at `anchor` (`absolute`, `entry`, `section`, `overlay`, `eof`) + signed `offset` (or within `range` bytes, `count` times). `negate: true` inverts the match. |
 | `byte_repeat` | `anchor`, `section`, `offset`, `length`, `min` (default 1) | The first `length` bytes at `anchor` + `offset` repeat at least `min` time(s) elsewhere in the file. |
 | `authenticode` | `signed`, `subject_glob` | Checks whether the PE carries an Authenticode `WIN_CERTIFICATE` (`signed: true|false`) and/or matches a certificate subject CN / O / OU against `subject_glob`. |
-| `version_info` | `fields`, `absent` | `absent: true` matches when no `RT_VERSION` resource exists; `fields` maps `VS_VERSIONINFO` string keys (`CompanyName`, `FileDescription`, `ProductName`, ... or numeric slot indices `0`..`11`) to glob patterns (`%NULL%` matches an empty/missing field; leading `!` negates). |
+| `version_info` | `fields`, `absent`, `file_version_min`, `file_version_max`, `product_version_min`, `product_version_max` | `absent: true` matches when no `RT_VERSION` resource exists; `fields` maps `VS_VERSIONINFO` string keys (`CompanyName`, `FileDescription`, `ProductName`, ... or numeric slot indices `0`..`11`) to glob patterns (`%NULL%` matches an empty/missing field; leading `!` negates). The `*_version_min` / `*_version_max` bounds are inclusive, written `a[.b[.c[.d]]]` (missing parts are 0), and compare the four numbers, so `1.10` is above `1.9`: the version comes from `VS_FIXEDFILEINFO`, else from the leading numbers of the `FileVersion` / `ProductVersion` string; a file without that version never matches a bound. All given keys must hold. |
 | `resource_match` | `type_glob`, `size_min`, `size_max`, `data_patterns`, `min` (default 1) | At least `min` PE resources match the given type/language glob (`RT_RCDATA`, `BINARY`, `0003:0419`, ...), byte size bounds and hex `data_patterns`. |
 | `resource_hash_any` | `values` | Any PE resource's MD5 (32 hex) or SHA-256 (64 hex) is in `values`. |
 | `resources_absent` | | The PE has no resource directory or zero resource data entries. |
@@ -288,6 +288,54 @@ a PE, 0-based for `file` / `overlay`), so write `*` for them.
 
 The finding names the file offset and the instructions that matched. A region is
 decoded once per scan and shared by every `opcode_pattern` of that scan.
+
+#### `bytecode` (ClamAV bytecode programs)
+
+Runs a ClamAV bytecode program (`.cbc`) over the file in hydradragonclamav's VM,
+for what the declarative conditions cannot say: decryption loops with a variable
+key, walking data structures, checksums. Needs the `bytecode` build feature (on
+by default); without it the condition never matches and `--check-rules` says so.
+
+| Key | Default | Meaning |
+|---|---|---|
+| `program` | required | The `.cbc` file, relative to the rule file. |
+| `entry_func` | `0` | Function the run starts in. |
+| `params` | `[]` | Arguments of the entry function (in order, sized by its argument types); also what `hds_param(i)` returns. |
+| `max_ops` | `100000` | Instruction budget, at most 12 000 000. A run that reaches it stops, is logged, and does not match. |
+| `expect_return` | | Match when the entry function returns this value. Without it: a non-zero return value or a virus name set by the program (`setvirusname`). |
+| `virname_glob` | | Also require a virus name matching this glob. |
+| `apis` | `{}` | New APIs for the program (below). |
+
+**New APIs.** A program calls an API by the name its `E` line declares. When
+`apis` has that name, the rule answers the call, before ClamAV's own API table:
+an id past ClamAV's 107 is a new API, a ClamAV name is answered the rule's way.
+Each entry gives exactly one source:
+
+| Source | Returns |
+|---|---|
+| `value: N` | the constant `N` |
+| `param: i` | `params[i]` |
+| `param_arg: true` | `params[arg0]` (the call's first argument) |
+| `table: [a, b, …]` | `table[arg0]`, 0 past its end |
+| `fact: NAME` | a fact about the file: `file.size`, `file.entropy_x1000`, `file.is_pe`, `pe.sections`, `pe.imports`, `pe.exports`, `pe.dlls`, `pe.suspicious_imports`, `pe.entry` (RVA), `pe.image_base`, `pe.timestamp`, `pe.is_64`, `pe.packed`, `strings.count` |
+| `condition: {…}` | 1 when that condition (any condition type, `rule_match` included) matches the file, else 0 |
+
+`hds_param(i)` is always there. The program reads the file through the usual
+ClamAV APIs (`read`, `seek`, `file_byteat`, `file_find`, …), with the PE section
+table and entry point filled in for `pe_rawaddr` and `get_pe_section`. A program
+that fails to load is logged once and never matches.
+
+```yaml
+  - type: bytecode
+    program: bytecode/poly_decryptor.cbc
+    max_ops: 50000
+    params: [16]
+    expect_return: 1
+    apis:
+      hds_sections: { fact: pe.sections }
+      hds_key_table: { table: [0x37, 0x5a, 0x13] }
+      hds_is_upx: { condition: { type: pe_section, name: "UPX*" } }
+```
 
 ### 5.5 Combining rules
 

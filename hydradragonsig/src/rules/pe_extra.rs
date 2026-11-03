@@ -38,6 +38,8 @@ impl ResourceBlob {
     }
 }
 
+/// winuser.h `RT_*` ids (`RT_GROUP_x` = `RT_x` + 11, hence the gaps at 13 and 15);
+/// `RT_DLGINIT` / `RT_TOOLBAR` are the MFC ones.
 const RT_NAMES: &[(u32, &str)] = &[
     (1, "RT_CURSOR"),
     (2, "RT_BITMAP"),
@@ -51,17 +53,17 @@ const RT_NAMES: &[(u32, &str)] = &[
     (10, "RT_RCDATA"),
     (11, "RT_MESSAGETABLE"),
     (12, "RT_GROUP_CURSOR"),
-    (13, "RT_GROUP_ICON"),
-    (14, "RT_VERSION"),
-    (15, "RT_DLGINCLUDE"),
-    (16, "RT_PLUGPLAY"),
-    (17, "RT_VXD"),
-    (18, "RT_ANICURSOR"),
-    (19, "RT_ANIICON"),
-    (20, "RT_HTML"),
-    (21, "RT_MANIFEST"),
-    (23, "RT_DLGINIT"),
-    (24, "RT_TOOLBAR"),
+    (14, "RT_GROUP_ICON"),
+    (16, "RT_VERSION"),
+    (17, "RT_DLGINCLUDE"),
+    (19, "RT_PLUGPLAY"),
+    (20, "RT_VXD"),
+    (21, "RT_ANICURSOR"),
+    (22, "RT_ANIICON"),
+    (23, "RT_HTML"),
+    (24, "RT_MANIFEST"),
+    (240, "RT_DLGINIT"),
+    (241, "RT_TOOLBAR"),
 ];
 
 fn type_label(id: u32, custom: Option<&str>) -> String {
@@ -193,6 +195,55 @@ pub struct VersionInfo {
     pub present: bool,
 }
 
+pub type Version4 = (u16, u16, u16, u16);
+
+/// A version bound written in a rule: `a[.b[.c[.d]]]`, digits only, missing parts 0.
+pub fn parse_version_bound(s: &str) -> Option<Version4> {
+    let parts: Vec<&str> = s.trim().split('.').collect();
+    if parts.is_empty() || parts.len() > 4 {
+        return None;
+    }
+    let mut v = [0u16; 4];
+    for (i, p) in parts.iter().enumerate() {
+        if p.is_empty() || !p.bytes().all(|b| b.is_ascii_digit()) {
+            return None;
+        }
+        v[i] = p.parse().ok()?;
+    }
+    Some((v[0], v[1], v[2], v[3]))
+}
+
+/// The version a file states in its string table (`"10.0.19041.1 (WinBuild…)"`,
+/// `"1, 2, 3, 4"`): the leading numbers, separated by dots or commas.
+pub fn version_from_text(s: &str) -> Option<Version4> {
+    let mut v = [0u16; 4];
+    let mut n = 0;
+    for part in s.trim().split(['.', ',']).map(str::trim) {
+        let digits: String = part.chars().take_while(|c| c.is_ascii_digit()).collect();
+        if digits.is_empty() || n == 4 {
+            break;
+        }
+        v[n] = digits.parse().ok()?;
+        n += 1;
+        if digits.len() != part.len() {
+            break;
+        }
+    }
+    (n > 0).then_some((v[0], v[1], v[2], v[3]))
+}
+
+impl VersionInfo {
+    /// File version: the numeric `VS_FIXEDFILEINFO` one, else the string table's.
+    pub fn file_version4(&self) -> Option<Version4> {
+        self.file_version.or_else(|| self.fields.get("fileversion").and_then(|s| version_from_text(s)))
+    }
+
+    /// Product version, same sources as `file_version4`.
+    pub fn product_version4(&self) -> Option<Version4> {
+        self.product_version.or_else(|| self.fields.get("productversion").and_then(|s| version_from_text(s)))
+    }
+}
+
 /// Parse the first `RT_VERSION` resource (VS_VERSIONINFO blob).
 pub fn version_info(
     pe: &PeInfo,
@@ -201,7 +252,7 @@ pub fn version_info(
 ) -> Option<VersionInfo> {
     let blobs = resource_blobs(pe, bytes, dir);
     let version_blob = blobs.iter().find(|b| {
-        b.type_id & 0x7fff_ffff == 14 || b.type_label.eq_ignore_ascii_case("RT_VERSION")
+        b.type_id & 0x7fff_ffff == 16 || b.type_label.eq_ignore_ascii_case("RT_VERSION")
     })?;
     let data = version_blob.data(bytes);
     let mut info = parse_version_blob(data);
@@ -709,7 +760,9 @@ mod tests {
 
     #[test]
     fn resource_type_labels() {
-        assert_eq!(type_label(14, None), "RT_VERSION");
+        assert_eq!(type_label(16, None), "RT_VERSION");
+        assert_eq!(type_label(14, None), "RT_GROUP_ICON");
+        assert_eq!(type_label(24, None), "RT_MANIFEST");
         assert_eq!(type_label(10, None), "RT_RCDATA");
         assert_eq!(type_label(99, None), "#99");
         assert_eq!(type_label(1033, Some("BINARY")), "BINARY");
@@ -719,6 +772,20 @@ mod tests {
     fn name_oid_matches() {
         assert!(is_name_oid(&[0x55, 0x04, 0x03]));
         assert!(!is_name_oid(&[0x55, 0x04, 0x04]));
+    }
+
+    #[test]
+    fn version_bounds_and_text() {
+        assert_eq!(parse_version_bound("1.10"), Some((1, 10, 0, 0)));
+        assert_eq!(parse_version_bound("10.0.19041.1"), Some((10, 0, 19041, 1)));
+        assert_eq!(parse_version_bound("1.2.x"), None);
+        assert_eq!(parse_version_bound("1.2.3.4.5"), None);
+        assert_eq!(parse_version_bound("70000"), None);
+        assert_eq!(version_from_text("10.0.19041.1 (WinBuild.160101.0800)"), Some((10, 0, 19041, 1)));
+        assert_eq!(version_from_text("1, 2, 3, 4"), Some((1, 2, 3, 4)));
+        assert_eq!(version_from_text("2.5beta"), Some((2, 5, 0, 0)));
+        assert_eq!(version_from_text("beta"), None);
+        assert!((1, 10, 0, 0) > (1, 9, 0, 0));
     }
 
     #[test]

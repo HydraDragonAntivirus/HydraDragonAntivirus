@@ -20,6 +20,8 @@ mod hexsha;
 mod istr;
 mod stamp;
 mod imphash_sigs;
+mod private_samples;
+mod sample_deletions;
 mod yara_classes;
 mod ip_bans;
 mod missing_files;

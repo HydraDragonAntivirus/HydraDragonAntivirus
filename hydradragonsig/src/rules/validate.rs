@@ -25,6 +25,7 @@ const SCOPE_KEYS: &[&str] = &["start", "end"];
 const UNPACKER_KEYS: &[&str] = &["name", "pattern"];
 const STEP_KEYS: &[&str] = &["api", "pattern"];
 const BOUND_KEYS: &[&str] = &["feature", "min", "max"];
+const BYTECODE_API_KEYS: &[&str] = &["value", "param", "param_arg", "table", "fact", "condition"];
 
 /// Keys of every condition type (besides `type`).
 pub const CONDITION_KEYS: &[(&str, &[&str])] = &[
@@ -82,9 +83,10 @@ pub const CONDITION_KEYS: &[(&str, &[&str])] = &[
     ("pe_anchor_pattern", &["anchor", "section", "offset", "range", "count", "patterns", "min", "negate", "excludes"]),
     ("byte_repeat", &["anchor", "section", "offset", "length", "min"]),
     ("opcode_pattern", &["pattern", "patterns", "min", "region", "max_bytes", "bitness", "skip"]),
+    ("bytecode", &["program", "entry_func", "max_ops", "params", "expect_return", "virname_glob", "apis"]),
     ("not_mz", &[]),
     ("authenticode", &["signed", "subject_glob"]),
-    ("version_info", &["fields", "absent"]),
+    ("version_info", &["fields", "absent", "file_version_min", "file_version_max", "product_version_min", "product_version_max"]),
     ("resource_match", &["type_glob", "size_min", "size_max", "data_patterns", "min"]),
     ("resource_hash_any", &["values"]),
     ("resources_absent", &[]),
@@ -190,6 +192,12 @@ pub fn unknown_keys(yaml: &str) -> Vec<String> {
             for bound in cond.get("bounds").and_then(|v| v.as_sequence()).into_iter().flatten() {
                 check_keys(bound, BOUND_KEYS, &format!("{cat} bound"), &mut out);
             }
+            if ctype == "bytecode" {
+                for (name, api) in cond.get("apis").and_then(|v| v.as_mapping()).into_iter().flatten() {
+                    let name = name.as_str().unwrap_or("?");
+                    check_keys(api, BYTECODE_API_KEYS, &format!("{cat} api `{name}`"), &mut out);
+                }
+            }
         }
     }
     out
@@ -293,6 +301,41 @@ fn hex_len(value: &str, len: usize) -> bool {
 fn check_condition(cond: &RuleCondition, rules: &[Rule], own_id: &str, known_ids: &HashSet<String>) -> Vec<String> {
     let mut out = Vec::new();
     match cond {
+        RuleCondition::Bytecode { program, max_ops, virname_glob, apis, .. } => {
+            if cfg!(not(feature = "bytecode")) {
+                out.push("bytecode: this build has no bytecode support (feature `bytecode`), the condition never matches".into());
+            }
+            if program.trim().is_empty() {
+                out.push("bytecode needs `program`".into());
+            } else if !std::path::Path::new(program).is_file() {
+                out.push(format!("bytecode: program `{program}` not found"));
+            }
+            if let Some(n) = max_ops {
+                if *n == 0 || *n > super::bytecode::MAX_MAX_OPS {
+                    out.push(format!("bytecode: `max_ops` must be 1..={}", super::bytecode::MAX_MAX_OPS));
+                }
+            }
+            if virname_glob.as_deref().is_some_and(|g| g.trim().is_empty()) {
+                out.push("bytecode: empty `virname_glob`".into());
+            }
+            for (name, api) in apis {
+                let sources = [api.value.is_some(), api.param.is_some(), api.param_arg, !api.table.is_empty(), api.fact.is_some(), api.condition.is_some()];
+                let n = sources.iter().filter(|s| **s).count();
+                if n != 1 {
+                    out.push(format!("bytecode api `{name}`: give exactly one of value, param, param_arg, table, fact, condition ({n} given)"));
+                }
+                if let Some(f) = api.fact.as_deref() {
+                    if !super::bytecode::FACTS.contains(&f) {
+                        out.push(format!("bytecode api `{name}`: unknown fact `{f}` (known: {})", super::bytecode::FACTS.join(", ")));
+                    }
+                }
+                if let Some(c) = api.condition.as_deref() {
+                    for problem in check_condition(c, rules, own_id, known_ids) {
+                        out.push(format!("bytecode api `{name}` condition: {problem}"));
+                    }
+                }
+            }
+        }
         RuleCondition::StringContains { value, ascii, wide, utf8, utf16, .. } => {
             if value.is_empty() {
                 out.push("empty `value`".into());
@@ -692,9 +735,41 @@ fn check_condition(cond: &RuleCondition, rules: &[Rule], own_id: &str, known_ids
                 out.push("authenticode needs `signed` or `subject_glob`".into());
             }
         }
-        RuleCondition::VersionInfo { fields, absent } => {
-            if !*absent && fields.is_empty() {
-                out.push("version_info needs `absent: true` or non-empty `fields`".into());
+        RuleCondition::VersionInfo {
+            fields,
+            absent,
+            file_version_min,
+            file_version_max,
+            product_version_min,
+            product_version_max,
+        } => {
+            let bounds = [
+                ("file_version_min", file_version_min),
+                ("file_version_max", file_version_max),
+                ("product_version_min", product_version_min),
+                ("product_version_max", product_version_max),
+            ];
+            let any_bound = bounds.iter().any(|(_, b)| b.is_some());
+            if !*absent && fields.is_empty() && !any_bound {
+                out.push("version_info needs `absent: true`, non-empty `fields` or a version bound".into());
+            }
+            if *absent && any_bound {
+                out.push("version_info: `absent: true` cannot be combined with version bounds".into());
+            }
+            for (key, b) in bounds {
+                if let Some(b) = b {
+                    if super::pe_extra::parse_version_bound(b).is_none() {
+                        out.push(format!("version_info: `{key}: {b}` is not a version (a[.b[.c[.d]]], each part 0..65535)"));
+                    }
+                }
+            }
+            for (lo, hi, what) in [(file_version_min, file_version_max, "file"), (product_version_min, product_version_max, "product")] {
+                let parse = |b: &Option<String>| b.as_deref().and_then(super::pe_extra::parse_version_bound);
+                if let (Some(l), Some(h)) = (parse(lo), parse(hi)) {
+                    if l > h {
+                        out.push(format!("version_info: {what}_version_min is above {what}_version_max"));
+                    }
+                }
             }
         }
         RuleCondition::ResourceMatch {
@@ -1018,6 +1093,7 @@ mod tests {
             "byte_set" | "pe_anchor_pattern" => "        patterns: [x]\n",
             "byte_repeat" => "        length: 4\n",
             "opcode_pattern" => "        pattern: nop\n",
+            "bytecode" => "        program: x.cbc\n",
             "rule_match" => "        ids: [x]\n",
             "unpacker_any" => "        signatures: []\n",
             "image_fuzzy_hash_any" => "        hashes: []\n",

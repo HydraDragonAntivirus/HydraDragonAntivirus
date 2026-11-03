@@ -12,8 +12,10 @@ path = "src/main.rs"
 required-features = ["cli"]
 
 [features]
-default = ["cli"]
+default = ["cli", "bytecode"]
 cli = ["dep:clap", "dep:colored", "dep:env_logger", "dep:indicatif"]
+# `bytecode` condition: runs ClamAV bytecode programs in hydradragonclamav's VM.
+bytecode = ["dep:hydradragonclamav"]
 
 [dependencies]
 anyhow = "1.0.102"
@@ -27,6 +29,7 @@ digest = "0.11.3"
 env_logger = { version = "0.11.10", optional = true }
 flate2 = "1.1"
 pefile-rs = { path = "../pefile-rs" }
+hydradragonclamav = { path = "../OpenEDR/owlyshield_predict/hydradragonclamav", optional = true }
 hex = "0.4.3"
 # pe_section code references (same version as openedr_static)
 iced-x86 = { version = "1.21", default-features = false, features = ["std", "decoder", "instr_info", "intel"] }
