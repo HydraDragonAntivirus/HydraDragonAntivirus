@@ -1,11 +1,12 @@
 //! Disassembler for VirusKovAlyzer: x86 / x64 with iced-x86, ARM (A32), Thumb and
-//! ARM64 with yaxpeax-arm (both pure Rust). Knows the layout of PE, ELF and Mach-O
+//! ARM64 with capstone (yaxpeax-arm before it panicked on some valid A32 encodings
+//! and decoded others wrongly). Knows the layout of PE, ELF and Mach-O
 //! files (architecture, image base, entry point, sections / segments) so code is shown
 //! at its virtual address; any other file is decoded as raw bytes from offset 0.
 
 use iced_x86::{Decoder, DecoderOptions, FlowControl, Formatter, IntelFormatter, OpKind};
+use capstone::prelude::*;
 use serde::Serialize;
-use yaxpeax_arch::{Decoder as _, Reader, U8Reader};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "lowercase")]
@@ -418,24 +419,25 @@ fn near_target(insn: &iced_x86::Instruction) -> Option<u64> {
     }
 }
 
-/// `$+0x10` / `$-0x8` in yaxpeax text -> absolute address.
-fn rel_target(text: &str, va: u64) -> Option<u64> {
-    let i = text.find('$')?;
-    let rest = &text[i + 1..];
-    let (neg, rest) = match rest.chars().next()? {
-        '+' => (false, &rest[1..]),
-        '-' => (true, &rest[1..]),
-        _ => return None,
-    };
-    let hex = rest.strip_prefix("0x")?;
-    let n: String = hex.chars().take_while(|c| c.is_ascii_hexdigit()).collect();
-    let v = u64::from_str_radix(&n, 16).ok()?;
-    Some(if neg { va.wrapping_sub(v) } else { va.wrapping_add(v) })
+/// The last `#0x...` immediate of the operands: capstone prints branch and ADR
+/// targets as absolute addresses (`bl #0x1040`, `cbz x0, #0x20`; values below 10 in
+/// decimal: `b #4`).
+fn imm_target(ops: &str) -> Option<u64> {
+    let i = ops.rfind('#')?;
+    let v = &ops[i + 1..];
+    match v.strip_prefix("0x") {
+        Some(hex) => u64::from_str_radix(&hex.chars().take_while(|c| c.is_ascii_hexdigit()).collect::<String>(), 16).ok(),
+        None => v.chars().take_while(|c| c.is_ascii_digit()).collect::<String>().parse().ok(),
+    }
 }
 
-fn arm_flow(text: &str) -> &'static str {
-    let m = text.split_whitespace().next().unwrap_or("").to_ascii_lowercase();
+fn arm_flow(mnemonic: &str, ops: &str) -> &'static str {
+    let m = mnemonic.to_ascii_lowercase();
     let m = m.trim_end_matches(".w").trim_end_matches(".n");
+    // Loading PC from the stack is how A32 / Thumb functions return.
+    if (m == "pop" || m.starts_with("ldm")) && ops.contains("pc") {
+        return "ret";
+    }
     match m {
         "bl" | "blx" | "blr" => "call",
         "ret" | "eret" => "ret",
@@ -447,66 +449,44 @@ fn arm_flow(text: &str) -> &'static str {
 }
 
 fn arm64(code: &[u8], off: u64, va: u64, count: usize) -> Vec<Insn> {
-    let dec = yaxpeax_arm::armv8::a64::InstDecoder::default();
-    let mut out = Vec::new();
-    let mut pos = 0usize;
-    while pos + 4 <= code.len() && out.len() < count {
-        let addr = va + pos as u64;
-        let bytes = &code[pos..pos + 4];
-        let mut r = U8Reader::new(bytes);
-        let text = match dec.decode(&mut r) {
-            Ok(i) => i.to_string(),
-            Err(_) => format!(".word {:#010x}", u32::from_le_bytes(bytes.try_into().unwrap())),
-        };
-        let flow = arm_flow(&text);
-        let target = if flow.is_empty() && !text.starts_with("adr") { None } else { rel_target(&text, addr) };
-        out.push(Insn { offset: off + pos as u64, va: addr, bytes: hex_bytes(bytes), text, flow, target, symbol: None });
-        pos += 4;
+    match Capstone::new().arm64().mode(arch::arm64::ArchMode::Arm).build() {
+        Ok(cs) => arm_decode(&cs, code, off, va, 4, count),
+        Err(_) => Vec::new(),
     }
-    out
 }
 
 fn arm32(code: &[u8], off: u64, va: u64, thumb: bool, count: usize) -> Vec<Insn> {
-    let dec = if thumb { yaxpeax_arm::armv7::InstDecoder::default_thumb() } else { yaxpeax_arm::armv7::InstDecoder::default() };
-    let step = if thumb { 2 } else { 4 };
+    let mode = if thumb { arch::arm::ArchMode::Thumb } else { arch::arm::ArchMode::Arm };
+    match Capstone::new().arm().mode(mode).build() {
+        Ok(cs) => arm_decode(&cs, code, off, va, if thumb { 2 } else { 4 }, count),
+        Err(_) => Vec::new(),
+    }
+}
+
+/// One instruction at a time, so bytes capstone cannot decode are shown (`.inst`, one
+/// `step` long) and decoding goes on after them instead of stopping there.
+fn arm_decode(cs: &Capstone, code: &[u8], off: u64, va: u64, step: usize, count: usize) -> Vec<Insn> {
     let mut out = Vec::new();
     let mut pos = 0usize;
     while pos + step <= code.len() && out.len() < count {
         let addr = va + pos as u64;
-        let mut r = U8Reader::new(&code[pos..]);
-        // yaxpeax-arm 0.5 panics on A32 LDRD/STRD with Rt = 15: shown as undecodable.
-        let decoded = if !thumb && a32_ldrd_strd_rt15(&code[pos..]) { Err(()) } else { dec.decode(&mut r).map_err(|_| ()) };
-        let (text, len) = match decoded {
-            Ok(i) => {
-                let n = <U8Reader as Reader<u32, u8>>::total_offset(&mut r) as usize;
-                (i.to_string(), n.max(step))
-            }
-            Err(_) => (format!(".inst {}", hex_bytes(&code[pos..pos + step])), step),
+        let one = cs.disasm_count(&code[pos..], addr, 1).ok();
+        let insn = one.as_ref().and_then(|v| v.iter().next());
+        let Some(i) = insn else {
+            let text = format!(".inst {}", hex_bytes(&code[pos..pos + step]));
+            out.push(Insn { offset: off + pos as u64, va: addr, bytes: hex_bytes(&code[pos..pos + step]), text, flow: "", target: None, symbol: None });
+            pos += step;
+            continue;
         };
-        let len = len.min(code.len() - pos);
-        let flow = arm_flow(&text);
-        // A32 offsets already include the PC+8 bias; Thumb ones are relative to PC+4
-        // (and BLX to ARM code to PC+4 aligned down to 4).
-        let base = if !thumb {
-            addr
-        } else if text.starts_with("blx") {
-            (addr + 4) & !3
-        } else {
-            addr + 4
-        };
-        let target = if flow.is_empty() { None } else { rel_target(&text, base) };
+        let (m, ops) = (i.mnemonic().unwrap_or(""), i.op_str().unwrap_or(""));
+        let text = if ops.is_empty() { m.to_string() } else { format!("{m} {ops}") };
+        let flow = arm_flow(m, ops);
+        let target = if (flow.is_empty() || flow == "ret") && !m.starts_with("adr") { None } else { imm_target(ops) };
+        let len = i.len().max(1).min(code.len() - pos);
         out.push(Insn { offset: off + pos as u64, va: addr, bytes: hex_bytes(&code[pos..pos + len]), text, flow, target, symbol: None });
         pos += len;
     }
     out
-}
-
-/// A32 LDRD / STRD with Rt = 15 outside the unconditional space (yaxpeax-arm 0.5
-/// panics decoding them).
-fn a32_ldrd_strd_rt15(bytes: &[u8]) -> bool {
-    let Some(w) = bytes.get(..4) else { return false };
-    let w = u32::from_le_bytes([w[0], w[1], w[2], w[3]]);
-    (w & 0x0e10_00d0) == 0x0000_00d0 && (w >> 12) & 0xf == 15 && w >> 28 != 0xf
 }
 
 #[cfg(test)]
@@ -519,10 +499,20 @@ mod tests {
 
     #[test]
     fn a32_ldrd_rt15_does_not_panic() {
-        // ldrd r15, [r0] would panic inside yaxpeax-arm
+        // ldrd r15, [r0] made yaxpeax-arm panic
         let v = disassemble(&0xe1c0_f0d0u32.to_le_bytes(), &raw(), Arch::Arm, 0, 1);
         assert_eq!(v.len(), 1);
+    }
+
+    #[test]
+    fn undecodable_bytes_are_shown_and_skipped() {
+        // A32: an undefined word, then b . ; Thumb: pop {r4, pc} returns
+        let v = disassemble(&[0xff, 0xff, 0xff, 0xff, 0xfe, 0xff, 0xff, 0xea], &raw(), Arch::Arm, 0, 10);
+        assert_eq!(v.len(), 2, "{v:?}");
         assert!(v[0].text.starts_with(".inst"), "{}", v[0].text);
+        assert_eq!((v[1].va, v[1].flow, v[1].target), (4, "jmp", Some(4)), "{}", v[1].text);
+        let v = disassemble(&[0x10, 0xbd], &raw(), Arch::Thumb, 0, 1);
+        assert_eq!(v[0].flow, "ret", "{}", v[0].text);
     }
 
     #[test]

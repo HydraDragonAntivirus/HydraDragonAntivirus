@@ -7,7 +7,10 @@
 //! point at the LZMA-compressed data (`Src`) to decompress into the image at `Dst`.
 //!
 //! Detection works the same way: if the `{wildcard, RVA}` pattern for the virtual
-//! sections is found, the file is one of these packed executables.
+//! sections is found, and the array before it points at valid LZMA properties and
+//! at raw file data, the file is one of these packed executables. The pattern alone
+//! is not enough: for one virtual section it is any 4 bytes and one RVA, which turns
+//! up somewhere in nearly every PE.
 //!
 //! If the file has NO such virtual sections, there is nothing to unpack — the
 //! original (headers + raw sections mapped to their RVAs) is returned unchanged.
@@ -119,9 +122,69 @@ fn rva_to_raw(pe: &Pe, rva: u32, file_size: usize, ctx: &str) -> Result<usize, S
     Err(format!("RVAtoRawOffset ({ctx}): RVA 0x{rva:x} not found in any section"))
 }
 
-/// `FindPattern` with `0xFF` as a wildcard byte (mirrors the C++).
-fn find_pattern(data: &[u8], pattern: &[u8]) -> Option<usize> {
-    if pattern.is_empty() || data.len() < pattern.len() {
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A PE32 with a raw `.text` (raw 0x400, VA 0x1000) and one virtual section at VA
+    /// 0x2000; `text` goes into `.text`.
+    fn pe_with_virtual_section(text: &[u8]) -> Vec<u8> {
+        let mut d = vec![0u8; 0x400 + 0x200];
+        d[0..2].copy_from_slice(b"MZ");
+        d[0x3c] = 0x80;
+        d[0x80..0x84].copy_from_slice(b"PE\0\0");
+        d[0x86..0x88].copy_from_slice(&2u16.to_le_bytes()); // sections
+        d[0x94..0x96].copy_from_slice(&0xe0u16.to_le_bytes()); // optional header size
+        let opt = 0x98;
+        d[opt + 56..opt + 60].copy_from_slice(&0x3000u32.to_le_bytes()); // SizeOfImage
+        d[opt + 60..opt + 64].copy_from_slice(&0x400u32.to_le_bytes()); // SizeOfHeaders
+        let s = opt + 0xe0;
+        // .text: VirtualSize, VA, SizeOfRawData, PointerToRawData
+        for (i, v) in [0x200u32, 0x1000, 0x200, 0x400].iter().enumerate() {
+            d[s + 8 + i * 4..s + 12 + i * 4].copy_from_slice(&v.to_le_bytes());
+        }
+        // virtual section: VirtualSize 0x1000 at VA 0x2000, no raw data
+        let v = s + 40;
+        d[v + 8..v + 12].copy_from_slice(&0x1000u32.to_le_bytes());
+        d[v + 12..v + 16].copy_from_slice(&0x2000u32.to_le_bytes());
+        d[0x400..0x400 + text.len()].copy_from_slice(text);
+        d
+    }
+
+    #[test]
+    fn pattern_alone_is_not_a_packed_file() {
+        // "any 4 bytes + 0x2000" preceded by text (".fbi..."): what an unpacked PE
+        // with one virtual section looks like. Not detected, and unpacking maps the
+        // sections instead of failing on the text read as an RVA.
+        let mut text = Vec::new();
+        text.extend_from_slice(b".fbi.exe"); // PACKER_INFO[0] would be read from here
+        text.extend_from_slice(&[1, 2, 3, 4]);
+        text.extend_from_slice(&0x2000u32.to_le_bytes());
+        let d = pe_with_virtual_section(&text);
+        assert!(!detect(&d));
+        let image = unpack(&d).expect("mapped, not an error");
+        assert_eq!(&image[0x1000..0x1008], b".fbi.exe");
+    }
+
+    #[test]
+    fn real_table_is_detected() {
+        // [0] = props at RVA 0x1020 (5 bytes: 0x5d, 64 KiB); [1] = block at RVA 0x1030
+        // into the virtual section's RVA 0x2000.
+        let mut text = vec![0u8; 0x40];
+        text[0..4].copy_from_slice(&0x1020u32.to_le_bytes());
+        text[4..8].copy_from_slice(&5u32.to_le_bytes());
+        text[8..12].copy_from_slice(&0x1030u32.to_le_bytes());
+        text[12..16].copy_from_slice(&0x2000u32.to_le_bytes());
+        text[0x20] = 0x5d;
+        text[0x21..0x25].copy_from_slice(&0x10000u32.to_le_bytes());
+        let d = pe_with_virtual_section(&text);
+        assert!(detect(&d));
+    }
+}
+
+/// `FindPattern` with `0xFF` as a wildcard byte (mirrors the C++), from `from` on.
+fn find_pattern(data: &[u8], pattern: &[u8], from: usize) -> Option<usize> {
+    if pattern.is_empty() || data.len() < pattern.len() || from > data.len() - pattern.len() {
         return None;
     }
     // Anchor on the first fully fixed 4-byte group (the patterns here are wildcard u32 +
@@ -131,7 +194,7 @@ fn find_pattern(data: &[u8], pattern: &[u8]) -> Option<usize> {
         let at = g * 4;
         let anchor = u32::from_le_bytes(pattern[at..at + 4].try_into().unwrap());
         let last = data.len() - pattern.len();
-        let mut i = 0;
+        let mut i = from;
         while i <= last {
             if u32::from_le_bytes(data[i + at..i + at + 4].try_into().unwrap()) == anchor
                 && pattern.iter().enumerate().all(|(j, &p)| p == 0xFF || data[i + j] == p)
@@ -142,7 +205,7 @@ fn find_pattern(data: &[u8], pattern: &[u8]) -> Option<usize> {
         }
         return None;
     }
-    'outer: for i in 0..=data.len() - pattern.len() {
+    'outer: for i in from..=data.len() - pattern.len() {
         for (j, &p) in pattern.iter().enumerate() {
             if p != 0xFF && data[i + j] != p {
                 continue 'outer;
@@ -185,18 +248,39 @@ fn locate_packer_info(data: &[u8], pe: &Pe) -> Option<(usize, usize)> {
         return None; // nothing to unpack
     }
     let pattern = rva_pattern_bytes(&virt);
-    let m = find_pattern(data, &pattern)?;
-    if m < PACKER_INFO_SIZE {
-        return None;
-    }
-    let array_off = m - PACKER_INFO_SIZE; // PACKER_INFO[0] precedes the matched run
-    // The array spans [0..=count] = count+1 entries; bounds-check it.
     let count = virt.len();
-    let end = array_off + (count + 1) * PACKER_INFO_SIZE;
-    if end > data.len() {
-        return None;
+    // The first match that is a real array (see `packer_info_valid`).
+    let mut from = 0;
+    while let Some(m) = find_pattern(data, &pattern, from) {
+        from = m + 1;
+        if m < PACKER_INFO_SIZE {
+            continue;
+        }
+        let array_off = m - PACKER_INFO_SIZE; // PACKER_INFO[0] precedes the matched run
+        // The array spans [0..=count] = count+1 entries; bounds-check it.
+        if array_off + (count + 1) * PACKER_INFO_SIZE <= data.len() && packer_info_valid(data, pe, array_off, count) {
+            return Some((array_off, count));
+        }
     }
-    Some((array_off, count))
+    None
+}
+
+/// Whether the array at `array_off` is a real `PACKER_INFO[]`: entry `[0]` points at
+/// raw file data holding valid LZMA1 properties (lc/lp/pb byte below 9*5*5, a
+/// dictionary of at least 4 KiB) and every block's `Src` points at raw file data.
+fn packer_info_valid(data: &[u8], pe: &Pe, array_off: usize, count: usize) -> bool {
+    let raw_at = |rva: u32| rva_to_raw(pe, rva, data.len(), "").ok();
+    let Some(props) = packer_entry(data, array_off, 0)
+        .ok()
+        .and_then(|(src, _)| raw_at(src))
+        .and_then(|raw| data.get(raw..raw + LZMA_PROPERTIES_SIZE))
+    else {
+        return false;
+    };
+    if props[0] >= 9 * 5 * 5 || u32::from_le_bytes([props[1], props[2], props[3], props[4]]) < 4096 {
+        return false;
+    }
+    (1..=count).all(|i| packer_entry(data, array_off, i).ok().and_then(|(src, _)| raw_at(src)).is_some())
 }
 
 /// True if `data` is one of these LZMA-packed executables.

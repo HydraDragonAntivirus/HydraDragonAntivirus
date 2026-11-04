@@ -3549,6 +3549,7 @@ version = "0.1.0"
 dependencies = [
  "axum",
  "brotli-decompressor",
+ "capstone",
  "chrono",
  "clap",
  "fast-tlsh",
@@ -3573,8 +3574,6 @@ dependencies = [
  "tracing-subscriber",
  "url",
  "yara-x",
- "yaxpeax-arch",
- "yaxpeax-arm",
 ]
 
 [[package]]

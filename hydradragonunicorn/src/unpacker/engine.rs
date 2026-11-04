@@ -240,12 +240,20 @@ impl Sample {
         let raw = std::fs::read(path)?;
 
         // Detect and statically unpack VMProtect sections in memory.
+        // A static unpack that fails leaves the file as it is: the emulator runs the
+        // packer's own code instead.
         let raw_bytes = if !raw.is_empty() && vmpunpacker::detect(&raw) {
             log::info!("VMProtect detected in {}, unpacking in memory…", path);
-            let unpacked = vmpunpacker::unpack(&raw)
-                .map_err(|e| UnpackerError::General(format!("VMProtect LZMA unpack failed: {e}")))?;
-            log::info!("VMProtect unpacked: {} -> {} bytes", path, unpacked.len());
-            unpacked
+            match vmpunpacker::unpack(&raw) {
+                Ok(unpacked) => {
+                    log::info!("VMProtect unpacked: {} -> {} bytes", path, unpacked.len());
+                    unpacked
+                }
+                Err(e) => {
+                    log::warn!("VMProtect LZMA unpack failed for {path}, emulating the packed file: {e}");
+                    raw
+                }
+            }
         } else {
             raw
         };
@@ -294,9 +302,10 @@ impl Sample {
 
     pub fn from_bytes(raw: &[u8]) -> UnpackerResult<Self> {
         let raw_bytes = if !raw.is_empty() && vmpunpacker::detect(raw) {
-            let unpacked = vmpunpacker::unpack(raw)
-                .map_err(|e| UnpackerError::General(format!("VMProtect LZMA unpack failed: {e}")))?;
-            unpacked
+            vmpunpacker::unpack(raw).unwrap_or_else(|e| {
+                log::warn!("VMProtect LZMA unpack failed, emulating the packed file: {e}");
+                raw.to_vec()
+            })
         } else {
             raw.to_vec()
         };

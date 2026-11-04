@@ -46,10 +46,9 @@ lzma-rust2 = "0.21"
 brotli-decompressor = "5"
 url = "2.5"
 # VirusKovAlyzer disassembler: x86 / x64 (iced-x86) and ARM / Thumb / ARM64
-# (yaxpeax-arm), both pure Rust.
+# (capstone, already built for the Unicorn unpacker).
 iced-x86 = { version = "1.21", default-features = false, features = ["std", "decoder", "intel", "instr_info"] }
-yaxpeax-arch = { version = "0.3", default-features = false, features = ["std"] }
-yaxpeax-arm = { version = "0.5", default-features = false, features = ["std", "fmt"] }
+capstone = "0.14"
 # VirusKovAlyzer: the scanner's own archive extractor, decompiler-lite string pass and
 # Unicorn unpacker (the same crates openedr_static builds, so nothing is built twice).
 hydradragonextractor = { path = "../../hydradragonextractor" }

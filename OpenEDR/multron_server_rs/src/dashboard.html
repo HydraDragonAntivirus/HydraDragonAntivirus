@@ -220,6 +220,9 @@
   .fp-entry { display: flex; gap: 10px; align-items: flex-start; justify-content: space-between; padding: 6px 8px; border-top: 1px solid var(--border); }
   .fp-entry .nm { font-family: Consolas, monospace; font-size: 12.5px; word-break: break-all; }
   .fp-entry .cm { color: var(--muted); font-size: 12px; }
+  /* A long list scrolls in its own box instead of stretching the card. */
+  .fp-scroll { max-height: 300px; overflow-y: auto; border: 1px solid var(--border); border-radius: 6px; margin-top: 4px; }
+  .fp-scroll .fp-entry:first-child { border-top: none; }
   #ctxMenu .mi.dis { opacity: .45; pointer-events: none; }
   #ctxMenu .mi .ic { width: 16px; text-align: center; opacity: .8; }
   #ctxMenu .sep { height: 1px; background: var(--border); margin: 4px 6px; }
@@ -3009,6 +3012,9 @@ Reason: ${reason}`)) return;
       ["sg-allow", "&#10003;", "Signer: allow-list…"],
       ["sg-block", "&#10007;", "Signer: block-list…"],
       ["sep"],
+      ["private", "&#128274;", "Private: hide report and strings…"],
+      ["delete", "&#128465;", "Delete sample (with reason)…"],
+      ["sep"],
       ["analyse", "&#9654;", inQueue ? "Show in the verdict panel" : "Open in human analysis"],
       ["v-clean", "&#10003;", "Verdict: clean (whitelist)…"],
       ["v-suspicious", "!", "Verdict: suspicious…"],
@@ -3055,6 +3061,29 @@ Reason: ${reason}`)) return;
           const r = await api("/api/companies/add", { name: d.signer, list, reason, sha256: sha, sample_name: name || d.sample_name || "", analyst });
           toast(r.note || "Signer added");
           if (typeof window.coLoad === "function") window.coLoad();
+        }
+        // The same as the controls under a hash lookup (Threat Insights card).
+        else if (act === "private") {
+          const d = await api("/api/insights/" + sha);
+          if (d.private) {
+            if (!confirm(`${name || sha} is private (the public API shows only its verdict${d.private.note ? ": " + d.private.note : ""}).\n\nMake its full report public again?`)) return;
+            await api("/api/private-samples", { sha256: sha, private: false, note: "" });
+            toast("The full report is public again");
+          } else {
+            const note = prompt(`Make ${name || sha} private: the public API shows only its verdict (no strings, names or report), also to API key holders.\nReason (optional):`);
+            if (note === null) return;
+            await api("/api/private-samples", { sha256: sha, private: true, note: note.trim() });
+            toast("Private: only the verdict is public");
+          }
+        }
+        else if (act === "delete") {
+          const d = await api("/api/insights/" + sha);
+          if (d.deleted) { toast(`Already deleted on request (${d.deleted.deleted_at}): ${d.deleted.reason}`); return; }
+          const reason = (prompt(`Delete sample ${name || sha}?\nThe kept file and its static report are deleted for good and it is never stored again; the verdict stays.\nReason (required):`) || "").trim();
+          if (!reason) return;
+          if (!confirm(`Delete sample ${sha}?\n\nReason: ${reason}`)) return;
+          const r = await api("/api/samples/delete", { sha256: sha, reason });
+          toast(`Deleted ${r.deletion.removed.length} file(s).` + (r.archived_copy ? ` A copy is still in the archive folder: ${r.archived_copy} (delete it there by hand).` : ""));
         }
         else if (act === "analyse") open();
         else if (act.startsWith("v-")) open(act.slice(2));
@@ -3769,9 +3798,9 @@ Reason: ${reason}`)) return;
     box.innerHTML = lists.map(l => {
       const files = l.files.filter(f => f.entries.length);
       return `<div class="ha-item" style="display:block;margin-top:8px"><div><b>${esc(KIND_LABEL[l.kind] || l.kind)}</b> <span class="hint" style="margin:0">${esc(l.dir)}</span></div>` +
-        (files.length ? files.map(f => `<div style="margin-top:6px"><div class="hint" style="margin:0">${esc(f.file)} · ${f.entries.length} entr${f.entries.length === 1 ? "y" : "ies"}</div>` +
+        (files.length ? files.map(f => `<div style="margin-top:6px"><div class="hint" style="margin:0">${esc(f.file)} · ${f.entries.length} entr${f.entries.length === 1 ? "y" : "ies"}</div><div class="fp-scroll">` +
           f.entries.map(e => `<div class="fp-entry"><div><div class="nm">${esc(e.name)}</div><div class="cm">${e.comment.map(esc).join("<br>")}</div></div>
-            <button class="ghost" data-fpdel="${esc(l.kind)}|${esc(f.file)}|${esc(e.name)}">Remove</button></div>`).join("") + `</div>`).join("")
+            <button class="ghost" data-fpdel="${esc(l.kind)}|${esc(f.file)}|${esc(e.name)}">Remove</button></div>`).join("") + `</div></div>`).join("")
           : `<div class="hint">Nothing turned off.</div>`) + `</div>`;
     }).join("");
   }
