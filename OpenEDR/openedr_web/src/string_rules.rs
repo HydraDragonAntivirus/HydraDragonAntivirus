@@ -155,6 +155,13 @@ impl PeStringRules {
             threat_name: None,
             mitre_techniques: Vec::new(),
             parent: None,
+            behavior: None,
+            dex: None,
+            apk: None,
+            dotnet: None,
+            elf: None,
+            macho: None,
+            pdf: None,
         };
         let options = RuleEvalOptions {
             profile_rules: false,

@@ -239,6 +239,10 @@ impl PeStringRules {
             behavior: behavior.cloned(),
             dex: None,
             apk: None,
+            dotnet: None,
+            elf: None,
+            macho: None,
+            pdf: None,
         };
         let options = RuleEvalOptions {
             profile_rules: false,
