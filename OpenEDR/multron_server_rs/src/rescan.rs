@@ -129,7 +129,7 @@ pub fn rescan_one(server: &Arc<ScanServer>, sha_hex: &str) -> Result<Change, Str
             reset_unkept_one(server, &sha_up);
             server.cache.forget(&[sha].into_iter().collect());
         }
-        return Err(format!("{why}; set to unknown so the client sends it again"));
+        return Err(format!("{why}; marked not scanned (the last verdict stays) so the client sends it again"));
     };
     let data = kept.read().ok_or("the kept file could not be read")?;
     let data_len = data.len() as u64;
@@ -355,7 +355,8 @@ pub const UNKEPT_VERDICTS: [&str; 4] = ["malicious", "suspicious", "possible_cle
 pub const DEFAULT_UNKEPT_VERDICTS: [&str; 3] = ["malicious", "suspicious", "possible_clean"];
 
 fn reset_unkept_one(server: &ScanServer, sha: &str) {
-    server.threat_intel.set_engine_verdict_from(sha, "unknown", None, 0.0, "unkept");
+    // The last verdict stays: the file shows as "not scanned" until it is scanned again.
+    server.threat_intel.mark_not_scanned(sha, "unkept");
     crate::missing_files::set_unknown(sha);
     if server.threat_intel.reviews.get(sha).is_some_and(|r| !r.is_completed()) {
         server.threat_intel.reviews.remove(sha);
@@ -389,6 +390,10 @@ fn unkept_threats(server: &Arc<ScanServer>, verdicts: &[&str]) -> Vec<(String, S
         if server.threat_intel.reviews.completed(&sha).is_some() {
             continue;
         }
+        // Already waiting for a scan: nothing to do again.
+        if parse_sha(&sha).is_some_and(|s| server.threat_intel.is_not_scanned(&s)) {
+            continue;
+        }
         out.push((sha, v));
     }
     out
@@ -408,9 +413,10 @@ fn unkept_reason(sha: &str) -> &'static str {
 }
 
 /// `unkept_threats` with counts per verdict and per reason. `verdicts`: any of
-/// `UNKEPT_VERDICTS` (empty = `DEFAULT_UNKEPT_VERDICTS`). With `apply`, their engine
-/// verdict becomes unknown (written to the telemetry, missing-file log and verdict
-/// history as "unkept"; nothing is deleted), pending unkept queue entries are removed,
+/// `UNKEPT_VERDICTS` (empty = `DEFAULT_UNKEPT_VERDICTS`). With `apply`, they are
+/// marked not scanned with their last verdict kept (written to the telemetry, the
+/// missing-file log and the verdict history as "unkept"; nothing is deleted), pending
+/// unkept queue entries are removed,
 /// and their cached verdict is dropped, so the next client that has the file uploads it
 /// and it is scanned with the current engine. Dashboard button only.
 pub fn unkept_threats_report(server: &Arc<ScanServer>, verdicts: &[String], apply: bool) -> Result<serde_json::Value, String> {
@@ -456,7 +462,7 @@ pub fn unkept_threats_report(server: &Arc<ScanServer>, verdicts: &[String], appl
         let set: std::collections::HashSet<_> = shas.iter().filter_map(|(s, _)| parse_sha(s)).collect();
         uncached = server.cache.forget(&set);
         server.log_info(format!(
-            "{} {} hashes without a kept file set to unknown ({uncached} cached verdicts dropped)",
+            "{} {} hashes without a kept file marked not scanned, last verdict kept ({uncached} cached verdicts dropped)",
             shas.len(),
             wanted.join(" / ")
         ));

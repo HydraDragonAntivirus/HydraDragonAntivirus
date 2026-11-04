@@ -10,7 +10,7 @@
       invalid: '64 karakterlik geçerli bir SHA-256 girin.', loading: 'Rapor yükleniyor…', neterr: 'Rapor alınamadı',
       rate: 'Sorgu sınırı aşıldı, biraz sonra tekrar deneyin.',
       v: { malicious: 'Zararlı', suspicious: 'Şüpheli / Sezgisel / Greyware / Riskware / PUA / HackTool', clean: 'Temiz', possible_clean: 'Muhtemelen temiz', unknown: 'Bilinmiyor' },
-      human: 'İnsan analizi', engine: 'Motor', engineVerdict: 'Motor kararı', hist: 'Karar geçmişi', histBy: { engine: 'Motor', human: 'Analist', ai: 'Analist (AI)' }, histSrc: { scan: 'tarama', rescan: 'yeniden tarama', analyst: 'analiz', backfill: 'geçmiş kayıt' }, removed: 'kaldırıldı', copy: 'Kopyala', copied: 'Kopyalandı', type: 'Tür', guessed: 'motorun tespit adından tahmin', exactType: 'Kategori.Platform.Aile adından',
+      human: 'İnsan analizi', engine: 'Motor', engineVerdict: 'Motor kararı', hist: 'Karar geçmişi', histBy: { engine: 'Motor', human: 'Analist', ai: 'Analist (AI)' }, histSrc: { scan: 'tarama', rescan: 'yeniden tarama', analyst: 'analiz', backfill: 'geçmiş kayıt', unkept: 'örnek yok' }, removed: 'kaldırıldı', notScanned: 'Taranmadı · son karar', notScannedShort: 'taranmadı', notScannedTip: 'Dosya yeniden taranmayı bekliyor: gösterilen karar son taramanın kararı. Dosya yeniden gönderildiğinde güncellenir.', notScannedSince: 'Yeniden tarama bekliyor', copy: 'Kopyala', copied: 'Kopyalandı', type: 'Tür', guessed: 'motorun tespit adından tahmin', exactType: 'Kategori.Platform.Aile adından',
       vt: 'VirusTotal\'da aç', download: 'Örneği indir (.zip)', keyPh: 'Araştırmacı API anahtarı', keyNote: 'Arşiv şifresi: infected. Yalnızca zararlı ve şüpheli dosyalar paylaşılır.',
       dlErr: 'İndirilemedi', haCard: 'İnsan analizi', haNone: 'Henüz bir analist bakmadı.', haPending: 'Analist kuyruğunda', waiting: 'bekliyor',
       request: 'İnsan analizi iste', requested: 'Kuyruğa eklendi.', resp: 'Toplam süre', analyst: 'Analist', reviewed: 'Analiz bitişi', note: 'Not',
@@ -33,7 +33,7 @@
       invalid: 'Enter a valid 64-character SHA-256.', loading: 'Loading report…', neterr: 'Could not load the report',
       rate: 'Rate limit reached, please try again shortly.',
       v: { malicious: 'Malicious', suspicious: 'Suspicious / Heuristics / Greyware / Riskware / PUA / HackTool', clean: 'Clean', possible_clean: 'Possibly clean', unknown: 'Unknown' },
-      human: 'Human analysis', engine: 'Engine', engineVerdict: 'Engine verdict', hist: 'Verdict history', histBy: { engine: 'Engine', human: 'Analyst', ai: 'Analyst (AI)' }, histSrc: { scan: 'scan', rescan: 'rescan', analyst: 'review', backfill: 'from records' }, removed: 'removed', copy: 'Copy', copied: 'Copied', type: 'Type', guessed: 'guessed from the engine detection name', exactType: 'from the Category.Platform.Family name',
+      human: 'Human analysis', engine: 'Engine', engineVerdict: 'Engine verdict', hist: 'Verdict history', histBy: { engine: 'Engine', human: 'Analyst', ai: 'Analyst (AI)' }, histSrc: { scan: 'scan', rescan: 'rescan', analyst: 'review', backfill: 'from records', unkept: 'no sample' }, removed: 'removed', notScanned: 'Not scanned · last verdict', notScannedShort: 'not scanned', notScannedTip: 'The file is waiting for a new scan: the verdict shown is from its last scan. It is updated when the file is sent again.', notScannedSince: 'Waiting for a rescan', copy: 'Copy', copied: 'Copied', type: 'Type', guessed: 'guessed from the engine detection name', exactType: 'from the Category.Platform.Family name',
       vt: 'Open on VirusTotal', download: 'Download sample (.zip)', keyPh: 'Researcher API key', keyNote: 'Archive password: infected. Only malicious and suspicious files are shared.',
       dlErr: 'Download failed', haCard: 'Human analysis', haNone: 'No analyst has looked at it yet.', haPending: 'In the analyst queue', waiting: 'waiting',
       request: 'Request human analysis', requested: 'Added to the queue.', resp: 'Total time', analyst: 'Analyst', reviewed: 'Analysis end', note: 'Note',
@@ -135,7 +135,10 @@
     var html = '';
     // ---- hero
     html += '<section class="p-hero" style="--vcol:' + COLORS[v] + '"><div>' +
-      '<div>' + badge(v) + (d.verdict_source === 'human' ? '<span class="p-source">' + esc(T.human) + '</span>' : '<span class="p-source" style="color:var(--text-dim)">' + esc(T.engine) + '</span>') + '</div>' +
+      '<div>' + badge(v) + (d.verdict_source === 'human' ? '<span class="p-source">' + esc(T.human) + '</span>' : '<span class="p-source" style="color:var(--text-dim)">' + esc(T.engine) + '</span>') +
+        // The last verdict, while the file waits for a new scan.
+        (d.scan_status === 'not_scanned' ? '<span class="p-source" style="color:var(--accent-amber)" title="' + esc(T.notScannedTip) + '">' + esc(T.notScanned) + '</span>' : '') + '</div>' +
+      (d.scan_status === 'not_scanned' && d.not_scanned_since ? '<div class="p-file" style="color:var(--text-dim)">' + esc(T.notScannedSince) + ': ' + esc(when(d.not_scanned_since)) + '</div>' : '') +
       '<h1>' + esc(d.threat_name || T.v[v]) + '</h1>' +
       (d.classification ? '<div class="p-file">' + esc(T.type) + ': <b>' + esc([d.classification.category, d.classification.platform, d.classification.family].filter(Boolean).join(' · ')) + '</b> <span style="color:var(--text-dim)">(' + esc(d.classification.exact ? T.exactType : T.guessed) + ')</span></div>' : '') +
       (name ? '<div class="p-file">' + esc(name) + (rep ? ' · ' + esc(rep.file_type) + ' · ' + fmt(rep.size) + ' ' + esc(T.bytes) : '') + '</div>' : '') +
@@ -178,7 +181,11 @@
 
     // ---- verdict history (oldest first from the API; newest shown first)
     if (d.history && d.history.length) {
-      var hv = function (x) { return x === 'removed' ? '<span class="p-source">' + esc(T.removed) + '</span>' : badge(x); };
+      var hv = function (x) {
+        if (x === 'removed') return '<span class="p-source">' + esc(T.removed) + '</span>';
+        if (x === 'not_scanned') return '<span class="p-source">' + esc(T.notScannedShort) + '</span>';
+        return badge(x);
+      };
       html += '<section class="p-card"><h2>' + esc(T.hist) + '</h2>' + kv(d.history.slice().reverse().slice(0, 20).map(function (c) {
         return [esc(when(c.at)),
           (c.from ? hv(c.from) + ' &rarr; ' : '') + hv(c.to) + (c.threat ? ' <b style="margin-left:6px">' + esc(c.threat) + '</b>' : '') +

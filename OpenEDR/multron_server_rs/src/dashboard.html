@@ -2066,7 +2066,7 @@ Reason: ${reason}`)) return;
         const ins = data.insight;
         const tagCls = ins.verdict === "malicious" ? "t-malicious" : ins.verdict === "suspicious" ? "t-suspicious" : ins.verdict === "clean" ? "t-clean" : ins.verdict === "possible_clean" ? "t-possible_clean" : "t-unknown";
         box.innerHTML = `
-          <div><b>Verdict:</b> <span class="tag ${tagCls}">${ins.verdict.toUpperCase()}</span> (${ins.score}/100)</div>
+          <div><b>Verdict:</b> <span class="tag ${tagCls}">${ins.verdict.toUpperCase()}</span> (${ins.score}/100)${ins.not_scanned_since ? ` <span class="tag t-unknown" title="No kept sample to rescan since ${ins.not_scanned_since}: the verdict is the last one; the next client that has the file sends it.">NOT SCANNED · last verdict</span>` : ""}</div>
           ${ins.threat_name ? `<div><b>Threat:</b> <span style="color:var(--red); font-weight:600;">${ins.threat_name}</span></div>` : ""}
           ${(ins.detections || []).length ? `<div><b>Signatures (${ins.detections.length}):</b>${sigChips(ins.detections)}</div>` : ""}
           <div><b>Prevalence:</b> <span style="font-weight:600;">${data.prevalence}</span> (${ins.seen_count} sightings)</div>

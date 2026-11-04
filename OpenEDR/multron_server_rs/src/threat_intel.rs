@@ -53,6 +53,12 @@ pub struct ThreatInsight {
     /// malware type. Dashboard only, like `folders`.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub detections: Vec<DetectionRef>,
+    /// Since when the file waits for a new scan it could not get (a rescan or an
+    /// engine change found no kept sample to scan): `verdict` is still the last one,
+    /// shown as "not scanned" until a scan of the file comes; the client is asked for
+    /// the file again meanwhile. It used to become "unknown", which hid known malware.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub not_scanned_since: Option<IStr>,
     /// Hash checks answered "need upload" whose scan result has not come yet: the check
     /// already counted the sighting, so that result does not count it again.
     #[serde(skip)]
@@ -470,6 +476,7 @@ impl ThreatIntelStore {
             sightings: Vec::new(),
             signer: None,
             detections: Vec::new(),
+            not_scanned_since: None,
             pending_uploads: 0,
             dirty: false,
         };
@@ -488,6 +495,10 @@ impl ThreatIntelStore {
                 entry.seen_count += 1;
             }
             entry.last_seen = now_str.as_str().into();
+            // Scanned again (an upload's result, not the check before it).
+            if !check {
+                entry.not_scanned_since = None;
+            }
 
             // The latest real verdict wins, lower ones too: once malicious stayed malicious
             // before, so a false positive fixed in the engine (or a file now PUA /
@@ -606,13 +617,14 @@ impl ThreatIntelStore {
         let Some(sha_bytes) = parse_sha(sha256_hex) else { return };
         self.update(sha_bytes, None, |entry, _| {
             let had_extra = verdict == "unknown" && (entry.threat_name.is_some() || entry.score != 0.0 || !entry.detections.is_empty());
+            let was_pending = entry.not_scanned_since.take().is_some();
             let old = std::mem::replace(&mut entry.verdict, verdict.into());
             entry.threat_name = threat.map(IStr::from);
             entry.score = score;
             if verdict == "unknown" {
                 entry.detections.clear();
             }
-            if old.as_str() == verdict && !had_extra {
+            if old.as_str() == verdict && !had_extra && !was_pending {
                 return;
             }
             entry.dirty = true;
@@ -668,6 +680,36 @@ impl ThreatIntelStore {
             return Some((i.verdict.to_string(), i.threat_name.as_ref().map(|t| t.to_string())));
         }
         self.stored_verdict(&sha)
+    }
+
+    /// Marks a file as waiting for a new scan it cannot get now (no kept sample): the
+    /// verdict stays the last one. Returns false for a hash that is not recorded.
+    pub fn mark_not_scanned(&self, sha256_hex: &str, source: &str) -> bool {
+        let Some(sha) = parse_sha(sha256_hex) else { return false };
+        let old = self.update(sha, None, |entry, _| {
+            if entry.not_scanned_since.is_some() {
+                return None;
+            }
+            entry.not_scanned_since = Some(Utc::now().to_rfc3339().into());
+            entry.dirty = true;
+            Some(entry.verdict.to_string())
+        });
+        match old {
+            Some(Some(v)) => {
+                crate::verdict_history::record(&sha256_hex.to_ascii_lowercase(), "engine", Some(&v), "not_scanned", None, source, "");
+                true
+            }
+            Some(None) => true,
+            None => false,
+        }
+    }
+
+    /// The file waits for a new scan (see `ThreatInsight::not_scanned_since`).
+    pub fn is_not_scanned(&self, sha: &Sha) -> bool {
+        if let Some(i) = self.hot.read().unwrap().get(sha) {
+            return i.not_scanned_since.is_some();
+        }
+        self.load(sha).is_some_and(|i| i.not_scanned_since.is_some())
     }
 
     pub fn recorded_as_unknown(&self, sha: &Sha) -> bool {
@@ -1956,6 +1998,32 @@ mod store_tests {
     }
 
     const VERDICTS: [&str; 5] = ["malicious", "suspicious", "clean", "possible_clean", "unknown"];
+
+    /// A file that cannot be rescanned keeps its last verdict, marked not scanned
+    /// (the counts do not move), until a new scan result clears the mark.
+    #[test]
+    fn not_scanned_keeps_the_last_verdict() {
+        let (ti, dir) = store("notscanned");
+        ti.record(&sha(1), "malicious", Some("Trojan.Win32.Agent"), Some("a.exe"), Some(10), 1.0);
+        assert!(ti.mark_not_scanned(&sha(1), "unkept"));
+        let i = ti.get(&sha(1)).unwrap();
+        assert_eq!((i.verdict.as_str(), i.not_scanned_since.is_some()), ("malicious", true));
+        assert_eq!(ti.stats().malicious_count, 1, "still counted as malicious");
+        assert!(ti.is_not_scanned(&parse_sha(&sha(1)).unwrap()));
+        // Read back from SQLite with the mark.
+        assert!(ti.flush(Duration::from_secs(30)));
+        ti.hot.write().unwrap().clear();
+        assert!(ti.get(&sha(1)).unwrap().not_scanned_since.is_some());
+        // A check (before an upload) does not clear it; the scan result does.
+        ti.record_check(&sha(1), None, None);
+        assert!(ti.get(&sha(1)).unwrap().not_scanned_since.is_some());
+        ti.record(&sha(1), "clean", None, None, None, 0.0);
+        let i = ti.get(&sha(1)).unwrap();
+        assert_eq!((i.verdict.as_str(), i.not_scanned_since.is_none()), ("clean", true));
+        assert!(!ti.mark_not_scanned(&sha(99), "unkept"), "unknown hash");
+        drop(ti);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     /// More records than stay in memory: what is not there any more is read back from
     /// SQLite, and the counts, lists and IP pages agree with what was recorded.

@@ -567,7 +567,8 @@ async fn handle_health(State(server): State<Arc<ScanServer>>) -> impl IntoRespon
         }
         if self.cfg.cache() && !skip_cache {
             if let Some(v) = self.cache.get(sha) {
-                if v.verdict != "unknown" && self.threat_intel.recorded_as_unknown(sha) {
+                // Stale: the telemetry says the file has to be scanned again.
+                if v.verdict != "unknown" && (self.threat_intel.recorded_as_unknown(sha) || self.threat_intel.is_not_scanned(sha)) {
                     self.cache.forget(&[*sha].into_iter().collect());
                 } else {
                     self.stats.cache_hits.fetch_add(1, Ordering::Relaxed);
@@ -2732,6 +2733,9 @@ async fn handle_file_report(
             "verdict_source": if human_verdict.is_some() { "human" } else { "engine" },
                     "history": crate::verdict_history::public_json(&crate::verdict_history::get(&sha_hist)),
             "engine_verdict": engine_verdict,
+            // "not_scanned": the file waits for a new scan; `verdict` is the last one.
+            "scan_status": if human_verdict.is_none() && insight.as_ref().is_some_and(|i| i.not_scanned_since.is_some()) { "not_scanned" } else { "scanned" },
+            "not_scanned_since": insight.as_ref().and_then(|i| i.not_scanned_since.clone()),
             "classification": classification_json(&verdict, threat_name.as_deref()),
             "threat_name": threat_name,
             "telemetry": insight.as_ref().map(|i| serde_json::json!({
