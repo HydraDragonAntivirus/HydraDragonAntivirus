@@ -223,6 +223,28 @@ api_specs! {
     "lstrcmpw"(2) -> 0;
     "lstrcmpia"(2) -> 0;
     "lstrcmpiw"(2) -> 0;
+    // C runtime memory / string functions (msvcrt, ucrtbase; a leading `_` is
+    // dropped by `normalize_api_name`). Done for real below: code that copies its
+    // encrypted config with memcpy or finds a section with strncmp needs the result.
+    "memcpy"(3) -> 0;
+    "memmove"(3) -> 0;
+    "memset"(3) -> 0;
+    "memcmp"(3) -> 0;
+    "strlen"(1) -> 0;
+    "wcslen"(1) -> 0;
+    "strcmp"(2) -> 0;
+    "wcscmp"(2) -> 0;
+    "stricmp"(2) -> 0;
+    "strcmpi"(2) -> 0;
+    "wcsicmp"(2) -> 0;
+    "strncmp"(3) -> 0;
+    "wcsncmp"(3) -> 0;
+    "strnicmp"(3) -> 0;
+    "wcsnicmp"(3) -> 0;
+    "strcpy"(2) -> 0;
+    "wcscpy"(2) -> 0;
+    "strncpy"(3) -> 0;
+    "wcsncpy"(3) -> 0;
     "findatoma"(1, [ (0, Ansi) ]) -> 0;
     "findatomw"(1, [ (0, Wide) ]) -> 0;
     "addatoma"(1, [ (0, Ansi) ]) -> 0xC000;
@@ -493,6 +515,8 @@ pub struct ApiState {
     pub heap_sizes: HashMap<u64, u64>,
     /// Command line, environment, CRT globals: written once per run.
     pub scratch: HashMap<&'static str, u64>,
+    /// Section objects (NtCreateSection): handle -> (backing file, size, SEC_IMAGE).
+    pub sections: HashMap<u64, (Option<String>, u64, bool)>,
 }
 
 impl Default for ApiState {
@@ -517,6 +541,7 @@ impl Default for ApiState {
             heap_end: 0,
             heap_sizes: HashMap::new(),
             scratch: HashMap::new(),
+            sections: HashMap::new(),
         }
     }
 }
@@ -849,7 +874,10 @@ pub fn estimate_x86_stdcall_arg_count(uc: &Unicorn<'_, ()>, ret_addr: u64) -> Op
 /// Heuristically guess a sensible default return value for unknown APIs based on naming conventions.
 pub fn guess_default_return(api_name: &str) -> u64 {
     let norm = normalize_api_name(api_name);
-    if norm.starts_with("reg") {
+    // Native API (not ws2_32's ntohs / ntohl).
+    if norm.starts_with("nt") && !norm.starts_with("ntoh") || norm.starts_with("zw") {
+        0 // STATUS_SUCCESS
+    } else if norm.starts_with("reg") {
         0 // ERROR_SUCCESS
     } else if norm.starts_with("is")
         || norm.starts_with("delete")
@@ -1091,6 +1119,256 @@ fn write_units(uc: &mut Unicorn<'_, ()>, dst: u64, cap: usize, data: &[u8], unit
     n as u64
 }
 
+/// The in-memory image of the DLL an emulated path names, read from the system DLL
+/// folder the emulator uses for this bitness (only `<Windows>\System32\` /
+/// `SysWOW64\` paths, only `.dll`): what NtMapViewOfSection of an image section maps.
+fn host_image(path: &str, is_64: bool) -> Option<Vec<u8>> {
+    let lower = path.to_ascii_lowercase().replace('/', "\\");
+    let name = lower.rsplit('\\').next()?.to_string();
+    let in_system = lower.starts_with(&SYSTEM_DIR.to_ascii_lowercase()) || lower.contains("\\syswow64\\") || lower.contains("\\system32\\");
+    if !in_system || !name.ends_with(".dll") || name.contains("..") {
+        return None;
+    }
+    let mut dirs = vec![crate::unpacker::engine::system_dll_dir_for(is_64)];
+    let windows = std::env::var_os("SystemRoot").map(std::path::PathBuf::from).unwrap_or_else(|| r"C:\Windows".into());
+    dirs.push(windows.join(if is_64 { "System32" } else { "SysWOW64" }));
+    let data = dirs.iter().find_map(|d| std::fs::read(d.join(&name)).ok())?;
+    let (_, _, opt, sections) = crate::unpacker::engine::parse_pe_bytes(&data).ok()?;
+    if (opt.magic == 0x20b) != is_64 {
+        return None;
+    }
+    let size = crate::unpacker::engine::get_virtual_memory_size(&sections);
+    Some(crate::unpacker::engine::get_memory_mapped_image(&data, &sections, size, opt.size_of_headers))
+}
+
+/// printf into `buf` (at most `count` units with the NUL, at most `max` characters),
+/// arguments read one by one from the `va_list` at `va`. Returns the characters
+/// written, or -1 when it did not fit (as the `_s` / `n` variants do).
+#[allow(clippy::too_many_arguments)]
+fn vformat_into(uc: &mut Unicorn<'_, ()>, is_64: bool, buf: u64, count: u64, max: u64, fmt: u64, va: u64, wide: bool) -> u64 {
+    let unit = if wide { 2 } else { 1 };
+    let Some(fmt) = read_units(uc, fmt, -1, unit) else { return u64::MAX };
+    let mut slot = 0u64;
+    let step = if is_64 { 8 } else { 4 };
+    let mut next = |uc: &Unicorn<'_, ()>, size: u64| -> u64 {
+        let mut b = [0u8; 8];
+        let n = if is_64 { 8 } else { size.max(4) };
+        let _ = uc.mem_read(va + slot, &mut b[..n as usize]);
+        slot += if is_64 { step } else { n };
+        u64::from_le_bytes(b)
+    };
+    let text = format_c(uc, &fmt, &mut next, wide, is_64);
+    let mut out: Vec<u32> = text.chars().map(|c| c as u32).collect();
+    if max != u64::MAX {
+        out.truncate(max as usize);
+    }
+    let fits = (out.len() as u64) < count;
+    if !fits {
+        out.truncate(count.saturating_sub(1) as usize);
+    }
+    out.push(0);
+    if buf >= 0x10000 && count > 0 {
+        let bytes: Vec<u8> = out.iter().flat_map(|&c| if wide { (c as u16).to_le_bytes().to_vec() } else { vec![c as u8] }).collect();
+        let _ = uc.mem_write(buf, &bytes);
+    }
+    if fits { (out.len() - 1) as u64 } else { u64::MAX }
+}
+
+/// C printf formatting: flags `-+ 0#`, width and precision (`*` too), length
+/// modifiers `h l ll z j t I I32 I64 w`, conversions `d i u x X o c s S p f e g %`.
+/// `%s` is the format's own width (`%S` the other one); `%ls` / `%ws` wide, `%hs` narrow.
+fn format_c(uc: &Unicorn<'_, ()>, fmt: &[u32], next: &mut dyn FnMut(&Unicorn<'_, ()>, u64) -> u64, wide_fmt: bool, is_64: bool) -> String {
+    let mut out = String::new();
+    let ch = |i: usize| fmt.get(i).and_then(|&c| char::from_u32(c)).unwrap_or('\0');
+    let mut i = 0;
+    while i + 1 < fmt.len() || (i < fmt.len() && fmt[i] != 0) {
+        let c = ch(i);
+        if c == '\0' {
+            break;
+        }
+        if c != '%' {
+            out.push(c);
+            i += 1;
+            continue;
+        }
+        i += 1;
+        if ch(i) == '%' {
+            out.push('%');
+            i += 1;
+            continue;
+        }
+        let (mut left, mut zero, mut plus, mut space, mut alt) = (false, false, false, false, false);
+        loop {
+            match ch(i) {
+                '-' => left = true,
+                '0' => zero = true,
+                '+' => plus = true,
+                ' ' => space = true,
+                '#' => alt = true,
+                _ => break,
+            }
+            i += 1;
+        }
+        let mut num = |i: &mut usize, next: &mut dyn FnMut(&Unicorn<'_, ()>, u64) -> u64| -> Option<usize> {
+            if ch(*i) == '*' {
+                *i += 1;
+                return Some(next(uc, 4) as i32 as i64 as usize);
+            }
+            let start = *i;
+            while ch(*i).is_ascii_digit() {
+                *i += 1;
+            }
+            (*i > start).then(|| fmt[start..*i].iter().fold(0usize, |a, &d| a * 10 + (d - '0' as u32) as usize))
+        };
+        let width = num(&mut i, next).unwrap_or(0).min(4096);
+        let prec = if ch(i) == '.' {
+            i += 1;
+            Some(num(&mut i, next).unwrap_or(0).min(4096))
+        } else {
+            None
+        };
+        // Length modifier.
+        let mut size = 4u64;
+        let mut wide_arg: Option<bool> = None;
+        loop {
+            match ch(i) {
+                'h' => wide_arg = Some(false),
+                'l' | 'w' => {
+                    wide_arg = Some(true);
+                    if ch(i + 1) == 'l' {
+                        size = 8;
+                        i += 1;
+                    } else if !is_64 {
+                        size = 4;
+                    }
+                }
+                'z' | 'j' | 't' => size = if is_64 { 8 } else { 4 },
+                'I' => {
+                    if ch(i + 1) == '6' && ch(i + 2) == '4' {
+                        size = 8;
+                        i += 2;
+                    } else if ch(i + 1) == '3' && ch(i + 2) == '2' {
+                        size = 4;
+                        i += 2;
+                    } else {
+                        size = if is_64 { 8 } else { 4 };
+                    }
+                }
+                'L' | 'q' => size = 8,
+                _ => break,
+            }
+            i += 1;
+        }
+        let conv = ch(i);
+        i += 1;
+        let pad = |s: String, numeric: bool| -> String {
+            let n = s.chars().count();
+            if n >= width {
+                return s;
+            }
+            let fill = width - n;
+            if left {
+                format!("{s}{}", " ".repeat(fill))
+            } else if zero && numeric {
+                let (sign, digits) = if s.starts_with(['-', '+', ' ']) { s.split_at(1) } else { ("", s.as_str()) };
+                format!("{sign}{}{digits}", "0".repeat(fill))
+            } else {
+                format!("{}{s}", " ".repeat(fill))
+            }
+        };
+        let piece = match conv {
+            'd' | 'i' => {
+                let v = next(uc, size);
+                let v = if size == 8 { v as i64 } else { v as u32 as i32 as i64 };
+                let mut s = v.unsigned_abs().to_string();
+                if let Some(p) = prec {
+                    s = format!("{s:0>p$}");
+                }
+                let sign = if v < 0 { "-" } else if plus { "+" } else if space { " " } else { "" };
+                pad(format!("{sign}{s}"), prec.is_none())
+            }
+            'u' | 'x' | 'X' | 'o' => {
+                let v = next(uc, size);
+                let v = if size == 8 { v } else { v as u32 as u64 };
+                let mut s = match conv {
+                    'u' => v.to_string(),
+                    'x' => format!("{v:x}"),
+                    'X' => format!("{v:X}"),
+                    _ => format!("{v:o}"),
+                };
+                if let Some(p) = prec {
+                    s = format!("{s:0>p$}");
+                }
+                if alt && v != 0 && conv != 'u' {
+                    s = format!("{}{s}", if conv == 'o' { "0" } else if conv == 'x' { "0x" } else { "0X" });
+                }
+                pad(s, prec.is_none())
+            }
+            'p' => {
+                let v = next(uc, if is_64 { 8 } else { 4 });
+                pad(if is_64 { format!("{v:016X}") } else { format!("{v:08X}") }, false)
+            }
+            'c' | 'C' => {
+                let v = next(uc, 4) as u32;
+                pad(char::from_u32(if wide_arg == Some(true) || conv == 'C' { v & 0xFFFF } else { v & 0xFF }).unwrap_or('?').to_string(), false)
+            }
+            's' | 'S' => {
+                let p = next(uc, if is_64 { 8 } else { 4 });
+                // %s has the format's width, %S the other one; h / l / w override.
+                let wide = wide_arg.unwrap_or(if conv == 's' { wide_fmt } else { !wide_fmt });
+                let mut s = if p < 0x10000 {
+                    "(null)".to_string()
+                } else if wide {
+                    read_wide_string(uc, p, 4096).unwrap_or_default()
+                } else {
+                    read_ansi_string(uc, p, 4096).unwrap_or_default()
+                };
+                if let Some(pr) = prec {
+                    s = s.chars().take(pr).collect();
+                }
+                pad(s, false)
+            }
+            'f' | 'F' | 'e' | 'E' | 'g' | 'G' => {
+                let v = f64::from_bits(next(uc, 8));
+                let p = prec.unwrap_or(6);
+                let s = match conv {
+                    'e' => format!("{v:.p$e}"),
+                    'E' => format!("{v:.p$E}"),
+                    'g' | 'G' => format!("{v}"),
+                    _ => format!("{v:.p$}"),
+                };
+                pad(if plus && v >= 0.0 { format!("+{s}") } else { s }, true)
+            }
+            'n' => {
+                let _ = next(uc, if is_64 { 8 } else { 4 });
+                String::new()
+            }
+            _ => String::new(),
+        };
+        out.push_str(&piece);
+        if out.len() > 1 << 16 {
+            break;
+        }
+    }
+    out
+}
+
+/// Bytes one emulated memcpy / memset / memcmp may touch.
+const CRT_MAX: u64 = 16 << 20;
+
+fn arg(args: &[u64], i: usize) -> u64 {
+    args.get(i).copied().unwrap_or(0)
+}
+
+/// strcmp-style result: -1, 0 or 1 (as the int in EAX / RAX).
+fn ordering(o: std::cmp::Ordering) -> u64 {
+    match o {
+        std::cmp::Ordering::Less => (-1i64) as u64,
+        std::cmp::Ordering::Equal => 0,
+        std::cmp::Ordering::Greater => 1,
+    }
+}
+
 /// lstrcpy(n): copies at most `max` characters of the NUL-terminated `src` (the last one
 /// becomes the NUL), units of 1 or 2 bytes. Returns `dst`, or 0 when it cannot.
 fn copy_z(uc: &mut Unicorn<'_, ()>, dst: u64, src: u64, max: u64, unit: u64) -> u64 {
@@ -1153,9 +1431,144 @@ pub fn handle_api_call(
     api_state: &mut ApiState,
     dllname_to_functionlist: &mut HashMap<String, Vec<(String, u64)>>,
 ) -> u64 {
-    let norm = normalize_api_name(api_name);
+    let mut norm = normalize_api_name(api_name);
+    // ZwX and NtX are the same function.
+    if let Some(rest) = norm.strip_prefix("zw") {
+        norm = format!("nt{rest}");
+    }
 
     match norm.as_str() {
+        // --- Native API (also reached through `syscall`): NTSTATUS results ---
+        "ntallocatevirtualmemory" | "ntallocatevirtualmemoryex" => {
+            // (process, *base, zero_bits, *size, type, protect)
+            let (base_p, size_p) = (arg(args, 1), arg(args, 3));
+            let read = |uc: &Unicorn<'_, ()>, p: u64| -> Option<u64> {
+                let mut b = [0u8; 8];
+                (p >= 0x10000 && uc.mem_read(p, &mut b).is_ok()).then(|| u64::from_le_bytes(b))
+            };
+            let (Some(want), Some(size)) = (read(uc, base_p), read(uc, size_p)) else { return 0xC000_000D };
+            let got = handle_api_call(uc, "VirtualAlloc", &[want, size, arg(args, 4), arg(args, 5)], api_state, dllname_to_functionlist);
+            if got == 0 {
+                return 0xC000_0017; // STATUS_NO_MEMORY
+            }
+            let _ = uc.mem_write(base_p, &got.to_le_bytes());
+            let _ = uc.mem_write(size_p, &((size.max(1) + 0xFFF) & !0xFFF).to_le_bytes());
+            0
+        }
+        // NtCreateSection(*handle, access, attributes, *max_size, protect, allocation, file)
+        "ntcreatesection" | "ntcreatesectionex" => {
+            let (handle_p, size_p, alloc, file) = (arg(args, 0), arg(args, 3), arg(args, 5), arg(args, 6));
+            let path = api_state.file_handles.get(&file).map(|(p, _)| p.clone());
+            let mut size = 0u64;
+            if size_p >= 0x10000 {
+                let mut b = [0u8; 8];
+                if uc.mem_read(size_p, &mut b).is_ok() {
+                    size = u64::from_le_bytes(b);
+                }
+            }
+            let h = api_state.next_file_handle;
+            api_state.next_file_handle = h.wrapping_add(4);
+            api_state.sections.insert(h, (path, size, alloc & 0x0100_0000 != 0));
+            if handle_p >= 0x10000 {
+                let _ = uc.mem_write(handle_p, &h.to_le_bytes()[..if api_state.is_64 { 8 } else { 4 }]);
+            }
+            0
+        }
+        // NtMapViewOfSection(section, process, *base, zero_bits, commit, *offset, *view_size, ...):
+        // an image section of a system DLL is its real image (headers and sections at
+        // their RVAs, as the loader lays it out), anything else zeroed memory.
+        "ntmapviewofsection" | "ntmapviewofsectionex" => {
+            let (section, base_p, view_p) = (arg(args, 0), arg(args, 2), arg(args, 6));
+            let Some((path, size, image)) = api_state.sections.get(&section).cloned() else { return 0xC000_0008 }; // STATUS_INVALID_HANDLE
+            let content = if image { path.as_deref().and_then(|p| host_image(p, api_state.is_64)) } else { None };
+            let len = content.as_ref().map_or(size, |c| c.len() as u64).max(0x1000);
+            let mut want = 0u64;
+            if base_p >= 0x10000 {
+                let mut b = [0u8; 8];
+                if uc.mem_read(base_p, &mut b).is_ok() {
+                    want = u64::from_le_bytes(b);
+                }
+            }
+            let at = handle_api_call(uc, "VirtualAlloc", &[want, len, 0x3000, 0x40], api_state, dllname_to_functionlist);
+            if at == 0 {
+                return 0xC000_0017; // STATUS_NO_MEMORY
+            }
+            if let Some(c) = &content {
+                let _ = uc.mem_write(at, c);
+            }
+            let ptr = if api_state.is_64 { 8 } else { 4 };
+            if base_p >= 0x10000 {
+                let _ = uc.mem_write(base_p, &at.to_le_bytes()[..ptr]);
+            }
+            if view_p >= 0x10000 {
+                let _ = uc.mem_write(view_p, &((len + 0xFFF) & !0xFFF).to_le_bytes()[..ptr]);
+            }
+            0
+        }
+        "ntunmapviewofsection" | "ntunmapviewofsectionex" => 0,
+        // --- printf family reading a va_list (UCRT and msvcrt) ---
+        // UCRT: (options, buffer, count, [max_count,] format, locale, va_list)
+        "stdio_common_vsprintf" | "stdio_common_vsprintf_s" | "stdio_common_vsnprintf_s" | "stdio_common_vswprintf" | "stdio_common_vswprintf_s"
+        | "stdio_common_vsnwprintf_s" => {
+            let wide = norm.contains("vsw") || norm.contains("vsnw");
+            let has_max = norm.contains("vsnprintf_s") || norm.contains("vsnwprintf_s");
+            let (buf, count) = (arg(args, 1), arg(args, 2));
+            let (fmt, va) = if has_max { (arg(args, 4), arg(args, 6)) } else { (arg(args, 3), arg(args, 5)) };
+            let max = if has_max { arg(args, 3) } else { u64::MAX };
+            vformat_into(uc, api_state.is_64, buf, count, max, fmt, va, wide)
+        }
+        // msvcrt: vsprintf(buffer, format, va_list), _vsnprintf(buffer, count, format, va_list)
+        "vsprintf" | "vswprintf" => {
+            let wide = norm.starts_with("vsw");
+            vformat_into(uc, api_state.is_64, arg(args, 0), u64::MAX, u64::MAX, arg(args, 1), arg(args, 2), wide)
+        }
+        "vsnprintf" | "vsnwprintf" => {
+            let wide = norm.starts_with("vsnw");
+            vformat_into(uc, api_state.is_64, arg(args, 0), arg(args, 1), u64::MAX, arg(args, 2), arg(args, 3), wide)
+        }
+        "ntprotectvirtualmemory" => {
+            // (process, *base, *size, new_protect, *old_protect)
+            let old_p = arg(args, 4);
+            if old_p >= 0x10000 {
+                let _ = uc.mem_write(old_p, &0x04u32.to_le_bytes()); // PAGE_READWRITE
+            }
+            0
+        }
+        "ntfreevirtualmemory" | "ntdelayexecution" | "ntclose" | "ntsetinformationthread" | "ntsetinformationprocess" | "ntflushinstructioncache"
+        | "nttestalert" | "ntyieldexecution" => 0,
+        "ntwritevirtualmemory" | "ntreadvirtualmemory" => {
+            // (process, address, buffer, size, *done) in this process
+            let (at, buf, n, done) = (arg(args, 1), arg(args, 2), arg(args, 3).min(CRT_MAX), arg(args, 4));
+            let (src, dst) = if norm == "ntwritevirtualmemory" { (buf, at) } else { (at, buf) };
+            let Ok(b) = uc.mem_read_as_vec(src, n as usize) else { return 0xC000_0005 };
+            if uc.mem_write(dst, &b).is_err() {
+                return 0xC000_0005; // STATUS_ACCESS_VIOLATION
+            }
+            if done >= 0x10000 {
+                let _ = uc.mem_write(done, &n.to_le_bytes());
+            }
+            0
+        }
+        "ntqueryinformationprocess" | "ntqueryinformationthread" | "ntquerysysteminformation" => {
+            // Zeroed answers: no debug port, no debugger, nothing found.
+            let (buf, len, ret_p) = if norm == "ntquerysysteminformation" { (arg(args, 1), arg(args, 2), arg(args, 3)) } else { (arg(args, 2), arg(args, 3), arg(args, 4)) };
+            let n = len.min(0x10000);
+            if buf >= 0x10000 && n > 0 {
+                let _ = uc.mem_write(buf, &vec![0u8; n as usize]);
+            }
+            if ret_p >= 0x10000 {
+                let _ = uc.mem_write(ret_p, &(n as u32).to_le_bytes());
+            }
+            0
+        }
+        "ntcreatethreadex" => {
+            // The thread is not run; its handle is given.
+            let h = arg(args, 0);
+            if h >= 0x10000 {
+                let _ = uc.mem_write(h, &0x2000u64.to_le_bytes());
+            }
+            0
+        }
         // --- File APIs ---
         "createfilea" | "createfilew" => {
             let handle = api_state.next_file_handle;
@@ -1691,6 +2104,57 @@ pub fn handle_api_call(
                 std::cmp::Ordering::Greater => 1,
             }
         }
+        // --- C runtime memory / string functions ---
+        "memcpy" | "memmove" => {
+            let (dst, src, n) = (arg(args, 0), arg(args, 1), arg(args, 2).min(CRT_MAX));
+            if let Ok(b) = uc.mem_read_as_vec(src, n as usize) {
+                let _ = uc.mem_write(dst, &b);
+            }
+            dst
+        }
+        "memset" => {
+            let (dst, n) = (arg(args, 0), arg(args, 2).min(CRT_MAX));
+            let _ = uc.mem_write(dst, &vec![arg(args, 1) as u8; n as usize]);
+            dst
+        }
+        "memcmp" => {
+            let n = arg(args, 2).min(CRT_MAX) as usize;
+            match (uc.mem_read_as_vec(arg(args, 0), n), uc.mem_read_as_vec(arg(args, 1), n)) {
+                (Ok(a), Ok(b)) => ordering(a.cmp(&b)),
+                _ => 0,
+            }
+        }
+        "strlen" | "wcslen" => {
+            let unit = if norm.starts_with('w') { 2 } else { 1 };
+            read_units(uc, arg(args, 0), -1, unit).map_or(0, |u| u.len().saturating_sub(1) as u64)
+        }
+        "strcmp" | "wcscmp" | "stricmp" | "strcmpi" | "wcsicmp" | "strncmp" | "wcsncmp" | "strnicmp" | "wcsnicmp" => {
+            let unit = if norm.starts_with('w') { 2 } else { 1 };
+            let fold = norm.contains("icmp") || norm == "strcmpi";
+            // strncmp: at most n characters; the strings end at their NUL either way.
+            let max = if norm.contains("ncmp") || norm.contains("nicmp") { arg(args, 2).min(1 << 16) as usize } else { 1 << 16 };
+            let read = |a: u64| read_units(uc, a, -1, unit).map(|mut v| {
+                v.truncate(max);
+                v
+            });
+            let (Some(a), Some(b)) = (read(arg(args, 0)), read(arg(args, 1))) else { return 0 };
+            let key = |s: &[u32]| -> Vec<u32> { s.iter().map(|&c| if fold && c < 0x80 { (c as u8).to_ascii_lowercase() as u32 } else { c }).collect() };
+            ordering(key(&a).cmp(&key(&b)))
+        }
+        "strcpy" | "wcscpy" => {
+            let unit = if norm.starts_with('w') { 2 } else { 1 };
+            copy_z(uc, arg(args, 0), arg(args, 1), 1 << 16, unit)
+        }
+        "strncpy" | "wcsncpy" => {
+            // Copies up to n characters and pads the rest of n with NULs.
+            let unit = if norm.starts_with('w') { 2 } else { 1 };
+            let (dst, n) = (arg(args, 0), arg(args, 2).min(1 << 16));
+            let mut src = read_units(uc, arg(args, 1), -1, unit).unwrap_or_default();
+            src.resize(n as usize, 0);
+            let bytes: Vec<u8> = src.iter().flat_map(|&c| if unit == 2 { (c as u16).to_le_bytes().to_vec() } else { vec![c as u8] }).collect();
+            let _ = uc.mem_write(dst, &bytes);
+            dst
+        }
         "p__environ" | "p__wenviron" => {
             let is_64 = api_state.is_64;
             let envp = scratch(uc, api_state, "envp", &ptr_bytes(0, is_64));
@@ -1757,6 +2221,40 @@ pub fn handle_api_call(
             }
             new
         }
+        // C runtime heap (msvcrt / ucrt), on the same heap as HeapAlloc.
+        "malloc" | "operator_new" | "aligned_malloc" => heap_alloc(uc, api_state, arg(args, 0)),
+        "calloc" => {
+            let n = arg(args, 0).saturating_mul(arg(args, 1)).min(CRT_MAX);
+            let a = heap_alloc(uc, api_state, n);
+            if a != 0 {
+                let _ = uc.mem_write(a, &vec![0u8; n as usize]);
+            }
+            a
+        }
+        "realloc" => {
+            let (old, size) = (arg(args, 0), arg(args, 1));
+            let new = heap_alloc(uc, api_state, size);
+            let keep = api_state.heap_sizes.get(&old).copied().unwrap_or(0).min(size);
+            if new != 0 && old >= 0x10000 && keep > 0 {
+                if let Ok(data) = uc.mem_read_as_vec(old, keep as usize) {
+                    let _ = uc.mem_write(new, &data);
+                }
+            }
+            new
+        }
+        "free" | "aligned_free" => 0,
+        // DuplicateHandle(src_process, src, dst_process, *dst, access, inherit, options):
+        // the copy is the same handle (pseudo handles of the current thread / process
+        // become a fixed real-looking one).
+        "duplicatehandle" => {
+            let (src, dst) = (arg(args, 1), arg(args, 3));
+            let h = if src >= 0xFFFF_FFFF_FFFF_FFF0 { 0x1200 + (src & 0xF) * 4 } else { src };
+            if dst >= 0x10000 {
+                let bytes = h.to_le_bytes();
+                let _ = uc.mem_write(dst, &bytes[..if api_state.is_64 { 8 } else { 4 }]);
+            }
+            1
+        }
         // --- Process environment ---
         "getcommandlinea" => scratch(uc, api_state, "cmdline_a", &ansi_z(&format!("\"{PROGRAM_PATH}\""))),
         "getcommandlinew" => scratch(uc, api_state, "cmdline_w", &wide_z(&format!("\"{PROGRAM_PATH}\""))),
@@ -1785,6 +2283,22 @@ pub fn handle_api_call(
         // --- CRT startup (msvcrt / ucrt) ---
         "p__fmode" => scratch(uc, api_state, "fmode", &[0u8; 4]),
         "p__commode" => scratch(uc, api_state, "commode", &[0u8; 4]),
+        // UCRT: int *__p___argc(), char ***__p___argv(), wchar_t ***__p___wargv().
+        "p___argc" => scratch(uc, api_state, "argc", &1u32.to_le_bytes()),
+        "p___argv" | "p___wargv" => {
+            let is_64 = api_state.is_64;
+            let wide = norm == "p___wargv";
+            let path = if wide { scratch(uc, api_state, "argv0_w", &wide_z(PROGRAM_PATH)) } else { scratch(uc, api_state, "argv0_a", &ansi_z(PROGRAM_PATH)) };
+            let mut argv = ptr_bytes(path, is_64);
+            argv.extend(ptr_bytes(0, is_64));
+            let argv = scratch(uc, api_state, if wide { "argv_w" } else { "argv_a" }, &argv);
+            scratch(uc, api_state, if wide { "pargv_w" } else { "pargv_a" }, &ptr_bytes(argv, is_64))
+        }
+        // FILE *__acrt_iob_func(unsigned): stdin, stdout, stderr (opaque, zeroed).
+        "acrt_iob_func" => {
+            let iob = scratch(uc, api_state, "iob", &[0u8; 3 * 0x58]);
+            if iob == 0 { 0 } else { iob + arg(args, 0).min(2) * 0x58 }
+        }
         "get_initial_narrow_environment" => {
             let is_64 = api_state.is_64;
             scratch(uc, api_state, "envp", &ptr_bytes(0, is_64))
@@ -1972,6 +2486,31 @@ mod tests {
 
         let estimated = estimate_x86_stdcall_arg_count(&uc, ret_addr);
         assert_eq!(estimated, Some(3));
+    }
+
+    #[test]
+    fn crt_memory_and_string_functions() {
+        let mut uc = Unicorn::new(Arch::X86, Mode::MODE_64).expect("Unicorn new");
+        let mut st = ApiState::default();
+        let mut dll_map = HashMap::new();
+        let mut call = |uc: &mut Unicorn<'_, ()>, st: &mut ApiState, name: &str, args: &[u64]| handle_api_call(uc, name, args, st, &mut dll_map);
+        let buf = call(&mut uc, &mut st, "HeapAlloc", &[0x150000, 0, 0x400]);
+        let (a, b, out) = (buf, buf + 0x100, buf + 0x200);
+        uc.mem_write(a, b".cfg xyz").unwrap();
+        uc.mem_write(b, b".CFGa ").unwrap();
+
+        assert_eq!(call(&mut uc, &mut st, "memcpy", &[out, a, 8]), out);
+        assert_eq!(uc.mem_read_as_vec(out, 8).unwrap(), b".cfg xyz");
+        assert_eq!(call(&mut uc, &mut st, "memset", &[out, 0x41, 3]), out);
+        assert_eq!(uc.mem_read_as_vec(out, 4).unwrap(), b"AAAg");
+        assert_eq!(call(&mut uc, &mut st, "memcmp", &[a, a, 8]), 0);
+        assert_eq!(call(&mut uc, &mut st, "strlen", &[a]), 4);
+        // `_stricmp` and `_strnicmp` (the leading `_` is dropped).
+        assert_eq!(call(&mut uc, &mut st, "_strnicmp", &[a, b, 4]), 0, "first 4, case folded");
+        assert_ne!(call(&mut uc, &mut st, "_stricmp", &[a, b]), 0, "whole strings differ");
+        assert_ne!(call(&mut uc, &mut st, "strncmp", &[a, b, 4]), 0, "case matters");
+        assert_eq!(call(&mut uc, &mut st, "strncpy", &[out, a, 6]), out);
+        assert_eq!(uc.mem_read_as_vec(out, 6).unwrap(), b".cfg  ", "padded with NULs");
     }
 
     #[test]

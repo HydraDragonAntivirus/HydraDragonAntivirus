@@ -8,6 +8,7 @@
 // that cannot do what it says fails the recipe; the caller then uses its
 // generic way.
 
+use crate::disinfect::rules::HexByte;
 use crate::unpacker::codecs::{self, Codec};
 use crate::unpacker::engine::{entrypoint, Sample, StopHit, Stops, UnpackerEngine};
 use crate::unpacker::expr::{Env, Expr};
@@ -74,6 +75,13 @@ pub enum Step {
     /// Emulated memory as a buffer (a VirtualAlloc'd payload, a decrypted
     /// section).
     Mem(Mem),
+    /// Call one function of the image and emulate until it returns: its own code
+    /// decrypts what it decrypts, whatever the cipher. Sets `ret`; `as` gets the
+    /// memory the call wrote.
+    Call(Call),
+    /// Hosts, `host:port`, URLs and Windows paths in a buffer that are not in the
+    /// file itself (what decryption revealed) go to the report as extracted values.
+    Iocs(Iocs),
     /// Set the instruction pointer: the entry point of the next `dump`.
     SetOep(Oep),
     /// The memory image (entry point = instruction pointer, imports rebuilt) is
@@ -316,6 +324,36 @@ pub struct Mem {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Call {
+    /// Address of the function (`image_base + func_start(rva)`).
+    pub va: Expr,
+    /// Arguments (x64: RCX, RDX, R8, R9, then the stack; x86: the stack).
+    #[serde(default)]
+    pub args: Vec<Expr>,
+    /// Buffer that gets the memory pages written while emulating (joined).
+    #[serde(default, rename = "as")]
+    pub out: Option<String>,
+    #[serde(default)]
+    pub max_instructions: Option<u64>,
+    #[serde(default)]
+    pub timeout_ms: Option<u64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Iocs {
+    #[serde(rename = "in")]
+    pub buf: String,
+    /// Also report values that are in the file as they are (default: only new ones).
+    #[serde(default)]
+    pub all: bool,
+    /// Fail the recipe when nothing is found.
+    #[serde(default)]
+    pub required: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "snake_case", deny_unknown_fields)]
 pub enum Oep {
     /// Where the last `run_until` stopped.
@@ -340,6 +378,145 @@ fn one_or_many<'de, D: Deserializer<'de>>(d: D) -> Result<Vec<Codec>, D::Error> 
         Raw::Many(v) => v,
     })
 }
+
+/// Start RVA of the x64 function holding `rva`, from the exception directory
+/// (`RUNTIME_FUNCTION` entries; a chained entry leads to its primary function).
+fn func_start(file: &[u8], pe: &pefile_rs::PE, rva: u32) -> Option<u32> {
+    let rd = |off: usize| file.get(off..off + 4).map(|b| u32::from_le_bytes([b[0], b[1], b[2], b[3]]));
+    let off_of = |r: u32| pe.get_offset_from_rva(r).ok();
+    // DataDirectory[3]: the optional header is 0x70 bytes before it in PE32+.
+    let e_lfanew = rd(0x3c)? as usize;
+    let dirs = e_lfanew + 24 + 0x70;
+    let (table, size) = (rd(dirs + 3 * 8)?, rd(dirs + 3 * 8 + 4)?);
+    let table_off = off_of(table)?;
+    let mut target = rva;
+    for _ in 0..32 {
+        let entry = (0..size as usize / 12).map(|i| table_off + i * 12).find(|&e| {
+            matches!((rd(e), rd(e + 4)), (Some(lo), Some(hi)) if lo <= target && target < hi)
+        })?;
+        let (begin, unwind) = (rd(entry)?, rd(entry + 8)?);
+        let u = off_of(unwind & !1)?;
+        let (flags, codes) = (file.get(u)? >> 3, *file.get(u + 2)? as usize);
+        // UNW_FLAG_CHAININFO: the parent RUNTIME_FUNCTION follows the unwind codes.
+        if flags & 4 == 0 {
+            return Some(begin);
+        }
+        let parent = u + 4 + ((codes + 1) & !1) * 2;
+        target = rd(parent)?;
+    }
+    None
+}
+
+/// Hosts (`a.b.c.d`, `a.b.c.d:port`, domain names), URLs and Windows paths in the
+/// printable runs of `data` (ASCII and UTF-16LE). With `file`, values that occur in
+/// it as they are (ASCII or UTF-16LE) are left out: only what was decrypted stays.
+fn iocs(data: &[u8], file: Option<&[u8]>) -> Vec<String> {
+    let mut runs: Vec<String> = Vec::new();
+    let printable = |b: u8| (0x20..0x7f).contains(&b);
+    let mut cur = String::new();
+    for &b in data {
+        if printable(b) {
+            cur.push(b as char);
+        } else {
+            if cur.len() >= 4 {
+                runs.push(std::mem::take(&mut cur));
+            }
+            cur.clear();
+        }
+    }
+    if cur.len() >= 4 {
+        runs.push(cur);
+    }
+    for align in 0..2 {
+        let mut cur = String::new();
+        for pair in data.get(align..).unwrap_or_default().chunks_exact(2) {
+            if pair[1] == 0 && printable(pair[0]) {
+                cur.push(pair[0] as char);
+            } else {
+                if cur.len() >= 4 {
+                    runs.push(std::mem::take(&mut cur));
+                }
+                cur.clear();
+            }
+        }
+        if cur.len() >= 4 {
+            runs.push(cur);
+        }
+    }
+    let mut out: Vec<String> = Vec::new();
+    for run in &runs {
+        for v in values_in(run) {
+            if !out.contains(&v) {
+                out.push(v);
+            }
+        }
+    }
+    if let Some(f) = file {
+        let wide = |s: &str| s.encode_utf16().flat_map(u16::to_le_bytes).collect::<Vec<u8>>();
+        let has = |needle: &[u8]| needle.len() <= f.len() && f.windows(needle.len()).any(|w| w == needle);
+        out.retain(|v| !has(v.as_bytes()) && !has(&wide(v)));
+    }
+    out
+}
+
+/// The IOC-shaped values in one printable string.
+fn values_in(s: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let lower = s.to_ascii_lowercase();
+    // URLs.
+    for scheme in ["http://", "https://", "ws://", "wss://", "ftp://", "tcp://", "udp://"] {
+        let mut from = 0;
+        while let Some(p) = lower[from..].find(scheme) {
+            let at = from + p;
+            let url: String = s[at..].chars().take_while(|c| !c.is_whitespace() && !"\"'<>`".contains(*c)).collect();
+            if url.len() > scheme.len() + 3 {
+                out.push(url);
+            }
+            from = at + scheme.len();
+        }
+    }
+    // Windows paths: a drive letter, `:\`, then the rest of the string.
+    let bytes = s.as_bytes();
+    for i in 0..bytes.len().saturating_sub(2) {
+        if bytes[i].is_ascii_alphabetic() && bytes[i + 1] == b':' && bytes[i + 2] == b'\\' && (i == 0 || !bytes[i - 1].is_ascii_alphanumeric()) {
+            let path: String = s[i..].chars().take_while(|c| !"\"<>|*?".contains(*c)).collect();
+            if path.len() > 4 {
+                out.push(path.trim_end().to_string());
+            }
+        }
+    }
+    // Hosts: tokens of letters, digits, `.`, `-` and an optional `:port`.
+    for tok in s.split(|c: char| !(c.is_ascii_alphanumeric() || c == '.' || c == '-' || c == ':')) {
+        let tok = tok.trim_matches(|c| c == '.' || c == ':' || c == '-');
+        let (host, port) = match tok.rsplit_once(':') {
+            Some((h, p)) if !p.is_empty() && p.len() <= 5 && p.bytes().all(|b| b.is_ascii_digit()) && p.parse::<u32>().is_ok_and(|n| n > 0 && n < 65536) => (h, Some(p)),
+            _ => (tok, None),
+        };
+        if host.contains(':') {
+            continue;
+        }
+        let labels: Vec<&str> = host.split('.').collect();
+        let ipv4 = labels.len() == 4 && labels.iter().all(|l| !l.is_empty() && l.len() <= 3 && l.parse::<u8>().is_ok());
+        let domain = labels.len() >= 2
+            && labels.iter().all(|l| !l.is_empty() && l.len() <= 63 && !l.starts_with('-') && !l.ends_with('-'))
+            && labels.last().is_some_and(|t| (2..=12).contains(&t.len()) && t.bytes().all(|b| b.is_ascii_alphabetic()))
+            && !NOT_TLDS.contains(&labels.last().unwrap().to_ascii_lowercase().as_str());
+        if ipv4 && host != "0.0.0.0" || domain {
+            out.push(match port {
+                Some(p) => format!("{host}:{p}"),
+                None => host.to_string(),
+            });
+        }
+    }
+    out
+}
+
+/// File extensions and code words that look like a last domain label.
+const NOT_TLDS: &[&str] = &[
+    "exe", "dll", "sys", "bat", "cmd", "ps1", "vbs", "js", "txt", "log", "ini", "dat", "bin", "tmp", "cfg", "json", "xml",
+    "html", "htm", "php", "png", "jpg", "gif", "ico", "zip", "rar", "lnk", "pdb", "obj", "lib", "cpp", "rs", "py", "h",
+    "c", "cs", "md", "yaml", "yml", "toml",
+];
 
 // ---------------------------------------------------------------------------
 // Load-time checks
@@ -389,7 +566,7 @@ pub fn check(steps: &[Step]) -> Result<(), String> {
                 }
                 Step::Repeat(r) => walk(&r.steps, true, out).map_err(at)?,
                 Step::Emit(_) => *out = true,
-                Step::RunUntil(_) | Step::Mem(_) | Step::SetOep(_) | Step::Dump | Step::DumpAlloc if in_alt => {
+                Step::RunUntil(_) | Step::Mem(_) | Step::Call(_) | Step::SetOep(_) | Step::Dump | Step::DumpAlloc if in_alt => {
                     return Err(at("emulation steps cannot be inside try / repeat".into()));
                 }
                 Step::RunUntil(r) => {
@@ -400,7 +577,7 @@ pub fn check(steps: &[Step]) -> Result<(), String> {
                         pattern(p).map_err(at)?;
                     }
                 }
-                Step::Dump | Step::DumpAlloc => *out = true,
+                Step::Dump | Step::DumpAlloc | Step::Iocs(_) => *out = true,
                 _ => {}
             }
         }
@@ -409,14 +586,14 @@ pub fn check(steps: &[Step]) -> Result<(), String> {
     let mut out = false;
     walk(steps, false, &mut out)?;
     if !out {
-        return Err("the recipe never gives a payload (emit / dump)".into());
+        return Err("the recipe never gives a payload (emit / dump) or extracted values (iocs)".into());
     }
     Ok(())
 }
 
-fn pattern(s: &str) -> Result<Vec<Option<u8>>, String> {
+fn pattern(s: &str) -> Result<Vec<HexByte>, String> {
     let p = crate::disinfect::rules::parse_hex_pattern(s.trim().trim_start_matches('{').trim_end_matches('}'))?;
-    if p.is_empty() || p[0].is_none() {
+    if p.is_empty() || p[0].fixed().is_none() {
         return Err(format!("pattern {s:?} must start with a fixed byte"));
     }
     Ok(p)
@@ -425,7 +602,7 @@ fn pattern(s: &str) -> Result<Vec<Option<u8>>, String> {
 fn hex(s: &str) -> Result<Vec<u8>, String> {
     crate::disinfect::rules::parse_hex_pattern(s)?
         .into_iter()
-        .map(|b| b.ok_or_else(|| format!("wildcard in key {s:?}")))
+        .map(|b| b.fixed().ok_or_else(|| format!("wildcard in key {s:?}")))
         .collect()
 }
 
@@ -457,6 +634,8 @@ struct State<'a> {
     steps: u64,
     eng: Option<UnpackerEngine>,
     budget: Budget,
+    /// Values `iocs` found, in order, without repeats.
+    extracted: Vec<String>,
 }
 
 impl Env for State<'_> {
@@ -477,6 +656,7 @@ impl Env for State<'_> {
         match name {
             "rva2off" => pe()?.get_offset_from_rva(one()?).map(|o| o as i128).map_err(|e| format!("rva2off: {e}")),
             "off2rva" => pe()?.get_rva_from_offset(one()? as usize).map(|r| r as i128).map_err(|e| format!("off2rva: {e}")),
+            "func_start" => func_start(self.file, pe()?, one()?).map(|r| r as i128).ok_or_else(|| "func_start: no x64 unwind entry holds this RVA".into()),
             "min" | "max" => match args {
                 [a, b] => Ok(if name == "min" { *a.min(b) } else { *a.max(b) }),
                 _ => Err(format!("{name} takes two arguments")),
@@ -506,12 +686,20 @@ pub fn run(data: &[u8], steps: &[Step], budget: Budget) -> (Outcome, BehaviorTra
         ints.insert("is_64".into(), pe.is_64bit as i128);
         ints.insert("sections".into(), pe.sections.len() as i128);
     }
-    let mut st = State { file: data, pe, ints, bufs: HashMap::new(), out: Vec::new(), out_bytes: 0, steps: 0, eng: None, budget };
+    let mut st = State { file: data, pe, ints, bufs: HashMap::new(), out: Vec::new(), out_bytes: 0, steps: 0, eng: None, budget, extracted: Vec::new() };
     let result = st.block(steps);
-    let trace = st.eng.as_ref().map(|e| e.behavior_trace().clone()).unwrap_or_default();
+    let mut trace = st.eng.as_ref().map(|e| e.behavior_trace().clone()).unwrap_or_default();
+    for v in &st.extracted {
+        // Hosts and URLs are network targets too (rules on contacted hosts see them).
+        if !v.contains(":\\") && !trace.network_targets.contains(v) {
+            trace.network_targets.push(v.clone());
+        }
+    }
+    trace.extracted = st.extracted.clone();
     let outcome = match result {
         Err(e) => Outcome::Failed(e),
-        Ok(()) if st.out.is_empty() => Outcome::Failed("no payload".into()),
+        // A recipe that only extracts values gives no payload.
+        Ok(()) if st.out.is_empty() && st.extracted.is_empty() => Outcome::Failed("no payload".into()),
         Ok(()) => Outcome::Unpacked(st.out),
     };
     (outcome, trace)
@@ -584,7 +772,7 @@ impl State<'_> {
                 let from = f.from.as_ref().map(|e| self.usize(e)).transpose()?.unwrap_or(0);
                 let data = self.buf(&f.buf)?;
                 let hit = (from..data.len().saturating_sub(pat.len() - 1))
-                    .filter(|&i| pat.iter().zip(&data[i..]).all(|(p, b)| p.is_none_or(|p| p == *b)))
+                    .filter(|&i| pat.iter().zip(&data[i..]).all(|(p, b)| p.matches(*b)))
                     .map(|i| i as i128 + f.offset as i128)
                     .find(|&at| at >= 0 && f.align.is_none_or(|a| at % a as i128 == 0))
                     .ok_or("pattern not found")?;
@@ -778,6 +966,42 @@ impl State<'_> {
                 let at = u64::try_from(at).map_err(|_| format!("bad address {at}"))?;
                 let data = self.engine()?.read_mem(at, len).ok_or_else(|| format!("{len} bytes at {at:#x} are not mapped"))?;
                 self.put(&m.out, data)?;
+            }
+            Step::Call(c) => {
+                let va = u64::try_from(self.eval(&c.va)?).map_err(|_| "bad address".to_string())?;
+                let args = c.args.iter().map(|a| self.eval(a).map(|v| v as u64)).collect::<Result<Vec<_>, _>>()?;
+                let max = c.max_instructions.map_or(self.budget.max_instructions, |n| n as usize);
+                let timeout = c.timeout_ms.map_or(self.budget.timeout_us, |ms| ms.saturating_mul(1000));
+                let e = self.engine()?;
+                let ret = e.call_function(va, &args, timeout, max)?;
+                let written = e
+                    .write_targets
+                    .clone()
+                    .into_iter()
+                    .filter_map(|(lo, hi)| e.read_mem(lo, (hi - lo).min(MAX_BUFFER as u64) as usize))
+                    .collect::<Vec<_>>();
+                self.set("ret", ret as i128);
+                if let Some(name) = &c.out {
+                    // Pages joined with a NUL gap, so a value never runs across two.
+                    let mut joined = Vec::new();
+                    for page_run in written {
+                        joined.extend_from_slice(&page_run);
+                        joined.push(0);
+                    }
+                    joined.truncate(MAX_BUFFER);
+                    self.put(name, joined)?;
+                }
+            }
+            Step::Iocs(i) => {
+                let found = iocs(self.buf(&i.buf)?, if i.all { None } else { Some(self.file) });
+                if found.is_empty() && i.required {
+                    return Err(format!("no hosts, URLs or paths in `{}`", i.buf));
+                }
+                for v in found {
+                    if !self.extracted.contains(&v) {
+                        self.extracted.push(v);
+                    }
+                }
             }
             Step::SetOep(o) => {
                 let target = match o {
@@ -1349,6 +1573,8 @@ fn name(s: &Step) -> &'static str {
         Step::Emit(_) => "emit",
         Step::RunUntil(_) => "run_until",
         Step::Mem(_) => "mem",
+        Step::Call(_) => "call",
+        Step::Iocs(_) => "iocs",
         Step::SetOep(_) => "set_oep",
         Step::Dump => "dump",
         Step::DumpAlloc => "dump_alloc",

@@ -208,11 +208,36 @@ pub enum Cleanup {
 // Compiled rules
 // ---------------------------------------------------------------------------
 
-/// A signature part with its bytes parsed (`None` = wildcard).
+/// One pattern byte: matches a byte `b` when `b & mask == value`. `??` has mask 0,
+/// `4?` mask 0xF0 (high nibble 4), `?A` mask 0x0F, a plain byte mask 0xFF.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct HexByte {
+    pub value: u8,
+    pub mask: u8,
+}
+
+impl HexByte {
+    pub const ANY: Self = Self { value: 0, mask: 0 };
+
+    pub const fn exact(b: u8) -> Self {
+        Self { value: b, mask: 0xFF }
+    }
+
+    pub fn matches(self, b: u8) -> bool {
+        b & self.mask == self.value
+    }
+
+    /// The byte, when no part of it is a wildcard.
+    pub fn fixed(self) -> Option<u8> {
+        (self.mask == 0xFF).then_some(self.value)
+    }
+}
+
+/// A signature part with its bytes parsed.
 #[derive(Debug, Clone)]
 pub struct CompiledSig {
     pub offset: u64,
-    pub bytes: Vec<Option<u8>>,
+    pub bytes: Vec<HexByte>,
 }
 
 /// A validated definition.
@@ -231,7 +256,7 @@ impl CompiledRule {
         self.sigs.iter().all(|s| {
             let o = s.offset as usize;
             buf.len() >= o + s.bytes.len()
-                && s.bytes.iter().zip(&buf[o..]).all(|(p, b)| p.is_none_or(|p| p == *b))
+                && s.bytes.iter().zip(&buf[o..]).all(|(p, b)| p.matches(*b))
         })
     }
 }
@@ -295,19 +320,20 @@ impl DisinfectRules {
 }
 
 /// `"E8 00 ?? 5D"` (spaces optional, `?`/`??` = wildcard).
-pub fn parse_hex_pattern(s: &str) -> Result<Vec<Option<u8>>, String> {
+/// Hex bytes with wildcards: `??` any byte, `4?` / `?A` a nibble wildcard.
+pub fn parse_hex_pattern(s: &str) -> Result<Vec<HexByte>, String> {
     let compact: Vec<char> = s.chars().filter(|c| !c.is_whitespace()).collect();
     if compact.len() % 2 != 0 {
         return Err(format!("odd number of hex digits in {s:?}"));
     }
+    let nibble = |c: char| -> Option<(u8, u8)> {
+        if c == '?' { Some((0, 0)) } else { c.to_digit(16).map(|d| (d as u8, 0xF)) }
+    };
     compact
         .chunks(2)
-        .map(|p| match p {
-            ['?', '?'] => Ok(None),
-            [a, b] => u8::from_str_radix(&format!("{a}{b}"), 16)
-                .map(Some)
-                .map_err(|_| format!("bad hex byte {a}{b} in {s:?}")),
-            _ => unreachable!(),
+        .map(|p| match (nibble(p[0]), nibble(p[1])) {
+            (Some((hv, hm)), Some((lv, lm))) => Ok(HexByte { value: hv << 4 | lv, mask: hm << 4 | lm }),
+            _ => Err(format!("bad hex byte {}{} in {s:?}", p[0], p[1])),
         })
         .collect()
 }
@@ -344,7 +370,7 @@ fn compile(rule: VirusRule) -> Result<CompiledRule, String> {
         if bytes.is_empty() {
             return Err(err("empty signature".into()));
         }
-        concrete += bytes.iter().filter(|b| b.is_some()).count();
+        concrete += bytes.iter().filter(|b| b.fixed().is_some()).count();
         span = span.max(s.offset as usize + bytes.len());
         sigs.push(CompiledSig { offset: s.offset, bytes });
     }
@@ -373,7 +399,7 @@ fn compile(rule: VirusRule) -> Result<CompiledRule, String> {
                 }
                 let key = match &r.xor_key {
                     Some(k) => {
-                        let k: Option<Vec<u8>> = parse_hex_pattern(k).map_err(&err)?.into_iter().collect();
+                        let k: Option<Vec<u8>> = parse_hex_pattern(k).map_err(&err)?.into_iter().map(HexByte::fixed).collect();
                         match k {
                             Some(k) if !k.is_empty() => Some(k),
                             _ => return Err(err(format!("restore[{i}].xor_key must be plain hex bytes"))),
@@ -413,7 +439,10 @@ mod tests {
 
     #[test]
     fn hex_pattern() {
-        assert_eq!(parse_hex_pattern("E8 ?? 5d").unwrap(), vec![Some(0xE8), None, Some(0x5D)]);
+        assert_eq!(parse_hex_pattern("E8 ?? 5d").unwrap(), vec![HexByte::exact(0xE8), HexByte::ANY, HexByte::exact(0x5D)]);
+        let n = parse_hex_pattern("7? ?d").unwrap();
+        assert_eq!(n, vec![HexByte { value: 0x70, mask: 0xF0 }, HexByte { value: 0x0D, mask: 0x0F }]);
+        assert!(n[0].matches(0x7D) && !n[0].matches(0x8D) && n[1].matches(0xFD) && !n[1].matches(0xFE));
         assert!(parse_hex_pattern("E8 0").is_err());
         assert!(parse_hex_pattern("ZZ").is_err());
     }

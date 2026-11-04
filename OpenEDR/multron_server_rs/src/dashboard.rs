@@ -1922,8 +1922,11 @@ async fn handle_reviews_list(State(app): State<Arc<AppState>>, Query(q): Query<R
     // Filter first (cheap fields only), then page, then build the full JSON for the page.
     let mut matched = 0usize;
     let mut page: Vec<(crate::human_review::HumanReview, Option<_>, String)> = Vec::new();
-    for rv in r.pending(usize::MAX) {
-        let ins = app.threat_intel.get(&rv.sha256);
+    let queue = r.pending(usize::MAX);
+    // One batched read for the whole queue (a query per file was most of the time).
+    let mut records = app.threat_intel.get_many(&queue.iter().map(|rv| rv.sha256.as_str()).collect::<Vec<_>>());
+    for rv in queue {
+        let ins = records.remove(&rv.sha256.to_ascii_lowercase());
         let name = review_name(&rv, ins.as_ref());
         let ext = file_ext(&name);
         if filtered {

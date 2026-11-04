@@ -730,25 +730,82 @@ impl ThreatIntelStore {
         out
     }
 
-    /// Calls `f(sha, engine verdict, first file name)` for every record with one of
-    /// these engine verdicts.
-    fn for_each_with_verdict(&self, verdicts: &[&str], mut f: impl FnMut(Sha, &str, Option<String>)) {
+    /// Calls `f(sha, engine verdict)` for every record with one of these engine
+    /// verdicts. Reads only the verdict index (it holds the hash), never the records:
+    /// `unknown` is most of the table, and reading every record's JSON made each queue
+    /// page read the whole database.
+    fn for_each_with_verdict(&self, verdicts: &[&str], mut f: impl FnMut(Sha, &str)) {
         self.flush_for_query();
-        let sql = format!(
-            "SELECT sha, verdict, json_extract(data, '$.file_names[0]') FROM insights WHERE verdict IN ({})",
-            vec!["?"; verdicts.len()].join(",")
-        );
+        let sql = format!("SELECT sha, verdict FROM insights INDEXED BY insights_verdict WHERE verdict IN ({})", vec!["?"; verdicts.len()].join(","));
         let r = self.db.scan(|c| {
             let mut st = c.prepare(&sql)?;
             let mut rows = st.query(rusqlite::params_from_iter(verdicts.iter()))?;
             while let Some(row) = rows.next()? {
                 let Ok(sha) = Sha::try_from(row.get_ref(0)?.as_blob()?) else { continue };
                 let v: String = row.get(1)?;
-                f(sha, &v, row.get::<_, Option<String>>(2)?);
+                f(sha, &v);
             }
             Ok(())
         });
         log_err("for_each_with_verdict", r);
+    }
+
+    /// First file name of each of these hashes (the ones that have one).
+    fn first_names(&self, shas: &[Sha]) -> HashMap<Sha, String> {
+        let mut out = HashMap::new();
+        for chunk in shas.chunks(IN_CHUNK) {
+            let sql = format!("SELECT sha, json_extract(data, '$.file_names[0]') FROM insights WHERE sha IN ({})", vec!["?"; chunk.len()].join(","));
+            let r = self.db.lookup(|c| {
+                let mut st = c.prepare_cached(&sql)?;
+                let rows = st.query_map(rusqlite::params_from_iter(chunk.iter().map(|s| &s[..])), |r| {
+                    Ok((r.get::<_, Vec<u8>>(0)?, r.get::<_, Option<String>>(1)?))
+                })?;
+                for row in rows {
+                    if let (Ok(sha), Some(name)) = row.map(|(s, n)| (Sha::try_from(s.as_slice()), n))? {
+                        out.insert(sha, name);
+                    }
+                }
+                Ok(())
+            });
+            log_err("first_names", r);
+        }
+        out
+    }
+
+    /// The records of these hashes (SHA-256 hex, either case) that are known, by the
+    /// lower-case hex: memory first, the rest from SQLite 500 at a time. For lists of
+    /// many files, where one `get` each was one query each.
+    pub fn get_many(&self, shas: &[&str]) -> HashMap<String, ThreatInsight> {
+        let mut out = HashMap::with_capacity(shas.len());
+        let mut missing: Vec<Sha> = Vec::new();
+        {
+            let g = self.hot.read().unwrap();
+            for s in shas {
+                let Some(sha) = parse_sha(s) else { continue };
+                match g.get(&sha) {
+                    Some(i) => {
+                        out.insert(hex::encode(sha), i.clone());
+                    }
+                    None => missing.push(sha),
+                }
+            }
+        }
+        for chunk in missing.chunks(IN_CHUNK) {
+            let sql = format!("SELECT sha, data FROM insights WHERE sha IN ({})", vec!["?"; chunk.len()].join(","));
+            let r = self.db.lookup(|c| {
+                let mut st = c.prepare_cached(&sql)?;
+                let mut rows = st.query(rusqlite::params_from_iter(chunk.iter().map(|s| &s[..])))?;
+                while let Some(row) = rows.next()? {
+                    let Ok(sha) = Sha::try_from(row.get_ref(0)?.as_blob()?) else { continue };
+                    if let Ok(i) = serde_json::from_slice::<ThreatInsight>(row.get_ref(1)?.as_blob()?) {
+                        out.insert(hex::encode(sha), i);
+                    }
+                }
+                Ok(())
+            });
+            log_err("get_many", r);
+        }
+        out
     }
 
     /// Archive mode: lines the main server added to `threat_insights.jsonl` (a later
@@ -807,15 +864,16 @@ impl ThreatIntelStore {
     /// hand. Only files kept on the server (`is_kept`, upper-case SHA-256): a hash
     /// without its file cannot be analysed. Returns how many were added.
     pub fn sync_review_queue(&self, is_kept: &dyn Fn(&str) -> bool) -> usize {
-        let mut open: Vec<(String, String, Option<String>)> = Vec::new();
-        self.for_each_with_verdict(&crate::human_review::AUTO_QUEUE_VERDICTS, |sha, verdict, name| {
+        let mut open: Vec<(Sha, String)> = Vec::new();
+        self.for_each_with_verdict(&crate::human_review::AUTO_QUEUE_VERDICTS, |sha, verdict| {
             let hex = hex::encode(sha);
             if self.reviews.get(&hex).is_none() && !self.reviews.was_removed(&hex) && is_kept(&hex.to_ascii_uppercase()) {
-                open.push((hex, verdict.to_string(), name));
+                open.push((sha, verdict.to_string()));
             }
         });
+        let names = self.first_names(&open.iter().map(|(s, _)| *s).collect::<Vec<_>>());
         open.iter()
-            .filter(|(sha, verdict, name)| self.reviews.enqueue(sha, "auto", Some(verdict), name.as_deref()).is_ok())
+            .filter(|(sha, verdict)| self.reviews.enqueue(&hex::encode(sha), "auto", Some(verdict), names.get(sha).map(String::as_str)).is_ok())
             .count()
     }
 
@@ -836,16 +894,18 @@ impl ThreatIntelStore {
     /// also the ones an analyst removed when `include_removed`. Only files kept on the
     /// server. Returns how many.
     pub fn requeue(&self, verdict: &str, include_removed: bool, is_kept: &dyn Fn(&str) -> bool) -> Result<usize, String> {
-        let mut todo: Vec<(String, Option<String>)> = Vec::new();
-        self.for_each_with_verdict(&[verdict], |sha, _, name| {
+        let mut shas: Vec<Sha> = Vec::new();
+        self.for_each_with_verdict(&[verdict], |sha, _| {
             let hex = hex::encode(sha);
             if self.reviews.get(&hex).is_none()
                 && (include_removed || !self.reviews.was_removed(&hex))
                 && is_kept(&hex.to_ascii_uppercase())
             {
-                todo.push((hex, name));
+                shas.push(sha);
             }
         });
+        let mut names = self.first_names(&shas);
+        let todo: Vec<(String, Option<String>)> = shas.iter().map(|s| (hex::encode(s), names.remove(s))).collect();
         let mut n = 0;
         for (sha, name) in &todo {
             match self.reviews.enqueue(sha, "requeue", Some(verdict), name.as_deref()) {
@@ -862,7 +922,7 @@ impl ThreatIntelStore {
     /// `sync_review_queue`; anything else there is a bug or a full queue.
     pub fn queue_coverage(&self) -> serde_json::Value {
         let mut acc: HashMap<String, [u64; 5]> = crate::human_review::AUTO_QUEUE_VERDICTS.iter().map(|v| (v.to_string(), [0; 5])).collect();
-        self.for_each_with_verdict(&crate::human_review::AUTO_QUEUE_VERDICTS, |sha, verdict, _| {
+        self.for_each_with_verdict(&crate::human_review::AUTO_QUEUE_VERDICTS, |sha, verdict| {
             let Some(a) = acc.get_mut(verdict) else { return };
             let hex = hex::encode(sha);
             a[0] += 1;
@@ -1131,7 +1191,7 @@ impl ThreatIntelStore {
     /// stays as it is).
     pub fn engine_verdict_hashes(&self, verdicts: &[&str]) -> Vec<(String, String)> {
         let mut out = Vec::new();
-        self.for_each_with_verdict(verdicts, |sha, verdict, _| {
+        self.for_each_with_verdict(verdicts, |sha, verdict| {
             if self.reviews.completed_verdict_raw(&sha).is_none() {
                 out.push((hex::encode_upper(sha), verdict.to_string()));
             }

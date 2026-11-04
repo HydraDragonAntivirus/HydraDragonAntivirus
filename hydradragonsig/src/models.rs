@@ -605,6 +605,10 @@ pub struct BehaviorTrace {
     /// Registry keys / values it opened, read or set.
     #[serde(default)]
     pub registry: Vec<String>,
+    /// Values an unpacker recipe found in memory the sample decrypted (C2 hosts and
+    /// ports, URLs, install paths): `iocs` in `UNPACK_FORMAT.md`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub extracted: Vec<String>,
     /// A budget (calls, instructions, trace size) ended the run early.
     #[serde(default)]
     pub truncated: bool,

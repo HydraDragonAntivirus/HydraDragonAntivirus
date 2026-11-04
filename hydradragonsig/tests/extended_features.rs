@@ -1472,7 +1472,8 @@ rules:
 "#;
     let rules = RuleSet::from_yaml_str_strict(yaml).expect("valid rules");
     assert!(rules.warnings().is_empty(), "{:?}", rules.warnings());
-    let report = scan_bytes(b"xx QZREFMARKER-ONE yy QZREFMARKER-TWO", &rules, &ScanOptions::default());
+    let options = ScanOptions { stop_on_detection: false, ..ScanOptions::default() };
+    let report = scan_bytes(b"xx QZREFMARKER-ONE yy QZREFMARKER-TWO", &rules, &options);
     let refs = |id: &str| report.findings.iter().find(|f| f.rule_id == id).map(|f| f.references.clone());
     assert_eq!(refs("REF-LIST"), Some(vec!["https://example.test/report".to_string(), "sha256 0123abcd".to_string()]));
     assert_eq!(refs("REF-ONE"), Some(vec!["seen in the wild".to_string()]));

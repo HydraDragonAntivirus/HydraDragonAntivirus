@@ -7,7 +7,7 @@ use std::time::Instant;
 use unicorn_engine::unicorn_const::{
     uc_error, Arch, HookType as UcHookType, MemType, Mode, Prot, SECOND_SCALE,
 };
-use unicorn_engine::{RegisterARM, RegisterARM64, RegisterX86, UcHookId, Unicorn};
+use unicorn_engine::{RegisterARM, RegisterARM64, RegisterX86, UcHookId, Unicorn, X86Insn};
 use iced_x86::{Decoder, DecoderOptions, FlowControl, Mnemonic, OpKind, Register};
 
 use crate::unpacker::apicalls::{self, ApiState};
@@ -141,7 +141,7 @@ pub struct Stops {
     pub apis: Vec<String>,
     pub sections: Vec<String>,
     /// Hex byte patterns (`??` = any byte) matched at the start of a basic block.
-    pub patterns: Vec<Vec<Option<u8>>>,
+    pub patterns: Vec<Vec<crate::disinfect::rules::HexByte>>,
     /// No condition stops inside these sections (the packer stub's own).
     pub outside: Vec<String>,
 }
@@ -358,6 +358,9 @@ impl Sample {
 // ---------------------------------------------------------------------------
 
 struct HookState {
+    /// Syscall number -> `Nt` function, from the `Zw` exports of the ntdll the emulator
+    /// loaded sorted by address (their order is the number order).
+    syscall_names: HashMap<u32, String>,
     breakpoints: Vec<u64>,
     mem_breakpoints: Vec<(u64, u64)>,
     /// Bytes written / executed per section, by index into `sample_sections` (the
@@ -1132,6 +1135,7 @@ impl UnpackerEngine {
             uc: None,
             hook_ids: Vec::new(),
             hook_state: Rc::new(RefCell::new(HookState {
+                syscall_names: HashMap::new(),
                 breakpoints: Vec::new(),
                 mem_breakpoints: Vec::new(),
                 section_write_bytes: vec![0; sections.len()],
@@ -1280,7 +1284,8 @@ impl UnpackerEngine {
         }
 
         // --- Map LDR ---
-        let ldr_size = page_align(0x2000);
+        // Up to the GDT page: PEB_LDR_DATA, one entry per module and their names.
+        let ldr_size = GDT_ADDR - LDR_ADDR;
         uc.mem_map(LDR_ADDR, ldr_size, Prot::READ | Prot::WRITE)
             .map_err(|e| UnpackerError::EmulatorError(format!("mem_map LDR: {:?}", e)))?;
 
@@ -1337,13 +1342,26 @@ impl UnpackerEngine {
         uc.mem_map(STACK_ADDR, stack_size, Prot::READ | Prot::WRITE)
             .map_err(|e| UnpackerError::EmulatorError(format!("mem_map stack: {:?}", e)))?;
 
+        // --- KUSER_SHARED_DATA (0x7FFE0000 in every process, read-only) ---
+        // ntdll's syscall stubs test SystemCall (+0x308; 0 = the `syscall` instruction)
+        // and code reads the Windows version from here instead of calling an API.
+        if uc.mem_map(0x7FFE_0000, 0x1000, Prot::READ).is_ok() {
+            let mut shared = vec![0u8; 0x1000];
+            shared[0x260..0x264].copy_from_slice(&19045u32.to_le_bytes()); // NtBuildNumber
+            shared[0x26C..0x270].copy_from_slice(&10u32.to_le_bytes()); // NtMajorVersion
+            // NtSystemRoot (WCHAR[260] at +0x30)
+            let root: Vec<u8> = r"C:\Windows".encode_utf16().flat_map(u16::to_le_bytes).collect();
+            shared[0x30..0x30 + root.len()].copy_from_slice(&root);
+            let _ = uc.mem_write(0x7FFE_0000, &shared);
+        }
+
         // --- Map hook memory ---
         let hook_mem_size = page_align(0x100000);
         uc.mem_map(HOOK_ADDR, hook_mem_size, Prot::ALL)
             .map_err(|e| UnpackerError::EmulatorError(format!("mem_map hook: {:?}", e)))?;
 
         // --- Load system DLLs ---
-        let dll_dir = system_dll_dir();
+        let dll_dir = system_dll_dir_for(is_64);
 
         let dll_names = ["kernel32.dll", "ntdll.dll", "KernelBase.dll"];
         let mut dll_bases: Vec<(String, u64, u32)> = Vec::new();
@@ -1364,9 +1382,20 @@ impl UnpackerEngine {
             }
         }
 
-        // --- Set up LDR entries for loaded DLLs ---
+        // --- Syscall numbers of this ntdll (the `syscall` hook) ---
+        if is_64 {
+            self.hook_state.borrow_mut().syscall_names = syscall_table(&dll_dir.join("ntdll.dll"));
+        }
+
+        // --- Set up LDR entries: the image first, then ntdll, kernel32, KernelBase ---
         let ldr_entries_base = if is_64 { LDR_ADDR + 0x58 } else { LDR_ADDR + 0x30 };
-        setup_ldr_entries(&mut uc, ldr_entries_base, &dll_bases, is_64)?;
+        let mut modules = vec![("sample.exe".to_string(), image_base, self.sample.virtualmemorysize as u32)];
+        for want in ["ntdll.dll", "kernel32.dll", "kernelbase.dll"] {
+            modules.extend(dll_bases.iter().filter(|(n, _, _)| n.eq_ignore_ascii_case(want)).cloned());
+        }
+        let rest: Vec<_> = dll_bases.iter().filter(|(n, _, _)| !modules.iter().any(|(m, _, _)| m.eq_ignore_ascii_case(n))).cloned().collect();
+        modules.extend(rest);
+        setup_ldr_entries(&mut uc, LDR_ADDR, ldr_entries_base, GDT_ADDR, &modules, is_64)?;
 
         // --- Initialize registers ---
         let esp_val = STACK_START;
@@ -1672,7 +1701,7 @@ impl UnpackerEngine {
                                 let target_h = raw_args.first().copied().unwrap_or(0);
                                 let is_self_termination = !is_terminate || (target_h & 0xFFFFFFFF) == 0xFFFFFFFF || target_h == u64::MAX;
 
-                                if norm == "exitprocess" || norm == "corlexitprocess" || norm == "exitthread" || (is_terminate && is_self_termination) {
+                                if norm == "exitprocess" || norm == "corlexitprocess" || norm == "exitthread" || norm == "exit" || norm == "quick_exit" || norm == "abort" || (is_terminate && is_self_termination) {
                                     st.behavior_trace.calls.push(ApiCall {
                                         api: api_name.clone(),
                                         args: formatted_args.clone(),
@@ -1934,7 +1963,7 @@ impl UnpackerEngine {
                             st.stops
                                 .patterns
                                 .iter()
-                                .any(|p| head.len() >= p.len() && p.iter().zip(&head).all(|(b, h)| b.is_none_or(|b| b == *h)))
+                                .any(|p| head.len() >= p.len() && p.iter().zip(&head).all(|(b, h)| b.matches(*h)))
                                 .then_some(StopHit::Pattern(addr))
                         } else {
                             None
@@ -2079,6 +2108,44 @@ impl UnpackerEngine {
             .map_err(|e| UnpackerError::EmulatorError(format!("add_intr_hook: {:?}", e)))?;
             self.hook_ids.push(intr_hook);
 
+            // Direct and indirect syscalls (a `syscall` in the sample, or the one in an
+            // ntdll stub it jumps to): RAX is the number, the arguments are R10, RDX, R8,
+            // R9 and the stack above the return address and shadow space. The `Nt`
+            // function is answered like the API it stands for; NTSTATUS goes to RAX.
+            if is_64 {
+                let sys_state = Rc::clone(&self.hook_state);
+                let sys_hook = uc
+                    .add_insn_sys_hook(X86Insn::SYSCALL, 1, 0, move |uc| {
+                        let Ok(mut st) = sys_state.try_borrow_mut() else { return };
+                        let reg = |uc: &Unicorn<'_, ()>, r: RegisterX86| uc.reg_read(r as i32).unwrap_or(0);
+                        let ssn = reg(uc, RegisterX86::RAX) as u32;
+                        let rsp = reg(uc, RegisterX86::RSP);
+                        let mut args = vec![reg(uc, RegisterX86::R10), reg(uc, RegisterX86::RDX), reg(uc, RegisterX86::R8), reg(uc, RegisterX86::R9)];
+                        for i in 0..8u64 {
+                            let mut b = [0u8; 8];
+                            let v = if uc.mem_read(rsp + 0x28 + i * 8, &mut b).is_ok() { u64::from_le_bytes(b) } else { 0 };
+                            args.push(v);
+                        }
+                        let name = st.syscall_names.get(&ssn).cloned().unwrap_or_else(|| format!("syscall_{ssn:#x}"));
+                        let st = &mut *st;
+                        let ret = if name.starts_with("syscall_") {
+                            0xC000_0002 // STATUS_NOT_IMPLEMENTED
+                        } else {
+                            apicalls::handle_api_call(uc, &name, &args, &mut st.api_state, &mut st.dllname_to_functionlist)
+                        };
+                        if st.behavior_trace.calls.len() < 100_000 {
+                            st.behavior_trace.calls.push(ApiCall {
+                                api: format!("{name} (syscall {ssn:#x})"),
+                                args: args.iter().take(6).map(|a| format!("{a:#x}")).collect(),
+                                ret,
+                            });
+                        }
+                        let _ = uc.reg_write(RegisterX86::RAX as i32, ret);
+                    })
+                    .map_err(|e| UnpackerError::EmulatorError(format!("add_insn_sys_hook: {:?}", e)))?;
+                self.hook_ids.push(sys_hook);
+            }
+
             let invalid_state = Rc::clone(&self.hook_state);
             let invalid_instruction_hook = uc.add_insn_invalid_hook(move |uc| {
                 if let Ok(mut st) = invalid_state.try_borrow_mut() {
@@ -2193,6 +2260,47 @@ impl UnpackerEngine {
     pub fn set_ip(&mut self, ip: u64) -> bool {
         let reg = if self.hook_state.borrow().is_64 { RegisterX86::RIP } else { RegisterX86::EIP };
         self.uc.as_mut().is_some_and(|uc| uc.reg_write(reg as i32, ip).is_ok())
+    }
+
+    /// Calls the function at `va` with `args` and emulates until it returns: x64 in
+    /// RCX, RDX, R8, R9 and the stack above the shadow space, x86 on the stack. The
+    /// frame is built below the current stack pointer, with the entry point's return
+    /// address, so the return ends the run (`EmuEnd::EntryReturned`). Returns RAX / EAX,
+    /// or why the function did not return.
+    pub fn call_function(&mut self, va: u64, args: &[u64], timeout_us: u64, count: usize) -> Result<u64, String> {
+        let is_64 = self.is_64();
+        let uc = self.uc.as_mut().ok_or("engine not initialized")?;
+        let (sp_reg, ax) = if is_64 { (RegisterX86::RSP, RegisterX86::RAX) } else { (RegisterX86::ESP, RegisterX86::EAX) };
+        let sp = uc.reg_read(sp_reg as i32).map_err(|e| format!("{e:?}"))?;
+        // Room for the frames the function builds above ours, aligned as at a call.
+        let base = (sp.saturating_sub(0x1000)) & !0xF;
+        let word = if is_64 { 8 } else { 4 };
+        let put = |uc: &mut Unicorn<'static, ()>, at: u64, v: u64| uc.mem_write(at, &v.to_le_bytes()[..word as usize]).map_err(|e| format!("{e:?}"));
+        if is_64 {
+            for (i, &a) in args.iter().enumerate().skip(4) {
+                put(uc, base + 0x20 + (i as u64 - 4) * 8, a)?;
+            }
+            for (i, reg) in [RegisterX86::RCX, RegisterX86::RDX, RegisterX86::R8, RegisterX86::R9].into_iter().enumerate() {
+                uc.reg_write(reg as i32, args.get(i).copied().unwrap_or(0)).map_err(|e| format!("{e:?}"))?;
+            }
+        } else {
+            for (i, &a) in args.iter().enumerate() {
+                put(uc, base + i as u64 * 4, a)?;
+            }
+        }
+        let entry_sp = base - word;
+        put(uc, entry_sp, ENTRY_RETURN_ADDR)?;
+        uc.reg_write(sp_reg as i32, entry_sp).map_err(|e| format!("{e:?}"))?;
+        let run = self.emu_from(va, timeout_us, count);
+        if self.end != EmuEnd::EntryReturned {
+            let at = self.ip().unwrap_or(0);
+            return Err(match run {
+                Err(e) => format!("{e} at {at:#x}"),
+                Ok(()) => format!("{:?} at {at:#x} before the function returned", self.end),
+            });
+        }
+        let uc = self.uc.as_ref().ok_or("engine not initialized")?;
+        uc.reg_read(ax as i32).map_err(|e| format!("{e:?}"))
     }
 
     /// Map zeroed pages on unmapped accesses instead of stopping (at most 512).
@@ -2458,6 +2566,27 @@ impl UnpackerEngine {
             }
 
             desc_off += 20;
+        }
+
+        // Import tables the program fills itself (a protector's or a custom loader's,
+        // through LoadLibrary / GetProcAddress at start): still hint / name RVAs in the
+        // file. Bound to stubs like the real ones, so code that runs without that start
+        // (a single called function, an entry stub that skipped it) reaches the APIs.
+        let real_iat: HashSet<u64> = dllname_to_functionlist.values().flatten().map(|(_, a)| *a).collect();
+        let _ = real_iat;
+        for (slot_rva, name) in hidden_iat_slots(raw, sections, opt.size_of_image, thunk_size, &rva_to_off) {
+            let iat_addr = image_base + slot_rva as u64;
+            let mut cur = [0u8; 8];
+            // Real import slots are patched already (no longer an RVA in memory).
+            if uc.mem_read(iat_addr, &mut cur[..thunk_size as usize]).is_err() || u64::from_le_bytes(cur) >= opt.size_of_image as u64 {
+                continue;
+            }
+            let dll = "msvcrt.dll".to_string();
+            dllname_to_functionlist.entry(dll.clone()).or_default().push((name.to_lowercase(), hook_addr));
+            all_imports.push(format!("{dll}.{name}"));
+            let bytes = hook_addr.to_le_bytes();
+            let _ = uc.mem_write(iat_addr, &bytes[..thunk_size as usize]);
+            hook_addr += thunk_size as u64;
         }
 
         self.sample.imports = all_imports;
@@ -2766,7 +2895,7 @@ pub fn read_cstring(uc: &Unicorn<'_, ()>, addr: u64) -> String {
 /// image base, then every section at its RVA. Without the headers the image cannot be
 /// dumped (`dump_bytes` parses them from emulated memory), and code that reads its own
 /// headers (packers do) sees zeros.
-fn get_memory_mapped_image(data: &[u8], sections: &[Section], virtual_size: u64, size_of_headers: u32) -> Vec<u8> {
+pub(crate) fn get_memory_mapped_image(data: &[u8], sections: &[Section], virtual_size: u64, size_of_headers: u32) -> Vec<u8> {
     let mut image = vec![0u8; virtual_size as usize];
     let headers = (size_of_headers as usize).min(data.len()).min(image.len());
     image[..headers].copy_from_slice(&data[..headers]);
@@ -2788,18 +2917,35 @@ fn get_memory_mapped_image(data: &[u8], sections: &[Section], virtual_size: u64,
 /// The same folder must be used for training (pe_feature_dump) and scanning, or the
 /// emulated payloads differ.
 pub fn system_dll_dir() -> std::path::PathBuf {
-    let has_dlls = |d: &Path| d.join("kernel32.dll").is_file();
-    if let Some(d) = std::env::var_os("HYDRADRAGON_DLLS").map(std::path::PathBuf::from) {
-        if has_dlls(&d) {
-            return d;
-        }
+    system_dll_dir_for(false)
+}
+
+/// Where the system DLLs (ntdll, kernel32, KernelBase) of a 32-bit or 64-bit sample
+/// come from: `HYDRADRAGON_DLLS` / `HYDRADRAGON_DLLS64`, then `DLLs` / `DLLs64` next
+/// to the executable and in the crate, then this Windows itself (System32 for 64-bit,
+/// SysWOW64 for 32-bit). The bundled `DLLs` are 32-bit: a 64-bit sample got none, so
+/// everything that walks the loader list for ntdll or kernel32 failed.
+pub fn system_dll_dir_for(is_64: bool) -> std::path::PathBuf {
+    let has_dlls = |d: &Path| {
+        let k = d.join("kernel32.dll");
+        // The bitness must match: a DLL of the other one is refused when it is mapped.
+        std::fs::read(&k).ok().and_then(|b| {
+            let e = u32::from_le_bytes(b.get(0x3c..0x40)?.try_into().ok()?) as usize;
+            Some(u16::from_le_bytes(b.get(e + 24..e + 26)?.try_into().ok()?) == if is_64 { 0x20b } else { 0x10b })
+        }) == Some(true)
+    };
+    let (env, folder) = if is_64 { ("HYDRADRAGON_DLLS64", "DLLs64") } else { ("HYDRADRAGON_DLLS", "DLLs") };
+    let mut candidates: Vec<std::path::PathBuf> = Vec::new();
+    candidates.extend(std::env::var_os(env).map(std::path::PathBuf::from));
+    if !is_64 {
+        candidates.extend(std::env::var_os("HYDRADRAGON_DLLS").map(std::path::PathBuf::from));
     }
-    if let Some(d) = std::env::current_exe().ok().and_then(|e| e.parent().map(|p| p.join("DLLs"))) {
-        if has_dlls(&d) {
-            return d;
-        }
-    }
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("DLLs")
+    candidates.extend(std::env::current_exe().ok().and_then(|e| e.parent().map(|p| p.join(folder))));
+    candidates.push(Path::new(env!("CARGO_MANIFEST_DIR")).join(folder));
+    let windows = std::env::var_os("SystemRoot").map(std::path::PathBuf::from).unwrap_or_else(|| r"C:\Windows".into());
+    candidates.push(windows.join(if is_64 { "System32" } else { "SysWOW64" }));
+    candidates.push(windows.join("System32"));
+    candidates.iter().find(|d| has_dlls(d)).cloned().unwrap_or_else(|| Path::new(env!("CARGO_MANIFEST_DIR")).join(folder))
 }
 
 /// Maps a system DLL at its image base. A DLL of the other bitness (an x86 kernel32 for
@@ -2819,8 +2965,18 @@ fn load_dll_into_emu(
         )));
     }
 
-    uc.mem_map(image_base, virtual_size, Prot::ALL)
-        .map_err(|e| UnpackerError::EmulatorError(format!("mem_map DLL: {:?}", e)))?;
+    // 64-bit system DLLs all prefer 0x180000000 (ASLR places them apart): when the
+    // preferred base is taken, the DLL goes where Windows puts system DLLs, without
+    // relocating it (its code is RIP-relative; exports and stubs are read by RVA).
+    let candidates = std::iter::once(image_base).chain((1..16u64).map(|i| if is_64 { 0x7FF8_0000_0000 + i * 0x1000_0000 } else { 0x7000_0000 + i * 0x0100_0000 }));
+    let mut mapped = None;
+    for base in candidates {
+        if uc.mem_map(base, virtual_size, Prot::ALL).is_ok() {
+            mapped = Some(base);
+            break;
+        }
+    }
+    let image_base = mapped.ok_or_else(|| UnpackerError::EmulatorError(format!("mem_map DLL {dll_path}: no free base")))?;
 
     uc.mem_write(image_base, mmap)
         .map_err(|e| UnpackerError::EmulatorError(format!("mem_write DLL: {:?}", e)))?;
@@ -2848,107 +3004,148 @@ fn mapped_dll(dll_path: &str) -> UnpackerResult<MappedDll> {
     Ok(d)
 }
 
+/// Slots (RVA, function name) of import tables still in their file form: runs of at
+/// least two consecutive pointer-sized values that are RVAs of a hint / name entry (a
+/// 16-bit hint, then a C identifier and a NUL), in any section.
+fn hidden_iat_slots(
+    raw: &[u8],
+    sections: &[Section],
+    size_of_image: u32,
+    thunk_size: u32,
+    rva_to_off: &dyn Fn(u32) -> Option<usize>,
+) -> Vec<(u32, String)> {
+    let name_at = |rva: u64| -> Option<String> {
+        if rva == 0 || rva >= size_of_image as u64 {
+            return None;
+        }
+        let off = rva_to_off(rva as u32)? + 2;
+        let bytes = raw.get(off..off + 64.min(raw.len().saturating_sub(off)))?;
+        let end = bytes.iter().position(|&b| b == 0)?;
+        let name = &bytes[..end];
+        let ok = (3..=60).contains(&name.len())
+            && (name[0].is_ascii_alphabetic() || name[0] == b'_')
+            && name.iter().all(|&b| b.is_ascii_alphanumeric() || b == b'_');
+        ok.then(|| String::from_utf8_lossy(name).into_owned())
+    };
+    let mut out = Vec::new();
+    let step = thunk_size as usize;
+    for sec in sections {
+        let (start, len) = (sec.pointer_to_raw_data as usize, sec.size_of_raw_data as usize);
+        let Some(data) = raw.get(start..start + len.min(raw.len().saturating_sub(start))) else { continue };
+        let mut run: Vec<(u32, String)> = Vec::new();
+        let mut flush = |run: &mut Vec<(u32, String)>| {
+            if run.len() >= 2 {
+                out.append(run);
+            }
+            run.clear();
+        };
+        for (i, chunk) in data.chunks_exact(step).enumerate() {
+            let mut b = [0u8; 8];
+            b[..step].copy_from_slice(chunk);
+            match name_at(u64::from_le_bytes(b)) {
+                Some(name) => run.push((sec.virtual_address + (i * step) as u32, name)),
+                None => flush(&mut run),
+            }
+        }
+        flush(&mut run);
+    }
+    out
+}
+
+/// Syscall number -> `Nt` name for one ntdll: its `Zw` exports sorted by address
+/// (the stubs are laid out in number order). The same way samples that avoid the stub
+/// bytes find the numbers, so both agree with the ntdll the emulator runs.
+fn syscall_table(ntdll: &Path) -> HashMap<u32, String> {
+    let Ok(bytes) = std::fs::read(ntdll) else { return HashMap::new() };
+    let Ok(pe) = pefile_rs::PE::parse(&bytes) else { return HashMap::new() };
+    let mut zw: Vec<(u32, String)> = pe
+        .exports
+        .iter()
+        .flat_map(|e| e.symbols.iter())
+        .filter_map(|s| s.name.as_ref().filter(|n| n.starts_with("Zw")).map(|n| (s.address, format!("Nt{}", &n[2..]))))
+        .collect();
+    zw.sort();
+    zw.dedup_by_key(|(a, _)| *a);
+    zw.into_iter().enumerate().map(|(i, (_, n))| (i as u32, n)).collect()
+}
+
 fn setup_ldr_entries(
     uc: &mut Unicorn<'static, ()>,
+    ldr: u64,
     base: u64,
-    dlls: &[(String, u64, u32)],
+    region_end: u64,
+    modules: &[(String, u64, u32)],
     is_64: bool,
 ) -> UnpackerResult<()> {
-    let entry_size = if is_64 { 0x80u64 } else { LDR_ENTRY_SIZE };
-    let mut prev_entry = base;
-
-    for (i, (name, dll_base, size)) in dlls.iter().enumerate() {
-        let entry_addr = base + (i as u64) * entry_size;
-        let next_addr = base + ((i + 1) as u64) * entry_size;
-        let prev_link = if i == 0 {
-            entry_addr + entry_size * (dlls.len() as u64)
-        } else {
-            prev_entry
-        };
-
-        let mut entry = vec![0u8; entry_size as usize];
-
-        if is_64 {
-            let flink = if i + 1 < dlls.len() { next_addr } else { base };
-            let blink = if i > 0 { prev_link } else { base };
-
-            // InLoadOrderLinks (0..16)
-            entry[0..8].copy_from_slice(&flink.to_le_bytes());
-            entry[8..16].copy_from_slice(&blink.to_le_bytes());
-
-            // InMemoryOrderLinks (16..32)
-            entry[16..24].copy_from_slice(&flink.to_le_bytes());
-            entry[24..32].copy_from_slice(&blink.to_le_bytes());
-
-            // InInitializationOrderLinks (32..48)
-            entry[32..40].copy_from_slice(&flink.to_le_bytes());
-            entry[40..48].copy_from_slice(&blink.to_le_bytes());
-
-            // DllBase (48..56)
-            entry[48..56].copy_from_slice(&dll_base.to_le_bytes());
-
-            // EntryPoint (56..64) = 0
-            entry[56..64].copy_from_slice(&0u64.to_le_bytes());
-
-            // SizeOfImage (64..68)
-            entry[64..68].copy_from_slice(&size.to_le_bytes());
-
-            // Flags (104..108)
-            if entry.len() >= 108 {
-                entry[104..108].copy_from_slice(&0x1000u32.to_le_bytes());
-            }
-        } else {
-            let flink = if i + 1 < dlls.len() {
-                next_addr as u32
-            } else {
-                base as u32 // loop back to LDR
-            };
-            let blink = if i > 0 {
-                prev_link as u32
-            } else {
-                base as u32
-            };
-            entry[0..4].copy_from_slice(&flink.to_le_bytes());
-            entry[4..8].copy_from_slice(&blink.to_le_bytes());
-
-            // InMemoryOrderLinks
-            entry[8..12].copy_from_slice(&flink.to_le_bytes());
-            entry[12..16].copy_from_slice(&blink.to_le_bytes());
-
-            // InInitializationOrderLinks
-            entry[16..20].copy_from_slice(&flink.to_le_bytes());
-            entry[20..24].copy_from_slice(&blink.to_le_bytes());
-
-            // DllBase
-            entry[24..28].copy_from_slice(&(*dll_base as u32).to_le_bytes());
-
-            // EntryPoint (0 = no entry point needed for emulation)
-            entry[28..32].copy_from_slice(&0u32.to_le_bytes());
-
-            // SizeOfImage
-            entry[32..36].copy_from_slice(&size.to_le_bytes());
-
-            // FullDllName (UNICODE_STRING: just store Length next to entry)
-            let name_len = (name.len() * 2) as u16;
-            entry[36..38].copy_from_slice(&name_len.to_le_bytes()); // Length
-            entry[38..40].copy_from_slice(&name_len.to_le_bytes()); // MaxLength
-            entry[40..44].copy_from_slice(&0u32.to_le_bytes()); // Buffer (null for simplicity)
-
-            // BaseDllName
-            entry[44..46].copy_from_slice(&name_len.to_le_bytes());
-            entry[46..48].copy_from_slice(&name_len.to_le_bytes());
-            entry[48..52].copy_from_slice(&0u32.to_le_bytes());
-
-            // Flags: 0x1000 (LDRP_ENTRY_PROCESSED)
-            entry[52..56].copy_from_slice(&0x1000u32.to_le_bytes());
+    // The three lists of PEB_LDR_DATA are circular through their heads, as in
+    // Windows: a walker stops when it is back at the head. Each link points at the
+    // same list's link of the next entry (InMemoryOrder at +0x10 / +0x08, ...).
+    // The image is first in load and memory order and not in initialization order.
+    // Every entry has its FullDllName and BaseDllName, for walkers that look modules
+    // up by (hashed) name.
+    let (ptr, entry_size) = if is_64 { (8u64, 0x80u64) } else { (4u64, LDR_ENTRY_SIZE) };
+    let heads = if is_64 { [0x10u64, 0x20, 0x30] } else { [0x0Cu64, 0x14, 0x1C] };
+    let link_off = [0u64, 2 * ptr, 4 * ptr];
+    let n = modules.len() as u64;
+    let entry = |i: u64| base + i * entry_size;
+    let mut names_at = entry(n);
+    let write = |uc: &mut Unicorn<'static, ()>, at: u64, v: u64| -> UnpackerResult<()> {
+        let b = v.to_le_bytes();
+        uc.mem_write(at, &b[..ptr as usize]).map_err(|e| UnpackerError::EmulatorError(format!("mem_write LDR: {e:?}")))
+    };
+    for (list, (&head_off, &off)) in heads.iter().zip(&link_off).enumerate() {
+        let head = ldr + head_off;
+        // Initialization order leaves the image (entry 0) out.
+        let members: Vec<u64> = (0..n).filter(|&i| list != 2 || i != 0).map(|i| entry(i) + off).collect();
+        if members.is_empty() {
+            write(uc, head, head)?;
+            write(uc, head + ptr, head)?;
+            continue;
         }
-
-        uc.mem_write(entry_addr, &entry)
-            .map_err(|e| UnpackerError::EmulatorError(format!("mem_write LDR entry: {:?}", e)))?;
-
-        prev_entry = entry_addr;
+        write(uc, head, members[0])?;
+        write(uc, head + ptr, *members.last().expect("not empty"))?;
+        for (k, &m) in members.iter().enumerate() {
+            let next = members.get(k + 1).copied().unwrap_or(head);
+            let prev = if k == 0 { head } else { members[k - 1] };
+            write(uc, m, next)?;
+            write(uc, m + ptr, prev)?;
+        }
     }
-
+    for (i, (name, dll_base, size)) in modules.iter().enumerate() {
+        let e = entry(i as u64);
+        let full = if i == 0 { format!("C:\\Users\\user\\Desktop\\{name}") } else { format!("C:\\Windows\\System32\\{name}") };
+        let wide = |s: &str| s.encode_utf16().chain([0]).flat_map(u16::to_le_bytes).collect::<Vec<u8>>();
+        let (full_w, base_w) = (wide(&full), wide(name));
+        let (full_at, base_at) = (names_at, names_at + full_w.len() as u64);
+        let fits = base_at + base_w.len() as u64 <= region_end;
+        if fits {
+            uc.mem_write(full_at, &full_w).map_err(|e| UnpackerError::EmulatorError(format!("mem_write LDR name: {e:?}")))?;
+            uc.mem_write(base_at, &base_w).map_err(|e| UnpackerError::EmulatorError(format!("mem_write LDR name: {e:?}")))?;
+            names_at = (base_at + base_w.len() as u64 + 7) & !7;
+        }
+        // UNICODE_STRING: Length, MaximumLength (bytes, without / with the NUL), Buffer.
+        let unicode = |len: usize, buf: u64| -> Vec<u8> {
+            let mut v = Vec::new();
+            v.extend_from_slice(&((len - 2) as u16).to_le_bytes());
+            v.extend_from_slice(&(len as u16).to_le_bytes());
+            if is_64 {
+                v.extend_from_slice(&[0; 4]);
+                v.extend_from_slice(&buf.to_le_bytes());
+            } else {
+                v.extend_from_slice(&(buf as u32).to_le_bytes());
+            }
+            v
+        };
+        let (full_s, base_s) = if fits { (unicode(full_w.len(), full_at), unicode(base_w.len(), base_at)) } else { (unicode(2, 0), unicode(2, 0)) };
+        // DllBase, EntryPoint (0), SizeOfImage, FullDllName, BaseDllName, Flags.
+        let (dll, size_off, full_off, base_off, flags_off) = if is_64 { (0x30, 0x40, 0x48, 0x58, 0x68) } else { (0x18, 0x20, 0x24, 0x2C, 0x34) };
+        write(uc, e + dll, *dll_base)?;
+        let put = |uc: &mut Unicorn<'static, ()>, at: u64, b: &[u8]| uc.mem_write(at, b).map_err(|e| UnpackerError::EmulatorError(format!("mem_write LDR entry: {e:?}")));
+        put(uc, e + size_off, &size.to_le_bytes())?;
+        put(uc, e + full_off, &full_s)?;
+        put(uc, e + base_off, &base_s)?;
+        put(uc, e + flags_off, &0x1000u32.to_le_bytes())?;
+    }
     Ok(())
 }
 

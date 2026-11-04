@@ -78,7 +78,7 @@ no u32 / u64 field overflows an addition; overflow and division by zero fail.
 
 | step | does |
 |---|---|
-| `find: {in, pattern, from, align, offset, as}` | Offset of a hex pattern (`??` = any byte, first byte fixed) in `in` (default `file`), searched from `from`. With `align`, only a match whose `match + offset` is a multiple of it counts. The variable gets `match + offset`. |
+| `find: {in, pattern, from, align, offset, as}` | Offset of a hex pattern (`??` = any byte, `7?` / `?D` = one nibble any, first byte fixed) in `in` (default `file`), searched from `from`. With `align`, only a match whose `match + offset` is a multiple of it counts. The variable gets `match + offset`. |
 | `read: {in, at, type, big_endian, as}` | An integer: `type` is `u8 u16 u32 u64 i8 i16 i32 i64`. |
 | `take: {in, at, len, as}` | `len` bytes at `at` (default: to the end) as a buffer. |
 | `set: {var: expr, ...}` | Assign variables, in order. |
@@ -118,6 +118,8 @@ these runs. They cannot be inside `try` or `repeat`.
 | `mem: {at, len, as}` | Emulated memory at a virtual address as a buffer (e.g. `mem: {at: arg0, len: arg1, as: blob}` after stopping at `VirtualProtect`). |
 | `set_oep: ip` / `{rva: expr}` / `{va: expr}` | Set the instruction pointer: the entry point of the next `dump`. |
 | `dump` | The memory image is a payload: entry point = instruction pointer, imports rebuilt from the API stubs. |
+| `call: {va, args, as, max_instructions, timeout_ms}` | Call one function of the image and emulate until it returns: arguments in RCX, RDX, R8, R9 and the stack (x64) or on the stack (x86), the frame below the current stack pointer. Sets `ret` (RAX / EAX); `as` gets the memory pages written while emulating, joined. Not returning (fault, budget, exit) fails. The sample's own code does the work, so a config it decrypts comes out whatever the cipher. |
+| `iocs: {in, all, required}` | Hosts (`a.b.c.d`, `host:port`, domain names), URLs and Windows paths in the printable ASCII / UTF-16LE runs of `in` go to the report (`extracted` in the behavior trace; hosts and URLs also to `network_targets`). Values that are in the file as they are are left out (only what was decrypted stays) unless `all: true`. `required: true` fails the recipe when nothing is found. A recipe may give only extracted values, no payload. |
 | `dump_alloc` | The allocated memory region the code runs in is a payload (the instruction pointer's region when it is outside the image, else the first write-execute outside it): a PE mapped there (found at a page boundary) is dumped like the image with that entry point, anything else is the raw region. |
 
 `write_execute` covers allocated memory too: writes into the VirtualAlloc / heap
@@ -134,6 +136,16 @@ into allocated memory and jumps there stops `run_until: {write_execute: true}`.
 | `ip_pattern: ["61 E9"]` | A basic block starts with one of these hex patterns. |
 | `outside: [UPX1]` | No condition stops inside these sections (the stub's own). |
 | `max_instructions`, `timeout_ms` | Budget of this step (default: the caller's). |
+
+Expressions also have `func_start(rva)`: the start RVA of the x64 function that
+holds `rva`, from the exception directory (chained unwind entries lead to their
+primary function). Find a function by what it does and call it from its start:
+
+```yaml
+- find: {pattern: "81 7? 08 4E 02 00 00", as: hit}     # cmp dword [reg+8], 0x24E
+- call: {va: image_base + func_start(off2rva(hit)), as: written}
+- iocs: {in: written, required: true}
+```
 
 ## Limits
 
