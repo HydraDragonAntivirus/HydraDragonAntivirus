@@ -3035,13 +3035,30 @@ fn fp_rules_dir(app: &AppState) -> Result<std::path::PathBuf, Response> {
     })
 }
 
-/// Signatures named in the last result for this file (verdict cache, else the
-/// rescan log), with the engine each belongs to.
-async fn handle_fp_detections(State(app): State<Arc<AppState>>, Path(sha256): Path<String>) -> impl IntoResponse {
+#[derive(Deserialize)]
+struct FpDetectionsQuery {
+    /// Engine detail of a scan the caller just ran (VirusKovAlyzer "Scan with engine",
+    /// which keeps nothing in the verdict cache).
+    #[serde(default)]
+    detail: String,
+}
+
+/// Signatures named in the last result for this file (`?detail=` from the caller,
+/// else the verdict cache, else the rescan log), with the engine each belongs to.
+async fn handle_fp_detections(
+    State(app): State<Arc<AppState>>,
+    Path(sha256): Path<String>,
+    Query(q): Query<FpDetectionsQuery>,
+) -> impl IntoResponse {
     let sha = sha256.trim().to_ascii_lowercase();
-    let detail = crate::cache::parse_sha(&sha.to_ascii_uppercase())
-        .and_then(|s| app.scan_server.cache.get(&s))
-        .and_then(|c| c.detail.clone())
+    let given = q.detail.trim();
+    let detail = (!given.is_empty() && given.len() <= 64 * 1024)
+        .then(|| given.to_string())
+        .or_else(|| {
+            crate::cache::parse_sha(&sha.to_ascii_uppercase())
+                .and_then(|s| app.scan_server.cache.get(&s))
+                .and_then(|c| c.detail.clone())
+        })
         .or_else(|| app.scan_server.rescan.log().into_iter().find(|e| e.sha256 == sha && e.error.is_none()).and_then(|e| e.detail));
     let threat = app.threat_intel.get(&sha).and_then(|i| i.threat_name);
     match detail {
