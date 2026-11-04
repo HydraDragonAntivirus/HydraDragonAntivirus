@@ -52,6 +52,7 @@ Keys are case-sensitive and must be spelled exactly. Enum values (`severity`,
 | `family` | no | | Threat name reported for the file, e.g. `Trojan.Win32.Remcos.A`. |
 | `tags` | no | `[]` | Output only. |
 | `mitre` | no | `[]` | List of `{id, name, tactic}` (all three required), copied to the report. |
+| `references` | no | `[]` | Where the rule comes from: report URLs, sample hashes, notes. Copied to every finding of the rule (`references` in the JSON output). `reference: "..."` takes one. |
 | `private` | no | `false` | The rule is evaluated but produces no finding. Use it as a building block for `rule_match`. |
 | `logic` | no | `any` | How conditions combine: `any`, `all`, `threshold`. |
 | `threshold` | with `logic: threshold` | | How many conditions must match. |

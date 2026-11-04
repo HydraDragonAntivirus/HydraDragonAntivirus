@@ -14,6 +14,20 @@ pub struct MitreMapping {
     pub tactic: String,
 }
 
+/// A string or a list of strings (`reference: "x"` and `references: [x, y]`).
+fn one_or_many<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Vec<String>, D::Error> {
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum OneOrMany {
+        One(String),
+        Many(Vec<String>),
+    }
+    Ok(match OneOrMany::deserialize(d)? {
+        OneOrMany::One(s) => vec![s],
+        OneOrMany::Many(v) => v,
+    })
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct YamlRulesFile {
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -50,6 +64,11 @@ pub struct Rule {
     /// When the rule matches, these are emitted as [`crate::models::MitreTechnique`] entries.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub mitre: Vec<MitreMapping>,
+
+    /// Where the rule comes from: report URLs, sample hashes, notes. Copied to every
+    /// finding of the rule. `reference: "..."` (one) or `references: [...]`.
+    #[serde(default, alias = "reference", deserialize_with = "one_or_many", skip_serializing_if = "Vec::is_empty")]
+    pub references: Vec<String>,
 
     /// Private rule flag (YARA-style). When true, this rule is evaluated but doesn't generate findings.
     /// Later rules can use it through a `rule_match` condition.

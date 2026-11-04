@@ -1448,3 +1448,34 @@ rules:
     assert!(problems.contains("exactly one"), "{problems}");
     assert!(problems.contains("unknown fact `pe.nope`"), "{problems}");
 }
+
+/// `references` (a list) and `reference` (one string) load without warnings and are
+/// copied to the rule's finding.
+#[test]
+fn rule_references_reach_the_finding() {
+    let yaml = r#"
+rules:
+  - id: REF-LIST
+    title: "references as a list"
+    severity: low
+    references: ["https://example.test/report", "sha256 0123abcd"]
+    conditions:
+      - type: string_contains
+        value: "QZREFMARKER-ONE"
+  - id: REF-ONE
+    title: "one reference"
+    severity: low
+    reference: "seen in the wild"
+    conditions:
+      - type: string_contains
+        value: "QZREFMARKER-TWO"
+"#;
+    let rules = RuleSet::from_yaml_str_strict(yaml).expect("valid rules");
+    assert!(rules.warnings().is_empty(), "{:?}", rules.warnings());
+    let report = scan_bytes(b"xx QZREFMARKER-ONE yy QZREFMARKER-TWO", &rules, &ScanOptions::default());
+    let refs = |id: &str| report.findings.iter().find(|f| f.rule_id == id).map(|f| f.references.clone());
+    assert_eq!(refs("REF-LIST"), Some(vec!["https://example.test/report".to_string(), "sha256 0123abcd".to_string()]));
+    assert_eq!(refs("REF-ONE"), Some(vec!["seen in the wild".to_string()]));
+    let json = serde_json::to_value(&report.findings).unwrap();
+    assert_eq!(json[0]["references"][0], "https://example.test/report");
+}

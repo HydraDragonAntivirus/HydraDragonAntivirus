@@ -1418,6 +1418,7 @@ impl RuleSet {
                         family: rule.family.clone(),
                         evidence,
                         mitre,
+                        references: rule.references.clone(),
                     }
                 })
             };
@@ -1496,6 +1497,7 @@ impl RuleSet {
                         family: rule.family.clone(),
                         evidence,
                         mitre,
+                        references: rule.references.clone(),
                     }
                 })
             };
@@ -1759,6 +1761,7 @@ fn evaluate_one_rule(
                 family: rule.family.clone(),
                 evidence,
                 mitre,
+                references: rule.references.clone(),
             }
         })
     };

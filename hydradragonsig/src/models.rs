@@ -445,6 +445,9 @@ pub struct Finding {
     /// MITRE ATT&CK techniques triggered by this specific finding.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub mitre: Vec<MitreTechnique>,
+    /// The rule's `references` (report URLs, sample hashes, notes).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub references: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
