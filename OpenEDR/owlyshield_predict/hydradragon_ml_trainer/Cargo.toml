@@ -8,8 +8,7 @@ description = "Standalone PE and JavaScript ML trainer for HydraDragonAV scannin
 burn = { version = "0.21", features = ["std", "ndarray", "autodiff"], default-features = false }
 burn-ndarray = "0.21"
 iced-x86 = "1.21"
-yaxpeax-arm = "0.5"
-yaxpeax-arch = "0.3"
+capstone = "0.14"
 clap = { version = "4", features = ["derive"] }
 goblin = "0.10.5"
 oxc_allocator = "0.153.0"

@@ -278,68 +278,28 @@ pub fn extract_pe_features(bytes: &[u8]) -> Option<PeFeatureVector> {
     let mut total_add = 0u64;
     let mut total_mov = 0u64;
 
-    if is_arm64 {
-        use yaxpeax_arch::{Decoder, U8Reader};
-        let decoder = yaxpeax_arm::armv8::a64::InstDecoder::default();
-        for section in sections {
-            let start = section.pointer_to_raw_data as usize;
-            let size = section.size_of_raw_data as usize;
-            let code = if start < bytes.len() {
-                &bytes[start..(start + size).min(bytes.len().min(start + 65536))]
-            } else {
-                continue;
-            };
-            let mut offset = 0;
-            while offset + 4 <= code.len() {
-                let slice = &code[offset..];
-                let decoded = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                    let mut reader = U8Reader::new(slice);
-                    decoder.decode(&mut reader)
-                }));
-                if let Ok(Ok(inst)) = decoded {
-                    total_instructions += 1;
-                    match inst.opcode {
-                        yaxpeax_arm::armv8::a64::Opcode::ADD => total_add += 1,
-                        yaxpeax_arm::armv8::a64::Opcode::MOVZ
-                        | yaxpeax_arm::armv8::a64::Opcode::MOVN
-                        | yaxpeax_arm::armv8::a64::Opcode::MOVK => total_mov += 1,
-                        _ => {}
-                    }
-                    offset += 4;
+    if is_arm64 || is_arm32 {
+        // ARMNT (0x01c4) and THUMB (0x01c2) PEs hold Thumb-2 code; only 0x01c0 is A32.
+        use capstone::prelude::*;
+        let cs = if is_arm64 {
+            Capstone::new().arm64().mode(arch::arm64::ArchMode::Arm).build()
+        } else if pe.machine == 0x01c0 {
+            Capstone::new().arm().mode(arch::arm::ArchMode::Arm).build()
+        } else {
+            Capstone::new().arm().mode(arch::arm::ArchMode::Thumb).build()
+        };
+        let unit = if is_arm64 || pe.machine == 0x01c0 { 4 } else { 2 };
+        if let Ok(cs) = cs {
+            for section in sections {
+                let start = section.pointer_to_raw_data as usize;
+                let size = section.size_of_raw_data as usize;
+                let code = if start < bytes.len() {
+                    &bytes[start..(start + size).min(bytes.len().min(start + 65536))]
                 } else {
-                    offset += 4;
-                }
-            }
-        }
-    } else if is_arm32 {
-        use yaxpeax_arch::{Decoder, U8Reader};
-        let decoder = yaxpeax_arm::armv7::InstDecoder::default();
-        for section in sections {
-            let start = section.pointer_to_raw_data as usize;
-            let size = section.size_of_raw_data as usize;
-            let code = if start < bytes.len() {
-                &bytes[start..(start + size).min(bytes.len().min(start + 65536))]
-            } else {
-                continue;
-            };
-            let mut offset = 0;
-            while offset + 2 <= code.len() {
-                let slice = &code[offset..];
-                let decoded = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                    let mut reader = U8Reader::new(slice);
-                    decoder.decode(&mut reader)
-                }));
-                if let Ok(Ok(inst)) = decoded {
-                    total_instructions += 1;
-                    match inst.opcode {
-                        yaxpeax_arm::armv7::Opcode::ADD => total_add += 1,
-                        yaxpeax_arm::armv7::Opcode::MOV => total_mov += 1,
-                        _ => {}
-                    }
-                    offset += 4;
-                } else {
-                    offset += 2;
-                }
+                    continue;
+                };
+                let base_addr = pe.image_base.wrapping_add(section.virtual_address as u64);
+                arm_counts(&cs, code, base_addr, unit, &mut total_instructions, &mut total_add, &mut total_mov);
             }
         }
     } else {
@@ -659,6 +619,39 @@ fn fake_debug_directory(bytes: &[u8], pe: &ParsedPe) -> bool {
     })
 }
 
+/// Instructions, ADD-family and MOV-family instructions of `code` (ARM, Thumb or
+/// ARM64, by `cs`). Capstone stops at the first word it cannot decode: that `unit`
+/// (4 bytes, 2 in Thumb) is skipped and decoding goes on after it.
+fn arm_counts(cs: &capstone::Capstone, code: &[u8], addr: u64, unit: usize, total: &mut u64, add: &mut u64, mov: &mut u64) {
+    let mut off = 0usize;
+    while off + unit <= code.len() {
+        let mut decoded = 0usize;
+        if let Ok(insns) = cs.disasm_all(&code[off..], addr.wrapping_add(off as u64)) {
+            for i in insns.iter() {
+                *total += 1;
+                let (is_add, is_mov) = arm_add_mov(i.mnemonic().unwrap_or(""));
+                *add += is_add as u64;
+                *mov += is_mov as u64;
+                decoded += i.len();
+            }
+        }
+        off += decoded + unit;
+    }
+}
+
+/// Whether an ARM / ARM64 mnemonic is an ADD (`add`, `adds`, `addw`) or a MOV
+/// (`mov`, `movs`, `movw`, `movt`, `movz`, `movn`, `movk`), with or without a
+/// condition code (`addeq`, `movsne`) or width suffix (`add.w`).
+fn arm_add_mov(mnemonic: &str) -> (bool, bool) {
+    const COND: [&str; 18] = ["", "eq", "ne", "cs", "hs", "cc", "lo", "mi", "pl", "vs", "vc", "hi", "ls", "ge", "lt", "gt", "le", "al"];
+    let m = mnemonic.split('.').next().unwrap_or("");
+    let ends = |rest: &str, forms: &[&str]| forms.iter().any(|f| rest.strip_prefix(f).is_some_and(|c| COND.contains(&c)));
+    (
+        m.strip_prefix("add").is_some_and(|r| ends(r, &["", "s", "w"])),
+        m.strip_prefix("mov").is_some_and(|r| ends(r, &["", "s", "w", "t", "z", "n", "k"])),
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -685,5 +678,39 @@ mod tests {
             eprintln!("no System32 files, skipped");
         }
         assert_eq!(extract_pe_mimicry(b"MZ not a pe"), None);
+    }
+}
+
+#[cfg(test)]
+mod arm_tests {
+    use super::*;
+    use capstone::prelude::*;
+
+    #[test]
+    fn add_and_mov_families() {
+        for m in ["add", "adds", "addw", "addeq", "addseq", "add.w"] {
+            assert_eq!(arm_add_mov(m), (true, false), "{m}");
+        }
+        for m in ["mov", "movs", "movw", "movt", "movz", "movk", "movne", "movs.w"] {
+            assert_eq!(arm_add_mov(m), (false, true), "{m}");
+        }
+        for m in ["adc", "adr", "adrp", "addhn", "mvn", "movi", "ldr", "b"] {
+            assert_eq!(arm_add_mov(m), (false, false), "{m}");
+        }
+    }
+
+    #[test]
+    fn thumb_code_and_undecodable_words() {
+        // Thumb: movs r0, #1; adds r0, #2; bx lr
+        let cs = Capstone::new().arm().mode(arch::arm::ArchMode::Thumb).build().unwrap();
+        let (mut t, mut a, mut m) = (0, 0, 0);
+        arm_counts(&cs, &[0x01, 0x20, 0x02, 0x30, 0x70, 0x47], 0x1000, 2, &mut t, &mut a, &mut m);
+        assert_eq!((t, a, m), (3, 1, 1));
+        // ARM64: add x0, x0, #1; an undefined word; mov x0, #1 (movz)
+        let cs = Capstone::new().arm64().mode(arch::arm64::ArchMode::Arm).build().unwrap();
+        let code = [0x00, 0x04, 0x00, 0x91, 0xff, 0xff, 0xff, 0xff, 0x20, 0x00, 0x80, 0xd2];
+        let (mut t, mut a, mut m) = (0, 0, 0);
+        arm_counts(&cs, &code, 0x1000, 4, &mut t, &mut a, &mut m);
+        assert_eq!((t, a, m), (2, 1, 1));
     }
 }
