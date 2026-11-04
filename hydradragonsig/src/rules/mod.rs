@@ -2,7 +2,7 @@ mod arm64;
 pub(crate) mod bytecode;
 mod engine;
 mod expr;
-mod formats;
+pub(crate) mod formats;
 mod icon;
 mod icon_metric;
 mod opcode;

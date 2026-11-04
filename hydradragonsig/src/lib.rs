@@ -170,6 +170,9 @@ fn finalize_scan_context(
         report.apk = crate::scanner::apk::apk_info(&bytes);
     }
     evaluate_rules(&mut report, &bytes, rules, options);
+    // .NET / ELF / Mach-O / PDF structures the rules did not need are still
+    // reported (the rules parse them lazily, keeping the decoded PDF streams).
+    rules::formats::FormatCache::default().ensure_all(&mut report, &bytes);
     // Strings / PE data may have been loaded lazily by the rules.
     report::refresh_features(&mut report);
     finalize_report_metadata(&mut report, &bytes, rules, options);
@@ -497,6 +500,20 @@ mod tests {
         assert!(rules.warnings().is_empty(), "{:?}", rules.warnings());
         let ctx = MemoryScanContext { buffer: bytes, identifier: "sample".into(), base_address: None };
         scan_memory(&ctx, &rules, &ScanOptions::default()).expect("scan")
+    }
+
+    #[test]
+    fn format_structures_reported_without_rules_using_them() {
+        let elf = scan(scanner::elf::tests::build_elf64(&["mprotect"]), "rules: []");
+        assert!(elf.elf.is_some() && elf.dotnet.is_none() && elf.macho.is_none() && elf.pdf.is_none());
+        assert!(elf.features.contains_key("elf_import_count"));
+        let macho = scan(scanner::macho::tests::build_macho64(0x0100_000c, &[]), "rules: []");
+        assert!(macho.macho.is_some() && macho.features.contains_key("macho_dylib_count"));
+        let dotnet = scan(scanner::dotnet::tests::build_dotnet_pe(&["hello world string"], "lib"), "rules: []");
+        assert!(dotnet.dotnet.is_some() && dotnet.features.contains_key("dotnet_type_count"));
+        let pdf = scan(scanner::pdf::tests::build_pdf("app.alert(1)", 0), "rules: []");
+        assert!(pdf.pdf.is_some() && pdf.features.contains_key("pdf_js_count"));
+        assert!(scan(b"plain text".to_vec(), "rules: []").elf.is_none());
     }
 
     #[test]
