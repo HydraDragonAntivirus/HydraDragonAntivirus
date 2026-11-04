@@ -135,6 +135,7 @@ into allocated memory and jumps there stops `run_until: {write_execute: true}`.
 | `section: [.text]` | Execution enters one of these sections. |
 | `ip_pattern: ["61 E9"]` | A basic block starts with one of these hex patterns. |
 | `outside: [UPX1]` | No condition stops inside these sections (the stub's own). |
+| `va: expr` | Execution reaches this address: a function found with `func_start`, reached through the program's own start-up (its imports, syscalls and data set up as they are when it runs). |
 | `max_instructions`, `timeout_ms` | Budget of this step (default: the caller's). |
 
 Expressions also have `func_start(rva)`: the start RVA of the x64 function that
@@ -143,9 +144,18 @@ primary function). Find a function by what it does and call it from its start:
 
 ```yaml
 - find: {pattern: "81 7? 08 4E 02 00 00", as: hit}     # cmp dword [reg+8], 0x24E
-- call: {va: image_base + func_start(off2rva(hit)), as: written}
+- set: {routine: image_base + func_start(off2rva(hit))}
+- run_until: {va: routine}                              # the start-up runs first
+- call: {va: routine, as: written}
 - iocs: {in: written, required: true}
 ```
+
+The emulator answers `syscall` instructions (direct and indirect) by the `Nt`
+function the number belongs to in the ntdll it loaded, maps the system DLLs of
+the sample's bitness (`DLLs` / `DLLs64`, else this Windows), sets up the loader
+list, static TLS and `KUSER_SHARED_DATA` as Windows does, and redirects the DLLs'
+exported functions to its API stubs (code that resolves APIs from the export
+tables itself reaches them too).
 
 ## Limits
 

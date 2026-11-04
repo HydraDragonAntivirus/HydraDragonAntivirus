@@ -70,6 +70,8 @@ const TEB_ADDR: u64 = 0x200000;
 const PEB_ADDR: u64 = 0x201000;
 const LDR_ADDR: u64 = 0x202000;
 const GDT_ADDR: u64 = 0x205000;
+/// Static TLS: the pointer array, then block 0 (up to the next mapping, far above).
+const TLS_ADDR: u64 = 0x206000;
 const HOOK_ADDR: u64 = 0x7F000000;
 // Keep the synthetic RET target away from the mapped region's trailing page;
 // Unicorn may fetch a small instruction window past a basic block boundary.
@@ -1268,6 +1270,40 @@ impl UnpackerEngine {
                 .map_err(|e| UnpackerError::EmulatorError(format!("mem_write TEB: {:?}", e)))?;
         }
 
+        // --- Static TLS, as the loader sets it up ---
+        // TEB.ThreadLocalStoragePointer (+0x58 x64, +0x2C x86) -> array of blocks;
+        // block 0 = the image's TLS template (StartAddressOfRawData..End) plus
+        // SizeOfZeroFill zeros; *AddressOfIndex = 0. `thread_local` variables read
+        // gs:[0x58][_tls_index]; without it they read through a null pointer.
+        if matches!(arch, PeArch::X86 | PeArch::X64) {
+            if let Some(tls) = self.sample.opt_header.data_directory.get(9).filter(|d| d.virtual_address != 0) {
+                let w = if is_64 { 8usize } else { 4 };
+                let rd = |uc: &Unicorn<'static, ()>, at: u64, n: usize| -> u64 {
+                    let mut b = [0u8; 8];
+                    let _ = uc.mem_read(at, &mut b[..n]);
+                    u64::from_le_bytes(b)
+                };
+                let dir = image_base + tls.virtual_address as u64;
+                let (start, end, index_at) = (rd(&uc, dir, w), rd(&uc, dir + w as u64, w), rd(&uc, dir + 2 * w as u64, w));
+                let zero_fill = rd(&uc, dir + 4 * w as u64, 4);
+                let template_len = end.saturating_sub(start).min(16 << 20);
+                let block_len = template_len + zero_fill.min(16 << 20);
+                let region = page_align(0x10 + block_len.max(1));
+                if uc.mem_map(TLS_ADDR, region, Prot::READ | Prot::WRITE).is_ok() {
+                    let block = TLS_ADDR + 0x10;
+                    let _ = uc.mem_write(TLS_ADDR, &block.to_le_bytes()[..w]);
+                    if let Ok(template) = uc.mem_read_as_vec(start, template_len as usize) {
+                        let _ = uc.mem_write(block, &template);
+                    }
+                    let slot = TEB_ADDR + if is_64 { 0x58 } else { 0x2C };
+                    let _ = uc.mem_write(slot, &TLS_ADDR.to_le_bytes()[..w]);
+                    if index_at >= image_base {
+                        let _ = uc.mem_write(index_at, &0u32.to_le_bytes());
+                    }
+                }
+            }
+        }
+
         // --- Map PEB ---
         let peb_size = page_align(0x1000);
         uc.mem_map(PEB_ADDR, peb_size, Prot::READ | Prot::WRITE)
@@ -1472,6 +1508,9 @@ impl UnpackerEngine {
 
         // --- Store imported function info & patch IAT with hook addresses ---
         self.parse_and_patch_imports(&mut uc, image_base)?;
+        if is_64 {
+            self.redirect_dll_exports(&mut uc, &dll_dir, &dll_bases);
+        }
         {
             let mut hs = self.hook_state.borrow_mut();
             hs.dllname_to_functionlist = self.sample.dllname_to_functionlist.clone();
@@ -2430,6 +2469,36 @@ impl UnpackerEngine {
     // Private helpers
     // ------------------------------------------------------------------
 
+    /// Code that finds an API in a system DLL's export table itself (walking the PEB
+    /// and the exports, as shellcode and loaders do) calls into the DLL's real code,
+    /// whose own imports are not bound here. Each exported function of the loaded DLLs
+    /// starts with a jump to an API stub instead (`mov rax, stub; jmp rax`), so the call
+    /// is answered like an imported one. ntdll's syscall stubs stay as they are: code
+    /// reads their first bytes for the syscall number, and their `syscall` is hooked.
+    fn redirect_dll_exports(&mut self, uc: &mut Unicorn<'static, ()>, dll_dir: &Path, dlls: &[(String, u64, u32)]) {
+        let mut hook_addr = self.hook_addr;
+        for (name, base, _) in dlls {
+            for (rva, func) in dll_code_exports(&dll_dir.join(name)).iter() {
+                let at = base + *rva as u64;
+                let mut head = [0u8; 12];
+                if uc.mem_read(at, &mut head).is_err() || head[..4] == [0x4C, 0x8B, 0xD1, 0xB8] {
+                    continue;
+                }
+                if hook_addr + 8 > HOOK_ADDR + 0x100000 {
+                    return;
+                }
+                let mut jump = vec![0x48, 0xB8];
+                jump.extend_from_slice(&hook_addr.to_le_bytes());
+                jump.extend_from_slice(&[0xFF, 0xE0]);
+                if uc.mem_write(at, &jump).is_ok() {
+                    self.sample.dllname_to_functionlist.entry(name.to_ascii_lowercase()).or_default().push((func.to_ascii_lowercase(), hook_addr));
+                    hook_addr += 8;
+                }
+            }
+        }
+        self.hook_addr = hook_addr;
+    }
+
     fn parse_and_patch_imports(&mut self, uc: &mut Unicorn<'static, ()>, image_base: u64) -> UnpackerResult<()> {
         let raw = &self.sample.raw_bytes;
         let opt = &self.sample.opt_header;
@@ -3050,6 +3119,37 @@ fn hidden_iat_slots(
         flush(&mut run);
     }
     out
+}
+
+/// (RVA, name) of a DLL's named exports that are code (in an executable section, not
+/// forwarders), read once per process.
+fn dll_code_exports(path: &Path) -> std::sync::Arc<Vec<(u32, String)>> {
+    static CACHE: std::sync::OnceLock<std::sync::Mutex<HashMap<std::path::PathBuf, std::sync::Arc<Vec<(u32, String)>>>>> = std::sync::OnceLock::new();
+    let cache = CACHE.get_or_init(Default::default);
+    if let Some(v) = cache.lock().unwrap().get(path) {
+        return v.clone();
+    }
+    let mut out = Vec::new();
+    if let Ok(bytes) = std::fs::read(path) {
+        if let Ok(pe) = pefile_rs::PE::parse(&bytes) {
+            let exec = |rva: u32| pe.sections.iter().any(|s| s.virtual_address <= rva && rva < s.virtual_address + s.virtual_size.max(s.size_of_raw_data) && s.characteristics & 0x2000_0000 != 0);
+            for e in pe.exports.iter() {
+                for sym in &e.symbols {
+                    if let (Some(n), None) = (&sym.name, &sym.forwarder) {
+                        if sym.address != 0 && exec(sym.address) {
+                            out.push((sym.address, n.clone()));
+                        }
+                    }
+                }
+            }
+        }
+    }
+    // One stub per address (aliases share code).
+    out.sort();
+    out.dedup_by_key(|(a, _)| *a);
+    let v = std::sync::Arc::new(out);
+    cache.lock().unwrap().insert(path.to_path_buf(), v.clone());
+    v
 }
 
 /// Syscall number -> `Nt` name for one ntdll: its `Zw` exports sorted by address

@@ -307,6 +307,10 @@ pub struct RunUntil {
     /// No condition stops inside these sections (the stub's own).
     #[serde(default)]
     pub outside: Vec<String>,
+    /// Execution reaches this address (e.g. a function found with `func_start`,
+    /// reached through the program's own start-up).
+    #[serde(default)]
+    pub va: Option<Expr>,
     #[serde(default)]
     pub max_instructions: Option<u64>,
     #[serde(default)]
@@ -451,6 +455,8 @@ fn iocs(data: &[u8], file: Option<&[u8]>) -> Vec<String> {
             }
         }
     }
+    // The emulator's own stand-ins (the sample's path, its user profile).
+    out.retain(|v| !v.to_ascii_lowercase().starts_with(r"c:\users\user\desktop\"));
     if let Some(f) = file {
         let wide = |s: &str| s.encode_utf16().flat_map(u16::to_le_bytes).collect::<Vec<u8>>();
         let has = |needle: &[u8]| needle.len() <= f.len() && f.windows(needle.len()).any(|w| w == needle);
@@ -499,8 +505,7 @@ fn values_in(s: &str) -> Vec<String> {
         let ipv4 = labels.len() == 4 && labels.iter().all(|l| !l.is_empty() && l.len() <= 3 && l.parse::<u8>().is_ok());
         let domain = labels.len() >= 2
             && labels.iter().all(|l| !l.is_empty() && l.len() <= 63 && !l.starts_with('-') && !l.ends_with('-'))
-            && labels.last().is_some_and(|t| (2..=12).contains(&t.len()) && t.bytes().all(|b| b.is_ascii_alphabetic()))
-            && !NOT_TLDS.contains(&labels.last().unwrap().to_ascii_lowercase().as_str());
+            && labels.last().is_some_and(|t| TLDS.contains(&t.to_ascii_lowercase().as_str()));
         if ipv4 && host != "0.0.0.0" || domain {
             out.push(match port {
                 Some(p) => format!("{host}:{p}"),
@@ -511,11 +516,15 @@ fn values_in(s: &str) -> Vec<String> {
     out
 }
 
-/// File extensions and code words that look like a last domain label.
-const NOT_TLDS: &[&str] = &[
-    "exe", "dll", "sys", "bat", "cmd", "ps1", "vbs", "js", "txt", "log", "ini", "dat", "bin", "tmp", "cfg", "json", "xml",
-    "html", "htm", "php", "png", "jpg", "gif", "ico", "zip", "rar", "lnk", "pdb", "obj", "lib", "cpp", "rs", "py", "h",
-    "c", "cs", "md", "yaml", "yml", "toml",
+/// Top-level domains a host name is accepted with. C++ member access in decrypted
+/// strings (`buffer.size`, `stack.empty`) looks like a domain otherwise.
+const TLDS: &[&str] = &[
+    "com", "net", "org", "info", "biz", "io", "co", "me", "xyz", "top", "online", "site", "club", "shop", "live", "app", "dev",
+    "cloud", "store", "tech", "space", "website", "fun", "icu", "buzz", "click", "link", "work", "life", "world", "today",
+    "pro", "name", "mobi", "ws", "cc", "pw", "tk", "ml", "ga", "cf", "gq", "su", "ru", "ua", "by", "kz", "cn", "hk", "tw",
+    "jp", "kr", "in", "pk", "ir", "tr", "de", "fr", "nl", "it", "es", "pl", "uk", "eu", "ch", "at", "be", "se", "no", "fi",
+    "dk", "cz", "ro", "bg", "gr", "pt", "hu", "lt", "lv", "ee", "br", "ar", "mx", "cl", "us", "ca", "au", "nz", "za", "ng",
+    "id", "vn", "th", "my", "sg", "ph", "onion", "bit", "duckdns", "ddns", "zapto", "hopto", "ngrok",
 ];
 
 // ---------------------------------------------------------------------------
@@ -570,7 +579,7 @@ pub fn check(steps: &[Step]) -> Result<(), String> {
                     return Err(at("emulation steps cannot be inside try / repeat".into()));
                 }
                 Step::RunUntil(r) => {
-                    if !r.write_execute && r.api.is_empty() && r.section.is_empty() && r.ip_pattern.is_empty() {
+                    if !r.write_execute && r.api.is_empty() && r.section.is_empty() && r.ip_pattern.is_empty() && r.va.is_none() {
                         return Err(at("run_until without a condition".into()));
                     }
                     for p in &r.ip_pattern {
@@ -1062,7 +1071,14 @@ impl State<'_> {
         let patterns = r.ip_pattern.iter().map(|p| pattern(p)).collect::<Result<Vec<_>, _>>()?;
         let max = r.max_instructions.map_or(self.budget.max_instructions, |n| n as usize);
         let timeout = r.timeout_ms.map_or(self.budget.timeout_us, |ms| ms.saturating_mul(1000));
+        let target = match &r.va {
+            Some(v) => Some(u64::try_from(self.eval(v)?).map_err(|_| "bad address".to_string())?),
+            None => None,
+        };
         let e = self.engine()?;
+        if let Some(t) = target {
+            e.breakpoints = vec![t];
+        }
         e.set_stops(Stops {
             write_execute: r.write_execute,
             apis: r.api.clone(),
@@ -1073,6 +1089,13 @@ impl State<'_> {
         let from = e.ip().unwrap_or(0);
         let err = e.emu_from(from, timeout, max).err();
         e.set_stops(Stops::default());
+        if let Some(t) = target {
+            e.breakpoints.clear();
+            if e.ip() == Some(t) {
+                self.set("ip", t as i128);
+                return Ok(());
+            }
+        }
         let Some(hit) = e.stop_hit.clone() else {
             return Err(match (&err, &e.stop_api) {
                 (_, Some(api)) => format!("stopped at {api}"),
@@ -1495,6 +1518,22 @@ unpack:
         // The same through a recipe.
         let out = unpacked(&alloc_loader_pe(&mapped_image(), 0, 0x1000), "unpack:\n  - run_until: {write_execute: true, max_instructions: 200000}\n  - check: ip == 0x20001000\n  - dump_alloc\n");
         assert!(out[0].starts_with(b"MZ") && out[0].len() >= 0x400, "{} bytes", out[0].len());
+    }
+
+    #[test]
+    fn iocs_keep_only_decrypted_hosts_urls_and_paths() {
+        let mut mem: Vec<u8> = [&b"xx 10.0.0.5:4444 yy\0buffer.size\0evil-c2.xyz\0https://a.b.ru/x?y=1 \0"[..], br"C:\ProgramData\svc.exe", b"\0\0"].concat();
+        mem.extend("c2.example.com".encode_utf16().flat_map(u16::to_le_bytes));
+        mem.extend_from_slice(b"\0\0in.file.com\0");
+        let file = b"header in.file.com trailer";
+        let got = iocs(&mem, Some(file));
+        assert!(got.contains(&"10.0.0.5:4444".to_string()), "{got:?}");
+        assert!(got.contains(&"evil-c2.xyz".to_string()), "{got:?}");
+        assert!(got.contains(&"https://a.b.ru/x?y=1".to_string()), "{got:?}");
+        assert!(got.contains(&r"C:\ProgramData\svc.exe".to_string()), "{got:?}");
+        assert!(got.contains(&"c2.example.com".to_string()), "UTF-16: {got:?}");
+        assert!(!got.iter().any(|v| v == "buffer.size"), "code words are not hosts: {got:?}");
+        assert!(!got.iter().any(|v| v == "in.file.com"), "values in the file itself are left out: {got:?}");
     }
 
     #[test]

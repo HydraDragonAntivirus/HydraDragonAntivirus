@@ -245,6 +245,16 @@ api_specs! {
     "wcscpy"(2) -> 0;
     "strncpy"(3) -> 0;
     "wcsncpy"(3) -> 0;
+    "stdio_common_vsprintf"(6) -> 0;
+    "stdio_common_vsprintf_s"(6) -> 0;
+    "stdio_common_vsnprintf_s"(7) -> 0;
+    "stdio_common_vswprintf"(6) -> 0;
+    "stdio_common_vswprintf_s"(6) -> 0;
+    "stdio_common_vsnwprintf_s"(7) -> 0;
+    "vsprintf"(3) -> 0;
+    "vswprintf"(3) -> 0;
+    "vsnprintf"(4) -> 0;
+    "vsnwprintf"(4) -> 0;
     "findatoma"(1, [ (0, Ansi) ]) -> 0;
     "findatomw"(1, [ (0, Wide) ]) -> 0;
     "addatoma"(1, [ (0, Ansi) ]) -> 0xC000;
@@ -517,6 +527,9 @@ pub struct ApiState {
     pub scratch: HashMap<&'static str, u64>,
     /// Section objects (NtCreateSection): handle -> (backing file, size, SEC_IMAGE).
     pub sections: HashMap<u64, (Option<String>, u64, bool)>,
+    /// Where a section is mapped: every view of it is that memory (a writable and an
+    /// executable view of one section is how JIT code is written and then run).
+    pub section_views: HashMap<u64, (u64, u64)>,
 }
 
 impl Default for ApiState {
@@ -542,6 +555,7 @@ impl Default for ApiState {
             heap_sizes: HashMap::new(),
             scratch: HashMap::new(),
             sections: HashMap::new(),
+            section_views: HashMap::new(),
         }
     }
 }
@@ -1209,7 +1223,7 @@ fn format_c(uc: &Unicorn<'_, ()>, fmt: &[u32], next: &mut dyn FnMut(&Unicorn<'_,
             }
             i += 1;
         }
-        let mut num = |i: &mut usize, next: &mut dyn FnMut(&Unicorn<'_, ()>, u64) -> u64| -> Option<usize> {
+        let num = |i: &mut usize, next: &mut dyn FnMut(&Unicorn<'_, ()>, u64) -> u64| -> Option<usize> {
             if ch(*i) == '*' {
                 *i += 1;
                 return Some(next(uc, 4) as i32 as i64 as usize);
@@ -1480,6 +1494,16 @@ pub fn handle_api_call(
         "ntmapviewofsection" | "ntmapviewofsectionex" => {
             let (section, base_p, view_p) = (arg(args, 0), arg(args, 2), arg(args, 6));
             let Some((path, size, image)) = api_state.sections.get(&section).cloned() else { return 0xC000_0008 }; // STATUS_INVALID_HANDLE
+            let ptr = if api_state.is_64 { 8 } else { 4 };
+            if let Some(&(at, len)) = api_state.section_views.get(&section) {
+                if base_p >= 0x10000 {
+                    let _ = uc.mem_write(base_p, &at.to_le_bytes()[..ptr]);
+                }
+                if view_p >= 0x10000 {
+                    let _ = uc.mem_write(view_p, &len.to_le_bytes()[..ptr]);
+                }
+                return 0;
+            }
             let content = if image { path.as_deref().and_then(|p| host_image(p, api_state.is_64)) } else { None };
             let len = content.as_ref().map_or(size, |c| c.len() as u64).max(0x1000);
             let mut want = 0u64;
@@ -1496,7 +1520,7 @@ pub fn handle_api_call(
             if let Some(c) = &content {
                 let _ = uc.mem_write(at, c);
             }
-            let ptr = if api_state.is_64 { 8 } else { 4 };
+            api_state.section_views.insert(section, (at, (len + 0xFFF) & !0xFFF));
             if base_p >= 0x10000 {
                 let _ = uc.mem_write(base_p, &at.to_le_bytes()[..ptr]);
             }
