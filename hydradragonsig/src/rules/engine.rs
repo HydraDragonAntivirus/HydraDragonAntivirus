@@ -2161,13 +2161,18 @@ fn ensure_condition_data(cond: &RuleCondition, report: &mut ScanReport, view: &m
         | RuleCondition::ExportHashAny { .. }
         | RuleCondition::PeTimestamp { .. }
         | RuleCondition::OpcodePattern { arch: None, .. } => view.ensure_pe(report, bytes),
-        RuleCondition::HashSha256 { .. }
-        | RuleCondition::HashMd5 { .. }
-        | RuleCondition::HashSha1 { .. }
-        | RuleCondition::HashCrc32 { .. } => {
-            if (report.hashes.sha256.is_empty() || report.hashes.sha1.is_empty()) && !bytes.is_empty() {
-                report.hashes = crate::utils::hash::hashes(bytes);
-            }
+        // Only the hash the condition reads, once per scan (all four took ~0.3 s on 15 MB).
+        RuleCondition::HashSha256 { .. } if report.hashes.sha256.is_empty() && !bytes.is_empty() => {
+            report.hashes.sha256 = crate::utils::hash::sha256_hex(bytes);
+        }
+        RuleCondition::HashMd5 { .. } if report.hashes.md5.is_empty() && !bytes.is_empty() => {
+            report.hashes.md5 = crate::utils::hash::md5_hex(bytes);
+        }
+        RuleCondition::HashSha1 { .. } if report.hashes.sha1.is_empty() && !bytes.is_empty() => {
+            report.hashes.sha1 = crate::utils::hash::sha1_hex(bytes);
+        }
+        RuleCondition::HashCrc32 { .. } if report.hashes.crc32.is_empty() && !bytes.is_empty() => {
+            report.hashes.crc32 = crate::utils::hash::crc32_hex(bytes);
         }
         RuleCondition::FileEntropy { .. } => {
             if report.entropy == 0.0 && !bytes.is_empty() {
@@ -5427,31 +5432,84 @@ fn match_units(
     }
 }
 
+/// Fewest and most bytes a unit can take (`Jump` max already capped at
+/// `BYTE_JUMP_MAX`, so the sums stay small).
+fn unit_width(unit: &ByteUnit) -> (usize, usize) {
+    match unit {
+        ByteUnit::Byte(_) | ByteUnit::NotByte(_) => (1, 1),
+        ByteUnit::Jump { min, max } => (*min, *max),
+        ByteUnit::Alt(alts) => alts.iter().fold((usize::MAX, 0), |(lo, hi), alt| {
+            let (a, b) = alt.iter().map(unit_width).fold((0usize, 0usize), |(x, y), (p, q)| (x.saturating_add(p), y.saturating_add(q)));
+            (lo.min(a), hi.max(b))
+        }),
+    }
+}
+
+/// The longest run of fixed bytes at the top level of `units` (so every match
+/// contains it), at least 2 bytes: (bytes, fewest and most bytes before it).
+fn byte_program_anchor(units: &[ByteUnit]) -> Option<(Vec<u8>, usize, usize)> {
+    let mut best: Option<(Vec<u8>, usize, usize)> = None;
+    let (mut before_lo, mut before_hi) = (0usize, 0usize);
+    let mut i = 0usize;
+    while i < units.len() {
+        let run: Vec<u8> = units[i..]
+            .iter()
+            .map_while(|u| match u {
+                ByteUnit::Byte(t) if t.mask == 0xff => Some(t.value),
+                _ => None,
+            })
+            .collect();
+        if run.len() >= 2 && best.as_ref().is_none_or(|b| run.len() > b.0.len()) {
+            best = Some((run.clone(), before_lo, before_hi));
+        }
+        let step = run.len().max(1);
+        for u in &units[i..i + step] {
+            let (lo, hi) = unit_width(u);
+            before_lo = before_lo.saturating_add(lo);
+            before_hi = before_hi.saturating_add(hi);
+        }
+        i += step;
+    }
+    best
+}
+
 fn find_byte_program(bytes: &[u8], units: &[ByteUnit]) -> Option<usize> {
-    // Fixed leading bytes narrow the candidate offsets.
-    let lead: Vec<u8> = units
-        .iter()
-        .map_while(|u| match u {
-            ByteUnit::Byte(t) if t.mask == 0xff => Some(t.value),
-            _ => None,
-        })
-        .collect();
     let try_at = |start: usize| {
         let mut budget = BYTE_MATCH_BUDGET;
         match_units(units, &|_, _| true, bytes, start, &mut budget)
     };
-    if lead.len() >= 2 {
-        let mut from = 0usize;
-        while from < bytes.len() {
-            let start = from + memmem::find(&bytes[from..], &lead)?;
-            if try_at(start) {
-                return Some(start);
-            }
-            from = start + 1;
+    // The longest fixed run anywhere in the pattern narrows the candidate offsets
+    // to the starts that put it where it occurs (a leading `( 0C | 13 )` no longer
+    // means trying every offset of the file).
+    let Some((anchor, before_lo, before_hi)) = byte_program_anchor(units) else {
+        return (0..bytes.len()).find(|&start| try_at(start));
+    };
+    // Earliest match: hits come in order, and once a hit's lowest start is past the
+    // best start found, no later hit can give an earlier one.
+    // Starts below `untried` failed already (windows of nearby hits overlap).
+    let mut best: Option<usize> = None;
+    let mut untried = 0usize;
+    let mut from = 0usize;
+    while from < bytes.len() {
+        let Some(rel) = memmem::find(&bytes[from..], &anchor) else { break };
+        let pos = from + rel;
+        let lo = pos.saturating_sub(before_hi);
+        if best.is_some_and(|b| lo >= b) {
+            break;
         }
-        return None;
+        if let Some(hi) = pos.checked_sub(before_lo) {
+            let hi = best.map_or(hi, |b| hi.min(b.saturating_sub(1)));
+            let lo = lo.max(untried);
+            if lo <= hi {
+                match (lo..=hi).find(|&s| try_at(s)) {
+                    Some(start) => best = Some(start),
+                    None => untried = hi + 1,
+                }
+            }
+        }
+        from = pos + 1;
     }
-    (0..bytes.len()).find(|&start| try_at(start))
+    best
 }
 
 impl CompiledBytePattern {
@@ -5795,6 +5853,49 @@ static _REGEX_COMPILE_GUARD: Lazy<Regex> = Lazy::new(|| Regex::new(".*").unwrap(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Anchored search on the longest fixed run gives the same earliest offset as
+    /// trying every start.
+    #[test]
+    fn byte_program_anchor_search_matches_every_start_search() {
+        let every_start = |bytes: &[u8], units: &[ByteUnit]| {
+            (0..bytes.len()).find(|&s| {
+                let mut budget = BYTE_MATCH_BUDGET;
+                match_units(units, &|_, _| true, bytes, s, &mut budget)
+            })
+        };
+        let patterns = [
+            "( 0C | 13 ) 0B 46 6F 72 74 65 63 74",
+            "( 0C | 13 13 ) [0-3] AA BB CC",
+            "AA [2-5] BB CC ( DD | EE EE ) FF",
+            "~00 [1-2] AA BB",
+            "( AA BB | CC ) [-] DD EE",
+            "11 ( 22 | 33 ) 44 55 66 [0-2] 77",
+        ];
+        let mut seed = 0x1234_5678u32;
+        let mut rnd = || {
+            seed ^= seed << 13;
+            seed ^= seed >> 17;
+            seed ^= seed << 5;
+            seed
+        };
+        let alphabet = [0x00, 0x0B, 0x0C, 0x13, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF, 0x46, 0x6F, 0x72, 0x74, 0x65, 0x63];
+        for p in patterns {
+            let units = parse_byte_program(p).unwrap();
+            assert!(byte_program_anchor(&units).is_some(), "{p}");
+            for _ in 0..400 {
+                let len = (rnd() % 64) as usize;
+                let bytes: Vec<u8> = (0..len).map(|_| alphabet[(rnd() as usize) % alphabet.len()]).collect();
+                assert_eq!(find_byte_program(&bytes, &units), every_start(&bytes, &units), "{p} on {bytes:02X?}");
+            }
+        }
+        let units = parse_byte_program("( 0C | 13 ) 0B 46 6F 72 74 65 63 74 20 4C 54 44").unwrap();
+        let mut file = vec![0u8; 1 << 20];
+        let at = file.len() - 20;
+        file[at..at + 13].copy_from_slice(&[0x13, 0x0B, 0x46, 0x6F, 0x72, 0x74, 0x65, 0x63, 0x74, 0x20, 0x4C, 0x54, 0x44]);
+        assert_eq!(find_byte_program(&file, &units), Some(at));
+        assert_eq!(byte_program_anchor(&parse_byte_program("( AA | BB ) [1-2] ~CC").unwrap()), None);
+    }
 
     #[test]
     fn pua_family_never_gives_malware() {
