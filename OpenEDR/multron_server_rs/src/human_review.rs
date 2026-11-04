@@ -249,6 +249,11 @@ pub fn virustotal_url(sha256: &str) -> String {
     format!("https://www.virustotal.com/gui/file/{}", sha256.to_lowercase())
 }
 
+/// The file's report page on viruskov.com (`viruskov/file/index.html`).
+pub fn viruskov_url(sha256: &str) -> String {
+    format!("https://viruskov.com/file/index.html?sha256={}", sha256.to_lowercase())
+}
+
 fn parse_time(s: &str) -> Option<DateTime<Utc>> {
     DateTime::parse_from_rfc3339(s).ok().map(|d| d.with_timezone(&Utc))
 }

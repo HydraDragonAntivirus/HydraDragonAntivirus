@@ -213,6 +213,7 @@ async fn open_doc(app: &Arc<AppState>, name: String, source: String, data: Vec<u
         "signer": insight.as_ref().and_then(|i| i.signer.clone()),
         "human": review.as_ref().map(|r| r.to_dashboard_json()),
         "virustotal": crate::human_review::virustotal_url(&sha),
+        "viruskov": crate::human_review::viruskov_url(&sha),
     }))
     .into_response()
 }

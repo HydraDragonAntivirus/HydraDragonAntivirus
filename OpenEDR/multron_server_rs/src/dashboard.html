@@ -971,6 +971,7 @@
         <select id="vaDocs" title="Files open in VirusKovAlyzer"><option value="">Open files…</option></select>
         <button class="ghost" id="vaScan" disabled>Scan with engine</button>
         <button class="ghost" id="vaVt" disabled title="Open this file on VirusTotal (by SHA-256; nothing is uploaded)">VirusTotal ↗</button>
+        <button class="ghost" id="vaVk" disabled title="Open this file's report on viruskov.com (by SHA-256; nothing is uploaded)">viruskov.com ↗</button>
         <button class="ghost" id="vaImphash" disabled title="Make an analyst imphash signature from this PE (Signature room)">Imphash signature</button>
         <button class="ghost" id="vaUnpack" disabled title="Runs the PE in the engine's Unicorn emulator and opens the memory image">Unpack (Unicorn)</button>
       </div>
@@ -3169,6 +3170,7 @@ Reason: ${reason}`)) return;
     } catch (_) {}
   }
   $("vaVt").onclick = () => { if (doc && doc.virustotal) window.open(doc.virustotal, "_blank", "noopener"); };
+  $("vaVk").onclick = () => { if (doc && doc.viruskov) window.open(doc.viruskov, "_blank", "noopener"); };
   $("vaDocs").onchange = () => { const v = $("vaDocs").value; if (v) { $("vaSrc").value = v; $("vaOpen").click(); } $("vaDocs").value = ""; };
 
   function setDoc(d) {
@@ -3187,6 +3189,7 @@ Reason: ${reason}`)) return;
     $("vaBody").hidden = false;
     $("vaScan").disabled = false;
     $("vaVt").disabled = !d.virustotal;
+    $("vaVk").disabled = !d.viruskov;
     $("vaUnpack").disabled = !r.pe;
     $("vaImphash").disabled = !(r.hashes && r.hashes.imphash);
     $("vaTitle").innerHTML = `<b>${esc(d.name)}</b> <span class="hint" style="margin:0">${size(d.size)} · ${esc(r.file_type || "")} · ${esc(d.source)}</span>`;
