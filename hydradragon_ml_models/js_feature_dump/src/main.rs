@@ -9,7 +9,7 @@
 //! Uses openedr_static's `extract_js_features`, so the features train_js_lgbm.py learns from
 //! are byte for byte what the engine computes at scan time. Files the extractor rejects
 //! (not valid JS) are skipped, as in the engine.
-//! Output: CSV with `label,path,<59 features>` (label 1 = malicious).
+//! Output: CSV with `label,path,<63 features>` (label 1 = malicious).
 //!
 //! Pure standard library parallelism (no rayon).
 

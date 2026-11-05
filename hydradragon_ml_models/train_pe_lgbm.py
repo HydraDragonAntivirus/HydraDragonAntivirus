@@ -356,7 +356,7 @@ def parse_args():
     parser.add_argument("--no-sync", action="store_true", help="Do not copy pe_trees.bin into the engine model folders")
     parser.add_argument("--features", choices=("v1", "v2"), default="v1",
                         help="v1: the 65 shell features (default). v2: unified model on the full feature "
-                             "vector (shell + inner + meta + combined), from pe_feature_dump "
+                             "vector (shell + inner + meta + combined + string / URL ML, 177 features), from pe_feature_dump "
                              "(openedr_static ml/pe_combined.rs); uses its own chunk folder")
     args = parser.parse_args()
     if args.features == "v2":
@@ -517,6 +517,14 @@ PE_MIMICRY_NAMES = ("code_to_import_ratio", "compiler_dissonance_flag",
 PE_STRING_ML_NAMES = ("mal_str_hits", "ben_str_hits", "mal_ben_str_ratio",
                       "mal_str_density", "decompiler_strings", "unicorn_trace_strings",
                       "unknown_str_ratio", "total_unique_strings_log")
+
+# url_ml_metrics.rs UrlMlMetrics::NAMES: inner_url_* (169..172) over the inner PE's bytes,
+# decompiler and Unicorn trace strings; shell_url_* (173..176) over the file itself, only when
+# there is no content PE (zeros otherwise, like shell_ string ML). Embedded URLs are scored by
+# url_trees.bin after the URL whitelist (CIDR + Tranco url_whitelist.xf + url_threat_rules.yaml);
+# they are model features only, never a verdict on their own.
+PE_URL_ML_NAMES = ("url_unwhitelisted_count_log", "url_ml_max_prob",
+                   "url_ml_mean_prob", "url_ml_high_count_log")
 
 
 def load_chunks(chunk_dir, balance=False, max_benign_ratio=0.0):

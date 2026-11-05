@@ -14,8 +14,9 @@ use std::collections::HashSet;
 
 /// Tree-model feature count. Features 0..23 are frozen for full backward compatibility
 /// with existing 24-feature forests; features 24..57 provide deep Dalvik API invocation,
-/// native ELF symbols, protector detection, and XOR filter String ML metrics.
-pub const APK_TREE_FEATURE_COUNT: usize = 58;
+/// native ELF symbols, protector detection, and XOR filter String ML metrics; features
+/// 58..61 are the URL ML block (`crate::ml::url_ml_metrics::UrlMlMetrics`).
+pub const APK_TREE_FEATURE_COUNT: usize = 62;
 
 pub const APK_TREE_FEATURE_NAMES: [&str; APK_TREE_FEATURE_COUNT] = [
     // 0..23: Original frozen features
@@ -87,6 +88,12 @@ pub const APK_TREE_FEATURE_NAMES: [&str; APK_TREE_FEATURE_COUNT] = [
     "mal_str_density",
     "unknown_str_ratio",
     "total_unique_strings_log",
+
+    // 58..61: URL ML (whitelist-gated `url_trees.bin` scores of embedded URLs)
+    "url_unwhitelisted_count_log",
+    "url_ml_max_prob",
+    "url_ml_mean_prob",
+    "url_ml_high_count_log",
 ];
 
 /// Per-entry / total decompression caps so a hostile 200 MB APK cannot OOM
@@ -989,10 +996,11 @@ fn profile_apk(apk: &[u8]) -> Option<ApkProfile> {
     Some(p)
 }
 
-/// Our own tree-model feature vector (58 features).
+/// Our own tree-model feature vector (62 features).
 /// Features 0..23 preserve exact parity with the original 24-feature forest;
 /// features 24..57 provide native ELF, manifest high-risk permissions, Dalvik API calls,
-/// protector signals, and pure XOR filter String ML metrics.
+/// protector signals, and pure XOR filter String ML metrics; features 58..61 score the
+/// non-whitelisted URLs of the DEX / ELF / manifest strings with the URL model.
 pub fn apk_tree_features(apk: &[u8]) -> Option<[f32; APK_TREE_FEATURE_COUNT]> {
     let p = profile_apk(apk)?;
     let ratio = if p.uncomp_total > 0 {
@@ -1109,6 +1117,9 @@ pub fn apk_tree_features(apk: &[u8]) -> Option<[f32; APK_TREE_FEATURE_COUNT]> {
         }
     }
 
+    // URL ML metrics over the same strings (taken before they move into the filter pass):
+    let url_ml = crate::ml::url_ml_metrics::url_ml_metrics_of_strings(all_strings.iter().map(String::as_str));
+
     // String ML filter metrics:
     let (mal_hits, ben_hits, mal_ben_ratio, mal_density, unk_ratio, tot_log) = if !all_strings.is_empty() {
         let str_breakdown = crate::ml::pe_string_ml::classify_string_list(all_strings);
@@ -1198,6 +1209,12 @@ pub fn apk_tree_features(apk: &[u8]) -> Option<[f32; APK_TREE_FEATURE_COUNT]> {
         mal_density,
         unk_ratio,
         tot_log,
+
+        // 58..61: URL ML
+        url_ml.url_unwhitelisted_count_log,
+        url_ml.url_ml_max_prob,
+        url_ml.url_ml_mean_prob,
+        url_ml.url_ml_high_count_log,
     ])
 }
 
@@ -1658,6 +1675,10 @@ pub(crate) mod test_helpers {
         assert_eq!(f[3], 1.0);
         assert_eq!(f[18], 1.0);
         assert_eq!(f[19], 1.0);
+        // no URLs in the test APK: the URL ML block is all zeros.
+        assert_eq!(&f[58..62], &[0.0; 4]);
+        assert_eq!(APK_TREE_FEATURE_NAMES[58], "url_unwhitelisted_count_log");
+        assert_eq!(APK_TREE_FEATURE_NAMES[61], "url_ml_high_count_log");
         // garbage is not an APK profile.
         assert!(apk_tree_features(b"definitely not a zip").is_none());
     }

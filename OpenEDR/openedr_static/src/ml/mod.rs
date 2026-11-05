@@ -7,5 +7,6 @@ pub mod pe_string_ml;
 pub mod scanner;
 pub mod tree_model;
 pub mod url_features;
+pub mod url_ml_metrics;
 
 

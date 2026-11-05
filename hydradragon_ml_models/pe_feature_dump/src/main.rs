@@ -7,7 +7,8 @@
 //! `files.lst` is a UTF-8 list of files, one path per line (train_pe_lgbm.py writes one
 //! per feature chunk). Calls openedr_static's `extract_pe_features` (v1) or
 //! `extract_pe_features_v2` (v2: the content an archive / installer holds or a packed PE
-//! unpacks to, kept apart from the shell, plus ASCII / UTF-16LE string counts over both;
+//! unpacks to, kept apart from the shell, plus ASCII / UTF-16LE string counts over both,
+//! string ML and the whitelist-gated URL ML blocks `inner_url_*` / `shell_url_*`;
 //! see openedr_static/src/ml/pe_combined.rs), so the features the model learns from are
 //! byte for byte what the engine computes at scan time. Files the extractor rejects
 //! (not a PE) are left out.

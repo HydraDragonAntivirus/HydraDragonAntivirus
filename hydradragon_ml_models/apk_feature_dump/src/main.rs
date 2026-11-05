@@ -3,7 +3,7 @@
 //!   apk_feature_dump <malicious_dir> <benign_dir> <out.csv> [max_per_class]
 //!   apk_feature_dump @<malicious.lst> @<benign.lst> <out.csv> [max_per_class]
 //!
-//! Uses openedr_static's `apk_tree_features`, so the 58 features train_apk_lgbm.py learns from
+//! Uses openedr_static's `apk_tree_features`, so the 62 features train_apk_lgbm.py learns from
 //! are byte for byte what the engine computes at scan time:
 //! - 0..23: Frozen DEX & Manifest baseline
 //! - 24..30: Native ELF architectures (.so) and imported/exported symbols
@@ -11,6 +11,7 @@
 //! - 38..46: Dalvik sensitive API calls (reflection, crypto, exec, sms, device ID)
 //! - 47..51: Packaging, assets, protector anomalies
 //! - 52..57: XOR-filter String ML threat density & hit metrics
+//! - 58..61: URL ML (whitelist-gated `url_trees.bin` scores of the embedded URLs)
 //!
 //! Pure standard library parallelism (no rayon), 64 MB thread stacks.
 

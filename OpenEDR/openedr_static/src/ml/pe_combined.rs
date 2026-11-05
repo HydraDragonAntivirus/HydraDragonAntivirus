@@ -23,7 +23,8 @@
 
 use super::features::PeFeatureVector;
 use super::pe_features::{extract_pe_features, extract_pe_mimicry, PeMimicryMetrics};
-use super::pe_string_ml::{extract_inner_pe_string_ml_with_overlay, extract_shell_pe_string_ml, PeStringMlMetrics};
+use super::pe_string_ml::{extract_inner_pe_string_and_url_ml, extract_shell_pe_string_and_url_ml, PeStringMlMetrics};
+use super::url_ml_metrics::UrlMlMetrics;
 
 /// Strings shorter than this are not counted (`pe_strings::MIN_LEN`).
 const MIN_STRING: usize = crate::pe_strings::MIN_LEN;
@@ -376,9 +377,11 @@ pub fn dotnet_kind(data: &[u8]) -> u8 {
 /// + shell / inner `dotnet_kind` + shell / inner `PeMimicryMetrics` + inner `PeStringMlMetrics` (6)
 /// + shell `PeStringMlMetrics` (6) + inner / shell `unknown_str_ratio`
 /// + inner / shell `total_unique_strings_log`
+/// + inner `UrlMlMetrics` (4) + shell `UrlMlMetrics` (4)
 /// (each block appended last, so earlier positions never move).
 /// The unified PE model (`pe_trees.bin`) reads all of it.
-pub const PE_V2_FEATURE_COUNT: usize = 65 + 3 + 65 + 3 + 4 + 3 + 2 + 2 * PeMimicryMetrics::LEN + 2 * PeStringMlMetrics::LEN;
+pub const PE_V2_FEATURE_COUNT: usize =
+    65 + 3 + 65 + 3 + 4 + 3 + 2 + 2 * PeMimicryMetrics::LEN + 2 * PeStringMlMetrics::LEN + 2 * UrlMlMetrics::LEN;
 /// Where the shell / inner `PeMimicryMetrics` and inner / shell `PeStringMlMetrics` start in the v2 vector.
 #[cfg(test)]
 const SHELL_MIMICRY: usize = 145;
@@ -392,6 +395,10 @@ const SHELL_STRING_ML: usize = INNER_STRING_ML + PeStringMlMetrics::BASE_LEN;
 const UNKNOWN_STR_RATIO: usize = SHELL_STRING_ML + PeStringMlMetrics::BASE_LEN;
 #[cfg(test)]
 const TOTAL_UNIQUE_STR_LOG: usize = UNKNOWN_STR_RATIO + 2;
+#[cfg(test)]
+const INNER_URL_ML: usize = TOTAL_UNIQUE_STR_LOG + 2;
+#[cfg(test)]
+const SHELL_URL_ML: usize = INNER_URL_ML + UrlMlMetrics::LEN;
 
 /// The inner part is content (unpacked, an installer member, or its own image) and
 /// parses as a PE: its strings are scored, and the file's own string block stays zero.
@@ -437,22 +444,23 @@ fn extract_pe_features_v2_inner(data: &[u8]) -> Option<[f32; PE_V2_FEATURE_COUNT
     put(&mimicry(data));
     put(&inner.pe.as_deref().map_or([0.0; PeMimicryMetrics::LEN], mimicry));
     let extra_raw = (inner.source == InnerSource::Image).then_some(data);
-    let inner_str_ml = inner
+    let (inner_str_ml, inner_url_ml) = inner
         .pe
         .as_deref()
-        .map_or_else(PeStringMlMetrics::default, |p| {
-            extract_inner_pe_string_ml_with_overlay(p, extra_raw, inner.trace.as_ref())
+        .map_or_else(Default::default, |p| {
+            extract_inner_pe_string_and_url_ml(p, extra_raw, inner.trace.as_ref())
         });
     put(&inner_str_ml.base_array());
     // The file's own strings: only when there is no content PE whose strings were scored
     // above (zeros otherwise), so a file is not string-scanned twice. Training sees the
     // same zeros on those rows. The emulator trace is the run of this file, except for an
     // archive (its trace is of a member). Bounded like the inner bytes.
-    let shell_str_ml = if inner_is_content_pe(inner.source as u8 as f32, inner.pe.is_some() as u8 as f32) {
-        PeStringMlMetrics::default()
+    // The file's URLs follow the same rule (`shell_url_*` zero when `inner_url_*` is set).
+    let (shell_str_ml, shell_url_ml) = if inner_is_content_pe(inner.source as u8 as f32, inner.pe.is_some() as u8 as f32) {
+        Default::default()
     } else {
         let trace = inner.trace.as_ref().filter(|_| inner.source != InnerSource::Extracted);
-        extract_shell_pe_string_ml(&data[..data.len().min(INNER_MAX_BYTES)], trace)
+        extract_shell_pe_string_and_url_ml(&data[..data.len().min(INNER_MAX_BYTES)], trace)
     };
     put(&shell_str_ml.base_array());
     put(&[
@@ -461,6 +469,8 @@ fn extract_pe_features_v2_inner(data: &[u8]) -> Option<[f32; PE_V2_FEATURE_COUNT
         inner_str_ml.total_unique_strings_log,
         shell_str_ml.total_unique_strings_log,
     ]);
+    put(&inner_url_ml.to_array());
+    put(&shell_url_ml.to_array());
     Some(v)
 }
 
@@ -502,6 +512,8 @@ pub fn pe_v2_feature_names() -> Vec<String> {
         "inner_total_unique_strings_log",
         "shell_total_unique_strings_log",
     ].map(String::from));
+    n.extend(UrlMlMetrics::NAMES.iter().map(|s| format!("inner_{s}")));
+    n.extend(UrlMlMetrics::NAMES.iter().map(|s| format!("shell_{s}")));
     n
 }
 
@@ -569,7 +581,12 @@ mod tests {
         assert_eq!(names[164], "shell_unicorn_trace_strings");
         assert_eq!(names[UNKNOWN_STR_RATIO], "inner_unknown_str_ratio");
         assert_eq!(names[TOTAL_UNIQUE_STR_LOG], "inner_total_unique_strings_log");
-        assert_eq!(names[PE_V2_FEATURE_COUNT - 1], "shell_total_unique_strings_log");
+        assert_eq!(names[168], "shell_total_unique_strings_log");
+        assert_eq!(PE_V2_FEATURE_COUNT, 177);
+        assert_eq!(INNER_URL_ML, 169);
+        assert_eq!(names[INNER_URL_ML], "inner_url_unwhitelisted_count_log");
+        assert_eq!(names[SHELL_URL_ML], "shell_url_unwhitelisted_count_log");
+        assert_eq!(names[PE_V2_FEATURE_COUNT - 1], "shell_url_ml_high_count_log");
         assert_eq!(pe_v2_feature_names_static().len(), PE_V2_FEATURE_COUNT);
         assert!(extract_pe_features_v2(b"not a pe").is_none());
     }

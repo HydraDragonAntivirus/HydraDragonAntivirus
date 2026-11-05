@@ -360,12 +360,17 @@ pub struct JsFeatureVector {
     pub deob_unpacked: f32,
     pub unknown_str_ratio: f32,
     pub total_unique_strings_log: f32,
+    /// URL ML block (`super::url_ml_metrics::UrlMlMetrics`), indices 59..=62.
+    pub url_unwhitelisted_count_log: f32,
+    pub url_ml_max_prob: f32,
+    pub url_ml_mean_prob: f32,
+    pub url_ml_high_count_log: f32,
 }
 
 impl JsFeatureVector {
-    pub const LEN: usize = 59;
+    pub const LEN: usize = 63;
     /// Feature names in `to_array` order (for ML explanations).
-    pub const NAMES: [&'static str; 59] = [
+    pub const NAMES: [&'static str; 63] = [
         "file_size",
         "entropy",
         "parse_success",
@@ -425,9 +430,13 @@ impl JsFeatureVector {
         "deob_unpacked",
         "unknown_str_ratio",
         "total_unique_strings_log",
+        "url_unwhitelisted_count_log",
+        "url_ml_max_prob",
+        "url_ml_mean_prob",
+        "url_ml_high_count_log",
     ];
 
-    pub fn to_array(&self) -> [f32; 59] {
+    pub fn to_array(&self) -> [f32; 63] {
         [
             self.file_size,
             self.entropy,
@@ -488,6 +497,10 @@ impl JsFeatureVector {
             self.deob_unpacked,
             self.unknown_str_ratio,
             self.total_unique_strings_log,
+            self.url_unwhitelisted_count_log,
+            self.url_ml_max_prob,
+            self.url_ml_mean_prob,
+            self.url_ml_high_count_log,
         ]
     }
 
@@ -554,6 +567,10 @@ impl JsFeatureVector {
             ("deob_unpacked", self.deob_unpacked),
             ("unknown_str_ratio", self.unknown_str_ratio),
             ("total_unique_strings_log", self.total_unique_strings_log),
+            ("url_unwhitelisted_count_log", self.url_unwhitelisted_count_log),
+            ("url_ml_max_prob", self.url_ml_max_prob),
+            ("url_ml_mean_prob", self.url_ml_mean_prob),
+            ("url_ml_high_count_log", self.url_ml_high_count_log),
         ]
         .into_iter()
         .map(|(k, v)| (k.to_string(), v))
@@ -856,6 +873,10 @@ mod tests {
             deob_unpacked: 54.0,
             unknown_str_ratio: 55.0,
             total_unique_strings_log: 56.0,
+            url_unwhitelisted_count_log: 57.0,
+            url_ml_max_prob: 0.75,
+            url_ml_mean_prob: 0.5,
+            url_ml_high_count_log: 58.0,
         };
         let map = f.to_map();
         assert_eq!(map.len(), JsFeatureVector::LEN);
@@ -864,5 +885,9 @@ mod tests {
         assert_eq!(map["suspicious_score"], 28.0);
         assert_eq!(map["unknown_str_ratio"], 55.0);
         assert_eq!(map["total_unique_strings_log"], 56.0);
+        assert_eq!(map["url_ml_max_prob"], 0.75);
+        assert_eq!(map["url_ml_high_count_log"], 58.0);
+        assert_eq!(JsFeatureVector::NAMES[59], "url_unwhitelisted_count_log");
+        assert_eq!(f.to_array()[62], 58.0);
     }
 }

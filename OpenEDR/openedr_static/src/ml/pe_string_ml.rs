@@ -37,6 +37,7 @@ use serde::Deserialize;
 use sha2::{Digest, Sha256};
 
 use crate::signers::BinaryFuse32Filter;
+use super::url_ml_metrics::{UrlCollector, UrlMlMetrics};
 
 /// Hardcoded path to the dynamic string whitelist directory maintained specially and
 /// dynamically by the Multron Server (`multron_server_rs/src/string_wl.rs`).
@@ -627,14 +628,54 @@ pub fn classify_inner_pe_strings(
     extra_raw: Option<&[u8]>,
     trace: Option<&BehaviorTrace>,
 ) -> PeStringBreakdown {
+    classify_inner_pe_strings_and_urls(data, extra_raw, trace, None)
+}
+
+/// `classify_inner_pe_strings`, also feeding `urls` (when given) with the URLs of the raw
+/// bytes (`data`, `extra_raw`, their Flate streams) and of the decompiler / Unicorn trace
+/// strings, so the decompiler and the emulation trace are walked once for both.
+fn classify_inner_pe_strings_and_urls(
+    data: &[u8],
+    extra_raw: Option<&[u8]>,
+    trace: Option<&BehaviorTrace>,
+    urls: Option<&mut UrlCollector>,
+) -> PeStringBreakdown {
     if data.len() < 64 {
         return PeStringBreakdown::default();
     }
     let (strings, decomp_count, trace_count) = collect_all_inner_strings(data, extra_raw, trace);
+    if let Some(c) = urls {
+        c.add_file_bytes(data);
+        if let Some(raw) = extra_raw {
+            c.add_file_bytes(raw);
+        }
+        for s in &strings {
+            c.add_str(s);
+        }
+    }
     let mut out = classify_string_list(strings);
     out.decompiler_strings = decomp_count;
     out.unicorn_trace_strings = trace_count;
     out
+}
+
+/// String ML and URL ML features of the inner PE (`inner_*` blocks of the v2 vector).
+pub fn extract_inner_pe_string_and_url_ml(
+    data: &[u8],
+    extra_raw: Option<&[u8]>,
+    trace: Option<&BehaviorTrace>,
+) -> (PeStringMlMetrics, UrlMlMetrics) {
+    let mut urls = UrlCollector::new();
+    let b = classify_inner_pe_strings_and_urls(data, extra_raw, trace, Some(&mut urls));
+    (b.metrics(), urls.metrics())
+}
+
+/// String ML and URL ML features of the file itself (`shell_*` blocks of the v2 vector).
+pub fn extract_shell_pe_string_and_url_ml(
+    data: &[u8],
+    trace: Option<&BehaviorTrace>,
+) -> (PeStringMlMetrics, UrlMlMetrics) {
+    extract_inner_pe_string_and_url_ml(data, None, trace)
 }
 
 pub fn extract_inner_pe_string_ml_with_overlay(

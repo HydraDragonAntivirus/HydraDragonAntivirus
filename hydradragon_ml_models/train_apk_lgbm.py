@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-HydraDragon ML Model Trainer - Android APK Edition (58-Dimensional)
+HydraDragon ML Model Trainer - Android APK Edition (62-Dimensional)
 
 Features come directly from the engine itself: apk_feature_dump (Rust) includes
 OpenEDR/openedr_static/src/apk.rs by path, so training and scanning use the
@@ -14,6 +14,7 @@ Features:
   - 38..46: Dalvik sensitive API calls (reflection, crypto, exec, sms, device ID)
   - 47..51: Packaging, assets, protector anomalies
   - 52..57: XOR-filter String ML threat density & hit metrics
+  - 58..61: URL ML (whitelist-gated url_trees.bin scores of the DEX / ELF / manifest URLs)
 
 Exports:
   1. `apk_model.onnx` (Standard ONNX format)
@@ -23,6 +24,8 @@ Exports:
 import argparse
 import csv
 import gc
+import itertools
+import json
 import os
 import shutil
 import struct
@@ -121,6 +124,12 @@ APK_FEATURE_NAMES = [
     "mal_str_density",
     "unknown_str_ratio",
     "total_unique_strings_log",
+
+    # 58..61: URL ML (url_ml_metrics.rs)
+    "url_unwhitelisted_count_log",
+    "url_ml_max_prob",
+    "url_ml_mean_prob",
+    "url_ml_high_count_log",
 ]
 
 
@@ -243,11 +252,92 @@ def sync_bundle(bundle_path):
         print(f"[+] Synced {bundle_path} -> {dst}")
 
 
+# Base LightGBM parameters; --auto-tune searches num_leaves / min_child_samples around them.
+BASE_PARAMS = dict(
+    learning_rate=0.03,
+    num_leaves=63,
+    max_depth=8,
+    min_child_samples=25,
+    subsample=0.85,
+    subsample_freq=1,
+    colsample_bytree=0.85,
+    scale_pos_weight=1.0,
+    random_state=42,
+    n_jobs=-1,
+    verbose=-1,
+)
+TUNE_GRID = {"num_leaves": (31, 63, 127), "min_child_samples": (10, 25, 50)}
+MAX_TREES = 2000
+EARLY_STOP_ROUNDS = 100
+
+
+def fit_early_stopped(params, X_train, y_train, X_val, y_val):
+    """Fit with up to MAX_TREES trees, stopping when validation logloss has not improved for
+    EARLY_STOP_ROUNDS rounds. Returns (classifier, best tree count)."""
+    clf = lgb.LGBMClassifier(n_estimators=MAX_TREES, **params)
+    stop = [lgb.early_stopping(EARLY_STOP_ROUNDS, verbose=False)]
+    try:  # LightGBM >= 4.7 deprecates eval_set in favour of eval_X / eval_y
+        clf.fit(X_train, y_train, eval_X=(X_val,), eval_y=(y_val,), eval_metric="binary_logloss", callbacks=stop)
+    except TypeError:
+        clf.fit(X_train, y_train, eval_set=[(X_val, y_val)], eval_metric="binary_logloss", callbacks=stop)
+    return clf, max(int(clf.best_iteration_ or MAX_TREES), 1)
+
+
+def calibrate_threshold(prob_benign, target_fpr):
+    """Lowest threshold at which at most `target_fpr` of these benign scores are flagged."""
+    s = np.sort(prob_benign)
+    if not len(s):
+        return ENGINE_THRESHOLD
+    k = int(np.ceil(len(s) * (1.0 - target_fpr)))
+    thr = float(s[min(k, len(s) - 1)]) + 1e-6
+    return min(max(thr, 0.5), 0.9999)
+
+
+def report(name, y, prob, thr):
+    tn, fp, fn, tp = confusion_matrix(y, (prob >= thr).astype(int), labels=[0, 1]).ravel()
+    fpr = fp / (fp + tn) * 100.0 if (fp + tn) else 0.0
+    rec = tp / (tp + fn) * 100.0 if (tp + fn) else 0.0
+    print(f"  {name:<32} thr={thr:.4f}  Recall={rec:6.2f}%  FPR={fpr:7.4f}%  (TP={tp} FN={fn} TN={tn} FP={fp})")
+    return rec, fpr
+
+
+def select_model(args, X_train, y_train, X_val, y_val):
+    """Parameters and tree count picked on the validation set. Without --auto-tune only the
+    tree count (early stopping) is chosen; with it every TUNE_GRID combination is tried and
+    the one with the best validation recall at the target FPR wins (lower logloss breaks ties)."""
+    combos = [dict()]
+    if args.auto_tune:
+        keys = list(TUNE_GRID)
+        combos = [dict(zip(keys, v)) for v in itertools.product(*(TUNE_GRID[k] for k in keys))]
+        print(f"[*] --auto-tune: {len(combos)} parameter sets, target FPR {args.target_fpr * 100:.3f}%")
+    best = None
+    for c in combos:
+        params = {**BASE_PARAMS, **c}
+        clf, trees = fit_early_stopped(params, X_train, y_train, X_val, y_val)
+        p_val = clf.predict_proba(X_val, num_iteration=trees)[:, 1]
+        thr = calibrate_threshold(p_val[y_val == 0], args.target_fpr)
+        rec = float(np.mean(p_val[y_val == 1] >= thr)) * 100.0 if np.any(y_val == 1) else 0.0
+        eps = 1e-7
+        loss = float(-np.mean(y_val * np.log(p_val + eps) + (1 - y_val) * np.log(1 - p_val + eps)))
+        print(f"  num_leaves={params['num_leaves']:<4} min_child_samples={params['min_child_samples']:<3} "
+              f"trees={trees:<5} val recall@thr={rec:6.2f}% (thr {thr:.4f})  val logloss={loss:.4f}")
+        key = (rec, -loss)
+        if best is None or key > best[0]:
+            best = (key, params, trees)
+    return best[1], best[2]
+
+
 def parse_args():
-    parser = argparse.ArgumentParser(description="Train LightGBM APK 58-D Model and Export to ONNX + apk_trees.bin")
+    parser = argparse.ArgumentParser(description=f"Train LightGBM APK {len(APK_FEATURE_NAMES)}-D Model and Export to ONNX + apk_trees.bin")
     dataset_paths.add_args(parser, "android")
     parser.add_argument("--features-csv", type=str, default="apk_features.csv", help="Output/Input CSV for APK features")
-    parser.add_argument("--reuse-csv", action="store_true", help="Retrain from existing features CSV")
+    parser.add_argument("--reuse-csv", action="store_true", help="Retrain from existing features CSV (extracts when it is missing)")
+    parser.add_argument("--train-only", action="store_true", help="Train from the existing features CSV; never extract")
+    parser.add_argument("--extract-only", action="store_true", help="Only write the features CSV; do not train")
+    parser.add_argument("--auto-tune", action="store_true",
+                        help="Try num_leaves x min_child_samples and keep the best on the validation set")
+    parser.add_argument("--target-fpr", type=float, default=0.001,
+                        help="Calibrate the threshold so at most this share of validation benign is flagged (0.001 = 0.1%%)")
     parser.add_argument("--output-onnx", type=str, default="apk_model.onnx", help="Output ONNX model path")
     parser.add_argument("--output-bin", type=str, default="apk_trees.bin", help="Output 25-byte tree bundle path")
     parser.add_argument("--max-samples-per-class", type=int, default=0, help="Max samples to scan from each class (0 = unlimited)")
@@ -259,43 +349,52 @@ def parse_args():
 def main():
     args = parse_args()
     print("=" * 70)
-    print(" HydraDragon Antivirus - 58-Dimensional APK LightGBM Trainer ")
+    print(f" HydraDragon Antivirus - {len(APK_FEATURE_NAMES)}-Dimensional APK LightGBM Trainer ")
     print(" (Zero-Drift Rust ripzip Extractor Parity) ")
     print("=" * 70)
 
-    if not (args.reuse_csv and os.path.isfile(args.features_csv)):
+    if args.extract_only and args.train_only:
+        sys.exit("--extract-only and --train-only exclude each other")
+    if args.train_only:
+        if not os.path.isfile(args.features_csv):
+            sys.exit(f"--train-only: {args.features_csv} does not exist (run --extract-only first)")
+    elif args.extract_only or not (args.reuse_csv and os.path.isfile(args.features_csv)):
         dump_features(args)
+    if args.extract_only:
+        print(f"[+] Features written to {args.features_csv}. Exiting as --extract-only was specified.")
+        return
 
     X, y = load_features(args.features_csv, args.max_samples_per_class, balance=args.balance)
-    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.15, random_state=42, stratify=y)
-    print(f"[*] Train set: {len(X_train)} | Test set: {len(X_test)}")
+    # 70 % train, 15 % validation (tree count, parameters, threshold), 15 % test (final numbers).
+    X_train, X_rest, y_train, y_rest = train_test_split(X, y, test_size=0.30, random_state=42, stratify=y)
+    X_val, X_test, y_val, y_test = train_test_split(X_rest, y_rest, test_size=0.50, random_state=42, stratify=y_rest)
+    print(f"[*] Train: {len(X_train)} | Validation: {len(X_val)} | Test: {len(X_test)}")
 
-    print("[*] Training LightGBM Classifier...")
-    clf = lgb.LGBMClassifier(
-        n_estimators=350,
-        learning_rate=0.03,
-        num_leaves=63,
-        max_depth=8,
-        min_child_samples=25,
-        subsample=0.85,
-        colsample_bytree=0.85,
-        scale_pos_weight=1.0,
-        random_state=42,
-        n_jobs=-1,
-        verbose=-1,
-    )
+    print("[*] Selecting tree count" + (" and parameters" if args.auto_tune else "") + " on the validation set...")
+    params, trees = select_model(args, X_train, y_train, X_val, y_val)
+    print(f"[+] Selected: num_leaves={params['num_leaves']} min_child_samples={params['min_child_samples']} trees={trees}")
+
+    # Refit with exactly the selected tree count, so the ONNX and .bin exports hold no extra trees.
+    clf = lgb.LGBMClassifier(n_estimators=trees, **params)
     clf.fit(X_train, y_train)
 
+    thr = calibrate_threshold(clf.predict_proba(X_val[y_val == 0])[:, 1], args.target_fpr)
     p = clf.predict_proba(X_test)[:, 1]
-    print("\n" + "=" * 30 + " EVALUATION REPORT " + "=" * 30)
+    print("\n" + "=" * 30 + " EVALUATION REPORT (test set) " + "=" * 30)
     print(classification_report(y_test, (p >= 0.5).astype(int), target_names=["Benign", "Malicious"], digits=4))
-    cm = confusion_matrix(y_test, (p >= ENGINE_THRESHOLD).astype(int), labels=[0, 1])
-    tn, fp, fn, tp = cm.ravel()
-    fpr = fp / (fp + tn) * 100.0 if (fp + tn) > 0 else 0.0
-    recall = tp / (tp + fn) * 100.0 if (tp + fn) > 0 else 0.0
-    print(f"[+] At engine threshold {ENGINE_THRESHOLD}: TP={tp}, FN={fn}, TN={tn}, FP={fp}")
-    print(f"APK Malware Recall: {recall:.2f}% | FPR: {fpr:.3f}%")
-    print("=" * 79)
+    report("default 0.50", y_test, p, 0.50)
+    report(f"engine APK_TREE_THRESHOLD {ENGINE_THRESHOLD}", y_test, p, ENGINE_THRESHOLD)
+    report(f"calibrated (target FPR {args.target_fpr * 100:.3f}%)", y_test, p, thr)
+    print(f"\n[!] Set the APK threshold to {thr:.4f} for this model "
+          f"(APK_TREE_THRESHOLD env var or dashboard: ML thresholds).")
+    if args.output_bin:
+        thr_path = os.path.splitext(args.output_bin)[0] + "_threshold.json"
+        with open(thr_path, "w") as f:
+            json.dump({"apk_tree_threshold": round(thr, 4), "target_fpr": args.target_fpr,
+                       "trees": trees, "num_leaves": params["num_leaves"],
+                       "min_child_samples": params["min_child_samples"]}, f)
+        print(f"[+] Wrote {thr_path}")
+    print("=" * 89)
 
     if HAS_ONNX and args.output_onnx:
         try:

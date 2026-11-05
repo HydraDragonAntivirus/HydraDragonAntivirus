@@ -183,6 +183,17 @@ mod tests {
         assert!(s.pe_loaded(), "pe_trees.bin must load");
         let max_feature = s.pe_trees.as_ref().unwrap().trees.iter().flat_map(|t| &t.nodes).filter(|n| !n.is_leaf).map(|n| n.feature_id as usize).max().unwrap();
         assert!(max_feature < super::super::pe_combined::PE_V2_FEATURE_COUNT, "pe_trees.bin reads feature {max_feature}: not a v2 model");
+        // The deployed JS / APK / PE forests score vectors of the current widths (features
+        // appended after they were trained read as unused columns).
+        let max_id = |m: &TreeEnsembleModel| m.trees.iter().flat_map(|t| &t.nodes).filter(|n| !n.is_leaf).map(|n| n.feature_id as usize).max().unwrap_or(0);
+        let js = s.js_trees.as_ref().expect("js_trees.bin must load");
+        assert!(max_id(js) < super::super::features::JsFeatureVector::LEN);
+        assert!(js.predict_probability(&[0.0; super::super::features::JsFeatureVector::LEN]).is_finite());
+        let apk = s.apk_trees.as_ref().expect("apk_trees.bin must load");
+        assert!(max_id(apk) < crate::apk::APK_TREE_FEATURE_COUNT);
+        assert!(apk.predict_probability(&[0.0; crate::apk::APK_TREE_FEATURE_COUNT]).is_finite());
+        let pe = s.pe_trees.as_ref().unwrap();
+        assert!(pe.predict_probability(&[0.0; super::super::pe_combined::PE_V2_FEATURE_COUNT]).is_finite());
     }
 }
 

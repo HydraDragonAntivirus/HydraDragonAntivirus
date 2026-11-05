@@ -635,6 +635,21 @@ impl<'a> Visit<'a> for ObfuscatedCalls<'_> {
 
 struct RegexSpans(Vec<(usize, usize)>);
 
+/// Feeds the decoded value of every string and template literal to the URL collector.
+struct UrlLiterals<'c>(&'c mut super::url_ml_metrics::UrlCollector);
+
+impl<'a> Visit<'a> for UrlLiterals<'_> {
+    fn visit_string_literal(&mut self, it: &StringLiteral<'a>) {
+        self.0.add_str(it.value.as_str());
+    }
+
+    fn visit_template_element(&mut self, it: &TemplateElement<'a>) {
+        if let Some(cooked) = it.value.cooked.as_ref() {
+            self.0.add_str(cooked.as_str());
+        }
+    }
+}
+
 impl<'a> Visit<'a> for RegexSpans {
     fn visit_reg_exp_literal(&mut self, it: &RegExpLiteral<'a>) {
         self.0.push((it.span.start as usize, it.span.end as usize));
@@ -796,16 +811,18 @@ pub fn js_deobfuscated_string_breakdown(source: &str) -> Option<super::pe_string
 /// deobfuscated script when there is one (`deobfuscated`), of the file otherwise.
 pub fn extract_js_features(source: &str) -> Option<JsFeatureVector> {
     if let Some(deob) = get_deobfuscated_info(source) {
-        if let Some(mut f) = extract_js_features_of(&deob.code) {
+        if let Some(mut f) = extract_js_features_of(&deob.code, Some(source)) {
             f.deob_modifications = (deob.modifications as f32).ln_1p();
             f.deob_unpacked = if deob.unpacked { 1.0 } else { 0.0 };
             return Some(f);
         }
     }
-    extract_js_features_of(source)
+    extract_js_features_of(source, None)
 }
 
-fn extract_js_features_of(source: &str) -> Option<JsFeatureVector> {
+/// `raw_source` is the file as it was when `source` is its deobfuscated form: its URLs
+/// are merged with those of `source` and of the AST string literals.
+fn extract_js_features_of(source: &str, raw_source: Option<&str>) -> Option<JsFeatureVector> {
     if max_bracket_depth(source.as_bytes()) > MAX_NESTING {
         return None;
     }
@@ -845,6 +862,17 @@ fn extract_js_features_of(source: &str) -> Option<JsFeatureVector> {
     let mut regexes = RegexSpans(Vec::new());
     regexes.visit_program(&program);
     let skip = regexes.0;
+
+    // URL ML block: URLs of the raw script, the deobfuscated script and the decoded
+    // string / template literals (`"http://..."` only reads as a URL once decoded).
+    let mut url_collector = super::url_ml_metrics::UrlCollector::new();
+    if let Some(raw) = raw_source {
+        url_collector.add_bytes(raw.as_bytes());
+    }
+    url_collector.add_bytes(source.as_bytes());
+    let mut url_literals = UrlLiterals(&mut url_collector);
+    url_literals.visit_program(&program);
+    let url_ml = url_collector.metrics();
     let outside = |m: &regex::Match| !skip.iter().any(|&(a, b)| m.start() >= a && m.start() < b);
     let hex_encoded = RE_HEX_ENCODED.find_iter(source).filter(|m| outside(m)).count() as f32;
     let unicode_encoded = RE_UNICODE_ENCODED.find_iter(source).filter(|m| outside(m)).count() as f32;
@@ -966,6 +994,10 @@ fn extract_js_features_of(source: &str) -> Option<JsFeatureVector> {
         deob_unpacked: 0.0,
         unknown_str_ratio,
         total_unique_strings_log: ln1p(tot_str_f),
+        url_unwhitelisted_count_log: url_ml.url_unwhitelisted_count_log,
+        url_ml_max_prob: url_ml.url_ml_max_prob,
+        url_ml_mean_prob: url_ml.url_ml_mean_prob,
+        url_ml_high_count_log: url_ml.url_ml_high_count_log,
     })
 }
 
