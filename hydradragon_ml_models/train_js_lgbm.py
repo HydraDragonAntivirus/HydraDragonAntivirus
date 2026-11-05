@@ -69,7 +69,7 @@ def extract_js_features_from_file(filepath: str):
 
 
 def extract_js_features_from_source(source: str):
-    """Extracts 57 JS features from a JS source string via js_feature_dump."""
+    """Extracts 59 JS features from a JS source string via js_feature_dump."""
     if not source:
         return None
     with tempfile.NamedTemporaryFile("w", suffix=".js", encoding="utf-8", delete=False) as tf:
@@ -98,7 +98,7 @@ JS_FEATURE_NAMES = [
     "short_identifiers", "long_identifiers", "avg_identifier_length", "suspicious_naming",
     "random_like_identifiers",
     "mal_str_hits", "ben_str_hits", "mal_ben_str_ratio", "mal_str_density",
-    "deob_modifications", "deob_unpacked",
+    "deob_modifications", "deob_unpacked", "unknown_str_ratio", "total_unique_strings_log",
 ]
 
 

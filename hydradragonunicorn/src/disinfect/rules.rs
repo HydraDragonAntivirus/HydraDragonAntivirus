@@ -76,6 +76,10 @@ pub enum Locate {
     Emulate,
     /// Signatures are checked only at the entry point (still on emulated memory).
     EntryPoint,
+    /// Signatures are scanned across mapped executable sections before entry-point emulation (EPO / API-blocked infectors).
+    SectionScan,
+    /// Signatures are scanned in the last section's mapped memory before entry-point emulation (appender infectors).
+    LastSection,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -87,6 +91,22 @@ pub struct SigPart {
     pub hex: String,
 }
 
+/// One argument passed to `Recover::CallFunction` (x86 stack; x64 RCX, RDX, R8, R9 + stack).
+/// Give exactly one of `addr`, `value`, or `scratch`.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CallArg {
+    /// Address computed from the virus body / image.
+    #[serde(default)]
+    pub addr: Option<AddrExpr>,
+    /// Constant or integer read from the virus body.
+    #[serde(default)]
+    pub value: Option<ValueExpr>,
+    /// Map a zeroed read-write scratch buffer of this byte size (`1..=1 MiB`) and pass its VA.
+    #[serde(default)]
+    pub scratch: Option<u64>,
+}
+
 /// How the host is recovered once the virus is recognised.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(tag = "method", rename_all = "snake_case", deny_unknown_fields)]
@@ -94,8 +114,10 @@ pub enum Recover {
     /// Detection only: the file is reported, never repaired.
     None,
     /// The virus keeps the original entry point (and stolen bytes) in its body.
+    /// When `oep` is omitted (EPO infectors), the PE's existing entry point is kept.
     Stored {
-        oep: AddrExpr,
+        #[serde(default)]
+        oep: Option<AddrExpr>,
         #[serde(default)]
         restore: Vec<RestoreBlock>,
     },
@@ -106,10 +128,39 @@ pub enum Recover {
         #[serde(default = "default_max_restore")]
         max_restore_bytes: u64,
     },
+    /// Call a specific decryptor / host-restore function inside the virus with Unicorn
+    /// (`UnpackerEngine::call_function`) until it returns, then read the decrypted OEP /
+    /// restore blocks (from the virus body or a `scratch` argument) and/or diff what the
+    /// function wrote back into the host's executable sections.
+    CallFunction {
+        func: AddrExpr,
+        #[serde(default)]
+        args: Vec<CallArg>,
+        #[serde(default = "default_call_insns")]
+        max_instructions: u64,
+        #[serde(default = "default_call_timeout_ms")]
+        timeout_ms: u64,
+        /// Optional OEP (evaluated after `func` returns; omitted = keep existing PE entry point).
+        #[serde(default)]
+        oep: Option<AddrExpr>,
+        #[serde(default)]
+        restore: Vec<RestoreBlock>,
+        /// Also capture bytes `func` wrote into the host's executable sections (outside the virus body).
+        #[serde(default)]
+        diff_host: bool,
+        #[serde(default = "default_max_restore")]
+        max_restore_bytes: u64,
+    },
 }
 
 fn default_max_restore() -> u64 {
     0x4000
+}
+fn default_call_insns() -> u64 {
+    500_000
+}
+fn default_call_timeout_ms() -> u64 {
+    2_000
 }
 
 /// An address computed from the virus body. `value` is read at
@@ -145,6 +196,10 @@ pub enum AddrMode {
     Relative,
     /// `virus_start + add - value`.
     RelativeBack,
+    /// `call_ret + add` (`call_function` only: return value in EAX / RAX as VA).
+    ReturnVa,
+    /// `image_base + call_ret + add` (`call_function` only: return value in EAX / RAX as RVA).
+    ReturnRva,
 }
 
 /// A number: either `value`, or read at `virus_start + offset`.
@@ -161,15 +216,19 @@ pub struct ValueExpr {
     pub xor: u64,
 }
 
-/// Original bytes the virus keeps in its body.
+/// Original bytes the virus keeps in its body (or decrypted into a `scratch` buffer).
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct RestoreBlock {
     /// Where they go back. Default: the recovered original entry point.
     #[serde(default)]
     pub to: Option<AddrExpr>,
-    /// Where they are, relative to the virus start.
+    /// Where they are, relative to the virus start (or to the `scratch` buffer when `scratch_index` is set).
+    #[serde(default)]
     pub data_offset: u64,
+    /// Read from the `args[scratch_index]` scratch buffer instead of `virus_start` (`call_function` only).
+    #[serde(default)]
+    pub scratch_index: Option<usize>,
     pub size: ValueExpr,
     /// Byte at `virus_start + offset`; zero = nothing stored (patient zero).
     #[serde(default)]
@@ -247,6 +306,8 @@ pub struct CompiledRule {
     pub sigs: Vec<CompiledSig>,
     /// Bytes to read at a candidate start to check every signature part.
     pub sig_span: usize,
+    /// First fixed `(offset, byte)` across `sigs`, used to jump quickly during section scans.
+    pub anchor: (usize, u8),
     pub xor_keys: Vec<Option<Vec<u8>>>,
 }
 
@@ -258,6 +319,27 @@ impl CompiledRule {
             buf.len() >= o + s.bytes.len()
                 && s.bytes.iter().zip(&buf[o..]).all(|(p, b)| p.matches(*b))
         })
+    }
+
+    /// First offset in `buf` where every signature part matches.
+    pub fn scan_slice(&self, buf: &[u8]) -> Option<usize> {
+        if buf.len() < self.sig_span {
+            return None;
+        }
+        let limit = buf.len() - self.sig_span;
+        let (anchor_off, anchor_byte) = self.anchor;
+        let mut pos = 0usize;
+        while pos <= limit {
+            let rel = buf[pos + anchor_off..=limit + anchor_off]
+                .iter()
+                .position(|&b| b == anchor_byte)?;
+            pos += rel;
+            if self.matches(&buf[pos..]) {
+                return Some(pos);
+            }
+            pos += 1;
+        }
+        None
     }
 }
 
@@ -353,6 +435,58 @@ fn check_value(what: &str, v: &ValueExpr) -> Result<(), String> {
     }
 }
 
+fn check_addr(what: &str, a: &AddrExpr, allow_return: bool) -> Result<(), String> {
+    check_size(what, a.size)?;
+    if !allow_return && matches!(a.mode, AddrMode::ReturnVa | AddrMode::ReturnRva) {
+        return Err(format!("{what}: `return_va` / `return_rva` is only valid after `call_function`"));
+    }
+    Ok(())
+}
+
+fn compile_restore_blocks(
+    restore: &[RestoreBlock],
+    allow_return: bool,
+    call_args: Option<&[CallArg]>,
+    err: &impl Fn(String) -> String,
+) -> Result<Vec<Option<Vec<u8>>>, String> {
+    let mut xor_keys = Vec::with_capacity(restore.len());
+    for (i, r) in restore.iter().enumerate() {
+        check_value(&format!("restore[{i}].size"), &r.size).map_err(err)?;
+        if let Some(f) = &r.present_flag {
+            check_value(&format!("restore[{i}].present_flag"), f).map_err(err)?;
+        }
+        if let Some(t) = &r.to {
+            check_addr(&format!("restore[{i}].to"), t, allow_return).map_err(err)?;
+        }
+        if let Some(idx) = r.scratch_index {
+            let Some(args) = call_args else {
+                return Err(err(format!("restore[{i}].scratch_index is only valid in `call_function`")));
+            };
+            let Some(cap) = args.get(idx).and_then(|a| a.scratch) else {
+                return Err(err(format!("restore[{i}].scratch_index={idx} does not refer to a `scratch` argument")));
+            };
+            if r.data_offset >= cap {
+                return Err(err(format!("restore[{i}].data_offset 0x{:x} is outside scratch[{idx}] ({cap} bytes)", r.data_offset)));
+            }
+        }
+        if r.max_size == 0 || r.max_size > 0x10_0000 {
+            return Err(err(format!("restore[{i}].max_size must be 1..=1 MiB")));
+        }
+        let key = match &r.xor_key {
+            Some(k) => {
+                let k: Option<Vec<u8>> = parse_hex_pattern(k).map_err(err)?.into_iter().map(HexByte::fixed).collect();
+                match k {
+                    Some(k) if !k.is_empty() => Some(k),
+                    _ => return Err(err(format!("restore[{i}].xor_key must be plain hex bytes"))),
+                }
+            }
+            None => None,
+        };
+        xor_keys.push(key);
+    }
+    Ok(xor_keys)
+}
+
 fn compile(rule: VirusRule) -> Result<CompiledRule, String> {
     let name = rule.name.trim();
     if name.is_empty() {
@@ -365,10 +499,17 @@ fn compile(rule: VirusRule) -> Result<CompiledRule, String> {
     let mut sigs = Vec::new();
     let mut span = 0usize;
     let mut concrete = 0usize;
+    let mut anchor: Option<(usize, u8)> = None;
     for s in &rule.signatures {
         let bytes = parse_hex_pattern(&s.hex).map_err(&err)?;
         if bytes.is_empty() {
             return Err(err("empty signature".into()));
+        }
+        if anchor.is_none() {
+            anchor = bytes
+                .iter()
+                .enumerate()
+                .find_map(|(i, b)| b.fixed().map(|v| (s.offset as usize + i, v)));
         }
         concrete += bytes.iter().filter(|b| b.fixed().is_some()).count();
         span = span.max(s.offset as usize + bytes.len());
@@ -381,39 +522,72 @@ fn compile(rule: VirusRule) -> Result<CompiledRule, String> {
     if span > 0x10000 {
         return Err(err("signature span over 64 KiB".into()));
     }
+    let anchor = anchor.expect("concrete >= 16 implies at least one fixed byte");
+    let is_call_fn = matches!(rule.recover, Recover::CallFunction { .. });
     let mut xor_keys = Vec::new();
     match &rule.recover {
         Recover::None => {}
         Recover::Stored { oep, restore } => {
-            check_size("recover.oep", oep.size).map_err(&err)?;
-            for (i, r) in restore.iter().enumerate() {
-                check_value(&format!("restore[{i}].size"), &r.size).map_err(&err)?;
-                if let Some(f) = &r.present_flag {
-                    check_value(&format!("restore[{i}].present_flag"), f).map_err(&err)?;
-                }
-                if let Some(t) = &r.to {
-                    check_size(&format!("restore[{i}].to"), t.size).map_err(&err)?;
-                }
-                if r.max_size == 0 || r.max_size > 0x10_0000 {
-                    return Err(err(format!("restore[{i}].max_size must be 1..=1 MiB")));
-                }
-                let key = match &r.xor_key {
-                    Some(k) => {
-                        let k: Option<Vec<u8>> = parse_hex_pattern(k).map_err(&err)?.into_iter().map(HexByte::fixed).collect();
-                        match k {
-                            Some(k) if !k.is_empty() => Some(k),
-                            _ => return Err(err(format!("restore[{i}].xor_key must be plain hex bytes"))),
-                        }
-                    }
-                    None => None,
-                };
-                xor_keys.push(key);
+            if oep.is_none() && restore.is_empty() {
+                return Err(err("recover.stored needs `oep` or at least one `restore` block".into()));
             }
+            if let Some(o) = oep {
+                check_addr("recover.oep", o, false).map_err(&err)?;
+            }
+            xor_keys = compile_restore_blocks(restore, false, None, &err)?;
         }
         Recover::EmulateToHost { max_restore_bytes } => {
             if *max_restore_bytes > 0x10_0000 {
                 return Err(err("max_restore_bytes over 1 MiB".into()));
             }
+        }
+        Recover::CallFunction {
+            func,
+            args,
+            max_instructions,
+            timeout_ms,
+            oep,
+            restore,
+            diff_host,
+            max_restore_bytes,
+        } => {
+            check_addr("recover.func", func, false).map_err(&err)?;
+            if args.len() > 8 {
+                return Err(err("call_function supports at most 8 arguments".into()));
+            }
+            for (i, a) in args.iter().enumerate() {
+                let kinds = usize::from(a.addr.is_some()) + usize::from(a.value.is_some()) + usize::from(a.scratch.is_some());
+                if kinds != 1 {
+                    return Err(err(format!("args[{i}]: give exactly one of `addr`, `value` or `scratch`")));
+                }
+                if let Some(ad) = &a.addr {
+                    check_addr(&format!("args[{i}].addr"), ad, false).map_err(&err)?;
+                }
+                if let Some(val) = &a.value {
+                    check_value(&format!("args[{i}].value"), val).map_err(&err)?;
+                }
+                if let Some(sz) = a.scratch {
+                    if sz == 0 || sz > 0x10_0000 {
+                        return Err(err(format!("args[{i}].scratch must be 1..=1 MiB")));
+                    }
+                }
+            }
+            if *max_instructions == 0 || *max_instructions > 50_000_000 {
+                return Err(err("max_instructions must be 1..=50_000_000".into()));
+            }
+            if *timeout_ms == 0 || *timeout_ms > 30_000 {
+                return Err(err("timeout_ms must be 1..=30_000".into()));
+            }
+            if *diff_host && *max_restore_bytes > 0x10_0000 {
+                return Err(err("max_restore_bytes over 1 MiB".into()));
+            }
+            if oep.is_none() && restore.is_empty() && !*diff_host {
+                return Err(err("call_function needs `oep`, `restore`, or `diff_host: true`".into()));
+            }
+            if let Some(o) = oep {
+                check_addr("recover.oep", o, true).map_err(&err)?;
+            }
+            xor_keys = compile_restore_blocks(restore, true, Some(args), &err)?;
         }
     }
     if !matches!(rule.recover, Recover::None) && rule.cleanup.is_empty() {
@@ -421,10 +595,10 @@ fn compile(rule: VirusRule) -> Result<CompiledRule, String> {
     }
     for c in &rule.cleanup {
         if let Cleanup::TruncateAt { at } = c {
-            check_size("cleanup.truncate_at", at.size).map_err(&err)?;
+            check_addr("cleanup.truncate_at", at, is_call_fn).map_err(&err)?;
         }
     }
-    Ok(CompiledRule { rule, sigs, sig_span: span, xor_keys })
+    Ok(CompiledRule { rule, sigs, sig_span: span, anchor, xor_keys })
 }
 
 #[cfg(test)]
@@ -467,5 +641,44 @@ viruses:
     recover: {method: emulate_to_host}
 "#;
         assert!(DisinfectRules::from_yaml_str(y).unwrap_err().contains("cleanup"));
+    }
+
+    #[test]
+    fn call_function_validation_catches_invalid_modes_and_args() {
+        let bad_return = r#"
+viruses:
+  - name: Bad.ReturnMode
+    signatures: [{hex: "00 11 22 33 44 55 66 77 88 99 AA BB CC DD EE FF"}]
+    recover:
+      method: stored
+      oep: {mode: return_va}
+    cleanup: [{action: remove_virus_section}]
+"#;
+        assert!(DisinfectRules::from_yaml_str(bad_return).unwrap_err().contains("call_function"));
+
+        let bad_scratch = r#"
+viruses:
+  - name: Bad.ScratchIdx
+    signatures: [{hex: "00 11 22 33 44 55 66 77 88 99 AA BB CC DD EE FF"}]
+    recover:
+      method: call_function
+      func: {mode: virus_offset, add: 0x10}
+      args: [{value: {value: 4}}]
+      restore:
+        - {scratch_index: 0, size: {value: 4}}
+    cleanup: [{action: remove_virus_section}]
+"#;
+        assert!(DisinfectRules::from_yaml_str(bad_scratch).unwrap_err().contains("scratch"));
+
+        let empty_call = r#"
+viruses:
+  - name: Bad.EmptyCall
+    signatures: [{hex: "00 11 22 33 44 55 66 77 88 99 AA BB CC DD EE FF"}]
+    recover:
+      method: call_function
+      func: {mode: virus_offset, add: 0x10}
+    cleanup: [{action: remove_virus_section}]
+"#;
+        assert!(DisinfectRules::from_yaml_str(empty_call).unwrap_err().contains("diff_host"));
     }
 }

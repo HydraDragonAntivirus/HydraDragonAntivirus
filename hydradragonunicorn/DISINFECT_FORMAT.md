@@ -10,17 +10,24 @@ signature**. Unknown infections are never "repaired".
 
 ## How a definition runs
 
-1. The file is emulated with Unicorn in the unpacker's Windows environment
-   (sections at their RVAs, headers, TEB/PEB/LDR, IAT hooks). Emulation stops
-   at an imported API call, an invalid access, `max_blocks` or 30 s.
-2. At every basic-block start (`locate: emulate`) or only at the entry point
-   (`locate: entry_point`) every signature part is compared with emulated
-   memory. A self-decrypting virus is therefore matched after it decrypted.
-3. `recover` finds the original entry point (OEP) and original code.
-4. The original code is written back, the entry point is set to the OEP, the
+1. The file is mapped with Unicorn in the unpacker's Windows environment
+   (sections at their RVAs, headers, TEB/PEB/LDR, IAT hooks).
+2. The virus is located according to `locate`:
+   - `section_scan` / `last_section`: signatures are scanned directly across
+     mapped executable sections (or the last section) **before** entry-point
+     execution, catching EPO (Entry Point Obscuring) and API-blocked infectors.
+   - `emulate` / `entry_point`: the file runs from its entry point (stopping at
+     an imported API call, an invalid access, `max_blocks` or 30 s) and every
+     signature part is checked at each basic-block start (or only at the entry
+     point), catching self-decrypting stubs after they decrypt.
+3. `recover` finds the original entry point (OEP, or keeps the existing entry
+   point for EPO infectors) and original host code — by reading stored bytes,
+   calling the virus's own decryptor/restore routine (`call_function`), or
+   emulating back into the host (`emulate_to_host`).
+4. The original code is written back, the entry point is updated, the
    `cleanup` actions cut the virus out, SizeOfImage is recomputed and the
    checksum too when the file had one (system files, drivers).
-5. The repaired file is emulated again; if the definition still recognises
+5. The repaired file is checked again; if the definition still recognises
    it the result is `NotRepairable`.
 
 ## Fields
@@ -31,7 +38,7 @@ viruses:
   - name: W32.Example.A          # reported threat name (required)
     description: "..."
     arch: x86                    # any (default) | x86 | x64
-    locate: emulate              # emulate (default) | entry_point
+    locate: emulate              # emulate (default) | entry_point | section_scan | last_section
     max_blocks: 5000000          # basic blocks before giving up (0 = default)
     body_size: 0x1800            # virus size from its start; default: to the end of its section
     signatures:                  # all must match; >= 16 fixed bytes in total
@@ -54,6 +61,8 @@ XORed with `xor`.
 | `rva` | `image_base + value + add` |
 | `relative` | `virus_start + add + value` (value sign-extended) |
 | `relative_back` | `virus_start + add - value` |
+| `return_va` | `call_ret + add` (`call_function` only: EAX/RAX return value as VA) |
+| `return_rva` | `image_base + call_ret + add` (`call_function` only: EAX/RAX as RVA) |
 
 ### `recover`
 
@@ -61,8 +70,8 @@ XORed with `xor`.
 recover: {method: none}           # detection only, always NotRepairable
 
 recover:
-  method: stored                  # the body keeps OEP and stolen bytes
-  oep: {mode: relative_back, offset: 0x1F, size: 4, add: 5}
+  method: stored                  # the body keeps OEP and/or stolen bytes
+  oep: {mode: relative_back, offset: 0x1F, size: 4, add: 5}   # omit to keep existing EP (EPO)
   restore:                        # optional, any number of blocks
     - data_offset: 0x1778         # where the bytes are (from virus start)
       size: {offset: 0x1774, size: 4}     # or {value: 32}
@@ -75,6 +84,24 @@ recover:
 recover:
   method: emulate_to_host         # let the virus restore the host itself
   max_restore_bytes: 0x4000       # refuse when it changed more host code
+
+recover:
+  method: call_function           # call a virus decryptor/restore routine via Unicorn
+  func: {mode: virus_offset, add: 0x40}
+  args:                           # optional (up to 8; x86 stack, x64 RCX/RDX/R8/R9 + stack)
+    - {scratch: 0x200}            # zeroed RW buffer mapped in Unicorn, passes its VA
+    - {addr: {mode: virus_offset, add: 0x120}}
+    - {value: {offset: 0x118, size: 4}}
+  max_instructions: 500000        # default 500000 (1..=50000000)
+  timeout_ms: 2000                # default 2000 (1..=30000)
+  oep: {mode: return_rva}         # optional (evaluated AFTER func returns; omit for EPO)
+  restore:                        # optional (read AFTER func returns)
+    - scratch_index: 0            # optional: read from args[0] scratch instead of virus_start
+      data_offset: 0x0
+      size: {offset: 0x118, size: 4}
+      to: {mode: rva, offset: 0x110}
+  diff_host: false                # optional: also capture bytes func wrote into host code sections
+  max_restore_bytes: 0x4000
 ```
 
 `emulate_to_host` keeps emulating after the match until a block starts in the

@@ -515,7 +515,8 @@ PE_MIMICRY_NAMES = ("code_to_import_ratio", "compiler_dissonance_flag",
 # Uses Multron Server dynamic string whitelist (C:\Users\semae\OneDrive\Belgeler\stringwhitelist)
 # + ALL yarGen benign/malicious DBs + Unicorn trace + Disassembler strings.
 PE_STRING_ML_NAMES = ("mal_str_hits", "ben_str_hits", "mal_ben_str_ratio",
-                      "mal_str_density", "decompiler_strings", "unicorn_trace_strings")
+                      "mal_str_density", "decompiler_strings", "unicorn_trace_strings",
+                      "unknown_str_ratio", "total_unique_strings_log")
 
 
 def load_chunks(chunk_dir, balance=False, max_benign_ratio=0.0):

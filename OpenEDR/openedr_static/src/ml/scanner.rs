@@ -152,16 +152,18 @@ mod tests {
     #[cfg(target_os = "windows")]
     #[test]
     fn scan_pid_self_and_invalid() {
-        let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        let dir = std::env::temp_dir().join(format!("openedr_scan_pid_test_{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&dir);
         let engine = crate::engine::StaticEngine::init(&dir);
         let me = std::process::id();
-        let r = engine.scan_pid(me, 64);
+        let r = engine.scan_pid(me, 4);
+        let _ = std::fs::remove_dir_all(&dir);
         assert!(
             r.regions_scanned > 0,
             "own process must yield regions"
         );
         assert!(
-            r.bytes_scanned > 0 && r.bytes_scanned <= 64 << 20,
+            r.bytes_scanned > 0 && r.bytes_scanned <= 4 << 20,
             "cap respected: {}",
             r.bytes_scanned
         );

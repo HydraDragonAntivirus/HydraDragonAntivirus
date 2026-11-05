@@ -373,8 +373,10 @@ pub fn dotnet_kind(data: &[u8]) -> u8 {
 }
 
 /// Shell 65 + shell strings 3 + inner 65 + inner strings 3 + meta 4 + combined strings 3
-/// + shell / inner `dotnet_kind` + shell / inner `PeMimicryMetrics` + inner `PeStringMlMetrics`
-/// + shell `PeStringMlMetrics` (each block appended last, so earlier positions never move).
+/// + shell / inner `dotnet_kind` + shell / inner `PeMimicryMetrics` + inner `PeStringMlMetrics` (6)
+/// + shell `PeStringMlMetrics` (6) + inner / shell `unknown_str_ratio`
+/// + inner / shell `total_unique_strings_log`
+/// (each block appended last, so earlier positions never move).
 /// The unified PE model (`pe_trees.bin`) reads all of it.
 pub const PE_V2_FEATURE_COUNT: usize = 65 + 3 + 65 + 3 + 4 + 3 + 2 + 2 * PeMimicryMetrics::LEN + 2 * PeStringMlMetrics::LEN;
 /// Where the shell / inner `PeMimicryMetrics` and inner / shell `PeStringMlMetrics` start in the v2 vector.
@@ -385,7 +387,11 @@ const INNER_MIMICRY: usize = SHELL_MIMICRY + PeMimicryMetrics::LEN;
 #[cfg(test)]
 const INNER_STRING_ML: usize = INNER_MIMICRY + PeMimicryMetrics::LEN;
 #[cfg(test)]
-const SHELL_STRING_ML: usize = INNER_STRING_ML + PeStringMlMetrics::LEN;
+const SHELL_STRING_ML: usize = INNER_STRING_ML + PeStringMlMetrics::BASE_LEN;
+#[cfg(test)]
+const UNKNOWN_STR_RATIO: usize = SHELL_STRING_ML + PeStringMlMetrics::BASE_LEN;
+#[cfg(test)]
+const TOTAL_UNIQUE_STR_LOG: usize = UNKNOWN_STR_RATIO + 2;
 
 /// The inner part is content (unpacked, an installer member, or its own image) and
 /// parses as a PE: its strings are scored, and the file's own string block stays zero.
@@ -434,21 +440,27 @@ fn extract_pe_features_v2_inner(data: &[u8]) -> Option<[f32; PE_V2_FEATURE_COUNT
     let inner_str_ml = inner
         .pe
         .as_deref()
-        .map_or([0.0; PeStringMlMetrics::LEN], |p| {
-            extract_inner_pe_string_ml_with_overlay(p, extra_raw, inner.trace.as_ref()).to_array()
+        .map_or_else(PeStringMlMetrics::default, |p| {
+            extract_inner_pe_string_ml_with_overlay(p, extra_raw, inner.trace.as_ref())
         });
-    put(&inner_str_ml);
+    put(&inner_str_ml.base_array());
     // The file's own strings: only when there is no content PE whose strings were scored
     // above (zeros otherwise), so a file is not string-scanned twice. Training sees the
     // same zeros on those rows. The emulator trace is the run of this file, except for an
     // archive (its trace is of a member). Bounded like the inner bytes.
     let shell_str_ml = if inner_is_content_pe(inner.source as u8 as f32, inner.pe.is_some() as u8 as f32) {
-        [0.0; PeStringMlMetrics::LEN]
+        PeStringMlMetrics::default()
     } else {
         let trace = inner.trace.as_ref().filter(|_| inner.source != InnerSource::Extracted);
-        extract_shell_pe_string_ml(&data[..data.len().min(INNER_MAX_BYTES)], trace).to_array()
+        extract_shell_pe_string_ml(&data[..data.len().min(INNER_MAX_BYTES)], trace)
     };
-    put(&shell_str_ml);
+    put(&shell_str_ml.base_array());
+    put(&[
+        inner_str_ml.unknown_str_ratio,
+        shell_str_ml.unknown_str_ratio,
+        inner_str_ml.total_unique_strings_log,
+        shell_str_ml.total_unique_strings_log,
+    ]);
     Some(v)
 }
 
@@ -482,8 +494,14 @@ pub fn pe_v2_feature_names() -> Vec<String> {
     n.extend(["shell_is_dotnet", "inner_is_dotnet"].map(String::from));
     n.extend(PeMimicryMetrics::NAMES.iter().map(|s| format!("shell_{s}")));
     n.extend(PeMimicryMetrics::NAMES.iter().map(|s| format!("inner_{s}")));
-    n.extend(PeStringMlMetrics::NAMES.iter().map(|s| format!("inner_{s}")));
-    n.extend(PeStringMlMetrics::NAMES.iter().map(|s| format!("shell_{s}")));
+    n.extend(PeStringMlMetrics::BASE_NAMES.iter().map(|s| format!("inner_{s}")));
+    n.extend(PeStringMlMetrics::BASE_NAMES.iter().map(|s| format!("shell_{s}")));
+    n.extend([
+        "inner_unknown_str_ratio",
+        "shell_unknown_str_ratio",
+        "inner_total_unique_strings_log",
+        "shell_total_unique_strings_log",
+    ].map(String::from));
     n
 }
 
@@ -548,7 +566,10 @@ mod tests {
         assert_eq!(names[SHELL_STRING_ML], "shell_mal_str_hits");
         assert_eq!(names[136], "inner_source");
         assert_eq!(names[137], "inner_is_pe");
-        assert_eq!(names[PE_V2_FEATURE_COUNT - 1], "shell_unicorn_trace_strings");
+        assert_eq!(names[164], "shell_unicorn_trace_strings");
+        assert_eq!(names[UNKNOWN_STR_RATIO], "inner_unknown_str_ratio");
+        assert_eq!(names[TOTAL_UNIQUE_STR_LOG], "inner_total_unique_strings_log");
+        assert_eq!(names[PE_V2_FEATURE_COUNT - 1], "shell_total_unique_strings_log");
         assert_eq!(pe_v2_feature_names_static().len(), PE_V2_FEATURE_COUNT);
         assert!(extract_pe_features_v2(b"not a pe").is_none());
     }

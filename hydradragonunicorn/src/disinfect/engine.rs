@@ -1,22 +1,28 @@
 // disinfect/engine.rs — Emulation side of the generic disinfector.
 //
 // The file runs in the unpacker's Windows environment (UnpackerEngine: sections
-// mapped at their RVAs, TEB/PEB/LDR, IAT hooks). A basic-block hook checks every
-// definition's signature at each block start, so the virus is matched in memory
-// after any decryptor ran. Once matched, the definition says how to recover:
+// mapped at their RVAs, TEB/PEB/LDR, IAT hooks). Definitions can match either on
+// mapped sections before entry-point execution (`section_scan` / `last_section`,
+// for EPO and API-blocked infectors) or on emulated basic blocks (`emulate` /
+// `entry_point`, after any decryptor ran). Once matched, the definition recovers
+// the host via:
 //   * stored:           read the original entry point / stolen bytes from the body
 //   * emulate_to_host:  keep running until the virus jumps back into the host;
 //                       that address is the original entry point and what it
 //                       wrote into the host's executable sections is the code it
-//                       restored (diffed against the image as loaded).
+//                       restored (diffed against the image as loaded)
+//   * call_function:    call a specific decryptor / restore routine inside the
+//                       virus (`UnpackerEngine::call_function`) with bounded
+//                       instructions and timeout, then read decrypted bytes / OEP
+//                       or diff restored host code.
 // The cleanup addresses are evaluated here too, while the emulated memory exists.
 
 use super::pe_edit::{self as pe, Sec};
-use super::rules::{AddrExpr, AddrMode, ArchFilter, Cleanup, CompiledRule, Locate, Recover, ValueExpr};
+use super::rules::{AddrExpr, AddrMode, ArchFilter, Cleanup, CompiledRule, Locate, Recover, RestoreBlock, ValueExpr};
 use crate::unpacker::engine::{Sample, UnpackerEngine};
 use std::cell::RefCell;
 use std::rc::Rc;
-use unicorn_engine::Unicorn;
+use unicorn_engine::{Prot, Unicorn};
 
 const DEFAULT_MAX_BLOCKS: u64 = 5_000_000;
 /// Unchanged bytes allowed inside one restored run (keeps runs few and short).
@@ -54,6 +60,7 @@ struct Hit {
     region: (u64, u64),
     oep: Option<u64>,
     restores: Vec<(u64, Vec<u8>)>,
+    call_ret: Option<u64>,
     fail: Option<String>,
 }
 
@@ -70,6 +77,8 @@ struct State {
     hit: Option<Hit>,
     /// Following the virus back to the host.
     seeking: bool,
+    /// Set once block-hook matching / seeking is complete so post-match `call_function` runs unimpeded.
+    done: bool,
 }
 
 fn read_le(uc: &Unicorn<'_, ()>, addr: u64, size: u8) -> Option<u64> {
@@ -92,29 +101,45 @@ fn eval_value(uc: &Unicorn<'_, ()>, start: u64, v: &ValueExpr) -> Option<u64> {
     }
 }
 
-fn eval_addr(uc: &Unicorn<'_, ()>, start: u64, base: u64, mask: u64, a: &AddrExpr) -> Option<u64> {
+fn eval_addr(
+    uc: &Unicorn<'_, ()>,
+    start: u64,
+    base: u64,
+    mask: u64,
+    a: &AddrExpr,
+    call_ret: Option<u64>,
+) -> Option<u64> {
     let add = a.add as u64;
-    let r = if a.mode == AddrMode::VirusOffset {
-        start.wrapping_add(add)
-    } else {
-        let v = read_le(uc, start.wrapping_add(a.offset), a.size)? ^ a.xor;
-        match a.mode {
-            AddrMode::Absolute => v.wrapping_add(add),
-            AddrMode::Rva => base.wrapping_add(v).wrapping_add(add),
-            AddrMode::Relative => start.wrapping_add(add).wrapping_add(sign_extend(v, a.size) as u64),
-            AddrMode::RelativeBack => start.wrapping_add(add).wrapping_sub(v),
-            AddrMode::VirusOffset => unreachable!(),
+    let r = match a.mode {
+        AddrMode::VirusOffset => start.wrapping_add(add),
+        AddrMode::ReturnVa => call_ret?.wrapping_add(add),
+        AddrMode::ReturnRva => base.wrapping_add(call_ret?).wrapping_add(add),
+        AddrMode::Absolute | AddrMode::Rva | AddrMode::Relative | AddrMode::RelativeBack => {
+            let v = read_le(uc, start.wrapping_add(a.offset), a.size)? ^ a.xor;
+            match a.mode {
+                AddrMode::Absolute => v.wrapping_add(add),
+                AddrMode::Rva => base.wrapping_add(v).wrapping_add(add),
+                AddrMode::Relative => start.wrapping_add(add).wrapping_add(sign_extend(v, a.size) as u64),
+                AddrMode::RelativeBack => start.wrapping_add(add).wrapping_sub(v),
+                _ => unreachable!(),
+            }
         }
     };
     Some(r & mask)
 }
 
-/// Original entry point and stored bytes of a `stored` definition.
-fn read_stored(uc: &Unicorn<'_, ()>, st: &State, ci: usize, start: u64) -> Result<(u64, Vec<(u64, Vec<u8>)>), String> {
+fn read_restore_blocks(
+    uc: &Unicorn<'_, ()>,
+    st: &State,
+    ci: usize,
+    start: u64,
+    oep: u64,
+    restore: &[RestoreBlock],
+    call_ret: Option<u64>,
+    scratches: &[Option<(u64, u64)>],
+) -> Result<Vec<(u64, Vec<u8>)>, String> {
     let rule = &st.rules[ci];
-    let Recover::Stored { oep, restore } = &rule.rule.recover else { unreachable!() };
-    let oep = eval_addr(uc, start, st.base, st.mask, oep).ok_or("original entry point is not readable")?;
-    let mut out = Vec::new();
+    let mut out = Vec::with_capacity(restore.len());
     for (i, r) in restore.iter().enumerate() {
         if let Some(flag) = &r.present_flag {
             if eval_value(uc, start, flag).ok_or("restore flag is not readable")? == 0 {
@@ -128,18 +153,43 @@ fn read_stored(uc: &Unicorn<'_, ()>, st: &State, ci: usize, start: u64) -> Resul
         if size > r.max_size {
             return Err(format!("stored code size {size} is over the definition's limit {}", r.max_size));
         }
+        let src_va = match r.scratch_index {
+            Some(idx) => {
+                let (base_va, cap) = scratches
+                    .get(idx)
+                    .and_then(|s| *s)
+                    .ok_or("restore scratch buffer is not mapped")?;
+                if r.data_offset.saturating_add(size) > cap {
+                    return Err(format!("stored code size {size} overflows scratch[{idx}] ({cap} bytes)"));
+                }
+                base_va.wrapping_add(r.data_offset)
+            }
+            None => start.wrapping_add(r.data_offset),
+        };
         let mut data = uc
-            .mem_read_as_vec(start.wrapping_add(r.data_offset), size as usize)
+            .mem_read_as_vec(src_va, size as usize)
             .map_err(|_| "stored original code is not readable".to_string())?;
         if let Some(key) = &rule.xor_keys[i] {
             data.iter_mut().zip(key.iter().cycle()).for_each(|(b, k)| *b ^= k);
         }
         let to = match &r.to {
-            Some(t) => eval_addr(uc, start, st.base, st.mask, t).ok_or("restore target is not readable")?,
+            Some(t) => eval_addr(uc, start, st.base, st.mask, t, call_ret).ok_or("restore target is not readable")?,
             None => oep,
         };
         out.push((to, data));
     }
+    Ok(out)
+}
+
+/// Original entry point and stored bytes of a `stored` definition.
+fn read_stored(uc: &Unicorn<'_, ()>, st: &State, ci: usize, start: u64) -> Result<(u64, Vec<(u64, Vec<u8>)>), String> {
+    let rule = &st.rules[ci];
+    let Recover::Stored { oep, restore } = &rule.rule.recover else { unreachable!() };
+    let oep = match oep {
+        Some(expr) => eval_addr(uc, start, st.base, st.mask, expr, None).ok_or("original entry point is not readable")?,
+        None => st.ep,
+    };
+    let out = read_restore_blocks(uc, st, ci, start, oep, restore, None, &[])?;
     Ok((oep, out))
 }
 
@@ -154,8 +204,12 @@ fn virus_region(st: &State, ci: usize, start: u64) -> (u64, u64) {
 }
 
 fn on_block(uc: &mut Unicorn<'_, ()>, st: &mut State, addr: u64) {
+    if st.done {
+        return;
+    }
     st.blocks += 1;
     if st.blocks > st.max_blocks {
+        st.done = true;
         let _ = uc.emu_stop();
         return;
     }
@@ -168,6 +222,7 @@ fn on_block(uc: &mut Unicorn<'_, ()>, st: &mut State, addr: u64) {
         if in_host {
             hit.oep = Some(addr);
             st.seeking = false;
+            st.done = true;
             let _ = uc.emu_stop();
         }
         return;
@@ -175,18 +230,29 @@ fn on_block(uc: &mut Unicorn<'_, ()>, st: &mut State, addr: u64) {
     for k in 0..st.candidates.len() {
         let ci = st.candidates[k];
         let rule = &st.rules[ci];
-        if rule.rule.locate == Locate::EntryPoint && addr != st.ep {
-            continue;
+        match rule.rule.locate {
+            Locate::SectionScan | Locate::LastSection => continue,
+            Locate::EntryPoint if addr != st.ep => continue,
+            Locate::Emulate | Locate::EntryPoint => {}
         }
         let Ok(buf) = uc.mem_read_as_vec(addr, rule.sig_span) else { continue };
         if !rule.matches(&buf) {
             continue;
         }
         let region = virus_region(st, ci, addr);
-        let mut hit = Hit { rule: ci, start: addr, region, oep: None, restores: Vec::new(), fail: None };
+        let mut hit = Hit {
+            rule: ci,
+            start: addr,
+            region,
+            oep: None,
+            restores: Vec::new(),
+            call_ret: None,
+            fail: None,
+        };
         match &rule.rule.recover {
             Recover::None => {
                 hit.fail = Some("the definition recognises this virus but has no repair routine".into());
+                st.done = true;
                 let _ = uc.emu_stop();
             }
             Recover::Stored { .. } => {
@@ -197,12 +263,153 @@ fn on_block(uc: &mut Unicorn<'_, ()>, st: &mut State, addr: u64) {
                     }
                     Err(e) => hit.fail = Some(e),
                 }
+                st.done = true;
+                let _ = uc.emu_stop();
+            }
+            Recover::CallFunction { .. } => {
+                st.done = true;
                 let _ = uc.emu_stop();
             }
             Recover::EmulateToHost { .. } => st.seeking = true,
         }
         st.hit = Some(hit);
         return;
+    }
+}
+
+/// Scan mapped image bytes for `section_scan` / `last_section` definitions before running entry-point code.
+fn locate_in_mapped(baseline: &[u8], st: &State) -> Option<(usize, u64)> {
+    for &ci in &st.candidates {
+        let rule = &st.rules[ci];
+        match rule.rule.locate {
+            Locate::SectionScan => {
+                for s in st.secs.iter().filter(|s| s.executable()) {
+                    let lo = s.va as usize;
+                    let hi = (s.span_end() as usize).min(baseline.len());
+                    if lo < hi {
+                        if let Some(rel) = rule.scan_slice(&baseline[lo..hi]) {
+                            return Some((ci, st.base + (lo + rel) as u64));
+                        }
+                    }
+                }
+            }
+            Locate::LastSection => {
+                if let Some(s) = st.secs.last() {
+                    let lo = s.va as usize;
+                    let hi = (s.span_end() as usize).min(baseline.len());
+                    if lo < hi {
+                        if let Some(rel) = rule.scan_slice(&baseline[lo..hi]) {
+                            return Some((ci, st.base + (lo + rel) as u64));
+                        }
+                    }
+                }
+            }
+            Locate::Emulate | Locate::EntryPoint => {}
+        }
+    }
+    None
+}
+
+fn alloc_scratch(uc: &mut Unicorn<'_, ()>, size: u64) -> Result<u64, String> {
+    let aligned = crate::unpacker::engine::page_align(size.max(0x1000));
+    for cand in (0x2000_0000u64..0x6800_0000).step_by(0x10_0000) {
+        if uc.mem_map(cand, aligned, Prot::READ | Prot::WRITE).is_ok() {
+            return Ok(cand);
+        }
+    }
+    Err("no free virtual address space for call_function scratch buffer".into())
+}
+
+fn run_call_function(engine: &mut UnpackerEngine, state: &Rc<RefCell<State>>, baseline: &[u8]) {
+    let (ci, start, region, base, image_end, ep, mask, compiled) = {
+        let st = state.borrow();
+        let Some(hit) = st.hit.as_ref() else { return };
+        if hit.fail.is_some() || !matches!(st.rules[hit.rule].rule.recover, Recover::CallFunction { .. }) {
+            return;
+        }
+        (
+            hit.rule,
+            hit.start,
+            hit.region,
+            st.base,
+            st.image_end,
+            st.ep,
+            st.mask,
+            st.rules[hit.rule].clone(),
+        )
+    };
+    let Recover::CallFunction {
+        func,
+        args,
+        max_instructions,
+        timeout_ms,
+        oep,
+        restore,
+        diff_host,
+        max_restore_bytes,
+    } = &compiled.rule.recover
+    else {
+        unreachable!()
+    };
+
+    let outcome: Result<(u64, Vec<(u64, Vec<u8>)>, u64), String> = (|| {
+        let (func_va, call_args, scratches) = {
+            let uc = engine.unicorn_mut().ok_or("emulator not initialized")?;
+            let fva = eval_addr(uc, start, base, mask, func, None).ok_or("decryptor function address is not readable")?;
+            if fva < base || fva >= image_end {
+                return Err(format!("decryptor function 0x{fva:x} is outside the image"));
+            }
+            let mut cargs = Vec::with_capacity(args.len());
+            let mut scratches = Vec::with_capacity(args.len());
+            for a in args {
+                if let Some(ad) = &a.addr {
+                    let v = eval_addr(uc, start, base, mask, ad, None).ok_or("call_function argument address is not readable")?;
+                    cargs.push(v);
+                    scratches.push(None);
+                } else if let Some(val) = &a.value {
+                    let v = eval_value(uc, start, val).ok_or("call_function argument value is not readable")?;
+                    cargs.push(v);
+                    scratches.push(None);
+                } else if let Some(sz) = a.scratch {
+                    let va = alloc_scratch(uc, sz)?;
+                    cargs.push(va);
+                    scratches.push(Some((va, sz)));
+                }
+            }
+            (fva, cargs, scratches)
+        };
+
+        let ret = engine
+            .call_function(func_va, &call_args, timeout_ms.saturating_mul(1000), *max_instructions as usize)
+            .map_err(|e| format!("call_function failed: {e}"))?;
+
+        let uc = engine.unicorn_mut().ok_or("emulator not initialized")?;
+        let st = state.borrow();
+        let resolved_oep = match oep {
+            Some(expr) => eval_addr(uc, start, base, mask, expr, Some(ret)).ok_or("original entry point is not readable")?,
+            None => ep,
+        };
+        let mut restores = read_restore_blocks(uc, &st, ci, start, resolved_oep, restore, Some(ret), &scratches)?;
+        if *diff_host {
+            let diffs = restored_by_virus(uc, &st, baseline, region, *max_restore_bytes)?;
+            restores.extend(diffs);
+        }
+        if oep.is_none() && restore.is_empty() && *diff_host && restores.is_empty() {
+            return Err("patient zero: call_function restored no host code".into());
+        }
+        Ok((resolved_oep, restores, ret))
+    })();
+
+    let mut st = state.borrow_mut();
+    if let Some(hit) = st.hit.as_mut() {
+        match outcome {
+            Ok((resolved_oep, restores, ret)) => {
+                hit.oep = Some(resolved_oep);
+                hit.restores = restores;
+                hit.call_ret = Some(ret);
+            }
+            Err(e) => hit.fail = Some(e),
+        }
     }
 }
 
@@ -291,6 +498,9 @@ pub(crate) fn emulate(raw: &[u8], rules: &[CompiledRule]) -> Option<Detected> {
 
     let mut engine = UnpackerEngine::new(sample, "memory");
     engine.init_uc().ok()?;
+    let has_emulate_rules = candidates
+        .iter()
+        .any(|&i| matches!(rules[i].rule.locate, Locate::Emulate | Locate::EntryPoint));
     let state = Rc::new(RefCell::new(State {
         rules: rules.to_vec(),
         candidates,
@@ -303,6 +513,7 @@ pub(crate) fn emulate(raw: &[u8], rules: &[CompiledRule]) -> Option<Detected> {
         max_blocks,
         hit: None,
         seeking: false,
+        done: false,
     }));
     let baseline = {
         let uc = engine.unicorn_mut()?;
@@ -312,7 +523,59 @@ pub(crate) fn emulate(raw: &[u8], rules: &[CompiledRule]) -> Option<Detected> {
         uc.add_block_hook(1, 0, move |uc, addr, _size| on_block(uc, &mut st.borrow_mut(), addr)).ok()?;
         uc.mem_read_as_vec(base, vms as usize).ok()?
     };
-    let _ = engine.emu();
+
+    let mapped_match = locate_in_mapped(&baseline, &state.borrow());
+    if let Some((ci, addr)) = mapped_match {
+        let seek_from = {
+            let uc = engine.unicorn_mut()?;
+            let mut st = state.borrow_mut();
+            let region = virus_region(&st, ci, addr);
+            let mut hit = Hit {
+                rule: ci,
+                start: addr,
+                region,
+                oep: None,
+                restores: Vec::new(),
+                call_ret: None,
+                fail: None,
+            };
+            let mut seek = false;
+            match &st.rules[ci].rule.recover {
+                Recover::None => {
+                    hit.fail = Some("the definition recognises this virus but has no repair routine".into());
+                    st.done = true;
+                }
+                Recover::Stored { .. } => {
+                    match read_stored(uc, &st, ci, addr) {
+                        Ok((oep, restores)) => {
+                            hit.oep = Some(oep);
+                            hit.restores = restores;
+                        }
+                        Err(e) => hit.fail = Some(e),
+                    }
+                    st.done = true;
+                }
+                Recover::CallFunction { .. } => {
+                    st.done = true;
+                }
+                Recover::EmulateToHost { .. } => {
+                    st.seeking = true;
+                    seek = true;
+                }
+            }
+            st.hit = Some(hit);
+            seek.then_some(addr)
+        };
+        if let Some(start_va) = seek_from {
+            let _ = engine.emu_from(start_va, 30_000_000, 0);
+        }
+    } else if has_emulate_rules {
+        let _ = engine.emu();
+    } else {
+        return None;
+    }
+
+    run_call_function(&mut engine, &state, &baseline);
 
     let uc = engine.unicorn_mut()?;
     let st = state.borrow();
@@ -333,7 +596,7 @@ pub(crate) fn emulate(raw: &[u8], rules: &[CompiledRule]) -> Option<Detected> {
         for c in &rule.rule.cleanup {
             cleanup.push(match c {
                 Cleanup::TruncateAt { at } => PlannedCleanup::TruncateVa(
-                    eval_addr(uc, hit.start, base, st.mask, at).ok_or("cut address is not readable")?,
+                    eval_addr(uc, hit.start, base, st.mask, at, hit.call_ret).ok_or("cut address is not readable")?,
                 ),
                 Cleanup::RemoveVirusSection => PlannedCleanup::RemoveSectionOf(hit.start),
                 Cleanup::ZeroBody => PlannedCleanup::ZeroRange(hit.region.0, hit.region.1),

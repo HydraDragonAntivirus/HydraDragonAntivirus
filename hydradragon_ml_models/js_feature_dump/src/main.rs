@@ -9,7 +9,7 @@
 //! Uses openedr_static's `extract_js_features`, so the features train_js_lgbm.py learns from
 //! are byte for byte what the engine computes at scan time. Files the extractor rejects
 //! (not valid JS) are skipped, as in the engine.
-//! Output: CSV with `label,path,<57 features>` (label 1 = malicious).
+//! Output: CSV with `label,path,<59 features>` (label 1 = malicious).
 //!
 //! Pure standard library parallelism (no rayon).
 
@@ -63,7 +63,7 @@ fn inputs(arg: &str, max: usize) -> Vec<PathBuf> {
 /// Stack size for worker threads. Deeply nested JS AST parsing requires ample stack space.
 const STACK: usize = 64 * 1024 * 1024;
 
-fn extract(files: &[PathBuf], label: u8) -> Vec<(u8, String, [f32; 57])> {
+fn extract(files: &[PathBuf], label: u8) -> Vec<(u8, String, [f32; JsFeatureVector::LEN])> {
     if files.is_empty() {
         return Vec::new();
     }
@@ -76,7 +76,7 @@ fn extract(files: &[PathBuf], label: u8) -> Vec<(u8, String, [f32; 57])> {
 
     let next_idx = Arc::new(AtomicUsize::new(0));
     let done_count = Arc::new(AtomicUsize::new(0));
-    let results: Arc<Mutex<Vec<(u8, String, [f32; 57])>>> =
+    let results: Arc<Mutex<Vec<(u8, String, [f32; JsFeatureVector::LEN])>>> =
         Arc::new(Mutex::new(Vec::with_capacity(total)));
     let files_arc = Arc::new(files.to_vec());
 

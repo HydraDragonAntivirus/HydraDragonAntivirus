@@ -358,12 +358,14 @@ pub struct JsFeatureVector {
     pub mal_str_density: f32,
     pub deob_modifications: f32,
     pub deob_unpacked: f32,
+    pub unknown_str_ratio: f32,
+    pub total_unique_strings_log: f32,
 }
 
 impl JsFeatureVector {
-    pub const LEN: usize = 57;
+    pub const LEN: usize = 59;
     /// Feature names in `to_array` order (for ML explanations).
-    pub const NAMES: [&'static str; 57] = [
+    pub const NAMES: [&'static str; 59] = [
         "file_size",
         "entropy",
         "parse_success",
@@ -421,9 +423,11 @@ impl JsFeatureVector {
         "mal_str_density",
         "deob_modifications",
         "deob_unpacked",
+        "unknown_str_ratio",
+        "total_unique_strings_log",
     ];
 
-    pub fn to_array(&self) -> [f32; 57] {
+    pub fn to_array(&self) -> [f32; 59] {
         [
             self.file_size,
             self.entropy,
@@ -482,6 +486,8 @@ impl JsFeatureVector {
             self.mal_str_density,
             self.deob_modifications,
             self.deob_unpacked,
+            self.unknown_str_ratio,
+            self.total_unique_strings_log,
         ]
     }
 
@@ -546,6 +552,8 @@ impl JsFeatureVector {
             ("mal_str_density", self.mal_str_density),
             ("deob_modifications", self.deob_modifications),
             ("deob_unpacked", self.deob_unpacked),
+            ("unknown_str_ratio", self.unknown_str_ratio),
+            ("total_unique_strings_log", self.total_unique_strings_log),
         ]
         .into_iter()
         .map(|(k, v)| (k.to_string(), v))
@@ -846,11 +854,15 @@ mod tests {
             mal_str_density: 52.0,
             deob_modifications: 53.0,
             deob_unpacked: 54.0,
+            unknown_str_ratio: 55.0,
+            total_unique_strings_log: 56.0,
         };
         let map = f.to_map();
         assert_eq!(map.len(), JsFeatureVector::LEN);
         assert_eq!(map["entropy"], 7.5);
         assert_eq!(map["is_obfuscated"], 0.0);
         assert_eq!(map["suspicious_score"], 28.0);
+        assert_eq!(map["unknown_str_ratio"], 55.0);
+        assert_eq!(map["total_unique_strings_log"], 56.0);
     }
 }

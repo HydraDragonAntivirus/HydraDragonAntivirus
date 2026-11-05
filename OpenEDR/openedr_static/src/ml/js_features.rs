@@ -900,9 +900,11 @@ fn extract_js_features_of(source: &str) -> Option<JsFeatureVector> {
     let str_breakdown = super::pe_string_ml::classify_string_list(string_candidates);
     let mal_str_f = str_breakdown.malicious.len() as f32;
     let ben_str_f = str_breakdown.benign.len() as f32;
+    let unk_str_f = str_breakdown.unknown.len() as f32;
     let tot_str_f = str_breakdown.total_unique as f32;
     let mal_ben_str_ratio = mal_str_f / (ben_str_f + 1.0);
     let mal_str_density = mal_str_f / (tot_str_f + 1.0);
+    let unknown_str_ratio = unk_str_f / (tot_str_f + 1.0);
 
     Some(JsFeatureVector {
         file_size: ln1p(source.len() as f32),
@@ -962,6 +964,8 @@ fn extract_js_features_of(source: &str) -> Option<JsFeatureVector> {
         mal_str_density,
         deob_modifications: 0.0,
         deob_unpacked: 0.0,
+        unknown_str_ratio,
+        total_unique_strings_log: ln1p(tot_str_f),
     })
 }
 
