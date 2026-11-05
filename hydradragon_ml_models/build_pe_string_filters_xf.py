@@ -148,7 +148,7 @@ def main():
             f.write(s + "\n")
     del ben_set
 
-    print("[*] Compiling pe_strings_benign.xf (BinaryFuse16)...", flush=True)
+    print("[*] Compiling pe_strings_benign.xf (BinaryFuse32)...", flush=True)
     subprocess.check_call([str(WRITER_EXE), str(tmp_ben), str(out_ben)])
     tmp_ben.unlink(missing_ok=True)
 

@@ -146,12 +146,12 @@ pub struct SignerDb {
     /// Leaf certificate SHA-1 fingerprints, lowercase hex. Pins one exact
     /// certificate - the only way to name a revoked-but-still-trusted one.
     pinned_thumbprints: Vec<String>,
-    /// SHA-256 benign whitelist (BinaryFuse16 `.xf`). Owned by the signer side on
+    /// SHA-256 benign whitelist (`.xf`, BinaryFuse32 only). Owned by the signer side on
     /// purpose: this is the file-identity trust table, and it sits next to the
     /// vendor lists so `SignerDb` stays the single authority for "is this file
     /// trusted" — the answer libedr and owlyshield_predict already ask this
     /// object for.
-    benign: Option<BinaryFuse16Filter>,
+    benign: Option<BinaryFuse32Filter>,
 }
 
 /// File name of the SHA-256 benign whitelist, under `xorfilter_rules/`.
@@ -200,19 +200,22 @@ impl SignerDb {
         let Ok(bytes) = std::fs::read(xf_path) else {
             return false;
         };
-        match BinaryFuse16Filter::from_bytes(&bytes) {
-            Some(f) => {
+        match BinaryFuse32Filter::load(&bytes) {
+            Ok(f) => {
                 self.benign = Some(f);
                 true
             }
-            None => false,
+            Err(e) => {
+                eprintln!("[signers] {}: {e}", xf_path.display());
+                false
+            }
         }
     }
 
     /// Install a filter loaded from bytes at runtime (FFI parity with the web
     /// engine, which receives the `.xf` over `wasm-bindgen`).
     pub fn set_benign_whitelist(&mut self, data: &[u8]) -> bool {
-        match BinaryFuse16Filter::from_bytes(data) {
+        match BinaryFuse32Filter::from_bytes(data) {
             Some(f) => {
                 self.benign = Some(f);
                 true
@@ -509,6 +512,17 @@ impl std::fmt::Debug for BinaryFuse32Filter {
 }
 
 impl BinaryFuse32Filter {
+    /// Loads a `.xf` file for a whitelist or a blocklist: BinaryFuse32 only. A
+    /// BinaryFuse16 file (one false match in 65 536 lookups: a whitelist would skip
+    /// the scan of a file not on it, a blocklist would flag a clean one) is refused
+    /// with a message that says to rebuild it.
+    pub fn load(bytes: &[u8]) -> Result<Self, String> {
+        match bytes.first() {
+            Some(16) => Err("BinaryFuse16 refused (one false match in 65 536 lookups); rebuild it as BinaryFuse32 with xorfilter_writer".into()),
+            _ => Self::from_bytes(bytes).ok_or_else(|| "not a BinaryFuse32 .xf file".into()),
+        }
+    }
+
     /// `None` for anything but a well-formed tag-32 file (a BF16 file included).
     pub fn from_bytes(bytes: &[u8]) -> Option<Self> {
         if bytes.len() < 32 || bytes[0] != 32 || bytes[1] != 2 {
@@ -534,7 +548,12 @@ impl BinaryFuse32Filter {
     }
 
     pub fn contains(&self, s: &str) -> bool {
-        let hash = BinaryFuse16Filter::mix64(BinaryFuse16Filter::key(s).wrapping_add(self.seed));
+        self.contains_key(BinaryFuse16Filter::key(s))
+    }
+
+    /// `contains` for a key already derived (the same 64-bit key as BinaryFuse16).
+    pub fn contains_key(&self, k: u64) -> bool {
+        let hash = BinaryFuse16Filter::mix64(k.wrapping_add(self.seed));
         let (h0, h1, h2) = BinaryFuse16Filter::hash_of_hash(hash, self.seg_len, self.seg_len_mask, self.seg_count_len);
         let fp = |i: u32| self.fingerprints.get(i as usize).copied();
         match (fp(h0), fp(h1), fp(h2)) {
@@ -1145,6 +1164,21 @@ mod tests {
         bytes
     }
 
+    /// The BinaryFuse32 form of `one_key_filter`: three 32-bit slots, one key.
+    fn one_key_filter32(item: &str) -> Vec<u8> {
+        const SEED: u64 = 0x0123_4567_89ab_cdef;
+        let fingerprint = BinaryFuse16Filter::mix64(BinaryFuse16Filter::key(item).wrapping_add(SEED)) as u32;
+        let mut bytes = vec![32, 2, 0, 0];
+        bytes.extend_from_slice(&SEED.to_le_bytes());
+        bytes.extend_from_slice(&1u32.to_le_bytes()); // seg_len
+        bytes.extend_from_slice(&0u32.to_le_bytes()); // seg_len_mask
+        bytes.extend_from_slice(&1u32.to_le_bytes()); // seg_count_len
+        bytes.extend_from_slice(&3u64.to_le_bytes()); // count
+        bytes.extend_from_slice(&fingerprint.to_le_bytes());
+        bytes.extend_from_slice(&[0; 8]);
+        bytes
+    }
+
     #[test]
     fn filter_rejects_garbage_headers() {
         assert!(BinaryFuse16Filter::from_bytes(b"").is_none());
@@ -1181,7 +1215,11 @@ mod tests {
         assert!(!db.is_benign(""));
 
         let hash = "000027cd05cdf4f81da50a0be2b719d7ffc80f886e85387d0e467a2056aa9cf2";
-        assert!(db.set_benign_whitelist(&one_key_filter(hash)));
+        // BinaryFuse16 is refused: one false match in 65 536 would skip scans.
+        assert!(!db.set_benign_whitelist(&one_key_filter(hash)));
+        assert!(BinaryFuse32Filter::load(&one_key_filter(hash)).unwrap_err().contains("BinaryFuse16"));
+        assert!(!db.benign_loaded());
+        assert!(db.set_benign_whitelist(&one_key_filter32(hash)));
         assert!(db.benign_loaded());
         assert!(db.is_benign(hash));
         assert!(db.is_benign(&hash.to_ascii_uppercase()));

@@ -15,7 +15,7 @@ use crate::ptm_registry::PuaRegistryMatcher;
 use crate::report::{
     DetectionItem, ExtractedObject, MemoryScanReport, RegistryCheckReport, ScanObject, SignerDetails, StaticScanReport,
 };
-use crate::signers::{verify_authenticode, BinaryFuse16Filter, SignerDb};
+use crate::signers::{verify_authenticode, BinaryFuse32Filter, SignerDb};
 use crate::string_rules::PeStringRules;
 use crate::yara::YaraScanner;
 
@@ -187,7 +187,7 @@ pub struct StaticEngine {
     string_rules: PeStringRules,
     /// Tranco 1M domain/IP whitelist (`.xf`). Gates the embedded-URL layer so a
     /// benign link sitting inside a document never becomes a finding.
-    url_whitelist: Option<BinaryFuse16Filter>,
+    url_whitelist: Option<BinaryFuse32Filter>,
     /// Compiled CIDR whitelist/blacklist tables (`src/cidr_*.bin`, byte-identical
     /// copies of the `openedr_web` tables). The IP half of the same gate.
     cidr_engine: crate::cidr::CidrEngine,
@@ -363,18 +363,18 @@ impl StaticEngine {
                     let p = xf_dir.join(crate::signers::URL_WHITELIST_XF);
                     match std::fs::read(&p) {
                         Ok(bytes) => {
-                            let filter = BinaryFuse16Filter::from_bytes(&bytes);
+                            let filter = BinaryFuse32Filter::load(&bytes);
                             diagnostics::log(
                                 "init-step",
                                 &format!(
                                     "url_whitelist={}",
                                     match &filter {
-                                        Some(f) => format!("loaded ({} keys)", f.len()),
-                                        None => "parse-failed".to_string(),
+                                        Ok(f) => format!("loaded ({} keys)", f.len()),
+                                        Err(e) => e.clone(),
                                     }
                                 ),
                             );
-                            filter
+                            filter.ok()
                         }
                         Err(_) => {
                             diagnostics::log("init-step", "url_whitelist=absent");
@@ -597,7 +597,7 @@ impl StaticEngine {
     /// Install the Tranco 1M URL/domain/IP whitelist from bytes (web parity:
     /// `web_load_url_whitelist`).
     pub fn load_url_whitelist(&mut self, data: &[u8]) -> bool {
-        match BinaryFuse16Filter::from_bytes(data) {
+        match BinaryFuse32Filter::from_bytes(data) {
             Some(f) => {
                 self.url_whitelist = Some(f);
                 true
@@ -1676,7 +1676,7 @@ impl StaticEngine {
             });
         }
 
-        // 0.2 SHA-256 benign whitelist (NSRL / Tranco BinaryFuse16 `.xf`, web parity).
+        // 0.2 SHA-256 benign whitelist (NSRL / Tranco `.xf`, BinaryFuse32; web parity).
         // Gated on an empty detection list, so a malicious/PUA signer or an EICAR
         // hit above cannot be whitewashed.
         // Works for both on-disk files and raw memory byte scans.

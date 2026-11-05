@@ -5,7 +5,7 @@ use std::time::Instant;
 
 use openedr_static::engine::StaticEngine;
 use openedr_static::report::{ExtractedObject, StaticScanReport};
-use openedr_static::signers::BinaryFuse16Filter;
+use openedr_static::signers::BinaryFuse32Filter;
 use serde::{Deserialize, Serialize};
 
 use crate::cache::Sha;
@@ -80,7 +80,7 @@ pub struct EngineAdapter {
     load_ms: AtomicI64,
     work_dir: Option<PathBuf>,
     file_seq: AtomicI64,
-    malicious_xf: RwLock<Option<BinaryFuse16Filter>>,
+    malicious_xf: RwLock<Option<BinaryFuse32Filter>>,
     whitelist_enabled: bool,
     keep_unknown: bool,
     pub keep_threats: bool,
@@ -1692,21 +1692,22 @@ fn build_result(report: &StaticScanReport, sha: &str) -> ResultMessage {
     res
 }
 
-/// Malicious SHA-256 XOR filter from `xorfilter_rules` (no .txt hash files).
-fn load_malicious_xf(rules_dir: &Path) -> Option<BinaryFuse16Filter> {
-    let xf_dir = rules_dir.join("xorfilter_rules");
-    for cand in &["malicious_sha256.xf", "malware.xf"] {
-        let p = xf_dir.join(cand);
-        if p.is_file() {
-            if let Ok(bytes) = std::fs::read(&p) {
-                if let Some(f) = BinaryFuse16Filter::from_bytes(&bytes) {
-                    eprintln!("[engine] {} malicious SHA-256 signatures loaded from XOR filter {}", f.len(), p.display());
-                    return Some(f);
-                }
-            }
+/// Malicious SHA-256 XOR filter, `xorfilter_rules/malicious_sha256.xf` (BinaryFuse32
+/// only: a false match flags a clean file). `malware.xf` next to it is the malware
+/// domain list of the URL scanner, not hashes; it used to be tried here too.
+fn load_malicious_xf(rules_dir: &Path) -> Option<BinaryFuse32Filter> {
+    let p = rules_dir.join("xorfilter_rules").join("malicious_sha256.xf");
+    let bytes = std::fs::read(&p).ok()?;
+    match BinaryFuse32Filter::load(&bytes) {
+        Ok(f) => {
+            eprintln!("[engine] {} malicious SHA-256 signatures loaded from XOR filter {}", f.len(), p.display());
+            Some(f)
+        }
+        Err(e) => {
+            eprintln!("[engine] {}: {e}", p.display());
+            None
         }
     }
-    None
 }
 
 fn resolve_rules_dir(custom: Option<PathBuf>) -> PathBuf {

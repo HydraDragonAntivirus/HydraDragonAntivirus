@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """
-HydraDragon Master BinaryFuse16 (.xf) Whitelist Builder
+HydraDragon Master BinaryFuse32 (.xf) Whitelist Builder
 Consolidates ALL whitelists from hydradragon/website/ and compiles an updated,
-ultra-fast BinaryFuse16 (.xf) filter using xorfilter_writer.exe.
+ultra-fast BinaryFuse32 (.xf) filter using xorfilter_writer.exe.
 
 Features:
   - Aggregates Domains and IPs (IPv4 & IPv6).
   - Normalizes keys (lowercase, strips protocols, ports, trailing dots).
-  - Builds BinaryFuse16 filter via Rust binary (~2.16 bytes/key, 0% FN, O(1) lookup).
+  - Builds BinaryFuse32 filter via Rust binary (~4.3 bytes/key, 0% FN, one false match in ~4.3 billion, O(1) lookup).
   - Synchronizes the updated .xf filter to all engine folders across the repo.
 """
 
@@ -24,10 +24,9 @@ WRITER_EXE = REPO_ROOT / "xorfilter_writer" / "target" / "release" / "xorfilter_
 
 DEST_DIRS = [
     REPO_ROOT / "OpenEDR" / "owlyshield_predict" / "xorfilter_rules",
-    REPO_ROOT / "OpenEDR" / "openedr_web" / "www" / "xorfilter_rules",
     REPO_ROOT / "OpenMalwareScannerPortable" / "models",
     REPO_ROOT / "OpenMalwareScannerPortable" / "xorfilter_rules",
-    REPO_ROOT / "docs" / "xorfilter_rules",
+    # Not docs/ (the web demo): its wasm still reads BinaryFuse16 until it is rebuilt.
 ]
 
 def clean_key(raw: str) -> str:
@@ -108,14 +107,14 @@ def main():
             f.write(k + "\n")
     print(f"[+] Staged file written successfully ({stage_txt.stat().st_size / (1024*1024):.2f} MB).")
 
-    # 3. Build BinaryFuse16 (.xf) filter via xorfilter_writer
+    # 3. Build BinaryFuse32 (.xf) filter via xorfilter_writer
     out_xf = REPO_ROOT / "hydradragon_ml_models" / "url_whitelist.xf"
-    print(f"[*] Running xorfilter_writer to generate BinaryFuse16 (.xf)...")
+    print(f"[*] Running xorfilter_writer to generate BinaryFuse32 (.xf)...")
     cmd = [str(WRITER_EXE), str(stage_txt), str(out_xf)]
     subprocess.check_call(cmd)
 
     xf_size_mb = out_xf.stat().st_size / (1024 * 1024)
-    print(f"\n[+] BinaryFuse16 filter created: {out_xf} ({xf_size_mb:.2f} MB)")
+    print(f"\n[+] BinaryFuse32 filter created: {out_xf} ({xf_size_mb:.2f} MB)")
 
     # 4. Synchronize to all engine directories
     print("\n[*] Synchronizing updated url_whitelist.xf to all engine directories:")
@@ -140,7 +139,7 @@ def main():
         print(f"  -> {output_line}")
 
     print("\n" + "=" * 65)
-    print(" [+] MASTER BINARYFUSE16 WHITELIST BUILD COMPLETE! ")
+    print(" [+] MASTER BINARYFUSE32 WHITELIST BUILD COMPLETE! ")
     print("=" * 65)
 
 if __name__ == "__main__":

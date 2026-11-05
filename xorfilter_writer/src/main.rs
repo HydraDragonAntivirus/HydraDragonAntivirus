@@ -1,9 +1,10 @@
-//! Build a BinaryFuse16 (xor) filter from a newline-delimited list and serialize
+//! Build a BinaryFuse32 (xor) filter from a newline-delimited list and serialize
 //! it to a tagged `.xf` file the native engine loads and queries.
 //!
-//! BinaryFuse16 (~2.16 bytes/key) by default, the standard for whitelists. A
-//! blocklist is built with `--bf32` (~4.3 bytes/key): a false match there flags a
-//! clean item, one in 65 536 lookups with BF16 against one in ~4.3 billion.
+//! BinaryFuse32 only (~4.3 bytes/key, one false match in ~4.3 billion lookups): the
+//! engines refuse BinaryFuse16 files, whose one in 65 536 lets a file skip the scan
+//! through a whitelist or flags a clean one through a blocklist. `--bf32` is still
+//! accepted (it was needed for blocklists before) and changes nothing.
 //!
 //! Usage:
 //!   xorfilter_writer [--bf32] <input.txt> <output.xf>
@@ -13,7 +14,7 @@
 use std::fs::File;
 use std::io::{BufRead, BufReader, Write};
 
-use hydradragonxorfilter::{build_bf32_from_keys, build_from_keys, key, XorFilter};
+use hydradragonxorfilter::{build_bf32_from_keys, key, XorFilter};
 
 mod pe_string_builder;
 
@@ -31,8 +32,7 @@ fn main() {
         pe_string_builder::run_build_pe_string_ml(true);
         return;
     }
-    let bf32 = args.len() > 1 && args[1] == "--bf32";
-    if bf32 {
+    if args.len() > 1 && args[1] == "--bf32" {
         args.remove(1);
     }
 
@@ -122,9 +122,9 @@ fn main() {
             }
         }
     }
-    eprintln!("items (lines): {}, filter: BinaryFuse{}", keys.len(), if bf32 { 32 } else { 16 });
+    eprintln!("items (lines): {}, filter: BinaryFuse32", keys.len());
 
-    let built = if bf32 { build_bf32_from_keys(keys) } else { build_from_keys(keys) };
+    let built = build_bf32_from_keys(keys);
     let bytes = match built {
         Ok(b) => b,
         Err(e) => {

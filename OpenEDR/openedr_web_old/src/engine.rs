@@ -680,18 +680,21 @@ fn extract_host(raw_url: &str) -> Option<&str> {
     }
 }
 
+/// BinaryFuse32 `.xf` filter (tag 32). BinaryFuse16 files are refused: one false
+/// match in 65 536 lookups would whitelist a file or host that is not on the list.
+/// (The type keeps its old name so the callers stay as they are.)
 pub struct BinaryFuse16Filter {
     seed: u64,
     seg_len: u32,
     seg_len_mask: u32,
     seg_count_len: u32,
     count: usize,
-    fingerprints: Vec<u16>,
+    fingerprints: Vec<u32>,
 }
 
 impl BinaryFuse16Filter {
     pub fn from_bytes(bytes: &[u8]) -> Option<Self> {
-        if bytes.len() < 32 || bytes[0] != 16 || bytes[1] != 2 {
+        if bytes.len() < 32 || bytes[0] != 32 || bytes[1] != 2 {
             return None;
         }
         let seed = u64::from_le_bytes(bytes[4..12].try_into().ok()?);
@@ -699,14 +702,10 @@ impl BinaryFuse16Filter {
         let seg_len_mask = u32::from_le_bytes(bytes[16..20].try_into().ok()?);
         let seg_count_len = u32::from_le_bytes(bytes[20..24].try_into().ok()?);
         let count = usize::try_from(u64::from_le_bytes(bytes[24..32].try_into().ok()?)).ok()?;
-        if 32 + count.checked_mul(2)? > bytes.len() {
+        if 32 + count.checked_mul(4)? > bytes.len() {
             return None;
         }
-        let mut fingerprints = Vec::with_capacity(count);
-        for i in 0..count {
-            let off = 32 + i * 2;
-            fingerprints.push(u16::from_le_bytes([bytes[off], bytes[off + 1]]));
-        }
+        let fingerprints = bytes[32..32 + count * 4].chunks_exact(4).map(|c| u32::from_le_bytes([c[0], c[1], c[2], c[3]])).collect();
         Some(Self {
             seed,
             seg_len,
@@ -720,7 +719,7 @@ impl BinaryFuse16Filter {
     pub fn contains(&self, s: &str) -> bool {
         let k = Self::key(s);
         let hash = Self::mix64(k.wrapping_add(self.seed));
-        let f = hash as u16;
+        let f = hash as u32;
         let (h0, h1, h2) = Self::hash_of_hash(hash, self.seg_len, self.seg_len_mask, self.seg_count_len);
         let c = self.count;
         if h0 as usize >= c || h1 as usize >= c || h2 as usize >= c {

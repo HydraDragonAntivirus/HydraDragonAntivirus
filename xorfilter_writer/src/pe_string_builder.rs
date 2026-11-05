@@ -25,7 +25,7 @@ use std::sync::Mutex;
 use std::time::Instant;
 
 use flate2::read::GzDecoder;
-use hydradragonxorfilter::{build_bf32_from_keys, build_from_keys, key};
+use hydradragonxorfilter::{build_bf32_from_keys, key};
 use sha2::{Digest, Sha256};
 
 /// Hardcoded path to the Multron Server dynamic string whitelist directory.
@@ -397,15 +397,15 @@ pub fn run_build_pe_string_ml(benign_only: bool) {
     combined_ben_keys.dedup();
     let total_ben_xf_keys = combined_ben_keys.len();
 
-    // Build `pe_strings_benign.xf` (BinaryFuse16)
+    // Build `pe_strings_benign.xf` (BinaryFuse32: the engines refuse BinaryFuse16)
     let ben_xf_path = out_dir.join("pe_strings_benign.xf");
     eprintln!(
-        "[*] Building BinaryFuse16 filter -> {} ({} combined benign + Multron keys)...",
+        "[*] Building BinaryFuse32 filter -> {} ({} combined benign + Multron keys)...",
         ben_xf_path.display(),
         total_ben_xf_keys
     );
     let ben_xf_bytes =
-        build_from_keys(combined_ben_keys).expect("Failed to build pe_strings_benign.xf");
+        build_bf32_from_keys(combined_ben_keys).expect("Failed to build pe_strings_benign.xf");
     std::fs::write(&ben_xf_path, &ben_xf_bytes).expect("Failed to write pe_strings_benign.xf");
     eprintln!(
         "    -> Wrote pe_strings_benign.xf: {:.2} MB ({} keys)",

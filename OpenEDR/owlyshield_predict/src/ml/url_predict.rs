@@ -67,19 +67,21 @@ pub(crate) fn model_path(file: &str) -> Option<std::path::PathBuf> {
     None
 }
 
-/// BinaryFuse16 XOR Filter for URL Whitelist (url_whitelist.xf)
-pub struct BinaryFuse16Filter {
+/// BinaryFuse32 XOR filter of the URL whitelist (`url_whitelist.xf`). BinaryFuse16
+/// files are refused: one false match in 65 536 lookups would whitelist a host that
+/// is not on the list.
+pub struct BinaryFuse32Filter {
     seed: u64,
     seg_len: u32,
     seg_len_mask: u32,
     seg_count_len: u32,
     count: usize,
-    fingerprints: Vec<u16>,
+    fingerprints: Vec<u32>,
 }
 
-impl BinaryFuse16Filter {
+impl BinaryFuse32Filter {
     pub fn from_bytes(bytes: &[u8]) -> Option<Self> {
-        if bytes.len() < 32 || bytes[0] != 16 || bytes[1] != 2 {
+        if bytes.len() < 32 || bytes[0] != 32 || bytes[1] != 2 {
             return None;
         }
         let seed = u64::from_le_bytes(bytes[4..12].try_into().ok()?);
@@ -87,14 +89,10 @@ impl BinaryFuse16Filter {
         let seg_len_mask = u32::from_le_bytes(bytes[16..20].try_into().ok()?);
         let seg_count_len = u32::from_le_bytes(bytes[20..24].try_into().ok()?);
         let count = usize::try_from(u64::from_le_bytes(bytes[24..32].try_into().ok()?)).ok()?;
-        if 32 + count.checked_mul(2)? > bytes.len() {
+        if 32 + count.checked_mul(4)? > bytes.len() {
             return None;
         }
-        let mut fingerprints = Vec::with_capacity(count);
-        for i in 0..count {
-            let off = 32 + i * 2;
-            fingerprints.push(u16::from_le_bytes([bytes[off], bytes[off + 1]]));
-        }
+        let fingerprints = bytes[32..32 + count * 4].chunks_exact(4).map(|c| u32::from_le_bytes([c[0], c[1], c[2], c[3]])).collect();
         Some(Self {
             seed,
             seg_len,
@@ -108,7 +106,7 @@ impl BinaryFuse16Filter {
     pub fn contains(&self, s: &str) -> bool {
         let k = Self::key(s);
         let hash = Self::mix64(k.wrapping_add(self.seed));
-        let f = hash as u16;
+        let f = hash as u32;
         let (h0, h1, h2) = Self::hash_of_hash(hash, self.seg_len, self.seg_len_mask, self.seg_count_len);
         let c = self.count;
         if h0 as usize >= c || h1 as usize >= c || h2 as usize >= c {
@@ -149,9 +147,9 @@ impl BinaryFuse16Filter {
     }
 }
 
-static URL_WHITELIST_FILTER: OnceLock<Option<BinaryFuse16Filter>> = OnceLock::new();
+static URL_WHITELIST_FILTER: OnceLock<Option<BinaryFuse32Filter>> = OnceLock::new();
 
-pub fn get_url_whitelist() -> Option<&'static BinaryFuse16Filter> {
+pub fn get_url_whitelist() -> Option<&'static BinaryFuse32Filter> {
     URL_WHITELIST_FILTER.get_or_init(|| {
         let cand_paths = [
             model_path("xorfilter_rules/url_whitelist.xf"),
@@ -164,9 +162,12 @@ pub fn get_url_whitelist() -> Option<&'static BinaryFuse16Filter> {
             if let Some(p) = opt_p {
                 if p.is_file() {
                     if let Ok(bytes) = std::fs::read(&p) {
-                        if let Some(filter) = BinaryFuse16Filter::from_bytes(&bytes) {
-                            crate::Logging::info(&format!("[URL Whitelist] Loaded BinaryFuse16 filter from {}", p.display()));
+                        if let Some(filter) = BinaryFuse32Filter::from_bytes(&bytes) {
+                            crate::Logging::info(&format!("[URL Whitelist] Loaded BinaryFuse32 filter from {}", p.display()));
                             return Some(filter);
+                        }
+                        if bytes.first() == Some(&16) {
+                            crate::Logging::warning(&format!("[URL Whitelist] {} is BinaryFuse16 and was refused; rebuild it as BinaryFuse32", p.display()));
                         }
                     }
                 }

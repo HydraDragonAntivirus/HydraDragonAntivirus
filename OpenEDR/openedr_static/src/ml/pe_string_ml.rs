@@ -36,7 +36,7 @@ use hydradragonsig::models::BehaviorTrace;
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 
-use crate::signers::{BinaryFuse16Filter, BinaryFuse32Filter};
+use crate::signers::BinaryFuse32Filter;
 
 /// Hardcoded path to the dynamic string whitelist directory maintained specially and
 /// dynamically by the Multron Server (`multron_server_rs/src/string_wl.rs`).
@@ -153,7 +153,7 @@ pub fn multron_pe_string_key(s: &str) -> u64 {
 pub struct PeStringMlEngine {
     multron_dir: PathBuf,
     multron_gen: Mutex<Option<MultronDiskGeneration>>,
-    yargen_benign: Option<BinaryFuse16Filter>,
+    yargen_benign: Option<BinaryFuse32Filter>,
     yargen_malicious: Option<BinaryFuse32Filter>,
 }
 
@@ -234,7 +234,7 @@ impl PeStringMlEngine {
     /// Loads both string filters and logs where each came from. A missing or unparseable
     /// filter is not an error, but it silently zeroes the inner string features, so it is
     /// reported as a disabled capability rather than passed over.
-    fn load_xf_filters() -> (Option<BinaryFuse16Filter>, Option<BinaryFuse32Filter>) {
+    fn load_xf_filters() -> (Option<BinaryFuse32Filter>, Option<BinaryFuse32Filter>) {
         let mut ben = None;
         let mut mal = None;
         let mut ben_status = "absent".to_string();
@@ -243,10 +243,12 @@ impl PeStringMlEngine {
             if ben.is_none() {
                 let p = d.join("pe_strings_benign.xf");
                 if let Ok(b) = std::fs::read(&p) {
-                    ben = BinaryFuse16Filter::from_bytes(&b);
-                    ben_status = match &ben {
-                        Some(f) => format!("loaded ({} keys) from {}", f.len(), p.display()),
-                        None => format!("parse-failed {}", p.display()),
+                    (ben, ben_status) = match BinaryFuse32Filter::load(&b) {
+                        Ok(f) => {
+                            let st = format!("loaded ({} keys) from {}", f.len(), p.display());
+                            (Some(f), st)
+                        }
+                        Err(e) => (None, format!("{e}: {}", p.display())),
                     };
                 }
             }
