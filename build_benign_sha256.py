@@ -39,6 +39,8 @@ ALLBLOOMS = os.path.join(HERE, "allblooms")
 LIST_FILES = [
     os.path.join(ALLBLOOMS, "whitelist", "rds_sha256.txt"),
     os.path.join(ALLBLOOMS, "whitelist", "benign_sha256.txt"),
+    # NSRL RDS 2026.09.1 modern minimal delta (files added since the previous modern release).
+    os.path.join(ALLBLOOMS, "whitelist", "RDS_2026.09.1_modern_minimal_delta_sha256.txt"),
 ]
 MALICIOUS_LISTS = [os.path.join(ALLBLOOMS, "sha256.txt")]
 WRITER_EXE = os.path.join(HERE, "xorfilter_writer", "target", "release", "xorfilter_writer.exe")
