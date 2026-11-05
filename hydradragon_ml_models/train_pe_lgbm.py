@@ -350,6 +350,9 @@ def parse_args():
     parser.add_argument("--workers", type=int, default=os.cpu_count() or 4, help="Feature extraction threads")
     parser.add_argument("--extract-only", action="store_true", help="Only extract chunks to disk, do not train")
     parser.add_argument("--train-only", action="store_true", help="Only train from existing chunk directory")
+    parser.add_argument("--retry-crashes", action="store_true",
+                        help="v2: extract only the files in pe_feature_dump_crashes.txt (after an emulator fix) into "
+                             "chunk_pe_retry_*.joblib, keep every other chunk as it is, then train (or stop with --extract-only)")
     parser.add_argument("--balance", action="store_true", help="Old behaviour: undersample both classes to 50/50 (default: use ALL samples)")
     parser.add_argument("--max-benign-ratio", type=float, default=0.0, help="Cap benign at N x malicious (0 = no cap, e.g. 4 = at most 4 benign per malicious)")
     parser.add_argument("--target-fpr", type=float, default=0.001, help="Pick the threshold so at most this share of held-out benign is flagged (0.001 = 0.1%%)")
@@ -435,6 +438,68 @@ def collect_features_v2(file_batch, chunk_dir):
             fh.write("\n".join(crashed) + "\n")
         print(f"  [!] {len(crashed)} files crash pe_feature_dump; skipped (listed in {CRASH_LOG})", flush=True)
     return rows, names
+
+
+def retry_crashed_files(args):
+    """--retry-crashes: extract only the files listed in pe_feature_dump_crashes.txt, with the
+    current pe_feature_dump build (after an emulator fix), into `chunk_pe_retry_<label>.joblib`.
+    The existing chunks are kept as they are, so no full re-extraction is needed. Files that
+    still crash are written back to the crash list; the others leave it."""
+    if not os.path.isfile(CRASH_LOG):
+        print(f"[*] --retry-crashes: {CRASH_LOG} does not exist, nothing to retry.")
+        return
+    with open(CRASH_LOG, encoding="utf-8") as fh:
+        listed = list(dict.fromkeys(l.strip() for l in fh if l.strip()))
+    missing = [f for f in listed if not os.path.isfile(f)]
+    retry = [f for f in listed if os.path.isfile(f)]
+    print(f"[*] --retry-crashes: {len(retry)} files to retry ({len(missing)} listed files no longer exist)")
+    if not retry:
+        return
+    # Labels come from the same dataset lists the chunks were built from.
+    mal_files, ben_files = dataset_paths.collect(args, "windows", max_per_class=args.max_samples_per_class)
+    mal_set = {os.path.normcase(os.path.abspath(f)) for f in mal_files}
+    ben_set = {os.path.normcase(os.path.abspath(f)) for f in ben_files}
+    by_label = {"malicious": [], "benign": []}
+    unlabeled = []
+    for f in retry:
+        key = os.path.normcase(os.path.abspath(f))
+        if key in mal_set:
+            by_label["malicious"].append(f)
+        elif key in ben_set:
+            by_label["benign"].append(f)
+        else:
+            unlabeled.append(f)
+    if unlabeled:
+        print(f"  [!] {len(unlabeled)} crashed files are in no dataset folder any more; left in the crash list")
+
+    # The retried files leave the crash list; collect_features_v2 appends those that still crash.
+    with open(CRASH_LOG, "w", encoding="utf-8") as fh:
+        fh.write("".join(f + "\n" for f in unlabeled))
+
+    os.makedirs(args.chunk_dir, exist_ok=True)
+    manifest = dataset_paths.ChunkManifest(args.chunk_dir)
+    for label, label_val in (("malicious", 1), ("benign", 0)):
+        files = by_label[label]
+        if not files:
+            continue
+        rows, names = collect_features_v2(files, args.chunk_dir)
+        print(f"  [+] {label}: {len(rows)} of {len(files)} crashed files now extract")
+        if not rows:
+            continue
+        chunk_path = os.path.join(args.chunk_dir, f"chunk_pe_retry_{label}.joblib")
+        X = np.array(rows, dtype=np.float32)
+        done = list(files)
+        if os.path.isfile(chunk_path):
+            # Rows from an earlier retry stay; load_chunks drops exact duplicates.
+            old = joblib.load(chunk_path)
+            if list(old.get("names", names)) == list(names):
+                X = np.vstack([old["X"], X])
+        data = {"X": X, "y": np.full(len(X), label_val, dtype=np.int32), "names": names}
+        joblib.dump(data, chunk_path, compress=3)
+        # `chunk_pe_retry_*` is loaded with the other chunks and is outside the
+        # `chunk_pe_<label>_` prefix, so a normal extraction never forgets it.
+        manifest.record(chunk_path, done)
+        print(f"  [+] Saved {chunk_path}: {len(X)} rows")
 
 def collect_features_batch(file_batch, executor):
     features = []
@@ -599,7 +664,11 @@ def main():
     print(" (Out-of-Core Low RAM Chunked Engine) ")
     print("=" * 65)
 
-    if not args.train_only:
+    if args.retry_crashes:
+        if args.features != "v2":
+            sys.exit("--retry-crashes needs --features v2 (the crash list comes from pe_feature_dump)")
+        retry_crashed_files(args)
+    elif not args.train_only:
         print(f"[*] Discovering PE files...")
         mal_files, ben_files = dataset_paths.collect(args, "windows", max_per_class=args.max_samples_per_class)
         print(f"[+] Discovered {len(mal_files)} malicious PEs and {len(ben_files)} benign PEs.")

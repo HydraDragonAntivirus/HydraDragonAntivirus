@@ -964,6 +964,8 @@ const SYSTEM_DIR: &str = "C:\\Windows\\system32";
 /// Heap arena mapped at a time; blocks above `HEAP_DIRECT` get pages of their own.
 const HEAP_ARENA: u64 = 16 << 20;
 const HEAP_DIRECT: u64 = 1 << 20;
+/// Largest single allocation mapped for the program; a bigger request gets this much.
+const ALLOC_MAX: u64 = 64 << 20;
 
 /// The VirtualAlloc / heap area: allocations without a requested address are
 /// placed in `[ALLOC_BASE, ALLOC_END)`.
@@ -972,7 +974,7 @@ pub const ALLOC_END: u64 = 0x7000_0000;
 
 /// `size` zeroed bytes from fresh pages in the VirtualAlloc area (0 when out of room).
 fn alloc_pages(uc: &mut Unicorn<'_, ()>, st: &mut ApiState, size: u64) -> u64 {
-    let len = (size.clamp(1, 64 << 20) + 0xFFF) & !0xFFF;
+    let len = (size.clamp(1, ALLOC_MAX) + 0xFFF) & !0xFFF;
     let addr = st.next_alloc_addr;
     if addr.saturating_add(len) >= ALLOC_END || uc.mem_map(addr, len, Prot::ALL).is_err() {
         return 0;
@@ -1002,7 +1004,9 @@ fn heap_alloc(uc: &mut Unicorn<'_, ()>, st: &mut ApiState, size: u64) -> u64 {
         a
     };
     if addr != 0 {
-        st.heap_sizes.insert(addr, size);
+        // The size actually mapped, not the one asked for: realloc copies `heap_sizes`
+        // bytes into a host buffer, so a 16 GB request must not become a 16 GB copy.
+        st.heap_sizes.insert(addr, size.min(ALLOC_MAX));
     }
     addr
 }
@@ -2606,6 +2610,24 @@ mod tests {
         assert_eq!(get_ordinal_spec("Ordinal17", Some("comctl32.dll")).map(|s| s.arg_count), Some(0));
         assert_eq!(get_ordinal_spec("ordinal_680", Some("shell32.dll")).map(|s| s.name), Some("isuseranadmin"));
         assert!(get_ordinal_spec("Ordinal17", Some("ws2_32.dll")).is_none());
+    }
+
+    #[test]
+    fn huge_heap_request_is_recorded_as_mapped() {
+        // A program asks for 16 GB, then reallocates: the copy must stay within what was mapped.
+        let mut uc = Unicorn::new(Arch::X86, Mode::MODE_32).expect("Unicorn new");
+        let mut st = ApiState::default();
+        let mut dll_map = HashMap::new();
+        let mut call = |uc: &mut Unicorn<'_, ()>, st: &mut ApiState, name: &str, args: &[u64]| handle_api_call(uc, name, args, st, &mut dll_map);
+        let huge = 16u64 << 30;
+        let a = call(&mut uc, &mut st, "HeapAlloc", &[0x150000, 0, huge]);
+        assert!(a >= 0x10000);
+        assert_eq!(st.heap_sizes[&a], ALLOC_MAX);
+        uc.mem_write(a, b"keep").unwrap();
+        let b = call(&mut uc, &mut st, "HeapReAlloc", &[0x150000, 0, a, huge + 1]);
+        assert_eq!(uc.mem_read_as_vec(b, 4).unwrap(), b"keep");
+        let c = call(&mut uc, &mut st, "realloc", &[b, huge]);
+        let _ = call(&mut uc, &mut st, "GlobalReAlloc", &[c, huge, 0]);
     }
 
     #[test]
