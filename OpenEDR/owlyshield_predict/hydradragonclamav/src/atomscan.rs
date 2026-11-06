@@ -72,6 +72,17 @@ pub struct AtomScratch {
     saturated: Vec<u64>,
     counts: Vec<u32>,
     last_offset: Vec<u32>,
+    /// Per-slot inline verification results of the last scan.
+    verify: Vec<bool>,
+    /// Slots the last scan changed (counted or saturated; may repeat). The next
+    /// scan resets only these instead of every slot of the DB, which cost a
+    /// fixed few ms per buffer even for a 1 KB file.
+    touched: Vec<u32>,
+    /// `PerTarget::target` whose `value_remaining` this holds.
+    vr_target: Option<u32>,
+    /// The arrays are not known to be clean apart from `touched` (first use, or
+    /// the parallel sweep, which merges into them without logging): reset all.
+    full_reset: bool,
 }
 
 impl Default for AtomScratch {
@@ -145,7 +156,27 @@ impl AtomScratch {
             saturated: Vec::new(),
             counts: Vec::new(),
             last_offset: Vec::new(),
+            verify: Vec::new(),
+            touched: Vec::new(),
+            vr_target: None,
+            full_reset: true,
         }
+    }
+
+    /// Counts of the last scan.
+    pub fn counts(&self) -> SlotCounts<'_> {
+        SlotCounts { counts: &self.counts, last_offset: &self.last_offset }
+    }
+
+    /// Every slot whose count the last scan changed (may repeat), or None when it
+    /// is not known (the parallel sweep does not log them).
+    pub fn touched(&self) -> Option<&[u32]> {
+        (!self.full_reset).then_some(&self.touched[..])
+    }
+
+    /// Inline verification results of the last `scan_with_verify`.
+    pub(crate) fn verify_results(&self) -> &[bool] {
+        &self.verify
     }
 
     fn select_target<'b>(per_target: &'b [PerTarget], file_type_target: u32) -> &'b PerTarget {
@@ -180,6 +211,7 @@ impl AtomScratch {
         verify_ctx: Option<&InlineVerifyCtx>,
         verify_results: &mut [bool],
         data_offset: usize,
+        touched: &mut Vec<u32>,
     ) {
         for m in pma.find_overlapping_iter(hay) {
             out_stats.daachorse_matches += 1;
@@ -200,6 +232,7 @@ impl AtomScratch {
                     }
                     if counts[st] >= slots[st].threshold {
                         saturated[st >> 6] |= 1 << (st & 63);
+                        touched.push(slot_id);
                         out_stats.saturated_count += 1;
                         for &ref_vi in slot_to_values[st].iter() {
                             out_stats.saturated_dec += 1;
@@ -209,6 +242,9 @@ impl AtomScratch {
                             }
                         }
                         continue;
+                    }
+                    if counts[st] == 0 {
+                        touched.push(slot_id);
                     }
                     counts[st] = counts[st].saturating_add(1);
                     last_offset[st] = last_offset[st].max(start as u32);
@@ -248,6 +284,7 @@ impl AtomScratch {
         verify_ctx: Option<&InlineVerifyCtx>,
         verify_results: &mut [bool],
         data_offset: usize,
+        touched: &mut Vec<u32>,
     ) {
         let pma = Self::resolve_scanner(pt, exact);
         let pma = match pma {
@@ -270,6 +307,7 @@ impl AtomScratch {
             verify_ctx,
             verify_results,
             data_offset,
+            touched,
         );
         out_stats.daachorse_us = t0.elapsed().as_micros() as u64;
     }
@@ -319,6 +357,7 @@ impl AtomScratch {
                 verify_ctx,
                 verify_results,
                 data_offset,
+                &mut Vec::new(),
             );
             return;
         }
@@ -408,6 +447,7 @@ impl AtomScratch {
                         verify_ctx,
                         vfy,
                         chunk_data_offset,
+                        &mut Vec::new(),
                     );
                 });
             }
@@ -454,35 +494,65 @@ impl AtomScratch {
         data: &[u8],
         file_type_target: u32,
         verify_ctx: Option<&InlineVerifyCtx>,
-        verify_results: &mut [bool],
     ) -> SlotCounts<'_> {
         let n_slots = db.slots.len();
-
-        if self.counts.len() != n_slots {
-            self.counts.resize(n_slots, 0);
-            self.last_offset.resize(n_slots, u32::MAX);
-        }
         let sat_words = (n_slots + 63) / 64;
-        if self.saturated.len() != sat_words {
-            self.saturated.resize(sat_words, 0);
-        }
-        for c in self.counts.iter_mut() {
-            *c = 0;
-        }
-        for o in self.last_offset.iter_mut() {
-            *o = u32::MAX;
-        }
-        for w in &mut self.saturated {
-            *w = 0;
-        }
 
         // Select target automaton.
         let pt = Self::select_target(&db.per_target, file_type_target);
 
-        self.value_remaining.clear();
-        for slots in pt.atom_to_slots.iter() {
-            self.value_remaining.push(slots.len() as u32);
+        // Reset what the previous scan changed. Every array is per slot of the
+        // whole DB; only the slots in `touched` can differ from their initial
+        // value, unless a full reset is due.
+        let sized = self.counts.len() == n_slots
+            && self.last_offset.len() == n_slots
+            && self.verify.len() == n_slots
+            && self.saturated.len() == sat_words;
+        if !sized || self.full_reset {
+            self.counts.clear();
+            self.counts.resize(n_slots, 0);
+            self.last_offset.clear();
+            self.last_offset.resize(n_slots, u32::MAX);
+            self.verify.clear();
+            self.verify.resize(n_slots, false);
+            self.saturated.clear();
+            self.saturated.resize(sat_words, 0);
+            self.vr_target = None;
+            self.full_reset = false;
+        } else {
+            // value_remaining: a saturated slot decremented its atoms' entries.
+            let same_target = self.vr_target == Some(pt.target);
+            for &slot_id in &self.touched {
+                let st = slot_id as usize;
+                if same_target && (self.saturated[st >> 6] >> (st & 63)) & 1 == 1 {
+                    for &v in pt.slot_to_values.get(st).map_or(&[][..], |b| &b[..]) {
+                        let v = v as usize;
+                        if let (Some(slot), Some(atoms)) = (self.value_remaining.get_mut(v), pt.atom_to_slots.get(v)) {
+                            *slot = atoms.len() as u32;
+                        }
+                    }
+                }
+                self.counts[st] = 0;
+                self.last_offset[st] = u32::MAX;
+                self.verify[st] = false;
+                self.saturated[st >> 6] &= !(1u64 << (st & 63));
+            }
+            if !same_target {
+                self.vr_target = None;
+            }
         }
+        self.touched.clear();
+        if self.vr_target != Some(pt.target) || self.value_remaining.len() != pt.atom_to_slots.len() {
+            self.value_remaining.clear();
+            for slots in pt.atom_to_slots.iter() {
+                self.value_remaining.push(slots.len() as u32);
+            }
+            self.vr_target = Some(pt.target);
+        }
+        let mut touched = std::mem::take(&mut self.touched);
+        let mut verify = std::mem::take(&mut self.verify);
+        let verify_results: &mut [bool] = if verify_ctx.is_some() { &mut verify } else { &mut [] };
+        let mut used_parallel = false;
 
         let mut exact_stats = AutomatonStats::default();
         let mut nocase_stats = AutomatonStats::default();
@@ -496,6 +566,7 @@ impl AtomScratch {
         if pt.exact.is_some() && !data.is_empty() {
             let n_threads = worker_count();
             if n_threads > 1 && data.len() >= 256 * 1024 {
+                used_parallel = true;
                 Self::run_dense_parallel(
                     pt,
                     true,
@@ -524,6 +595,7 @@ impl AtomScratch {
                     verify_ctx,
                     verify_results,
                     0,
+                    &mut touched,
                 );
             }
         }
@@ -547,6 +619,7 @@ impl AtomScratch {
             }
             let n_threads = worker_count();
             if n_threads > 1 && data.len() >= 256 * 1024 {
+                used_parallel = true;
                 Self::run_dense_parallel(
                     pt,
                     false,
@@ -575,6 +648,7 @@ impl AtomScratch {
                     verify_ctx,
                     verify_results,
                     0,
+                    &mut touched,
                 );
             }
             self.lowered_buf = lowered;
@@ -627,6 +701,12 @@ impl AtomScratch {
             );
         }
 
+        self.touched = touched;
+        self.verify = verify;
+        // The parallel sweep merges into the arrays without logging slots.
+        if used_parallel {
+            self.full_reset = true;
+        }
         SlotCounts {
             counts: &self.counts,
             last_offset: &self.last_offset,
@@ -641,7 +721,7 @@ impl AtomScratch {
         data: &[u8],
         file_type_target: u32,
     ) -> SlotCounts<'_> {
-        self.scan_impl(db, data, file_type_target, None, &mut [])
+        self.scan_impl(db, data, file_type_target, None)
     }
 
     /// Run the atom sweep with inline pattern verification.
@@ -649,7 +729,7 @@ impl AtomScratch {
     /// When an atom matches, the patterns associated with its slot are
     /// immediately verified at the match position (like ClamAV's
     /// `ac_findmatch`). Slots whose pattern is verified are set to `true`
-    /// in `verify_results`, which the caller can use to skip the separate
+    /// in [`Self::verify_results`], which the caller can use to skip the separate
     /// `count_all` re-scan.
     pub(crate) fn scan_with_verify<'d>(
         &mut self,
@@ -657,12 +737,8 @@ impl AtomScratch {
         data: &[u8],
         file_type_target: u32,
         verify_ctx: &InlineVerifyCtx,
-        verify_results: &mut [bool],
     ) -> SlotCounts<'_> {
-        for r in verify_results.iter_mut() {
-            *r = false;
-        }
-        self.scan_impl(db, data, file_type_target, Some(verify_ctx), verify_results)
+        self.scan_impl(db, data, file_type_target, Some(verify_ctx))
     }
 }
 

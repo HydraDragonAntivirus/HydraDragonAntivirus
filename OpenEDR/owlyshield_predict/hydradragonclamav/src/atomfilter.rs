@@ -69,6 +69,9 @@ pub struct AtomFilterDb {
     /// hit. Derived from `log_subsig_slots` (not serialised), so a scan visits
     /// these instead of every logical signature.
     pub log_unindexed: Vec<u32>,
+    /// Some slot has threshold 0 (reached without any hit). Derived, not
+    /// serialised: candidate selection then checks every slot, not only the hit ones.
+    pub any_zero_threshold: bool,
 }
 
 /// Indices of the logical signatures with a non-atom subsignature slot.
@@ -100,6 +103,7 @@ impl AtomFilterDb {
             ext_slot: Vec::new(),
             log_subsig_slots: Vec::new(),
             log_unindexed: Vec::new(),
+            any_zero_threshold: false,
         }
     }
 
@@ -339,10 +343,12 @@ impl AtomFilterDb {
         }
 
         let log_unindexed = unindexed_logical(&log_subsig_slots);
+        let any_zero_threshold = slots.iter().any(|s| s.threshold == 0);
         Some(AtomFilterDb {
             per_target,
             slots,
             ext_slot,
+            any_zero_threshold,
             log_subsig_slots,
             log_unindexed,
         })

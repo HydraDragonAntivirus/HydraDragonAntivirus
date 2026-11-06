@@ -1134,35 +1134,33 @@ impl Engine {
         // APK with hundreds of nested entries does — was hundreds of large
         // heap alloc/free cycles proportional to the DB size.
         //
-        // The counts are COPIED out of the thread-local borrow before the
-        // phases below: verification shards across worker threads, and a
-        // `RefCell` borrow can never cross threads. The copy (~12MB memcpy
-        // at full DB size) is noise next to the verification work it unlocks.
+        // Verification shards across worker threads and a `RefCell` borrow can
+        // never cross threads, so the scratch itself is moved out (below), not
+        // borrowed; it resets only the slots the previous buffer touched.
         let t0 = Instant::now();
-        let (counts_vec, last_vec, verify_results) = ATOM_SCRATCH.with(|cell| {
-            let mut scratch = cell.borrow_mut();
+        // The scratch is moved out of the thread-local for this buffer (a nested
+        // scan on this thread meanwhile gets a fresh one) and put back after the
+        // phases, so the counts are read in place instead of copied.
+        let mut scratch = ATOM_SCRATCH.with(|cell| std::mem::take(&mut *cell.borrow_mut()));
+        {
             let file_type_target = ctx.detected_target
                 .or(ctx.builtin_target)
                 .unwrap_or(0);
-            let mut verify_results = vec![false; self.atomfilter_db.slots.len()];
             let verify_ctx = InlineVerifyCtx {
                 slots: &self.atomfilter_db.slots,
                 logical: &self.database.logical,
                 hay: ctx.data,
             };
-            let slot_counts = scratch.scan_with_verify(
-                &self.atomfilter_db, ctx.data, file_type_target,
-                &verify_ctx, &mut verify_results,
-            );
-            let (counts, last) = slot_counts.copy_out();
-            (counts, last, verify_results)
-        });
-        let slot_counts = crate::atomscan::SlotCounts::borrow(&counts_vec, &last_vec);
+            scratch.scan_with_verify(&self.atomfilter_db, ctx.data, file_type_target, &verify_ctx);
+        }
+        let slot_counts = scratch.counts();
+        let verify_results = scratch.verify_results();
         let t1 = Instant::now();
         self.scan_extended(ctx, matches, &slot_counts);
         let t2 = Instant::now();
-        self.scan_logical(ctx, matches, &slot_counts, &verify_results);
+        self.scan_logical(ctx, matches, &slot_counts, verify_results, scratch.touched());
         let t3 = Instant::now();
+        ATOM_SCRATCH.with(|cell| *cell.borrow_mut() = scratch);
         rust_timing_log!(
             "scan_context :: {}KB view={:?} atomscan={}ms ext_scan={}ms log_scan={}ms",
             ctx.data.len() / 1024,
@@ -1340,7 +1338,10 @@ impl Engine {
     /// atom-promoted, plus atom-less signatures that can still fire.
     /// (Target/TDB gating stays inside `scan_one_logical`, next to the rest
     /// of that signature's context checks.)
-    fn logical_candidates(&self, slot_counts: &crate::atomscan::SlotCounts) -> Vec<usize> {
+    /// `touched`: the slots the sweep counted (None: unknown). Only those can have
+    /// reached their threshold (thresholds are at least 1), so with it the loop
+    /// below skips the untouched slots of the whole DB.
+    fn logical_candidates(&self, slot_counts: &crate::atomscan::SlotCounts, touched: Option<&[u32]>) -> Vec<usize> {
         // Hit-driven selection: a slot whose target is a logical subsig marks
         // that signature as a candidate; extended-sig slots are skipped here
         // (they belong to `scan_extended`). Signatures without indexable
@@ -1348,7 +1349,16 @@ impl Engine {
         // candidates.
         let n_log = self.database.logical.len();
         let mut set = vec![false; n_log];
-        for (slot_id, slot) in self.atomfilter_db.slots.iter().enumerate() {
+        let all_slots: Vec<u32>;
+        let hit_slots: &[u32] = match touched {
+            Some(t) if !self.atomfilter_db.any_zero_threshold => t,
+            _ => {
+                all_slots = (0..self.atomfilter_db.slots.len() as u32).collect();
+                &all_slots
+            }
+        };
+        for &slot_id in hit_slots {
+            let Some(slot) = self.atomfilter_db.slots.get(slot_id as usize) else { continue };
             if slot_counts.get(slot_id as crate::atomfilter::SlotId) < slot.threshold {
                 continue;
             }
@@ -1414,8 +1424,9 @@ impl Engine {
         matches: &mut Vec<ScanMatch>,
         slot_counts: &crate::atomscan::SlotCounts,
         verify_results: &[bool],
+        touched: Option<&[u32]>,
     ) {
-        let items = self.logical_candidates(slot_counts);
+        let items = self.logical_candidates(slot_counts, touched);
         let hints = LiteralHints::default();
         self.par_eval_items(&items, |si, out| {
             LOGICAL_BUFS.with(|cell| {
