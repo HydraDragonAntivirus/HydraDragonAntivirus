@@ -235,7 +235,13 @@
   .sigc b { font-family: "Segoe UI", sans-serif; font-weight: 600; color: var(--muted); margin-right: 4px; }
   td.eng .engd { font-size: 11px; color: var(--muted); max-width: 280px; white-space: normal; word-break: break-word; margin-top: 2px; }
   dialog#haDlg { border: 1px solid var(--border); border-radius: 12px; background: var(--panel); color: var(--text); padding: 0; width: min(760px, 94vw); }
-  dialog#haDlg::backdrop { background: rgba(0, 0, 0, .5); }
+  dialog#haDlg::backdrop, dialog#askDlg::backdrop { background: rgba(0, 0, 0, .5); }
+  dialog#askDlg { border: 1px solid var(--border); border-radius: 12px; background: var(--panel); color: var(--text); padding: 0; width: min(520px, 94vw); }
+  #askDlg .ask-sha { font-family: ui-monospace, Consolas, monospace; font-size: 12px; color: var(--muted); word-break: break-all; margin: -4px 0 10px; }
+  #askDlg label.ask-l { display: block; font-size: 12.5px; font-weight: 600; margin: 12px 0 4px; }
+  #askDlg textarea { width: 100%; box-sizing: border-box; min-height: 64px; resize: vertical; font: inherit; font-size: 13px; padding: 7px 9px; border-radius: 8px; border: 1px solid var(--border); background: var(--panel2); color: var(--text); }
+  #askDlg .ask-err { color: var(--red); font-size: 12px; min-height: 16px; margin-top: 4px; }
+  #askDlg .dlg-foot button.danger, #askDlg .dlg-foot button.primary { width: auto; margin: 0; }
   .dlg-body { padding: 18px 20px; max-height: 70vh; overflow: auto; }
   .dlg-body h3 { margin: 0 0 10px; font-size: 16px; }
   .dlg-foot { display: flex; gap: 8px; justify-content: flex-end; padding: 12px 20px; border-top: 1px solid var(--border); }
@@ -1168,6 +1174,17 @@
       <button class="primary" id="haDlgOk">Apply</button>
     </div>
   </dialog>
+
+  <!-- Confirmation with an optional reason (sample delete, private, signer lists). -->
+  <dialog id="askDlg">
+    <form method="dialog">
+      <div class="dlg-body" id="askDlgBody"></div>
+      <div class="dlg-foot">
+        <button class="ghost" type="button" id="askDlgCancel">Cancel</button>
+        <button class="primary" type="submit" id="askDlgOk">OK</button>
+      </div>
+    </form>
+  </dialog>
 </main>
 
 <script>
@@ -1180,6 +1197,41 @@ window.sigChips = (list, max) => {
   return `<div class="sigs" title="${e(all)}">` + shown.map(d => `<span class="sigc"><b>${e(d.layer)}</b>${e(d.name)}${/_ML$/.test(d.layer || "") && d.score != null ? ` ${(d.score * 100).toFixed(1)}%` : ""}</span>`).join("") +
     (list.length > shown.length ? `<span class="sigc">+${list.length - shown.length} more</span>` : "") + `</div>`;
 };
+// A confirmation dialog in the page instead of prompt()/confirm():
+// askDlg({title, sha, html, label, placeholder, value, required, ok, danger})
+// resolves to the reason text ("" when there is no field), or null when cancelled.
+window.askDlg = (o) => new Promise((resolve) => {
+  const dlg = document.getElementById("askDlg");
+  // One question at a time: a new one cancels the one still open.
+  if (window.askDlg.cancel) window.askDlg.cancel();
+  const e = (x) => String(x ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+  document.getElementById("askDlgBody").innerHTML =
+    `<h3>${e(o.title)}</h3>` + (o.sha ? `<div class="ask-sha">${e(o.sha)}</div>` : "") + (o.html || "") +
+    (o.label ? `<label class="ask-l" for="askDlgIn">${e(o.label)}${o.required ? " (required)" : " (optional)"}</label>` +
+      `<textarea id="askDlgIn" maxlength="500" placeholder="${e(o.placeholder || "")}">${e(o.value || "")}</textarea><div class="ask-err" id="askDlgErr"></div>` : "");
+  const ok = document.getElementById("askDlgOk");
+  ok.textContent = o.ok || "OK";
+  ok.className = o.danger ? "danger" : "primary";
+  const form = dlg.querySelector("form");
+  const input = document.getElementById("askDlgIn");
+  let done = false;
+  const finish = (v) => { if (done) return; done = true; window.askDlg.cancel = null; dlg.onclose = null; if (dlg.open) dlg.close(); resolve(v); };
+  window.askDlg.cancel = () => finish(null);
+  form.onsubmit = (ev) => {
+    ev.preventDefault();
+    const v = input ? input.value.trim() : "";
+    if (o.required && !v) { document.getElementById("askDlgErr").textContent = "Write the reason first."; input.focus(); return; }
+    finish(v);
+  };
+  // Enter adds a line in the reason; Ctrl+Enter confirms. Esc / Cancel closes.
+  if (input) input.onkeydown = (ev) => { if (ev.key === "Enter" && (ev.ctrlKey || ev.metaKey)) form.requestSubmit(); };
+  document.getElementById("askDlgCancel").onclick = () => finish(null);
+  dlg.onclose = () => finish(null);
+  dlg.showModal();
+  (input || document.getElementById("askDlgCancel")).focus();
+});
+window.askEsc = (x) => String(x ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const SAMPLE_DELETE_HTML = `<div class="dangerbox">The kept file and its static report are deleted for good, and the file is never stored again. The verdict stays.</div>`;
 window.sigKey = (list) => list && list.length ? `${list[0].layer}: ${list[0].name}` : "";
 (() => {
   const $ = id => document.getElementById(id);
@@ -2030,16 +2082,11 @@ window.sigKey = (list) => list && list.length ? `${list[0].layer}: ${list[0].nam
     if (d) {
       div.innerHTML = `<b>Deleted on request</b> ${esc(d.deleted_at)}${d.analyst ? " by " + esc(d.analyst) : ""}: ${esc(d.reason)}`;
     } else {
-      div.innerHTML = `<b>Sample:</b> ${data.kept ? "kept on this server" : "not kept here"} <input type="text" placeholder="Deletion reason (required)" style="width:260px"> <button class="btn" type="button">Delete sample</button> <span class="hint"></span>`;
+      div.innerHTML = `<b>Sample:</b> ${data.kept ? "kept on this server" : "not kept here"} <button class="ghost bad" type="button">Delete sample…</button> <span class="hint"></span>`;
       div.querySelector("button").onclick = async () => {
-        const reason = div.querySelector("input").value.trim();
         const hint = div.querySelector(".hint");
-        if (!reason) { hint.textContent = "Write the reason first."; return; }
-        if (!confirm(`Delete sample ${hash}?
-
-The kept file and its static report are deleted for good, and it is never stored again. The verdict stays.
-
-Reason: ${reason}`)) return;
+        const reason = await window.askDlg({ title: "Delete sample", sha: hash, html: SAMPLE_DELETE_HTML, label: "Reason", placeholder: "Why is it deleted? (owner request, personal data, ...)", required: true, ok: "Delete sample", danger: true });
+        if (reason === null) return;
         try {
           const r = await post("/api/samples/delete", { sha256: hash, reason });
           hint.textContent = `Deleted ${r.deletion.removed.length} file(s).` + (r.archived_copy ? ` A copy is still in the archive folder: ${r.archived_copy} (delete it there by hand).` : "");
@@ -3054,8 +3101,8 @@ Reason: ${reason}`)) return;
           const list = act.slice(3);
           const d = await api("/api/companies/lookup-signer?sha256=" + sha);
           if (!d.found) { toast(d.note || "No Authenticode signer known for this file."); return; }
-          const reason = (prompt(`Add signer "${d.signer}" to the ${list}-list.\nReason:`) || "").trim();
-          if (!reason) return;
+          const reason = await window.askDlg({ title: `Add signer to the ${list}-list`, sha: sha, html: `<div><b>Signer:</b> ${window.askEsc(d.signer)}</div>`, label: "Reason", required: true, ok: list === "block" ? "Block-list signer" : "Allow-list signer", danger: list === "block" });
+          if (reason === null) return;
           let analyst = "";
           try { analyst = localStorage.getItem("multron_analyst") || ""; } catch (_) {}
           const r = await api("/api/companies/add", { name: d.signer, list, reason, sha256: sha, sample_name: name || d.sample_name || "", analyst });
@@ -3066,11 +3113,11 @@ Reason: ${reason}`)) return;
         else if (act === "private") {
           const d = await api("/api/insights/" + sha);
           if (d.private) {
-            if (!confirm(`${name || sha} is private (the public API shows only its verdict${d.private.note ? ": " + d.private.note : ""}).\n\nMake its full report public again?`)) return;
+            if (await window.askDlg({ title: `Make ${name || "this sample"} public again`, sha: sha, html: `<div>It is private: the public API shows only its verdict${d.private.note ? ` (${window.askEsc(d.private.note)})` : ""}. Its full report becomes public again.</div>`, ok: "Make public" }) === null) return;
             await api("/api/private-samples", { sha256: sha, private: false, note: "" });
             toast("The full report is public again");
           } else {
-            const note = prompt(`Make ${name || sha} private: the public API shows only its verdict (no strings, names or report), also to API key holders.\nReason (optional):`);
+            const note = await window.askDlg({ title: `Make ${name || "this sample"} private`, sha: sha, html: `<div class="warnbox">The public API shows only its verdict (no strings, names or report), also to API key holders.</div>`, label: "Reason", ok: "Make private" });
             if (note === null) return;
             await api("/api/private-samples", { sha256: sha, private: true, note: note.trim() });
             toast("Private: only the verdict is public");
@@ -3079,9 +3126,8 @@ Reason: ${reason}`)) return;
         else if (act === "delete") {
           const d = await api("/api/insights/" + sha);
           if (d.deleted) { toast(`Already deleted on request (${d.deleted.deleted_at}): ${d.deleted.reason}`); return; }
-          const reason = (prompt(`Delete sample ${name || sha}?\nThe kept file and its static report are deleted for good and it is never stored again; the verdict stays.\nReason (required):`) || "").trim();
-          if (!reason) return;
-          if (!confirm(`Delete sample ${sha}?\n\nReason: ${reason}`)) return;
+          const reason = await window.askDlg({ title: `Delete sample ${name || ""}`.trim(), sha: sha, html: SAMPLE_DELETE_HTML, label: "Reason", placeholder: "Why is it deleted? (owner request, personal data, ...)", required: true, ok: "Delete sample", danger: true });
+          if (reason === null) return;
           const r = await api("/api/samples/delete", { sha256: sha, reason });
           toast(`Deleted ${r.deletion.removed.length} file(s).` + (r.archived_copy ? ` A copy is still in the archive folder: ${r.archived_copy} (delete it there by hand).` : ""));
         }
