@@ -1496,7 +1496,7 @@ async fn handle_handoff_release(State(app): State<Arc<AppState>>, Json(req): Jso
         app.scan_server.set_maintenance("switching");
     }
     info_event(&app, format!("seamless update: handing over to pid {}; finishing the scans in progress", req.pid));
-    let limit = std::time::Duration::from_secs(req.drain_seconds.unwrap_or(30).min(300));
+    let limit = std::time::Duration::from_secs(req.drain_seconds.unwrap_or(30).min(600));
     while active_work(&app) > 0 && started.elapsed() < limit {
         tokio::time::sleep(std::time::Duration::from_millis(200)).await;
     }
