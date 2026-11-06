@@ -115,6 +115,13 @@ pub struct Rule {
         skip_serializing_if = "Vec::is_empty"
     )]
     pub assign_types: Vec<String>,
+
+    /// Unpacker recipe for the files this rule recognises (hydradragonunicorn
+    /// `UNPACK_FORMAT.md`), so a family's detection and its unpacker / config
+    /// extractor live in one file. The scanner does not read it: the unpacker
+    /// loads it from the same rule files and checks the steps there.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub unpack: Option<yaml_serde::Value>,
 }
 
 impl Rule {

@@ -15,7 +15,7 @@ const FILE_KEYS: &[&str] = &["name", "version", "rules"];
 const RULE_KEYS: &[&str] = &[
     "id", "title", "description", "severity", "verdict", "confidence", "family", "score", "tags", "mitre", "references",
     "reference", "private", "logic", "threshold", "conditions", "file_path", "required_path", "remediation", "assign_types",
-    "assign_file_type",
+    "assign_file_type", "unpack",
 ];
 const MITRE_KEYS: &[&str] = &["id", "name", "tactic"];
 const ATOM_KEYS: &[&str] = &[

@@ -281,9 +281,14 @@ fn run_emulation(data: &[u8]) -> Option<Emulation> {
     // The recipe of the unpacker signature that recognises the file; a failed step
     // means the recipe does not fit this file: the generic run below.
     let budget = Budget { max_instructions: UNPACK_MAX_INSTRUCTIONS, timeout_us: UNPACK_TIMEOUT_US };
-    if let Some(run) = UnpackRules::builtin().unpack(data, budget) {
+    if let Some(run) = UnpackRules::active().unpack(data, budget) {
         if let Some(payload) = run.main_payload() {
             return Some(Emulation { dump: Some(payload.to_vec()), unpacked: true, trace: run.trace.clone(), failed: false });
+        }
+        // A recipe that only extracts values (`iocs`: a config's C2, install path): its
+        // trace carries them (`extracted`, `network_targets`); the file is not packed.
+        if matches!(run.outcome, hydradragonunicorn::unpacker::plan::Outcome::Unpacked(_)) {
+            return Some(Emulation { dump: None, unpacked: false, trace: run.trace, failed: false });
         }
     }
     let sample = Sample::from_bytes(data).ok()?;

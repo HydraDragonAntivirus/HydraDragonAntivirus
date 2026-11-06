@@ -12,10 +12,20 @@ fn main() {
         eprintln!("usage: recipe_run <unpack_rules.yaml> <file>");
         std::process::exit(2);
     }
-    let rules = UnpackRules::from_file(std::path::Path::new(&args[1])).unwrap_or_else(|e| {
-        eprintln!("{}: {e}", args[1]);
-        std::process::exit(2);
-    });
+    // An unpacker signature file, else a hydradragonsig rule file (its `unpack:` keys).
+    let rules = UnpackRules::from_file(std::path::Path::new(&args[1]))
+        .or_else(|e| {
+            let text = std::fs::read_to_string(&args[1]).map_err(|_| e.clone())?;
+            match UnpackRules::from_sig_yaml_str(&text) {
+                Ok(r) if !r.is_empty() => Ok(r),
+                Ok(_) => Err(e),
+                Err(e2) => Err(format!("{e}\nas a hydradragonsig file: {e2}")),
+            }
+        })
+        .unwrap_or_else(|e| {
+            eprintln!("{}: {e}", args[1]);
+            std::process::exit(2);
+        });
     let data = std::fs::read(&args[2]).unwrap_or_else(|e| {
         eprintln!("{}: {e}", args[2]);
         std::process::exit(2);

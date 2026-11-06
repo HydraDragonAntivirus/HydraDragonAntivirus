@@ -413,6 +413,9 @@ impl StaticEngine {
             // in-scan with FileType tags (PE/APK gating lives in rule data).
             // Runs on this thread while the others load.
             timed!("hydradragonsig_rules", {
+                // Unpacker / config-extractor recipes: the `unpack:` keys of these
+                // rules, plus `unpack_rules/*.yaml` (UNPACK_FORMAT.md) below.
+                let mut unpack_rules = hydradragonunicorn::unpacker::plan::UnpackRules::default();
                 for dir in [
                     base.join("hydradragonsig_rules"),
                     base.join("rules").join("hydradragonsig"),
@@ -434,6 +437,12 @@ impl StaticEngine {
                                 {
                                     if let Ok(text) = std::fs::read_to_string(&p) {
                                         let _ = string_rules.load_yaml(&text);
+                                        match hydradragonunicorn::unpacker::plan::UnpackRules::from_sig_yaml_str(&text)
+                                            .and_then(|r| unpack_rules.extend(r))
+                                        {
+                                            Ok(()) => {}
+                                            Err(e) => diagnostics::log("hydrasig-unpack", &format!("{}: {e}", p.display())),
+                                        }
                                     }
                                 }
                             }
@@ -467,6 +476,23 @@ impl StaticEngine {
                         }
                     }
                 }
+                // Unpacker signature files in their own format.
+                let unpack_dir = base.join("unpack_rules");
+                if let Ok(entries) = std::fs::read_dir(&unpack_dir) {
+                    for p in entries.flatten().map(|e| e.path()) {
+                        let is_yaml = p.extension().and_then(|e| e.to_str()).is_some_and(|e| e.eq_ignore_ascii_case("yaml") || e.eq_ignore_ascii_case("yml"));
+                        if p.is_file() && is_yaml {
+                            if let Err(e) = hydradragonunicorn::unpacker::plan::UnpackRules::from_file(&p).and_then(|r| unpack_rules.extend(r)) {
+                                diagnostics::log("unpack-rules", &e);
+                            }
+                        }
+                    }
+                }
+                if !unpack_rules.is_empty() {
+                    diagnostics::log("unpack-rules", &format!("{} unpacker recipe(s)", unpack_rules.len()));
+                }
+                // Always replaced, so a reload drops recipes whose rules were removed.
+                hydradragonunicorn::unpacker::plan::UnpackRules::install(unpack_rules);
             });
 
             (

@@ -20,6 +20,14 @@ existing `id` replaces it, new ids are tried first. Rules are checked when they 
 loaded: unknown keys, bad patterns / keys / expressions, emulation inside `try` /
 `repeat`, and recipes that never give a payload are errors.
 
+A hydradragonsig rule can carry the recipe itself: an `unpack:` key (the same steps)
+on any rule of a `hydradragonsig_rules/*.yaml` file, so a family's detection and its
+unpacker / config extractor are one file. That rule's own conditions recognise the
+file, `rule_match` on the other rules of the document included, and a `private`
+helper rule works too. `UnpackRules::from_sig_yaml_str` reads them. The engine loads
+these recipes from its hydradragonsig rule folders and `unpack_rules/*.yaml` (this
+format) on every engine (re)load: the signature files' rules are tried first.
+
 ```yaml
 version: 1
 rules:
