@@ -64,6 +64,21 @@ pub struct AtomFilterDb {
     pub slots: Vec<SlotDef>,
     pub ext_slot: Vec<ExtSlot>,
     pub log_subsig_slots: Vec<Box<[SubsigSlot]>>,
+    /// Logical signatures with a subsignature the atoms do not cover (AutoMatch /
+    /// External), ascending: the only ones that can be candidates without an atom
+    /// hit. Derived from `log_subsig_slots` (not serialised), so a scan visits
+    /// these instead of every logical signature.
+    pub log_unindexed: Vec<u32>,
+}
+
+/// Indices of the logical signatures with a non-atom subsignature slot.
+pub fn unindexed_logical(log_subsig_slots: &[Box<[SubsigSlot]>]) -> Vec<u32> {
+    log_subsig_slots
+        .iter()
+        .enumerate()
+        .filter(|(_, s)| s.iter().any(|x| !matches!(x, SubsigSlot::Atom(_))))
+        .map(|(i, _)| i as u32)
+        .collect()
 }
 
 impl std::fmt::Debug for AtomFilterDb {
@@ -84,6 +99,7 @@ impl AtomFilterDb {
             slots: Vec::new(),
             ext_slot: Vec::new(),
             log_subsig_slots: Vec::new(),
+            log_unindexed: Vec::new(),
         }
     }
 
@@ -322,11 +338,13 @@ impl AtomFilterDb {
             log_subsig_slots.push(ss.into_boxed_slice());
         }
 
+        let log_unindexed = unindexed_logical(&log_subsig_slots);
         Some(AtomFilterDb {
             per_target,
             slots,
             ext_slot,
             log_subsig_slots,
+            log_unindexed,
         })
     }
 }

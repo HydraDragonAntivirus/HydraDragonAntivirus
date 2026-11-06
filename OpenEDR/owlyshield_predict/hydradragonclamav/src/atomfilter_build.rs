@@ -310,11 +310,13 @@ impl AtomFilterBuilder {
             });
         }
 
+        let log_unindexed = crate::atomfilter::unindexed_logical(&log_subsig_slots);
         AtomFilterDb {
             per_target,
             slots,
             ext_slot,
             log_subsig_slots,
+            log_unindexed,
         }
     }
 }

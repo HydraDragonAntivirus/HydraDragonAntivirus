@@ -1144,22 +1144,10 @@ impl Engine {
             let file_type_target = ctx.detected_target
                 .or(ctx.builtin_target)
                 .unwrap_or(0);
-            // Build slot→patterns mapping for inline verification.
-            // slot_patterns[slot_id] = patterns to verify (empty if no Body subsig).
-            let mut slot_patterns: Vec<&[Pattern]> = Vec::with_capacity(self.atomfilter_db.slots.len());
-            slot_patterns.resize(self.atomfilter_db.slots.len(), &[]);
-            for (slot_id, slot) in self.atomfilter_db.slots.iter().enumerate() {
-                if let crate::atomfilter::SlotTarget::LogicalSubsig { sig_index, subsig_index, .. } = slot.target {
-                    let Some(sig) = self.database.logical.get(sig_index as usize) else { continue };
-                    let Some(subsig) = sig.subsignatures.get(subsig_index as usize) else { continue };
-                    if let Subsignature::Body { patterns, .. } = subsig {
-                        slot_patterns[slot_id] = &patterns[..];
-                    }
-                }
-            }
             let mut verify_results = vec![false; self.atomfilter_db.slots.len()];
             let verify_ctx = InlineVerifyCtx {
-                slot_patterns: slot_patterns.as_slice(),
+                slots: &self.atomfilter_db.slots,
+                logical: &self.database.logical,
                 hay: ctx.data,
             };
             let slot_counts = scratch.scan_with_verify(
@@ -1377,16 +1365,13 @@ impl Engine {
         let mut test_counts: Vec<usize> = Vec::new();
         let mut test_evaluated: Vec<bool> = Vec::new();
 
-        for (si, sub_slots) in self.atomfilter_db.log_subsig_slots.iter().enumerate() {
-            if set[si] {
+        // Only signatures with an unindexed subsig (precomputed at load) qualify.
+        for &si in &self.atomfilter_db.log_unindexed {
+            let si = si as usize;
+            if si >= n_log || set[si] {
                 continue;
             }
-            let has_unindexed = sub_slots
-                .iter()
-                .any(|s| !matches!(s, crate::atomfilter::SubsigSlot::Atom(_)));
-            if !has_unindexed {
-                continue;
-            }
+            let sub_slots = &self.atomfilter_db.log_subsig_slots[si];
             let sig = &self.database.logical[si];
             let n = sig.subsignatures.len();
             test_counts.clear();

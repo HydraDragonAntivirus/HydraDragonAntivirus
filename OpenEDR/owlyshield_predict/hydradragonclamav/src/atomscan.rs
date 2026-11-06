@@ -1,6 +1,6 @@
 use crate::atomfilter::{AtomFilterDb, PerTarget, SlotId, SubsigSlot};
 use crate::atomfilter::{ExtSlot, SlotDef};
-use crate::pattern::Pattern;
+
 use daachorse::DoubleArrayAhoCorasick;
 
 /// Cached CPU count, capped at 4. `std::thread::available_parallelism()` is not
@@ -101,10 +101,14 @@ struct AutomatonStats {
 /// This mirrors ClamAV's approach where the AC trie traversal and pattern
 /// verification happen in a single pass (cf. `cli_ac_scanbuff` + `ac_findmatch`).
 ///
-/// `slot_patterns[slot_id]` is the set of patterns to verify for that slot.
-/// An empty slice means no verification (non-Body subsig or extended sig).
+/// The patterns of a slot are looked up only when one of its atoms hits: the
+/// Body patterns of a logical subsignature; extended signatures and other
+/// subsignature kinds are not verified here. (Building a slot -> patterns table
+/// per buffer walked the whole signature DB on every scan, a fixed ~40 ms even
+/// for a 1 KB file.)
 pub struct InlineVerifyCtx<'a, 'b> {
-    pub(crate) slot_patterns: &'a [&'b [Pattern]],
+    pub(crate) slots: &'a [SlotDef],
+    pub(crate) logical: &'a [crate::logical::LogicalSignature],
     pub(crate) hay: &'b [u8],
 }
 
@@ -116,11 +120,12 @@ impl InlineVerifyCtx<'_, '_> {
         if already {
             return true;
         }
-        let sid = slot_id as usize;
-        if sid >= self.slot_patterns.len() {
+        let Some(slot) = self.slots.get(slot_id as usize) else { return false };
+        let crate::atomfilter::SlotTarget::LogicalSubsig { sig_index, subsig_index } = slot.target else { return false };
+        let Some(sig) = self.logical.get(sig_index as usize) else { return false };
+        let Some(crate::logical::Subsignature::Body { patterns, .. }) = sig.subsignatures.get(subsig_index as usize) else {
             return false;
-        }
-        let patterns = self.slot_patterns[sid];
+        };
         for p in patterns {
             if p.match_at(self.hay, start).is_some() {
                 return true;
