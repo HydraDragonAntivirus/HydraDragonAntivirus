@@ -687,21 +687,21 @@ impl UboFilters {
         !self.host_exceptions.is_empty() && suffixes(host).any(|h| self.host_exceptions.contains(h))
     }
 
-    fn candidates(&self, url: &[u8]) -> Vec<u32> {
-        let mut out: Vec<u32> = self.untokenized.clone();
-        if self.token_index.is_empty() {
-            return out;
-        }
+    /// The filters to try for `url`, in order: the untokenized ones, then those of each
+    /// distinct token of the URL in order of appearance. Borrowed, nothing copied.
+    fn candidates<'s>(&'s self, url: &'s [u8]) -> impl Iterator<Item = u32> + 's {
         let mut seen: HashSet<&[u8]> = HashSet::new();
-        for token in url
-            .split(|b| !b.is_ascii_alphanumeric())
-            .filter(|t| !t.is_empty())
-        {
-            if seen.insert(token) && let Some(list) = self.token_index.get(token) {
-                out.extend_from_slice(list);
-            }
-        }
-        out
+        let indexed = (!self.token_index.is_empty())
+            .then(|| {
+                url.split(|b| !b.is_ascii_alphanumeric())
+                    .filter(|t| !t.is_empty())
+                    .filter(move |t| seen.insert(*t))
+                    .filter_map(|t| self.token_index.get(t))
+                    .flat_map(|list| list.iter().copied())
+            })
+            .into_iter()
+            .flatten();
+        self.untokenized.iter().copied().chain(indexed)
     }
 
     /// First URL pattern / regex filter of the wanted kind matching `url`
@@ -728,7 +728,13 @@ impl UboFilters {
         // First wanted filter in list order, as before; the set answers for every
         // linear filter at once.
         let set_hits = match &self.regex_set {
-            Some(set) if self.regexes.iter().any(|f| wanted(f.exception, f.important)) => Some(set.matches(bytes)),
+            Some(set) if self.regexes.iter().any(|f| wanted(f.exception, f.important)) => {
+                // Most URLs match no regex filter: one quick test answers for all.
+                if !set.is_match(bytes) && self.regex_set_pos.iter().all(|p| p.is_some()) {
+                    return None;
+                }
+                Some(set.matches(bytes))
+            }
             _ => None,
         };
         self.regexes

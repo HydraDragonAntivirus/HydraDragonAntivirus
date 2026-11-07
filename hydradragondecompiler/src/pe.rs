@@ -25,10 +25,39 @@ struct CodeSection<'a> {
     is_exec: bool,
 }
 
+/// One output of [`scan_pe_sinks`]: its own passes, minimum length, known texts
+/// (plain ASCII/wide finds, so code-ref hits that only re-discover a run are left
+/// out), dedup set and results. Several sinks share one disassembly; each gets
+/// exactly what a scan for it alone would give.
+pub(crate) struct Sink<'k> {
+    pub(crate) code_refs: bool,
+    pub(crate) stack_strings: bool,
+    pub(crate) opcode_patterns: bool,
+    pub(crate) min_len: usize,
+    pub(crate) known: &'k HashSet<&'k str>,
+    pub(crate) emitted: HashSet<String>,
+    pub(crate) out: Vec<ExtractedString>,
+}
+
+impl<'k> Sink<'k> {
+    pub(crate) fn new(opts: &ExtractOptions, min_len: usize, known: &'k HashSet<&'k str>) -> Self {
+        Sink {
+            code_refs: opts.code_refs,
+            stack_strings: opts.stack_strings,
+            opcode_patterns: opts.opcode_patterns,
+            min_len,
+            known,
+            emitted: HashSet::new(),
+            out: Vec::new(),
+        }
+    }
+}
+
 /// Run the PE code-ref and stack-string passes, appending to `out`.
 ///
 /// `known` is the set of plain ASCII/wide texts already found, used to dedup
 /// code-ref hits that merely re-discover an existing run.
+#[allow(dead_code)]
 pub(crate) fn scan_pe(
     data: &[u8],
     opts: &ExtractOptions,
@@ -36,6 +65,19 @@ pub(crate) fn scan_pe(
     known: &HashSet<&str>,
     out: &mut Vec<ExtractedString>,
 ) {
+    let mut sinks = [Sink::new(opts, min_len, known)];
+    scan_pe_sinks(data, &mut sinks);
+    out.append(&mut sinks[0].out);
+}
+
+/// [`scan_pe`] for several outputs at once: the sections are disassembled once.
+pub(crate) fn scan_pe_sinks(data: &[u8], sinks: &mut [Sink]) {
+    if sinks.is_empty() {
+        return;
+    }
+    let want_code_refs = sinks.iter().any(|s| s.code_refs);
+    let want_stack = sinks.iter().any(|s| s.stack_strings);
+    let want_patterns = sinks.iter().any(|s| s.opcode_patterns);
     // Parse only as PE; anything else is out of scope here.
     let pe = match PE::parse(data) {
         Ok(pe) => pe,
@@ -70,8 +112,6 @@ pub(crate) fn scan_pe(
         return;
     }
 
-    let mut emitted: HashSet<String> = HashSet::new();
-
     let is_arm32 = matches!(pe.file_header.machine, 0x01c0 | 0x01c2 | 0x01c4);
     let is_arm64 = pe.file_header.machine == 0xaa64;
 
@@ -90,9 +130,11 @@ pub(crate) fn scan_pe(
                     decoder.decode(&mut reader)
                 }));
                 if let Ok(Ok(inst)) = decoded {
-                    if opts.code_refs {
+                    if want_code_refs {
                         let curr_va = section.va.wrapping_add(offset as u64);
-                        arm64_code_ref(&inst, curr_va, data, &sections, min_len, known, &mut emitted, out);
+                        for sink in sinks.iter_mut().filter(|s| s.code_refs) {
+                            arm64_code_ref(&inst, curr_va, data, &sections, sink.min_len, sink.known, &mut sink.emitted, &mut sink.out);
+                        }
                     }
                     offset += 4;
                 } else {
@@ -132,9 +174,11 @@ pub(crate) fn scan_pe(
                         .map(|inst| (inst, <U8Reader as Reader<u32, u8>>::total_offset(&mut reader) as usize))
                 }));
                 if let Ok(Ok((inst, len))) = decoded {
-                    if opts.code_refs {
+                    if want_code_refs {
                         let curr_va = section.va.wrapping_add(offset as u64);
-                        arm32_code_ref(&inst, curr_va, thumb, data, &sections, min_len, known, &mut emitted, out);
+                        for sink in sinks.iter_mut().filter(|s| s.code_refs) {
+                            arm32_code_ref(&inst, curr_va, thumb, data, &sections, sink.min_len, sink.known, &mut sink.emitted, &mut sink.out);
+                        }
                     }
                     offset += if thumb { len.max(2) } else { 4 };
                 } else {
@@ -155,29 +199,40 @@ pub(crate) fn scan_pe(
             let mut decoder =
                 Decoder::with_ip(bitness, section.bytes, section.va, DecoderOptions::NONE);
             let mut insn = Instruction::default();
-            let mut stack = StackStrings::default();
+            // Stack runs depend on the minimum length: one collector per sink.
+            let mut stacks: Vec<StackStrings> = sinks.iter().map(|_| StackStrings::default()).collect();
             let mut patterns = OpcodePatterns::default();
             while decoder.can_decode() {
                 decoder.decode_out(&mut insn);
-                if opts.code_refs {
-                    code_ref_for_insn(&insn, data, &sections, min_len, known, &mut emitted, out);
+                if want_code_refs {
+                    for sink in sinks.iter_mut().filter(|s| s.code_refs) {
+                        code_ref_for_insn(&insn, data, &sections, sink.min_len, sink.known, &mut sink.emitted, &mut sink.out);
+                    }
                 }
-                if opts.stack_strings {
-                    stack.step(&insn, min_len);
+                if want_stack {
+                    for (sink, stack) in sinks.iter().zip(stacks.iter_mut()) {
+                        if sink.stack_strings {
+                            stack.step(&insn, sink.min_len);
+                        }
+                    }
                 }
-                if opts.opcode_patterns {
+                if want_patterns {
                     patterns.step(&insn);
                 }
             }
-            if opts.stack_strings {
-                stack.finish(min_len);
-                for run in stack.runs {
-                    emit_stack_run(&run, min_len, known, &mut emitted, out);
+            for (sink, mut stack) in sinks.iter_mut().zip(stacks) {
+                if sink.stack_strings {
+                    stack.finish(sink.min_len);
+                    for run in stack.runs {
+                        emit_stack_run(&run, sink.min_len, sink.known, &mut sink.emitted, &mut sink.out);
+                    }
                 }
-            }
-            for (tag, offset) in patterns.tags {
-                if emitted.insert(tag.to_string()) {
-                    out.push(ExtractedString { text: tag.to_string(), kind: StringKind::OpcodePattern, offset: Some(offset) });
+                if sink.opcode_patterns {
+                    for (tag, offset) in &patterns.tags {
+                        if sink.emitted.insert(tag.to_string()) {
+                            sink.out.push(ExtractedString { text: tag.to_string(), kind: StringKind::OpcodePattern, offset: Some(*offset) });
+                        }
+                    }
                 }
             }
         }

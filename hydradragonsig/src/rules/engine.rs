@@ -320,6 +320,58 @@ static URL_RE: Lazy<Regex> = Lazy::new(|| {
     Regex::new(r#"(?i)(?:https?|ftps?|wss?)://[^\s"'<>\\^`{}|\x00-\x1f\x7f]+"#).unwrap()
 });
 
+/// One `DOMAIN_TOKEN_RE` match, with its offsets in the whole text.
+struct DomainToken<'a> {
+    text: &'a str,
+    start: usize,
+    end: usize,
+}
+
+impl<'a> DomainToken<'a> {
+    fn start(&self) -> usize {
+        self.start
+    }
+    fn end(&self) -> usize {
+        self.end
+    }
+    fn range(&self) -> std::ops::Range<usize> {
+        self.start..self.end
+    }
+    fn as_str(&self) -> &'a str {
+        &self.text[self.start..self.end]
+    }
+}
+
+/// `DOMAIN_TOKEN_RE.find_iter(text)`, run only where it can match: every character
+/// of a match is `[A-Za-z0-9_.-]` (or non-ASCII, `(?i)` folds a few letters such as
+/// the Kelvin sign) and a match has a dot, so the regex runs on the dotted runs of
+/// those characters alone. It has no anchors or word boundaries, so the matches and
+/// their order are the same; most strings of a binary have no such run.
+fn domain_tokens(text: &str) -> impl Iterator<Item = DomainToken<'_>> {
+    let bytes = text.as_bytes();
+    let in_run = |b: u8| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'-' | b'.') || b >= 0x80;
+    let mut runs: Vec<(usize, usize)> = Vec::new();
+    let mut i = 0;
+    while i < bytes.len() {
+        if !in_run(bytes[i]) {
+            i += 1;
+            continue;
+        }
+        let start = i;
+        let mut dot = false;
+        while i < bytes.len() && in_run(bytes[i]) {
+            dot |= bytes[i] == b'.';
+            i += 1;
+        }
+        if dot {
+            runs.push((start, i));
+        }
+    }
+    runs.into_iter().flat_map(move |(s, e)| {
+        DOMAIN_TOKEN_RE.find_iter(&text[s..e]).map(move |m| DomainToken { text, start: s + m.start(), end: s + m.end() })
+    })
+}
+
 /// URL checks per `domain_blocklist` evaluation.
 const MAX_URLS_PER_SCAN: usize = 16 * 1024;
 /// Longest URL shown in the evidence.
@@ -445,7 +497,7 @@ fn domain_blocklist_hits(db: &DomainCategoryDb, report: &ScanReport, view: &Scan
                 }
             }
         }
-        for token in DOMAIN_TOKEN_RE.find_iter(text) {
+        for token in domain_tokens(text) {
             if url_hosts.contains(&token.range()) {
                 continue;
             }
@@ -5902,6 +5954,24 @@ static _REGEX_COMPILE_GUARD: Lazy<Regex> = Lazy::new(|| Regex::new(".*").unwrap(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn domain_tokens_match_the_plain_regex() {
+        let texts = [
+            "see https://Evil-Host.example.COM/a?b=c and www.foo.co.uk:8080/x",
+            "kernel32.dll, ntdll.dll and a.b.c.d.e.f.museum; x_y-z.io.",
+            "no dots here at all",
+            "\u{212A}elvin.example.org caf\u{e9}.fr \u{17F}ub.example.net",
+            "..leading..dots..example.com..",
+            "a-.b.com -x.y.com x--y.xn--p1ai label_with_underscore.ru",
+            "",
+        ];
+        for t in texts {
+            let want: Vec<(usize, usize)> = DOMAIN_TOKEN_RE.find_iter(t).map(|m| (m.start(), m.end())).collect();
+            let got: Vec<(usize, usize)> = domain_tokens(t).map(|m| (m.start(), m.end())).collect();
+            assert_eq!(got, want, "{t:?}");
+        }
+    }
 
     /// Anchored search on the longest fixed run gives the same earliest offset as
     /// trying every start.

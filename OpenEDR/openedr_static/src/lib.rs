@@ -2,6 +2,7 @@ pub mod apk;
 pub mod auth_timestamp;
 pub mod cidr;
 pub mod clam;
+pub mod decompiled_strings;
 pub mod diagnostics;
 pub mod domain_intel;
 pub mod embedded_url;

@@ -31,7 +31,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, OnceLock};
 
-use hydradragondecompiler::{extract_strings as decompile_strings, ExtractOptions, StringKind};
+use hydradragondecompiler::StringKind;
 use hydradragonsig::models::BehaviorTrace;
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
@@ -440,17 +440,10 @@ fn collect_all_inner_strings(
 
     // Disassembler / Decompiler-Lite pass (CodeRef + StackStrings + OpcodePatterns)
     let mut decomp_count = 0usize;
-    let opts = ExtractOptions {
-        min_len: MIN_LEN,
-        ascii: false, // already extracted above with exact Multron alignment
-        wide: false,
-        code_refs: true,
-        stack_strings: true,
-        opcode_patterns: true,
-        max_strings: 10_000,
-    };
-    let decompiled = { let _t = crate::memtrack::stage("ml:decompile_strings"); decompile_strings(data, &opts) };
-    for s in decompiled {
+    // Shared with HydraSig's strings of the same bytes: one disassembly for both
+    // (`decompiled_strings::string_ml_options`: code refs, stack strings, opcodes).
+    let decompiled = { let _t = crate::memtrack::stage("ml:decompile_strings"); crate::decompiled_strings::string_ml(data) };
+    for s in decompiled.string_ml.iter().cloned() {
         if matches!(
             s.kind,
             StringKind::CodeRef | StringKind::StackString | StringKind::OpcodePattern

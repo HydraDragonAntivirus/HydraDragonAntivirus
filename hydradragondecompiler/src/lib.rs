@@ -135,6 +135,54 @@ pub fn extract_strings(data: &[u8], opts: &ExtractOptions) -> Vec<ExtractedStrin
     out
 }
 
+/// [`extract_strings`] for several option sets at once: each result is exactly what
+/// `extract_strings(data, &opts[i])` returns, but the PE is disassembled once for
+/// all of them (the code-ref, stack-string and opcode passes are most of the cost).
+pub fn extract_strings_multi(data: &[u8], opts: &[ExtractOptions]) -> Vec<Vec<ExtractedString>> {
+    let mut outs: Vec<Vec<ExtractedString>> = opts
+        .iter()
+        .map(|o| {
+            let min_len = o.min_len.max(1);
+            let mut out = Vec::new();
+            if o.ascii {
+                scan::scan_ascii(data, min_len, &mut out);
+            }
+            if o.wide {
+                scan::scan_wide(data, min_len, &mut out);
+            }
+            out
+        })
+        .collect();
+    let pe_pass = |o: &ExtractOptions| o.code_refs || o.stack_strings || o.opcode_patterns;
+    if opts.iter().any(pe_pass) {
+        let extras: Vec<Vec<ExtractedString>> = {
+            let knowns: Vec<std::collections::HashSet<&str>> =
+                outs.iter().map(|out| out.iter().map(|s| s.text.as_str()).collect()).collect();
+            let mut sinks: Vec<pe::Sink> = Vec::new();
+            let mut which = Vec::new();
+            for (i, o) in opts.iter().enumerate() {
+                if pe_pass(o) {
+                    sinks.push(pe::Sink::new(o, o.min_len.max(1), &knowns[i]));
+                    which.push(i);
+                }
+            }
+            pe::scan_pe_sinks(data, &mut sinks);
+            let mut extras: Vec<Vec<ExtractedString>> = vec![Vec::new(); opts.len()];
+            for (sink, i) in sinks.into_iter().zip(which) {
+                extras[i] = sink.out;
+            }
+            extras
+        };
+        for (out, mut extra) in outs.iter_mut().zip(extras) {
+            out.append(&mut extra);
+        }
+    }
+    for (out, o) in outs.iter_mut().zip(opts) {
+        dedup_sort_cap(out, o.max_strings);
+    }
+    outs
+}
+
 /// Deduplicate by `(kind, text)`, sort by `(offset, text)`, and cap the length.
 fn dedup_sort_cap(out: &mut Vec<ExtractedString>, max_strings: usize) {
     // The first of each (kind, text) stays.
@@ -188,6 +236,36 @@ pub(crate) fn is_printable_ascii(b: u8) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The option sets the scan engine uses (hydrasig strings, PE string ML).
+    fn engine_option_sets() -> Vec<ExtractOptions> {
+        vec![
+            ExtractOptions { min_len: 4, ascii: true, wide: true, code_refs: true, stack_strings: true, opcode_patterns: true, max_strings: 50_000 },
+            ExtractOptions { min_len: 6, ascii: false, wide: false, code_refs: true, stack_strings: true, opcode_patterns: true, max_strings: 10_000 },
+        ]
+    }
+
+    /// One disassembly for several option sets gives what each separate call gives,
+    /// on real PE files (System32, plus `DECOMPILER_SAMPLES` when set).
+    #[test]
+    fn multi_equals_separate_calls() {
+        let mut files: Vec<std::path::PathBuf> = ["notepad.exe", "kernel32.dll", "ntdll.dll", "shell32.dll"]
+            .iter()
+            .map(|f| std::path::Path::new(r"C:\Windows\System32").join(f))
+            .filter(|p| p.is_file())
+            .collect();
+        if let Ok(dir) = std::env::var("DECOMPILER_SAMPLES") {
+            files.extend(std::fs::read_dir(dir).unwrap().flatten().map(|e| e.path()));
+        }
+        let sets = engine_option_sets();
+        for f in files {
+            let Ok(d) = std::fs::read(&f) else { continue };
+            let multi = extract_strings_multi(&d, &sets);
+            for (i, o) in sets.iter().enumerate() {
+                assert_eq!(multi[i], extract_strings(&d, o), "{} option set {i}", f.display());
+            }
+        }
+    }
 
     #[test]
     fn ascii_extraction_finds_embedded_string() {

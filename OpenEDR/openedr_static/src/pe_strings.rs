@@ -3,24 +3,13 @@
 //!
 //! Feeds [`super::string_rules`] with searchable text preserving original case.
 
-use hydradragondecompiler::{extract_strings as decompile_strings, ExtractOptions};
-
 /// Minimum run length that counts as a string.
 pub const MIN_LEN: usize = 4;
 
 /// Extract ASCII, UTF-16LE, PE code-referenced strings, and stack strings.
+/// The disassembly is shared with the PE string ML ([`crate::decompiled_strings`]).
 pub fn extract_strings(data: &[u8]) -> Vec<String> {
-    let opts = ExtractOptions {
-        min_len: MIN_LEN,
-        ascii: true,
-        wide: true,
-        code_refs: true,
-        stack_strings: true,
-        opcode_patterns: true,
-        max_strings: 50_000,
-    };
-    let recovered = decompile_strings(data, &opts);
-    recovered.into_iter().map(|s| s.text).collect()
+    crate::decompiled_strings::hydrasig(data)
 }
 
 fn push_string(out: &mut Vec<String>, buf: &[u8]) {
