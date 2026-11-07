@@ -121,14 +121,6 @@
         <ResourceBaseClass Value="Form"/>
         <UnitName Value="UScan"/>
       </Unit>
-      <Unit>
-        <Filename Value="uviruskovalyzer.pas"/>
-        <IsPartOfProject Value="True"/>
-        <ComponentName Value="VirusKovAlyzerForm"/>
-        <HasResources Value="True"/>
-        <ResourceBaseClass Value="Form"/>
-        <UnitName Value="UVirusKovAlyzer"/>
-      </Unit>
     </Units>
   </ProjectOptions>
   <CompilerOptions>

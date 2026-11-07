@@ -52,11 +52,8 @@
                 <Directory Id="INSTALLDIR" Name="OpenEDR">
                     <?if $(var.Platform) = "x64" ?>
                         <Directory Id="INSTALLDIR_PLATFORM" Name="x64">
-                            <Directory Id="MODELSDIR_X64" Name="models" />
                             <Directory Id="THREATINTELDIR_X64" Name="threat_intel" />
-                            <Directory Id="SIGNERRULESDIR_X64" Name="signer_rules" />
                             <Directory Id="JSONDIR_X64" Name="json" />
-                            <Directory Id="DATABASEDIR_X64" Name="database" />
                             <Directory Id="SANCTUMDIR_X64" Name="Sanctum" />
                         </Directory>
                     <?endif?>
@@ -81,13 +78,6 @@
     <Fragment>
         <?if $(var.Platform) = "x64" ?>
             <ComponentGroup Id="ProductComponentsX64" Directory="INSTALLDIR_PLATFORM">
-                <Component Id="ModelBinariesX64" Guid="{A2D1B36C-CE4F-4638-B7E0-7A9EF73BF641}" Directory="MODELSDIR_X64">
-                    <File Id="APK_Trees_Bin_X64" Source="$(var.SourceBinDir64)models\apk_trees.bin" KeyPath="yes" />
-                    <File Id="Generic_Trees_Bin_X64" Source="$(var.SourceBinDir64)models\generic_trees.bin" />
-                    <File Id="JS_Trees_Bin_X64" Source="$(var.SourceBinDir64)models\js_trees.bin" />
-                    <File Id="PE_Trees_Bin_X64" Source="$(var.SourceBinDir64)models\pe_trees.bin" />
-                    <File Id="URL_Trees_Bin_X64" Source="$(var.SourceBinDir64)models\url_trees.bin" />
-                </Component>
                 <Component Id="JsonSettingsComponentX64" Guid="{D1E2F3A4-5C6D-7E8F-9A0B-1C2D3E4F5A6C}" Directory="JSONDIR_X64">
                     <File Id="FirewallSettingsJsonX64" Source="..\..\..\..\owlyshield_predict\json\settings.json" KeyPath="yes" />
                 </Component>
@@ -121,9 +111,7 @@
                     </RegistryKey>
                     <RegistryKey Root="HKLM" Key="Software\Owlyshield\SDK">
                         <RegistryValue Name="RULES_PATH" Value="[INSTALLDIR_PLATFORM]firewall-rules" Type="string" />
-                        <RegistryValue Name="DATABASE_PATH" Value="[INSTALLDIR_PLATFORM]database" Type="string" />
                         <RegistryValue Name="THREAT_INTEL_PATH" Value="[INSTALLDIR_PLATFORM]threat_intel" Type="string" />
-                        <RegistryValue Name="SIGNER_RULES_PATH" Value="[INSTALLDIR_PLATFORM]signer_rules" Type="string" />
                         <RegistryValue Name="SANCTUM_PATH" Value="[INSTALLDIR_PLATFORM]Sanctum" Type="string" />
                         <RegistryValue Name="TRAINING_MODE" Value="0" Type="string" />
                         <RegistryValue Name="TRAINING_WATCH_DIR" Value="" Type="string" />
@@ -134,12 +122,6 @@
                 <!-- signer_rules: single source is the openedr_static portable bundle
                      (staged to $(var.SourceBinDir64)signer_rules\ by the wixproj and
                      installed via the wildcard below) — no edrdata duplicate. -->
-                <!-- ClamAV database (clamav_database_windows): signature files AND
-                     loose *.cbc bytecode live flat in ONE directory, no
-                     subdirectories — the engine loads a single database directory
-                     (from_database_dir). clamscan (src/clamscan.rs) reads
-                     DATABASE_PATH. -->
-                <Files Include="..\..\..\..\..\clamav_database_windows\**" Directory="DATABASEDIR_X64" />
                 <Files Include="$(var.SourceBinDir64)**">
                     <Exclude Files="$(var.SourceBinDir64)models\**" />
                     <Exclude Files="$(var.SourceBinDir64)database\**" />

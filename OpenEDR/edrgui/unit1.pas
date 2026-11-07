@@ -17,7 +17,7 @@ interface
 uses
   Classes, SysUtils, Forms, Controls, Graphics, Dialogs, ExtCtrls, Menus,
   Windows, Registry, fpjson, jsonparser,
-  USvcControl, UAlert, UGuiNotify, UHipPipe, UQuar, URep, UVirusKovAlyzer;
+  USvcControl, UAlert, UGuiNotify, UHipPipe, UQuar, URep;
 
 type
 
@@ -45,7 +45,6 @@ type
     MenuCloudFirstToggle: TMenuItem;
     MenuQuarantine: TMenuItem;
     MenuReputation: TMenuItem;
-    MenuVirusKovAlyzer: TMenuItem;
     procedure FormCreate(Sender: TObject);
     procedure FormDestroy(Sender: TObject);
     procedure MenuExitClick(Sender: TObject);
@@ -63,7 +62,6 @@ type
     procedure QuarFormClosed(Sender: TObject; var CloseAction: TCloseAction);
     procedure MenuReputationClick(Sender: TObject);
     procedure RepFormClosed(Sender: TObject; var CloseAction: TCloseAction);
-    procedure MenuVirusKovAlyzerClick(Sender: TObject);
     procedure Timer1Timer(Sender: TObject);
     procedure TrayIcon1DblClick(Sender: TObject);
   private
@@ -201,13 +199,6 @@ begin
   MenuReputation.OnClick := @MenuReputationClick;
   PopupMenu1.Items.Insert(PopupMenu1.Items.IndexOf(MenuQuarantine) + 1,
     MenuReputation);
-
-  // VirusKovAlyzer deep inspector screen (Spybot FileAlyzer style deep inspection)
-  MenuVirusKovAlyzer := TMenuItem.Create(Self);
-  MenuVirusKovAlyzer.Caption := 'VirusKovAlyzer (Deep Inspector)...';
-  MenuVirusKovAlyzer.OnClick := @MenuVirusKovAlyzerClick;
-  PopupMenu1.Items.Insert(PopupMenu1.Items.IndexOf(MenuReputation) + 1,
-    MenuVirusKovAlyzer);
 
   FBehaviorLogs := TStringList.Create;
   FMLPredictions := TStringList.Create;
@@ -1241,21 +1232,6 @@ procedure TForm1.RepFormClosed(Sender: TObject; var CloseAction: TCloseAction);
 begin
   CloseAction := caFree;
   FRepForm := nil;
-end;
-
-procedure TForm1.MenuVirusKovAlyzerClick(Sender: TObject);
-var
-  dlg: TOpenDialog;
-begin
-  dlg := TOpenDialog.Create(nil);
-  try
-    dlg.Title := 'Select File for VirusKovAlyzer Deep Inspection';
-    dlg.Filter := 'All Files (*.*)|*.*|Executables (*.exe;*.dll;*.sys)|*.exe;*.dll;*.sys';
-    if dlg.Execute then
-      TVirusKovAlyzerForm.InspectFile(dlg.FileName);
-  finally
-    dlg.Free;
-  end;
 end;
 
 procedure TForm1.RunCommand(ACmd: TSvcCommand);

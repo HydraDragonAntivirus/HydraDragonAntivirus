@@ -26,10 +26,14 @@ namespace cmd::openedr_static
 	{
 		try
 		{
+			std::error_code ec;
+			if (std::filesystem::is_regular_file(root / L"openedr_cloud.dll", ec) ||
+				std::filesystem::is_regular_file(root / L"openedr_static.dll", ec))
+				return true;
+
 			for (const auto* name : { L"models", L"database", L"yara_rules", L"rules",
 				L"signer_rules", L"hydradragonsig_rules", L"hayabusa_rules" })
 			{
-				std::error_code ec;
 				if (std::filesystem::is_directory(root / name, ec))
 					return true;
 			}
@@ -158,15 +162,18 @@ namespace cmd::openedr_static
 	{
 		try
 		{
-			if (HMODULE loaded = ::GetModuleHandleW(L"openedr_static.dll"))
+			for (const auto* dllName : { L"openedr_cloud.dll", L"openedr_static.dll" })
 			{
-				if (errorOut)
-					*errorOut = ERROR_SUCCESS;
-				wchar_t modulePath[MAX_PATH] = {};
-				DWORD length = ::GetModuleFileNameW(loaded, modulePath, MAX_PATH);
-				WriteLog("load", std::string(caller) + " already loaded: " +
-					(length > 0 && length < MAX_PATH ? ToUtf8(modulePath) : "<path unavailable>"));
-				return loaded;
+				if (HMODULE loaded = ::GetModuleHandleW(dllName))
+				{
+					if (errorOut)
+						*errorOut = ERROR_SUCCESS;
+					wchar_t modulePath[MAX_PATH] = {};
+					DWORD length = ::GetModuleFileNameW(loaded, modulePath, MAX_PATH);
+					WriteLog("load", std::string(caller) + " already loaded: " +
+						(length > 0 && length < MAX_PATH ? ToUtf8(modulePath) : "<path unavailable>"));
+					return loaded;
+				}
 			}
 
 			std::vector<std::pair<std::wstring, DWORD>> failures;
@@ -188,17 +195,20 @@ namespace cmd::openedr_static
 			if (exeLength > 0 && exeLength < MAX_PATH)
 			{
 				exePath.resize(exeLength);
-				HMODULE module = tryPath((std::filesystem::path(exePath).parent_path() /
-					L"openedr_static.dll").wstring());
-				if (module)
+				const auto exeDir = std::filesystem::path(exePath).parent_path();
+				for (const auto* dllName : { L"openedr_cloud.dll", L"openedr_static.dll" })
 				{
-					if (errorOut)
-						*errorOut = ERROR_SUCCESS;
-					wchar_t modulePath[MAX_PATH] = {};
-					DWORD length = ::GetModuleFileNameW(module, modulePath, MAX_PATH);
-					WriteLog("load", std::string(caller) + " loaded: " +
-						(length > 0 && length < MAX_PATH ? ToUtf8(modulePath) : "<path unavailable>"));
-					return module;
+					HMODULE module = tryPath((exeDir / dllName).wstring());
+					if (module)
+					{
+						if (errorOut)
+							*errorOut = ERROR_SUCCESS;
+						wchar_t modulePath[MAX_PATH] = {};
+						DWORD length = ::GetModuleFileNameW(module, modulePath, MAX_PATH);
+						WriteLog("load", std::string(caller) + " loaded: " +
+							(length > 0 && length < MAX_PATH ? ToUtf8(modulePath) : "<path unavailable>"));
+						return module;
+					}
 				}
 			}
 			else
@@ -208,25 +218,27 @@ namespace cmd::openedr_static
 			DWORD pfLength = ::GetEnvironmentVariableW(L"ProgramFiles", programFiles, MAX_PATH);
 			if (pfLength > 0 && pfLength < MAX_PATH)
 			{
-				const auto path = (std::filesystem::path(programFiles) /
-					L"HydraDragonAntivirus" / L"OpenEDR" / L"openedr_static.dll").wstring();
-				HMODULE module = tryPath(path);
-				if (module)
+				const auto root = std::filesystem::path(programFiles) / L"HydraDragonAntivirus" / L"OpenEDR";
+				for (const auto* dllName : { L"openedr_cloud.dll", L"openedr_static.dll" })
 				{
-					if (errorOut)
-						*errorOut = ERROR_SUCCESS;
-					wchar_t modulePath[MAX_PATH] = {};
-					DWORD length = ::GetModuleFileNameW(module, modulePath, MAX_PATH);
-					WriteLog("load", std::string(caller) + " loaded: " +
-						(length > 0 && length < MAX_PATH ? ToUtf8(modulePath) : "<path unavailable>"));
-					return module;
+					HMODULE module = tryPath((root / dllName).wstring());
+					if (module)
+					{
+						if (errorOut)
+							*errorOut = ERROR_SUCCESS;
+						wchar_t modulePath[MAX_PATH] = {};
+						DWORD length = ::GetModuleFileNameW(module, modulePath, MAX_PATH);
+						WriteLog("load", std::string(caller) + " loaded: " +
+							(length > 0 && length < MAX_PATH ? ToUtf8(modulePath) : "<path unavailable>"));
+						return module;
+					}
 				}
 			}
 			else
 				failures.emplace_back(L"%ProgramFiles%", ::GetLastError());
 
 			std::ostringstream message;
-			message << caller << " failed to load openedr_static.dll";
+			message << caller << " failed to load openedr_cloud.dll / openedr_static.dll";
 			for (const auto& failure : failures)
 				message << "; path=" << ToUtf8(failure.first) << " win32=" << failure.second;
 			static std::atomic<bool> failureLogged{ false };
@@ -276,11 +288,16 @@ namespace cmd::openedr_static
 		}
 
 		auto init = reinterpret_cast<int32_t (*)(const char*)>(
-			::GetProcAddress(module, "openedr_static_init"));
+			::GetProcAddress(module, "openedr_cloud_init"));
+		if (!init)
+		{
+			init = reinterpret_cast<int32_t (*)(const char*)>(
+				::GetProcAddress(module, "openedr_static_init"));
+		}
 		if (!init)
 		{
 			lastError = ERROR_PROC_NOT_FOUND;
-			WriteLog("exports-missing", std::string(caller) + " missing openedr_static_init");
+			WriteLog("exports-missing", std::string(caller) + " missing openedr_cloud_init / openedr_static_init");
 			module = nullptr;
 			if (errorOut)
 				*errorOut = lastError;

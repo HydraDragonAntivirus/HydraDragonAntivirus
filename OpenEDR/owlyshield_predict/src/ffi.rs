@@ -393,18 +393,26 @@ fn wide_nul(s: &str) -> Vec<u16> {
 /// PATH) and bind the static scan APIs. Runs openedr_static_init(NULL) once.
 fn static_binding() -> Option<StaticBinding> {
     let cell = STATIC_BINDING.get_or_init(|| {
-        let dll = wide_nul("openedr_static.dll");
+        let dll_candidates = ["openedr_cloud.dll", "openedr_static.dll"];
         unsafe {
-            let mut handle: *mut std::ffi::c_void = GetModuleHandleW(dll.as_ptr());
-            if handle.is_null() {
+            let mut handle: *mut std::ffi::c_void = std::ptr::null_mut();
+            for name in dll_candidates {
+                let dll = wide_nul(name);
+                handle = GetModuleHandleW(dll.as_ptr());
+                if !handle.is_null() {
+                    break;
+                }
                 handle = LoadLibraryW(dll.as_ptr());
-            }
-            if handle.is_null() {
+                if !handle.is_null() {
+                    break;
+                }
                 if let Ok(exe) = std::env::current_exe() {
                     if let Some(parent) = exe.parent() {
-                        let p =
-                            wide_nul(&parent.join("openedr_static.dll").to_string_lossy());
+                        let p = wide_nul(&parent.join(name).to_string_lossy());
                         handle = LoadLibraryW(p.as_ptr());
+                        if !handle.is_null() {
+                            break;
+                        }
                     }
                 }
             }

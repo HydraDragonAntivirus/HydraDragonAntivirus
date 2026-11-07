@@ -23,7 +23,7 @@ interface
 uses
   Classes, SysUtils, Forms, Controls, Graphics, StdCtrls, ComCtrls, Dialogs,
   ExtCtrls, Menus, Windows, LCLType, Registry, fpjson, jsonparser, UGuiNotify,
-  UAlert, UVirusKovAlyzer;
+  UAlert;
 
 type
   TScanForm = class; // forward: worker thread references the form
@@ -97,8 +97,6 @@ type
     SummaryLbl: TLabel;
     ResultsView: TListView;
     PollTimer: TTimer;
-    PopupMenuResults: TPopupMenu;
-    MenuItemInspectVirusKov: TMenuItem;
     procedure TargetKindChanged(Sender: TObject);
     procedure BrowseBtnClick(Sender: TObject);
     procedure StartBtnClick(Sender: TObject);
@@ -107,8 +105,6 @@ type
     procedure PollTick(Sender: TObject);
     procedure ResultsDrawItem(Sender: TCustomListView; Item: TListItem;
       State: TCustomDrawState; var DefaultDraw: Boolean);
-    procedure MenuItemInspectVirusKovClick(Sender: TObject);
-    procedure ResultsViewDblClick(Sender: TObject);
     procedure FormShowed(Sender: TObject);
     procedure FormDestroy(Sender: TObject);
   private
@@ -1012,42 +1008,6 @@ begin
   CancelBtn.Enabled := False;
   StatusLbl.Caption := AMsg;
   RenderNewDetections;
-end;
-
-procedure TScanForm.MenuItemInspectVirusKovClick(Sender: TObject);
-var
-  it: TListItem;
-  p: string;
-  colonIdx: Integer;
-begin
-  it := ResultsView.Selected;
-  if it <> nil then
-  begin
-    p := '';
-    if it.SubItems.Count >= 2 then
-    begin
-      p := it.SubItems[1];
-      colonIdx := Pos(' :: ', p);
-      if colonIdx > 0 then
-        p := Copy(p, 1, colonIdx - 1);
-    end;
-    if (p = '') or not FileExists(p) then
-      p := it.Caption;
-    if FileExists(p) then
-    begin
-      TVirusKovAlyzerForm.InspectFile(p);
-      Exit;
-    end;
-  end;
-  if FileExists(PathEdit.Text) then
-    TVirusKovAlyzerForm.InspectFile(PathEdit.Text)
-  else
-    MessageDlg('VirusKovAlyzer', 'Please select a valid file from the results list.', mtInformation, [mbOK], 0);
-end;
-
-procedure TScanForm.ResultsViewDblClick(Sender: TObject);
-begin
-  MenuItemInspectVirusKovClick(Sender);
 end;
 
 procedure TScanForm.FormShowed(Sender: TObject);

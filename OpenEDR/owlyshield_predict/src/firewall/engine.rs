@@ -1128,16 +1128,23 @@ fn load_openedr_dll() -> Option<OpenedrDll> {
     use windows::Win32::System::LibraryLoader::{GetModuleHandleW, GetProcAddress, LoadLibraryW};
 
     unsafe {
-        let mut candidates: Vec<std::path::PathBuf> =
-            vec![std::path::PathBuf::from("openedr_static.dll")];
+        let mut candidates: Vec<std::path::PathBuf> = vec![
+            std::path::PathBuf::from("openedr_cloud.dll"),
+            std::path::PathBuf::from("openedr_static.dll"),
+        ];
         if let Some(d) = crate::utils::current_module_dir() {
+            candidates.push(d.join("openedr_cloud.dll"));
             candidates.push(d.join("openedr_static.dll"));
         }
         if let Ok(exe) = std::env::current_exe() {
             if let Some(d) = exe.parent() {
+                candidates.push(d.join("openedr_cloud.dll"));
                 candidates.push(d.join("openedr_static.dll"));
             }
         }
+        candidates.push(std::path::PathBuf::from(
+            r"C:\Program Files\HydraDragonAntivirus\OpenEDR\openedr_cloud.dll",
+        ));
         candidates.push(std::path::PathBuf::from(
             r"C:\Program Files\HydraDragonAntivirus\OpenEDR\openedr_static.dll",
         ));
