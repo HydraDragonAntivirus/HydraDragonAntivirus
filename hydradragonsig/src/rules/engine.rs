@@ -52,6 +52,10 @@ struct ScanView {
     opcode_listings: super::opcode::ListingCache,
     /// .NET / ELF / Mach-O / PDF structures parsed in this scan.
     formats: super::formats::FormatCache,
+    /// `domain_blocklist`: every listed host / URL the strings reference, per DB
+    /// (address) and number of decoded strings seen, found once per scan for all
+    /// the rules (the malware and phishing rules read the same strings).
+    domain_hits: std::cell::RefCell<Vec<(usize, usize, std::rc::Rc<Vec<(String, String)>>)>>,
 }
 
 /// Categorized host blocklist loaded from external text files: one
@@ -351,30 +355,78 @@ fn domain_blocklist_evidence(
                 c == "*" || c == "ANY" || c == category
             })
     };
+    // The listed references of this file, found once per scan (every category).
+    let key = (db as *const DomainCategoryDb as usize, view.decoded_lower.len());
+    let cached = view.domain_hits.borrow().iter().find(|e| (e.0, e.1) == key).map(|e| e.2.clone());
+    let hits = cached.unwrap_or_else(|| {
+        let hits = std::rc::Rc::new(domain_blocklist_hits(db, report, view));
+        view.domain_hits.borrow_mut().push((key.0, key.1, hits.clone()));
+        hits
+    });
+    // In the order they were found, as many as before (the first max(min, 8)).
+    let found: Vec<&(String, String)> = hits.iter().filter(|(_, c)| accepts(c)).take(min.max(8)).collect();
+    if found.len() < min {
+        return None;
+    }
+    let evidence = found
+        .iter()
+        .map(|(d, c)| format!("`{d}`={c}"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    Some(format!(
+        "domain_blocklist {}/{} listed domains referenced: {}",
+        found.len(),
+        min,
+        evidence
+    ))
+}
+
+/// Most listed references kept per scan (all categories together).
+const MAX_DOMAIN_HITS: usize = 1024;
+
+/// Every listed host / URL the file strings (plain and decoded) reference, with its
+/// category, in the order found, at most [`MAX_DOMAIN_HITS`]. With uBO lists loaded,
+/// URLs are also matched as a whole (hostname filters, URL patterns, `@@`
+/// exceptions); a URL-pattern hit is reported as the URL.
+fn domain_blocklist_hits(db: &DomainCategoryDb, report: &ScanReport, view: &ScanView) -> Vec<(String, String)> {
     let mut found: Vec<(String, String)> = Vec::new();
     let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
-    let mut texts: Vec<&str> = Vec::with_capacity(report.strings.len());
-    for hit in &report.strings {
-        texts.push(&hit.value);
+    // Lowercase already (the view keeps the strings lowercased when it has them all).
+    let lowered = view.strings_lower.len() == report.strings.len();
+    let mut texts: Vec<&str> = Vec::with_capacity(report.strings.len() + view.decoded_lower.len());
+    for (i, hit) in report.strings.iter().enumerate() {
+        texts.push(if lowered { &view.strings_lower[i] } else { &hit.value });
     }
     for value in &view.decoded_lower {
         texts.push(value);
     }
     let mut record = |label: &str, category: &str| -> bool {
         let label = truncate_at_char(label, MAX_URL_EVIDENCE);
-        if accepts(category) && seen.insert(label.to_string()) {
+        if seen.insert(label.to_string()) {
             found.push((label.to_string(), category.to_string()));
         }
-        found.len() >= min.max(8)
+        found.len() >= MAX_DOMAIN_HITS
     };
     let check_urls = !db.ubo.is_empty();
     let url_patterns = db.ubo.has_url_filters();
     let mut urls_checked = 0usize;
     'search: for text in texts {
+        // A host name or URL has a dot or `://`: most strings of a binary have neither.
+        if memchr::memchr(b'.', text.as_bytes()).is_none() && !text.contains("://") {
+            continue;
+        }
         // Hostnames already decided through their URL (uBO lists only).
         let mut url_hosts: Vec<std::ops::Range<usize>> = Vec::new();
         let mut url_spans: Vec<std::ops::Range<usize>> = Vec::new();
-        let lower = if check_urls { text.to_ascii_lowercase() } else { String::new() };
+        let owned;
+        let lower: &str = if !check_urls {
+            ""
+        } else if text.bytes().any(|b| b.is_ascii_uppercase()) {
+            owned = text.to_ascii_lowercase();
+            &owned
+        } else {
+            text
+        };
         if check_urls {
             for m in URL_RE.find_iter(&lower) {
                 if urls_checked >= MAX_URLS_PER_SCAN {
@@ -431,20 +483,7 @@ fn domain_blocklist_evidence(
             }
         }
     }
-    if found.len() < min {
-        return None;
-    }
-    let evidence = found
-        .iter()
-        .map(|(d, c)| format!("`{d}`={c}"))
-        .collect::<Vec<_>>()
-        .join(", ");
-    Some(format!(
-        "domain_blocklist {}/{} listed domains referenced: {}",
-        found.len(),
-        min,
-        evidence
-    ))
+    found
 }
 
 impl ScanView {
@@ -509,6 +548,7 @@ impl ScanView {
             dex_strings: Vec::new(),
             opcode_listings: Default::default(),
             formats: Default::default(),
+            domain_hits: Default::default(),
         }
     }
 

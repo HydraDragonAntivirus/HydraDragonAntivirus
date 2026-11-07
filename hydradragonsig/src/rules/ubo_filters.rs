@@ -124,6 +124,8 @@ impl UrlRegex {
 #[derive(Debug)]
 struct RegexFilter {
     re: UrlRegex,
+    /// The pattern of a `regex` (linear) filter, for the combined set.
+    source: Option<String>,
     exception: bool,
     important: bool,
     category: u16,
@@ -149,6 +151,11 @@ pub(crate) struct UboFilters {
     token_index: HashMap<Vec<u8>, Vec<u32>>,
     untokenized: Vec<u32>,
     regexes: Vec<RegexFilter>,
+    /// Every linear regex filter in one set (built by [`UboFilters::finish`]): a URL
+    /// is matched against all of them in one pass instead of one regex at a time.
+    regex_set: Option<regex::bytes::RegexSet>,
+    /// Per filter of `regexes`: its index in `regex_set` (None: checked alone).
+    regex_set_pos: Vec<Option<usize>>,
     /// Filters disabled by `$badfilter`, applied by [`UboFilters::finish`].
     badfilters: Vec<String>,
     lines: usize,
@@ -584,6 +591,40 @@ impl UboFilters {
 
     /// Applies `$badfilter` lines collected from every loaded list.
     pub(crate) fn finish(&mut self) {
+        self.apply_badfilters();
+        self.build_regex_set();
+    }
+
+    /// The linear regex filters as one [`regex::bytes::RegexSet`], same options as
+    /// each filter (case-insensitive, no Unicode). Left out when it does not build:
+    /// the filters are then checked one by one as before.
+    fn build_regex_set(&mut self) {
+        self.regex_set = None;
+        self.regex_set_pos = vec![None; self.regexes.len()];
+        let mut patterns = Vec::new();
+        for (i, f) in self.regexes.iter().enumerate() {
+            if let (UrlRegex::Linear(_), Some(src)) = (&f.re, &f.source) {
+                self.regex_set_pos[i] = Some(patterns.len());
+                patterns.push(src.as_str());
+            }
+        }
+        if patterns.len() < 2 {
+            self.regex_set_pos = vec![None; self.regexes.len()];
+            return;
+        }
+        let set = regex::bytes::RegexSetBuilder::new(&patterns)
+            .unicode(false)
+            .case_insensitive(true)
+            .size_limit(MAX_REGEX_SIZE * 64)
+            .dfa_size_limit(MAX_REGEX_SIZE * 64)
+            .build();
+        match set {
+            Ok(set) => self.regex_set = Some(set),
+            Err(_) => self.regex_set_pos = vec![None; self.regexes.len()],
+        }
+    }
+
+    fn apply_badfilters(&mut self) {
         if self.badfilters.is_empty() {
             return;
         }
@@ -684,9 +725,23 @@ impl UboFilters {
                 });
             }
         }
+        // First wanted filter in list order, as before; the set answers for every
+        // linear filter at once.
+        let set_hits = match &self.regex_set {
+            Some(set) if self.regexes.iter().any(|f| wanted(f.exception, f.important)) => Some(set.matches(bytes)),
+            _ => None,
+        };
         self.regexes
             .iter()
-            .find(|f| wanted(f.exception, f.important) && f.re.is_match(url))
+            .enumerate()
+            .find(|(i, f)| {
+                wanted(f.exception, f.important)
+                    && match (&set_hits, self.regex_set_pos.get(*i).copied().flatten()) {
+                        (Some(hits), Some(pos)) => hits.matched(pos),
+                        _ => f.re.is_match(url),
+                    }
+            })
+            .map(|(_, f)| f)
             .map(|f| Block {
                 category: self.category_name(f.category),
                 important: f.important,
@@ -833,6 +888,7 @@ fn parse_network(line: &str, category: u16) -> Parsed {
             .dfa_size_limit(MAX_REGEX_SIZE)
             .build()
             .map(UrlRegex::Linear);
+        let set_source = linear.is_ok().then(|| source.to_string());
         let re = linear.or_else(|_| {
             fancy_regex::RegexBuilder::new(source)
                 .case_insensitive(true)
@@ -843,7 +899,7 @@ fn parse_network(line: &str, category: u16) -> Parsed {
                 .map(UrlRegex::Backtracking)
         });
         return match re {
-            Ok(re) => Parsed::Regex(RegexFilter { re, exception, important, category, key }),
+            Ok(re) => Parsed::Regex(RegexFilter { re, source: set_source, exception, important, category, key }),
             Err(_) => Parsed::Rejected,
         };
     }

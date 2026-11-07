@@ -432,10 +432,14 @@ fn extract_pe_features_v2_inner(data: &[u8]) -> Option<[f32; PE_V2_FEATURE_COUNT
     if !has_code(data) {
         return None;
     }
-    let shell = extract_pe_features(data)?.to_array();
-    let shell_strings = StringCounts::of(data);
+    // Sub-stages (own time each) so the scan timing shows where the features cost.
+    let shell = { let _t = crate::memtrack::stage("ml:pe_header_features"); extract_pe_features(data)?.to_array() };
+    let shell_strings = { let _t = crate::memtrack::stage("ml:string_counts"); StringCounts::of(data) };
     let inner = inner_of(data);
-    let inner_pe = inner.pe.as_deref().and_then(extract_pe_features).map(|f| f.to_array()).unwrap_or([0.0; 65]);
+    let inner_pe = {
+        let _t = crate::memtrack::stage("ml:pe_header_features");
+        inner.pe.as_deref().and_then(extract_pe_features).map(|f| f.to_array()).unwrap_or([0.0; 65])
+    };
 
     let mut v = [0f32; PE_V2_FEATURE_COUNT];
     let mut i = 0;
@@ -456,7 +460,10 @@ fn extract_pe_features_v2_inner(data: &[u8]) -> Option<[f32; PE_V2_FEATURE_COUNT
     ]);
     put(&shell_strings.add(inner.strings).features());
     put(&[dotnet_kind(data) as f32, inner.pe.as_deref().map_or(0.0, |p| dotnet_kind(p) as f32)]);
-    let mimicry = |d: &[u8]| extract_pe_mimicry(d).unwrap_or_default().to_array();
+    let mimicry = |d: &[u8]| {
+        let _t = crate::memtrack::stage("ml:mimicry");
+        extract_pe_mimicry(d).unwrap_or_default().to_array()
+    };
     put(&mimicry(data));
     put(&inner.pe.as_deref().map_or([0.0; PeMimicryMetrics::LEN], mimicry));
     let extra_raw = (inner.source == InnerSource::Image).then_some(data);
@@ -464,6 +471,7 @@ fn extract_pe_features_v2_inner(data: &[u8]) -> Option<[f32; PE_V2_FEATURE_COUNT
         .pe
         .as_deref()
         .map_or_else(Default::default, |p| {
+            let _t = crate::memtrack::stage("ml:string_url_ml");
             extract_inner_pe_string_and_url_ml(p, extra_raw, inner.trace.as_ref())
         });
     put(&inner_str_ml.base_array());
@@ -476,6 +484,7 @@ fn extract_pe_features_v2_inner(data: &[u8]) -> Option<[f32; PE_V2_FEATURE_COUNT
         Default::default()
     } else {
         let trace = inner.trace.as_ref().filter(|_| inner.source != InnerSource::Extracted);
+        let _t = crate::memtrack::stage("ml:string_url_ml");
         extract_shell_pe_string_and_url_ml(&data[..data.len().min(INNER_MAX_BYTES)], trace)
     };
     put(&shell_str_ml.base_array());

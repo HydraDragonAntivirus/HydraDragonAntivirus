@@ -449,7 +449,8 @@ fn collect_all_inner_strings(
         opcode_patterns: true,
         max_strings: 10_000,
     };
-    for s in decompile_strings(data, &opts) {
+    let decompiled = { let _t = crate::memtrack::stage("ml:decompile_strings"); decompile_strings(data, &opts) };
+    for s in decompiled {
         if matches!(
             s.kind,
             StringKind::CodeRef | StringKind::StackString | StringKind::OpcodePattern
@@ -643,8 +644,12 @@ fn classify_inner_pe_strings_and_urls(
     if data.len() < 64 {
         return PeStringBreakdown::default();
     }
-    let (strings, decomp_count, trace_count) = collect_all_inner_strings(data, extra_raw, trace);
+    let (strings, decomp_count, trace_count) = {
+        let _t = crate::memtrack::stage("ml:string_collect");
+        collect_all_inner_strings(data, extra_raw, trace)
+    };
     if let Some(c) = urls {
+        let _t = crate::memtrack::stage("ml:url_collect");
         c.add_file_bytes(data);
         if let Some(raw) = extra_raw {
             c.add_file_bytes(raw);
@@ -667,7 +672,8 @@ pub fn extract_inner_pe_string_and_url_ml(
 ) -> (PeStringMlMetrics, UrlMlMetrics) {
     let mut urls = UrlCollector::new();
     let b = classify_inner_pe_strings_and_urls(data, extra_raw, trace, Some(&mut urls));
-    (b.metrics(), urls.metrics())
+    let u = { let _t = crate::memtrack::stage("ml:url_score"); urls.metrics() };
+    (b.metrics(), u)
 }
 
 /// String ML and URL ML features of the file itself (`shell_*` blocks of the v2 vector).
