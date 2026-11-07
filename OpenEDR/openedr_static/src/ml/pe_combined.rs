@@ -291,6 +291,17 @@ fn run_emulation(data: &[u8]) -> Option<Emulation> {
             return Some(Emulation { dump: None, unpacked: false, trace: run.trace, failed: false });
         }
     }
+    // UPX: unpacked statically, the steps of its stub done directly (milliseconds; the
+    // emulator needs seconds and often runs out of budget on a big LZMA payload). It
+    // checks the UPX checksums, so a fake or damaged header falls through to the
+    // generic run below, as does a variant it does not know. No API trace: the stub
+    // only loads the imports.
+    let upx = crate::memtrack::measure("scan:upx_static", crate::memtrack::Kind::Scan, data.len(), || {
+        hydradragonunicorn::unpacker::upx::unpack_pe(data)
+    });
+    if let Ok(dump) = upx {
+        return Some(Emulation { dump: Some(dump), unpacked: true, trace: Default::default(), failed: false });
+    }
     let sample = Sample::from_bytes(data).ok()?;
     let ep = entrypoint(&sample.opt_header);
     let mut eng = UnpackerEngine::new(sample, "memory").with_trace_mode(true);

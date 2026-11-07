@@ -5481,6 +5481,12 @@ fn find_byte_program(bytes: &[u8], units: &[ByteUnit]) -> Option<usize> {
         let mut budget = BYTE_MATCH_BUDGET;
         match_units(units, &|_, _| true, bytes, start, &mut budget)
     };
+    // A pattern that is one alternation `( A | B )` has no fixed run outside it:
+    // its earliest match is the earliest of its branches, each found through its
+    // own anchor instead of trying every offset of the file.
+    if let [ByteUnit::Alt(branches)] = units {
+        return branches.iter().filter_map(|b| find_byte_program(bytes, b)).min();
+    }
     // The longest fixed run anywhere in the pattern narrows the candidate offsets
     // to the starts that put it where it occurs (a leading `( 0C | 13 )` no longer
     // means trying every offset of the file).

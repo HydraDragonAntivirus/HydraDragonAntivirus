@@ -1079,36 +1079,8 @@ pub fn dump_image_to_bytes(
     // 3. Fix section memory protections
     fix_section_mem_protections(&mut pe_data, &ctx.allocated_chunks, base_addr)?;
 
-    // 4. Fix imports
-    let _new_imports = fix_imports_by_rebuilding(
-        &mut pe_data,
-        ctx,
-        actual_image_size,
-        section_alignment,
-        file_alignment,
-    )?;
-
-    // 5. Fix checksum
-    let (opt_hdr_off, is_pe64, _, _, _) = parse_pe_headers(&pe_data)
-        .ok_or_else(|| UnpackerError::InvalidPeFile("cannot parse PE headers for checksum fix".into()))?;
-    let data_dir_offset = if is_pe64 { opt_hdr_off + 112 } else { opt_hdr_off + 96 };
-    let security_dir_offset = data_dir_offset + IMAGE_DIRECTORY_ENTRY_SECURITY * 8;
-    if security_dir_offset + 8 <= pe_data.len() {
-        write_u32(&mut pe_data, security_dir_offset, 0);
-        write_u32(&mut pe_data, security_dir_offset + 4, 0);
-    }
-
-    let coff_offset = pe_signature_offset(&pe_data).unwrap() + 4;
-    let characteristics = read_u16(&pe_data, coff_offset + 18);
-    write_u16(&mut pe_data, coff_offset + 18, characteristics | IMAGE_FILE_RELOCS_STRIPPED);
-
-    let reloc_dir_offset = data_dir_offset + IMAGE_DIRECTORY_ENTRY_BASERELOC * 8;
-    if reloc_dir_offset + 8 <= pe_data.len() {
-        write_u32(&mut pe_data, reloc_dir_offset, 0);
-        write_u32(&mut pe_data, reloc_dir_offset + 4, 0);
-    }
-
-    fix_checksum(&mut pe_data)?;
+    // 4-5. Imports, certificate / relocations, checksum
+    finish_dump(&mut pe_data, ctx, actual_image_size, section_alignment, file_alignment)?;
 
     log::info!(
         "Dumped PE image to memory (size: {}, OEP: {:#x})",
@@ -1117,4 +1089,75 @@ pub fn dump_image_to_bytes(
     );
 
     Ok(pe_data)
+}
+
+/// The last steps of a dump: imports rebuilt from `ctx` in a new section, the
+/// certificate and relocation directories cleared (they do not fit an image dump),
+/// relocations marked stripped, the checksum recomputed.
+fn finish_dump(
+    pe_data: &mut Vec<u8>,
+    ctx: &DumpContext,
+    image_size: u32,
+    section_alignment: u32,
+    file_alignment: u32,
+) -> UnpackerResult<()> {
+    let _new_imports = fix_imports_by_rebuilding(pe_data, ctx, image_size, section_alignment, file_alignment)?;
+
+    let (opt_hdr_off, is_pe64, _, _, _) = parse_pe_headers(pe_data)
+        .ok_or_else(|| UnpackerError::InvalidPeFile("cannot parse PE headers for checksum fix".into()))?;
+    let data_dir_offset = if is_pe64 { opt_hdr_off + 112 } else { opt_hdr_off + 96 };
+    let security_dir_offset = data_dir_offset + IMAGE_DIRECTORY_ENTRY_SECURITY * 8;
+    if security_dir_offset + 8 <= pe_data.len() {
+        write_u32(pe_data, security_dir_offset, 0);
+        write_u32(pe_data, security_dir_offset + 4, 0);
+    }
+
+    let coff_offset = pe_signature_offset(pe_data)
+        .ok_or_else(|| UnpackerError::InvalidPeFile("no PE signature".into()))?
+        + 4;
+    let characteristics = read_u16(pe_data, coff_offset + 18);
+    write_u16(pe_data, coff_offset + 18, characteristics | IMAGE_FILE_RELOCS_STRIPPED);
+
+    let reloc_dir_offset = data_dir_offset + IMAGE_DIRECTORY_ENTRY_BASERELOC * 8;
+    if reloc_dir_offset + 8 <= pe_data.len() {
+        write_u32(pe_data, reloc_dir_offset, 0);
+        write_u32(pe_data, reloc_dir_offset + 4, 0);
+    }
+
+    fix_checksum(pe_data)
+}
+
+/// A PE file from a memory image (offset = RVA) that a static unpacker rebuilt (UPX):
+/// the entry point set to `oep_rva`, every section's raw data where it is in memory
+/// (raw offset = RVA, file alignment = section alignment), then the same imports and
+/// fixups as an emulator dump ([`dump_image_to_bytes`]). `imports`: DLL name to its
+/// functions (`ord_N` for an ordinal; the addresses are not used).
+pub fn image_to_pe(
+    mut image: Vec<u8>,
+    oep_rva: u32,
+    imports: HashMap<String, Vec<(String, u64)>>,
+) -> UnpackerResult<Vec<u8>> {
+    let (opt_hdr_off, _, num_sections, _, section_hdr_offset) =
+        parse_pe_headers(&image).ok_or_else(|| UnpackerError::InvalidPeFile("cannot parse PE headers".into()))?;
+    let section_alignment = read_u32(&image, opt_hdr_off + 32).max(0x200);
+    write_u32(&mut image, opt_hdr_off + 16, oep_rva);
+    write_u32(&mut image, opt_hdr_off + 36, section_alignment);
+    let image_len = image.len() as u32;
+    for i in 0..num_sections as usize {
+        let off = section_hdr_offset + i * IMAGE_SIZEOF_SECTION_HEADER;
+        if off + IMAGE_SIZEOF_SECTION_HEADER > image.len() {
+            break;
+        }
+        let va = read_u32(&image, off + 12);
+        let vs = read_u32(&image, off + 8);
+        let raw = align_up(vs, section_alignment).min(image_len.saturating_sub(va));
+        write_u32(&mut image, off + 16, raw);
+        write_u32(&mut image, off + 20, if raw == 0 { 0 } else { va });
+    }
+    let image_size = align_up(image_len, section_alignment);
+    image.resize(image_size as usize, 0);
+    let mut ctx = DumpContext::new(image_size as u64, 0);
+    ctx.dllname_to_functionlist = imports;
+    finish_dump(&mut image, &ctx, image_size, section_alignment, section_alignment)?;
+    Ok(image)
 }

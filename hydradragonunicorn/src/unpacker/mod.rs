@@ -8,6 +8,7 @@ pub mod kernel_structs;
 pub mod packers;
 pub mod plan;
 pub mod recipe;
+pub mod upx;
 
 pub use engine::UnpackerEngine;
 pub use error::UnpackerError;
