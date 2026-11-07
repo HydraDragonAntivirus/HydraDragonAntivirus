@@ -228,12 +228,62 @@ fn parse_blacklist_line(l: &str) -> Option<BlacklistLine> {
 }
 
 #[derive(Default)]
+struct FileIndex {
+    all: Vec<Entry>,
+    by_length: Vec<Vec<u32>>,
+}
+
+impl FileIndex {
+    fn push(&mut self, e: Entry) {
+        if self.by_length.is_empty() {
+            self.by_length = vec![Vec::new(); 256];
+        }
+        self.by_length[e.tlsh.length().value() as usize].push(self.all.len() as u32);
+        self.all.push(e);
+    }
+
+    fn clear(&mut self) {
+        self.all.clear();
+        self.by_length.clear();
+    }
+
+    fn near(&self, q: &Tlsh, max_dist: u32) -> Vec<(u32, &Entry, u32)> {
+        if self.by_length.is_empty() {
+            return Vec::new();
+        }
+        let reach = (max_dist / 12).max(1) as i32;
+        if reach >= 64 {
+            return self
+                .all
+                .iter()
+                .enumerate()
+                .filter_map(|(i, e)| {
+                    let d = q.compare(&e.tlsh);
+                    (d <= max_dist).then_some((i as u32, e, d))
+                })
+                .collect();
+        }
+        let l = q.length().value();
+        let mut out: Vec<(u32, &Entry, u32)> = (-reach..=reach)
+            .flat_map(|k| self.by_length[l.wrapping_add(k as u8) as usize].iter())
+            .filter_map(|&i| {
+                let e = &self.all[i as usize];
+                let d = q.compare(&e.tlsh);
+                (d <= max_dist).then_some((i, e, d))
+            })
+            .collect();
+        out.sort_unstable_by_key(|x| x.0);
+        out
+    }
+}
+
+#[derive(Default)]
 pub struct SimilarityIndex {
     /// Verified benign corpus (`tlsh_signatures/tlsh_whitelist_refs.jsonl`).
     corpus_refs: RwLock<Vec<CorpusRef>>,
     /// SHA-256 (lower case) of every corpus reference: exact copies are simply clean.
     corpus_shas: RwLock<HashSet<String>>,
-    files: RwLock<Vec<Entry>>,
+    files: RwLock<FileIndex>,
     seen: RwLock<HashSet<String>>,
     known_malware: RwLock<KnownList>,
     analyst_sigs: RwLock<Vec<AnalystSig>>,
@@ -529,7 +579,7 @@ impl SimilarityIndex {
 
     pub fn tlsh_of(&self, sha256: &str) -> Option<String> {
         let sha = sha256.to_ascii_lowercase();
-        self.files.read().unwrap().iter().find(|e| e.sha256 == sha).map(|e| e.tlsh.to_string())
+        self.files.read().unwrap().all.iter().find(|e| e.sha256 == sha).map(|e| e.tlsh.to_string())
     }
 
     /// Adds a file once (called after its static report is built).
@@ -554,20 +604,18 @@ impl SimilarityIndex {
             .files
             .read()
             .unwrap()
-            .iter()
-            .filter(|e| e.sha256 != ex)
-            .filter_map(|e| {
-                let d = q.compare(&e.tlsh);
-                (d <= max_dist).then(|| SimilarFile {
-                    sha256: e.sha256.clone(),
-                    distance: d,
-                    tlsh: e.tlsh.to_string(),
-                    size: e.size,
-                    verdict: String::new(),
-                    verdict_source: String::new(),
-                    threat_name: None,
-                    file_name: None,
-                })
+            .near(&q, max_dist)
+            .into_iter()
+            .filter(|(_, e, _)| e.sha256 != ex)
+            .map(|(_, e, d)| SimilarFile {
+                sha256: e.sha256.clone(),
+                distance: d,
+                tlsh: e.tlsh.to_string(),
+                size: e.size,
+                verdict: String::new(),
+                verdict_source: String::new(),
+                threat_name: None,
+                file_name: None,
             })
             .collect();
         for k in self.known_malware.read().unwrap().all.iter() {
@@ -600,11 +648,9 @@ impl SimilarityIndex {
             .files
             .read()
             .unwrap()
-            .iter()
-            .filter_map(|e| {
-                let d = q.compare(&e.tlsh);
-                (d <= SMART_WL_MAX_DIST).then(|| (e.sha256.clone(), d))
-            })
+            .near(&q, SMART_WL_MAX_DIST)
+            .into_iter()
+            .map(|(_, e, d)| (e.sha256.clone(), d))
             .collect();
         let mut v: Vec<(String, u32)> = near.into_iter().filter(|(sha, _)| is_clean(sha)).collect();
         v.sort_by_key(|x| x.1);
@@ -648,7 +694,7 @@ pub fn smart_whitelist(
     // (distance, sha, structure, origin)
     let mut refs: Vec<(u32, String, Structure, &'static str)> = Vec::new();
     let t = std::time::Instant::now();
-    trace.indexed = index.files.read().unwrap().len();
+    trace.indexed = index.files.read().unwrap().all.len();
     let clean = index.clean_references(tlsh, is_analyst_clean);
     trace.index_scan = t.elapsed();
     let t = std::time::Instant::now();
@@ -727,7 +773,12 @@ mod tests {
             files.push(Entry { sha256: format!("{i:064x}"), tlsh, size: 0 });
         }
         let index = SimilarityIndex::default();
-        *index.files.write().unwrap() = files;
+        {
+            let mut g = index.files.write().unwrap();
+            for e in files {
+                g.push(e);
+            }
+        }
         let clean = |sha: &str| u64::from_str_radix(&sha[48..], 16).unwrap() % 1000 == 0;
         let lookups = std::cell::Cell::new(0usize);
         let t = std::time::Instant::now();
@@ -743,6 +794,7 @@ mod tests {
             .files
             .read()
             .unwrap()
+            .all
             .iter()
             .filter(|e| clean(&e.sha256))
             .filter_map(|e| {
@@ -754,8 +806,53 @@ mod tests {
         want.truncate(8);
         assert_eq!(got, want);
         assert!(!got.is_empty());
-        assert!(lookups.get() < index.files.read().unwrap().len() / 2, "{} review lookups", lookups.get());
+        assert!(lookups.get() < index.files.read().unwrap().all.len() / 2, "{} review lookups", lookups.get());
         eprintln!("clean_references over 300k files: {took:?}, {} review lookups", lookups.get());
+    }
+
+    #[test]
+    fn near_matches_a_full_scan() {
+        let query = "T1AAB36A0A33D420FDD0575274CDB69A15D3B2BC2A4274934F27A47B6A1F733926D2E722";
+        let hex = b"0123456789ABCDEF";
+        let mut x: u64 = 0x2545f4914f6cdd1d;
+        let mut next = || {
+            x ^= x << 13;
+            x ^= x >> 7;
+            x ^= x << 17;
+            x
+        };
+        let mut index = FileIndex::default();
+        for i in 0..300_000u32 {
+            let mut t = query.as_bytes().to_vec();
+            t[4] = hex[(next() % 16) as usize];
+            t[5] = hex[(next() % 16) as usize];
+            for _ in 0..(i % 12) {
+                let r = next();
+                let pos = 8 + (r as usize % (t.len() - 8));
+                t[pos] = hex[(r >> 40) as usize % 16];
+            }
+            let Ok(tlsh) = std::str::from_utf8(&t).unwrap().parse::<Tlsh>() else { continue };
+            index.push(Entry { sha256: format!("{i:064x}"), tlsh, size: 0 });
+        }
+        let q = query.parse::<Tlsh>().unwrap();
+        for max in [SMART_WL_MAX_DIST, SIMILAR_MAX_DIST, 300, 800] {
+            let t = std::time::Instant::now();
+            let got: Vec<(u32, u32)> = index.near(&q, max).into_iter().map(|(i, _, d)| (i, d)).collect();
+            let took = t.elapsed();
+            let t = std::time::Instant::now();
+            let want: Vec<(u32, u32)> = index
+                .all
+                .iter()
+                .enumerate()
+                .filter_map(|(i, e)| {
+                    let d = q.compare(&e.tlsh);
+                    (d <= max).then_some((i as u32, d))
+                })
+                .collect();
+            let full = t.elapsed();
+            assert_eq!(got, want, "max distance {max}");
+            eprintln!("max {max}: {} near of {}, buckets {took:?}, full scan {full:?}", got.len(), index.all.len());
+        }
     }
 
     #[test]

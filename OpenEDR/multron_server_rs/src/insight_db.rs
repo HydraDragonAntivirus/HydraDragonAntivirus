@@ -29,7 +29,7 @@ const WAL_CHECKPOINT_PAGES: i64 = 10_000;
 const PAGE_SIZE: i64 = 16_384;
 const UPGRADE_CACHE_KIB: i64 = 512 * 1024;
 const INSIGHT_INDEXES: &str = "CREATE INDEX IF NOT EXISTS insights_seq ON insights(seq);
-     CREATE INDEX IF NOT EXISTS insights_verdict ON insights(verdict);
+     CREATE INDEX IF NOT EXISTS insights_verdict ON insights(verdict, sha);
      CREATE INDEX IF NOT EXISTS insights_first_seen ON insights(first_seen);";
 
 pub struct InsightDb {
@@ -338,12 +338,32 @@ impl InsightDb {
     }
 }
 
+fn widen_verdict_index(conn: &Connection) {
+    let columns: i64 = conn.query_row("SELECT COUNT(*) FROM pragma_index_info('insights_verdict')", [], |r| r.get(0)).unwrap_or(2);
+    if columns >= 2 {
+        return;
+    }
+    let widened = conn.execute_batch(
+        "BEGIN IMMEDIATE;
+         DROP INDEX IF EXISTS insights_verdict;
+         CREATE INDEX insights_verdict ON insights(verdict, sha);
+         COMMIT;",
+    );
+    if let Err(e) = widened {
+        let _ = conn.execute_batch("ROLLBACK");
+        eprintln!("[telemetry] verdict index change failed: {e}");
+    }
+}
+
 fn upgrade_layout(conn: &Connection, path: &Path) {
     let without_rowid = conn
         .query_row("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'insights'", [], |r| r.get::<_, String>(0))
         .map(|sql| sql.to_ascii_uppercase().contains("WITHOUT ROWID"))
         .unwrap_or(false);
     let page: i64 = conn.query_row("PRAGMA page_size", [], |r| r.get(0)).unwrap_or(PAGE_SIZE);
+    if !without_rowid {
+        widen_verdict_index(conn);
+    }
     if !without_rowid && page >= PAGE_SIZE {
         return;
     }
@@ -579,6 +599,21 @@ mod tests {
         db.upsert_batch(&[row([1u8; 32], "b", "clean", &[]), row([2u8; 32], "c", "clean", &[])]).unwrap();
         assert_eq!(db.count().unwrap(), 2);
         assert_eq!(db.max_seq().unwrap(), 3);
+    }
+
+    #[test]
+    fn verdict_index_covers_the_hash() {
+        let p = tmp("verdict_index");
+        {
+            let db = InsightDb::open(&p).unwrap();
+            db.upsert_batch(&[row([1u8; 32], "a", "malicious", &[])]).unwrap();
+            db.writer().unwrap().execute_batch("DROP INDEX insights_verdict; CREATE INDEX insights_verdict ON insights(verdict);").unwrap();
+        }
+        let db = InsightDb::open_upgraded(&p).unwrap();
+        let plan: String = db
+            .lookup(|c| c.query_row("EXPLAIN QUERY PLAN SELECT sha, verdict FROM insights INDEXED BY insights_verdict WHERE verdict IN ('malicious')", [], |r| r.get(3)))
+            .unwrap();
+        assert!(plan.contains("COVERING INDEX insights_verdict"), "{plan}");
     }
 
     #[test]

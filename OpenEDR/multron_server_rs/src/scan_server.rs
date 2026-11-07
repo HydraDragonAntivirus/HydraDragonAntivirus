@@ -568,7 +568,7 @@ async fn handle_health(State(server): State<Arc<ScanServer>>) -> impl IntoRespon
         if self.cfg.cache() && !skip_cache {
             if let Some(v) = self.cache.get(sha) {
                 // Stale: the telemetry says the file has to be scanned again.
-                if v.verdict != "unknown" && (self.threat_intel.recorded_as_unknown(sha) || self.threat_intel.is_not_scanned(sha)) {
+                if v.verdict != "unknown" && self.threat_intel.needs_new_scan(sha) {
                     self.cache.forget(&[*sha].into_iter().collect());
                 } else {
                     self.stats.cache_hits.fetch_add(1, Ordering::Relaxed);

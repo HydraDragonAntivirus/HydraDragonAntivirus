@@ -709,14 +709,31 @@ impl ThreatIntelStore {
         if let Some(i) = self.hot.read().unwrap().get(sha) {
             return i.not_scanned_since.is_some();
         }
-        self.load(sha).is_some_and(|i| i.not_scanned_since.is_some())
+        self.stored_state(sha).is_some_and(|(_, not_scanned)| not_scanned)
     }
 
-    pub fn recorded_as_unknown(&self, sha: &Sha) -> bool {
+    pub fn needs_new_scan(&self, sha: &Sha) -> bool {
         if let Some(i) = self.hot.read().unwrap().get(sha) {
-            return i.verdict == "unknown";
+            return i.verdict == "unknown" || i.not_scanned_since.is_some();
         }
-        self.stored_verdict(sha).is_some_and(|(v, _)| v == "unknown")
+        match self.stored_state(sha) {
+            Some((Some(v), not_scanned)) => v == "unknown" || not_scanned,
+            Some((None, not_scanned)) => not_scanned || self.load(sha).is_some_and(|i| i.verdict == "unknown"),
+            None => false,
+        }
+    }
+
+    fn stored_state(&self, sha: &Sha) -> Option<(Option<String>, bool)> {
+        let sha = *sha;
+        let r = self.db.lookup(|c| {
+            let mut st = c.prepare_cached(r#"SELECT verdict, instr(data, CAST('"not_scanned_since":' AS BLOB)) > 0 FROM insights WHERE sha = ?1"#)?;
+            let mut rows = st.query([&sha[..]])?;
+            match rows.next()? {
+                Some(r) => Ok(Some((r.get::<_, Option<String>>(0)?, r.get::<_, bool>(1)?))),
+                None => Ok(None),
+            }
+        });
+        log_err("stored_state", r).flatten()
     }
 
     fn stored_verdict(&self, sha: &Sha) -> Option<(String, Option<String>)> {
@@ -2013,6 +2030,8 @@ mod store_tests {
         // Read back from SQLite with the mark.
         assert!(ti.flush(Duration::from_secs(30)));
         ti.hot.write().unwrap().clear();
+        assert!(ti.is_not_scanned(&parse_sha(&sha(1)).unwrap()), "read from SQLite");
+        assert!(ti.needs_new_scan(&parse_sha(&sha(1)).unwrap()));
         assert!(ti.get(&sha(1)).unwrap().not_scanned_since.is_some());
         // A check (before an upload) does not clear it; the scan result does.
         ti.record_check(&sha(1), None, None);
@@ -2021,6 +2040,13 @@ mod store_tests {
         let i = ti.get(&sha(1)).unwrap();
         assert_eq!((i.verdict.as_str(), i.not_scanned_since.is_none()), ("clean", true));
         assert!(!ti.mark_not_scanned(&sha(99), "unkept"), "unknown hash");
+        ti.record(&sha(2), "clean", None, Some("\"not_scanned_since\":x.exe"), None, 0.0);
+        assert!(ti.flush(Duration::from_secs(30)));
+        ti.hot.write().unwrap().clear();
+        for n in [1, 2] {
+            let s = parse_sha(&sha(n)).unwrap();
+            assert!(!ti.is_not_scanned(&s) && !ti.needs_new_scan(&s), "record {n} from SQLite");
+        }
         drop(ti);
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -2106,7 +2132,7 @@ mod store_tests {
             let get = t.elapsed().as_secs_f64();
             let t = std::time::Instant::now();
             for s in set.iter() {
-                std::hint::black_box(ti.recorded_as_unknown(&parse_sha(s).unwrap()));
+                std::hint::black_box(ti.needs_new_scan(&parse_sha(s).unwrap()));
             }
             let quick = t.elapsed().as_secs_f64();
             let t = std::time::Instant::now();
@@ -2118,7 +2144,7 @@ mod store_tests {
             }
             let rest = t.elapsed().as_secs_f64();
             let per = |secs: f64| set.len() as f64 / secs;
-            println!("{label:<5} get {:>9.0}/s  recorded_as_unknown {:>9.0}/s  record+detections+2 folders {:>9.0}/s", per(get), per(quick), per(rest));
+            println!("{label:<5} get {:>9.0}/s  needs_new_scan {:>9.0}/s  record+detections+2 folders {:>9.0}/s", per(get), per(quick), per(rest));
             assert!(ti.flush(Duration::from_secs(60)));
         }
         drop(ti);
