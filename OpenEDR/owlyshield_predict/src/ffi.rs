@@ -7,6 +7,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Sender};
 use std::sync::{Mutex, OnceLock};
 use std::thread;
+use sha2::Digest;
 
 static ENGINE_STOPPED: AtomicBool = AtomicBool::new(false);
 
@@ -342,6 +343,36 @@ pub extern "C" fn owlyshield_update_process_verdict(pid: u32, verdict: u8) -> i3
             "[Owlyshield FFI] Updated PID {} verdict to {}",
             pid, verdict
         ));
+        if verdict == 2 {
+            let mut sys = sysinfo::System::new();
+            sys.refresh_processes(sysinfo::ProcessesToUpdate::Some(&[sysinfo::Pid::from_u32(pid)]), true);
+            if let Some(proc) = sys.process(sysinfo::Pid::from_u32(pid)) {
+                if let Some(exe_path) = proc.exe().map(|p| p.to_path_buf()) {
+                    let file_bytes = std::fs::read(&exe_path).ok();
+                    let sha = file_bytes.as_ref()
+                        .map(|b| {
+                            let mut h = sha2::Sha256::new();
+                            h.update(b);
+                            hex::encode(h.finalize())
+                        })
+                        .unwrap_or_else(|| "unknown".to_string());
+                    let report = crate::edr_feedback::ThreatReport {
+                        sha256: sha,
+                        file_name: exe_path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| "process.exe".to_string()),
+                        original_path: exe_path.to_string_lossy().to_string(),
+                        detection: "Behavioral.OpenEDR.MaliciousProcess".to_string(),
+                        source: "behavioral_engine".to_string(),
+                        pid: Some(pid),
+                        details: serde_json::json!({
+                            "process_name": proc.name().to_string_lossy(),
+                            "pid": pid,
+                            "verdict": verdict
+                        }),
+                    };
+                    crate::edr_feedback::report_threat_async(report, file_bytes);
+                }
+            }
+        }
         OWLY_OK
     } else {
         -1
@@ -622,6 +653,26 @@ pub extern "C" fn owlyshield_scan_file_name(
     let slice = unsafe { std::slice::from_raw_parts(path_ptr, path_len as usize) };
     let path_buf = std::path::PathBuf::from(String::from_utf16_lossy(slice));
     let (verdict, name) = scan_file_named(&path_buf);
+    if verdict == 2 && !name.is_empty() {
+        let file_bytes = std::fs::read(&path_buf).ok();
+        let sha = file_bytes.as_ref()
+            .map(|b| {
+                let mut h = sha2::Sha256::new();
+                h.update(b);
+                hex::encode(h.finalize())
+            })
+            .unwrap_or_else(|| "unknown".to_string());
+        let report = crate::edr_feedback::ThreatReport {
+            sha256: sha,
+            file_name: path_buf.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| "sample.bin".to_string()),
+            original_path: path_buf.to_string_lossy().to_string(),
+            detection: name.clone(),
+            source: "ml_static".to_string(),
+            pid: None,
+            details: serde_json::json!({ "scanner": "owlyshield_scan_file_name" }),
+        };
+        crate::edr_feedback::report_threat_async(report, file_bytes);
+    }
     if verdict == 2 && !name.is_empty() && !name_buf.is_null() && name_cap > 1 {
         let mut wide: Vec<u16> = name.encode_utf16().collect();
         wide.truncate((name_cap as usize).saturating_sub(1));

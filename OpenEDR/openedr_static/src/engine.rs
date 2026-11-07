@@ -235,6 +235,19 @@ impl StaticEngine {
             }};
         }
 
+        // The PE string ML filters (pe_strings_benign.xf is ~0.6 GB) load once per
+        // process. Started here in the background, so the first PE scan does not wait
+        // for them (on a slow disk that was over a minute charged to one file's scan).
+        // A scan that comes before they are ready waits only for the rest of the load.
+        static STRING_FILTERS_WARMUP: std::sync::Once = std::sync::Once::new();
+        STRING_FILTERS_WARMUP.call_once(|| {
+            let _ = std::thread::Builder::new().name("pe-string-filters".into()).spawn(|| {
+                let t0 = std::time::Instant::now();
+                let _ = crate::ml::pe_string_ml::PeStringMlEngine::global();
+                diagnostics::log("init-step", &format!("pe_string_filters={}ms (background)", t0.elapsed().as_millis()));
+            });
+        });
+
         let database_dir = base.join("database");
         let rules_dir = if base.join("yara_rules").is_dir() {
             base.join("yara_rules")

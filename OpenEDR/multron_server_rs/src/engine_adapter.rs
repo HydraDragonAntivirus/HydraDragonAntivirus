@@ -109,7 +109,7 @@ pub struct EngineAdapter {
     /// LZMA2-compress kept files when space runs low (dashboard toggle, off by default).
     pub compress_low_disk: AtomicBool,
     pub low_disk_threshold_bytes: u64,
-    kept_bytes: AtomicU64,
+    pub kept_bytes: AtomicU64,
     pub keep_clean_limit_bytes: u64,
     pub kept_clean_bytes: AtomicU64,
     pub kept_files: AtomicI64,
@@ -365,7 +365,7 @@ impl EngineAdapter {
         Some(k.path)
     }
 
-    fn kept_index_set(&self, sha: &str, path: &Path) {
+    pub(crate) fn kept_index_set(&self, sha: &str, path: &Path) {
         if let Some(idx) = self.kept_index.lock().unwrap().as_mut() {
             idx.insert(sha.to_ascii_uppercase(), path.to_path_buf());
         }

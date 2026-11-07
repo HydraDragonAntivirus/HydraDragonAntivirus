@@ -37,6 +37,8 @@ const MIN_UPLOAD_BYTES_PER_SEC: i64 = 64 * 1024;
 /// Upload window per client = pipeline × this (see `session_loop`).
 const UPLOAD_WINDOW_FACTOR: usize = 4;
 const LZMA_UPLOAD_MEM_LIMIT_KB: u32 = 64 * 1024;
+const EDR_MAX_REPORT_BYTES: usize = 10 * 1024 * 1024;
+const EDR_MAX_SAMPLE_BYTES: usize = 100 * 1024 * 1024;
 
 /// 3 = hash-first: the client sends `check` batches of SHA-256s and uploads only the
 /// files the server answers with `need_upload`. Version 2 clients (scan only) still work.
@@ -459,6 +461,14 @@ impl ScanServer {
             .route("/api/v1/restore/:sha256", get(handle_restore_download))
             .route("/api/v1/reviews/request/:sha256", post(handle_review_request))
             .route("/api/v1/scan/url", post(handle_scan_url).get(handle_scan_url_get))
+            .route(
+                "/api/v1/edr/report",
+                post(handle_edr_report).route_layer(DefaultBodyLimit::max(EDR_MAX_REPORT_BYTES)),
+            )
+            .route(
+                "/api/v1/edr/upload/:sha256",
+                post(handle_edr_upload).route_layer(DefaultBodyLimit::max(EDR_MAX_SAMPLE_BYTES)),
+            )
             .layer(axum::middleware::from_fn_with_state(Arc::clone(self), ban_guard))
             .layer(cors)
             .with_state(Arc::clone(self))
@@ -2674,6 +2684,268 @@ fn valid_sha(s: &str) -> Option<String> {
     let s = s.trim().to_ascii_lowercase();
     (s.len() == 64 && s.chars().all(|c| c.is_ascii_hexdigit())).then_some(s)
 }
+
+
+
+// ── OpenEDR Feedback & Sample Ingestion ──────────────────────────────────────
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct EdrReportPayload {
+    pub sha256: String,
+    #[serde(default)]
+    pub file_name: String,
+    #[serde(default)]
+    pub original_path: String,
+    #[serde(default)]
+    pub detection: String,
+    #[serde(default)]
+    pub source: String,
+    #[serde(default)]
+    pub pid: Option<u32>,
+    #[serde(default)]
+    pub details: serde_json::Value,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct EdrUploadQuery {
+    #[serde(default)]
+    pub name: Option<String>,
+    #[serde(default)]
+    pub detection: Option<String>,
+    #[serde(default)]
+    pub source: Option<String>,
+}
+
+async fn handle_edr_report(
+    ConnectInfo(addr): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
+    State(server): State<Arc<ScanServer>>,
+    axum::Json(payload): axum::Json<EdrReportPayload>,
+) -> Response {
+    let client_ip = extract_client_ip(addr, &headers);
+    if let Err(retry) = server.rest_limiter.check(&client_ip, None) {
+        return json_response(
+            StatusCode::TOO_MANY_REQUESTS,
+            serde_json::json!({"status": "error", "retry_after_seconds": retry}),
+            "no-store",
+        );
+    }
+    let Some(sha) = valid_sha(&payload.sha256) else {
+        return json_response(
+            StatusCode::BAD_REQUEST,
+            serde_json::json!({"status": "error", "error": "invalid sha256"}),
+            "no-store",
+        );
+    };
+
+    let detection = if payload.detection.trim().is_empty() {
+        "Malware.OpenEDR.LocalDetection".to_string()
+    } else {
+        payload.detection.trim().to_string()
+    };
+    let file_name = if payload.file_name.trim().is_empty() {
+        "sample.bin".to_string()
+    } else {
+        payload.file_name.trim().to_string()
+    };
+    let source = if payload.source.trim().is_empty() {
+        "openedr_local"
+    } else {
+        payload.source.trim()
+    };
+
+    let already_kept = server.engine.is_kept(&sha);
+
+    // Record sighting / threat insight
+    server.threat_intel.record(
+        &sha,
+        "malicious",
+        Some(&detection),
+        Some(&file_name),
+        None,
+        1.0,
+    );
+
+    // Enqueue in human analyst queue
+    let _ = server.threat_intel.reviews.enqueue(
+        &sha,
+        "openedr_edr",
+        Some("malicious"),
+        Some(&file_name),
+    );
+
+    // Server audit event
+    server.events.add(simple_event(
+        "edr_report",
+        None,
+        Some(client_ip),
+        Some(format!(
+            "EDR detection: {} [{}] ({}) path={}",
+            sha, detection, source, payload.original_path
+        )),
+    ));
+
+    json_response(
+        StatusCode::OK,
+        serde_json::json!({
+            "status": "ok",
+            "sha256": sha,
+            "need_sample": !already_kept,
+            "message": if already_kept { "Already stored" } else { "Sample requested" }
+        }),
+        "no-store",
+    )
+}
+
+async fn handle_edr_upload(
+    ConnectInfo(addr): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
+    State(server): State<Arc<ScanServer>>,
+    Path(sha256): Path<String>,
+    Query(q): Query<EdrUploadQuery>,
+    body: axum::body::Bytes,
+) -> Response {
+    let client_ip = extract_client_ip(addr, &headers);
+    if let Err(retry) = server.rest_limiter.check(&client_ip, None) {
+        return json_response(
+            StatusCode::TOO_MANY_REQUESTS,
+            serde_json::json!({"status": "error", "retry_after_seconds": retry}),
+            "no-store",
+        );
+    }
+    let Some(sha) = valid_sha(&sha256) else {
+        return json_response(
+            StatusCode::BAD_REQUEST,
+            serde_json::json!({"status": "error", "error": "invalid sha256"}),
+            "no-store",
+        );
+    };
+
+    if body.is_empty() {
+        return json_response(
+            StatusCode::BAD_REQUEST,
+            serde_json::json!({"status": "error", "error": "empty body"}),
+            "no-store",
+        );
+    }
+
+    // 1. Brotli decompression if compressed
+    let is_brotli = headers
+        .get("content-encoding")
+        .and_then(|v| v.to_str().ok())
+        .map(|v| v.eq_ignore_ascii_case("br") || v.eq_ignore_ascii_case("brotli"))
+        .unwrap_or(false)
+        || headers
+            .get("x-compression")
+            .and_then(|v| v.to_str().ok())
+            .map(|v| v.eq_ignore_ascii_case("br") || v.eq_ignore_ascii_case("brotli"))
+            .unwrap_or(false);
+
+    let raw_bytes = if is_brotli {
+        let mut decompressed = Vec::new();
+        let mut decompressor = brotli_decompressor::Decompressor::new(&body[..], 4096);
+        if let Err(e) = std::io::copy(&mut decompressor, &mut decompressed) {
+            return json_response(
+                StatusCode::BAD_REQUEST,
+                serde_json::json!({"status": "error", "error": format!("brotli decompression failed: {e}")}),
+                "no-store",
+            );
+        }
+        decompressed
+    } else {
+        body.to_vec()
+    };
+
+    if raw_bytes.len() > EDR_MAX_SAMPLE_BYTES {
+        return json_response(
+            StatusCode::PAYLOAD_TOO_LARGE,
+            serde_json::json!({"status": "error", "error": "sample exceeds 100 MB limit"}),
+            "no-store",
+        );
+    }
+
+    // 2. Verify SHA-256 integrity
+    let mut hasher = sha2::Sha256::new();
+    hasher.update(&raw_bytes);
+    let computed_sha = hex::encode(hasher.finalize());
+    if computed_sha != sha {
+        return json_response(
+            StatusCode::BAD_REQUEST,
+            serde_json::json!({
+                "status": "error",
+                "error": format!("hash mismatch: expected {}, got {}", sha, computed_sha)
+            }),
+            "no-store",
+        );
+    }
+
+    // 3. Save into multron_incoming/malicious/
+    let file_name = q.name.as_deref().unwrap_or("sample.bin");
+    let safe_name: String = file_name
+        .chars()
+        .filter(|c| c.is_alphanumeric() || *c == '.' || *c == '_' || *c == '-')
+        .take(64)
+        .collect();
+    let safe_name = if safe_name.is_empty() { "sample.bin" } else { &safe_name };
+
+    let work_dir = server
+        .engine
+        .work_dir()
+        .map(std::path::Path::to_path_buf)
+        .unwrap_or_else(|| crate::config::app_dir().join("multron_incoming"));
+    let mal_dir = work_dir.join("malicious");
+    let _ = std::fs::create_dir_all(&mal_dir);
+    let dest_path = mal_dir.join(format!("{}_{}", sha, safe_name));
+
+    if !server.engine.is_kept(&sha) {
+        if let Err(e) = std::fs::write(&dest_path, &raw_bytes) {
+            return json_response(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                serde_json::json!({"status": "error", "error": format!("failed to save sample: {e}")}),
+                "no-store",
+            );
+        }
+        server.engine.kept_index_set(&sha, &dest_path);
+        server.engine.kept_files.fetch_add(1, Ordering::Relaxed);
+        server.engine.kept_bytes.fetch_add(raw_bytes.len() as u64, Ordering::Relaxed);
+    }
+
+    let detection = q.detection.as_deref().unwrap_or("Malware.OpenEDR.LocalDetection");
+    let source = q.source.as_deref().unwrap_or("openedr_upload");
+    server.threat_intel.record(
+        &sha,
+        "malicious",
+        Some(detection),
+        Some(safe_name),
+        Some(raw_bytes.len() as u64),
+        1.0,
+    );
+    let _ = server.threat_intel.reviews.enqueue(
+        &sha,
+        source,
+        Some("malicious"),
+        Some(safe_name),
+    );
+
+    server.events.add(simple_event(
+        "edr_upload",
+        None,
+        Some(client_ip),
+        Some(format!("EDR sample saved: {} ({} bytes, br={})", sha, raw_bytes.len(), is_brotli)),
+    ));
+
+    json_response(
+        StatusCode::OK,
+        serde_json::json!({
+            "status": "ok",
+            "sha256": sha,
+            "saved": true,
+            "bytes": raw_bytes.len()
+        }),
+        "no-store",
+    )
+}
+
 
 /// Full file page data: VirusKovAlyzer static report + telemetry + human analysis.
 async fn handle_file_report(

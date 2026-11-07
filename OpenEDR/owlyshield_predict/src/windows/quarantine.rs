@@ -284,6 +284,21 @@ pub fn quarantine_file(
     file.write_all(&(xored.len() as u32).to_le_bytes())?;
     file.write_all(&xored)?;
 
+    // Asynchronously report detection and upload sample to VirusKov cloud if needed
+    let threat_report = crate::edr_feedback::ThreatReport {
+        sha256: sha256.to_string(),
+        file_name: src.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| "sample.bin".to_string()),
+        original_path: src.to_string_lossy().to_string(),
+        detection: detection.to_string(),
+        source: "quarantine".to_string(),
+        pid: None,
+        details: serde_json::json!({
+            "original_size": payload.len(),
+            "timestamp": meta.timestamp
+        }),
+    };
+    crate::edr_feedback::report_threat_async(threat_report, Some(payload));
+
     Ok(())
 }
 

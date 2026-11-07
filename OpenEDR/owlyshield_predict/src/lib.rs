@@ -6,6 +6,7 @@ extern crate num_derive;
 pub mod actions_on_kill;
 pub mod cidr;
 pub mod config;
+pub mod edr_feedback;
 pub mod connectors;
 pub mod extensions;
 pub mod ffi;
