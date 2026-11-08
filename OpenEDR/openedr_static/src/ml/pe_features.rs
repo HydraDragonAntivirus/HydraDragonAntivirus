@@ -45,6 +45,7 @@ struct Section {
     virtual_address: u32,
     size_of_raw_data: u32,
     pointer_to_raw_data: u32,
+    characteristics: u32,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -228,6 +229,7 @@ fn parse_pe_lenient(data: &[u8]) -> Option<ParsedPe> {
         let virtual_address = u32::from_le_bytes([data[cur + 12], data[cur + 13], data[cur + 14], data[cur + 15]]);
         let size_of_raw_data = u32::from_le_bytes([data[cur + 16], data[cur + 17], data[cur + 18], data[cur + 19]]);
         let pointer_to_raw_data = u32::from_le_bytes([data[cur + 20], data[cur + 21], data[cur + 22], data[cur + 23]]);
+        let characteristics = u32::from_le_bytes([data[cur + 36], data[cur + 37], data[cur + 38], data[cur + 39]]);
 
         pe.sections.push(Section {
             name,
@@ -235,6 +237,7 @@ fn parse_pe_lenient(data: &[u8]) -> Option<ParsedPe> {
             virtual_address,
             size_of_raw_data,
             pointer_to_raw_data,
+            characteristics,
         });
     }
 
@@ -508,6 +511,131 @@ impl PeMimicryMetrics {
     }
 }
 
+/// What a file infector (a classic virus: Neshta, Virut, Sality, Expiro...) changes in
+/// the program it infects, so the model can tell an infected copy from its clean
+/// original. Without these the two have almost the same vector (same headers, same
+/// imports, same sections), and a model trained on infected copies flags the clean
+/// program too.
+///
+/// * appender / section adder: the virus goes into a new or the last section, which is
+///   made executable (often writable too), and the entry point is moved there or
+///   near the end of a section;
+/// * prepender: the virus is a PE of its own and carries the whole host after its
+///   image, in the overlay.
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct PeInfectorMetrics {
+    /// Position of the entry point's section among the sections in address order:
+    /// 0 = first, 1 = last (0 with one section or none).
+    pub ep_section_position: f32,
+    /// 1 when the entry point is in the last section (by address) of a file with more
+    /// than one section: where appenders and section adders put themselves.
+    pub ep_in_last_section: f32,
+    /// 1 when the entry point is in no section (header or past the image).
+    pub ep_outside_sections: f32,
+    /// 1 when the entry point's section is not marked as code nor executable.
+    pub ep_section_not_code: f32,
+    /// Where in its section the entry point is, 0 = start .. 1 = end. Compilers put it
+    /// in the code; an appended virus body sits at the end of the section.
+    pub ep_offset_in_section: f32,
+    /// Sections both writable and executable.
+    pub wx_section_count: f32,
+    /// 1 when the last section (by address) is executable in a file with more than one
+    /// section (normally .rsrc / .reloc / data).
+    pub last_section_executable: f32,
+    /// 1 when the overlay is itself a PE (MZ + PE header): a prepender's host.
+    pub overlay_is_pe: f32,
+    /// Overlay share of the file when the overlay is a PE (0 otherwise).
+    pub overlay_pe_share: f32,
+}
+
+const SCN_CNT_CODE: u32 = 0x0000_0020;
+const SCN_MEM_EXECUTE: u32 = 0x2000_0000;
+const SCN_MEM_WRITE: u32 = 0x8000_0000;
+
+impl PeInfectorMetrics {
+    pub const LEN: usize = 9;
+    pub const NAMES: [&'static str; 9] = [
+        "inf_ep_section_position",
+        "inf_ep_in_last_section",
+        "inf_ep_outside_sections",
+        "inf_ep_section_not_code",
+        "inf_ep_offset_in_section",
+        "inf_wx_section_count",
+        "inf_last_section_executable",
+        "inf_overlay_is_pe",
+        "inf_overlay_pe_share",
+    ];
+
+    pub fn to_array(&self) -> [f32; 9] {
+        [
+            self.ep_section_position,
+            self.ep_in_last_section,
+            self.ep_outside_sections,
+            self.ep_section_not_code,
+            self.ep_offset_in_section,
+            self.wx_section_count,
+            self.last_section_executable,
+            self.overlay_is_pe,
+            self.overlay_pe_share,
+        ]
+    }
+}
+
+pub fn extract_pe_infector(bytes: &[u8]) -> Option<PeInfectorMetrics> {
+    let pe = parse_pe_lenient(bytes)?;
+    let mut by_address: Vec<&Section> = pe.sections.iter().collect();
+    by_address.sort_by_key(|s| s.virtual_address);
+    let n = by_address.len();
+    let span = |s: &Section| s.virtual_size.max(s.size_of_raw_data).max(1);
+    let ep = pe.address_of_entry_point;
+    let ep_idx = by_address
+        .iter()
+        .position(|s| ep >= s.virtual_address && (ep - s.virtual_address) < span(s));
+
+    let mut m = PeInfectorMetrics::default();
+    match ep_idx {
+        Some(i) => {
+            let s = by_address[i];
+            if n > 1 {
+                m.ep_section_position = i as f32 / (n - 1) as f32;
+                m.ep_in_last_section = (i == n - 1) as u8 as f32;
+            }
+            m.ep_section_not_code = (s.characteristics & (SCN_CNT_CODE | SCN_MEM_EXECUTE) == 0) as u8 as f32;
+            m.ep_offset_in_section = ((ep - s.virtual_address) as f32 / span(s) as f32).clamp(0.0, 1.0);
+        }
+        // A DLL without an entry point (0) is not "outside".
+        None => m.ep_outside_sections = (ep != 0) as u8 as f32,
+    }
+    m.wx_section_count = pe
+        .sections
+        .iter()
+        .filter(|s| s.characteristics & SCN_MEM_WRITE != 0 && s.characteristics & SCN_MEM_EXECUTE != 0)
+        .count() as f32;
+    if n > 1 {
+        m.last_section_executable = (by_address[n - 1].characteristics & SCN_MEM_EXECUTE != 0) as u8 as f32;
+    }
+
+    // Overlay: after the last raw section (as `overlay_size` in the v1 vector).
+    let image_end = pe
+        .sections
+        .iter()
+        .map(|s| s.pointer_to_raw_data as usize + s.size_of_raw_data as usize)
+        .max()
+        .unwrap_or(0);
+    if image_end > 0 && image_end + 0x40 <= bytes.len() && bytes[image_end..].starts_with(b"MZ") {
+        let overlay = &bytes[image_end..];
+        let is_pe = rd32(overlay, 0x3c)
+            .map(|lfanew| lfanew as usize)
+            .and_then(|o| overlay.get(o..o.checked_add(4)?))
+            .is_some_and(|sig| sig == b"PE\0\0");
+        if is_pe {
+            m.overlay_is_pe = 1.0;
+            m.overlay_pe_share = overlay.len() as f32 / bytes.len() as f32;
+        }
+    }
+    Some(m)
+}
+
 /// Section names compilers and linkers emit (MSVC, MinGW, Delphi, Go, NSIS stub, Windows).
 const STANDARD_SECTIONS: &[&[u8]] = &[
     b".text", b".data", b".rdata", b".rsrc", b".reloc", b".pdata", b".xdata", b".idata", b".edata",
@@ -678,6 +806,59 @@ mod tests {
             eprintln!("no System32 files, skipped");
         }
         assert_eq!(extract_pe_mimicry(b"MZ not a pe"), None);
+    }
+
+    fn le32(d: &[u8], o: usize) -> u32 {
+        u32::from_le_bytes(d[o..o + 4].try_into().unwrap())
+    }
+
+    /// (offset of AddressOfEntryPoint, offset of the section table, section count)
+    fn layout(d: &[u8]) -> (usize, usize, usize) {
+        let fh = le32(d, 0x3c) as usize + 4;
+        let sections = u16::from_le_bytes([d[fh + 2], d[fh + 3]]) as usize;
+        let opt_size = u16::from_le_bytes([d[fh + 16], d[fh + 17]]) as usize;
+        (fh + 20 + 16, fh + 20 + opt_size, sections)
+    }
+
+    /// A clean program and the same program as a file infector leaves it: Virut-style
+    /// (entry point moved into the last section, made writable + executable) and a
+    /// Neshta-style prepender (another PE carrying the clean one in its overlay).
+    #[test]
+    fn infector_traces_separate_a_clean_program_from_its_infected_copy() {
+        let dir = std::path::Path::new(r"C:\Windows\System32");
+        let (Ok(host), Ok(virus)) = (std::fs::read(dir.join("notepad.exe")), std::fs::read(dir.join("cmd.exe"))) else {
+            eprintln!("no System32 files, skipped");
+            return;
+        };
+        let clean = extract_pe_infector(&host).expect("PE");
+        assert_eq!(clean.ep_in_last_section, 0.0);
+        assert_eq!(clean.ep_outside_sections, 0.0);
+        assert_eq!(clean.ep_section_not_code, 0.0);
+        assert_eq!(clean.wx_section_count, 0.0);
+        assert_eq!(clean.last_section_executable, 0.0);
+        assert_eq!(clean.overlay_is_pe, 0.0);
+
+        let mut appended = host.clone();
+        let (aep, table, n) = layout(&appended);
+        let last = (0..n).map(|i| table + i * 40).max_by_key(|&h| le32(&appended, h + 12)).unwrap();
+        let va = le32(&appended, last + 12);
+        appended[aep..aep + 4].copy_from_slice(&(va + 0x10).to_le_bytes());
+        let ch = le32(&appended, last + 36) | 0x2000_0000 | 0x8000_0000;
+        appended[last + 36..last + 40].copy_from_slice(&ch.to_le_bytes());
+        let inf = extract_pe_infector(&appended).unwrap();
+        assert_eq!(inf.ep_in_last_section, 1.0);
+        assert_eq!(inf.ep_section_position, 1.0);
+        assert_eq!(inf.last_section_executable, 1.0);
+        assert!(inf.wx_section_count >= 1.0);
+        assert_ne!(inf.to_array(), clean.to_array());
+
+        let mut prepended = virus.clone();
+        prepended.extend_from_slice(&host);
+        let pre = extract_pe_infector(&prepended).unwrap();
+        assert_eq!(pre.overlay_is_pe, 1.0);
+        let share = host.len() as f32 / prepended.len() as f32;
+        assert!((pre.overlay_pe_share - share).abs() < 0.01, "{} vs {share}", pre.overlay_pe_share);
+        assert_eq!(extract_pe_infector(&virus).unwrap().overlay_is_pe, 0.0);
     }
 }
 

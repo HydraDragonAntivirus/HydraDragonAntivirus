@@ -22,7 +22,7 @@
 //! every machine.
 
 use super::features::PeFeatureVector;
-use super::pe_features::{extract_pe_features, extract_pe_mimicry, PeMimicryMetrics};
+use super::pe_features::{extract_pe_features, extract_pe_infector, extract_pe_mimicry, PeInfectorMetrics, PeMimicryMetrics};
 use super::pe_string_ml::{extract_inner_pe_string_and_url_ml, extract_shell_pe_string_and_url_ml, PeStringMlMetrics};
 use super::url_ml_metrics::UrlMlMetrics;
 
@@ -394,10 +394,22 @@ pub fn dotnet_kind(data: &[u8]) -> u8 {
 /// + shell `PeStringMlMetrics` (6) + inner / shell `unknown_str_ratio`
 /// + inner / shell `total_unique_strings_log`
 /// + inner `UrlMlMetrics` (4) + shell `UrlMlMetrics` (4)
-/// (each block appended last, so earlier positions never move).
+/// + shell `PeInfectorMetrics` (9: file-infector traces, so a virus-infected copy and
+///   its clean original no longer share one vector)
+/// (each block appended last, so earlier positions never move: a model trained before
+/// a block was added reads it as unused columns).
 /// The unified PE model (`pe_trees.bin`) reads all of it.
-pub const PE_V2_FEATURE_COUNT: usize =
-    65 + 3 + 65 + 3 + 4 + 3 + 2 + 2 * PeMimicryMetrics::LEN + 2 * PeStringMlMetrics::LEN + 2 * UrlMlMetrics::LEN;
+pub const PE_V2_FEATURE_COUNT: usize = 65
+    + 3
+    + 65
+    + 3
+    + 4
+    + 3
+    + 2
+    + 2 * PeMimicryMetrics::LEN
+    + 2 * PeStringMlMetrics::LEN
+    + 2 * UrlMlMetrics::LEN
+    + PeInfectorMetrics::LEN;
 /// Where the shell / inner `PeMimicryMetrics` and inner / shell `PeStringMlMetrics` start in the v2 vector.
 #[cfg(test)]
 const SHELL_MIMICRY: usize = 145;
@@ -415,6 +427,8 @@ const TOTAL_UNIQUE_STR_LOG: usize = UNKNOWN_STR_RATIO + 2;
 const INNER_URL_ML: usize = TOTAL_UNIQUE_STR_LOG + 2;
 #[cfg(test)]
 const SHELL_URL_ML: usize = INNER_URL_ML + UrlMlMetrics::LEN;
+#[cfg(test)]
+const SHELL_INFECTOR: usize = SHELL_URL_ML + UrlMlMetrics::LEN;
 
 /// The inner part is content (unpacked, an installer member, or its own image) and
 /// parses as a PE: its strings are scored, and the file's own string block stays zero.
@@ -496,6 +510,10 @@ fn extract_pe_features_v2_inner(data: &[u8]) -> Option<[f32; PE_V2_FEATURE_COUNT
     ]);
     put(&inner_url_ml.to_array());
     put(&shell_url_ml.to_array());
+    put(&{
+        let _t = crate::memtrack::stage("ml:pe_header_features");
+        extract_pe_infector(data).unwrap_or_default().to_array()
+    });
     Some(v)
 }
 
@@ -539,6 +557,7 @@ pub fn pe_v2_feature_names() -> Vec<String> {
     ].map(String::from));
     n.extend(UrlMlMetrics::NAMES.iter().map(|s| format!("inner_{s}")));
     n.extend(UrlMlMetrics::NAMES.iter().map(|s| format!("shell_{s}")));
+    n.extend(PeInfectorMetrics::NAMES.iter().map(|s| format!("shell_{s}")));
     n
 }
 
@@ -607,11 +626,15 @@ mod tests {
         assert_eq!(names[UNKNOWN_STR_RATIO], "inner_unknown_str_ratio");
         assert_eq!(names[TOTAL_UNIQUE_STR_LOG], "inner_total_unique_strings_log");
         assert_eq!(names[168], "shell_total_unique_strings_log");
-        assert_eq!(PE_V2_FEATURE_COUNT, 177);
+        assert_eq!(PE_V2_FEATURE_COUNT, 186);
         assert_eq!(INNER_URL_ML, 169);
         assert_eq!(names[INNER_URL_ML], "inner_url_unwhitelisted_count_log");
         assert_eq!(names[SHELL_URL_ML], "shell_url_unwhitelisted_count_log");
-        assert_eq!(names[PE_V2_FEATURE_COUNT - 1], "shell_url_ml_high_count_log");
+        assert_eq!(names[SHELL_INFECTOR - 1], "shell_url_ml_high_count_log");
+        // Appended last: every earlier position (and so an older model) is unchanged.
+        assert_eq!(SHELL_INFECTOR, 177);
+        assert_eq!(names[SHELL_INFECTOR], "shell_inf_ep_section_position");
+        assert_eq!(names[PE_V2_FEATURE_COUNT - 1], "shell_inf_overlay_pe_share");
         assert_eq!(pe_v2_feature_names_static().len(), PE_V2_FEATURE_COUNT);
         assert!(extract_pe_features_v2(b"not a pe").is_none());
     }
