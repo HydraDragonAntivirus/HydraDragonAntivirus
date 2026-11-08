@@ -31,6 +31,16 @@ server, default usbdosyalar\\clean, type folders {javascript | pe32, pe64, msexe
 is not read: the deployed folder is an archive now.
 `--malicious` / `--benign` on the command line (one or more folders each) override it.
 
+Analyst feedback: every completed human verdict ("malicious" / "clean", the last line
+per hash of the server's `analyst_signatures/human_verdicts.jsonl`) is a label the
+model learns from. It wins over the dataset folders (a file the analyst calls clean is
+not trained as malware, even when a folder still has it there, and is not dropped as
+a label conflict), and a file the analyst labelled that is in no dataset folder (a
+false positive or false negative a client sent) is trained on from where the server
+keeps it: `multron_incoming` and the `archived_dirs.json` folders, found by the
+`<SHA256>_<name>` file name. Read only, like everything else here.
+ANALYST_FEEDBACK_TRAIN=0 leaves it out.
+
 Files are de-duplicated by CONTENT (SHA-256) across all folders of a platform: a file
 already seen in an earlier folder of the same label is skipped, and a file that is in
 BOTH labels is dropped from both (label noise; the model cannot learn it) and listed so
@@ -46,6 +56,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 from typing import Callable, Dict, Iterable, Iterator, List, Optional, Tuple
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -146,6 +157,141 @@ def archived_clean_dirs(config_path: Optional[str]) -> List[str]:
                 if isinstance(e, dict) and isinstance(e.get("path"), str)
                 and str(e.get("category") or "clean").lower() == "clean"]
     return [DEFAULT_ARCHIVED_CLEAN]
+
+
+# --------------------------------------------------------------------------- analyst feedback
+
+# Type folders ("Sort multron_incoming by file type") of each platform.
+PLATFORM_TYPES: Dict[str, Tuple[str, ...]] = {
+    "windows": ("pe32", "pe64", "msexe"),
+    "android": ("apk",),
+    "javascript": ("javascript",),
+}
+_KEPT_NAME = re.compile(r"^(?:[a-z_]+_)?([0-9A-Fa-f]{64})_")
+
+
+def _server_places(config_path: Optional[str]) -> List[str]:
+    """Folders that may hold the server's files: next to the dataset_paths.json, then the
+    deployed server."""
+    places = [os.path.dirname(os.path.abspath(config_path))] if config_path else []
+    if all(_key(SERVER_DIR) != _key(p) for p in places):
+        places.append(SERVER_DIR)
+    return places
+
+
+def analyst_labels(config_path: Optional[str]) -> Dict[str, Tuple[str, str]]:
+    """{SHA256 (upper case): (label "malicious" | "benign", engine verdict)} of the completed
+    human verdicts. The last line for a hash wins; `"deleted": true` removes it; verdicts
+    that are not a label (suspicious, possible_clean...) are left out, as on the server
+    (`dataset::human_label`)."""
+    if os.environ.get("ANALYST_FEEDBACK_TRAIN", "1") == "0":
+        return {}
+    for d in _server_places(config_path):
+        path = os.path.join(d, "analyst_signatures", "human_verdicts.jsonl")
+        if not os.path.isfile(path):
+            continue
+        last: Dict[str, dict] = {}
+        with open(path, encoding="utf-8", errors="replace") as fh:
+            for line in fh:
+                try:
+                    r = json.loads(line)
+                except ValueError:
+                    continue
+                sha = str(r.get("sha256") or "").upper()
+                if len(sha) == 64:
+                    last[sha] = r
+        out = {}
+        for sha, r in last.items():
+            if r.get("deleted") or r.get("status") != "completed":
+                continue
+            label = {"malicious": "malicious", "clean": "benign"}.get(r.get("verdict"))
+            if label:
+                out[sha] = (label, str(r.get("engine_verdict") or ""))
+        return out
+    return {}
+
+
+def kept_files(config_path: Optional[str], wanted: Iterable[str]) -> Dict[str, str]:
+    """{SHA256: path} of the files the server keeps (multron_incoming and every
+    archived_dirs.json folder) whose name gives one of `wanted`. Found by name, nothing
+    is hashed; compressed `.xz` copies are skipped."""
+    wanted = set(wanted)
+    roots: List[str] = []
+    for d in _server_places(config_path):
+        roots.append(os.path.join(d, "multron_incoming"))
+        a = os.path.join(d, "archived_dirs.json")
+        if os.path.isfile(a):
+            with open(a, encoding="utf-8-sig") as fh:
+                raw = json.load(fh)
+            roots += [e["path"] for e in raw if isinstance(e, dict) and isinstance(e.get("path"), str)]
+    found: Dict[str, str] = {}
+    seen = set()
+    for root in roots:
+        if not os.path.isdir(root) or _key(root) in seen:
+            continue
+        seen.add(_key(root))
+        for dirpath, dirs, files in os.walk(root):
+            dirs[:] = [x for x in dirs if not x.startswith(".")]
+            for name in files:
+                m = _KEPT_NAME.match(name)
+                if not m or name.endswith(".xz"):
+                    continue
+                sha = m.group(1).upper()
+                if sha in wanted and sha not in found:
+                    found[sha] = os.path.join(dirpath, name)
+    return found
+
+
+def _platform_of(path: str) -> Optional[str]:
+    """Platform of a kept file: its type folder, else the file's first bytes (PE)."""
+    parts = {x.lower() for x in os.path.normpath(path).split(os.sep)}
+    for platform, types in PLATFORM_TYPES.items():
+        if parts & set(types):
+            return platform
+    try:
+        with open(path, "rb") as fh:
+            head = fh.read(2)
+    except OSError:
+        return None
+    return "windows" if head == b"MZ" else None
+
+
+def apply_analyst_feedback(platform: str, config_path: Optional[str], keep: Callable[[str], bool],
+                           mal: List[Tuple[str, Optional[str]]], ben: List[Tuple[str, Optional[str]]]
+                           ) -> Tuple[List[Tuple[str, Optional[str]]], List[Tuple[str, Optional[str]]], set]:
+    """The analyst's labels over the dataset folders: a file under the other label is
+    trained under the analyst's label instead, kept files labelled by an analyst and in
+    no folder are added. Returns (malicious, benign, hashes the analyst settled: not
+    label conflicts)."""
+    labels = analyst_labels(config_path)
+    if not labels:
+        return mal, ben, set()
+    wrong_mal = [r for r in mal if r[1] and labels.get(r[1].upper(), ("",))[0] == "benign"]
+    wrong_ben = [r for r in ben if r[1] and labels.get(r[1].upper(), ("",))[0] == "malicious"]
+    mal = [r for r in mal if r not in wrong_mal]
+    ben = [r for r in ben if r not in wrong_ben]
+    have_mal = {r[1].upper() for r in mal if r[1]}
+    have_ben = {r[1].upper() for r in ben if r[1]}
+    ben += [r for r in wrong_mal if r[1].upper() not in have_ben]
+    mal += [r for r in wrong_ben if r[1].upper() not in have_mal]
+    present = {r[1].upper() for r in mal + ben if r[1]}
+    missing = [s for s in labels if s not in present]
+    added = {"malicious": 0, "benign": 0}
+    corrections = 0
+    for sha, path in sorted(kept_files(config_path, missing).items()):
+        if _platform_of(path) != platform or not keep(path):
+            continue
+        label, engine = labels[sha]
+        (mal if label == "malicious" else ben).append((path, sha.lower()))
+        added[label] += 1
+        engine_label = {"malicious": "malicious", "suspicious": "malicious", "clean": "benign"}.get(engine)
+        corrections += engine_label is not None and engine_label != label
+    print(f"[*] Analyst feedback ({platform}): {len(labels)} human labels; {len(wrong_mal)} malware-folder files "
+          f"the analyst called clean trained as benign and {len(wrong_ben)} clean-folder files called malicious "
+          f"trained as malicious; "
+          f"{added['malicious']} malicious + {added['benign']} benign kept files added "
+          f"({corrections} of them correct an engine verdict)", flush=True)
+    return mal, ben, {s.lower() for s in labels} | set(labels)
 
 
 def load_config(path: Optional[str]) -> Dict[str, List[Tuple[str, str]]]:
@@ -356,9 +502,11 @@ def collect(args, platform: str, keep: Optional[Callable[[str], bool]] = None, m
     finally:
         if cache is not None:
             cache.flush()
+    cfg_path = find_config(getattr(args, "dataset_paths", None))
+    mal, ben, settled = apply_analyst_feedback(platform, cfg_path, keep, mal, ben)
     conflicts = 0
     if cache is not None:
-        both = {h for _, h in mal} & {h for _, h in ben}
+        both = ({h for _, h in mal} & {h for _, h in ben}) - settled
         if both:
             conflicts = len(both)
             with open(CONFLICTS_FILE, "w", encoding="utf-8", errors="backslashreplace") as fh:
