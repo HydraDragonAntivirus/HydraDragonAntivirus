@@ -318,6 +318,9 @@ pub struct SavedSettings {
     /// Rescan kept unknown / possible_clean files after every engine reload.
     #[serde(default = "default_true")]
     pub rescan_after_reload: bool,
+    /// Samples deleted on request are never stored again (dashboard, on by default).
+    #[serde(default = "default_true")]
+    pub never_store_deleted: bool,
     /// Low-disk LZMA2 compression of kept files (dashboard). A new key on purpose: the
     /// old `compress_low_disk` was written as true by every earlier build without being
     /// a choice, so it is ignored and the default is off.
@@ -360,6 +363,7 @@ impl Default for SavedSettings {
             archive_mirror: String::new(),
             maintenance: false,
             archive: false,
+            never_store_deleted: true,
             lzma_low_disk: false,
             low_disk_gb: 5,
             tlsh_blacklist_max_dist: default_tlsh_blacklist_dist(),
