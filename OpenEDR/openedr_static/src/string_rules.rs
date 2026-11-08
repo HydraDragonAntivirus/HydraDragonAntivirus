@@ -82,20 +82,24 @@ impl PeStringRules {
                 if keep.is_empty() {
                     return None;
                 }
+                // Until nothing new is named (a helper can name helpers of its own).
                 loop {
-                    let before = keep.len();
-                    for r in rs.rules().iter().filter(|r| keep.contains(r.id.as_str())) {
-                        for c in &r.conditions {
-                            if let RuleCondition::RuleMatch { ids, .. } = c {
-                                keep.extend(ids.iter().map(String::as_str));
-                            }
-                        }
-                    }
-                    // `extend` above borrows `rs`, so it cannot add to `keep` while
-                    // iterating it: repeat until nothing new is named.
-                    if keep.len() == before {
+                    let named: Vec<&str> = rs
+                        .rules()
+                        .iter()
+                        .filter(|r| keep.contains(r.id.as_str()))
+                        .flat_map(|r| r.conditions.iter())
+                        .filter_map(|c| match c {
+                            RuleCondition::RuleMatch { ids, .. } => Some(ids.iter().map(String::as_str)),
+                            _ => None,
+                        })
+                        .flatten()
+                        .filter(|id| !keep.contains(id))
+                        .collect();
+                    if named.is_empty() {
                         break;
                     }
+                    keep.extend(named);
                 }
                 let drop: std::collections::HashSet<String> =
                     rs.rules().iter().filter(|r| !keep.contains(r.id.as_str())).map(|r| r.id.clone()).collect();
@@ -558,7 +562,7 @@ pub fn read_ignore_lists(dir: &std::path::Path) -> std::collections::HashSet<Str
 
 #[cfg(test)]
 mod evidence_tests {
-    use super::evidence_ranges;
+    use super::{evidence_ranges, PeStringRules};
 
     #[test]
     fn text_bytes_and_regex_evidence() {
