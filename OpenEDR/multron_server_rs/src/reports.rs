@@ -18,8 +18,9 @@ pub fn exists(sha256: &str) -> bool {
 
 /// Writes the report once; an existing report is kept (same bytes give the same report).
 pub fn save(report: &FileReport) {
-    // Deleted on request: its report (strings, names) is never written again.
-    if crate::sample_deletions::is_deleted(&report.hashes.sha256) {
+    // Deleted on request: its report (strings, names) is not written again, unless
+    // the dashboard turned "never store deleted samples again" off.
+    if crate::sample_deletions::blocks_storing(&report.hashes.sha256) {
         return;
     }
     let Some(p) = path_for(&report.hashes.sha256.to_ascii_lowercase()) else { return };

@@ -108,6 +108,8 @@ impl AppState {
             settings.lzma_low_disk = on;
         }
         engine.compress_low_disk.store(settings.lzma_low_disk, std::sync::atomic::Ordering::Relaxed);
+        // Deleted samples stored again or not: saved dashboard choice (on by default).
+        crate::sample_deletions::set_never_store_again(settings.never_store_deleted);
         settings.tlsh_blacklist_max_dist = crate::similarity::set_blacklist_max_dist(settings.tlsh_blacklist_max_dist);
         openedr_static::engine::set_ml_thresholds(settings.ml_js_threshold, settings.ml_apk_threshold);
         openedr_static::engine::set_pe_threshold(settings.ml_pe_threshold);
@@ -241,6 +243,7 @@ impl AppState {
             s.collect_xorfilter = g.collect_xorfilter;
             s.keep_clean = g.keep_clean;
             s.lzma_low_disk = g.lzma_low_disk;
+            s.never_store_deleted = g.never_store_deleted;
             s.tlsh_blacklist_max_dist = g.tlsh_blacklist_max_dist;
             s.ml_pe_threshold = g.ml_pe_threshold;
             s.ml_js_threshold = g.ml_js_threshold;
@@ -346,6 +349,7 @@ pub fn dashboard_router(state: Arc<AppState>) -> Router {
         .route("/api/kept/sort-by-type", post(handle_sort_kept_by_type))
         .route("/api/kept/unpack-xz", post(handle_unpack_kept_xz))
         .route("/api/compress-low-disk", post(handle_compress_low_disk))
+        .route("/api/never-store-deleted", post(handle_never_store_deleted))
         .route("/api/rescan", post(handle_rescan_one))
         .route("/api/rescan/bulk", get(handle_rescan_status).post(handle_rescan_bulk))
         .route("/api/rescan/stop", post(handle_rescan_stop))
@@ -641,6 +645,7 @@ async fn handle_state(
             "collectXorfilter": app.engine.collect_xorfilter.load(std::sync::atomic::Ordering::Relaxed),
             "dataset": app.engine.dataset.get().map(|d| d.status()),
             "compressLowDisk": app.engine.compress_low_disk.load(std::sync::atomic::Ordering::Relaxed),
+            "neverStoreDeleted": crate::sample_deletions::never_store_again(),
             "lowDiskThresholdGB": app.engine.low_disk_threshold_bytes / (1024 * 1024 * 1024),
             "tlshBlacklistMaxDist": crate::similarity::blacklist_max_dist(),
             "mlThresholds": {
@@ -924,6 +929,16 @@ async fn handle_keep_clean(State(app): State<Arc<AppState>>, Json(t): Json<KeepT
     app.settings.write().await.keep_clean = t.enabled;
     app.save_settings().await;
     info_event(&app, format!("keep clean PE/APK files: {}", if t.enabled { "on" } else { "off" }));
+    Json(serde_json::json!({ "ok": true, "enabled": t.enabled }))
+}
+
+/// Whether samples deleted on request are never stored again (on) or kept again,
+/// with their report, when a client sends the same file later (off). Saved.
+async fn handle_never_store_deleted(State(app): State<Arc<AppState>>, Json(t): Json<KeepToggle>) -> impl IntoResponse {
+    crate::sample_deletions::set_never_store_again(t.enabled);
+    app.settings.write().await.never_store_deleted = t.enabled;
+    app.save_settings().await;
+    info_event(&app, format!("never store deleted samples again: {}", if t.enabled { "on" } else { "off" }));
     Json(serde_json::json!({ "ok": true, "enabled": t.enabled }))
 }
 

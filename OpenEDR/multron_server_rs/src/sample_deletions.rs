@@ -2,8 +2,9 @@
 //! dashboard, always with a reason. Deleting removes the kept file (any category,
 //! plain or `.xz`) and its stored static report (strings, file name, PE / APK details),
 //! and marks the sample private (`private_samples`). The verdict and telemetry stay:
-//! they are not the file. A deleted sample is never stored again, nor its report
-//! rebuilt, when a client sends the same file later.
+//! they are not the file. By default a deleted sample is never stored again, nor its
+//! report rebuilt, when a client sends the same file later; the dashboard can turn
+//! that off ([`set_never_store_again`]), and the same file is then kept again.
 //!
 //! Copies the server does not manage are not touched: archive folders
 //! (`archived_dirs.json`, e.g. another PC) and ML dataset folders. The answer names
@@ -14,7 +15,25 @@
 
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Write};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{OnceLock, RwLock};
+
+/// Deleted samples are not stored again (dashboard toggle, on by default).
+static NEVER_STORE_AGAIN: AtomicBool = AtomicBool::new(true);
+
+pub fn set_never_store_again(on: bool) {
+    NEVER_STORE_AGAIN.store(on, Ordering::Relaxed);
+}
+
+pub fn never_store_again() -> bool {
+    NEVER_STORE_AGAIN.load(Ordering::Relaxed)
+}
+
+/// The file and its report must not be written for this hash: deleted on request
+/// while "never store again" is on.
+pub fn blocks_storing(sha256: &str) -> bool {
+    never_store_again() && is_deleted(sha256)
+}
 
 use serde::{Deserialize, Serialize};
 
@@ -49,7 +68,7 @@ fn load() -> HashMap<String, SampleDeletion> {
         }
     }
     if !m.is_empty() {
-        eprintln!("[deleted] {} samples deleted on request (never stored again)", m.len());
+        eprintln!("[deleted] {} samples deleted on request", m.len());
     }
     m
 }

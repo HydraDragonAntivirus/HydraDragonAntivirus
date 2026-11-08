@@ -424,6 +424,11 @@
         Compress new kept files with LZMA2 (<code>.xz</code>) when space runs low
       </label>
       <div class="hint">Off by default. When on, a file kept while free disk space is under <span id="lowDiskGb">5</span> GB is stored as <code>.xz</code> (smaller, slower to rescan). Saved in multron_server.json; <code>--compress-low-disk</code> / <code>--no-compress-low-disk</code> override it at start.</div>
+      <label style="display:flex;gap:8px;align-items:center;margin-top:10px">
+        <input type="checkbox" id="neverStoreDeleted" style="width:auto">
+        Never store <b>deleted</b> samples again
+      </label>
+      <div class="hint">On by default. A sample deleted on request is not kept again, nor its report rebuilt, when a client sends the same file later. Off: the same file is kept again like any other. Saved in multron_server.json.</div>
       <h2 style="margin-top:18px">Rescan kept files</h2>
       <div class="hint">Moved to <a href="#humanAnalysis" onclick="document.querySelector('#haTabs button[data-tab=Rescan]').click()" style="color:var(--accent)">Human analysis &rarr; Rescan tab</a></div>
       <h2 style="margin-top:18px">Move kept files to another disk</h2>
@@ -1358,6 +1363,7 @@ window.sigKey = (list) => list && list.length ? `${list[0].layer}: ${list[0].nam
     if (document.activeElement !== $("collectXorfilter")) $("collectXorfilter").checked = !!l.collectXorfilter;
     if (document.activeElement !== $("keepClean")) $("keepClean").checked = !!l.keepClean;
     if (document.activeElement !== $("compressLowDisk")) $("compressLowDisk").checked = !!l.compressLowDisk;
+    if (document.activeElement !== $("neverStoreDeleted")) $("neverStoreDeleted").checked = l.neverStoreDeleted !== false;
     if (l.lowDiskThresholdGB != null) $("lowDiskGb").textContent = l.lowDiskThresholdGB;
     $("keepCleanQuota").textContent = `${Number(l.keptCleanGB || 0).toFixed(2)} of ${l.keepCleanGB} GB used`;
     renderRescan(state.rescan || {});
@@ -1829,6 +1835,10 @@ window.sigKey = (list) => list && list.length ? `${list[0].layer}: ${list[0].nam
 
   $("compressLowDisk").onchange = async (e) => {
     try { await post("/api/compress-low-disk", { enabled: e.target.checked }); }
+    catch (_) { e.target.checked = !e.target.checked; }
+  };
+  $("neverStoreDeleted").onchange = async (e) => {
+    try { await post("/api/never-store-deleted", { enabled: e.target.checked }); }
     catch (_) { e.target.checked = !e.target.checked; }
   };
   $("keepClean").onchange = async (e) => {
