@@ -980,7 +980,124 @@ fn cab_read(cabinet: &mut cab::Cabinet<Cursor<&[u8]>>, name: &str, compressed_le
     Ok(buf)
 }
 
+/// One CFFILE record: name, size, offset in its folder's uncompressed stream, folder.
+struct CabFile {
+    name: String,
+    size: u32,
+    offset: u32,
+    folder: u16,
+}
+
+fn rd_u16(d: &[u8], o: usize) -> Option<u16> {
+    Some(u16::from_le_bytes(d.get(o..o.checked_add(2)?)?.try_into().ok()?))
+}
+
+fn rd_u32(d: &[u8], o: usize) -> Option<u32> {
+    Some(u32::from_le_bytes(d.get(o..o.checked_add(4)?)?.try_into().ok()?))
+}
+
+/// The CFFILE table (header `coffFiles` at 16, `cFiles` at 28). Files continued from
+/// or into another cabinet (folder index 0xFFFD..=0xFFFF) are left out.
+fn cab_files(data: &[u8]) -> Option<Vec<CabFile>> {
+    let mut p = rd_u32(data, 16)? as usize;
+    let count = rd_u16(data, 28)?;
+    let mut out = Vec::with_capacity(count as usize);
+    for _ in 0..count {
+        let size = rd_u32(data, p)?;
+        let offset = rd_u32(data, p + 4)?;
+        let folder = rd_u16(data, p + 8)?;
+        let start = p.checked_add(16)?;
+        let end = start + data.get(start..)?.iter().position(|&b| b == 0)?;
+        if folder < 0xFFFD {
+            out.push(CabFile { name: String::from_utf8_lossy(&data[start..end]).into_owned(), size, offset, folder });
+        }
+        p = end + 1;
+    }
+    Some(out)
+}
+
+/// Each folder's whole uncompressed stream, decompressed ONCE.
+///
+/// A folder is one solid stream (LZX / MSZIP history runs across its files), and
+/// `cab::Cabinet::read_file` starts a new decompressor at the folder's first block for
+/// every file. Reading the files one by one therefore decompressed the folder again
+/// for each of them: quadratic, a 250 KB help cabinet with 1018 files in one LZX
+/// folder took 8-19 s (and longer on a slow server) instead of 75 ms. The cabinet is
+/// given a CFFILE table of its own here with one file per folder spanning the whole
+/// folder (appended after the data, header offsets patched), so the crate's own
+/// decompressors read every folder start to end once. A damaged folder keeps what was
+/// decompressed before the error.
+fn cab_folder_streams(data: &[u8], files: &[CabFile], compressed_len: usize) -> Result<Vec<Option<Vec<u8>>>> {
+    let folders = rd_u16(data, 26).unwrap_or(0) as usize;
+    let mut patched = data.to_vec();
+    let table = patched.len() as u32;
+    for i in 0..folders {
+        let span = files
+            .iter()
+            .filter(|f| f.folder as usize == i)
+            .map(|f| f.offset as u64 + f.size as u64)
+            .max()
+            .unwrap_or(0)
+            .min(u32::MAX as u64) as u32;
+        patched.extend_from_slice(&span.to_le_bytes());
+        patched.extend_from_slice(&0u32.to_le_bytes());
+        patched.extend_from_slice(&(i as u16).to_le_bytes());
+        patched.extend_from_slice(&[0x21, 0, 0, 0, 0, 0]); // date 1980-01-01, time 0, attributes 0
+        patched.extend_from_slice(format!("folder{i}\0").as_bytes());
+    }
+    patched[16..20].copy_from_slice(&table.to_le_bytes());
+    patched[28..30].copy_from_slice(&(folders as u16).to_le_bytes());
+    let len = patched.len() as u32;
+    patched[8..12].copy_from_slice(&len.to_le_bytes());
+
+    let mut cabinet = cab::Cabinet::new(Cursor::new(&patched[..])).map_err(map_err)?;
+    let mut out = Vec::with_capacity(folders);
+    let mut total = 0usize;
+    for i in 0..folders {
+        let Ok(reader) = cabinet.read_file(&format!("folder{i}")) else {
+            out.push(None); // Quantum or damaged: its files are skipped
+            continue;
+        };
+        let mut buf = Vec::new();
+        let _ = reader.take(MAX_DECOMPRESSED_SIZE + 1).read_to_end(&mut buf);
+        total += buf.len();
+        if is_decompression_bomb(compressed_len, total) {
+            return Err(bomb_error("cab", compressed_len, total));
+        }
+        out.push(Some(buf));
+    }
+    Ok(out)
+}
+
 fn cab_to_memory(data: &[u8]) -> Result<Vec<ExtractedEntry>> {
+    // One pass per folder; the per-file path below only when the table cannot be read.
+    if let Some(files) = cab_files(data) {
+        let streams = cab_folder_streams(data, &files, data.len())?;
+        let mut out = Vec::new();
+        for f in &files {
+            if out.len() >= MAX_ARCHIVE_ENTRIES {
+                break;
+            }
+            let Some(Some(stream)) = streams.get(f.folder as usize) else { continue };
+            let (start, end) = (f.offset as usize, f.offset as usize + f.size as usize);
+            let Some(content) = stream.get(start..end) else { continue };
+            if !content.is_empty() {
+                out.push(ExtractedEntry {
+                    name: f.name.replace('\\', "/"),
+                    size_real: f.size as u64,
+                    file_pos: 0,
+                    data: content.to_vec(),
+                });
+            }
+        }
+        if !out.is_empty() || files.is_empty() {
+            return Ok(out);
+        }
+    }
+    cab_to_memory_per_file(data)
+}
+
+fn cab_to_memory_per_file(data: &[u8]) -> Result<Vec<ExtractedEntry>> {
     let names = cab_names(data)?;
     let mut cabinet = cab::Cabinet::new(Cursor::new(data)).map_err(map_err)?;
     let mut out = Vec::new();
@@ -1339,6 +1456,40 @@ mod tests {
         assert_eq!(entries[1].data, b"hello cab");
         assert_eq!(list_entries(&data).unwrap().len(), 2);
         assert_eq!(extract_entry(&data, "dir/evil.exe").unwrap(), b"MZ fake exe body");
+    }
+
+    /// Many files in solid folders (two MSZIP folders, one stored): the single pass per
+    /// folder gives exactly what reading every file on its own gives, in table order.
+    #[test]
+    fn cab_folders_are_read_once_and_match_per_file_reads() {
+        let mut builder = cab::CabinetBuilder::new();
+        let body = |i: usize| -> Vec<u8> { (0..(i * 997) % 70_000 + 1).map(|k| ((k * 31 + i * 7) % 251) as u8).collect() };
+        let mut names = Vec::new();
+        for (f, kind) in [cab::CompressionType::MsZip, cab::CompressionType::None, cab::CompressionType::MsZip].into_iter().enumerate() {
+            let folder = builder.add_folder(kind);
+            for i in 0..40 {
+                let name = format!("f{f}\\file{i}.html");
+                folder.add_file(name.clone());
+                names.push(name);
+            }
+        }
+        let mut writer = builder.build(Cursor::new(Vec::new())).unwrap();
+        while let Some(mut w) = writer.next_file().unwrap() {
+            use std::io::Write;
+            let i = names.iter().position(|n| n == w.file_name()).unwrap();
+            w.write_all(&body(i)).unwrap();
+        }
+        let data = writer.finish().unwrap().into_inner();
+        let fast = cab_to_memory(&data).unwrap();
+        let slow = cab_to_memory_per_file(&data).unwrap();
+        assert_eq!(fast.len(), 120);
+        assert_eq!(fast.len(), slow.len());
+        for (i, (a, b)) in fast.iter().zip(&slow).enumerate() {
+            assert_eq!(a.name, b.name);
+            assert_eq!(a.name, names[i].replace('\\', "/"));
+            assert!(a.data == b.data && a.data == body(i), "{}", a.name);
+            assert_eq!(a.size_real, a.data.len() as u64);
+        }
     }
 
     #[test]
