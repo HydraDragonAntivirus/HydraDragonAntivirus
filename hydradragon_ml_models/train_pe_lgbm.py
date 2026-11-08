@@ -359,7 +359,7 @@ def parse_args():
     parser.add_argument("--no-sync", action="store_true", help="Do not copy pe_trees.bin into the engine model folders")
     parser.add_argument("--features", choices=("v1", "v2"), default="v1",
                         help="v1: the 65 shell features (default). v2: unified model on the full feature "
-                             "vector (shell + inner + meta + combined + string / URL ML, 177 features), from pe_feature_dump "
+                             "vector (shell + inner + meta + combined + string / URL ML + file-infector traces, 186 features), from pe_feature_dump "
                              "(openedr_static ml/pe_combined.rs); uses its own chunk folder")
     args = parser.parse_args()
     if args.features == "v2":
