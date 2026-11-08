@@ -84,6 +84,7 @@ fn open(p: &Path) -> rusqlite::Result<Connection> {
     conn.pragma_update(None, "cache_size", -4096)?;
     conn.pragma_update(None, "journal_mode", "WAL")?;
     conn.pragma_update(None, "synchronous", "NORMAL")?;
+    conn.pragma_update(None, "journal_size_limit", crate::insight_db::WAL_SIZE_LIMIT)?;
     conn.execute_batch(
         "CREATE TABLE IF NOT EXISTS changes (
              sha    TEXT NOT NULL,
@@ -121,9 +122,17 @@ pub fn start() {
         if n > 0 {
             eprintln!("[history] {n} verdict changes indexed in {} s", t.elapsed().as_secs());
         }
+        let _ = crate::insight_db::truncate_wal(&conn, Duration::from_secs(5));
+        let mut last_truncate = std::time::Instant::now();
         loop {
             std::thread::sleep(IMPORT_EVERY);
             import_all(&conn);
+            // The reader would otherwise keep the WAL from ever being rewound.
+            if last_truncate.elapsed() >= Duration::from_secs(60)
+                && crate::insight_db::truncate_wal(&conn, Duration::from_millis(500)).unwrap_or(false)
+            {
+                last_truncate = std::time::Instant::now();
+            }
         }
     });
 }

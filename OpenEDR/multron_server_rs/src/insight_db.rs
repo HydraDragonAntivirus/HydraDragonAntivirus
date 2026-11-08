@@ -26,6 +26,12 @@ const LOOKUP_CACHE_KIB: i64 = 16 * 1024;
 const LOOKUP_CONNECTIONS: usize = 8;
 const SCAN_CACHE_KIB: i64 = 8 * 1024;
 const WAL_CHECKPOINT_PAGES: i64 = 10_000;
+/// Size the `-wal` file is cut back to after a checkpoint has copied it into the
+/// database. Without it the file never shrinks: it stays as large as its biggest
+/// moment, which can be larger than the database itself.
+pub(crate) const WAL_SIZE_LIMIT: i64 = 64 * 1024 * 1024;
+/// How often the writer forces the WAL back to the start ([`truncate_wal`]).
+const WAL_TRUNCATE_EVERY: Duration = Duration::from_secs(60);
 const PAGE_SIZE: i64 = 16_384;
 const UPGRADE_CACHE_KIB: i64 = 512 * 1024;
 const INSIGHT_INDEXES: &str = "CREATE INDEX IF NOT EXISTS insights_seq ON insights(seq);
@@ -38,6 +44,8 @@ pub struct InsightDb {
     write: Option<Mutex<Connection>>,
     /// Short lookups by hash (every scan asks for a verdict).
     lookup: Vec<Mutex<Connection>>,
+    /// When the writer last forced the WAL back to the start.
+    last_truncate: Mutex<std::time::Instant>,
 }
 
 /// One sighting row (see `ThreatInsight::sightings`).
@@ -75,6 +83,21 @@ fn open_read(path: &Path, cache_kib: i64) -> Res<Connection> {
     Ok(conn)
 }
 
+/// Copies the whole WAL into the database and cuts the `-wal` file to zero.
+///
+/// The automatic checkpoint is PASSIVE: it copies what it can but never waits, so
+/// with lookups reading all the time the WAL is never rewound and keeps growing
+/// (every write is appended at its end). TRUNCATE waits a moment for the readers
+/// that still use the old frames; new readers then read the database file and do
+/// not hold it up. Only frames already committed are moved, nothing is dropped.
+/// Busy (a long read still running): the copied part stays copied, retried later.
+pub(crate) fn truncate_wal(conn: &Connection, wait: Duration) -> Res<bool> {
+    conn.busy_timeout(wait)?;
+    let done = conn.query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |r| r.get::<_, i64>(0)).map(|busy| busy == 0);
+    conn.busy_timeout(Duration::from_secs(30))?;
+    done
+}
+
 fn thread_slot() -> usize {
     use std::sync::atomic::{AtomicUsize, Ordering};
     static NEXT: AtomicUsize = AtomicUsize::new(0);
@@ -110,6 +133,10 @@ impl InsightDb {
         conn.pragma_update(None, "journal_mode", "WAL")?;
         conn.pragma_update(None, "synchronous", "NORMAL")?;
         conn.pragma_update(None, "wal_autocheckpoint", WAL_CHECKPOINT_PAGES)?;
+        conn.pragma_update(None, "journal_size_limit", WAL_SIZE_LIMIT)?;
+        // A WAL left large by an earlier run is copied in and cut now, before the
+        // lookups start reading.
+        let _ = truncate_wal(&conn, Duration::from_secs(5));
         conn.execute_batch(
             "CREATE TABLE IF NOT EXISTS insights (
                  sha        BLOB NOT NULL UNIQUE,
@@ -155,13 +182,26 @@ impl InsightDb {
         }
         let n = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4).clamp(1, LOOKUP_CONNECTIONS);
         let lookup = (0..n).map(|_| open_read(path, LOOKUP_CACHE_KIB).map(Mutex::new)).collect::<Res<Vec<_>>>()?;
-        Ok(Self { path: path.to_path_buf(), write: Some(Mutex::new(conn)), lookup })
+        Ok(Self { path: path.to_path_buf(), write: Some(Mutex::new(conn)), lookup, last_truncate: Mutex::new(std::time::Instant::now()) })
     }
 
     /// Opens an existing database for reading only (the standby's first look).
     pub fn open_readonly(path: &Path) -> Res<Self> {
         let lookup = open_read(path, SCAN_CACHE_KIB)?;
-        Ok(Self { path: path.to_path_buf(), write: None, lookup: vec![Mutex::new(lookup)] })
+        Ok(Self { path: path.to_path_buf(), write: None, lookup: vec![Mutex::new(lookup)], last_truncate: Mutex::new(std::time::Instant::now()) })
+    }
+
+    /// After a write: at most once a minute, the WAL is copied into the database and
+    /// cut back ([`truncate_wal`]). Waits at most half a second for readers; the next
+    /// write tries again when they did not finish.
+    fn truncate_wal_if_due(&self, conn: &Connection) {
+        let mut last = self.last_truncate.lock().unwrap();
+        if last.elapsed() < WAL_TRUNCATE_EVERY {
+            return;
+        }
+        if let Ok(true) = truncate_wal(conn, Duration::from_millis(500)) {
+            *last = std::time::Instant::now();
+        }
     }
 
     fn writer(&self) -> Res<std::sync::MutexGuard<'_, Connection>> {
@@ -259,7 +299,9 @@ impl InsightDb {
                 write_sightings(&tx, row)?;
             }
         }
-        tx.commit()
+        tx.commit()?;
+        self.truncate_wal_if_due(&c);
+        Ok(())
     }
 
     /// Rows whose columns are missing or older than their JSON: `(sha, seq, json)`,
@@ -310,7 +352,9 @@ impl InsightDb {
                 }
             }
         }
-        tx.commit()
+        tx.commit()?;
+        self.truncate_wal_if_due(&c);
+        Ok(())
     }
 
     /// Every record, in hash order.
@@ -614,6 +658,30 @@ mod tests {
             .lookup(|c| c.query_row("EXPLAIN QUERY PLAN SELECT sha, verdict FROM insights INDEXED BY insights_verdict WHERE verdict IN ('malicious')", [], |r| r.get(3)))
             .unwrap();
         assert!(plan.contains("COVERING INDEX insights_verdict"), "{plan}");
+    }
+
+    #[test]
+    fn wal_is_cut_back_after_writes() {
+        let p = tmp("wal_cut");
+        let db = InsightDb::open(&p).unwrap();
+        let big = "x".repeat(4000);
+        let rows: Vec<InsightRow> = (0..500u32)
+            .map(|i| {
+                let mut sha = [0u8; 32];
+                sha[..4].copy_from_slice(&i.to_be_bytes());
+                row(sha, &big, "clean", &[])
+            })
+            .collect();
+        // A lookup connection has read (and keeps its cached statement): the case where
+        // the passive autocheckpoint never rewinds the WAL.
+        assert_eq!(db.count().unwrap(), 0);
+        db.upsert_batch(&rows).unwrap();
+        let wal = std::path::PathBuf::from(format!("{}-wal", p.display()));
+        assert!(std::fs::metadata(&wal).map(|m| m.len()).unwrap_or(0) > 0);
+        *db.last_truncate.lock().unwrap() -= WAL_TRUNCATE_EVERY;
+        db.upsert_batch(&rows[..1]).unwrap();
+        assert_eq!(std::fs::metadata(&wal).unwrap().len(), 0);
+        assert_eq!(db.count().unwrap(), 500);
     }
 
     #[test]
