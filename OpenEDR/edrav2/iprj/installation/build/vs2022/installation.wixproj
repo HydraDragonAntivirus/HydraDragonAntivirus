@@ -1,4 +1,4 @@
-﻿<Project Sdk="WixToolset.Sdk/6.0.2">
+<Project Sdk="WixToolset.Sdk/6.0.2">
   <PropertyGroup>
     <Configuration Condition=" '$(Configuration)' == '' ">Release</Configuration>
     <Platform Condition=" '$(Platform)' == '' ">x64</Platform>
@@ -73,7 +73,8 @@
     <Exec Condition="Exists('$(CmdRootDir)\out\bin\$(CmdOutDirName)')" Command="FOR /r &quot;$(CmdRootDir)\out\srcBinInstall\$(CmdOutDirName)&quot; %%i in (*.new) do del &quot;%%~dpni&quot; /F /Q &amp; ren &quot;%%~i&quot; &quot;%%~ni&quot;" />
     <Exec Command="xcopy /Y /D &quot;$(ProjectDir)..\..\..\..\WinDivert\WinDivert.dll&quot; &quot;$(CmdRootDir)\out\srcBinInstall\$(CmdOutDirName)\&quot;" />
     <Exec Command="xcopy /Y /D &quot;$(ProjectDir)..\..\..\..\WinDivert\WinDivert64.sys&quot; &quot;$(CmdRootDir)\out\srcBinInstall\$(CmdOutDirName)\&quot;" />
-    <Exec Command="xcopy /Y /D &quot;$(ProjectDir)..\..\..\..\..\owlyshield_predict\target\release\owlyshield_ransom.dll&quot; &quot;$(CmdRootDir)\out\srcBinInstall\$(CmdOutDirName)\&quot;" />
+    <Exec Condition="Exists('$(ProjectDir)..\..\..\..\..\owlyshield_predict\target\release\owlyshield_ransom.dll')" Command="xcopy /Y /D &quot;$(ProjectDir)..\..\..\..\..\owlyshield_predict\target\release\owlyshield_ransom.dll&quot; &quot;$(CmdRootDir)\out\srcBinInstall\$(CmdOutDirName)\&quot;" />
+    <Exec Condition="!Exists('$(ProjectDir)..\..\..\..\..\owlyshield_predict\target\release\owlyshield_ransom.dll') and Exists('$(ProjectDir)..\..\..\..\..\edrgui\owlyshield_ransom.dll')" Command="xcopy /Y /D &quot;$(ProjectDir)..\..\..\..\..\edrgui\owlyshield_ransom.dll&quot; &quot;$(CmdRootDir)\out\srcBinInstall\$(CmdOutDirName)\&quot;" />
     <Exec Command="xcopy /Y /D /E /I &quot;$(ProjectDir)..\..\..\..\firewall-rules&quot; &quot;$(CmdRootDir)\out\srcBinInstall\$(CmdOutDirName)\firewall-rules\&quot;" />
     <!-- openedr_cloud.dll cloud engine (viruskov.com cloud scan): staged portable DLL with fallback to target\release -->
     <Exec Condition="Exists('$(ProjectDir)..\..\..\..\..\..\OpenMalwareScannerPortable\openedr_cloud.dll')" Command="xcopy /Y /D &quot;$(ProjectDir)..\..\..\..\..\..\OpenMalwareScannerPortable\openedr_cloud.dll&quot; &quot;$(CmdRootDir)\out\srcBinInstall\$(CmdOutDirName)\&quot;" />
