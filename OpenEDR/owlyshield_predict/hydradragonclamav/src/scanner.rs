@@ -684,6 +684,9 @@ impl Engine {
         skip_yara: bool,
     ) {
         let _slow = SlowAlert::new("scan_object", 200);
+        // Count top-level ClamAV scans only: children run inside their parent's
+        // scan, and a YARA-only pass never fans out.
+        let _active = (depth == 0 && !skip_clamav).then(crate::atomscan::ActiveScan::enter);
         if data.len() > options.max_child_size {
             return;
         }

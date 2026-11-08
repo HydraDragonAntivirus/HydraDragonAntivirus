@@ -3,7 +3,7 @@ use crate::atomfilter::{ExtSlot, SlotDef};
 
 use daachorse::DoubleArrayAhoCorasick;
 
-/// Cached CPU count, capped at 4. `std::thread::available_parallelism()` is not
+/// Cached CPU count. `std::thread::available_parallelism()` is not
 /// free on Android: it probes CPU affinity and cgroup-v2 CPU-quota files under
 /// `/sys/fs/cgroup`, which the app sandbox is denied `search` on — every call
 /// produces an SELinux `avc: denied { search } … cgroup2` audit line. The atom
@@ -11,8 +11,7 @@ use daachorse::DoubleArrayAhoCorasick;
 /// per exact/nocase), so an APK with hundreds of nested entries flooded logcat
 /// with denials AND paid the probe cost repeatedly. The value can't change over
 /// a process's lifetime, so resolve it once and reuse it.
-pub(crate) fn worker_count() -> usize {
-    use std::sync::atomic::{AtomicUsize, Ordering};
+fn cpu_count() -> usize {
     static CACHED: AtomicUsize = AtomicUsize::new(0);
     let cached = CACHED.load(Ordering::Relaxed);
     if cached != 0 {
@@ -21,9 +20,42 @@ pub(crate) fn worker_count() -> usize {
     let n = std::thread::available_parallelism()
         .map(|n| n.get())
         .unwrap_or(4)
-        .clamp(1, 4);
+        .max(1);
     CACHED.store(n, Ordering::Relaxed);
     n
+}
+
+use std::sync::atomic::{AtomicUsize, Ordering};
+
+/// Top-level ClamAV scans running right now in this process (see [`ActiveScan`]).
+static ACTIVE_SCANS: AtomicUsize = AtomicUsize::new(0);
+
+/// Counts one top-level ClamAV scan for as long as it lives, so the inner
+/// fan-out ([`worker_count`]) knows how many scans share the CPUs.
+pub(crate) struct ActiveScan;
+
+impl ActiveScan {
+    pub(crate) fn enter() -> Self {
+        ACTIVE_SCANS.fetch_add(1, Ordering::Relaxed);
+        ActiveScan
+    }
+}
+
+impl Drop for ActiveScan {
+    fn drop(&mut self) {
+        ACTIVE_SCANS.fetch_sub(1, Ordering::Relaxed);
+    }
+}
+
+/// Threads one scan may fan out to (atom sweep, logical evaluation): at most 4,
+/// and the CPUs split between the scans running at the same time. A server
+/// running cpu−1 scans at once used to give each of them 4 threads on top, ~4×
+/// more threads than cores, all fighting for the same memory bus (15–40× slower
+/// per chunk on a VDS). One scan alone still gets min(cpus, 4), as before.
+pub(crate) fn worker_count() -> usize {
+    let cpus = cpu_count();
+    let active = ACTIVE_SCANS.load(Ordering::Relaxed).max(1);
+    (cpus / active).clamp(1, cpus.min(4))
 }
 
 /// Per-slot hit counts (and last-seen match start offset) for one buffer.
