@@ -8,6 +8,15 @@ pub const MIN_LEN: usize = 4;
 
 /// Extract ASCII, UTF-16LE, PE code-referenced strings, and stack strings.
 /// The disassembly is shared with the PE string ML ([`crate::decompiled_strings`]).
+/// The part of a file HydraSig takes strings from: the same bytes the PE string ML
+/// disassembles for the file itself (`pe_combined`, `INNER_MAX_BYTES`). With a
+/// different cap (it was 16 MB) the two read different buffers for a larger file,
+/// so the shared disassembly (`decompiled_strings`) missed and the code was
+/// disassembled twice.
+pub fn decompile_slice(data: &[u8]) -> &[u8] {
+    &data[..data.len().min(crate::ml::pe_combined::INNER_MAX_BYTES)]
+}
+
 pub fn extract_strings(data: &[u8]) -> Vec<String> {
     crate::decompiled_strings::hydrasig(data)
 }

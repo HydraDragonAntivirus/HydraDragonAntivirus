@@ -27,12 +27,17 @@ pub struct Hit {
 #[derive(Debug, Default)]
 pub struct PeStringRules {
     ruleset: Option<RuleSet>,
+    /// The rules with `emulated_*` conditions (and the rules they name in `rule_match`),
+    /// built on first use: after emulation only these are evaluated again
+    /// (`scan_emulated`). Reset whenever the rules change.
+    emulated: std::sync::OnceLock<Option<RuleSet>>,
 }
 
 impl PeStringRules {
     /// Load a hydradragonsig `Rule` YAML document. Returns the rule count,
     /// or -1 when the document holds no usable rules.
     pub fn load_yaml(&mut self, yaml: &str) -> i32 {
+        self.emulated = Default::default();
         match RuleSet::from_yaml_str(yaml) {
             Ok(rs) => {
                 // Problems that do not stop loading (unknown keys, invalid regexes...).
@@ -57,7 +62,71 @@ impl PeStringRules {
 
     /// Drops rules by id (`.ign2` false-positive lists next to the rule files).
     pub fn ignore(&mut self, ids: &std::collections::HashSet<String>) -> usize {
+        self.emulated = Default::default();
         self.ruleset.as_mut().map_or(0, |rs| rs.remove_ids(ids))
+    }
+
+    /// The emulated rules plus every rule they reach through `rule_match` (those must
+    /// run first for the reference to hold), in the set's order. None when there are none.
+    fn emulated_set(&self) -> Option<&RuleSet> {
+        self.emulated
+            .get_or_init(|| {
+                use hydradragonsig::rules::RuleCondition;
+                let rs = self.ruleset.as_ref()?;
+                let mut keep: std::collections::HashSet<&str> = rs
+                    .rules()
+                    .iter()
+                    .filter(|r| r.conditions.iter().any(RuleCondition::is_emulated))
+                    .map(|r| r.id.as_str())
+                    .collect();
+                if keep.is_empty() {
+                    return None;
+                }
+                loop {
+                    let before = keep.len();
+                    for r in rs.rules().iter().filter(|r| keep.contains(r.id.as_str())) {
+                        for c in &r.conditions {
+                            if let RuleCondition::RuleMatch { ids, .. } = c {
+                                keep.extend(ids.iter().map(String::as_str));
+                            }
+                        }
+                    }
+                    // `extend` above borrows `rs`, so it cannot add to `keep` while
+                    // iterating it: repeat until nothing new is named.
+                    if keep.len() == before {
+                        break;
+                    }
+                }
+                let drop: std::collections::HashSet<String> =
+                    rs.rules().iter().filter(|r| !keep.contains(r.id.as_str())).map(|r| r.id.clone()).collect();
+                let mut subset = rs.clone();
+                subset.remove_ids(&drop);
+                Some(subset)
+            })
+            .as_ref()
+    }
+
+    /// After emulation: only the rules with `emulated_*` conditions (and what they
+    /// reference) over the strings and the trace, instead of every rule again. Hits
+    /// of referenced helper rules are left out, as before (`is_emulated_rule`).
+    #[allow(clippy::too_many_arguments)]
+    pub fn scan_emulated(
+        &self,
+        data: &[u8],
+        target_name: &str,
+        sha256_hex: &str,
+        strings: &[String],
+        is_pe: bool,
+        cap: usize,
+        behavior: &hydradragonsig::models::BehaviorTrace,
+    ) -> Vec<Hit> {
+        let Some(subset) = self.emulated_set() else { return Vec::new() };
+        crate::memtrack::measure("scan:hydrasig_emulated", crate::memtrack::Kind::Scan, data.len(), || {
+            Self::eval(subset, data, target_name, sha256_hex, strings, is_pe, false, cap, None, Some(behavior))
+        })
+        .into_iter()
+        .filter(|h| self.is_emulated_rule(&h.rule))
+        .collect()
     }
 
     pub fn pattern_count(&self) -> usize {
@@ -140,10 +209,29 @@ impl PeStringRules {
         parent: Option<&ParentInfo>,
         behavior: Option<&hydradragonsig::models::BehaviorTrace>,
     ) -> Vec<Hit> {
-        let rs = match self.ruleset.as_ref() {
-            Some(rs) if (!data.is_empty() || !strings.is_empty() || behavior.is_some()) && cap > 0 => rs,
-            _ => return Vec::new(),
-        };
+        match self.ruleset.as_ref() {
+            Some(rs) => Self::eval(rs, data, target_name, sha256_hex, strings, is_pe, is_apk, cap, parent, behavior),
+            None => Vec::new(),
+        }
+    }
+
+    /// `rs` (all rules, or the emulated subset) over one buffer.
+    #[allow(clippy::too_many_arguments)]
+    fn eval(
+        rs: &RuleSet,
+        data: &[u8],
+        target_name: &str,
+        sha256_hex: &str,
+        strings: &[String],
+        is_pe: bool,
+        is_apk: bool,
+        cap: usize,
+        parent: Option<&ParentInfo>,
+        behavior: Option<&hydradragonsig::models::BehaviorTrace>,
+    ) -> Vec<Hit> {
+        if !((!data.is_empty() || !strings.is_empty() || behavior.is_some()) && cap > 0) {
+            return Vec::new();
+        }
         // The PE is parsed and the entropy computed by hydradragonsig only when a
         // rule needs them (imports, sections, entropy...): most scans never do.
         // PE32 / PE32+ comes from the optional header magic.
@@ -547,5 +635,69 @@ rules:
         data.extend(b"payload!".iter().map(|b| b ^ key));
         let ev = vec!["$a xor(0x41) ascii text `payload!` at 0x2".to_string()];
         assert_eq!(evidence_ranges(&data, &ev, 8), vec![(2, 10)]);
+    }
+
+    /// After emulation only the emulated rules run, with the helper rules they name in
+    /// `rule_match` (transitively), and the result is what the full set gave.
+    #[test]
+    fn emulated_subset_keeps_referenced_helpers() {
+        let yaml = "rules:
+  - id: HELPER_BASE
+    title: t
+    severity: low
+    private: true
+    conditions:
+      - type: string_contains
+        value: marker-one
+  - id: HELPER
+    title: t
+    severity: low
+    private: true
+    conditions:
+      - type: rule_match
+        ids: [HELPER_BASE]
+  - id: PLAIN
+    title: t
+    severity: high
+    conditions:
+      - type: string_contains
+        value: marker-one
+  - id: EMU
+    title: t
+    severity: high
+    conditions:
+      - type: rule_match
+        ids: [HELPER]
+      - type: emulated_api_any
+        names: [VirtualAlloc]
+";
+        let mut rules = PeStringRules::default();
+        assert!(rules.load_yaml(yaml) > 0);
+        let ids: Vec<&str> = rules.emulated_set().unwrap().rules().iter().map(|r| r.id.as_str()).collect();
+        assert_eq!(ids, ["HELPER_BASE", "HELPER", "EMU"]);
+        let trace = hydradragonsig::models::BehaviorTrace {
+            calls: vec![hydradragonsig::models::ApiCall { api: "VirtualAlloc".into(), ..Default::default() }],
+            ..Default::default()
+        };
+        let strings = vec!["xx marker-one xx".to_string()];
+        let full: Vec<String> = rules
+            .scan_bytes_with_behavior(b"MZ", "f", "00", &strings, true, false, 10, None, Some(&trace))
+            .into_iter()
+            .filter(|h| rules.is_emulated_rule(&h.rule))
+            .map(|h| h.rule)
+            .collect();
+        let sub: Vec<String> = rules.scan_emulated(b"MZ", "f", "00", &strings, true, 10, &trace).into_iter().map(|h| h.rule).collect();
+        assert_eq!(full, ["EMU"]);
+        assert_eq!(sub, full);
+        // New rules reset the subset.
+        rules.load_yaml("rules:
+  - id: EMU2
+    title: t
+    severity: high
+    conditions:
+      - type: emulated_api_any
+        names: [x]
+");
+        assert!(rules.emulated_set().unwrap().rules().iter().any(|r| r.id == "EMU2"));
     }
 }

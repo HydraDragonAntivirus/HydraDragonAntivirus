@@ -37,7 +37,7 @@ const UNPACK_TIMEOUT_US: u64 = 20_000_000;
 const UNPACK_EXTRA_INSTRUCTIONS: usize = 80_000_000;
 const UNPACK_EXTRA_TIMEOUT_US: u64 = 40_000_000;
 /// Inner bytes looked at (all extracted members together).
-const INNER_MAX_BYTES: usize = 64 * 1024 * 1024;
+pub(crate) const INNER_MAX_BYTES: usize = 64 * 1024 * 1024;
 
 /// Where the inner part came from.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

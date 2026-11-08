@@ -1058,8 +1058,7 @@ impl StaticEngine {
             }
         }
         let is_pe = data.starts_with(b"MZ") && pefile_rs::PE::parse(data).is_ok();
-        let capped: &[u8] = if data.len() > 16 * 1024 * 1024 { &data[..16 * 1024 * 1024] } else { data };
-        let strings = pe_strings::extract_strings(capped);
+        let strings = pe_strings::extract_strings(pe_strings::decompile_slice(data));
         let sha256_hex = {
             let mut hasher = Sha256::new();
             hasher.update(data);
@@ -1122,8 +1121,7 @@ impl StaticEngine {
             });
         }
         let is_pe = data.starts_with(b"MZ") && pefile_rs::PE::parse(data).is_ok();
-        let capped: &[u8] = if data.len() > 16 * 1024 * 1024 { &data[..16 * 1024 * 1024] } else { data };
-        let strings = pe_strings::extract_strings(capped);
+        let strings = pe_strings::extract_strings(pe_strings::decompile_slice(data));
         let sha256_hex = {
             let mut hasher = Sha256::new();
             hasher.update(data);
@@ -1308,12 +1306,7 @@ impl StaticEngine {
         }
 
         // 3. HydraDragonSig (strings + PE imports/exports/sections + behavior trace)
-        let capped: &[u8] = if bytes.len() > 16 * 1024 * 1024 {
-            &bytes[..16 * 1024 * 1024]
-        } else {
-            bytes
-        };
-        let strings = pe_strings::extract_strings(capped);
+        let strings = pe_strings::extract_strings(pe_strings::decompile_slice(bytes));
         let sha256_hex = {
             let mut hasher = Sha256::new();
             hasher.update(bytes);
@@ -1880,17 +1873,13 @@ impl StaticEngine {
 
         // 4b. hydradragonsig string rules, evaluated by ITS engine (web parity).
         // Executable gating lives in the rules via FileType conditions;
-        // the engine only tags the file (validated PE or not). Strings
-        // capped to first 16 MB so giant files stay panic-free.
+        // the engine only tags the file (validated PE or not). Strings from the
+        // same bytes the PE string ML disassembles (`pe_strings::decompile_slice`),
+        // so the two share one disassembly.
         if !is_apk_file {
             let _t = crate::memtrack::stage("scan:hydrasig_prepare");
             let is_pe = find_valid_embedded_pe(data) == Some(0);
-            let capped: &[u8] = if data.len() > 16 * 1024 * 1024 {
-                &data[..16 * 1024 * 1024]
-            } else {
-                data
-            };
-            let strings = pe_strings::extract_strings(capped);
+            let strings = pe_strings::extract_strings(pe_strings::decompile_slice(data));
             for hit in
                 self.string_rules
                     .scan_bytes(data, target_name, &sha256_hex, &strings, is_pe, false, 10, None)
@@ -2022,26 +2011,9 @@ impl StaticEngine {
 
                     // If trace mode recorded API calls, evaluate HydraSig emulated_* conditions directly
                     if !trace.calls.is_empty() {
-                        let capped: &[u8] = if data.len() > 16 * 1024 * 1024 {
-                            &data[..16 * 1024 * 1024]
-                        } else {
-                            data
-                        };
-                        let strings = pe_strings::extract_strings(capped);
-                        for hit in self.string_rules.scan_bytes_with_behavior(
-                            data,
-                            target_name,
-                            &sha256_hex,
-                            &strings,
-                            true,
-                            false,
-                            10,
-                            None,
-                            Some(trace),
-                        ) {
-                            if !self.string_rules.is_emulated_rule(&hit.rule) {
-                                continue;
-                            }
+                        // Same bytes as step 4b: the decompiler strings come from its cache.
+                        let strings = pe_strings::extract_strings(pe_strings::decompile_slice(data));
+                        for hit in self.string_rules.scan_emulated(data, target_name, &sha256_hex, &strings, true, 10, trace) {
                             let name = if hit.rule.is_empty() {
                                 "HydraSig.EmulatedMatch".to_string()
                             } else {
@@ -2322,31 +2294,21 @@ impl StaticEngine {
                                     member_emulation_time += emu_start.elapsed();
                                     let sub_trace = sub_unpacker.behavior_trace();
                                     if !sub_trace.calls.is_empty() {
-                                        let capped: &[u8] = if entry.data.len() > 16 * 1024 * 1024 {
-                                            &entry.data[..16 * 1024 * 1024]
-                                        } else {
-                                            &entry.data
-                                        };
-                                        let strings = pe_strings::extract_strings(capped);
+                                        let strings = pe_strings::extract_strings(pe_strings::decompile_slice(&entry.data));
                                         let entry_sha256 = {
                                             let mut h = Sha256::new();
                                             h.update(&entry.data);
                                             hex::encode(h.finalize())
                                         };
-                                        for hit in self.string_rules.scan_bytes_with_behavior(
+                                        for hit in self.string_rules.scan_emulated(
                                             &entry.data,
                                             &entry.name,
                                             &entry_sha256,
                                             &strings,
                                             true,
-                                            false,
                                             10,
-                                            None,
-                                            Some(sub_trace),
+                                            sub_trace,
                                         ) {
-                                            if !self.string_rules.is_emulated_rule(&hit.rule) {
-                                                continue;
-                                            }
                                             let name = if hit.rule.is_empty() {
                                                 "HydraSig.EmulatedMatch".to_string()
                                             } else {
