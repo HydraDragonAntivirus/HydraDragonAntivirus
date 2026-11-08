@@ -1811,9 +1811,7 @@ fn verdict_message(sha_hex: &str, v: CachedVerdict, action: &str, source: &str) 
 pub fn apply_analyst_tlsh(
     ti: &crate::threat_intel::ThreatIntelStore,
     data: &[u8],
-    name: &str,
     query: &std::cell::OnceCell<Option<crate::similarity::TlshQuery>>,
-    report: &ReportCell,
     trace: &TiTrace,
     res: &mut ResultMessage,
 ) {
@@ -1829,17 +1827,6 @@ pub fn apply_analyst_tlsh(
         ti.similarity.analyst_match(q, &res.sha256)
     });
     let Some((sig, d)) = hit else { return };
-    // The signature's sample may be a clean program infected by a virus: its clean
-    // original is a few TLSH points away and must not be flagged.
-    if let Some(how) = infector_host_of(data, name, &sig.sha256, report, trace) {
-        let note = format!(
-            "Analyst TLSH signature {} (distance {d}) not applied: this file is the clean original of that infected sample ({how})",
-            sig.sha256
-        );
-        eprintln!("[analyst_tlsh] {} {note}", res.sha256);
-        res.detail = Some(note);
-        return;
-    }
     crate::engine_adapter::apply_analyst_hit(
         res,
         &crate::analyst_engine::AnalystHit { engine: "analyst_tlsh", name: sig.threat.clone(), verdict: "malicious" },
@@ -1947,79 +1934,12 @@ pub fn apply_threat_intel(
 ) -> Option<crate::analyzer::FileReport> {
     let trace = TiTrace::new();
     let query = std::cell::OnceCell::new();
-    let report = ReportCell::new();
-    apply_analyst_tlsh(ti, data, name, &query, &report, &trace, res);
+    apply_analyst_tlsh(ti, data, &query, &trace, res);
     apply_tlsh_blacklist(ti, data, &query, &trace, res);
     apply_imphash_sigs(ti, data, &trace, res);
-    apply_ml_infector_host(ti, data, name, &query, &report, &trace, res);
-    apply_smart_whitelist(ti, data, name, &report, &trace, res);
+    let report = apply_smart_whitelist(ti, data, name, &trace, res);
     trace.log_if_slow(name, data.len(), res);
-    report.into_inner().flatten().map(|(rep, _)| rep)
-}
-
-/// The file's static report (and its JSON), built once for every step that needs it.
-pub type ReportCell = std::cell::OnceCell<Option<(crate::analyzer::FileReport, serde_json::Value)>>;
-
-fn static_report<'c>(
-    data: &[u8],
-    name: &str,
-    cell: &'c ReportCell,
-    trace: &TiTrace,
-) -> Option<&'c (crate::analyzer::FileReport, serde_json::Value)> {
-    cell.get_or_init(|| {
-        let rep = trace.step("server:ti_static_report", |_| {
-            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| crate::analyzer::analyze(data, name))).ok()
-        })?;
-        let json = trace.step("server:ti_report_json", |_| serde_json::to_value(&rep)).ok()?;
-        Some((rep, json))
-    })
-    .as_ref()
-}
-
-/// `Some(how)` when this file is the clean original of the malicious sample `infected`
-/// (a file infector's victim, see `fingerprint::infector_host`). PE only; needs the
-/// sample's stored static report.
-fn infector_host_of(data: &[u8], name: &str, infected: &str, report: &ReportCell, trace: &TiTrace) -> Option<String> {
-    if !data.starts_with(b"MZ") {
-        return None;
-    }
-    let infected = crate::reports::load(infected).as_ref().and_then(crate::fingerprint::Fingerprint::from_report)?;
-    let cand = crate::fingerprint::Fingerprint::from_report(&static_report(data, name, report, trace)?.1)?;
-    trace.step("server:ti_infector_host", |_| crate::fingerprint::infector_host(&cand, &infected))
-}
-
-/// The ML models flagged the file alone, and it is a TLSH neighbour of a sample an
-/// analyst marked malicious that is this very program with a virus added: the models
-/// saw the clean original of an infected file (they learnt the program, not the
-/// virus). The detection is withdrawn; the file is possible_clean, not verified.
-fn apply_ml_infector_host(
-    ti: &crate::threat_intel::ThreatIntelStore,
-    data: &[u8],
-    name: &str,
-    query: &std::cell::OnceCell<Option<crate::similarity::TlshQuery>>,
-    report: &ReportCell,
-    trace: &TiTrace,
-    res: &mut ResultMessage,
-) {
-    if !ml_only_detection(res) || !ti.similarity.has_analyst_sigs() || !data.starts_with(b"MZ") {
-        return;
-    }
-    if ti.reviews.completed(&res.sha256).and_then(|r| r.verdict).as_deref() == Some("malicious") {
-        return;
-    }
-    let Some(q) = tlsh_query(data, query, trace) else { return };
-    let Some((sig, d)) = trace.step("server:ti_ml_infector_host", |_| ti.similarity.analyst_match(q, &res.sha256)) else {
-        return;
-    };
-    let Some(how) = infector_host_of(data, name, &sig.sha256, report, trace) else { return };
-    let detail = format!(
-        "Clean original of an infected file: TLSH distance {d} to {} ({}), {how} (ML detection withdrawn: {})",
-        sig.sha256,
-        sig.threat,
-        ml_names(res)
-    );
-    crate::engine_adapter::mark_possible_clean(res, detail, "infector_host/tlsh");
-    res.detections.clear();
+    report
 }
 
 /// The file's TLSH, computed once for every step that needs it.
@@ -2095,63 +2015,36 @@ impl TiTrace {
     }
 }
 
-/// The file was flagged by the ML models only (PE / JS / APK tree ensembles, also on
-/// an unpacked or archived layer): no signature, YARA rule or analyst entry agrees.
-fn ml_only_detection(res: &ResultMessage) -> bool {
-    matches!(res.verdict.as_str(), "malicious" | "suspicious")
-        && !res.detections.is_empty()
-        && res.detections.iter().all(|d| d.layer.ends_with("_ML"))
-}
-
-/// What the ML models said, for the note of a withdrawn ML detection.
-fn ml_names(res: &ResultMessage) -> String {
-    res.detections.iter().map(|d| format!("{} ({})", d.name, d.layer)).collect::<Vec<_>>().join(", ")
-}
-
-/// Unknown files, and files only the ML models flagged, that are a known clean file
-/// or a near-copy of one with an unchanged structure (TLSH smart whitelist).
-///
-/// The models score how much a file looks like malware, so a clean program built like
-/// many malware samples can cross the threshold. Such a hit is checked the same way
-/// as an unknown file: the exact file in the verified benign corpus is clean, a TLSH
-/// neighbour of an analyst-clean or corpus file that passes the injection guards is
-/// possible_clean (shown for review, not verified). A file an analyst marked
-/// malicious is never withdrawn, and a detection by anything but ML is never touched.
 pub fn apply_smart_whitelist(
     ti: &crate::threat_intel::ThreatIntelStore,
     data: &[u8],
     name: &str,
-    report: &ReportCell,
     trace: &TiTrace,
     res: &mut ResultMessage,
-) {
-    let ml_only = ml_only_detection(res)
-        && ti.reviews.completed(&res.sha256).and_then(|r| r.verdict).as_deref() != Some("malicious");
-    if !(res.verdict == "unknown" || ml_only) || !(data.starts_with(b"MZ") || data.starts_with(b"PK\x03\x04")) {
-        return;
+) -> Option<crate::analyzer::FileReport> {
+    if res.verdict != "unknown" || !(data.starts_with(b"MZ") || data.starts_with(b"PK\x03\x04")) {
+        return None;
     }
-    let withdrawn = if ml_only { format!(" (ML detection withdrawn: {})", ml_names(res)) } else { String::new() };
     // The exact file is in the verified benign corpus: that is a known file, not a
     // look-alike, so it is clean (possible_clean is for TLSH neighbours only).
     if trace.step("server:ti_benign_corpus", |_| ti.similarity.in_benign_corpus(&res.sha256)) {
         crate::engine_adapter::mark_clean(
             res,
-            format!("Known benign: exact SHA-256 match in the verified benign reference corpus{withdrawn}"),
+            "Known benign: exact SHA-256 match in the verified benign reference corpus".into(),
             "benign_corpus/sha256",
         );
-        if ml_only {
-            res.detections.clear();
-        }
-        return;
+        return None;
     }
-    let Some((_, cand)) = static_report(data, name, report, trace) else { return };
-    {
+    let rep = trace.step("server:ti_static_report", |_| {
+        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| crate::analyzer::analyze(data, name))).ok()
+    })?;
+    if let Ok(cand) = trace.step("server:ti_report_json", |_| serde_json::to_value(&rep)) {
         let reviews = &ti.reviews;
         let decision = trace.step("server:ti_smart_whitelist", |d| {
             let mut t = crate::similarity::SmartWlTrace::default();
             let decision = crate::similarity::smart_whitelist(
                 &ti.similarity,
-                cand,
+                &cand,
                 |sha| reviews.completed(sha).and_then(|r| r.verdict).as_deref() == Some("clean"),
                 &mut t,
             );
@@ -2169,12 +2062,10 @@ pub fn apply_smart_whitelist(
             decision
         });
         if let Some((_ref_sha, _d, detail)) = decision {
-            crate::engine_adapter::mark_possible_clean(res, format!("{detail}{withdrawn}"), "smart_whitelist/tlsh");
-            if ml_only {
-                res.detections.clear();
-            }
+            crate::engine_adapter::mark_possible_clean(res, detail, "smart_whitelist/tlsh");
         }
     }
+    Some(rep)
 }
 
 fn simple_event(kind: &str, session: Option<i64>, client: Option<String>, message: Option<String>) -> Event {
