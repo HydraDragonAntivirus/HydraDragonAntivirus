@@ -143,18 +143,6 @@ fn read_list(file: &str) -> Vec<String> {
         .collect()
 }
 
-pub fn save_company_lists(allow: &[String], block: &[String]) -> std::io::Result<()> {
-    let clean = |v: &[String]| {
-        let mut out: Vec<String> = v.iter().map(|s| s.trim().to_string()).filter(|s| !s.is_empty() && s.len() <= 200).collect();
-        out.sort_by_key(|s| s.to_lowercase());
-        out.dedup_by(|a, b| a.eq_ignore_ascii_case(b));
-        out.join("\n") + "\n"
-    };
-    let dir = crate::human_review::analyst_dir();
-    std::fs::write(dir.join("companies_allow.txt"), clean(allow))?;
-    std::fs::write(dir.join("companies_block.txt"), clean(block))
-}
-
 // ------------------------------------------------------------------ validation
 
 /// Names inside one ClamAV `.ndb` / `.ldb` document (first field of every line).
