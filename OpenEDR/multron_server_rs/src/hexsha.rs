@@ -67,10 +67,6 @@ impl HexSha {
         self.text().to_ascii_lowercase()
     }
 
-    pub fn to_ascii_uppercase(&self) -> String {
-        self.text().to_ascii_uppercase()
-    }
-
     pub fn to_lowercase(&self) -> String {
         self.to_ascii_lowercase()
     }

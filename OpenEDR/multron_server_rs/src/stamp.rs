@@ -36,17 +36,6 @@ impl Stamp {
         }
         Stamp::Raw(IStr::new(s))
     }
-
-    pub fn is_empty(&self) -> bool {
-        matches!(self, Stamp::Raw(s) if s.is_empty())
-    }
-
-    pub fn starts_with(&self, prefix: &str) -> bool {
-        match self {
-            Stamp::Raw(s) => s.starts_with(prefix),
-            Stamp::Utc(n) => format_nanos(*n).starts_with(prefix),
-        }
-    }
 }
 
 impl Default for Stamp {
