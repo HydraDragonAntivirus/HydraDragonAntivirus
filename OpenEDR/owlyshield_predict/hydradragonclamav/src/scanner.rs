@@ -458,7 +458,7 @@ impl Engine {
             }
             fits
         });
-        let atomfilter_db = match atomfilter_cache {
+        let mut atomfilter_db = match atomfilter_cache {
             Some(cache) => {
                 rust_timing_log!("atomfilter_build :: using cache");
                 cache
@@ -469,6 +469,7 @@ impl Engine {
                 db
             }
         };
+        atomfilter_db.literal_slots = crate::atomscan::literal_slots(&atomfilter_db.slots, database);
         rust_timing_log!("from_database_dir :: TOTAL={}ms", t0.elapsed().as_millis());
         let database = std::mem::take(database);
         (Self { database, atomfilter_db, yara: Vec::new() }, std::mem::take(report))
@@ -1123,6 +1124,7 @@ impl Engine {
     ) {
         let _slow = SlowAlert::new("scan_context", 200);
         if ctx.data.is_empty() { return; }
+        let _active = crate::atomscan::ActiveScan::enter();
 
         // Phase 0 (calling thread): one atom sweep builds per-slot hit counts
         // for this buffer; both phases then promote slots that reached their
@@ -1149,6 +1151,8 @@ impl Engine {
             let verify_ctx = InlineVerifyCtx {
                 slots: &self.atomfilter_db.slots,
                 logical: &self.database.logical,
+                extended: &self.database.extended,
+                literal_slots: &self.atomfilter_db.literal_slots,
                 hay: ctx.data,
             };
             scratch.scan_with_verify(&self.atomfilter_db, ctx.data, file_type_target, &verify_ctx);
@@ -1156,7 +1160,7 @@ impl Engine {
         let slot_counts = scratch.counts();
         let verify_results = scratch.verify_results();
         let t1 = Instant::now();
-        self.scan_extended(ctx, matches, &slot_counts);
+        self.scan_extended(ctx, matches, &slot_counts, verify_results, scratch.touched());
         let t2 = Instant::now();
         self.scan_logical(ctx, matches, &slot_counts, verify_results, scratch.touched());
         let t3 = Instant::now();
@@ -1220,7 +1224,27 @@ impl Engine {
         &self,
         ctx: &ScanContext<'_>,
         slot_counts: &crate::atomscan::SlotCounts,
+        touched: Option<&[u32]>,
     ) -> Vec<usize> {
+        let db = &self.atomfilter_db;
+        if let Some(touched) = touched.filter(|_| !db.any_zero_threshold) {
+            let mut items: Vec<usize> = db.ext_automatch.iter().map(|&si| si as usize).collect();
+            for &slot_id in touched {
+                let Some(slot) = db.slots.get(slot_id as usize) else { continue };
+                if let crate::atomfilter::SlotTarget::Extended { sig_index } = slot.target {
+                    if slot_counts.get(slot_id) >= slot.threshold {
+                        items.push(sig_index as usize);
+                    }
+                }
+            }
+            items.sort_unstable();
+            items.dedup();
+            items.retain(|&si| {
+                let sig = &self.database.extended[si];
+                target_matches(sig.target, ctx, self.database.ext_name(sig))
+            });
+            return items;
+        }
         let mut items = Vec::new();
         for (si, ext_slot) in self.atomfilter_db.ext_slot.iter().enumerate() {
             if !crate::atomscan::ext_matched(*ext_slot, &self.atomfilter_db.slots, slot_counts) {
@@ -1239,11 +1263,13 @@ impl Engine {
         ctx: &ScanContext<'_>,
         matches: &mut Vec<ScanMatch>,
         slot_counts: &crate::atomscan::SlotCounts,
+        verify_results: &[bool],
+        touched: Option<&[u32]>,
     ) {
-        let items = self.extended_candidates(ctx, slot_counts);
+        let items = self.extended_candidates(ctx, slot_counts, touched);
         let hints = LiteralHints::default();
         self.par_eval_items(&items, |si, out| {
-            self.scan_one_extended(si, ctx, &hints, out);
+            self.scan_one_extended(si, ctx, &hints, out, slot_counts, verify_results);
         }, matches);
     }
 
@@ -1254,10 +1280,28 @@ impl Engine {
         ctx: &ScanContext<'_>,
         hints: &LiteralHints,
         matches: &mut Vec<ScanMatch>,
+        slot_counts: &crate::atomscan::SlotCounts,
+        verify_results: &[bool],
     ) {
         let signature = &self.database.extended[si];
         if !target_matches(signature.target, ctx, self.database.ext_name(signature)) {
             return;
+        }
+        if let crate::atomfilter::ExtSlot::Atom(slot_id) = self.atomfilter_db.ext_slot[si] {
+            match self.literal_sweep_verdict(slot_id, slot_counts, verify_results) {
+                Some(true) => {
+                    matches.push(ScanMatch {
+                        name: self.database.ext_name(signature).to_string(),
+                        kind: SignatureKind::Extended,
+                        source: signature.source.clone(),
+                        object_path: ctx.object_path.to_string(),
+                        view: ctx.view,
+                    });
+                    return;
+                }
+                Some(false) => return,
+                None => {}
+            }
         }
         if matches!(
             signature.offset.anchor,
@@ -1332,6 +1376,21 @@ impl Engine {
                 view: ctx.view,
             });
         }
+    }
+
+    fn literal_sweep_verdict(
+        &self,
+        slot_id: crate::atomfilter::SlotId,
+        slot_counts: &crate::atomscan::SlotCounts,
+        verify_results: &[bool],
+    ) -> Option<bool> {
+        if !self.atomfilter_db.literal_slots.get(slot_id as usize).copied().unwrap_or(false) {
+            return None;
+        }
+        if *verify_results.get(slot_id as usize)? {
+            return Some(true);
+        }
+        (!slot_counts.is_saturated(slot_id)).then_some(false)
     }
 
     /// Logical-signature candidates for this buffer, in ascending order:
@@ -1649,15 +1708,6 @@ impl Engine {
         }
         bufs.last_offsets.clear();
         bufs.last_offsets.resize(n, None);
-        // Populate last_offsets from slot assignments for ByteCompare anchoring.
-        if let Some(slots) = sub_slots {
-            let limit = slots.len().min(n);
-            for (i, slot) in slots[..limit].iter().enumerate() {
-                if let crate::atomfilter::SubsigSlot::Atom(id) = *slot {
-                    bufs.last_offsets[i] = slot_counts.last_offset(id);
-                }
-            }
-        }
         bufs.evaluated.clear();
         bufs.evaluated.resize(n, false);
         // Mark Body subsigs as evaluated (their slot counts are already set).
@@ -1733,6 +1783,15 @@ impl Engine {
             };
             if counts[i] == 0 {
                 continue; // atom absent → cannot match; leave at 0.
+            }
+            if let Some(crate::atomfilter::SubsigSlot::Atom(slot_id)) = sub_slots.and_then(|slots| slots.get(i)).copied() {
+                if self.literal_sweep_verdict(slot_id, slot_counts, verify_results) == Some(false) {
+                    counts[i] = 0;
+                    if !signature.expression.can_still_match(counts, evaluated) {
+                        return;
+                    }
+                    continue;
+                }
             }
             // ── Inline verification fast-path ───────────────────────
             // When body_count_limit == 1 (existence check) and the

@@ -312,10 +312,13 @@ impl AtomFilterBuilder {
 
         let log_unindexed = crate::atomfilter::unindexed_logical(&log_subsig_slots);
         let any_zero_threshold = slots.iter().any(|s| s.threshold == 0);
+        let ext_automatch = crate::atomfilter::automatch_extended(&ext_slot);
         AtomFilterDb {
             per_target,
             slots,
             ext_slot,
+            ext_automatch,
+            literal_slots: Vec::new(),
             any_zero_threshold,
             log_subsig_slots,
             log_unindexed,

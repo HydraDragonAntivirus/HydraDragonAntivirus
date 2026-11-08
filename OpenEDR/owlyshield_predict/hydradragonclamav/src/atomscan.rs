@@ -2,6 +2,8 @@ use crate::atomfilter::{AtomFilterDb, PerTarget, SlotId, SubsigSlot};
 use crate::atomfilter::{ExtSlot, SlotDef};
 
 use daachorse::DoubleArrayAhoCorasick;
+use std::sync::Mutex;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 /// Cached CPU count, capped at 4. `std::thread::available_parallelism()` is not
 /// free on Android: it probes CPU affinity and cgroup-v2 CPU-quota files under
@@ -11,8 +13,7 @@ use daachorse::DoubleArrayAhoCorasick;
 /// per exact/nocase), so an APK with hundreds of nested entries flooded logcat
 /// with denials AND paid the probe cost repeatedly. The value can't change over
 /// a process's lifetime, so resolve it once and reuse it.
-pub(crate) fn worker_count() -> usize {
-    use std::sync::atomic::{AtomicUsize, Ordering};
+fn core_count() -> usize {
     static CACHED: AtomicUsize = AtomicUsize::new(0);
     let cached = CACHED.load(Ordering::Relaxed);
     if cached != 0 {
@@ -21,15 +22,83 @@ pub(crate) fn worker_count() -> usize {
     let n = std::thread::available_parallelism()
         .map(|n| n.get())
         .unwrap_or(4)
-        .clamp(1, 4);
+        .max(1);
     CACHED.store(n, Ordering::Relaxed);
     n
 }
 
-/// Per-slot hit counts (and last-seen match start offset) for one buffer.
+static ACTIVE_SCANS: AtomicUsize = AtomicUsize::new(0);
+
+pub(crate) struct ActiveScan;
+
+impl ActiveScan {
+    pub(crate) fn enter() -> Self {
+        ACTIVE_SCANS.fetch_add(1, Ordering::Relaxed);
+        ActiveScan
+    }
+}
+
+impl Drop for ActiveScan {
+    fn drop(&mut self) {
+        ACTIVE_SCANS.fetch_sub(1, Ordering::Relaxed);
+    }
+}
+
+pub(crate) fn worker_count() -> usize {
+    (core_count() / ACTIVE_SCANS.load(Ordering::Relaxed).max(1)).clamp(1, 4)
+}
+
+const LITERAL_HIT_LIMIT: u32 = 256;
+
+fn anywhere(offset: Option<&crate::database::OffsetSpec>) -> bool {
+    offset.is_none_or(|spec| matches!(spec.anchor, crate::database::OffsetAnchor::Any) && spec.max_shift.is_none())
+}
+
+fn only_literals(patterns: &[crate::pattern::Pattern]) -> bool {
+    !patterns.is_empty() && patterns.iter().all(|p| p.pure_literal().is_some())
+}
+
+pub(crate) fn literal_slots(slots: &[SlotDef], db: &crate::database::Database) -> Vec<bool> {
+    slots
+        .iter()
+        .map(|slot| match slot.target {
+            crate::atomfilter::SlotTarget::Extended { sig_index } => db
+                .extended
+                .get(sig_index as usize)
+                .is_some_and(|sig| anywhere(Some(&sig.offset)) && only_literals(&sig.patterns)),
+            crate::atomfilter::SlotTarget::LogicalSubsig { sig_index, subsig_index } => db
+                .logical
+                .get(sig_index as usize)
+                .and_then(|sig| sig.subsignatures.get(subsig_index as usize))
+                .is_some_and(|sub| match sub {
+                    crate::logical::Subsignature::Body { offset, patterns } => anywhere(offset.as_deref()) && only_literals(patterns),
+                    _ => false,
+                }),
+        })
+        .collect()
+}
+
+static SWEEP_WORKERS: Mutex<Vec<AtomScratch>> = Mutex::new(Vec::new());
+
+fn take_sweep_workers(n: usize) -> Vec<AtomScratch> {
+    let mut pool = SWEEP_WORKERS.lock().unwrap_or_else(|e| e.into_inner());
+    let keep = pool.len().saturating_sub(n);
+    let mut workers = pool.split_off(keep);
+    drop(pool);
+    workers.resize_with(n, AtomScratch::new);
+    workers
+}
+
+fn return_sweep_workers(mut workers: Vec<AtomScratch>) {
+    let mut pool = SWEEP_WORKERS.lock().unwrap_or_else(|e| e.into_inner());
+    pool.append(&mut workers);
+    pool.truncate(core_count());
+}
+
+/// Per-slot hit counts for one buffer.
 pub struct SlotCounts<'a> {
     counts: &'a [u32],
-    last_offset: &'a [u32],
+    saturated: &'a [u64],
 }
 
 impl SlotCounts<'_> {
@@ -37,22 +106,9 @@ impl SlotCounts<'_> {
         self.counts[slot as usize]
     }
 
-    pub fn last_offset(&self, slot: SlotId) -> Option<usize> {
-        let o = self.last_offset[slot as usize];
-        (o != u32::MAX).then_some(o as usize)
-    }
-
-    /// Borrow already-computed arrays. Used to hand sweep results (copied out
-    /// of thread-local scratch) to scan phases running on worker threads —
-    /// the `RefCell` borrow itself can never cross threads.
-    pub fn borrow<'a>(counts: &'a [u32], last_offset: &'a [u32]) -> SlotCounts<'a> {
-        SlotCounts { counts, last_offset }
-    }
-
-    /// Copy the arrays out (6MB+ per array at full DB size; a memcpy is
-    /// nothing next to the verification work it unlocks on other threads).
-    pub fn copy_out(&self) -> (Vec<u32>, Vec<u32>) {
-        (self.counts.to_vec(), self.last_offset.to_vec())
+    pub fn is_saturated(&self, slot: SlotId) -> bool {
+        let st = slot as usize;
+        (self.saturated[st >> 6] >> (st & 63)) & 1 == 1
     }
 }
 
@@ -71,7 +127,6 @@ pub struct AtomScratch {
     value_remaining: Vec<u32>,
     saturated: Vec<u64>,
     counts: Vec<u32>,
-    last_offset: Vec<u32>,
     /// Per-slot inline verification results of the last scan.
     verify: Vec<bool>,
     /// Slots the last scan changed (counted or saturated; may repeat). The next
@@ -80,8 +135,7 @@ pub struct AtomScratch {
     touched: Vec<u32>,
     /// `PerTarget::target` whose `value_remaining` this holds.
     vr_target: Option<u32>,
-    /// The arrays are not known to be clean apart from `touched` (first use, or
-    /// the parallel sweep, which merges into them without logging): reset all.
+    /// The arrays are not known to be clean apart from `touched`: reset all.
     full_reset: bool,
 }
 
@@ -120,10 +174,44 @@ struct AutomatonStats {
 pub struct InlineVerifyCtx<'a, 'b> {
     pub(crate) slots: &'a [SlotDef],
     pub(crate) logical: &'a [crate::logical::LogicalSignature],
+    pub(crate) extended: &'a [crate::database::ExtendedSignature],
+    pub(crate) literal_slots: &'a [bool],
     pub(crate) hay: &'b [u8],
 }
 
 impl InlineVerifyCtx<'_, '_> {
+    fn is_literal(&self, slot: usize) -> bool {
+        self.literal_slots.get(slot).copied().unwrap_or(false)
+    }
+
+    fn verify_literal(&self, slot_id: SlotId, start: usize, atom: &[u8]) -> bool {
+        let Some(slot) = self.slots.get(slot_id as usize) else { return false };
+        let patterns: &[crate::pattern::Pattern] = match slot.target {
+            crate::atomfilter::SlotTarget::Extended { sig_index } => match self.extended.get(sig_index as usize) {
+                Some(sig) => &sig.patterns,
+                None => return false,
+            },
+            crate::atomfilter::SlotTarget::LogicalSubsig { sig_index, subsig_index } => {
+                match self.logical.get(sig_index as usize).and_then(|sig| sig.subsignatures.get(subsig_index as usize)) {
+                    Some(crate::logical::Subsignature::Body { patterns, .. }) => patterns,
+                    _ => return false,
+                }
+            }
+        };
+        if atom.is_empty() {
+            return false;
+        }
+        patterns.iter().filter_map(|p| p.pure_literal()).any(|literal| {
+            literal.windows(atom.len()).enumerate().any(|(off, window)| {
+                window == atom
+                    && start
+                        .checked_sub(off)
+                        .and_then(|from| self.hay.get(from..from.checked_add(literal.len())?))
+                        == Some(literal)
+            })
+        })
+    }
+
     /// Try to verify a pattern at the given position. Returns true if ANY
     /// pattern of this slot matches. Once a slot is verified, we don't
     /// re-verify it.
@@ -155,7 +243,6 @@ impl AtomScratch {
             value_remaining: Vec::new(),
             saturated: Vec::new(),
             counts: Vec::new(),
-            last_offset: Vec::new(),
             verify: Vec::new(),
             touched: Vec::new(),
             vr_target: None,
@@ -165,11 +252,11 @@ impl AtomScratch {
 
     /// Counts of the last scan.
     pub fn counts(&self) -> SlotCounts<'_> {
-        SlotCounts { counts: &self.counts, last_offset: &self.last_offset }
+        SlotCounts { counts: &self.counts, saturated: &self.saturated }
     }
 
-    /// Every slot whose count the last scan changed (may repeat), or None when it
-    /// is not known (the parallel sweep does not log them).
+    /// Every slot whose count the last scan changed (may repeat), or None before
+    /// the first scan.
     pub fn touched(&self) -> Option<&[u32]> {
         (!self.full_reset).then_some(&self.touched[..])
     }
@@ -198,6 +285,7 @@ impl AtomScratch {
     #[allow(clippy::too_many_arguments)]
     fn run_dense_chunk(
         pma: &DoubleArrayAhoCorasick<u32>,
+        exact: bool,
         atom_to_slots: &[Box<[SlotId]>],
         slot_to_values: &[Box<[u32]>],
         slots: &[SlotDef],
@@ -206,7 +294,6 @@ impl AtomScratch {
         hay: &[u8],
         file_type_target: u32,
         counts: &mut [u32],
-        last_offset: &mut [u32],
         out_stats: &mut AutomatonStats,
         verify_ctx: Option<&InlineVerifyCtx>,
         verify_results: &mut [bool],
@@ -230,7 +317,18 @@ impl AtomScratch {
                         out_stats.ft_skip += 1;
                         continue;
                     }
-                    if counts[st] >= slots[st].threshold {
+                    let literal = verify_ctx.is_some_and(|v| v.is_literal(st));
+                    if literal && !exact {
+                        if counts[st] == 0 {
+                            touched.push(slot_id);
+                        }
+                        saturated[st >> 6] |= 1 << (st & 63);
+                    }
+                    let keep_verifying = literal
+                        && exact
+                        && counts[st] < LITERAL_HIT_LIMIT
+                        && verify_results.get(st) == Some(&false);
+                    if counts[st] >= slots[st].threshold && !keep_verifying {
                         saturated[st >> 6] |= 1 << (st & 63);
                         touched.push(slot_id);
                         out_stats.saturated_count += 1;
@@ -247,7 +345,6 @@ impl AtomScratch {
                         touched.push(slot_id);
                     }
                     counts[st] = counts[st].saturating_add(1);
-                    last_offset[st] = last_offset[st].max(start as u32);
                     out_stats.incremented += 1;
                     // Inline verification: if the atom matched at `start`,
                     // try to verify the full pattern immediately (like
@@ -257,7 +354,12 @@ impl AtomScratch {
                     // within the original full data buffer.
                     if let Some(vctx) = verify_ctx {
                         if st < verify_results.len() && !verify_results[st] {
-                            if vctx.try_verify(slot_id, data_offset + start, false) {
+                            let verified = if literal && exact {
+                                vctx.verify_literal(slot_id, data_offset + start, &hay[start..m.end()])
+                            } else {
+                                vctx.try_verify(slot_id, data_offset + start, false)
+                            };
+                            if verified {
                                 verify_results[st] = true;
                             }
                         }
@@ -279,7 +381,6 @@ impl AtomScratch {
         hay: &[u8],
         file_type_target: u32,
         counts: &mut [u32],
-        last_offset: &mut [u32],
         out_stats: &mut AutomatonStats,
         verify_ctx: Option<&InlineVerifyCtx>,
         verify_results: &mut [bool],
@@ -294,6 +395,7 @@ impl AtomScratch {
         let t0 = std::time::Instant::now();
         Self::run_dense_chunk(
             pma,
+            exact,
             &pt.atom_to_slots,
             &pt.slot_to_values,
             slots,
@@ -302,7 +404,6 @@ impl AtomScratch {
             hay,
             file_type_target,
             counts,
-            last_offset,
             out_stats,
             verify_ctx,
             verify_results,
@@ -321,198 +422,131 @@ impl AtomScratch {
         }
     }
 
-    /// Run the daachorse DFA on `hay` in parallel chunks when the buffer is
-    /// large enough to benefit.  Each thread processes a contiguous chunk with
-    /// a small overlap so patterns that cross cut points are still detected.
+    /// Run the daachorse DFA on `hay` in parallel chunks. Each chunk has a small
+    /// overlap so patterns that cross cut points are still detected.
     ///
     /// `data_offset`: the offset of `hay[0]` within the full data buffer.
+    #[allow(clippy::too_many_arguments)]
     fn run_dense_parallel(
+        db: &AtomFilterDb,
         pt: &PerTarget,
         exact: bool,
-        slots: &[SlotDef],
+        n_threads: usize,
         hay: &[u8],
         file_type_target: u32,
+        saturated: &mut [u64],
+        value_remaining: &mut [u32],
         counts: &mut [u32],
-        last_offset: &mut [u32],
         out_stats: &mut AutomatonStats,
         verify_ctx: Option<&InlineVerifyCtx>,
         verify_results: &mut [bool],
         data_offset: usize,
+        touched: &mut Vec<u32>,
     ) {
-        let n_threads = worker_count();
-
-        // Single-threaded fallback for small buffers or single-core systems.
-        if n_threads <= 1 || hay.len() < 256 * 1024 {
-            Self::run_dense_automaton(
-                pt,
-                exact,
-                slots,
-                &mut vec![0u64; (counts.len() + 63) / 64],
-                &mut vec![0u32; pt.atom_to_slots.len()],
-                hay,
-                file_type_target,
-                counts,
-                last_offset,
-                out_stats,
-                verify_ctx,
-                verify_results,
-                data_offset,
-                &mut Vec::new(),
-            );
+        let Some(pma) = Self::resolve_scanner(pt, exact) else {
             return;
-        }
-
-        let pma = Self::resolve_scanner(pt, exact);
-        let pma = match pma {
-            Some(p) => p,
-            _ => return,
         };
-        let atom_to_slots = &pt.atom_to_slots;
-        let slot_to_values = &pt.slot_to_values;
-
-        // Cross-chunk overlap: daachorse detects patterns at their *ending*
-        // position.  A pattern starting just before a cut point is only found
-        // in the chunk that contains its end.  Overlap by 1024 bytes — far
-        // longer than any ClamAV atom — so every pattern that could straddle
-        // a boundary is found in the neighbouring chunk.
         const OVERLAP: usize = 1024;
 
-        let chunk_size = (hay.len() + n_threads - 1) / n_threads;
         let t0 = std::time::Instant::now();
-
-        // Per-thread private output.
-        let mut thread_counts: Vec<Vec<u32>> =
-            (0..n_threads).map(|_| vec![0u32; counts.len()]).collect();
-        let mut thread_last: Vec<Vec<u32>> = (0..n_threads)
-            .map(|_| vec![u32::MAX; last_offset.len()])
-            .collect();
-        let mut thread_sat: Vec<Vec<u64>> = (0..n_threads)
-            .map(|_| vec![0u64; (counts.len() + 63) / 64])
-            .collect();
-        let mut thread_vr: Vec<Vec<u32>> = (0..n_threads)
-            .map(|_| atom_to_slots.iter().map(|s| s.len() as u32).collect())
-            .collect();
-
-        // Per-thread verify results (only populated when verify_ctx is active).
-        let n_slots = counts.len();
-        let has_verify = verify_ctx.is_some();
-        let mut thread_vfy: Vec<Vec<bool>> = if has_verify {
-            (0..n_threads).map(|_| vec![false; n_slots]).collect()
-        } else {
-            (0..n_threads).map(|_| Vec::new()).collect()
+        let chunk_size = hay.len().div_ceil(n_threads);
+        let n_chunks = hay.len().div_ceil(chunk_size);
+        let chunk_at = |tid: usize| {
+            let start = tid * chunk_size;
+            (start, (start + chunk_size + OVERLAP).min(hay.len()))
         };
-
-        let mut stats: Vec<AutomatonStats> =
-            (0..n_threads).map(|_| AutomatonStats::default()).collect();
+        let has_verify = verify_ctx.is_some();
+        let mut workers = take_sweep_workers(n_chunks - 1);
+        let mut stats: Vec<AutomatonStats> = (0..n_chunks).map(|_| AutomatonStats::default()).collect();
+        let (first_stats, worker_stats) = stats.split_first_mut().expect("at least one chunk");
 
         std::thread::scope(|s| {
-            let mut count_iter = thread_counts.iter_mut();
-            let mut last_iter = thread_last.iter_mut();
-            let mut sat_iter = thread_sat.iter_mut();
-            let mut vr_iter = thread_vr.iter_mut();
-            let mut stats_iter = stats.iter_mut();
-            let mut vfy_iter = thread_vfy.iter_mut();
-
-            for tid in 0..n_threads {
-                let chunk_start = tid * chunk_size;
-                if chunk_start >= hay.len() {
-                    break;
-                }
-                let chunk_end = (chunk_start + chunk_size + OVERLAP).min(hay.len());
-                let chunk = &hay[chunk_start..chunk_end];
-                // Absolute offset of this chunk's first byte within the
-                // full data buffer (for inline verification).
-                let chunk_data_offset = data_offset + chunk_start;
-
-                let counts = count_iter.next().unwrap();
-                let last = last_iter.next().unwrap();
-                let sat = sat_iter.next().unwrap();
-                let vr = vr_iter.next().unwrap();
-                let st = stats_iter.next().unwrap();
-                let vfy = vfy_iter.next().unwrap();
-
+            for (i, (worker, st)) in workers.iter_mut().zip(worker_stats.iter_mut()).enumerate() {
+                let (start, end) = chunk_at(i + 1);
+                let chunk = &hay[start..end];
                 s.spawn(move || {
+                    worker.prepare(db, pt);
+                    let AtomScratch { saturated, value_remaining, counts, verify, touched, .. } = worker;
+                    let verify: &mut [bool] = if has_verify { verify } else { &mut [] };
                     Self::run_dense_chunk(
                         pma,
-                        atom_to_slots,
-                        slot_to_values,
-                        slots,
-                        sat,
-                        vr,
+                        exact,
+                        &pt.atom_to_slots,
+                        &pt.slot_to_values,
+                        &db.slots,
+                        saturated,
+                        value_remaining,
                         chunk,
                         file_type_target,
                         counts,
-                        last,
                         st,
                         verify_ctx,
-                        vfy,
-                        chunk_data_offset,
-                        &mut Vec::new(),
+                        verify,
+                        data_offset + start,
+                        touched,
                     );
                 });
             }
+            let (start, end) = chunk_at(0);
+            Self::run_dense_chunk(
+                pma,
+                exact,
+                &pt.atom_to_slots,
+                &pt.slot_to_values,
+                &db.slots,
+                saturated,
+                value_remaining,
+                &hay[start..end],
+                file_type_target,
+                counts,
+                first_stats,
+                verify_ctx,
+                verify_results,
+                data_offset + start,
+                touched,
+            );
         });
 
-        // Merge per-thread results into the main arrays.
-        for tid in 0..n_threads {
-            out_stats.daachorse_matches += stats[tid].daachorse_matches;
-            out_stats.inner_iterations += stats[tid].inner_iterations;
-            out_stats.saturated_skip += stats[tid].saturated_skip;
-            out_stats.ft_skip += stats[tid].ft_skip;
-            out_stats.saturated_count += stats[tid].saturated_count;
-            out_stats.saturated_dec += stats[tid].saturated_dec;
-            out_stats.incremented += stats[tid].incremented;
-
-            for i in 0..counts.len() {
-                if thread_counts[tid][i] > 0 {
-                    counts[i] = counts[i].saturating_add(thread_counts[tid][i]);
-                    if thread_last[tid][i] != u32::MAX {
-                        let global = tid * chunk_size + thread_last[tid][i] as usize;
-                        if global < last_offset[i] as usize {
-                            last_offset[i] = global as u32;
-                        }
+        for st in &stats {
+            out_stats.daachorse_matches += st.daachorse_matches;
+            out_stats.inner_iterations += st.inner_iterations;
+            out_stats.saturated_skip += st.saturated_skip;
+            out_stats.ft_skip += st.ft_skip;
+            out_stats.saturated_count += st.saturated_count;
+            out_stats.saturated_dec += st.saturated_dec;
+            out_stats.incremented += st.incremented;
+        }
+        for worker in &mut workers {
+            for &slot_id in &worker.touched {
+                let st = slot_id as usize;
+                let added = std::mem::take(&mut worker.counts[st]);
+                if added > 0 {
+                    if counts[st] == 0 {
+                        touched.push(slot_id);
+                    }
+                    counts[st] = counts[st].saturating_add(added);
+                    if (worker.saturated[st >> 6] >> (st & 63)) & 1 == 1 {
+                        saturated[st >> 6] |= 1 << (st & 63);
                     }
                 }
-            }
-
-            // Merge verify results.
-            if verify_ctx.is_some() {
-                for i in 0..verify_results.len() {
-                    if thread_vfy[tid][i] {
-                        verify_results[i] = true;
-                    }
+                if has_verify && worker.verify[st] {
+                    verify_results[st] = true;
                 }
             }
         }
-
+        return_sweep_workers(workers);
         out_stats.daachorse_us = t0.elapsed().as_micros() as u64;
     }
 
-    fn scan_impl<'d>(
-        &mut self,
-        db: &'d AtomFilterDb,
-        data: &[u8],
-        file_type_target: u32,
-        verify_ctx: Option<&InlineVerifyCtx>,
-    ) -> SlotCounts<'_> {
+    fn prepare(&mut self, db: &AtomFilterDb, pt: &PerTarget) {
         let n_slots = db.slots.len();
         let sat_words = (n_slots + 63) / 64;
-
-        // Select target automaton.
-        let pt = Self::select_target(&db.per_target, file_type_target);
-
-        // Reset what the previous scan changed. Every array is per slot of the
-        // whole DB; only the slots in `touched` can differ from their initial
-        // value, unless a full reset is due.
         let sized = self.counts.len() == n_slots
-            && self.last_offset.len() == n_slots
             && self.verify.len() == n_slots
             && self.saturated.len() == sat_words;
         if !sized || self.full_reset {
             self.counts.clear();
             self.counts.resize(n_slots, 0);
-            self.last_offset.clear();
-            self.last_offset.resize(n_slots, u32::MAX);
             self.verify.clear();
             self.verify.resize(n_slots, false);
             self.saturated.clear();
@@ -520,7 +554,6 @@ impl AtomScratch {
             self.vr_target = None;
             self.full_reset = false;
         } else {
-            // value_remaining: a saturated slot decremented its atoms' entries.
             let same_target = self.vr_target == Some(pt.target);
             for &slot_id in &self.touched {
                 let st = slot_id as usize;
@@ -533,7 +566,6 @@ impl AtomScratch {
                     }
                 }
                 self.counts[st] = 0;
-                self.last_offset[st] = u32::MAX;
                 self.verify[st] = false;
                 self.saturated[st >> 6] &= !(1u64 << (st & 63));
             }
@@ -549,10 +581,20 @@ impl AtomScratch {
             }
             self.vr_target = Some(pt.target);
         }
+    }
+
+    fn scan_impl<'d>(
+        &mut self,
+        db: &'d AtomFilterDb,
+        data: &[u8],
+        file_type_target: u32,
+        verify_ctx: Option<&InlineVerifyCtx>,
+    ) -> SlotCounts<'_> {
+        let pt = Self::select_target(&db.per_target, file_type_target);
+        self.prepare(db, pt);
         let mut touched = std::mem::take(&mut self.touched);
         let mut verify = std::mem::take(&mut self.verify);
         let verify_results: &mut [bool] = if verify_ctx.is_some() { &mut verify } else { &mut [] };
-        let mut used_parallel = false;
 
         let mut exact_stats = AutomatonStats::default();
         let mut nocase_stats = AutomatonStats::default();
@@ -561,24 +603,25 @@ impl AtomScratch {
         // No outer Shift-OR windowing: upstream daachorse 5's
         // DoubleArrayAhoCorasick already carries its own built-in 2-gram
         // match-candidate prefilter (enabled by default) and skips dead
-        // regions internally. An extra outer window would only truncate
-        // last_offset bookkeeping for no gain.
+        // regions internally. An extra outer window would add nothing.
         if pt.exact.is_some() && !data.is_empty() {
             let n_threads = worker_count();
             if n_threads > 1 && data.len() >= 256 * 1024 {
-                used_parallel = true;
                 Self::run_dense_parallel(
+                    db,
                     pt,
                     true,
-                    &db.slots,
+                    n_threads,
                     data,
                     file_type_target,
+                    &mut self.saturated,
+                    &mut self.value_remaining,
                     &mut self.counts,
-                    &mut self.last_offset,
                     &mut exact_stats,
                     verify_ctx,
                     verify_results,
                     0,
+                    &mut touched,
                 );
             } else {
                 Self::run_dense_automaton(
@@ -590,7 +633,6 @@ impl AtomScratch {
                     data,
                     file_type_target,
                     &mut self.counts,
-                    &mut self.last_offset,
                     &mut exact_stats,
                     verify_ctx,
                     verify_results,
@@ -619,19 +661,21 @@ impl AtomScratch {
             }
             let n_threads = worker_count();
             if n_threads > 1 && data.len() >= 256 * 1024 {
-                used_parallel = true;
                 Self::run_dense_parallel(
+                    db,
                     pt,
                     false,
-                    &db.slots,
+                    n_threads,
                     &lowered[..data.len()],
                     file_type_target,
+                    &mut self.saturated,
+                    &mut self.value_remaining,
                     &mut self.counts,
-                    &mut self.last_offset,
                     &mut nocase_stats,
                     verify_ctx,
                     verify_results,
                     0,
+                    &mut touched,
                 );
             } else {
                 Self::run_dense_automaton(
@@ -643,7 +687,6 @@ impl AtomScratch {
                     &lowered[..data.len()],
                     file_type_target,
                     &mut self.counts,
-                    &mut self.last_offset,
                     &mut nocase_stats,
                     verify_ctx,
                     verify_results,
@@ -703,14 +746,7 @@ impl AtomScratch {
 
         self.touched = touched;
         self.verify = verify;
-        // The parallel sweep merges into the arrays without logging slots.
-        if used_parallel {
-            self.full_reset = true;
-        }
-        SlotCounts {
-            counts: &self.counts,
-            last_offset: &self.last_offset,
-        }
+        SlotCounts { counts: &self.counts, saturated: &self.saturated }
     }
 
     /// Run the atom sweep only (no inline verification).
@@ -781,13 +817,6 @@ pub fn logical_initial_counts(
     let mut out = vec![0; sub_slots.len()];
     logical_initial_counts_into(&mut out, sub_slots, slots, counts);
     out
-}
-
-pub fn subsig_anchor_offset(trigger: SubsigSlot, counts: &SlotCounts) -> usize {
-    match trigger {
-        SubsigSlot::Atom(id) => counts.last_offset(id).unwrap_or(0),
-        SubsigSlot::AutoMatch | SubsigSlot::External => 0,
-    }
 }
 
 #[cfg(test)]

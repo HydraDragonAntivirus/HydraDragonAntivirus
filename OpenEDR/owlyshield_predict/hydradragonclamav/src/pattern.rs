@@ -328,6 +328,18 @@ impl Default for Pattern {
 }
 
 impl Pattern {
+    pub fn pure_literal(&self) -> Option<&[u8]> {
+        if self.fullword || !self.specials.is_empty() {
+            return None;
+        }
+        let bytes: &[u8] = match &self.instructions {
+            Instructions::Inline { buf, len } => &buf[..*len as usize],
+            Instructions::Pure(bytes) => bytes,
+            Instructions::Complex(_) => return None,
+        };
+        (!bytes.is_empty()).then_some(bytes)
+    }
+
     /// Get the best literal offset and length if present.
     #[inline]
     pub fn best_literal(&self) -> Option<(usize, usize)> {

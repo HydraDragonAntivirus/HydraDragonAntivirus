@@ -50,6 +50,15 @@ impl std::fmt::Debug for PerTarget {
     }
 }
 
+pub(crate) fn automatch_extended(ext_slot: &[ExtSlot]) -> Vec<u32> {
+    ext_slot
+        .iter()
+        .enumerate()
+        .filter(|(_, slot)| matches!(slot, ExtSlot::AutoMatch))
+        .map(|(si, _)| si as u32)
+        .collect()
+}
+
 /// The full atom-filter database: per-target daachorse automata (exact + nocase)
 /// and shared slot/ext/logical metadata.  At scan time the appropriate per-target
 /// automaton is selected based on the buffer's detected file type.
@@ -63,6 +72,8 @@ pub struct AtomFilterDb {
     pub per_target: Vec<PerTarget>,
     pub slots: Vec<SlotDef>,
     pub ext_slot: Vec<ExtSlot>,
+    pub ext_automatch: Vec<u32>,
+    pub literal_slots: Vec<bool>,
     pub log_subsig_slots: Vec<Box<[SubsigSlot]>>,
     /// Logical signatures with a subsignature the atoms do not cover (AutoMatch /
     /// External), ascending: the only ones that can be candidates without an atom
@@ -101,6 +112,8 @@ impl AtomFilterDb {
             per_target: Vec::new(),
             slots: Vec::new(),
             ext_slot: Vec::new(),
+            ext_automatch: Vec::new(),
+            literal_slots: Vec::new(),
             log_subsig_slots: Vec::new(),
             log_unindexed: Vec::new(),
             any_zero_threshold: false,
@@ -344,10 +357,13 @@ impl AtomFilterDb {
 
         let log_unindexed = unindexed_logical(&log_subsig_slots);
         let any_zero_threshold = slots.iter().any(|s| s.threshold == 0);
+        let ext_automatch = automatch_extended(&ext_slot);
         Some(AtomFilterDb {
             per_target,
             slots,
             ext_slot,
+            ext_automatch,
+            literal_slots: Vec::new(),
             any_zero_threshold,
             log_subsig_slots,
             log_unindexed,
