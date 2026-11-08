@@ -149,7 +149,11 @@ fn slot(name: &'static str, kind: Kind) -> usize {
 /// Runs `f` and counts its heap use under `name` (see the module notes), and its time
 /// (see [`stage`]). `input_len` is the size of what it works on (0 for loaders).
 pub fn measure<T>(name: &'static str, kind: Kind, input_len: usize, f: impl FnOnce() -> T) -> T {
-    let _time = stage(name);
+    // A load (engine data, the server's telemetry at start) is not a scan stage: timed
+    // as one, a 70 s start-up load showed in the engine-time card as one "call" of the
+    // scan stage with the same name. A lazy load during a scan stays in the time of
+    // the stage that waited for it.
+    let _time = (kind != Kind::Load).then(|| stage(name));
     if !installed() {
         return f();
     }
