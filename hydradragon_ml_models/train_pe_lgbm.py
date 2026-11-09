@@ -612,8 +612,12 @@ def load_chunks(chunk_dir, balance=False, max_benign_ratio=0.0):
             continue
         if "names" in data:
             if TRAIN_FEATURE_NAMES != list(FEATURE_NAMES) and TRAIN_FEATURE_NAMES != list(data["names"]):
+                if "retry" in os.path.basename(cf):
+                    print(f"[*] Skipping stale/mismatched retry chunk: {cf}")
+                    continue
                 raise RuntimeError(f"{cf}: other feature names than the earlier chunks (rebuild {chunk_dir})")
-            TRAIN_FEATURE_NAMES = list(data["names"])
+            if "retry" not in os.path.basename(cf) or TRAIN_FEATURE_NAMES == list(FEATURE_NAMES):
+                TRAIN_FEATURE_NAMES = list(data["names"])
         data_X = data["X"]
         (X_mal_list if data["y"][0] == 1 else X_ben_list).append(data_X)
     if not X_mal_list or not X_ben_list:
