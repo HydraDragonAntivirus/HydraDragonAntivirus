@@ -311,12 +311,12 @@ object RepForm: TRepForm
             Width = 105
           end        
           item
-            Caption = 'Cloud'
-            Width = 72
+            Caption = 'Cloud (FLS)'
+            Width = 85
           end        
           item
-            Caption = 'Local verdict'
-            Width = 170
+            Caption = 'VirusKov Cloud'
+            Width = 175
           end        
           item
             Caption = 'Family'

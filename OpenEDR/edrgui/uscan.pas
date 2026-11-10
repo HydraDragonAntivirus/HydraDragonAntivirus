@@ -264,7 +264,7 @@ constructor TScanTouchThread.Create(AScanForm: TScanForm; AMode: TScanMode;
   AEnableCloud: Boolean = True);
 begin
   inherited Create(True);
-  FreeOnTerminate := False;
+  FreeOnTerminate := True;
   FForm := AScanForm;
   FMode := AMode;
   FRoot := ARoot;
@@ -534,7 +534,12 @@ begin
           Walk(p + WideString('\'));
       end
       else
-        ScanOneFile(p);
+      begin
+        try
+          ScanOneFile(p);
+        except
+        end;
+      end;
     until not FindNextFileW(h, fd);
   finally
     Windows.FindClose(h);
@@ -870,14 +875,17 @@ end;
 procedure TScanForm.CancelBtnClick(Sender: TObject);
 begin
   if FThread <> nil then
+  begin
     FThread.Terminate;
+    FThread := nil;
+  end;
   PollTimer.Enabled := False;
   FinishScan('Cancelled.');
 end;
 
 procedure TScanForm.TouchDone(Sender: TObject);
 begin
-  FreeAndNil(FThread);
+  FThread := nil;
   PollTimer.Enabled := False;
   FinishScan(Format('Scan done. Static Malicious=%d Known=%d Safe=%d + pipeline results.',
     [FMali, FKnown, FSafe]));
@@ -1031,8 +1039,7 @@ begin
   if FThread <> nil then
   begin
     FThread.Terminate;
-    FThread.WaitFor;
-    FreeAndNil(FThread);
+    FThread := nil;
   end;
   FreeAndNil(FSeen);
   UnloadEngine;

@@ -265,7 +265,7 @@ end;
 constructor TRepWalkThread.Create(AScanForm: TRepForm; const ARoot: WideString);
 begin
   inherited Create(True);
-  FreeOnTerminate := False;
+  FreeOnTerminate := True;
   FForm := AScanForm;
   FRoot := ARoot;
   FCount := 0;
@@ -287,21 +287,23 @@ var
   fp: string;
 begin
   Frm := FForm;
-  if (Frm = nil) or (FPendingFailedBatch = nil) then
+  if (Frm = nil) or (FPendingFailedBatch = nil) or (Frm.ResultsView = nil) then
     Exit;
-  Frm.ResultsView.Items.BeginUpdate;
   try
-    for i := 0 to FPendingFailedBatch.Count - 1 do
-    begin
-      fp := FPendingFailedBatch[i];
-      Frm.UpsertRow(fp, fp, '', 'Lookup failed', '—', '—', 4, 0);
-      Inc(FCount);
-      Inc(Frm.FRowsThisScan);
+    Frm.ResultsView.Items.BeginUpdate;
+    try
+      for i := 0 to FPendingFailedBatch.Count - 1 do
+      begin
+        fp := FPendingFailedBatch[i];
+        Frm.UpsertRow(fp, fp, '', 'Lookup failed', '—', '—', 4, 0);
+        Inc(Frm.FRowsThisScan);
+      end;
+    finally
+      Frm.ResultsView.Items.EndUpdate;
     end;
-  finally
-    Frm.ResultsView.Items.EndUpdate;
+    Frm.RecountSummary;
+  except
   end;
-  Frm.RecountSummary;
 end;
 
 procedure TRepWalkThread.PushProgress;
@@ -321,7 +323,7 @@ var
   fp, fh, nm: string;
 begin
   Frm := FForm;
-  if Frm = nil then
+  if (Frm = nil) or (Frm.ResultsView = nil) then
     Exit;
   AJson := FPendingJson;
   try
@@ -333,36 +335,40 @@ begin
     arr := j.FindPath('result.results');
     if (arr = nil) or (arr.JSONType <> jtArray) then
       Exit;
-    Frm.ResultsView.Items.BeginUpdate;
     try
-      for i := 0 to arr.Count - 1 do
-      begin
-        it := arr.Items[i];
-        fp := '';
-        fh := '';
-        nm := '';
-        v := 3;
-        d := it.FindPath('path');
-        if d <> nil then
-          fp := d.AsString;
-        d := it.FindPath('sha256');
-        if d <> nil then
-          fh := d.AsString;
-        d := it.FindPath('verdict');
-        if d <> nil then
-          v := d.AsInteger;
-        lv := LocalVerdictOf(it);
-        nm := LocalNameOf(it);
-        // Persistent rows: same path refreshes its cells (totals recount).
-        Frm.UpsertRow(fp, fp, fh, CloudText(v), LocalCellText(lv, nm),
-          FamilyText(lv, nm), v, lv);
-        Inc(FCount);
-        Inc(Frm.FRowsThisScan);
+      Frm.ResultsView.Items.BeginUpdate;
+      try
+        for i := 0 to arr.Count - 1 do
+        begin
+          it := arr.Items[i];
+          if it = nil then
+            Continue;
+          fp := '';
+          fh := '';
+          nm := '';
+          v := 3;
+          d := it.FindPath('path');
+          if d <> nil then
+            fp := d.AsString;
+          d := it.FindPath('sha256');
+          if d <> nil then
+            fh := d.AsString;
+          d := it.FindPath('verdict');
+          if d <> nil then
+            v := d.AsInteger;
+          lv := LocalVerdictOf(it);
+          nm := LocalNameOf(it);
+          // Persistent rows: same path refreshes its cells (totals recount).
+          Frm.UpsertRow(fp, fp, fh, CloudText(v), LocalCellText(lv, nm),
+            FamilyText(lv, nm), v, lv);
+          Inc(Frm.FRowsThisScan);
+        end;
+      finally
+        Frm.ResultsView.Items.EndUpdate;
       end;
-    finally
-      Frm.ResultsView.Items.EndUpdate;
+      Frm.RecountSummary;
+    except
     end;
-    Frm.RecountSummary;
   finally
     j.Free;
   end;
@@ -373,7 +379,9 @@ var
   Req, Resp: string;
   i: Integer;
 begin
-  if FBatch.Count = 0 then
+  if (FBatch = nil) or (FBatch.Count = 0) then
+    Exit;
+  if Terminated then
     Exit;
   Inc(FBatchNo);
   try
@@ -388,16 +396,30 @@ begin
     if HttpPostJson(GUI_RPC_HOST, GUI_RPC_PORT, Req, Resp) then
     begin
       FPendingJson := Resp;
-      Synchronize(@PushRows);
+      try
+        Synchronize(@PushRows);
+      except
+      end;
     end
     else
     begin
+      // Lookup failed (e.g. timeout or server busy) - push status and CONTINUE scanning!
       FPendingFailedBatch.Assign(FBatch);
-      Synchronize(@PushFailedRows);
+      try
+        Synchronize(@PushFailedRows);
+      except
+      end;
     end;
   except
-    FPendingFailedBatch.Assign(FBatch);
-    Synchronize(@PushFailedRows);
+    on E: Exception do
+    begin
+      // Always catch network/transport exceptions, record failed status, and keep walking
+      try
+        FPendingFailedBatch.Assign(FBatch);
+        Synchronize(@PushFailedRows);
+      except
+      end;
+    end;
   end;
   FBatch.Clear;
 end;
@@ -409,7 +431,7 @@ begin
   // No extension gate: every file enters the bulk scan (server caps giants).
   FBatch.Add(UTF8Encode(APath));
   FCurrent := UTF8Encode(APath);
-  if FBatch.Count >= 50 then
+  if FBatch.Count >= 25 then
     FlushBatch;
   Inc(FCount);
   if (FCount mod 25) = 0 then
@@ -439,7 +461,12 @@ begin
           Walk(p + WideString('\'));
       end
       else
-        Consider(p);
+      begin
+        try
+          Consider(p);
+        except
+        end;
+      end;
     until not FindNextFileW(h, fd);
   finally
     Windows.FindClose(h);
@@ -451,8 +478,12 @@ begin
   FCount := 0;
   FBatchNo := 0;
   FCurrent := '';
-  Walk(FRoot);
-  FlushBatch;
+  try
+    Walk(FRoot);
+    if not Terminated and (FBatch <> nil) and (FBatch.Count > 0) then
+      FlushBatch;
+  except
+  end;
 end;
 
 { TRepForm }
@@ -464,7 +495,7 @@ begin
   FFirstShow := True;
   FSeen := TStringList.Create;
   FSeen.Sorted := True;
-  FSeen.Duplicates := dupAccept;
+  FSeen.Duplicates := dupIgnore;
   FSeen.CaseSensitive := False;
   FActed := TStringList.Create;
   FActed.Sorted := True;
@@ -490,15 +521,23 @@ function TRepForm.UpsertRow(const AKey, ACaption, AHash, ACloudText,
 var
   idx: Integer;
 begin
+  Result := nil;
+  if (ResultsView = nil) or (FSeen = nil) then
+    Exit;
   if FSeen.Find(AKey, idx) then
   begin
     Result := TListItem(FSeen.Objects[idx]);
-    Result.Caption := ACaption;
-    Result.SubItems[1] := AHash;
-    Result.SubItems[2] := ACloudText;
-    Result.SubItems[3] := ALocalText;
-    Result.SubItems[4] := AFamilyText;
-    Result.Data := Pointer(PtrUInt(v or (lv shl 8)));
+    if Result <> nil then
+    begin
+      Result.Caption := ACaption;
+      while Result.SubItems.Count < 5 do
+        Result.SubItems.Add('');
+      Result.SubItems[1] := AHash;
+      Result.SubItems[2] := ACloudText;
+      Result.SubItems[3] := ALocalText;
+      Result.SubItems[4] := AFamilyText;
+      Result.Data := Pointer(PtrUInt(v or (lv shl 8)));
+    end;
   end
   else
   begin
@@ -801,17 +840,18 @@ end;
 
 procedure TRepForm.CancelBtnClick(Sender: TObject);
 begin
-  // Break a batch stuck inside a blocking recv first; the worker thread then
-  // observes Terminated between batches and exits.
   CancelHttpPostJson;
   if FThread <> nil then
+  begin
     FThread.Terminate;
+    FThread := nil;
+  end;
   FinishScan('Cancelled.');
 end;
 
 procedure TRepForm.WalkDone(Sender: TObject);
 begin
-  FreeAndNil(FThread);
+  FThread := nil;
   FinishScan('Done.');
 end;
 
@@ -819,7 +859,7 @@ procedure TRepForm.ResultsDrawItem(Sender: TCustomListView; Item: TListItem;
   State: TCustomDrawState; var DefaultDraw: Boolean);
 begin
   // Row tints from the user's own palette; keep system highlight selected.
-  if (Item <> nil) and not (cdsSelected in State) then
+  if (Item <> nil) and not (cdsSelected in State) and (Sender <> nil) and (Sender.Canvas <> nil) then
     Sender.Canvas.Brush.Color :=
       RowColorForVerdict(PreferredVerdict(PtrUInt(Item.Data)), Item.Index);
 end;
@@ -918,7 +958,7 @@ end;
 constructor TProcRepThread.Create(AForm: TRepForm);
 begin
   inherited Create(True);
-  FreeOnTerminate := False;
+  FreeOnTerminate := True;
   FForm := AForm;
 end;
 
@@ -1006,10 +1046,7 @@ begin
   T := FProcThread;
   FProcThread := nil;
   if T <> nil then
-  begin
     T.Render;
-    T.Free;
-  end;
   ScanProgress.Style := pbstNormal;
   StatusLbl.Caption := 'Done.';
   SummaryLbl.Caption := Format(
@@ -1382,8 +1419,7 @@ begin
   if FThread <> nil then
   begin
     FThread.Terminate;
-    FThread.WaitFor;
-    FreeAndNil(FThread);
+    FThread := nil;
   end;
   FreeAndNil(FSeen);
   FreeAndNil(FActed);

@@ -28,8 +28,8 @@ const
   // Socket bounds for a single HttpPostJson call. Without these a stalled
   // server blocks the scan thread forever (and Cancel cannot break a blocked
   // recv). Recv covers a whole 50-file batch, hence generous.
-  HTTP_SEND_TIMEOUT_MS = 2000;
-  HTTP_RECV_TIMEOUT_MS = 3000;
+  HTTP_SEND_TIMEOUT_MS = 4000;
+  HTTP_RECV_TIMEOUT_MS = 15000;
 
 type
   TDetInfo = record
