@@ -54,16 +54,6 @@ tracing = "0.1"
 flate2 = "1.0"
 brotli = "8.0"
 
-# ML / Burn / Disassembly / JavaScript parser
-goblin = "0.10.5"
-iced-x86 = "1.21"
-oxc_parser = "0.135"
-oxc_ast = "0.135"
-oxc_allocator = "0.135"
-oxc_span = "0.135"
-burn = { version = "0.21", features = ["std", "ndarray", "autodiff"], default-features = false }
-burn-ndarray = "0.21"
-burn-dataset = "0.21"
 
 #Windows
 [target.'cfg(target_os = "windows")'.dependencies]

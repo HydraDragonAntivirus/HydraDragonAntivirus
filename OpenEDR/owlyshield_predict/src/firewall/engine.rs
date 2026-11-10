@@ -1752,6 +1752,7 @@ struct PacketDecision {
     address_data: Vec<u8>, // Serialized address for cross-thread safety
     should_forward: bool,
     recalc_checksums: bool,
+    outbound_override: Option<bool>,
     _reason: String,
 }
 
@@ -3373,6 +3374,42 @@ impl FirewallEngine {
         // One message is sent per new PID per session to avoid flooding the pipe.
         let (net_event_tx, net_event_rx) = std::sync::mpsc::channel::<String>();
         *self.hydranet_tx.lock().unwrap() = Some(net_event_tx.clone());
+        let (flow_telemetry_tx, flow_telemetry_rx) =
+            std::sync::mpsc::channel::<crate::edr_feedback::NetworkFlowRecord>();
+        {
+            let stop_flow_stream = Arc::clone(&stop);
+            std::thread::Builder::new()
+                .name("viruskov_flow_telemetry_streamer".to_string())
+                .spawn(move || {
+                    let mut batch: Vec<crate::edr_feedback::NetworkFlowRecord> = Vec::with_capacity(50);
+                    let mut last_flush = std::time::Instant::now();
+                    const MAX_BATCH: usize = 50;
+                    const FLUSH_INTERVAL: std::time::Duration = std::time::Duration::from_secs(3);
+
+                    while !stop_flow_stream.load(Ordering::Relaxed) {
+                        match flow_telemetry_rx.recv_timeout(std::time::Duration::from_millis(200)) {
+                            Ok(rec) => {
+                                batch.push(rec);
+                                if batch.len() >= MAX_BATCH || last_flush.elapsed() >= FLUSH_INTERVAL {
+                                    crate::edr_feedback::stream_network_flows_async(std::mem::take(&mut batch));
+                                    last_flush = std::time::Instant::now();
+                                }
+                            }
+                            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                                if !batch.is_empty() && last_flush.elapsed() >= FLUSH_INTERVAL {
+                                    crate::edr_feedback::stream_network_flows_async(std::mem::take(&mut batch));
+                                    last_flush = std::time::Instant::now();
+                                }
+                            }
+                            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
+                        }
+                    }
+                    if !batch.is_empty() {
+                        crate::edr_feedback::stream_network_flows_async(batch);
+                    }
+                })
+                .expect("failed to spawn viruskov_flow_telemetry_streamer thread");
+        }
         for blocked_path in self.settings.read().unwrap().kernel_block_paths.clone() {
             let _ = net_event_tx.send(kernel_block_message(&blocked_path));
         }
@@ -3468,6 +3505,7 @@ impl FirewallEngine {
             let web_filter_w = Arc::clone(&self.web_filter);
             let divert_w = divert.clone();
             let net_ev_tx = net_event_tx.clone();
+            let flow_tx = flow_telemetry_tx.clone();
             let nat_table_w = self.nat_table.clone();
             let proxy_alive_w = Arc::clone(&self.proxy_listener_alive);
 
@@ -3480,6 +3518,7 @@ impl FirewallEngine {
                     let mut packet_count = 0u64;
                     // Per-worker dedup: only send one NET_EVENT per PID per session
                     let mut notified_pids: HashSet<u32> = HashSet::new();
+                    let mut notified_flows: HashSet<(u32, std::net::IpAddr, u16)> = HashSet::new();
                     while !stop_w.load(Ordering::Relaxed) {
                         // Each thread competition for packets on the shared handle
                         match divert_w.recv(Some(&mut buffer)) {
@@ -3590,6 +3629,33 @@ impl FirewallEngine {
                                                 let _ = net_ev_tx.send(msg);
                                                 notified_pids.insert(pid);
                                             }
+
+                                            // ML Flow Telemetry: Stream remote IP, port, protocol, and domains to VirusKov
+                                            if notified_flows.len() > 10000 {
+                                                notified_flows.clear();
+                                            }
+                                            let flow_key = (pid, parsed_info.dst_ip, parsed_info.dst_port);
+                                            if notified_flows.insert(flow_key) {
+                                                let p_path = am_w.info_cache.get_info(pid).path;
+                                                let proc_name = std::path::Path::new(&p_path)
+                                                    .file_name()
+                                                    .and_then(|s| s.to_str())
+                                                    .unwrap_or("unknown")
+                                                    .to_string();
+
+                                                let rec = crate::edr_feedback::NetworkFlowRecord {
+                                                    timestamp: parsed_info.timestamp,
+                                                    pid,
+                                                    process_name: proc_name,
+                                                    src_ip: parsed_info.src_ip.to_string(),
+                                                    src_port: parsed_info.src_port,
+                                                    dst_ip: parsed_info.dst_ip.to_string(),
+                                                    dst_port: parsed_info.dst_port,
+                                                    protocol: format!("{:?}", parsed_info.protocol),
+                                                    hostname: parsed_info.hostname.clone().or_else(|| parsed_info.dns_query.clone()),
+                                                };
+                                                let _ = flow_tx.send(rec);
+                                            }
                                         }
                                     }
 
@@ -3597,7 +3663,7 @@ impl FirewallEngine {
                                         let mut packet_data = decision.packet_data;
                                         let mut recalc_checksums = decision.recalc_checksums;
                                         let mut loopback_flag = None;
-                                        let mut outbound_flag = None;
+                                        let mut outbound_flag = decision.outbound_override;
 
                                         let tls_proxy_cfg =
                                             settings_w.read().unwrap().tls_proxy.clone();
@@ -4045,6 +4111,7 @@ impl FirewallEngine {
                         address_data: address_data.to_vec(),
                         should_forward: true,
                         recalc_checksums: false,
+                        outbound_override: None,
                         _reason: "Unparsed packet allowed (no default deny)".to_string(),
                     };
                 }
@@ -4082,8 +4149,50 @@ impl FirewallEngine {
                 address_data: address_data.to_vec(),
                 should_forward: true,
                 recalc_checksums: false,
+                outbound_override: None,
                 _reason: "Self-traffic (edrsvc.exe) allowed, not intercepted".to_string(),
             };
+        }
+
+        // 1c. WPAD FAST-PATH INTERCEPTION & NEUTRALIZATION
+        // When Windows boots/connects, WinHTTP and system services query "wpad" across DNS, LLMNR, and NetBIOS.
+        // Intercept DNS (UDP 53) and craft an instant RFC 1035 NXDOMAIN in <0.1ms; drop LLMNR (5355) & NetBIOS (137).
+        if outbound && matches!(info.protocol, Protocol::UDP) {
+            if info.dst_port == 53 {
+                let is_wpad = info.dns_query.as_deref().map_or(false, Self::is_wpad_query);
+                if is_wpad {
+                    if let Some(resp_packet) = Self::craft_wpad_nxdomain_response(&data_vec, payload_offset) {
+                        stats.packets_total.fetch_add(1, Ordering::Relaxed);
+                        stats.packets_allowed.fetch_add(1, Ordering::Relaxed);
+                        return PacketDecision {
+                            packet_data: resp_packet,
+                            address_data: address_data.to_vec(),
+                            should_forward: true,
+                            recalc_checksums: true,
+                            outbound_override: Some(false), // Reinject inbound to local stack in <0.1ms
+                            _reason: "WPAD synthetic NXDOMAIN response injected (<0.1ms)".to_string(),
+                        };
+                    }
+                }
+            } else if info.dst_port == 5355 || info.dst_port == 137 {
+                let is_wpad = info.dns_query.as_deref().map_or(false, Self::is_wpad_query)
+                    || (payload_offset < data_vec.len() && {
+                        let p = &data_vec[payload_offset..];
+                        p.windows(4).any(|w| w.eq_ignore_ascii_case(b"wpad"))
+                    });
+                if is_wpad {
+                    stats.packets_total.fetch_add(1, Ordering::Relaxed);
+                    stats.packets_blocked.fetch_add(1, Ordering::Relaxed);
+                    return PacketDecision {
+                        packet_data: data_vec,
+                        address_data: address_data.to_vec(),
+                        should_forward: false,
+                        recalc_checksums: false,
+                        outbound_override: None,
+                        _reason: "WPAD LLMNR/NetBIOS probe dropped".to_string(),
+                    };
+                }
+            }
         }
 
         // 2. Resolve Process Metadata
@@ -4120,6 +4229,7 @@ impl FirewallEngine {
                     address_data: address_data.to_vec(),
                     should_forward: true,
                     recalc_checksums: false,
+                        outbound_override: None,
                     _reason: "Whitelisted network".to_string(),
                 };
             }
@@ -4153,6 +4263,7 @@ impl FirewallEngine {
                     address_data: address_data.to_vec(),
                     should_forward: false,
                     recalc_checksums: false,
+                    outbound_override: None,
                     _reason: web_match.reason,
                 };
             }
@@ -4235,6 +4346,7 @@ impl FirewallEngine {
                 address_data: address_data.to_vec(),
                 should_forward: true,
                 recalc_checksums: false,
+                outbound_override: None,
                 _reason: "Embedded proxy listener".to_string(),
             };
         }
@@ -4257,37 +4369,7 @@ impl FirewallEngine {
             }
         }
 
-        // --- Snort-ML Zero-Day URL & Query Threat Detection ---
-        if let Some(ref candidate_url) = info.full_url {
-            if let Some(ml_prob) = crate::ml::url_predict::scan_url(candidate_url) {
-                stats.packets_total.fetch_add(1, Ordering::Relaxed);
-                stats.packets_blocked.fetch_add(1, Ordering::Relaxed);
-
-                let now = Self::now_ts();
-                let block_reason = format!(
-                    "Snort-ML Zero-Day URL Model detected malicious request with {:.1}% probability",
-                    ml_prob * 100.0
-                );
-
-                emit_log_event(LogEntry {
-                    id: format!("{}-urlml-{}", now, pid),
-                    timestamp: now,
-                    level: LogLevel::Warning,
-                    message: format!(
-                        "URL ML Blocked: {} (pid={}) -> {} ({})",
-                        app_info.name, pid, candidate_url, block_reason
-                    ),
-                });
-
-                return PacketDecision {
-                    packet_data: data_vec,
-                    address_data: address_data.to_vec(),
-                    should_forward: false,
-                    recalc_checksums: false,
-                    _reason: block_reason,
-                };
-            }
-        }
+        // URL ML is handled in the cloud; telemetry streaming provides feed for cloud model.
 
         let payload = if payload_offset < data_vec.len() {
             &data_vec[payload_offset..]
@@ -4748,6 +4830,7 @@ impl FirewallEngine {
             address_data: address_data.to_vec(),
             should_forward: final_forward,
             recalc_checksums: false,
+            outbound_override: None,
             _reason: final_reason,
         }
     }
@@ -5405,6 +5488,63 @@ impl FirewallEngine {
                 -p * p.log2()
             })
             .sum()
+    }
+
+    fn is_wpad_query(name: &str) -> bool {
+        let lower = name.to_ascii_lowercase();
+        lower == "wpad"
+            || lower.starts_with("wpad.")
+            || lower.contains(".wpad.")
+            || lower.ends_with(".wpad")
+    }
+
+    fn craft_wpad_nxdomain_response(data: &[u8], payload_offset: usize) -> Option<Vec<u8>> {
+        if payload_offset < 28 || data.len() < payload_offset + 12 {
+            return None;
+        }
+
+        let mut resp = data.to_vec();
+        let version = resp[0] >> 4;
+        let udp_offset = payload_offset.checked_sub(8)?;
+
+        if version == 4 {
+            if udp_offset < 20 || resp.len() < 20 {
+                return None;
+            }
+            // Swap IPv4 Source (12..16) and Destination (16..20)
+            for i in 0..4 {
+                resp.swap(12 + i, 16 + i);
+            }
+        } else if version == 6 {
+            if udp_offset < 40 || resp.len() < 40 {
+                return None;
+            }
+            // Swap IPv6 Source (8..24) and Destination (24..40)
+            for i in 0..16 {
+                resp.swap(8 + i, 24 + i);
+            }
+        } else {
+            return None;
+        }
+
+        // Swap UDP Source and Destination Ports
+        resp.swap(udp_offset, udp_offset + 2);
+        resp.swap(udp_offset + 1, udp_offset + 3);
+
+        // DNS Header (RFC 1035):
+        // Flags: QR=1 (response), Opcode=0, AA=0, TC=0, RD=1, RA=1, RCODE=3 (NXDOMAIN) -> 0x8183
+        resp[payload_offset + 2] = 0x81;
+        resp[payload_offset + 3] = 0x83;
+
+        // Clear ANCOUNT, NSCOUNT, ARCOUNT
+        resp[payload_offset + 6] = 0;
+        resp[payload_offset + 7] = 0;
+        resp[payload_offset + 8] = 0;
+        resp[payload_offset + 9] = 0;
+        resp[payload_offset + 10] = 0;
+        resp[payload_offset + 11] = 0;
+
+        Some(resp)
     }
 
     fn parse_dns_query(payload: &[u8]) -> Option<String> {

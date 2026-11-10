@@ -2491,12 +2491,11 @@ impl StaticEngine {
 
         let (is_whitelisted, is_cidr_blacklisted) = self.check_whitelist_blacklist(&host);
 
-        // ML model is only evaluated if:
-        // 1. Domain is alive / active (liveness != 2: dead/NXDOMAIN)
-        // 2. Domain is NOT unconditionally whitelisted (or is explicitly unwhitelisted for ML)
-        // 3. Domain is NOT already blacklisted by CIDR
-        let should_run_ml = liveness_code != 2
-            && (!is_whitelisted || self.url_engine.is_unwhitelisted(&host))
+        // ML model is evaluated if:
+        // 1. Domain is NOT unconditionally whitelisted (or is explicitly unwhitelisted for ML)
+        // 2. Domain is NOT already blacklisted by CIDR
+        // (Liveness check does not gate ML; liveness remains info-only)
+        let should_run_ml = (!is_whitelisted || self.url_engine.is_unwhitelisted(&host))
             && !is_cidr_blacklisted;
 
         let prob = if should_run_ml {

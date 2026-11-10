@@ -373,7 +373,7 @@ impl UrlThreatEngine {
         let verdict;
         let risk_score;
         let verdict_reason;
-        let mut fp_mitigated = false;
+        let fp_mitigated = false;
 
         let has_malicious_rule = detections.iter().any(|d| d.severity == "Malicious");
         let has_webhook_c2 = detections.iter().any(|d| d.rule_id == "DISCORD_WEBHOOK_ABUSE" || d.rule_id == "TELEGRAM_BOT_API_ABUSE");
@@ -391,11 +391,7 @@ impl UrlThreatEngine {
             verdict = "Clean";
             risk_score = 0;
             verdict_reason = "Whitelist Protection: Host matches Tranco 1M or benign CIDR subnet with no malicious override.".to_string();
-        } else if liveness_code == 2 && !has_malicious_rule {
-            verdict = "Clean";
-            risk_score = 10;
-            fp_mitigated = true;
-            verdict_reason = "Liveness Protection: Domain is inactive / dead (NXDOMAIN). Score suppressed to mitigate false positive.".to_string();
+
         } else if ml_prob >= 0.80 {
             verdict = "Malicious";
             let max_score = detections.iter().map(|d| d.score).max().unwrap_or(80);

@@ -171,46 +171,6 @@ namespace hookmgr {
 		return funcName;
 	}
 
-	static std::vector<std::wstring> kcCandidatePaths()
-	{
-		std::vector<std::wstring> out;
-		wchar_t wsExe[MAX_PATH] = {};
-		if (::GetModuleFileNameW(nullptr, wsExe, MAX_PATH) > 0)
-		{
-			std::wstring s(wsExe);
-			size_t pos = s.find_last_of(L"\\/");
-			if (pos != std::wstring::npos)
-			{
-				std::wstring dir = s.substr(0, pos + 1);
-				out.push_back(dir + L"models\\kc_hybrid_model.json");
-				out.push_back(dir + L"kc_hybrid_model.json");
-				for (const auto& searchPattern : { dir + L"kc*.json", dir + L"models\\kc*.json" })
-				{
-					WIN32_FIND_DATAW fd = {};
-					HANDLE hFind = ::FindFirstFileW(searchPattern.c_str(), &fd);
-					if (hFind != INVALID_HANDLE_VALUE)
-					{
-						do
-						{
-							if (!(fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY))
-							{
-								size_t p = searchPattern.find_last_of(L"\\/");
-								std::wstring pdir = (p != std::wstring::npos) ? searchPattern.substr(0, p + 1) : L"";
-								out.push_back(pdir + fd.cFileName);
-							}
-						} while (::FindNextFileW(hFind, &fd));
-						::FindClose(hFind);
-					}
-				}
-			}
-		}
-		out.push_back(L"C:\\Program Files\\HydraDragonAntivirus\\OpenEDR\\models\\kc_hybrid_model.json");
-		out.push_back(L"C:\\Program Files\\HydraDragonAntivirus\\OpenEDR\\kc_hybrid_model.json");
-		out.push_back(L"models\\kc_hybrid_model.json");
-		out.push_back(L"kc_hybrid_model.json");
-		out.push_back(L"OpenEDR\\owlyshield_predict\\models\\kc_hybrid_model.json");
-		return out;
-	}
 
 	// Targeted scan for `"cryptoApiList": [ "mod!func", ... ]`: bracket
 	// matched with string awareness, so brackets or // inside literals and
@@ -278,59 +238,6 @@ namespace hookmgr {
 		return out;
 	}
 
-	// Targeted scan for APIs inside kc*.json (such as kc_hybrid_model.json).
-	// Extracts tokens formatted as `mod!func` or `raw.owlyhook.functionname=mod!func`.
-	static std::vector<HookTarget> extractKcApiList(const std::string& content)
-	{
-		std::vector<HookTarget> out;
-		const size_t n = content.size();
-		std::string cur;
-		bool inStr = false, esc = false;
-		for (size_t i = 0; i < n && out.size() < c_nMaxTargets; ++i)
-		{
-			const char c = content[i];
-			if (inStr)
-			{
-				if (esc) { cur.push_back(c); esc = false; }
-				else if (c == '\\') esc = true;
-				else if (c == '"')
-				{
-					inStr = false;
-					std::string spec = cur;
-					size_t eqPos = spec.find('=');
-					if (eqPos != std::string::npos && (spec.find("owlyhook") != std::string::npos || spec.find("detfn") != std::string::npos))
-					{
-						spec = spec.substr(eqPos + 1);
-					}
-					size_t bang = spec.find('!');
-					if (bang != std::string::npos && bang > 0 && bang + 1 < spec.size())
-					{
-						std::string sMod = spec.substr(0, bang);
-						std::string sFn = spec.substr(bang + 1);
-						std::wstring wmod(sMod.begin(), sMod.end());
-						std::wstring wfn(sFn.begin(), sFn.end());
-						wmod = normalizeModule(wmod);
-						if (!wmod.empty() && !wfn.empty())
-						{
-							wfn = resolveExportCasing(wmod, wfn);
-							if (wmod.size() < 64 && wfn.size() < 256)
-							{
-								HookTarget t;
-								t.module = wmod;
-								t.function = wfn;
-								out.push_back(std::move(t));
-							}
-						}
-					}
-					cur.clear();
-				}
-				else cur.push_back(c);
-				continue;
-			}
-			if (c == '"') { inStr = true; cur.clear(); }
-		}
-		return out;
-	}
 
 	static std::vector<HookTarget> loadTargetsLocked()
 	{
@@ -366,32 +273,7 @@ namespace hookmgr {
 			}
 		}
 
-		// 2. Load from kc*.json models
-		std::vector<std::wstring> checkedKcPaths;
-		for (const auto& path : kcCandidatePaths())
-		{
-			bool alreadyChecked = false;
-			for (const auto& cp : checkedKcPaths)
-			{
-				if (_wcsicmp(cp.c_str(), path.c_str()) == 0) { alreadyChecked = true; break; }
-			}
-			if (alreadyChecked)
-				continue;
-			checkedKcPaths.push_back(path);
 
-			std::ifstream ifs(path, std::ios::binary);
-			if (!ifs.is_open())
-				continue;
-			std::string content((std::istreambuf_iterator<char>(ifs)), std::istreambuf_iterator<char>());
-			if (content.empty())
-				continue;
-			auto kcSpecs = extractKcApiList(content);
-			for (auto& s : kcSpecs)
-			{
-				if (!isDuplicate(s) && targets.size() < c_nMaxTargets)
-					targets.push_back(std::move(s));
-			}
-		}
 
 		return targets;
 	}
@@ -422,7 +304,7 @@ namespace hookmgr {
 		{
 			s_targetsRegistered = true;
 			LOGLVL(Critical, FMT("hookmgr: registered " << ok << "/" << s_targets.size()
-				<< " hook targets from ptm.local.src and kc json models"));
+				<< " hook targets from ptm.local.src"));
 		}
 	}
 

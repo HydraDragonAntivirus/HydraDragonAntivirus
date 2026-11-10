@@ -423,6 +423,7 @@ impl ActionsOnKill {
                 Box::new(Connectors),
                 Box::new(Logging),
                 Box::new(WriteOpenEdrEventLog()),
+                Box::new(VirusKovCloudFeedbackAction),
             ],
         }
     }
@@ -440,6 +441,7 @@ impl ActionsOnKill {
                 Box::new(Connectors),
                 Box::new(Logging),
                 Box::new(WriteOpenEdrEventLog()),
+                Box::new(VirusKovCloudFeedbackAction),
             ],
         }
     }
@@ -756,52 +758,110 @@ impl ActionOnKill for Logging {
 }
 
 pub fn notify_firewall_threat_alert(threat_name: &str, file_path: &str, reboot_required: bool) {
-    #[cfg(windows)]
-    {
-        use windows::Win32::Foundation::{BOOL, CloseHandle, HANDLE};
-        use windows::Win32::Storage::FileSystem::{
-            CreateFileW, FILE_ATTRIBUTE_NORMAL, FILE_GENERIC_WRITE, FILE_SHARE_NONE,
-            FlushFileBuffers, OPEN_EXISTING, WriteFile,
+    let _ = crate::edr_feedback::send_threat_alert(threat_name, file_path, reboot_required);
+}
+
+
+/// Dispatches rich process behavior, indicators and sample payload to VirusKov Cloud.
+/// If VirusKov returns an interactive verdict or alert, it forwards directly to Pascal HIPS.
+pub struct VirusKovCloudFeedbackAction;
+
+impl ActionOnKill for VirusKovCloudFeedbackAction {
+    fn run(
+        &self,
+        _config: &Config,
+        proc: &mut ProcessRecord,
+        _pred_mtrx: &VecvecCappedF32,
+        threat_info: &ThreatInfo,
+        _report_context: &ActionReportContext,
+        _now: &str,
+    ) -> Result<(), Box<dyn Error>> {
+        let mut indicators = Vec::new();
+        if let Some(ref details) = threat_info.match_details {
+            indicators.push(details.clone());
+        }
+        indicators.push(format!("Detection: {}", threat_info.virus_name));
+        indicators.push(format!("Type: {}", threat_info.threat_type_label));
+        indicators.push(format!("Prediction: {:.3}", threat_info.prediction));
+        indicators.push(format!(
+            "Ops: Read={}, Write={}, Open={}, SetInfo={}, EntropyWrite={:.2}",
+            proc.ops_read, proc.ops_written, proc.ops_open, proc.ops_setinfo, proc.entropy_written
+        ));
+
+        let display_path = best_process_display(proc);
+        let pid = proc.pids.iter().next().copied().unwrap_or(0);
+        let gid = proc.gid;
+        let app_name = proc.appname.clone();
+        let cmdline = proc.command_line.clone();
+
+        // Read binary bytes and compute SHA256 if file exists on disk
+        let mut file_bytes = None;
+        let mut sha256 = String::new();
+        let path_to_read = if !display_path.is_empty() && display_path != "UNKNOWN" {
+            Some(std::path::PathBuf::from(&display_path))
+        } else if !proc.exepath.as_os_str().is_empty() && proc.exepath.to_string_lossy() != "UNKNOWN" {
+            Some(proc.exepath.clone())
+        } else {
+            None
         };
-        use windows::Win32::System::Pipes::WaitNamedPipeW;
-        use windows::core::PCWSTR;
 
-        const PIPE: &str = r"\\.\pipe\HydraHipEvent";
-        let mut pipe_name_wide: Vec<u16> = PIPE.encode_utf16().collect();
-        pipe_name_wide.push(0);
-        let pcwstr = PCWSTR(pipe_name_wide.as_ptr());
-        let reboot_flag = if reboot_required { "1" } else { "0" };
-        let message = format!("THREAT_ALERT:{}|{}|{}\n", threat_name, file_path, reboot_flag);
-        let message_bytes = message.as_bytes();
-
-        let wait_ok: BOOL = unsafe { WaitNamedPipeW(pcwstr, 150) };
-        if wait_ok.as_bool() {
-            if let Ok(handle) = unsafe {
-                CreateFileW(
-                    pcwstr,
-                    FILE_GENERIC_WRITE.0,
-                    FILE_SHARE_NONE,
-                    None,
-                    OPEN_EXISTING,
-                    FILE_ATTRIBUTE_NORMAL,
-                    HANDLE::default(),
-                )
-            } {
-                if !handle.is_invalid() {
-                    let mut written: u32 = 0;
-                    unsafe {
-                        let _ = WriteFile(
-                            handle,
-                            Some(message_bytes),
-                            Some(&mut written as *mut u32),
-                            None,
-                        );
-                        let _ = FlushFileBuffers(handle);
-                        let _ = CloseHandle(handle);
+        if let Some(p) = path_to_read {
+            if let Ok(bytes) = std::fs::read(&p) {
+                if !bytes.is_empty() {
+                    use sha2::Digest;
+                    let hash = sha2::Sha256::digest(&bytes);
+                    sha256 = hex::encode(hash);
+                    if bytes.len() <= crate::edr_feedback::MAX_SAMPLE_BYTES {
+                        file_bytes = Some(bytes);
                     }
                 }
             }
         }
+
+        let now_ts = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+
+        let ops_summary = crate::edr_feedback::OpsSummary {
+            ops_read: proc.ops_read,
+            ops_written: proc.ops_written,
+            ops_open: proc.ops_open,
+            bytes_read: proc.bytes_read,
+            bytes_written: proc.bytes_written,
+            entropy_read: proc.entropy_read,
+            entropy_written: proc.entropy_written,
+            files_renamed_count: proc.files_renamed.len(),
+            files_read_count: proc.files_read.len(),
+        };
+
+        let machine_id = crate::edr_feedback::get_machine_guid();
+        let payload = crate::edr_feedback::BehaviorTelemetryPayload {
+            machine_id,
+            timestamp: now_ts,
+            pid,
+            gid,
+            process_name: app_name,
+            exe_path: display_path,
+            command_line: cmdline,
+            sha256,
+            parent_pid: None,
+            parent_name: None,
+            detection: threat_info.virus_name.to_string(),
+            source: threat_info.threat_type_label.to_lowercase(),
+            risk_score: threat_info.prediction,
+            indicators,
+            ops_summary: Some(ops_summary),
+            details: serde_json::json!({
+                "match_details": threat_info.match_details,
+                "threat_type": threat_info.threat_type_label,
+                "enforced_response": threat_info.response_label_for(proc),
+                "pending_decision": threat_info.pending_user_decision,
+            }),
+        };
+
+        crate::edr_feedback::stream_behavior_telemetry_async(payload, file_bytes);
+        Ok(())
     }
 }
 

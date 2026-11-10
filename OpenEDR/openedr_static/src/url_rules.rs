@@ -600,7 +600,7 @@ pub fn match_deterministic_rules(&self, raw_url: &str) -> Vec<String> {
         let mut verdict;
         let mut risk_score;
         let mut verdict_reason;
-        let mut fp_mitigated = false;
+        let fp_mitigated = false;
 
         let has_malicious_rule = detections.iter().any(|d| d.severity == "Malicious");
         // The model's own hit (pushed above as Suspicious for 0.50-0.90) is not a rule:
@@ -615,11 +615,7 @@ pub fn match_deterministic_rules(&self, raw_url: &str) -> Vec<String> {
             verdict = "Clean";
             risk_score = 0;
             verdict_reason = "Whitelist Protection: Host matches Tranco 1M or benign CIDR subnet with no malicious override.".to_string();
-        } else if liveness_code == 2 && !has_malicious_rule {
-            verdict = "Clean";
-            risk_score = 10;
-            fp_mitigated = true;
-            verdict_reason = "Liveness Protection: Domain is inactive / dead (NXDOMAIN). Score suppressed to mitigate false positive.".to_string();
+
         } else if ml_prob >= 0.90 {
             verdict = "Malicious";
             let max_score = detections.iter().map(|d| d.score).max().unwrap_or(80);

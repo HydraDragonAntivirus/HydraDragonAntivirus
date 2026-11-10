@@ -396,6 +396,7 @@ pub mod worker_instance {
                 )),
                 Err(e) => Logging::error(&format!("[REPORT] Failed to save system report: {}", e)),
             }
+            crate::edr_feedback::stream_system_report_async(&report);
             self.last_report_time = Some(std::time::Instant::now());
         }
 
@@ -1284,140 +1285,14 @@ pub mod worker_instance {
         /// The driver cannot match a wildcard module/function, so instead of registering the
         /// non-functional "*!*" spec we enumerate every DLL currently loaded in the process and
         /// emit a concrete `module!function` spec for each exported API (resolved via goblin).
-        fn collect_dynamic_hook_api_targets(&mut self, pid: u32) -> Vec<String> {
-            if crate::config::is_monitor_all_apis_enabled() {
-                self.enumerate_all_exported_api_specs(pid)
-            } else {
-                Self::ptm_crypto_api_list()
-            }
+        fn collect_dynamic_hook_api_targets(&mut self, _pid: u32) -> Vec<String> {
+            Self::ptm_crypto_api_list()
         }
 
         /// Max hook targets, mirroring the C++ registrar (driver table is bounded).
         const PTM_HOOK_MAX_TARGETS: usize = 512;
 
-        /// Resolve export casing for an API function against the loaded PE if available
-        fn resolve_export_casing(module: &str, function: &str) -> String {
-            if function.eq_ignore_ascii_case("writeprocessmemory") {
-                return "WriteProcessMemory".to_string();
-            }
-            if function.eq_ignore_ascii_case("ntcreatethreadex") {
-                return "NtCreateThreadEx".to_string();
-            }
-            if function.eq_ignore_ascii_case("bcryptopenalgorithmprovider") {
-                return "BCryptOpenAlgorithmProvider".to_string();
-            }
-            if function.eq_ignore_ascii_case("bcryptclosealgorithmprovider") {
-                return "BCryptCloseAlgorithmProvider".to_string();
-            }
-            if function.eq_ignore_ascii_case("bcryptimportkey") {
-                return "BCryptImportKey".to_string();
-            }
-            if function.eq_ignore_ascii_case("bcryptimportkeypair") {
-                return "BCryptImportKeyPair".to_string();
-            }
-            let sys_paths = [
-                format!(r"C:\Windows\System32\{}", module),
-                format!(r"C:\Windows\SysWOW64\{}", module),
-            ];
-            for path in &sys_paths {
-                if let Ok(bytes) = std::fs::read(path) {
-                    if let Ok(pe) = goblin::pe::PE::parse(&bytes) {
-                        for export in pe.exports {
-                            if let Some(exp_name) = export.name {
-                                if exp_name.eq_ignore_ascii_case(function) {
-                                    return exp_name.to_string();
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            function.to_string()
-        }
-
-        fn kc_candidate_paths() -> Vec<std::path::PathBuf> {
-            let mut candidates: Vec<std::path::PathBuf> = Vec::new();
-            if let Ok(exe) = std::env::current_exe() {
-                if let Some(dir) = exe.parent() {
-                    candidates.push(dir.join("models").join("kc_hybrid_model.json"));
-                    candidates.push(dir.join("kc_hybrid_model.json"));
-                    for scan_dir in [dir.to_path_buf(), dir.join("models")] {
-                        if let Ok(entries) = std::fs::read_dir(scan_dir) {
-                            for entry in entries.flatten() {
-                                let path = entry.path();
-                                if let Some(fname) = path.file_name().and_then(|n| n.to_str()) {
-                                    if fname.starts_with("kc") && fname.ends_with(".json") {
-                                        candidates.push(path);
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            candidates.push(std::path::PathBuf::from(
-                r"C:\Program Files\HydraDragonAntivirus\OpenEDR\models\kc_hybrid_model.json",
-            ));
-            candidates.push(std::path::PathBuf::from(
-                r"C:\Program Files\HydraDragonAntivirus\OpenEDR\kc_hybrid_model.json",
-            ));
-            candidates.push(std::path::PathBuf::from("models/kc_hybrid_model.json"));
-            candidates.push(std::path::PathBuf::from("kc_hybrid_model.json"));
-            candidates.push(std::path::PathBuf::from(
-                "OpenEDR/owlyshield_predict/models/kc_hybrid_model.json",
-            ));
-            candidates
-        }
-
-        fn extract_kc_api_list(content: &str) -> Vec<String> {
-            let mut out = Vec::new();
-            let bytes = content.as_bytes();
-            let mut i = 0;
-            let mut cur = String::new();
-            let mut in_str = false;
-            let mut esc = false;
-            while i < bytes.len() && out.len() < Self::PTM_HOOK_MAX_TARGETS {
-                let c = bytes[i];
-                if in_str {
-                    if esc {
-                        cur.push(c as char);
-                        esc = false;
-                    } else if c == b'\\' {
-                        esc = true;
-                    } else if c == b'"' {
-                        in_str = false;
-                        let mut spec = cur.as_str();
-                        if let Some(eq_pos) = spec.find('=') {
-                            if spec.contains("owlyhook") || spec.contains("detfn") {
-                                spec = &spec[eq_pos + 1..];
-                            }
-                        }
-                        if let Some(bang) = spec.find('!') {
-                            if bang > 0 && bang + 1 < spec.len() {
-                                let module = Self::normalize_hook_module_name(&spec[..bang]);
-                                let function = Self::resolve_export_casing(&module, &spec[bang + 1..]);
-                                if !module.is_empty() && !function.is_empty() && module.len() < 64 && function.len() < 256 {
-                                    out.push(format!("{}!{}", module, function));
-                                }
-                            }
-                        }
-                        cur.clear();
-                    } else {
-                        cur.push(c as char);
-                    }
-                    i += 1;
-                    continue;
-                }
-                if c == b'"' {
-                    in_str = true;
-                    cur.clear();
-                }
-                i += 1;
-            }
-            out
-        }
-
-        /// Load the hook targets from ptm.local.src and kc*.json models in file order
+        /// Load the hook targets from ptm.local.src in file order
         /// (mirrors the C++ hookmgr registrar, so event ids 0x6000+i stay in sync on both sides).
         /// Cached process-wide; empty when policy/model files are missing/unparseable.
         fn ptm_crypto_api_list() -> Vec<String> {
@@ -1456,23 +1331,7 @@ pub mod worker_instance {
                         }
                     }
 
-                    // 2. KC JSON model targets
-                    let mut checked = std::collections::HashSet::new();
-                    for path in Self::kc_candidate_paths() {
-                        let path_key = path.to_string_lossy().to_ascii_lowercase();
-                        if !checked.insert(path_key) {
-                            continue;
-                        }
-                        if let Ok(content) = std::fs::read_to_string(&path) {
-                            let kc_specs = Self::extract_kc_api_list(&content);
-                            for spec in kc_specs {
-                                let key = spec.to_ascii_lowercase();
-                                if seen.insert(key) && targets.len() < Self::PTM_HOOK_MAX_TARGETS {
-                                    targets.push(spec);
-                                }
-                            }
-                        }
-                    }
+
 
                     targets
                 })
@@ -1545,7 +1404,7 @@ pub mod worker_instance {
             out
         }
 
-        /// Pre-map the ptm and kc targets to 0x6000+i (mirroring the C++ registrar order)
+        /// Pre-map the ptm targets to 0x6000+i (mirroring the C++ registrar order)
         /// so incoming driver hook events resolve even when MONITOR_ALL_APIS
         /// is off. Idempotent; runs once. The per-PID loop then sees them as
         /// already-registered (cheap) and ids stay in sync no matter what
@@ -1573,155 +1432,13 @@ pub mod worker_instance {
                 Self::DYNAMIC_HOOK_EVENT_ID_START.saturating_add(specs.len() as u32),
             );
             Logging::info(&format!(
-                "[DYNAMIC HOOK] Pre-mapped {} hook target(s) from ptm.local.src and kc json models (0x6000+order, no MONITOR_ALL_APIS needed)",
+                "[DYNAMIC HOOK] Pre-mapped {} hook target(s) from ptm.local.src (0x6000+order, no MONITOR_ALL_APIS needed)",
                 mapped
             ));
         }
 
-        /// Enumerate every module loaded in `pid` and collect a concrete `module!function`
-        /// spec for each exported symbol. This is the goblin-based replacement for the
-        /// broken "*!*" wildcard hooking: it detects all API calls of all DLLs.
-        fn enumerate_all_exported_api_specs(&self, pid: u32) -> Vec<String> {
-            use windows::Win32::System::Diagnostics::ToolHelp::{
-                CreateToolhelp32Snapshot, Module32FirstW, Module32NextW, MODULEENTRY32W,
-                TH32CS_SNAPMODULE, TH32CS_SNAPMODULE32,
-            };
-            use windows::Win32::Foundation::CloseHandle;
-
-            let mut specs: Vec<String> = Vec::new();
-            let snapshot = match unsafe {
-                CreateToolhelp32Snapshot(TH32CS_SNAPMODULE | TH32CS_SNAPMODULE32, pid)
-            } {
-                Ok(s) => s,
-                Err(_) => return specs,
-            };
-            let mut me: MODULEENTRY32W = unsafe { std::mem::zeroed() };
-            me.dwSize = std::mem::size_of::<MODULEENTRY32W>() as u32;
-
-            let mut more = unsafe { Module32FirstW(snapshot, &mut me).as_bool() };
-            while more {
-                let path = {
-                    let len = me
-                        .szExePath
-                        .iter()
-                        .position(|&c| c == 0)
-                        .unwrap_or(me.szExePath.len());
-                    String::from_utf16_lossy(&me.szExePath[..len])
-                };
-                if !path.is_empty() && crate::config::is_path_monitored_for_apis(&path) {
-                    Self::collect_export_specs_from_dll(&path, &mut specs);
-                }
-                more = unsafe { Module32NextW(snapshot, &mut me).as_bool() };
-            }
-            unsafe {
-                let _ = CloseHandle(snapshot);
-            }
-            specs
-        }
-
-        /// Parse one DLL's export table with goblin and append `module!function` specs.
-        fn collect_export_specs_from_dll(dll_path: &str, out: &mut Vec<String>) {
-            let module_name =
-                match std::path::Path::new(dll_path).file_name().and_then(|s| s.to_str()) {
-                    Some(n) => n.to_string(),
-                    None => return,
-                };
-            let bytes = match std::fs::read(dll_path) {
-                Ok(b) => b,
-                Err(_) => return,
-            };
-            let pe = match goblin::pe::PE::parse(&bytes) {
-                Ok(p) => p,
-                Err(_) => return,
-            };
-            for export in pe.exports {
-                if let Some(name) = export.name {
-                    out.push(format!("{}!{}", module_name, name));
-                }
-            }
-        }
-
-        fn hook_all_apis_in_dll(&mut self, dll_path: &str, pid: u32) {
-            if !crate::config::is_path_monitored_for_apis(dll_path) {
-                return;
-            }
-
-            if self.dynamic_hook_registration_blocked {
-                return;
-            }
-
-            let path = std::path::Path::new(dll_path);
-            let module_name = match path.file_name().and_then(|s| s.to_str()) {
-                Some(name) => name.to_string(),
-                None => return,
-            };
-
-            let bytes = match std::fs::read(path) {
-                Ok(b) => b,
-                Err(_) => return,
-            };
-
-            let pe = match goblin::pe::PE::parse(&bytes) {
-                Ok(p) => p,
-                Err(_) => return,
-            };
-
-            let mut new_apis = Vec::new();
-            for export in pe.exports {
-                if let Some(name) = export.name {
-                    new_apis.push(format!("{}!{}", module_name, name));
-                }
-            }
-
-            if new_apis.is_empty() {
-                return;
-            }
-
-            Logging::info(&format!(
-                "[DYNAMIC HOOK] Found {} exports in {} for PID {}",
-                new_apis.len(),
-                module_name,
-                pid
-            ));
-
-            let mut added = 0;
-
-            for api_spec in new_apis {
-                if self.is_api_already_registered(&api_spec) {
-                    continue;
-                }
-
-                let Some(event_id) = self.resolve_or_allocate_dynamic_event_id(&api_spec) else {
-                    self.dynamic_hook_registration_blocked = true;
-                    Logging::warning(
-                        "[DYNAMIC HOOK] Event-id pool exhausted; stopping new registrations",
-                    );
-                    break;
-                };
-
-                let Some(idx) = api_spec.find('!') else {
-                    continue;
-                };
-                let (module, function) = (&api_spec[..idx], &api_spec[idx + 1..]);
-
-                // SharedDefs.HOOK_CONFIG_DATA limits (ModuleName[64], FunctionName[256]).
-                if module.len() >= 64 || function.len() >= 256 {
-                    continue;
-                }
-
-                // Map-only: driver registration/apply is owned by OpenEDR.
-                self.dynamic_registered_apis
-                    .insert(api_spec.to_ascii_lowercase());
-                self.dynamic_hook_event_map.insert(event_id, api_spec);
-                added += 1;
-            }
-
-            if added > 0 {
-                Logging::info(&format!(
-                    "[DYNAMIC HOOK] Mapped {} new APIs from {} for PID {} (apply owned by OpenEDR)",
-                    added, module_name, pid
-                ));
-            }
+        fn hook_all_apis_in_dll(&mut self, _dll_path: &str, _pid: u32) {
+            // Dynamic hooks are purely rule/ptm-driven
         }
 
         fn register_dynamic_hooks_for_process(&mut self, pid: u32) {

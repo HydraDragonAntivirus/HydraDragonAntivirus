@@ -408,7 +408,9 @@ type StaticCheckRegistryFn = unsafe extern "C" fn(*const std::os::raw::c_char) -
 struct StaticBinding {
     scan: StaticScanFn,
     free: StaticFreeFn,
+    #[allow(dead_code)]
     scan_url: Option<StaticUrlScanFn>,
+    #[allow(dead_code)]
     url_model_loaded: Option<StaticUrlModelLoadedFn>,
     is_trusted_signer: Option<StaticSignerFn>,
     is_malicious_signer: Option<StaticSignerFn>,
@@ -537,6 +539,7 @@ fn static_binding() -> Option<StaticBinding> {
     cell.lock().ok().and_then(|g| *g)
 }
 
+#[allow(dead_code)]
 pub(crate) fn static_url_model_loaded() -> bool {
     let Some(binding) = static_binding() else {
         return false;
@@ -587,6 +590,7 @@ pub(crate) fn static_is_pua_signer(signer_name: &str) -> bool {
     static_signer_check(b.is_pua_signer, signer_name)
 }
 
+#[allow(dead_code)]
 pub(crate) fn scan_url_with_static(url: &str) -> Option<f32> {
     let binding = static_binding()?;
     let scan_url = binding.scan_url?;
@@ -746,7 +750,6 @@ fn scan_url_strings_impl(data: *const u8, len: u32) -> String {
     const MAX_INPUT: u32 = 64 * 1024 * 1024;
     const MAX_TOKENS: usize = 5000;
     const MAX_TOKEN_LEN: usize = 2048;
-    const MAX_FINDINGS: usize = 100;
 
     if data.is_null() || len == 0 || len > MAX_INPUT {
         return serde_json::json!({"error": true, "message": "null/empty/oversize input"})
@@ -773,40 +776,14 @@ fn scan_url_strings_impl(data: *const u8, len: u32) -> String {
         tokens.push(t.to_string());
     }
 
-    if !crate::ml::url_predict::model_loaded() {
-        return serde_json::json!({"error": true, "message": "url_trees.bin not loaded"})
-            .to_string();
-    }
-
-    let mut worst = 0.0f32;
-    let mut exact_malicious = 0usize;
-    let mut findings = Vec::new();
-    for tok in &tokens {
-        if let Some(prob) = crate::ml::url_predict::scan_url(tok) {
-            worst = worst.max(prob);
-            exact_malicious += 1;
-            if findings.len() < MAX_FINDINGS {
-                findings.push(serde_json::json!({
-                    "url": tok,
-                    "probability": prob,
-                    "malicious": true,
-                }));
-            }
-        }
-    }
-
-    Logging::info(&format!(
-        "[Owlyshield FFI] URL-string scan: {} tokens, {} malicious",
-        tokens.len(),
-        exact_malicious
-    ));
     serde_json::json!({
         "scanned": tokens.len(),
-        "model_loaded": true,
-        "malicious_count": exact_malicious,
-        "worst_probability": worst,
-        "verdict": if exact_malicious > 0 { "Malicious" } else { "Unknown" },
-        "findings": findings,
+        "model_loaded": false,
+        "malicious_count": 0,
+        "worst_probability": 0.0,
+        "verdict": "Unknown",
+        "findings": Vec::<serde_json::Value>::new(),
+        "message": "URL ML is handled in the cloud"
     })
     .to_string()
 }

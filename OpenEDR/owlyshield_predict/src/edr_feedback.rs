@@ -27,6 +27,230 @@ use windows::Win32::Networking::WinHttp::{
 
 pub const MAX_SAMPLE_BYTES: usize = 100 * 1024 * 1024; // 100 MB limit
 
+/// Read Windows MachineGuid from HKLM\SOFTWARE\Microsoft\Cryptography as default endpoint identifier (Zero API Key requirement).
+#[cfg(target_os = "windows")]
+pub fn get_machine_guid() -> String {
+    use winreg::enums::HKEY_LOCAL_MACHINE;
+    use winreg::RegKey;
+    let hklm = RegKey::predef(HKEY_LOCAL_MACHINE);
+    if let Ok(crypto) = hklm.open_subkey("SOFTWARE\\Microsoft\\Cryptography") {
+        if let Ok(guid) = crypto.get_value::<String, _>("MachineGuid") {
+            let clean = guid.trim().to_string();
+            if !clean.is_empty() {
+                return clean;
+            }
+        }
+    }
+    hostname::get()
+        .map(|s| s.to_string_lossy().to_string())
+        .unwrap_or_else(|_| "hydra-endpoint-anonymous".to_string())
+}
+
+#[cfg(not(target_os = "windows"))]
+pub fn get_machine_guid() -> String {
+    hostname::get()
+        .map(|s| s.to_string_lossy().to_string())
+        .unwrap_or_else(|_| "hydra-endpoint-anonymous".to_string())
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NetworkFlowRecord {
+    pub timestamp: u64,
+    pub pid: u32,
+    pub process_name: String,
+    pub src_ip: String,
+    pub src_port: u16,
+    pub dst_ip: String,
+    pub dst_port: u16,
+    pub protocol: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub hostname: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NetworkFlowBatch {
+    pub machine_id: String,
+    pub flows: Vec<NetworkFlowRecord>,
+}
+
+/// Stream process network telemetry to VirusKov cloud for ML model training.
+pub fn stream_network_flows_async(flows: Vec<NetworkFlowRecord>) {
+    if flows.is_empty() {
+        return;
+    }
+    let _ = std::thread::Builder::new()
+        .name("edr-network-telemetry".into())
+        .spawn(move || {
+            let target = resolve_server_target();
+            let telemetry_path = format!("{}/api/v1/edr/telemetry/network-flows", target.path_prefix);
+            let machine_id = get_machine_guid();
+            let batch = NetworkFlowBatch {
+                machine_id: machine_id.clone(),
+                flows,
+            };
+            let json_body = match serde_json::to_vec(&batch) {
+                Ok(b) => b,
+                Err(_) => return,
+            };
+            let mut headers = vec![
+                ("Content-Type", "application/json"),
+                ("User-Agent", "VirusKov-EDR-Telemetry/1.0"),
+                ("X-Machine-ID", machine_id.as_str()),
+                ("X-Endpoint-ID", machine_id.as_str()),
+            ];
+            let api_key_opt = std::env::var("VIRUSKOV_API_KEY").ok();
+            if let Some(ref key) = api_key_opt {
+                headers.push(("X-API-Key", key.as_str()));
+            }
+
+            let _ = winhttp_post(
+                &target.host,
+                target.port,
+                target.is_https,
+                &telemetry_path,
+                &headers,
+                &json_body,
+            );
+        });
+}
+
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OpsSummary {
+    pub ops_read: u64,
+    pub ops_written: u64,
+    pub ops_open: u64,
+    pub bytes_read: u64,
+    pub bytes_written: u64,
+    pub entropy_read: f64,
+    pub entropy_written: f64,
+    pub files_renamed_count: usize,
+    pub files_read_count: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BehaviorTelemetryPayload {
+    pub machine_id: String,
+    pub timestamp: u64,
+    pub pid: u32,
+    pub gid: u64,
+    pub process_name: String,
+    pub exe_path: String,
+    pub command_line: String,
+    pub sha256: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub parent_pid: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub parent_name: Option<String>,
+    pub detection: String,
+    pub source: String,
+    pub risk_score: f32,
+    pub indicators: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ops_summary: Option<OpsSummary>,
+    #[serde(default)]
+    pub details: serde_json::Value,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct VirusKovBehaviorResponse {
+    #[serde(default)]
+    pub status: String,
+    #[serde(default)]
+    pub verdict: Option<String>,
+    #[serde(default)]
+    pub threat_name: Option<String>,
+    #[serde(default)]
+    pub action: Option<String>,
+    #[serde(default)]
+    pub confidence: Option<f32>,
+    #[serde(default)]
+    pub reason: Option<String>,
+    #[serde(default)]
+    pub need_sample: bool,
+}
+
+/// Send a raw formatted newline-terminated string to the Pascal HIPS event pipe \\.\pipe\HydraHipEvent.
+pub fn send_hips_pipe_raw(message: &str) -> bool {
+    #[cfg(target_os = "windows")]
+    {
+        use windows::Win32::Foundation::{CloseHandle, HANDLE};
+        use windows::Win32::Storage::FileSystem::{
+            CreateFileW, FILE_ATTRIBUTE_NORMAL, FILE_GENERIC_WRITE, FILE_SHARE_NONE,
+            FlushFileBuffers, OPEN_EXISTING, WriteFile,
+        };
+        use windows::Win32::System::Pipes::WaitNamedPipeW;
+        use windows::core::PCWSTR;
+
+        const PIPE: &str = r"\\.\pipe\HydraHipEvent";
+        let mut pipe_name_wide: Vec<u16> = PIPE.encode_utf16().collect();
+        pipe_name_wide.push(0);
+        let pcwstr = PCWSTR(pipe_name_wide.as_ptr());
+        let message_bytes = message.as_bytes();
+
+        let wait_ok = unsafe { WaitNamedPipeW(pcwstr, 150) };
+        if wait_ok.as_bool() {
+            if let Ok(handle) = unsafe {
+                CreateFileW(
+                    pcwstr,
+                    FILE_GENERIC_WRITE.0,
+                    FILE_SHARE_NONE,
+                    None,
+                    OPEN_EXISTING,
+                    FILE_ATTRIBUTE_NORMAL,
+                    HANDLE::default(),
+                )
+            } {
+                if !handle.is_invalid() {
+                    let mut written: u32 = 0;
+                    let write_res = unsafe {
+                        let _ = WriteFile(
+                            handle,
+                            Some(message_bytes),
+                            Some(&mut written as *mut u32),
+                            None,
+                        );
+                        let _ = FlushFileBuffers(handle);
+                        CloseHandle(handle)
+                    };
+                    return write_res.as_bool();
+                }
+            }
+        }
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = message;
+    }
+    false
+}
+
+/// Send interactive HIPS decision request to Pascal GUI (TAlertForm.ShowInteractivePrompt).
+pub fn send_hips_ask(
+    req_id: &str,
+    pid: u32,
+    app_name: &str,
+    exe_path: &str,
+    target: &str,
+    verdict: &str,
+    sig_status: &str,
+    reason: &str,
+    dll_chain: &str,
+) -> bool {
+    let msg = format!(
+        "HIPS_ASK:{}|{}|{}|{}|{}|{}|{}|{}|{}\n",
+        req_id, pid, app_name, exe_path, target, verdict, sig_status, reason, dll_chain
+    );
+    send_hips_pipe_raw(&msg)
+}
+
+/// Send threat alert notification to Pascal GUI.
+pub fn send_threat_alert(threat_name: &str, file_path: &str, reboot_required: bool) -> bool {
+    let reboot_flag = if reboot_required { "1" } else { "0" };
+    let msg = format!("THREAT_ALERT:{}|{}|{}\n", threat_name, file_path, reboot_flag);
+    send_hips_pipe_raw(&msg)
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ThreatReport {
     pub sha256: String,
@@ -252,10 +476,17 @@ pub fn report_threat_async(report: ThreatReport, file_bytes: Option<Vec<u8>>) {
                 }
             };
 
-            let headers = [
+            let machine_id = get_machine_guid();
+            let mut headers = vec![
                 ("Content-Type", "application/json"),
                 ("User-Agent", "VirusKov-EDR-Feedback/1.0"),
+                ("X-Machine-ID", machine_id.as_str()),
+                ("X-Endpoint-ID", machine_id.as_str()),
             ];
+            let api_key_opt = std::env::var("VIRUSKOV_API_KEY").ok();
+            if let Some(ref key) = api_key_opt {
+                headers.push(("X-API-Key", key.as_str()));
+            }
 
             Logging::info(&format!(
                 "[EDR Feedback] Reporting threat to {}:{}{} for {} [{}] ({})",
@@ -333,7 +564,12 @@ pub fn report_threat_async(report: ThreatReport, file_bytes: Option<Vec<u8>>) {
                     let mut upload_headers = vec![
                         ("User-Agent", "VirusKov-EDR-Feedback/1.0"),
                         ("Content-Type", "application/octet-stream"),
+                        ("X-Machine-ID", machine_id.as_str()),
+                        ("X-Endpoint-ID", machine_id.as_str()),
                     ];
+                    if let Some(ref key) = api_key_opt {
+                        upload_headers.push(("X-API-Key", key.as_str()));
+                    }
                     if is_compressed {
                         upload_headers.push(("Content-Encoding", "br"));
                     }
@@ -371,6 +607,252 @@ pub fn report_threat_async(report: ThreatReport, file_bytes: Option<Vec<u8>>) {
                     }
                 }
             }
+        });
+}
+
+
+/// Stream rich behavioral telemetry to VirusKov cloud and process verdicts to prompt user via Pascal HIPS pipe.
+pub fn stream_behavior_telemetry_async(
+    payload: BehaviorTelemetryPayload,
+    file_bytes: Option<Vec<u8>>,
+) {
+    let _ = std::thread::Builder::new()
+        .name("edr-behavior-telemetry".into())
+        .spawn(move || {
+            let target = resolve_server_target();
+            let behavior_path = format!("{}/api/v1/edr/telemetry/behavior", target.path_prefix);
+            let machine_id = get_machine_guid();
+
+            let json_body = match serde_json::to_vec(&payload) {
+                Ok(b) => b,
+                Err(e) => {
+                    Logging::error(&format!("[EDR Feedback] Failed to serialize behavior telemetry: {e}"));
+                    return;
+                }
+            };
+
+            let mut headers = vec![
+                ("Content-Type", "application/json"),
+                ("User-Agent", "VirusKov-EDR-Feedback/1.0"),
+                ("X-Machine-ID", machine_id.as_str()),
+                ("X-Endpoint-ID", machine_id.as_str()),
+            ];
+            let api_key_opt = std::env::var("VIRUSKOV_API_KEY").ok();
+            if let Some(ref key) = api_key_opt {
+                headers.push(("X-API-Key", key.as_str()));
+            }
+
+            Logging::info(&format!(
+                "[EDR Feedback] Streaming behavior telemetry for PID {} ({}) [{}] to {}:{}{}",
+                payload.pid, payload.process_name, payload.detection, target.host, target.port, behavior_path
+            ));
+
+            let (status, resp_bytes) = match winhttp_post(
+                &target.host,
+                target.port,
+                target.is_https,
+                &behavior_path,
+                &headers,
+                &json_body,
+            ) {
+                Ok(res) => res,
+                Err(e) => {
+                    Logging::warning(&format!(
+                        "[EDR Feedback] Failed to stream behavior to VirusKov: {e}"
+                    ));
+                    return;
+                }
+            };
+
+            if status != 200 {
+                let err_text = String::from_utf8_lossy(&resp_bytes);
+                Logging::warning(&format!(
+                    "[EDR Feedback] VirusKov behavior endpoint returned HTTP {status}: {err_text}"
+                ));
+                return;
+            }
+
+            let resp: VirusKovBehaviorResponse = match serde_json::from_slice(&resp_bytes) {
+                Ok(r) => r,
+                Err(_) => {
+                    Logging::warning("[EDR Feedback] Non-JSON response from VirusKov behavior endpoint");
+                    return;
+                }
+            };
+
+            Logging::info(&format!(
+                "[EDR Feedback] VirusKov behavior response: status={} verdict={:?} action={:?} threat={:?}",
+                resp.status, resp.verdict, resp.action, resp.threat_name
+            ));
+
+            // Forward to Pascal HIPS alert prompt if action is ask or threat detected
+            let is_ask = resp.action.as_deref() == Some("ask");
+            let is_alert = resp.action.as_deref() == Some("alert") || resp.action.as_deref() == Some("block");
+            let is_threat_verdict = resp.verdict.as_deref().map_or(false, |v| {
+                v.eq_ignore_ascii_case("malicious") || v.eq_ignore_ascii_case("suspicious")
+            });
+
+            if is_ask || (is_threat_verdict && resp.action.as_deref() != Some("ignore")) {
+                let req_id = format!("ask_{}_{}", payload.pid, payload.timestamp);
+                let first_ind = payload.indicators.first().cloned().unwrap_or_else(|| "VirusKov Cloud Behavioral Threat".to_string());
+                let verdict_label = format!(
+                    "{} ({:.2})",
+                    resp.verdict.as_deref().unwrap_or("Threat Detected"),
+                    resp.confidence.unwrap_or(0.95)
+                );
+                let sig_status = if payload.sha256.is_empty() {
+                    "Behavioral Anomaly"
+                } else {
+                    "Cloud AI Analyzed"
+                };
+                let reason_str = format!(
+                    "VirusKov Cloud: {} - {}",
+                    resp.threat_name.as_deref().unwrap_or("Behavioral Indicator"),
+                    resp.reason.as_deref().unwrap_or("Suspicious Telemetry Pattern")
+                );
+                let dll_chain = if payload.indicators.is_empty() {
+                    String::new()
+                } else {
+                    payload.indicators.join(" -> ")
+                };
+
+                let popped = send_hips_ask(
+                    &req_id,
+                    payload.pid,
+                    &payload.process_name,
+                    &payload.exe_path,
+                    &first_ind,
+                    &verdict_label,
+                    sig_status,
+                    &reason_str,
+                    &dll_chain,
+                );
+
+                if popped {
+                    Logging::alert(&format!(
+                        "[EDR Feedback] Interactive Pascal HIPS prompt popped for PID {} ({}) from VirusKov verdict",
+                        payload.pid, payload.process_name
+                    ));
+                }
+            } else if is_alert {
+                let threat_title = resp.threat_name.as_deref().unwrap_or("VirusKov.Cloud.Threat");
+                send_threat_alert(threat_title, &payload.exe_path, false);
+            }
+
+            // Upload sample if requested
+            if resp.need_sample {
+                if let Some(bytes) = file_bytes {
+                    if !bytes.is_empty() && bytes.len() <= MAX_SAMPLE_BYTES && !payload.sha256.is_empty() {
+                        let (upload_body, is_compressed) = match compress_brotli(&bytes) {
+                            Ok(c) if c.len() < bytes.len() => (c, true),
+                            _ => (bytes, false),
+                        };
+
+                        let enc_name = urlencoding::encode(&payload.process_name);
+                        let enc_det = urlencoding::encode(resp.threat_name.as_deref().unwrap_or(&payload.detection));
+                        let enc_src = urlencoding::encode(&payload.source);
+                        let upload_path = format!(
+                            "{}/api/v1/edr/upload/{}?name={}&detection={}&source={}",
+                            target.path_prefix, payload.sha256, enc_name, enc_det, enc_src
+                        );
+
+                        let mut upload_headers = vec![
+                            ("User-Agent", "VirusKov-EDR-Feedback/1.0"),
+                            ("Content-Type", "application/octet-stream"),
+                            ("X-Machine-ID", machine_id.as_str()),
+                            ("X-Endpoint-ID", machine_id.as_str()),
+                        ];
+                        if let Some(ref key) = api_key_opt {
+                            upload_headers.push(("X-API-Key", key.as_str()));
+                        }
+                        if is_compressed {
+                            upload_headers.push(("Content-Encoding", "br"));
+                        }
+
+                        let _ = winhttp_post(
+                            &target.host,
+                            target.port,
+                            target.is_https,
+                            &upload_path,
+                            &upload_headers,
+                            &upload_body,
+                        );
+                    }
+                }
+            }
+        });
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SystemDiagnosticTelemetry {
+    pub machine_id: String,
+    pub timestamp: String,
+    pub hostname: String,
+    pub os_version: String,
+    pub monitored_processes_count: usize,
+    pub rootkit_findings_count: usize,
+    pub processes: Vec<serde_json::Value>,
+}
+
+/// Stream system diagnostic report telemetry to VirusKov cloud.
+pub fn stream_system_report_async(report: &crate::report::SystemReport) {
+    let machine_id = get_machine_guid();
+    let procs: Vec<serde_json::Value> = report
+        .monitored_processes
+        .iter()
+        .map(|p| {
+            serde_json::json!({
+                "pid": p.pid,
+                "gid": p.gid,
+                "name": p.name,
+                "path": p.path,
+                "cmdline": p.command_line,
+                "state": p.process_state,
+                "ops_read": p.ops_read,
+                "ops_written": p.ops_written,
+                "is_malicious": p.is_malicious,
+                "detections": p.detections,
+            })
+        })
+        .collect();
+
+    let diag = SystemDiagnosticTelemetry {
+        machine_id: machine_id.clone(),
+        timestamp: report.timestamp.clone(),
+        hostname: report.hostname.clone(),
+        os_version: report.os_version.clone(),
+        monitored_processes_count: report.monitored_processes.len(),
+        rootkit_findings_count: report.rootkit_findings.len(),
+        processes: procs,
+    };
+
+    let _ = std::thread::Builder::new()
+        .name("edr-system-telemetry".into())
+        .spawn(move || {
+            let target = resolve_server_target();
+            let path = format!("{}/api/v1/edr/telemetry/system", target.path_prefix);
+            let json_body = match serde_json::to_vec(&diag) {
+                Ok(b) => b,
+                Err(_) => return,
+            };
+            let mut headers = vec![
+                ("Content-Type", "application/json"),
+                ("User-Agent", "VirusKov-EDR-Feedback/1.0"),
+                ("X-Machine-ID", machine_id.as_str()),
+                ("X-Endpoint-ID", machine_id.as_str()),
+            ];
+            let api_key_opt = std::env::var("VIRUSKOV_API_KEY").ok();
+            if let Some(ref key) = api_key_opt {
+                headers.push(("X-API-Key", key.as_str()));
+            }
+            let _ = winhttp_post(
+                &target.host,
+                target.port,
+                target.is_https,
+                &path,
+                &headers,
+                &json_body,
+            );
         });
 }
 
