@@ -2448,15 +2448,15 @@ Variant DetectionNotifier::execute(Variant vCommand, Variant vParams){
 					{
 						if (DetectionNotifier::isKnownMalware(sPath, sLocalHash))
 						{
-							sLocalName = "Previously recorded local detection";
+							sLocalName = "Previously recorded VirusKov detection";
 							nLocal = s_malwareVerdict.load(std::memory_order_relaxed);
 						}
 					}
 					catch (...) {}
 					vOut.push_back(Dictionary({
 						{"path", sPath}, {"hash", sHash}, {"sha256", sLocalHash},
-						{"verdict", nVerdict}, {"local", nLocal},
-						{"local_name", sLocalName} }));
+						{"verdict", nVerdict}, {"local", nLocal}, {"viruskov", nLocal},
+						{"local_name", sLocalName}, {"viruskov_name", sLocalName} }));
 					}
 					catch (...) {}
 				}
@@ -2564,7 +2564,7 @@ Variant DetectionNotifier::execute(Variant vCommand, Variant vParams){
 					{
 						if (!sPath.empty() && DetectionNotifier::isKnownMalware(sPath, sLocalHash))
 						{
-							sLocalName = "Previously recorded local detection";
+							sLocalName = "Previously recorded VirusKov detection";
 							nLocal = 2;
 						}
 					}
@@ -2599,7 +2599,8 @@ Variant DetectionNotifier::execute(Variant vCommand, Variant vParams){
 						{"pid", static_cast<int64_t>(pe.th32ProcessID)},
 						{"path", sPath}, {"hash", sHash}, {"sha256", sLocalHash},
 						{"user", sUser}, {"verdict", nVerdict},
-						{"local", nLocal}, {"local_name", sLocalName} }));
+						{"local", nLocal}, {"viruskov", nLocal},
+						{"local_name", sLocalName}, {"viruskov_name", sLocalName} }));
 				}
 				catch (...) {}
 			}

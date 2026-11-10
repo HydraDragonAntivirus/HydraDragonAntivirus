@@ -448,12 +448,12 @@ begin
         if v = 2 then
         begin
           FOneVerdict := svMalicious;
-          FOneDetail := 'Static indicator (openedr_static: ClamAV/YARA/ML/signer)';
+          FOneDetail := 'VirusKov Cloud indicator (threat detected)';
         end
         else if v = 1 then
         begin
           FOneVerdict := svSafe;
-          FOneDetail := 'Static: clean/trusted';
+          FOneDetail := 'VirusKov Cloud: clean / trusted';
         end;
       end;
     end
@@ -466,12 +466,12 @@ begin
         if v = 2 then
         begin
           FOneVerdict := svMalicious;
-          FOneDetail := 'Static indicator (openedr_static: ClamAV/YARA/ML/signer)';
+          FOneDetail := 'VirusKov Cloud indicator (threat detected)';
         end
         else if v = 1 then
         begin
           FOneVerdict := svSafe;
-          FOneDetail := 'Static: clean/trusted';
+          FOneDetail := 'VirusKov Cloud: clean / trusted';
         end;
       end;
       if (FOneVerdict = svUnknown) and RpcCheckKnown(u8, h) then

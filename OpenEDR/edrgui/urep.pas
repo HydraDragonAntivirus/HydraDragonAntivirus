@@ -471,7 +471,7 @@ begin
   FActed.Duplicates := dupIgnore;
   FActed.CaseSensitive := False;
   FStagedActions := TStringList.Create;
-  FStagedActions.Sorted := True;
+  FStagedActions.Sorted := False; // Must not be sorted: TStringList.Values[k]:=v raises on sorted list
   FStagedActions.Duplicates := dupIgnore;
   FStagedActions.CaseSensitive := False;
 end;
@@ -540,7 +540,7 @@ begin
       Inc(FLocal);
   end;
   SummaryLbl.Caption := Format(
-    'Malicious: %d   ·   Safe: %d   ·   Unknown: %d   ·   Failed: %d   ·   Local hits: %d',
+    'Malicious: %d   ·   Safe: %d   ·   Unknown: %d   ·   Failed: %d   ·   VirusKov hits: %d',
     [FMali, FSafe, FUnk, FFail, FLocal]);
   ApplySummaryStyle(Self);
   RefreshPendingList;
@@ -578,8 +578,9 @@ begin
           SeenKeys.Add(key);
           if FActed.Find(key, idx) then
             actStr := 'Applied'
-          else if (FStagedActions <> nil) and FStagedActions.Find(key, idx) then
+          else if (FStagedActions <> nil) and (FStagedActions.IndexOfName(key) >= 0) then
           begin
+            idx := FStagedActions.IndexOfName(key);
             case FStagedActions.ValueFromIndex[idx] of
               'I': begin actStr := 'Ignore'; Inc(n); end;
               'S': actStr := 'Cancelled';
@@ -615,7 +616,9 @@ begin
   Result := 0;
   if it = nil then
     Exit;
-  dd := it.FindPath('local');
+  dd := it.FindPath('viruskov');
+  if dd = nil then
+    dd := it.FindPath('local');
   if dd <> nil then
     Result := dd.AsInteger;
 end;
@@ -639,25 +642,37 @@ begin
   Result := '';
   if it = nil then
     Exit;
-  dd := it.FindPath('local_name');
+  dd := it.FindPath('viruskov_name');
+  if dd = nil then
+    dd := it.FindPath('local_name');
   if dd <> nil then
     Result := dd.AsString;
 end;
 
 // Local cell: verdict plus the cause — never a bare 'Malicious'.
 function LocalCellText(lv: Integer; const AName: string): string;
+var
+  CleanName: string;
 begin
   Result := LocalText(lv);
-  if (AName <> '') and ((lv = 2) or (lv = 3)) then
-    Result := Result + ': ' + AName;
+  CleanName := AName;
+  if CleanName = 'Previously recorded local detection' then
+    CleanName := 'Previously recorded VirusKov detection';
+  if (CleanName <> '') and ((lv = 2) or (lv = 3)) then
+    Result := Result + ': ' + CleanName;
 end;
 
 // Family column: the signature/family behind a local-malicious hit
 // (ClamAV sig name, ML label). Cloud-only verdicts carry no name.
 function FamilyText(lv: Integer; const AName: string): string;
+var
+  CleanName: string;
 begin
-  if ((lv = 2) or (lv = 3)) and (AName <> '') then
-    Result := AName
+  CleanName := AName;
+  if CleanName = 'Previously recorded local detection' then
+    CleanName := 'VirusKov Threat';
+  if ((lv = 2) or (lv = 3)) and (CleanName <> '') then
+    Result := CleanName
   else
     Result := '—';
 end;
@@ -1026,8 +1041,10 @@ begin
       key := LowerCase(StripPidPrefix(ResultsView.Items[i].Caption));
       if (key <> '') and not FActed.Find(key, idx) and (SeenKeys.IndexOf(key) < 0) then
       begin
-        if FStagedActions.Find(key, idx) and
-          (FStagedActions.ValueFromIndex[idx] = 'S') then
+        idx := -1;
+        if FStagedActions <> nil then
+          idx := FStagedActions.IndexOfName(key);
+        if (idx >= 0) and (FStagedActions.ValueFromIndex[idx] = 'S') then
           Continue;
         SeenKeys.Add(key);
         Inc(Result);
@@ -1113,9 +1130,13 @@ begin
         Continue;
 
       act := '';
-      if (FStagedActions <> nil) and FStagedActions.Find(key, idx) then
-        act := FStagedActions.ValueFromIndex[idx]
-      else if (v = 2) or (lv = 2) then
+      if FStagedActions <> nil then
+      begin
+        idx := FStagedActions.IndexOfName(key);
+        if idx >= 0 then
+          act := FStagedActions.ValueFromIndex[idx];
+      end;
+      if (act = '') and ((v = 2) or (lv = 2)) then
         act := 'Q';
 
       if act = 'Q' then
@@ -1170,7 +1191,10 @@ begin
     if (key = '') or FActed.Find(key, idx) then
       Continue;
 
-    HasStaged := FStagedActions.Find(key, idx);
+    idx := -1;
+    if FStagedActions <> nil then
+      idx := FStagedActions.IndexOfName(key);
+    HasStaged := (idx >= 0);
     HasDefaultAction := False;
     if not HasStaged then
     begin
@@ -1324,10 +1348,10 @@ begin
   if it.SubItems.Count >= 2 then
     msg := msg + 'SHA-256: ' + it.SubItems[1] + sLineBreak;
   if it.SubItems.Count >= 3 then
-    msg := msg + 'Cloud: ' + it.SubItems[2] + sLineBreak +
+    msg := msg + 'Cloud (FLS): ' + it.SubItems[2] + sLineBreak +
       VerdictMeaning(it.SubItems[2]);
   if it.SubItems.Count >= 4 then
-    msg := msg + 'Local: ' + it.SubItems[3] + sLineBreak;
+    msg := msg + 'VirusKov Cloud: ' + it.SubItems[3] + sLineBreak;
   if it.SubItems.Count >= 5 then
     msg := msg + 'Family: ' + it.SubItems[4] + sLineBreak;
   MessageDlg('Program details', msg, mtInformation, [mbOK], 0);
