@@ -679,6 +679,7 @@
         <button class="ghost" data-tab="Rescan">Rescan</button>
         <button class="ghost" data-tab="Alyzer">VirusKovAlyzer</button>
         <button class="ghost" data-tab="Sources">Sources (IP)</button>
+        <button class="ghost" data-tab="Private">&#128274; Private samples <span id="haPrivCount"></span></button>
       </div>
     </div>
 
@@ -874,6 +875,52 @@
         <table>
           <thead><tr><th>File</th><th>Verdict</th><th>Notes</th><th>Analyst</th><th class="num">Waited</th><th class="num">Analysis</th><th class="num">Total</th><th>Reviewed</th><th></th></tr></thead>
           <tbody id="haRecentRows"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="ha-tab" id="haTabPrivate" hidden>
+      <div class="hint" style="margin:-4px 0 10px">
+        <b>Private samples:</b> The public API (<code>/api/v1/...</code>) returns only the verdict for these files. Strings, file names, PE/APK details, indicators, and raw binary downloads are hidden from external API users and researchers. The local dashboard retains full access.
+      </div>
+
+      <!-- Quick add box -->
+      <div style="background:var(--panel2);border:1px solid var(--border);border-radius:8px;padding:10px 14px;margin-bottom:12px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+        <b style="font-size:12.5px;color:var(--text)">Mark sample private:</b>
+        <input id="haPrivAddSha" type="text" placeholder="SHA-256 (64 hex characters)" style="font-family:Consolas,monospace;font-size:12px;width:290px">
+        <input id="haPrivAddNote" type="text" placeholder="Reason / note (e.g. internal tool, confidential)" style="font-size:12px;flex:1;min-width:200px">
+        <button class="primary" id="haPrivAddBtn" style="width:auto;padding:5px 14px;font-size:12.5px">&#128274; Mark Private</button>
+      </div>
+
+      <div class="ha-toolbar" style="grid-template-columns:minmax(220px,1fr) 160px auto">
+        <input id="haPrivSearch" type="search" placeholder="Search private samples (SHA-256, file name, analyst, note...)">
+        <select id="haPrivVerdictF">
+          <option value="">Verdict: any</option>
+          <option value="malicious">Malicious</option>
+          <option value="suspicious">Suspicious</option>
+          <option value="clean">Clean</option>
+          <option value="unknown">Unknown</option>
+        </select>
+        <button class="ghost" id="haPrivRefresh" style="width:auto;padding:5px 12px">Refresh</button>
+      </div>
+
+      <div class="tablewrap ha-table" style="margin-top:10px">
+        <table>
+          <thead>
+            <tr>
+              <th>SHA-256</th>
+              <th>File Name</th>
+              <th>Verdict</th>
+              <th>Detection</th>
+              <th>Reason / Note</th>
+              <th>Analyst</th>
+              <th>Added</th>
+              <th style="width:120px;text-align:right">Action</th>
+            </tr>
+          </thead>
+          <tbody id="haPrivRows">
+            <tr><td colspan="8" class="empty">Loading private samples...</td></tr>
+          </tbody>
         </table>
       </div>
     </div>
@@ -2180,7 +2227,7 @@ window.sigKey = (list) => list && list.length ? `${list[0].layer}: ${list[0].nam
   // Tabs
   document.querySelectorAll("#haTabs button").forEach(b => b.onclick = () => {
     document.querySelectorAll("#haTabs button").forEach(x => x.classList.toggle("active", x === b));
-    ["Queue", "Folder", "Recent", "Urls", "Stats", "Rescan", "Alyzer", "Sources"].forEach(t => { $("haTab" + t).hidden = t !== b.dataset.tab; });
+    ["Queue", "Folder", "Recent", "Urls", "Stats", "Rescan", "Alyzer", "Sources", "Private"].forEach(t => { const el = $("haTab" + t); if (el) el.hidden = t !== b.dataset.tab; });
   });
   const haShowTab = (t) => document.querySelector(`#haTabs button[data-tab="${t}"]`).click();
 
@@ -4052,6 +4099,141 @@ window.sigKey = (list) => list && list.length ? `${list[0].layer}: ${list[0].nam
   });
   $("banRefresh").onclick = listBans;
   document.querySelector('#haTabs button[data-tab="Sources"]').addEventListener("click", () => { if (!$("srcRows").querySelector("tr[data-ip]")) listSources(); listBans(); });
+
+  // ---------------- Private samples management ----------------
+  window.lookupSha = (h) => {
+    const inp = $("hashSearchInput");
+    if (inp) {
+      inp.value = h;
+      $("hashSearchBtn").click();
+      inp.scrollIntoView({ behavior: "smooth" });
+    }
+  };
+
+  let haPrivList = [];
+  async function listPrivateSamples() {
+    try {
+      const res = await (await fetch("/api/private-samples", { cache: "no-store" })).json();
+      if (!res.ok) return;
+      haPrivList = res.items || [];
+      const badge = $("haPrivCount");
+      if (badge) badge.textContent = haPrivList.length ? `(${haPrivList.length})` : "";
+      renderPrivateSamples();
+    } catch (e) {
+      const rows = $("haPrivRows");
+      if (rows) rows.innerHTML = `<tr><td colspan="8" class="empty" style="color:var(--red)">Failed to load private samples: ${haEsc(e.message)}</td></tr>`;
+    }
+  }
+
+  function renderPrivateSamples() {
+    const q = ($("haPrivSearch") ? $("haPrivSearch").value : "").trim().toLowerCase();
+    const vf = $("haPrivVerdictF") ? $("haPrivVerdictF").value : "";
+    const filtered = haPrivList.filter(item => {
+      if (vf && item.verdict !== vf) return false;
+      if (q) {
+        const text = [item.sha256, item.file_name, item.analyst, item.note, item.detection].filter(Boolean).join(" ").toLowerCase();
+        if (!text.includes(q)) return false;
+      }
+      return true;
+    });
+
+    const tbody = $("haPrivRows");
+    if (!tbody) return;
+    if (!filtered.length) {
+      tbody.innerHTML = `<tr><td colspan="8" class="empty">${haPrivList.length ? "No matching private samples." : "No private samples marked yet. Any sample marked private will appear here."}</td></tr>`;
+      return;
+    }
+
+    tbody.innerHTML = filtered.map(item => {
+      const sha = item.sha256;
+      const vClass = item.verdict === "malicious" ? "bad" : item.verdict === "suspicious" ? "warn" : item.verdict === "clean" ? "ok" : "";
+      const vBadge = item.verdict ? `<span class="pill ${vClass}" style="padding:2px 7px;font-size:11px">${haEsc(item.verdict)}</span>` : "—";
+      const shortSha = sha.slice(0, 12) + "...";
+      const dateStr = item.added ? new Date(item.added).toLocaleString() : "—";
+      return `<tr data-sha="${haEsc(sha)}">
+        <td style="font-family:Consolas,monospace;font-size:11.5px">
+          <a href="#threatInsights" onclick="window.lookupSha && window.lookupSha('${haEsc(sha)}')" title="Lookup in Threat Insights" style="color:var(--accent);text-decoration:none">${haEsc(shortSha)}</a>
+          <button class="ghost copy-btn" data-copy="${haEsc(sha)}" title="Copy full SHA-256" style="padding:1px 5px;font-size:11px;margin-left:4px">&#128203;</button>
+        </td>
+        <td>${item.file_name ? haEsc(item.file_name) : '<span class="k">(unknown)</span>'}</td>
+        <td>${vBadge}</td>
+        <td>${item.detection ? `<span class="sigc">${haEsc(item.detection)}</span>` : '<span class="k">—</span>'}</td>
+        <td>${item.note ? haEsc(item.note) : '<span class="k">—</span>'}</td>
+        <td>${item.analyst ? haEsc(item.analyst) : '<span class="k">—</span>'}</td>
+        <td style="font-size:11.5px;color:var(--muted)">${haEsc(dateStr)}</td>
+        <td style="text-align:right">
+          <button class="ghost" onclick="window.makeSamplePublic && window.makeSamplePublic('${haEsc(sha)}')" style="padding:3px 8px;font-size:11.5px" title="Remove private status (make public)">Make public</button>
+        </td>
+      </tr>`;
+    }).join("");
+
+    tbody.querySelectorAll(".copy-btn").forEach(btn => {
+      btn.onclick = (e) => {
+        e.stopPropagation();
+        const text = btn.dataset.copy;
+        navigator.clipboard.writeText(text);
+        const orig = btn.innerHTML;
+        btn.innerHTML = "&#10003;";
+        setTimeout(() => btn.innerHTML = orig, 1200);
+      };
+    });
+  }
+
+  window.makeSamplePublic = async function(sha) {
+    if (!confirm(`Make sample ${sha.slice(0, 16)}... public again? Full details will be visible on the public API.`)) return;
+    try {
+      const res = await (await fetch("/api/private-samples", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sha256: sha, private: false, note: "" }),
+      })).json();
+      if (res.ok) {
+        toast("Sample is now public");
+        listPrivateSamples();
+      } else {
+        alert("Error: " + (res.error || "failed"));
+      }
+    } catch (e) {
+      alert("Error: " + e.message);
+    }
+  };
+
+  const addBtn = $("haPrivAddBtn");
+  if (addBtn) {
+    addBtn.onclick = async () => {
+      const sha = ($("haPrivAddSha").value || "").trim().toLowerCase();
+      const note = ($("haPrivAddNote").value || "").trim();
+      if (sha.length !== 64 || !/^[0-9a-f]{64}$/.test(sha)) {
+        alert("Please enter a valid 64-character hex SHA-256 hash.");
+        return;
+      }
+      try {
+        const res = await (await fetch("/api/private-samples", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ sha256: sha, private: true, note }),
+        })).json();
+        if (res.ok) {
+          toast("Sample marked private");
+          $("haPrivAddSha").value = "";
+          $("haPrivAddNote").value = "";
+          listPrivateSamples();
+        } else {
+          alert("Error: " + (res.error || "failed"));
+        }
+      } catch (e) {
+        alert("Error: " + e.message);
+      }
+    };
+  }
+
+  if ($("haPrivSearch")) $("haPrivSearch").oninput = renderPrivateSamples;
+  if ($("haPrivVerdictF")) $("haPrivVerdictF").onchange = renderPrivateSamples;
+  if ($("haPrivRefresh")) $("haPrivRefresh").onclick = listPrivateSamples;
+
+  const privTabBtn = document.querySelector('#haTabs button[data-tab="Private"]');
+  if (privTabBtn) privTabBtn.addEventListener("click", listPrivateSamples);
+  listPrivateSamples();
 })();
 </script>
 </body>
