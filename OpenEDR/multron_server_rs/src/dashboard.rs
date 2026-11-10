@@ -2585,43 +2585,47 @@ async fn handle_imphash_delete(State(app): State<Arc<AppState>>, Json(b): Json<I
 }
 
 async fn handle_private_list(State(app): State<Arc<AppState>>) -> impl IntoResponse {
-    let raw = crate::private_samples::list();
-    let enriched: Vec<serde_json::Value> = raw
-        .into_iter()
-        .map(|s| {
-            let clean = s.sha256.to_ascii_lowercase();
-            let ins = app.threat_intel.get(&clean);
-            let rev_json = app.threat_intel.reviews.get(&clean).map(|r| r.to_dashboard_json());
-            let file_name = ins
-                .as_ref()
-                .and_then(|i| i.file_names.first().map(|f| f.to_string()))
-                .or_else(|| rev_json.as_ref().and_then(|r| r["file_name"].as_str().map(String::from)))
-                .unwrap_or_default();
-            let verdict = rev_json
-                .as_ref()
-                .and_then(|r| r["verdict"].as_str().map(String::from))
-                .or_else(|| ins.as_ref().map(|i| i.verdict.to_string()))
-                .unwrap_or_else(|| "unknown".into());
-            let detection = ins
-                .as_ref()
-                .and_then(|i| i.threat_name.as_ref().map(|t| t.to_string()))
-                .or_else(|| rev_json.as_ref().and_then(|r| r["detection"].as_str().map(String::from)))
-                .unwrap_or_default();
-            let kept = app.engine.is_kept(&clean);
-            let size = ins.as_ref().and_then(|i| i.file_size).unwrap_or(0);
-            serde_json::json!({
-                "sha256": s.sha256,
-                "analyst": s.analyst,
-                "note": s.note,
-                "added": s.added,
-                "file_name": file_name,
-                "verdict": verdict,
-                "detection": detection,
-                "kept": kept,
-                "size": size,
+    let enriched = tokio::task::spawn_blocking(move || {
+        let raw = crate::private_samples::list();
+        raw.into_iter()
+            .map(|s| {
+                let clean = s.sha256.to_ascii_lowercase();
+                let ins = app.threat_intel.get(&clean);
+                let rev_json = app.threat_intel.reviews.get(&clean).map(|r| r.to_dashboard_json());
+                let file_name = ins
+                    .as_ref()
+                    .and_then(|i| i.file_names.first().map(|f| f.to_string()))
+                    .or_else(|| rev_json.as_ref().and_then(|r| r["file_name"].as_str().map(String::from)))
+                    .unwrap_or_default();
+                let verdict = rev_json
+                    .as_ref()
+                    .and_then(|r| r["verdict"].as_str().map(String::from))
+                    .or_else(|| ins.as_ref().map(|i| i.verdict.to_string()))
+                    .unwrap_or_else(|| "unknown".into());
+                let detection = ins
+                    .as_ref()
+                    .and_then(|i| i.threat_name.as_ref().map(|t| t.to_string()))
+                    .or_else(|| rev_json.as_ref().and_then(|r| r["detection"].as_str().map(String::from)))
+                    .unwrap_or_default();
+                let kept = app.engine.is_kept(&clean);
+                let size = ins.as_ref().and_then(|i| i.file_size).unwrap_or(0);
+                serde_json::json!({
+                    "sha256": s.sha256,
+                    "analyst": s.analyst,
+                    "note": s.note,
+                    "added": s.added,
+                    "file_name": file_name,
+                    "verdict": verdict,
+                    "detection": detection,
+                    "kept": kept,
+                    "size": size,
+                })
             })
-        })
-        .collect();
+            .collect::<Vec<serde_json::Value>>()
+    })
+    .await
+    .unwrap_or_default();
+
     Json(serde_json::json!({ "ok": true, "items": enriched }))
 }
 
@@ -2674,24 +2678,29 @@ struct BlacklistRestoreBody {
 }
 
 async fn handle_blacklist_removals_list(State(app): State<Arc<AppState>>) -> impl IntoResponse {
-    let items = crate::blacklist_removals::list();
-    let enriched: Vec<serde_json::Value> = items
-        .into_iter()
-        .map(|r| {
-            let clean = r.hash.to_ascii_lowercase();
-            let is_bl = app.engine.is_blacklisted(&clean);
-            let is_wl = app.engine.is_whitelisted(&clean);
-            serde_json::json!({
-                "hash": r.hash,
-                "hash_type": r.hash_type,
-                "reason": r.reason,
-                "analyst": r.analyst,
-                "removed_at": r.removed_at,
-                "is_whitelisted": is_wl,
-                "is_blacklisted": is_bl,
+    let enriched = tokio::task::spawn_blocking(move || {
+        let items = crate::blacklist_removals::list();
+        items
+            .into_iter()
+            .map(|r| {
+                let clean = r.hash.to_ascii_lowercase();
+                let is_bl = app.engine.is_blacklisted(&clean);
+                let is_wl = app.engine.is_whitelisted(&clean);
+                serde_json::json!({
+                    "hash": r.hash,
+                    "hash_type": r.hash_type,
+                    "reason": r.reason,
+                    "analyst": r.analyst,
+                    "removed_at": r.removed_at,
+                    "is_whitelisted": is_wl,
+                    "is_blacklisted": is_bl,
+                })
             })
-        })
-        .collect();
+            .collect::<Vec<serde_json::Value>>()
+    })
+    .await
+    .unwrap_or_default();
+
     Json(serde_json::json!({ "ok": true, "items": enriched }))
 }
 

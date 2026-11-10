@@ -3224,6 +3224,7 @@ window.sigKey = (list) => list && list.length ? `${list[0].layer}: ${list[0].nam
     t.textContent = msg; t.hidden = false;
     clearTimeout(t._h); t._h = setTimeout(() => { t.hidden = true; }, 2600);
   };
+  window.toast = toast;
   const copy = async (text, what) => {
     try { await navigator.clipboard.writeText(text); }
     catch (_) { const a = document.createElement("textarea"); a.value = text; document.body.appendChild(a); a.select(); document.execCommand("copy"); a.remove(); }
@@ -4145,11 +4146,23 @@ window.sigKey = (list) => list && list.length ? `${list[0].layer}: ${list[0].nam
   // ---------------- Sources (client IP -> files -> full paths) ----------------
   const $ = (id) => document.getElementById(id);
   const esc = (s) => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+  const haEsc = esc;
+  const haAnalystName = () => { try { return localStorage.getItem("multron_analyst") || ""; } catch (_) { return ""; } };
+  const toast = (msg) => {
+    if (typeof window.toast === "function") return window.toast(msg);
+    let t = document.getElementById("ctxToast");
+    if (!t) { t = document.createElement("div"); t.id = "ctxToast"; document.body.appendChild(t); }
+    t.textContent = msg; t.hidden = false;
+    clearTimeout(t._h); t._h = setTimeout(() => { t.hidden = true; }, 2600);
+  };
   const tag = (v) => `<span class="tag t-${["malicious","suspicious","clean","possible_clean"].includes(v) ? v : "unknown"}">${esc(v || "unknown")}</span>`;
   const when = (t) => t ? esc(String(t).replace("T", " ").slice(0, 19)) : "—";
   let curIp = "", shas = [];
   const get = async (url) => {
-    const r = await fetch(url, { cache: "no-store" });
+    let analystKey = ""; try { analystKey = localStorage.getItem("multron_analyst_key") || ""; } catch (_) {}
+    const headers = { "X-Multron-Dashboard": "1" };
+    if (analystKey) headers["X-Multron-Analyst-Key"] = analystKey;
+    const r = await fetch(url, { headers, cache: "no-store" });
     const d = await r.json().catch(() => ({}));
     if (!r.ok || d.ok === false) throw new Error(d.error || r.statusText);
     return d;
@@ -4200,7 +4213,10 @@ window.sigKey = (list) => list && list.length ? `${list[0].layer}: ${list[0].nam
   $("srcCopy").onclick = () => { navigator.clipboard.writeText(shas.join("\n")).then(() => { $("srcMsg").textContent = `${shas.length} SHA-256 copied`; }, () => {}); };
   // ---- IP bans ----
   const post = async (url, body) => {
-    const r = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json", "X-Multron-Dashboard": "1" }, body: JSON.stringify(body) });
+    let analystKey = ""; try { analystKey = localStorage.getItem("multron_analyst_key") || ""; } catch (_) {}
+    const headers = { "Content-Type": "application/json", "X-Multron-Dashboard": "1" };
+    if (analystKey) headers["X-Multron-Analyst-Key"] = analystKey;
+    const r = await fetch(url, { method: "POST", headers, body: JSON.stringify(body) });
     const d = await r.json().catch(() => ({}));
     if (!r.ok || d.ok === false) throw new Error(d.error || r.statusText);
     return d;
@@ -4254,8 +4270,7 @@ window.sigKey = (list) => list && list.length ? `${list[0].layer}: ${list[0].nam
   let haPrivList = [];
   async function listPrivateSamples() {
     try {
-      const res = await (await fetch("/api/private-samples", { cache: "no-store" })).json();
-      if (!res.ok) return;
+      const res = await get("/api/private-samples");
       haPrivList = res.items || [];
       const badge = $("haPrivCount");
       if (badge) badge.textContent = haPrivList.length ? `(${haPrivList.length})` : "";
@@ -4323,17 +4338,9 @@ window.sigKey = (list) => list && list.length ? `${list[0].layer}: ${list[0].nam
   window.makeSamplePublic = async function(sha) {
     if (!confirm(`Make sample ${sha.slice(0, 16)}... public again? Full details will be visible on the public API.`)) return;
     try {
-      const res = await (await fetch("/api/private-samples", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sha256: sha, private: false, note: "" }),
-      })).json();
-      if (res.ok) {
-        toast("Sample is now public");
-        listPrivateSamples();
-      } else {
-        alert("Error: " + (res.error || "failed"));
-      }
+      await post("/api/private-samples", { sha256: sha, private: false, note: "", analyst: haAnalystName() });
+      toast("Sample is now public");
+      listPrivateSamples();
     } catch (e) {
       alert("Error: " + e.message);
     }
@@ -4349,19 +4356,11 @@ window.sigKey = (list) => list && list.length ? `${list[0].layer}: ${list[0].nam
         return;
       }
       try {
-        const res = await (await fetch("/api/private-samples", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ sha256: sha, private: true, note }),
-        })).json();
-        if (res.ok) {
-          toast("Sample marked private");
-          $("haPrivAddSha").value = "";
-          $("haPrivAddNote").value = "";
-          listPrivateSamples();
-        } else {
-          alert("Error: " + (res.error || "failed"));
-        }
+        await post("/api/private-samples", { sha256: sha, private: true, note, analyst: haAnalystName() });
+        toast("Sample marked private");
+        $("haPrivAddSha").value = "";
+        $("haPrivAddNote").value = "";
+        listPrivateSamples();
       } catch (e) {
         alert("Error: " + e.message);
       }
@@ -4381,13 +4380,15 @@ window.sigKey = (list) => list && list.length ? `${list[0].layer}: ${list[0].nam
 
   window.listBlacklistRemovals = async function() {
     try {
-      const res = await (await fetch("/api/blacklist/removals", { cache: "no-store" })).json();
-      if (!res.ok) return;
+      const res = await get("/api/blacklist/removals");
       haBlList = res.items || [];
       const countEl = $("haBlCount");
       if (countEl) countEl.textContent = haBlList.length ? `(${haBlList.length})` : "";
       renderBlacklistRemovals();
-    } catch (_) {}
+    } catch (e) {
+      const rows = $("haBlRows");
+      if (rows) rows.innerHTML = `<tr><td colspan="7" class="empty" style="color:var(--red)">Failed to load blacklist overrides: ${haEsc(e.message)}</td></tr>`;
+    }
   };
 
   function renderBlacklistRemovals() {
@@ -4451,17 +4452,9 @@ window.sigKey = (list) => list && list.length ? `${list[0].layer}: ${list[0].nam
   window.restoreBlacklistHash = async function(h) {
     if (!confirm(`Restore hash ${h.slice(0, 16)}... to the blacklist? It will be flagged as malicious again.`)) return;
     try {
-      const res = await (await fetch("/api/blacklist/restore", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ hash: h, analyst: haAnalystName() }),
-      })).json();
-      if (res.ok) {
-        toast("Hash restored to blacklist");
-        listBlacklistRemovals();
-      } else {
-        alert("Error: " + (res.error || "failed"));
-      }
+      await post("/api/blacklist/restore", { hash: h, analyst: haAnalystName() });
+      toast("Hash restored to blacklist");
+      listBlacklistRemovals();
     } catch (e) {
       alert("Error: " + e.message);
     }
@@ -4478,19 +4471,11 @@ window.sigKey = (list) => list && list.length ? `${list[0].layer}: ${list[0].nam
         return;
       }
       try {
-        const res = await (await fetch("/api/blacklist/remove", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ hash: raw, reason, analyst: haAnalystName() }),
-        })).json();
-        if (res.ok) {
-          toast("Hash removed from blacklist");
-          $("haBlAddHash").value = "";
-          $("haBlAddReason").value = "";
-          listBlacklistRemovals();
-        } else {
-          alert("Error: " + (res.error || "failed"));
-        }
+        await post("/api/blacklist/remove", { hash: raw, reason, analyst: haAnalystName() });
+        toast("Hash removed from blacklist");
+        $("haBlAddHash").value = "";
+        $("haBlAddReason").value = "";
+        listBlacklistRemovals();
       } catch (e) {
         alert("Error: " + e.message);
       }
