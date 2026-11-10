@@ -27,6 +27,8 @@ pub struct FileScanReport {
     pub scanned_at: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub note: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub signer_info: Option<crate::authenticode::AuthenticodeInfo>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -300,6 +302,7 @@ fn parse_result_verdict(val: &serde_json::Value) -> (String, Vec<DetectionItem>)
 /// Scans a file on disk via viruskov.com cloud WebSocket.
 pub fn scan_file(path: &Path) -> FileScanReport {
     let path_str = path.to_string_lossy().to_string();
+    let signer_info = Some(crate::authenticode::verify_authenticode(path));
     let file = match std::fs::File::open(path) {
         Ok(f) => f,
         Err(_) => {
@@ -311,6 +314,7 @@ pub fn scan_file(path: &Path) -> FileScanReport {
                 file_size: 0,
                 scanned_at: chrono_now_iso(),
                 note: Some("File not found or unreadable".to_string()),
+                signer_info: signer_info.clone(),
             };
         }
     };
@@ -326,6 +330,7 @@ pub fn scan_file(path: &Path) -> FileScanReport {
                 file_size: 0,
                 scanned_at: chrono_now_iso(),
                 note: Some("Failed to read file contents for hashing".to_string()),
+                signer_info: signer_info.clone(),
             };
         }
     };
@@ -437,6 +442,7 @@ pub fn scan_file(path: &Path) -> FileScanReport {
             file_size,
             scanned_at: chrono_now_iso(),
             note: None,
+            signer_info: signer_info.clone(),
         },
         Err(e) => FileScanReport {
             file_path: path_str,
@@ -446,6 +452,7 @@ pub fn scan_file(path: &Path) -> FileScanReport {
             file_size,
             scanned_at: chrono_now_iso(),
             note: Some(format!("Cloud scan deferred: {}", e)),
+            signer_info,
         },
     }
 }

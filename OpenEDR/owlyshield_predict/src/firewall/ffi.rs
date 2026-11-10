@@ -116,7 +116,10 @@ pub extern "system" fn owlyshield_firewall_set_mitm_enabled(enabled: u8) -> i32 
     };
     {
         let mut settings = engine.settings.write().unwrap();
-        settings.tls_proxy.auto_start = enabled != 0;
+        settings.tls_proxy.mitm_all_traffic = enabled != 0;
+        if enabled != 0 {
+            settings.tls_proxy.auto_start = true;
+        }
     }
     engine.sync_proxy_runtime();
     engine.save_settings();
@@ -125,7 +128,7 @@ pub extern "system" fn owlyshield_firewall_set_mitm_enabled(enabled: u8) -> i32 
         timestamp: now_ms(),
         level: LogLevel::Info,
         message: format!(
-            "Transparent TLS proxy MITM interception {} via GUI toggle",
+            "Transparent TLS proxy mitm_all_traffic {} via GUI toggle",
             if enabled != 0 { "ENABLED" } else { "DISABLED" }
         ),
     });
@@ -133,14 +136,14 @@ pub extern "system" fn owlyshield_firewall_set_mitm_enabled(enabled: u8) -> i32 
     1
 }
 
-/// Query whether MITM interception is currently enabled (1) or disabled (0).
+/// Query whether MITM interception (mitm_all_traffic) is currently enabled (1) or disabled (0).
 /// Returns -1 only if neither a live engine nor readable settings exist.
 /// Falls back to the persisted settings file so the GUI shows the on-disk
 /// state even while the service is stopped.
 #[unsafe(no_mangle)]
 pub extern "system" fn owlyshield_firewall_get_mitm_enabled() -> i32 {
     if let Some(engine) = super::headless::engine() {
-        return if engine.settings.read().unwrap().tls_proxy.auto_start {
+        return if engine.settings.read().unwrap().tls_proxy.mitm_all_traffic {
             1
         } else {
             0
@@ -148,7 +151,7 @@ pub extern "system" fn owlyshield_firewall_get_mitm_enabled() -> i32 {
     }
     match super::engine::FirewallEngine::load_settings() {
         Some(s) => {
-            if s.tls_proxy.auto_start {
+            if s.tls_proxy.mitm_all_traffic {
                 1
             } else {
                 0
@@ -156,6 +159,62 @@ pub extern "system" fn owlyshield_firewall_get_mitm_enabled() -> i32 {
         }
         None => 1,
     }
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn owlyshield_firewall_set_mitm_all_traffic(enabled: u8) -> i32 {
+    owlyshield_firewall_set_mitm_enabled(enabled)
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn owlyshield_firewall_get_mitm_all_traffic() -> i32 {
+    owlyshield_firewall_get_mitm_enabled()
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn owlyshield_firewall_set_cloud_wait_mode(enabled: u8) -> i32 {
+    let Some(engine) = super::headless::engine() else {
+        set_last_error("Firewall engine is not running");
+        return 0;
+    };
+    {
+        let mut settings = engine.settings.write().unwrap();
+        settings.cloud_wait_mode = enabled != 0;
+    }
+    engine.save_settings();
+    clear_last_error();
+    1
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn owlyshield_firewall_get_cloud_wait_mode() -> i32 {
+    if let Some(engine) = super::headless::engine() {
+        return if engine.settings.read().unwrap().cloud_wait_mode {
+            1
+        } else {
+            0
+        };
+    }
+    match super::engine::FirewallEngine::load_settings() {
+        Some(s) => {
+            if s.cloud_wait_mode {
+                1
+            } else {
+                0
+            }
+        }
+        None => 1,
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn owlyshield_firewall_set_risky_mode(enabled: u8) -> i32 {
+    owlyshield_firewall_set_cloud_wait_mode(enabled)
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn owlyshield_firewall_get_risky_mode() -> i32 {
+    owlyshield_firewall_get_cloud_wait_mode()
 }
 
 #[unsafe(no_mangle)]

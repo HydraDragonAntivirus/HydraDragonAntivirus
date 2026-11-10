@@ -232,7 +232,28 @@ pub extern "C" fn openedr_static_check_file_signature(
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn openedr_cloud_is_trusted_signer(_signer: *const c_char) -> u32 {
+pub extern "C" fn openedr_cloud_is_trusted_signer(signer: *const c_char) -> u32 {
+    if signer.is_null() {
+        return 0;
+    }
+    let Ok(name) = (unsafe { CStr::from_ptr(signer) }).to_str() else {
+        return 0;
+    };
+    let n = name.to_ascii_lowercase();
+    if n.contains("microsoft")
+        || n.contains("google")
+        || n.contains("mozilla")
+        || n.contains("apple")
+        || n.contains("intel")
+        || n.contains("amd")
+        || n.contains("nvidia")
+        || n.contains("valve")
+        || n.contains("github")
+        || n.contains("hydradragon")
+        || n.contains("comodo")
+    {
+        return 1;
+    }
     0
 }
 

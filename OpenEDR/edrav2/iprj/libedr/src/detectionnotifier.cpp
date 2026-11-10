@@ -2393,6 +2393,45 @@ Variant DetectionNotifier::execute(Variant vCommand, Variant vParams){
 		return Dictionary({ {"success", nResult == 1}, {"enabled", fApplied} });
 	}
 
+	if (vCommand == "getCloudWaitStatus" || vCommand == "getRiskyModeStatus")
+	{
+		bool fEnabled = true;
+		HMODULE hDll = ::GetModuleHandleW(L"owlyshield_ransom.dll");
+		if (hDll)
+		{
+			typedef int32_t (*GetCloudWaitFn)();
+			auto fn = (GetCloudWaitFn)::GetProcAddress(hDll, "owlyshield_firewall_get_cloud_wait_mode");
+			if (!fn)
+				fn = (GetCloudWaitFn)::GetProcAddress(hDll, "owlyshield_firewall_get_risky_mode");
+			if (fn)
+				fEnabled = (fn() == 1);
+		}
+		return Dictionary({ {"enabled", fEnabled} });
+	}
+
+	if (vCommand == "setCloudWaitEnabled" || vCommand == "setRiskyModeEnabled")
+	{
+		bool fEnabled = true;
+		if (vParams.isDictionaryLike())
+			fEnabled = vParams.get("enabled", true);
+
+		int nResult = 0;
+		HMODULE hDll = ::GetModuleHandleW(L"owlyshield_ransom.dll");
+		if (hDll)
+		{
+			typedef int32_t (*SetCloudWaitFn)(uint8_t);
+			auto fn = (SetCloudWaitFn)::GetProcAddress(hDll, "owlyshield_firewall_set_cloud_wait_mode");
+			if (!fn)
+				fn = (SetCloudWaitFn)::GetProcAddress(hDll, "owlyshield_firewall_set_risky_mode");
+			if (fn)
+				nResult = fn(fEnabled ? 1 : 0);
+		}
+
+		const bool fApplied = (fEnabled && nResult == 1);
+		LOGLVL(Critical, FMT("detnotif RPC: firewall Cloud Wait Mode set to " << (fApplied ? "ENABLED" : "DISABLED")));
+		return Dictionary({ {"success", nResult == 1}, {"enabled", fApplied} });
+	}
+
 	// Reputation screen: cloud verdicts for file hashes, display only.
 	// No quarantine, no block, no DB writes. Unknown service/hash yields 3.
 	if (vCommand == "getFileReputationBulk")

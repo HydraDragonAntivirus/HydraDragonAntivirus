@@ -3,13 +3,14 @@
 //! signer is not matched against vendor lists any more: trust is what Windows says.
 
 use std::path::Path;
+use serde::{Deserialize, Serialize};
 
 /// Everything the engine needs to know about a file's Authenticode signature.
 ///
 /// Replaces the positional tuple this used to return: five fields were already
 /// the limit, and the certificate identity (issuer, chain, thumbprint,
 /// validity) needs more than that.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct AuthenticodeInfo {
     /// A signature exists and WinVerifyTrust (or the catalog fallback) could
     /// read a chain from it.

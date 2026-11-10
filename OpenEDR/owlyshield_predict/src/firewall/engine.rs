@@ -328,6 +328,10 @@ fn default_max_visible_http_history() -> usize {
     5000
 }
 
+fn default_unknown_hold_timeout_ms() -> u64 {
+    1500
+}
+
 fn default_queue_position() -> usize {
     1
 }
@@ -848,6 +852,11 @@ pub struct FirewallSettings {
     pub max_visible_http_events: usize,
     #[serde(default)]
     pub log_full_bodies: bool,
+    #[serde(default = "default_true")]
+    #[serde(alias = "risky_mode")]
+    pub cloud_wait_mode: bool,
+    #[serde(default = "default_unknown_hold_timeout_ms")]
+    pub unknown_hold_timeout_ms: u64,
     pub tls_proxy: TlsProxyConfig,
     pub metadata: HashMap<String, String>,
 }
@@ -878,6 +887,8 @@ impl Default for FirewallSettings {
             prune_http_history: default_prune_http_history(),
             max_visible_http_events: default_max_visible_http_history(),
             log_full_bodies: false,
+            cloud_wait_mode: true,
+            unknown_hold_timeout_ms: default_unknown_hold_timeout_ms(),
             tls_proxy: TlsProxyConfig::default(),
             metadata,
         }
@@ -1124,6 +1135,7 @@ pub struct SigInfo {
     pub signer_name: Option<String>,
     pub status: String,
     pub is_catalog_signed: bool,
+    pub cloud_verdict: Option<String>,
 }
 
 type OpenedrInitFn = unsafe extern "C" fn(*const std::os::raw::c_char) -> i32;
@@ -1210,10 +1222,18 @@ fn query_openedr_signer(app_path: &str) -> Option<SigInfo> {
         text
     };
     let v: serde_json::Value = serde_json::from_str(&report).ok()?;
-    let s = v.get("signer_info")?;
-    if s.is_null() {
-        return None;
+    let cloud_verdict = v.get("verdict").and_then(|x| x.as_str()).map(|x| x.to_string());
+    let s = v.get("signer_info");
+    if s.is_none() || s.unwrap().is_null() {
+        return Some(SigInfo {
+            is_trusted: false,
+            signer_name: None,
+            status: "unsigned".to_string(),
+            is_catalog_signed: false,
+            cloud_verdict,
+        });
     }
+    let s = s.unwrap();
     Some(SigInfo {
         is_trusted: s.get("is_trusted").and_then(|x| x.as_bool()).unwrap_or(false),
         signer_name: s
@@ -1229,6 +1249,7 @@ fn query_openedr_signer(app_path: &str) -> Option<SigInfo> {
             .get("is_catalog_signed")
             .and_then(|x| x.as_bool())
             .unwrap_or(false),
+        cloud_verdict,
     })
 }
 
@@ -2210,6 +2231,8 @@ impl FirewallEngine {
             prune_http_history: current_settings.prune_http_history,
             max_visible_http_events: current_settings.max_visible_http_events,
             log_full_bodies: current_settings.log_full_bodies,
+            cloud_wait_mode: current_settings.cloud_wait_mode,
+            unknown_hold_timeout_ms: current_settings.unknown_hold_timeout_ms,
             tls_proxy: current_settings.tls_proxy.clone(),
             metadata: current_settings.metadata.clone(),
         };
@@ -4074,13 +4097,15 @@ impl FirewallEngine {
         // Initialize decision state
         let mut should_forward = true;
         let mut reason: Option<String> = None;
-        let (late_blocking_mode, tls_proxy_cfg, log_mode, show_blocked_only) = {
+        let (late_blocking_mode, tls_proxy_cfg, log_mode, show_blocked_only, cloud_wait_mode, unknown_hold_timeout_ms) = {
             let s = settings.read().unwrap();
             (
                 s.late_blocking_mode,
                 s.tls_proxy.clone(),
                 s.log_mode,
                 s.show_blocked_logs_only && s.show_blocked_graphics_only,
+                s.cloud_wait_mode,
+                s.unknown_hold_timeout_ms,
             )
         };
 
@@ -4435,9 +4460,15 @@ impl FirewallEngine {
                         reason = Some(format!("Blocked by user decision for {}", app_name));
                     }
                     Some(AppDecision::Pending) => {
-                        // Awaiting user decision: under default deny, block network traffic while prompt is evaluated
-                        should_forward = false;
-                        reason = Some(format!("Default Deny: awaiting authorization for {}", app_name));
+                        if cloud_wait_mode {
+                            // Cloud Wait Mode: Kesmeden bekletme/izleme modu - don't sever connection while pending
+                            should_forward = true;
+                            reason = Some(format!("Cloud Wait Mode: awaiting authorization for {} | traffic kept alive", app_name));
+                        } else {
+                            // Strict Default Deny: block network traffic while prompt is evaluated
+                            should_forward = false;
+                            reason = Some(format!("Default Deny: awaiting authorization for {}", app_name));
+                        }
                     }
                     None => {
                         // Evaluate criteria for interactive HIPS prompting:
@@ -4454,16 +4485,49 @@ impl FirewallEngine {
                         }
 
                         // OpenEDR cloud / FLS verdict verification
-                        let verdict_raw = am.openedr_verdicts.read().unwrap().get(&pid).cloned();
-                        let is_verdict_safe = match verdict_raw.as_deref() {
+                        let mut verdict_raw = am.openedr_verdicts.read().unwrap().get(&pid).cloned();
+                        let is_viruskov_safe = sig_info.cloud_verdict.as_deref() == Some("safe");
+                        let is_viruskov_malicious = sig_info.cloud_verdict.as_deref() == Some("malicious");
+
+                        // If cloud verdict is pending / unknown, hold briefly ("kısa süreliğine bekletsin")
+                        let hold_ms = unknown_hold_timeout_ms.min(3000);
+                        if hold_ms > 0 && verdict_raw.is_none() && !is_viruskov_safe && !is_viruskov_malicious {
+                            let start = std::time::Instant::now();
+                            let max_wait = std::time::Duration::from_millis(hold_ms);
+                            while start.elapsed() < max_wait {
+                                std::thread::sleep(std::time::Duration::from_millis(100));
+                                if let Some(v) = am.openedr_verdicts.read().unwrap().get(&pid) {
+                                    verdict_raw = Some(v.clone());
+                                    if v == "1" || v == "2" || v == "safe" || v == "malicious" {
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+
+                        let is_comodo_safe = match verdict_raw.as_deref() {
                             Some("1") | Some("0x1") | Some("safe") => true,
                             _ => false,
                         };
+                        let is_comodo_malicious = match verdict_raw.as_deref() {
+                            Some("2") | Some("0x2") | Some("malicious") => true,
+                            _ => false,
+                        };
 
-                        // Only prompt for interactive authorization if binary is untrusted/unsigned AND not verified safe
-                        if is_sig_untrusted && !is_verdict_safe {
+                        let is_confirmed_malicious = is_comodo_malicious || is_viruskov_malicious;
+                        let is_verified_safe = !is_sig_untrusted || is_comodo_safe || is_viruskov_safe;
+
+                        if is_confirmed_malicious {
                             should_forward = false;
-                            reason = Some(format!("Default Deny: awaiting authorization for {}", app_name));
+                            reason = Some(format!("Blocked: Malicious cloud verdict for {}", app_name));
+                            am.resolve_decision(&app_path_lower, AppDecision::Block);
+                        } else if is_verified_safe {
+                            // Verified/signed application: auto-cache as Allow
+                            am.resolve_decision(&app_path_lower, AppDecision::Allow);
+                            should_forward = true;
+                        } else {
+                            // Both Viruskov and Comodo are UNKNOWN:
+                            let raw_verdict = verdict_raw.unwrap_or_else(|| "unknown".to_string());
                             let target_str = if let Some(ref url) = info.full_url {
                                 url.clone()
                             } else if let Some(ref host) = info.hostname {
@@ -4478,8 +4542,7 @@ impl FirewallEngine {
                                 _ => String::new(),
                             };
                             let sig_label = format!("{}{}", sig_info.status.as_str(), signer_desc);
-                            let raw_verdict = verdict_raw.unwrap_or_else(|| "unknown".to_string());
-                            let ask_reason = "Unsigned/untrusted binary under default deny".to_string();
+                            let ask_reason = "Unsigned/unknown binary under evaluation".to_string();
 
                             // Cache as Pending so we only send one prompt for this executable
                             am.resolve_decision(&app_path_lower, AppDecision::Pending);
@@ -4488,17 +4551,39 @@ impl FirewallEngine {
                             Self::send_hips_ask_prompt(
                                 req_id,
                                 pid,
-                                app_name,
-                                app_path,
+                                app_name.clone(),
+                                app_path.clone(),
                                 target_str,
                                 raw_verdict,
                                 sig_label,
                                 ask_reason,
                                 Arc::clone(am),
                             );
-                        } else {
-                            // Verified/signed application: auto-cache as Allow
-                            am.resolve_decision(&app_path_lower, AppDecision::Allow);
+
+                            if cloud_wait_mode {
+                                // Cloud Wait Mode (Kesmeden Bekletme):
+                                // Cloud verdict unknown (not malicious). Allow traffic without cutting connection.
+                                should_forward = true;
+                                reason = Some(format!(
+                                    "Cloud Wait Mode: Cloud verdict unknown (Viruskov: {}, Comodo: {}) for {} | Monitored, connection kept alive",
+                                    sig_info.cloud_verdict.as_deref().unwrap_or("unknown"),
+                                    am.openedr_verdicts.read().unwrap().get(&pid).cloned().unwrap_or_else(|| "unknown".to_string()),
+                                    app_name
+                                ));
+                                emit_log_event(LogEntry {
+                                    id: format!("{}-cloud-wait-allow-{}", Self::now_ts(), pid),
+                                    timestamp: Self::now_ts(),
+                                    level: LogLevel::Info,
+                                    message: format!(
+                                        "Firewall activity: Cloud Wait Mode allow | Cloud verdict unknown for {} (pid={}) | Connection held & kept alive without cutting",
+                                        app_name, pid
+                                    ),
+                                });
+                            } else {
+                                // Strict Default Deny: block network traffic while prompt is evaluated
+                                should_forward = false;
+                                reason = Some(format!("Default Deny: awaiting authorization for {}", app_name));
+                            }
                         }
                     }
                 }

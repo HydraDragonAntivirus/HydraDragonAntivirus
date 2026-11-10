@@ -40,6 +40,7 @@ type
     TrayIcon1: TTrayIcon;
     MenuPauseResume: TMenuItem;
     MenuMitmToggle: TMenuItem;
+    MenuCloudWaitToggle: TMenuItem;
     MenuZeroTrust: TMenuItem;
     MenuEnableCloudToggle: TMenuItem;
     MenuCloudFirstToggle: TMenuItem;
@@ -55,6 +56,7 @@ type
     procedure MenuUninstallClick(Sender: TObject);
     procedure MenuPauseResumeClick(Sender: TObject);
     procedure MenuMitmToggleClick(Sender: TObject);
+    procedure MenuCloudWaitToggleClick(Sender: TObject);
     procedure MenuZeroTrustClick(Sender: TObject);
     procedure MenuEnableCloudToggleClick(Sender: TObject);
     procedure MenuCloudFirstToggleClick(Sender: TObject);
@@ -73,6 +75,7 @@ type
     FHiPPipe: THipPipeListener;
     FProtectionPaused: Boolean;
     FMitmEnabled: Boolean;
+    FCloudWaitEnabled: Boolean;
     FZeroTrustEnabled: Boolean;
     FEnableCloudEnabled: Boolean;
     FCloudFirstEnabled: Boolean;
@@ -87,6 +90,9 @@ type
     function ReadMitmEnabled: Boolean;
     procedure WriteMitmEnabled(AEnabled: Boolean);
     procedure SetMitmCaption(AEnabled: Boolean);
+    function ReadCloudWaitEnabled: Boolean;
+    procedure WriteCloudWaitEnabled(AEnabled: Boolean);
+    procedure SetCloudWaitCaption(AEnabled: Boolean);
     function ReadZeroTrustEnabled: Boolean;
     procedure WriteZeroTrustEnabled(AEnabled: Boolean);
     procedure SetZeroTrustCaption(AEnabled: Boolean);
@@ -161,6 +167,14 @@ begin
     MenuMitmToggle);
   FMitmEnabled := True;
   SetMitmCaption(ReadMitmEnabled);
+
+  // Cloud Wait Mode toggle (Hold briefly for cloud verdict, then allow unknown without cutting connection)
+  MenuCloudWaitToggle := TMenuItem.Create(Self);
+  MenuCloudWaitToggle.OnClick := @MenuCloudWaitToggleClick;
+  PopupMenu1.Items.Insert(PopupMenu1.Items.IndexOf(MenuMitmToggle) + 1,
+    MenuCloudWaitToggle);
+  FCloudWaitEnabled := True;
+  SetCloudWaitCaption(ReadCloudWaitEnabled);
 
   // Zero Trust / Lockdown Mode toggle (ZwSuspendProcess for unknown executables)
   MenuZeroTrust := TMenuItem.Create(Self);
@@ -372,6 +386,7 @@ begin
   if NewState = ssRunning then
   begin
     SetMitmCaption(ReadMitmEnabled);
+    SetCloudWaitCaption(ReadCloudWaitEnabled);
     SetZeroTrustCaption(ReadZeroTrustEnabled);
     SetEnableCloudCaption(ReadEnableCloudEnabled);
     SetCloudFirstCaption(ReadCloudFirstEnabled);
@@ -892,12 +907,12 @@ begin
   SetMitmCaption(AEnabled);
 
   if AEnabled then
-    TAlertForm.ShowAlert('MITM interception enabled',
-      'Transparent TLS proxy interception is active again.',
+    TAlertForm.ShowAlert('MITM All Traffic enabled',
+      'Transparent TLS proxy is intercepting all outbound port 443 traffic.',
       asSuccess, 3000)
   else
-    TAlertForm.ShowAlert('MITM interception disabled',
-      'HTTPS traffic flows direct without TLS interception.',
+    TAlertForm.ShowAlert('MITM All Traffic disabled',
+      'HTTPS traffic flows direct; monitored hosts remain inspected.',
       asWarning, 4000);
 end;
 
@@ -906,15 +921,116 @@ begin
   if MenuMitmToggle <> nil then
   begin
     if AEnabled then
-      MenuMitmToggle.Caption := 'Disable MITM Interception'
+    begin
+      MenuMitmToggle.Caption := 'MITM All Traffic: ENABLED (Disable)';
+      MenuMitmToggle.Checked := True;
+    end
     else
-      MenuMitmToggle.Caption := 'Enable MITM Interception';
+    begin
+      MenuMitmToggle.Caption := 'MITM All Traffic: Disabled (Enable)';
+      MenuMitmToggle.Checked := False;
+    end;
   end;
 end;
 
 procedure TForm1.MenuMitmToggleClick(Sender: TObject);
 begin
   WriteMitmEnabled(not ReadMitmEnabled);
+end;
+
+// ---------------------------------------------------------------------------
+// Cloud Wait Mode toggle (Firewall unknown verdict hold & observation mode)
+//
+// Reads/writes the Cloud Wait Mode flag through edrsvc JSON-RPC
+// (getCloudWaitStatus/setCloudWaitEnabled on 127.0.0.1:5890). When active,
+// if cloud verification is unknown (both Viruskov and Comodo), traffic is held
+// briefly and allowed through without cutting the connection.
+// ---------------------------------------------------------------------------
+
+function TForm1.ReadCloudWaitEnabled: Boolean;
+var
+  Req, Resp: string;
+  j, d: TJSONData;
+begin
+  try
+    Req := '{"jsonrpc":"2.0","id":1,"method":"getCloudWaitStatus","params":{}}';
+    if HttpPostJson(GUI_RPC_HOST, GUI_RPC_PORT, Req, Resp) then
+    begin
+      j := GetJSON(Resp);
+      try
+        d := j.FindPath('result.enabled');
+        if d <> nil then
+          FCloudWaitEnabled := d.AsBoolean;
+      finally
+        j.Free;
+      end;
+    end;
+  except
+    // transport/parse failure: keep last known mirror value
+  end;
+  Result := FCloudWaitEnabled;
+end;
+
+procedure TForm1.WriteCloudWaitEnabled(AEnabled: Boolean);
+var
+  Req, Resp: string;
+  j, d: TJSONData;
+  Applied: Boolean;
+begin
+  if AEnabled then
+    Req := '{"jsonrpc":"2.0","id":1,"method":"setCloudWaitEnabled","params":{"enabled":true}}'
+  else
+    Req := '{"jsonrpc":"2.0","id":1,"method":"setCloudWaitEnabled","params":{"enabled":false}}';
+
+  Applied := False;
+  try
+    if HttpPostJson(GUI_RPC_HOST, GUI_RPC_PORT, Req, Resp) then
+    begin
+      j := GetJSON(Resp);
+      try
+        d := j.FindPath('result.success');
+        Applied := (d <> nil) and d.AsBoolean;
+      finally
+        j.Free;
+      end;
+    end;
+  except
+    Applied := False;
+  end;
+
+  FCloudWaitEnabled := AEnabled;
+  SetCloudWaitCaption(AEnabled);
+
+  if AEnabled then
+    TAlertForm.ShowAlert('Cloud Wait Mode: ENABLED',
+      'Unknown cloud binaries are held briefly and kept alive without cutting internet.',
+      asSuccess, 3000)
+  else
+    TAlertForm.ShowAlert('Cloud Wait Mode: Disabled (Strict Deny)',
+      'Unknown cloud binaries are strictly blocked under Default Deny.',
+      asWarning, 4000);
+end;
+
+procedure TForm1.SetCloudWaitCaption(AEnabled: Boolean);
+begin
+  if MenuCloudWaitToggle <> nil then
+  begin
+    if AEnabled then
+    begin
+      MenuCloudWaitToggle.Caption := 'Cloud Wait Mode: ENABLED (Disable)';
+      MenuCloudWaitToggle.Checked := True;
+    end
+    else
+    begin
+      MenuCloudWaitToggle.Caption := 'Cloud Wait Mode: Disabled (Enable)';
+      MenuCloudWaitToggle.Checked := False;
+    end;
+  end;
+end;
+
+procedure TForm1.MenuCloudWaitToggleClick(Sender: TObject);
+begin
+  WriteCloudWaitEnabled(not ReadCloudWaitEnabled);
 end;
 
 // ---------------------------------------------------------------------------
