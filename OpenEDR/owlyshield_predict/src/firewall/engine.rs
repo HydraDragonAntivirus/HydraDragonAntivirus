@@ -190,6 +190,22 @@ fn is_unresolved_identity(value: &str) -> bool {
     trimmed.is_empty() || trimmed.eq_ignore_ascii_case("unknown")
 }
 
+pub fn normalize_canonical_path(path: &str) -> String {
+    let trimmed = path.trim();
+    if trimmed.is_empty() {
+        return String::new();
+    }
+    if let Ok(canon) = std::fs::canonicalize(trimmed) {
+        let mut s = canon.to_string_lossy().to_string();
+        if s.starts_with(r"\\?\") {
+            s = s[4..].to_string();
+        }
+        return s.to_lowercase();
+    }
+    trimmed.replace('/', r"\").to_lowercase()
+}
+
+
 // ============================================================================
 // DATA STRUCTURES
 // ============================================================================
@@ -796,9 +812,12 @@ impl FirewallRule {
     }
 }
 
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(default)]
 pub struct FirewallSettings {
+    #[serde(default)]
+    pub app_decisions: HashMap<String, String>,
     #[serde(default)]
     pub kernel_block_paths: Vec<String>,
     #[serde(default = "default_true")]
@@ -843,6 +862,7 @@ impl Default for FirewallSettings {
         );
 
         Self {
+            app_decisions: HashMap::new(),
             kernel_block_paths: Vec::new(),
             default_deny: true,
             late_blocking_mode: true,
@@ -1025,9 +1045,12 @@ impl AppInfoCache {
         let mut cache = self.cache.write().unwrap();
         cache.insert(pid, (info.clone(), SystemTime::now()));
 
-        // Limit cache size
+        // Limit cache size: retain unexpired entries instead of dropping all
         if cache.len() > 1000 {
-            cache.clear();
+            cache.retain(|_, (_, ts)| ts.elapsed().unwrap_or(Duration::MAX) < self.cache_duration);
+            if cache.len() > 1500 {
+                cache.clear();
+            }
         }
 
         info
@@ -1222,6 +1245,7 @@ pub struct AppManager {
     pub cloud_trusted_pids: RwLock<HashSet<u32>>,
     pub openedr_verdicts: RwLock<HashMap<u32, String>>,
     pub sig_cache: RwLock<HashMap<String, SigInfo>>,
+    pub port_neg_cache: RwLock<HashMap<u16, Instant>>,
     /// Tracks which slot (0-based) the user is currently viewing, for the position counter.
     pub view_index: AtomicU64,
 }
@@ -1241,7 +1265,28 @@ impl AppManager {
             cloud_trusted_pids: RwLock::new(HashSet::new()),
             openedr_verdicts: RwLock::new(HashMap::new()),
             sig_cache: RwLock::new(HashMap::new()),
+            port_neg_cache: RwLock::new(HashMap::new()),
             view_index: AtomicU64::new(0),
+        }
+    }
+
+    pub fn is_port_neg_cached(&self, port: u16) -> bool {
+        if let Ok(neg) = self.port_neg_cache.read() {
+            if let Some(ts) = neg.get(&port) {
+                if ts.elapsed() < Duration::from_millis(1000) {
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
+    pub fn set_port_neg_cache(&self, port: u16) {
+        if let Ok(mut neg) = self.port_neg_cache.write() {
+            if neg.len() > 1000 {
+                neg.retain(|_, ts| ts.elapsed() < Duration::from_millis(1000));
+            }
+            neg.insert(port, Instant::now());
         }
     }
 
@@ -1269,6 +1314,9 @@ impl AppManager {
         }
         let mut map = self.port_map.write().unwrap();
         map.insert(port, pid);
+        if let Ok(mut neg) = self.port_neg_cache.write() {
+            neg.remove(&port);
+        }
     }
 
     pub fn get_pid_for_port(&self, port: u16) -> Option<u32> {
@@ -1299,7 +1347,7 @@ impl AppManager {
         // Hard-code only the immutable OS-level identifiers.
         // Everything else — firewall, AV, proxy processes — is driven exclusively
         // by app_decisions entries in settings.json (full paths).
-        if pid == std::process::id() || app_name_lower == "system" || pid == 0 || pid == 4 {
+        if pid == std::process::id() || pid == 0 || pid == 4 || app_name_lower == "system" || app_name_lower == "idle" || app_name_lower == "registry" {
             return (AppDecision::Allow, app_name, app_path);
         }
 
@@ -1741,7 +1789,7 @@ impl FirewallEngine {
 
         let network_whitelist_index = Arc::new(RwLock::new(CidrIndex::from_cidrs(&[])));
         let web_filter = Arc::new(super::web_filter::WebFilter::load_default());
-        let initial_decisions = Self::load_persisted_decisions();
+        let initial_decisions = Self::load_persisted_decisions(&settings_data);
         let app_manager = Arc::new(AppManager::new(initial_decisions));
         let settings = Arc::new(RwLock::new(settings_data));
         let sdk = Arc::new(RwLock::new(super::sdk::SdkRegistry::with_defaults()));
@@ -1795,17 +1843,20 @@ impl FirewallEngine {
         self.started.load(Ordering::SeqCst)
     }
 
-    pub fn load_persisted_decisions() -> HashMap<String, AppDecision> {
+    pub fn load_persisted_decisions(settings: &FirewallSettings) -> HashMap<String, AppDecision> {
         let mut map = HashMap::new();
 
-        // Baseline immutable OS & EDR components (Default Allowed to protect internet connectivity)
-        map.insert("system".to_string(), AppDecision::Allow);
-        map.insert(r"c:\windows\system32\svchost.exe".to_string(), AppDecision::Allow);
-        map.insert(r"c:\windows\syswow64\svchost.exe".to_string(), AppDecision::Allow);
-        map.insert(r"c:\windows\system32\webviewhost.exe".to_string(), AppDecision::Allow);
-        map.insert(r"c:\windows\explorer.exe".to_string(), AppDecision::Allow);
-        map.insert(r"c:\program files\hydradragonantivirus\openedr\edrsvc.exe".to_string(), AppDecision::Allow);
-        map.insert(r"c:\program files\hydradragonantivirus\openedr\edrgui.exe".to_string(), AppDecision::Allow);
+        // Ingest app_decisions configured in settings (both canonical path and raw lowercase key)
+        for (app_key, dec_val) in &settings.app_decisions {
+            let dec = match dec_val.as_str() {
+                "Allow" | "allow" | "allow_always" => AppDecision::Allow,
+                "AllowOnce" | "allow_once" => AppDecision::AllowOnce,
+                "Block" | "block" | "quarantine" => AppDecision::Block,
+                _ => AppDecision::Allow,
+            };
+            map.insert(normalize_canonical_path(app_key), dec.clone());
+            map.insert(app_key.to_lowercase(), dec);
+        }
 
         let rules_path = PathBuf::from(r"C:\ProgramData\edrsvc\firewall_rules.json");
         let settings_path = Self::pdata_settings_path();
@@ -1825,6 +1876,7 @@ impl FirewallEngine {
                                     "Block" | "block" | "quarantine" => AppDecision::Block,
                                     _ => AppDecision::Allow,
                                 };
+                                map.insert(normalize_canonical_path(app_key), dec.clone());
                                 map.insert(app_key.to_lowercase(), dec);
                             }
                         }
@@ -2142,6 +2194,7 @@ impl FirewallEngine {
         let current_settings = self.settings.read().unwrap().clone();
 
         let settings = FirewallSettings {
+            app_decisions: current_settings.app_decisions.clone(),
             kernel_block_paths: current_settings.kernel_block_paths.clone(),
             default_deny: current_settings.default_deny,
             late_blocking_mode: current_settings.late_blocking_mode,
@@ -3461,8 +3514,13 @@ impl FirewallEngine {
                                     }
 
                                     // 2. Fall through to Windows extended TCP/UDP table only for outbound traffic (matching connection origin)
-                                    if pid == 0 && outbound {
-                                        pid = Self::resolve_pid_from_port(lookup_port, is_tcp);
+                                    if pid == 0 && outbound && lookup_port != 0 && lookup_port != 53 {
+                                        if !am_w.is_port_neg_cached(lookup_port) {
+                                            pid = Self::resolve_pid_from_port(lookup_port, is_tcp);
+                                            if pid == 0 {
+                                                am_w.set_port_neg_cache(lookup_port);
+                                            }
+                                        }
                                     }
 
                                     // Cache the resolved port->PID mapping for future
@@ -3818,6 +3876,9 @@ impl FirewallEngine {
                                         }
                                     } else {
                                         // Packet is blocked - only if confirmed malicious
+                                        if outbound && decision_info.as_ref().map(|p| matches!(p.protocol, super::engine::Protocol::TCP)).unwrap_or(false) {
+                                            Self::try_send_tcp_rst(&divert_w, &packet.data, &packet.address);
+                                        }
                                     }
                                 }));
 
@@ -3862,6 +3923,72 @@ impl FirewallEngine {
         // that blocks future Start calls, so this flag is the liveness proof.
         // (Proxy was already kicked above, before the workers.)
         self.started.store(true, Ordering::SeqCst);
+    }
+
+    fn try_send_tcp_rst(
+        divert: &windivert::WinDivert<windivert::layer::NetworkLayer>,
+        data: &[u8],
+        addr: &windivert::address::WinDivertAddress<windivert::layer::NetworkLayer>,
+    ) {
+        if data.len() < 40 {
+            return;
+        }
+        let version = data[0] >> 4;
+        if version != 4 {
+            return;
+        }
+        let ihl = ((data[0] & 0x0f) * 4) as usize;
+        let protocol = data[9];
+        if protocol != 6 || data.len() < ihl + 20 {
+            return;
+        }
+
+        let tcp = &data[ihl..];
+        let flags = tcp[13];
+        // If it's already a RST, do not respond with RST to avoid loops
+        if flags & 0x04 != 0 {
+            return;
+        }
+
+        let src_ip = [data[12], data[13], data[14], data[15]];
+        let dst_ip = [data[16], data[17], data[18], data[19]];
+        let src_port = u16::from_be_bytes([tcp[0], tcp[1]]);
+        let dst_port = u16::from_be_bytes([tcp[2], tcp[3]]);
+        let seq_num = u32::from_be_bytes([tcp[4], tcp[5], tcp[6], tcp[7]]);
+        let ack_num = u32::from_be_bytes([tcp[8], tcp[9], tcp[10], tcp[11]]);
+
+        // Construct inbound TCP RST|ACK directed back to the local client
+        let mut rst_pkt = vec![0u8; 40];
+        rst_pkt[0] = 0x45; // IPv4, IHL 5 (20 bytes)
+        rst_pkt[2..4].copy_from_slice(&40u16.to_be_bytes()); // Total length 40
+        rst_pkt[8] = 64;   // TTL
+        rst_pkt[9] = 6;    // Protocol TCP
+        rst_pkt[12..16].copy_from_slice(&dst_ip); // Source = remote
+        rst_pkt[16..20].copy_from_slice(&src_ip); // Dest = client
+
+        let rst_tcp = &mut rst_pkt[20..40];
+        rst_tcp[0..2].copy_from_slice(&dst_port.to_be_bytes()); // Source port = remote port
+        rst_tcp[2..4].copy_from_slice(&src_port.to_be_bytes()); // Dest port = client port
+
+        if flags & 0x01 != 0 || flags & 0x02 != 0 {
+            // SYN or FIN: ACK = seq + 1
+            rst_tcp[4..8].copy_from_slice(&0u32.to_be_bytes());
+            rst_tcp[8..12].copy_from_slice(&(seq_num.wrapping_add(1)).to_be_bytes());
+            rst_tcp[13] = 0x14; // RST | ACK
+        } else {
+            rst_tcp[4..8].copy_from_slice(&ack_num.to_be_bytes());
+            rst_tcp[8..12].copy_from_slice(&0u32.to_be_bytes());
+            rst_tcp[13] = 0x04; // RST
+        }
+        rst_tcp[12] = 0x50; // Data offset 5 (20 bytes)
+
+        let mut rst_addr = addr.clone();
+        rst_addr.set_outbound(false); // Inbound to client socket
+
+        let _ = divert.send(&windivert::packet::WinDivertPacket {
+            address: rst_addr,
+            data: std::borrow::Cow::Borrowed(&rst_pkt),
+        });
     }
 
     fn process_packet_decision(
@@ -4276,14 +4403,24 @@ impl FirewallEngine {
         }
 
         // --- 11. DEFAULT DENY & INTERACTIVE USER PROMPTING ---
-        // If default deny is enabled and traffic was not blocked by an explicit rule, check digital signature and cloud verdict:
+        // 1. Guard critical system processes & exempt DNS queries (port 53) from app-level default deny
+        let is_dns_query = info.dst_port == 53 || info.src_port == 53;
         let default_deny = settings.read().map(|s| s.default_deny).unwrap_or(true);
-        if default_deny && should_forward && outbound && pid != 0 && pid != std::process::id() {
+        if default_deny && should_forward && outbound && pid != 0 && pid != std::process::id() && !is_dns_query {
             let app_path = app_info.path.clone();
-            if !app_path.is_empty() {
-                let app_name = app_info.name.clone();
-                let app_path_lower = app_path.to_lowercase();
+            let app_name = app_info.name.clone();
+            let app_name_lower = app_name.to_lowercase();
+            let app_path_lower = app_path.to_lowercase();
 
+            if pid == 4
+                || app_name_lower == "system"
+                || app_name_lower == "idle"
+                || app_name_lower == "registry"
+            {
+                // Inherent OS kernel/pseudo-processes (System, Idle, Registry), allowed
+            } else if !is_unresolved_identity(&app_path_lower)
+                && !is_unresolved_identity(&app_name_lower)
+            {
                 let existing_decision = {
                     let decisions = am.decisions.read().unwrap();
                     decisions.get(&app_path_lower).cloned()
@@ -4304,11 +4441,6 @@ impl FirewallEngine {
                     }
                     None => {
                         // Evaluate criteria for interactive HIPS prompting:
-                        // 1. Digital signature verification (cached, via openedr_static).
-                        // Single authority: openedr_static_scan_file already folds
-                        // WinTrust + vendor YAMLs into sig_info.is_trusted; the
-                        // name-only signer-rule refinement below also goes
-                        // through openedr_static FFI (no local YAML parsing).
                         let sig_info = am.get_or_verify_sig(&app_path);
                         let mut is_sig_untrusted = !sig_info.is_trusted;
                         if let Some(ref signer) = sig_info.signer_name {
@@ -4321,15 +4453,15 @@ impl FirewallEngine {
                             }
                         }
 
-                        // 2. OpenEDR cloud / FLS verdict verification
+                        // OpenEDR cloud / FLS verdict verification
                         let verdict_raw = am.openedr_verdicts.read().unwrap().get(&pid).cloned();
-                        let _is_verdict_safe = match verdict_raw.as_deref() {
+                        let is_verdict_safe = match verdict_raw.as_deref() {
                             Some("1") | Some("0x1") | Some("safe") => true,
                             _ => false,
                         };
 
-                        // Untrusted binary: under default deny, block traffic and dispatch interactive prompt to edrgui
-                        if true {
+                        // Only prompt for interactive authorization if binary is untrusted/unsigned AND not verified safe
+                        if is_sig_untrusted && !is_verdict_safe {
                             should_forward = false;
                             reason = Some(format!("Default Deny: awaiting authorization for {}", app_name));
                             let target_str = if let Some(ref url) = info.full_url {
@@ -4347,11 +4479,7 @@ impl FirewallEngine {
                             };
                             let sig_label = format!("{}{}", sig_info.status.as_str(), signer_desc);
                             let raw_verdict = verdict_raw.unwrap_or_else(|| "unknown".to_string());
-                            let ask_reason = if is_sig_untrusted {
-                                "Unsigned/untrusted binary under default deny".to_string()
-                            } else {
-                                "Unregistered application under default deny".to_string()
-                            };
+                            let ask_reason = "Unsigned/untrusted binary under default deny".to_string();
 
                             // Cache as Pending so we only send one prompt for this executable
                             am.resolve_decision(&app_path_lower, AppDecision::Pending);
@@ -4369,7 +4497,7 @@ impl FirewallEngine {
                                 Arc::clone(am),
                             );
                         } else {
-                            // Trusted binary or safe cloud verdict: cache as Allow so future packets for this binary bypass checks instantly
+                            // Verified/signed application: auto-cache as Allow
                             am.resolve_decision(&app_path_lower, AppDecision::Allow);
                         }
                     }
@@ -4590,7 +4718,7 @@ impl FirewallEngine {
     }
 
     fn terminate_process(pid: u32) {
-        if pid == 0 || pid == 4 {
+        if pid == 0 || pid == 4 || pid == std::process::id() {
             return;
         }
 
