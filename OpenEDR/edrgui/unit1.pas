@@ -368,15 +368,14 @@ begin
   end;
   SetPauseCaption(ReadProtectionPaused);
 
-  // Keep the MITM caption truthful (queries the live engine state).
-  SetMitmCaption(ReadMitmEnabled);
-
-  // Keep the Zero Trust caption truthful (queries the live engine state).
-  SetZeroTrustCaption(ReadZeroTrustEnabled);
-
-  // Keep the Cloud Reputation & Cloud-First captions truthful
-  SetEnableCloudCaption(ReadEnableCloudEnabled);
-  SetCloudFirstCaption(ReadCloudFirstEnabled);
+  // Only query engine RPC status if the service is actively running
+  if NewState = ssRunning then
+  begin
+    SetMitmCaption(ReadMitmEnabled);
+    SetZeroTrustCaption(ReadZeroTrustEnabled);
+    SetEnableCloudCaption(ReadEnableCloudEnabled);
+    SetCloudFirstCaption(ReadCloudFirstEnabled);
+  end;
 
   UpdateMenuEnabled(NewState);
 end;

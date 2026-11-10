@@ -117,9 +117,7 @@
                         <RegistryValue Name="TRAINING_WATCH_DIR" Value="" Type="string" />
                         <RegistryValue Name="TRAINING_WATCH_DLL_DIR" Value="" Type="string" />
                     </RegistryKey>
-                </Component>
-                <Files Include="..\..\edrdata\threat_intel\**" Directory="THREATINTELDIR_X64" />
-                <!-- signer_rules: single source is the openedr_static portable bundle
+                </Component>                <!-- signer_rules: single source is the openedr_static portable bundle
                      (staged to $(var.SourceBinDir64)signer_rules\ by the wixproj and
                      installed via the wildcard below) — no edrdata duplicate. -->
                 <Files Include="$(var.SourceBinDir64)**">

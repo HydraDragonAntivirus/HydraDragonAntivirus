@@ -66,7 +66,7 @@ impl Default for CloudConfig {
 impl CloudConfig {
     pub fn load() -> Self {
         let mut url = std::env::var("OPENEDR_CLOUD_URL")
-            .unwrap_or_else(|_| "wss://viruskov.com/ws".to_string());
+            .unwrap_or_else(|_| "wss://api.viruskov.com/ws".to_string());
         let mut token = std::env::var("OPENEDR_CLOUD_TOKEN").unwrap_or_default();
 
         let mut config_paths = Vec::new();
@@ -98,6 +98,11 @@ impl CloudConfig {
                     }
                 }
             }
+        }
+
+        // Auto-upgrade legacy host to API tunnel endpoint
+        if url == "wss://viruskov.com/ws" || url == "ws://viruskov.com/ws" {
+            url = "wss://api.viruskov.com/ws".to_string();
         }
 
         Self { url, token }

@@ -28,8 +28,8 @@ const
   // Socket bounds for a single HttpPostJson call. Without these a stalled
   // server blocks the scan thread forever (and Cancel cannot break a blocked
   // recv). Recv covers a whole 50-file batch, hence generous.
-  HTTP_SEND_TIMEOUT_MS = 30000;
-  HTTP_RECV_TIMEOUT_MS = 900000;
+  HTTP_SEND_TIMEOUT_MS = 2000;
+  HTTP_RECV_TIMEOUT_MS = 3000;
 
 type
   TDetInfo = record
@@ -69,7 +69,9 @@ type
   // response body (plain text after the HTTP headers). Returns False on any
   // transport error. Public so it can be reused for diagnostics.
   function HttpPostJson(const AHost: string; APort: Word;
-    const ARequest: string; out AResponse: string): Boolean;
+    const ARequest: string; out AResponse: string;
+    ASendTimeoutMs: Integer = HTTP_SEND_TIMEOUT_MS;
+    ARecvTimeoutMs: Integer = HTTP_RECV_TIMEOUT_MS): Boolean;
 
   // Breaks a currently blocked HttpPostJson call (unblocks recv). Safe to
   // call when idle (no-op). Scan Cancel buttons call this first so a stuck
@@ -108,7 +110,9 @@ begin
 end;
 
 function HttpPostJson(const AHost: string; APort: Word;
-  const ARequest: string; out AResponse: string): Boolean;
+  const ARequest: string; out AResponse: string;
+  ASendTimeoutMs: Integer = HTTP_SEND_TIMEOUT_MS;
+  ARecvTimeoutMs: Integer = HTTP_RECV_TIMEOUT_MS): Boolean;
 var
   s: TSocket;
   addr: TSockAddrIn;
@@ -118,6 +122,10 @@ var
   Resp: string;
   PosHdr: Integer;
   tvSend, tvRecv: Integer;
+  nb: u_long;
+  fdWrite, fdExcept: TFDSet;
+  tv: TTimeVal;
+  res: Integer;
 begin
   Result := False;
   AResponse := '';
@@ -135,13 +143,35 @@ begin
     addr.sin_port := htons(APort);
     addr.sin_addr.S_addr := inet_addr(PAnsiChar(AnsiString(AHost)));
 
-    if connect(s, TSockAddr(addr), SizeOf(addr)) <> 0 then
-      Exit;
+    // Non-blocking mode with 600ms connect timeout so GUI thread never freezes
+    nb := 1;
+    {}{-}
+    ioctlsocket(s, FIONBIO, @nb);
+    {}
 
-    // Bound the call; best-effort (old stacks may refuse, then blocking stays).
-    tvSend := HTTP_SEND_TIMEOUT_MS;
+    res := connect(s, TSockAddr(addr), SizeOf(addr));
+    if res <> 0 then
+    begin
+      FD_ZERO(fdWrite);
+      FD_SET(s, fdWrite);
+      FD_ZERO(fdExcept);
+      FD_SET(s, fdExcept);
+      tv.tv_sec := 0;
+      tv.tv_usec := 600000;
+      res := select(0, nil, @fdWrite, @fdExcept, @tv);
+      if (res <= 0) or FD_ISSET(s, fdExcept) or (not FD_ISSET(s, fdWrite)) then
+        Exit;
+    end;
+
+    // Restore blocking mode for socket send/recv timeouts
+    nb := 0;
+    {}{-}
+    ioctlsocket(s, FIONBIO, @nb);
+    {}
+
+    tvSend := ASendTimeoutMs;
     setsockopt(s, SOL_SOCKET, SO_SNDTIMEO, PChar(@tvSend), SizeOf(tvSend));
-    tvRecv := HTTP_RECV_TIMEOUT_MS;
+    tvRecv := ARecvTimeoutMs;
     setsockopt(s, SOL_SOCKET, SO_RCVTIMEO, PChar(@tvRecv), SizeOf(tvRecv));
     CancelSock := s;
 

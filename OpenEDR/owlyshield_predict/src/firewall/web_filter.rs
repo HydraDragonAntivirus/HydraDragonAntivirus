@@ -263,19 +263,93 @@ impl WebFilter {
         if ip.is_unspecified() || ip.is_loopback() {
             return false;
         }
-        self.cidr_blocklist.read().unwrap().contains(ip)
+        if self.cidr_blocklist.read().unwrap().contains(ip) {
+            return true;
+        }
+        query_cloud_threat_target(&ip.to_string()).is_some()
     }
 
     pub fn find_match(&self, remote_ip: IpAddr) -> Option<WebThreatMatch> {
-        if self.is_blocked_ip(remote_ip) {
-            Some(WebThreatMatch::ip(
+        if remote_ip.is_unspecified() || remote_ip.is_loopback() {
+            return None;
+        }
+
+        // 1. Check local in-memory CIDR index if available
+        if self.cidr_blocklist.read().unwrap().contains(remote_ip) {
+            return Some(WebThreatMatch::ip(
                 remote_ip.to_string(),
                 format!("Blocked Malicious CIDR: {}", remote_ip),
-            ))
-        } else {
+            ));
+        }
+
+        // 2. Query viruskov.com cloud threat intel directly
+        let ip_str = remote_ip.to_string();
+        if let Some(cloud_hit) = query_cloud_threat_target(&ip_str) {
+            return Some(cloud_hit);
+        }
+
+        None
+    }
+}
+
+pub fn query_cloud_threat_target(target: &str) -> Option<WebThreatMatch> {
+    #[cfg(target_os = "windows")]
+    {
+        use windows::core::{PCSTR, PCWSTR};
+        use windows::Win32::System::LibraryLoader::{GetModuleHandleW, GetProcAddress, LoadLibraryW};
+
+        if target.is_empty() || target == "127.0.0.1" || target == "localhost" || target == "::1" {
+            return None;
+        }
+
+        type ScanUrlFn = unsafe extern "C" fn(*const std::os::raw::c_char) -> *mut std::os::raw::c_char;
+        type FreeFn = unsafe extern "C" fn(*mut std::os::raw::c_char);
+
+        static SCAN_PAIR: std::sync::OnceLock<Option<(ScanUrlFn, FreeFn)>> = std::sync::OnceLock::new();
+        let pair = SCAN_PAIR.get_or_init(|| unsafe {
+            for name in &["openedr_cloud.dll\0", "openedr_static.dll\0"] {
+                let wide: Vec<u16> = name.encode_utf16().collect();
+                let h = GetModuleHandleW(PCWSTR(wide.as_ptr()))
+                    .or_else(|_| LoadLibraryW(PCWSTR(wide.as_ptr())))
+                    .ok();
+                if let Some(mod_handle) = h {
+                    let scan_proc = GetProcAddress(mod_handle, PCSTR(b"openedr_cloud_scan_url\0".as_ptr()))
+                        .or_else(|| GetProcAddress(mod_handle, PCSTR(b"openedr_static_scan_url\0".as_ptr())));
+                    let free_proc = GetProcAddress(mod_handle, PCSTR(b"openedr_cloud_free_string\0".as_ptr()))
+                        .or_else(|| GetProcAddress(mod_handle, PCSTR(b"openedr_static_free_string\0".as_ptr())));
+                    if let (Some(s_proc), Some(f_proc)) = (scan_proc, free_proc) {
+                        return Some((std::mem::transmute(s_proc), std::mem::transmute(f_proc)));
+                    }
+                }
+            }
             None
+        });
+
+        let (scan_fn, free_fn) = (*pair)?;
+        let c_target = std::ffi::CString::new(target).ok()?;
+        let ptr = unsafe { scan_fn(c_target.as_ptr()) };
+        if ptr.is_null() {
+            return None;
+        }
+        let json_str = unsafe {
+            let s = std::ffi::CStr::from_ptr(ptr).to_string_lossy().into_owned();
+            free_fn(ptr);
+            s
+        };
+
+        if let Ok(val) = serde_json::from_str::<serde_json::Value>(&json_str) {
+            let is_mal = val.get("is_malicious").and_then(|v| v.as_bool()).unwrap_or(false);
+            let is_black = val.get("blacklisted").and_then(|v| v.as_bool()).unwrap_or(false);
+            let verdict = val.get("verdict").and_then(|v| v.as_str()).unwrap_or("");
+            if is_mal || is_black || verdict.eq_ignore_ascii_case("malicious") {
+                return Some(WebThreatMatch::ip(
+                    target.to_string(),
+                    format!("VirusKov Cloud Threat Intelligence: {}", target),
+                ));
+            }
         }
     }
+    None
 }
 
 #[derive(Clone, Debug)]
