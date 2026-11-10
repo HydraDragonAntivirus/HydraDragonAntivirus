@@ -8,7 +8,7 @@
       <Unit>
         <Filename Value="edrgui.lpr"/>
         <IsPartOfProject Value="True"/>
-        <EditorIndex Value="4"/>
+        <EditorIndex Value="3"/>
         <TopLine Value="21"/>
         <CursorPos Y="38"/>
         <UsageCount Value="141"/>
@@ -44,7 +44,7 @@
         <Filename Value="uguinotify.pas"/>
         <IsPartOfProject Value="True"/>
         <UnitName Value="UGuiNotify"/>
-        <EditorIndex Value="3"/>
+        <EditorIndex Value="2"/>
         <TopLine Value="60"/>
         <CursorPos X="26" Y="88"/>
         <UsageCount Value="141"/>
@@ -77,6 +77,7 @@
         <HasResources Value="True"/>
         <ResourceBaseClass Value="Form"/>
         <UnitName Value="URep"/>
+        <IsVisibleTab Value="True"/>
         <TopLine Value="1264"/>
         <CursorPos X="4" Y="1285"/>
         <UsageCount Value="141"/>
@@ -94,17 +95,14 @@
       </Unit>
       <Unit>
         <Filename Value="uviruskovalyzer.pas"/>
-        <IsPartOfProject Value="True"/>
         <ComponentName Value="VirusKovAlyzerForm"/>
         <HasResources Value="True"/>
         <ResourceBaseClass Value="Form"/>
         <UnitName Value="UVirusKovAlyzer"/>
-        <IsVisibleTab Value="True"/>
-        <EditorIndex Value="2"/>
+        <EditorIndex Value="-1"/>
         <TopLine Value="1219"/>
         <CursorPos X="73" Y="1232"/>
         <UsageCount Value="35"/>
-        <Loaded Value="True"/>
         <LoadedDesigner Value="True"/>
       </Unit>
       <Unit>
@@ -114,7 +112,7 @@
         <DefaultSyntaxHighlighter Value="LFM"/>
       </Unit>
     </Units>
-    <JumpHistory HistoryIndex="26">
+    <JumpHistory HistoryIndex="21">
       <Position>
         <Filename Value="urep.pas"/>
         <Caret Line="121" Column="14" TopLine="121"/>
@@ -201,26 +199,6 @@
       <Position>
         <Filename Value="uquar.pas"/>
         <Caret Line="12" Column="41" TopLine="8"/>
-      </Position>
-      <Position>
-        <Filename Value="uviruskovalyzer.pas"/>
-        <Caret Line="1229" Column="3" TopLine="1219"/>
-      </Position>
-      <Position>
-        <Filename Value="uviruskovalyzer.pas"/>
-        <Caret Line="803" Column="17" TopLine="793"/>
-      </Position>
-      <Position>
-        <Filename Value="uviruskovalyzer.pas"/>
-        <Caret Line="833" Column="25" TopLine="823"/>
-      </Position>
-      <Position>
-        <Filename Value="uviruskovalyzer.pas"/>
-        <Caret Line="1846" Column="5" TopLine="1825"/>
-      </Position>
-      <Position>
-        <Filename Value="uviruskovalyzer.pas"/>
-        <Caret Line="1229" Column="3" TopLine="1220"/>
       </Position>
     </JumpHistory>
     <RunParams>

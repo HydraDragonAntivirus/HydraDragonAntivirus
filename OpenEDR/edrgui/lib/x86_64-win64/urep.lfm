@@ -346,10 +346,6 @@ object RepForm: TRepForm
       Caption = 'Details...'
       OnClick = DetItemClick
     end
-    object VirusKovItem: TMenuItem
-      Caption = 'Inspect with VirusKovAlyzer (Deep Analysis)...'
-      OnClick = VirusKovItemClick
-    end
     object QuarItem: TMenuItem
       Caption = 'Quarantine'
       OnClick = QuarItemClick
