@@ -2439,6 +2439,11 @@ impl StaticEngine {
         }
     }
 
+    /// Returns the list of configured registry rule patterns.
+    pub fn get_registry_targets(&self) -> Vec<String> {
+        self.pua_registry.patterns().to_vec()
+    }
+
     /// URL score via ML model (openedr_static strictly uses Machine Learning >= 0.9).
     /// Returns (probability, is_malicious, is_whitelisted, is_blacklisted).
     pub fn scan_url(&self, raw_url: &str) -> (f32, bool, bool, bool) {

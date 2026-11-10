@@ -1,4 +1,4 @@
-﻿use std::path::Path;
+use std::path::Path;
 use serde::Deserialize;
 
 #[derive(Debug, Clone, Deserialize)]
@@ -140,6 +140,10 @@ impl PuaRegistryMatcher {
 
     pub fn pattern_count(&self) -> usize {
         self.patterns.len()
+    }
+
+    pub fn patterns(&self) -> &[String] {
+        &self.patterns
     }
 }
 

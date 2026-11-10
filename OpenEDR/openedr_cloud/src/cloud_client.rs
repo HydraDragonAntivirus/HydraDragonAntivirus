@@ -641,3 +641,325 @@ fn chrono_now_iso() -> String {
         .unwrap_or(0);
     format!("{}-01-01T00:00:00Z", now) // Lightweight fallback
 }
+
+/// Queries the cloud WebSocket for registry check against PUA patterns.
+pub fn check_registry(reg_path: &str) -> String {
+    let res = with_client(|session| {
+        let req_id = session.next_request_id();
+
+        let socket = match session.ensure_connected() {
+            Ok(s) => s,
+            Err(e) => return Err(e),
+        };
+
+        let req = serde_json::json!({
+            "type": "check_registry",
+            "id": req_id,
+            "path": reg_path
+        });
+
+        if let Err(e) = socket.send(Message::Text(req.to_string().into())) {
+            session.drop_connection();
+            return Err(format!("Socket write error: {}", e));
+        }
+
+        let start = Instant::now();
+        loop {
+            if start.elapsed() > Duration::from_secs(8) {
+                return Err("Cloud registry query timed out".to_string());
+            }
+
+            let msg = match socket.read() {
+                Ok(m) => m,
+                Err(e) => {
+                    session.drop_connection();
+                    return Err(format!("Socket read error: {}", e));
+                }
+            };
+
+            match msg {
+                Message::Text(txt) => {
+                    let val: serde_json::Value = match serde_json::from_str(&txt) {
+                        Ok(v) => v,
+                        Err(_) => continue,
+                    };
+
+                    let msg_id = val.get("id").and_then(|x| x.as_i64()).unwrap_or(0);
+                    let msg_type = val.get("type").and_then(|x| x.as_str()).unwrap_or("");
+
+                    if msg_id == req_id && msg_type == "registry_result" {
+                        let res_obj = val.get("result").unwrap_or(&val);
+                        return Ok(res_obj.to_string());
+                    } else if msg_id == req_id && msg_type == "error" {
+                        let err_msg = val.get("message").and_then(|m| m.as_str()).unwrap_or("cloud error");
+                        return Err(err_msg.to_string());
+                    }
+                }
+                Message::Ping(p) => {
+                    let _ = socket.send(Message::Pong(p));
+                }
+                _ => {}
+            }
+        }
+    });
+
+    match res {
+        Ok(json_str) => json_str,
+        Err(e) => {
+            serde_json::json!({
+                "query_path": reg_path,
+                "matched_patterns": [],
+                "is_pua_autostart": false,
+                "error": e
+            }).to_string()
+        }
+    }
+}
+
+/// Retrieves configured malicious/PUA registry target patterns from cloud WebSocket.
+pub fn get_registry_targets() -> String {
+    let res = with_client(|session| {
+        let req_id = session.next_request_id();
+
+        let socket = match session.ensure_connected() {
+            Ok(s) => s,
+            Err(e) => return Err(e),
+        };
+
+        let req = serde_json::json!({
+            "type": "get_registry_targets",
+            "id": req_id
+        });
+
+        if let Err(e) = socket.send(Message::Text(req.to_string().into())) {
+            session.drop_connection();
+            return Err(format!("Socket write error: {}", e));
+        }
+
+        let start = Instant::now();
+        loop {
+            if start.elapsed() > Duration::from_secs(8) {
+                return Err("Cloud targets query timed out".to_string());
+            }
+
+            let msg = match socket.read() {
+                Ok(m) => m,
+                Err(e) => {
+                    session.drop_connection();
+                    return Err(format!("Socket read error: {}", e));
+                }
+            };
+
+            match msg {
+                Message::Text(txt) => {
+                    let val: serde_json::Value = match serde_json::from_str(&txt) {
+                        Ok(v) => v,
+                        Err(_) => continue,
+                    };
+
+                    let msg_id = val.get("id").and_then(|x| x.as_i64()).unwrap_or(0);
+                    let msg_type = val.get("type").and_then(|x| x.as_str()).unwrap_or("");
+
+                    if msg_id == req_id && msg_type == "registry_targets_result" {
+                        return Ok(val.get("targets").map(|t| t.to_string()).unwrap_or_else(|| "[]".to_string()));
+                    } else if msg_id == req_id && msg_type == "error" {
+                        let err_msg = val.get("message").and_then(|m| m.as_str()).unwrap_or("cloud error");
+                        return Err(err_msg.to_string());
+                    }
+                }
+                Message::Ping(p) => {
+                    let _ = socket.send(Message::Pong(p));
+                }
+                _ => {}
+            }
+        }
+    });
+
+    match res {
+        Ok(json_str) => json_str,
+        Err(_) => "[]".to_string(),
+    }
+}
+
+/// Uploads and scans an EVTX log file via cloud WebSocket using Hayabusa Sigma engine.
+pub fn scan_evtx(path: &Path) -> String {
+    if !path.exists() {
+        return "[]".to_string();
+    }
+
+    let file_bytes = match std::fs::read(path) {
+        Ok(b) => b,
+        Err(_) => return "[]".to_string(),
+    };
+
+    let size = file_bytes.len() as i64;
+    let mut hasher = Sha256::new();
+    hasher.update(&file_bytes);
+    let sha256_hex = hex::encode(hasher.finalize());
+    let file_name = path.file_name().and_then(|n| n.to_str()).unwrap_or("event.evtx").to_string();
+
+    let res = with_client(|session| {
+        let req_id = session.next_request_id();
+
+        let socket = match session.ensure_connected() {
+            Ok(s) => s,
+            Err(e) => return Err(e),
+        };
+
+        let scan_req = serde_json::json!({
+            "type": "scan_evtx",
+            "id": req_id,
+            "name": file_name,
+            "size": size,
+            "sha256": sha256_hex
+        });
+
+        if let Err(e) = socket.send(Message::Text(scan_req.to_string().into())) {
+            session.drop_connection();
+            return Err(format!("Socket write error: {}", e));
+        }
+
+        let start = Instant::now();
+        loop {
+            if start.elapsed() > Duration::from_secs(30) {
+                return Err("EVTX scan timed out".to_string());
+            }
+
+            let msg = match socket.read() {
+                Ok(m) => m,
+                Err(e) => {
+                    session.drop_connection();
+                    return Err(format!("Socket read error: {}", e));
+                }
+            };
+
+            match msg {
+                Message::Text(txt) => {
+                    let val: serde_json::Value = match serde_json::from_str(&txt) {
+                        Ok(v) => v,
+                        Err(_) => continue,
+                    };
+
+                    let msg_id = val.get("id").and_then(|x| x.as_i64()).unwrap_or(0);
+                    let msg_type = val.get("type").and_then(|x| x.as_str()).unwrap_or("");
+
+                    if msg_id == req_id {
+                        if msg_type == "send_file" {
+                            if let Err(e) = socket.send(Message::Binary(file_bytes.clone().into())) {
+                                session.drop_connection();
+                                return Err(format!("Binary upload error: {}", e));
+                            }
+                        } else if msg_type == "evtx_result" {
+                            return Ok(val.get("matches").map(|m| m.to_string()).unwrap_or_else(|| "[]".to_string()));
+                        } else if msg_type == "error" {
+                            let err_msg = val.get("message").and_then(|m| m.as_str()).unwrap_or("cloud error");
+                            return Err(err_msg.to_string());
+                        }
+                    }
+                }
+                Message::Ping(p) => {
+                    let _ = socket.send(Message::Pong(p));
+                }
+                _ => {}
+            }
+        }
+    });
+
+    match res {
+        Ok(json_str) => json_str,
+        Err(_) => "[]".to_string(),
+    }
+}
+
+/// Scans system event logs. On Windows, scans local active winevt logs (e.g. System.evtx, Security.evtx)
+/// by uploading to cloud Hayabusa engine, or queries server system events if available.
+pub fn scan_system_events() -> String {
+    let system_root = std::env::var("SystemRoot").unwrap_or_else(|_| r"C:\Windows".to_string());
+    let logs_dir = PathBuf::from(system_root).join("System32").join("winevt").join("Logs");
+
+    let mut combined_matches: Vec<serde_json::Value> = Vec::new();
+    let key_logs = ["System.evtx", "Security.evtx", "Microsoft-Windows-Sysmon%4Operational.evtx"];
+    let mut scanned_local = false;
+
+    for log_name in &key_logs {
+        let p = logs_dir.join(log_name);
+        if p.is_file() {
+            let res_str = scan_evtx(&p);
+            if let Ok(val) = serde_json::from_str::<serde_json::Value>(&res_str) {
+                if let Some(arr) = val.as_array() {
+                    if !arr.is_empty() {
+                        scanned_local = true;
+                        combined_matches.extend(arr.iter().cloned());
+                    }
+                }
+            }
+        }
+    }
+
+    if scanned_local {
+        return serde_json::to_string(&combined_matches).unwrap_or_else(|_| "[]".to_string());
+    }
+
+    // Fallback: request server-side scan_system_events
+    let res = with_client(|session| {
+        let req_id = session.next_request_id();
+
+        let socket = match session.ensure_connected() {
+            Ok(s) => s,
+            Err(e) => return Err(e),
+        };
+
+        let req = serde_json::json!({
+            "type": "scan_system_events",
+            "id": req_id
+        });
+
+        if let Err(e) = socket.send(Message::Text(req.to_string().into())) {
+            session.drop_connection();
+            return Err(format!("Socket write error: {}", e));
+        }
+
+        let start = Instant::now();
+        loop {
+            if start.elapsed() > Duration::from_secs(15) {
+                return Err("System events query timed out".to_string());
+            }
+
+            let msg = match socket.read() {
+                Ok(m) => m,
+                Err(e) => {
+                    session.drop_connection();
+                    return Err(format!("Socket read error: {}", e));
+                }
+            };
+
+            match msg {
+                Message::Text(txt) => {
+                    let val: serde_json::Value = match serde_json::from_str(&txt) {
+                        Ok(v) => v,
+                        Err(_) => continue,
+                    };
+
+                    let msg_id = val.get("id").and_then(|x| x.as_i64()).unwrap_or(0);
+                    let msg_type = val.get("type").and_then(|x| x.as_str()).unwrap_or("");
+
+                    if msg_id == req_id && msg_type == "evtx_result" {
+                        return Ok(val.get("matches").map(|m| m.to_string()).unwrap_or_else(|| "[]".to_string()));
+                    } else if msg_id == req_id && msg_type == "error" {
+                        let err_msg = val.get("message").and_then(|m| m.as_str()).unwrap_or("cloud error");
+                        return Err(err_msg.to_string());
+                    }
+                }
+                Message::Ping(p) => {
+                    let _ = socket.send(Message::Pong(p));
+                }
+                _ => {}
+            }
+        }
+    });
+
+    match res {
+        Ok(json_str) => json_str,
+        Err(_) => "[]".to_string(),
+    }
+}

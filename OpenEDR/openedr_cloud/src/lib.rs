@@ -263,7 +263,8 @@ pub extern "C" fn openedr_static_is_pua_signer(signer: *const c_char) -> u32 {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn openedr_cloud_scan_system_events() -> *mut c_char {
-    to_c_string("[]".to_string())
+    let report_json = cloud_client::scan_system_events();
+    to_c_string(report_json)
 }
 
 #[unsafe(no_mangle)]
@@ -272,8 +273,16 @@ pub extern "C" fn openedr_static_scan_system_events() -> *mut c_char {
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn openedr_cloud_scan_evtx(_evtx_path: *const c_char) -> *mut c_char {
-    to_c_string("[]".to_string())
+pub extern "C" fn openedr_cloud_scan_evtx(evtx_path: *const c_char) -> *mut c_char {
+    if evtx_path.is_null() {
+        return error_json("evtx_path pointer is null");
+    }
+    let path_str = match unsafe { CStr::from_ptr(evtx_path) }.to_str() {
+        Ok(s) => s,
+        Err(_) => return error_json("Invalid UTF-8 in evtx_path"),
+    };
+    let report_json = cloud_client::scan_evtx(Path::new(path_str));
+    to_c_string(report_json)
 }
 
 #[unsafe(no_mangle)]
@@ -398,6 +407,30 @@ pub extern "C" fn openedr_static_load_url_whitelist(_data: *const u8, _len: usiz
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn openedr_static_check_registry(_reg_path: *const c_char) -> *mut c_char {
-    to_c_string("{}".to_string())
+pub extern "C" fn openedr_cloud_check_registry(reg_path: *const c_char) -> *mut c_char {
+    if reg_path.is_null() {
+        return error_json("reg_path pointer is null");
+    }
+    let path_str = match unsafe { CStr::from_ptr(reg_path) }.to_str() {
+        Ok(s) => s,
+        Err(_) => return error_json("Invalid UTF-8 in reg_path"),
+    };
+    let report_json = cloud_client::check_registry(path_str);
+    to_c_string(report_json)
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn openedr_static_check_registry(reg_path: *const c_char) -> *mut c_char {
+    openedr_cloud_check_registry(reg_path)
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn openedr_cloud_get_registry_targets() -> *mut c_char {
+    let targets_json = cloud_client::get_registry_targets();
+    to_c_string(targets_json)
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn openedr_static_get_registry_targets() -> *mut c_char {
+    openedr_cloud_get_registry_targets()
 }

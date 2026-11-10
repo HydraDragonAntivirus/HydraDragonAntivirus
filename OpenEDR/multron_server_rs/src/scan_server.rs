@@ -81,6 +81,8 @@ struct ClientMessage {
     pub note: String,
     #[serde(default)]
     pub status: String,
+    #[serde(default)]
+    pub path: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -1282,6 +1284,73 @@ async fn session_loop(
                     Err(err) => send_error(out, Some(msg.id), &err),
                 }
             }
+            "check_registry" => {
+                if server.maintenance() {
+                    send_error(out, Some(msg.id), server.maintenance_message());
+                    continue;
+                }
+                let path = if !msg.path.is_empty() {
+                    msg.path
+                } else if !msg.name.is_empty() {
+                    msg.name
+                } else if let Some(first) = msg.items.first() {
+                    first.path.clone()
+                } else {
+                    String::new()
+                };
+                match server.engine.check_registry(&path) {
+                    Ok(report) => {
+                        let res_msg = serde_json::json!({
+                            "type": "registry_result",
+                            "id": msg.id,
+                            "result": report,
+                        });
+                        send_json(out, &res_msg);
+                    }
+                    Err(err) => send_error(out, Some(msg.id), &err),
+                }
+            }
+            "get_registry_targets" => {
+                if server.maintenance() {
+                    send_error(out, Some(msg.id), server.maintenance_message());
+                    continue;
+                }
+                match server.engine.get_registry_targets() {
+                    Ok(targets) => {
+                        let res_msg = serde_json::json!({
+                            "type": "registry_targets_result",
+                            "id": msg.id,
+                            "targets": targets,
+                        });
+                        send_json(out, &res_msg);
+                    }
+                    Err(err) => send_error(out, Some(msg.id), &err),
+                }
+            }
+            "scan_system_events" => {
+                if server.maintenance() {
+                    send_error(out, Some(msg.id), server.maintenance_message());
+                    continue;
+                }
+                match server.engine.scan_system_events() {
+                    Ok(matches) => {
+                        let res_msg = serde_json::json!({
+                            "type": "evtx_result",
+                            "id": msg.id,
+                            "matches": matches,
+                        });
+                        send_json(out, &res_msg);
+                    }
+                    Err(err) => send_error(out, Some(msg.id), &err),
+                }
+            }
+            "scan_evtx" => {
+                if server.maintenance() {
+                    send_error(out, Some(msg.id), server.maintenance_message());
+                } else {
+                    handle_scan_evtx(ws_rx, out, server, session, &slots, msg, server.limits.max_bytes()).await?;
+                }
+            }
             "report_fp" | "report_fn" => {
                 if !report_bucket.take(1.0, REPORT_BURST, REPORTS_PER_SEC) {
                     send_error(out, Some(msg.id), "too many reports, try again in a few minutes");
@@ -1371,6 +1440,77 @@ fn handle_check(
         server.threat_intel.add_folder(&sha_hex, &session.address, &it.folder, &it.path);
         send_json(out, &serde_json::json!({"type": "need_upload", "id": it.id}));
     }
+    Ok(())
+}
+
+async fn handle_scan_evtx(
+    ws_rx: &mut futures_util::stream::SplitStream<WebSocket>,
+    out: &Out,
+    server: &Arc<ScanServer>,
+    session: &Arc<SessionHandle>,
+    slots: &Arc<Semaphore>,
+    msg: ClientMessage,
+    max_bytes: i64,
+) -> Result<(), String> {
+    if msg.id <= 0 {
+        send_error(out, None, "scan_evtx request without id");
+        return Err("scan_evtx request without id".to_string());
+    }
+    let id = msg.id;
+    let size = msg.size;
+    if size < 0 || size > max_bytes {
+        send_error(out, Some(id), &format!("evtx too large (limit {} MB)", server.limits.max_mb()));
+        return Ok(());
+    }
+
+    let _slot = Arc::clone(slots).acquire_owned().await.map_err(|e| e.to_string())?;
+    send_json(out, &serde_json::json!({"type": "send_file", "id": id}));
+
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(60 + (size / MIN_UPLOAD_BYTES_PER_SEC) as u64);
+    let mut data: Vec<u8> = Vec::with_capacity(size as usize);
+    while (data.len() as i64) < size {
+        let wait = deadline.saturating_duration_since(tokio::time::Instant::now()).min(Duration::from_secs(120));
+        if wait.is_zero() {
+            server.limiter.strike(&session.address);
+            send_error(out, Some(id), "upload too slow");
+            return Err("upload too slow".into());
+        }
+        match tokio::time::timeout(wait, ws_rx.next()).await {
+            Ok(Some(Ok(Message::Binary(bin)))) => {
+                if data.len() as i64 + bin.len() as i64 > size {
+                    server.limiter.strike(&session.address);
+                    send_error(out, Some(id), "more bytes than announced");
+                    return Err("upload larger than announced size".into());
+                }
+                data.extend_from_slice(&bin);
+            }
+            Ok(Some(Ok(Message::Ping(_)))) | Ok(Some(Ok(Message::Pong(_)))) => continue,
+            _ => return Err("upload timeout or connection dropped".into()),
+        }
+    }
+
+    let temp_dir = std::env::temp_dir();
+    let temp_path = temp_dir.join(format!("scan_evtx_{}_{}.evtx", id, Utc::now().timestamp_nanos_opt().unwrap_or(0)));
+    if let Err(e) = std::fs::write(&temp_path, &data) {
+        send_error(out, Some(id), &format!("failed writing evtx temp file: {}", e));
+        return Ok(());
+    }
+
+    let scan_res = server.engine.scan_evtx_file(&temp_path);
+    let _ = std::fs::remove_file(&temp_path);
+
+    match scan_res {
+        Ok(matches) => {
+            let res_msg = serde_json::json!({
+                "type": "evtx_result",
+                "id": id,
+                "matches": matches,
+            });
+            send_json(out, &res_msg);
+        }
+        Err(e) => send_error(out, Some(id), &e),
+    }
+
     Ok(())
 }
 

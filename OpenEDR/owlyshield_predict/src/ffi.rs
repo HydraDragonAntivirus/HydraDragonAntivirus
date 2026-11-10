@@ -400,6 +400,9 @@ type StaticUrlScanFn = unsafe extern "C" fn(*const std::os::raw::c_char) -> *mut
 type StaticUrlModelLoadedFn = unsafe extern "C" fn() -> u32;
 type StaticFreeFn = unsafe extern "C" fn(*mut std::os::raw::c_char);
 type StaticSignerFn = unsafe extern "C" fn(*const std::os::raw::c_char) -> u32;
+type StaticEvtxScanFn = unsafe extern "C" fn(*const std::os::raw::c_char) -> *mut std::os::raw::c_char;
+type StaticSystemEventsScanFn = unsafe extern "C" fn() -> *mut std::os::raw::c_char;
+type StaticCheckRegistryFn = unsafe extern "C" fn(*const std::os::raw::c_char) -> *mut std::os::raw::c_char;
 
 #[derive(Clone, Copy)]
 struct StaticBinding {
@@ -410,6 +413,9 @@ struct StaticBinding {
     is_trusted_signer: Option<StaticSignerFn>,
     is_malicious_signer: Option<StaticSignerFn>,
     is_pua_signer: Option<StaticSignerFn>,
+    scan_evtx: Option<StaticEvtxScanFn>,
+    scan_system_events: Option<StaticSystemEventsScanFn>,
+    check_registry: Option<StaticCheckRegistryFn>,
 }
 unsafe impl Send for StaticBinding {}
 unsafe impl Sync for StaticBinding {}
@@ -493,6 +499,27 @@ fn static_binding() -> Option<StaticBinding> {
                     Some(std::mem::transmute::<*mut std::ffi::c_void, StaticSignerFn>(p))
                 }
             };
+            let scan_evtx_ptr = sym(b"openedr_static_scan_evtx\0");
+            let scan_evtx = if scan_evtx_ptr.is_null() {
+                None
+            } else {
+                Some(std::mem::transmute::<*mut std::ffi::c_void, StaticEvtxScanFn>(scan_evtx_ptr))
+            };
+
+            let scan_sys_events_ptr = sym(b"openedr_static_scan_system_events\0");
+            let scan_system_events = if scan_sys_events_ptr.is_null() {
+                None
+            } else {
+                Some(std::mem::transmute::<*mut std::ffi::c_void, StaticSystemEventsScanFn>(scan_sys_events_ptr))
+            };
+
+            let check_reg_ptr = sym(b"openedr_static_check_registry\0");
+            let check_registry = if check_reg_ptr.is_null() {
+                None
+            } else {
+                Some(std::mem::transmute::<*mut std::ffi::c_void, StaticCheckRegistryFn>(check_reg_ptr))
+            };
+
             Mutex::new(Some(StaticBinding {
                 scan,
                 free,
@@ -501,6 +528,9 @@ fn static_binding() -> Option<StaticBinding> {
                 is_trusted_signer: signer(b"openedr_static_is_trusted_signer\0"),
                 is_malicious_signer: signer(b"openedr_static_is_malicious_signer\0"),
                 is_pua_signer: signer(b"openedr_static_is_pua_signer\0"),
+                scan_evtx,
+                scan_system_events,
+                check_registry,
             }))
         }
     });
@@ -779,4 +809,79 @@ fn scan_url_strings_impl(data: *const u8, len: u32) -> String {
         "findings": findings,
     })
     .to_string()
+}
+
+
+/// Scan an EVTX file with the Hayabusa (Sigma) engine via openedr_static.
+/// Returns JSON-formatted string on heap. Caller MUST free using `owlyshield_free_string`.
+#[unsafe(no_mangle)]
+pub extern "C" fn owlyshield_scan_evtx(path_ptr: *const u16, path_len: u32) -> *mut std::os::raw::c_char {
+    if path_ptr.is_null() || path_len == 0 || path_len > 32768 {
+        return std::ptr::null_mut();
+    }
+    let binding = match static_binding() {
+        Some(b) => b,
+        None => return std::ptr::null_mut(),
+    };
+    let scan_evtx = match binding.scan_evtx {
+        Some(f) => f,
+        None => return std::ptr::null_mut(),
+    };
+    let slice = unsafe { std::slice::from_raw_parts(path_ptr, path_len as usize) };
+    let path_str = String::from_utf16_lossy(slice);
+    let c_path = match std::ffi::CString::new(path_str) {
+        Ok(c) => c,
+        Err(_) => return std::ptr::null_mut(),
+    };
+    unsafe { scan_evtx(c_path.as_ptr()) }
+}
+
+/// Scan all live Windows system event logs with the Hayabusa (Sigma) engine via openedr_static.
+/// Returns JSON-formatted string on heap. Caller MUST free using `owlyshield_free_string`.
+#[unsafe(no_mangle)]
+pub extern "C" fn owlyshield_scan_system_events() -> *mut std::os::raw::c_char {
+    let binding = match static_binding() {
+        Some(b) => b,
+        None => return std::ptr::null_mut(),
+    };
+    let scan_sys = match binding.scan_system_events {
+        Some(f) => f,
+        None => return std::ptr::null_mut(),
+    };
+    unsafe { scan_sys() }
+}
+
+/// Check a registry path with the PTM registry engine via openedr_static.
+/// Returns JSON-formatted string on heap. Caller MUST free using `owlyshield_free_string`.
+#[unsafe(no_mangle)]
+pub extern "C" fn owlyshield_check_registry(path_ptr: *const u16, path_len: u32) -> *mut std::os::raw::c_char {
+    if path_ptr.is_null() || path_len == 0 || path_len > 32768 {
+        return std::ptr::null_mut();
+    }
+    let binding = match static_binding() {
+        Some(b) => b,
+        None => return std::ptr::null_mut(),
+    };
+    let check_reg = match binding.check_registry {
+        Some(f) => f,
+        None => return std::ptr::null_mut(),
+    };
+    let slice = unsafe { std::slice::from_raw_parts(path_ptr, path_len as usize) };
+    let path_str = String::from_utf16_lossy(slice);
+    let c_path = match std::ffi::CString::new(path_str) {
+        Ok(c) => c,
+        Err(_) => return std::ptr::null_mut(),
+    };
+    unsafe { check_reg(c_path.as_ptr()) }
+}
+
+/// Free a string returned by any owlyshield scan API (delegated to openedr_static_free_string).
+#[unsafe(no_mangle)]
+pub extern "C" fn owlyshield_free_string(ptr: *mut std::os::raw::c_char) {
+    if ptr.is_null() {
+        return;
+    }
+    if let Some(binding) = static_binding() {
+        unsafe { (binding.free)(ptr) };
+    }
 }

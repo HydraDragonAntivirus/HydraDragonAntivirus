@@ -1358,6 +1358,30 @@ impl EngineAdapter {
             let _ = std::fs::remove_file(p);
         }
     }
+
+    pub fn check_registry(&self, reg_path: &str) -> Result<openedr_static::report::RegistryCheckReport, String> {
+        let engine = self.engine.get().ok_or_else(|| "engine not ready".to_string())?;
+        let engine = engine.read().map_err(|_| "engine lock poisoned".to_string())?;
+        Ok(engine.check_registry(reg_path))
+    }
+
+    pub fn get_registry_targets(&self) -> Result<Vec<String>, String> {
+        let engine = self.engine.get().ok_or_else(|| "engine not ready".to_string())?;
+        let engine = engine.read().map_err(|_| "engine lock poisoned".to_string())?;
+        Ok(engine.get_registry_targets())
+    }
+
+    pub fn scan_evtx_file(&self, path: &Path) -> Result<Vec<openedr_static::hayabusa_scanner::HayabusaEventMatch>, String> {
+        let engine = self.engine.get().ok_or_else(|| "engine not ready".to_string())?;
+        let engine = engine.read().map_err(|_| "engine lock poisoned".to_string())?;
+        Ok(engine.scan_evtx(path))
+    }
+
+    pub fn scan_system_events(&self) -> Result<Vec<openedr_static::hayabusa_scanner::HayabusaEventMatch>, String> {
+        let engine = self.engine.get().ok_or_else(|| "engine not ready".to_string())?;
+        let engine = engine.read().map_err(|_| "engine lock poisoned".to_string())?;
+        Ok(engine.scan_system_events())
+    }
 }
 
 /// Result of `EngineAdapter::unpack_kept_xz`.
