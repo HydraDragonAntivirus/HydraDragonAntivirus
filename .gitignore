@@ -1,3 +1,6 @@
+// Over than 100MB files for MD5 blacklist XORFilter
+OpenMalwareScannerPortable/xorfilter_rules/malicious_md5.xf
+
 // Over than 100MB files for string based machine learning models
 pe_strings_benign.xf
 pe_strings_malicious.xf

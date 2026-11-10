@@ -680,6 +680,7 @@
         <button class="ghost" data-tab="Alyzer">VirusKovAlyzer</button>
         <button class="ghost" data-tab="Sources">Sources (IP)</button>
         <button class="ghost" data-tab="Private">&#128274; Private samples <span id="haPrivCount"></span></button>
+        <button class="ghost" data-tab="Blacklist">&#128721; Blacklist overrides <span id="haBlCount"></span></button>
       </div>
     </div>
 
@@ -920,6 +921,50 @@
           </thead>
           <tbody id="haPrivRows">
             <tr><td colspan="8" class="empty">Loading private samples...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="ha-tab" id="haTabBlacklist" hidden>
+      <div class="hint" style="margin:-4px 0 10px">
+        <b>Blacklist overrides:</b> Malicious hashes (MD5, SHA-1, SHA-256) unlisted from detection. Overrides take priority in real-time and are saved to <code>analyst_signatures/blacklist_removals.jsonl</code> so that production XOR-filter builds automatically exclude them.
+      </div>
+
+      <!-- Quick remove box -->
+      <div style="background:var(--panel2);border:1px solid var(--border);border-radius:8px;padding:10px 14px;margin-bottom:12px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+        <b style="font-size:12.5px;color:var(--text)">Remove hash from Blacklist:</b>
+        <input id="haBlAddHash" type="text" placeholder="MD5, SHA-1, or SHA-256 (hex)" style="font-family:Consolas,monospace;font-size:12px;width:310px">
+        <input id="haBlAddReason" type="text" placeholder="Reason (e.g. false positive, internal tool, vendor fix)" style="font-size:12px;flex:1;min-width:200px">
+        <button class="primary bad" id="haBlAddBtn" style="width:auto;padding:5px 14px;font-size:12.5px">&#128721; Remove from Blacklist</button>
+      </div>
+
+      <div class="ha-toolbar" style="grid-template-columns:minmax(220px,1fr) 200px auto">
+        <input id="haBlSearch" type="search" placeholder="Search overrides (hash, algorithm, analyst, reason...)">
+        <select id="haBlAlgoF">
+          <option value="">Algorithm: any</option>
+          <option value="sha256">SHA-256 (Recommended)</option>
+          <option value="sha1">SHA-1</option>
+          <option value="md5">MD5</option>
+        </select>
+        <button class="ghost" id="haBlRefresh" style="width:auto;padding:5px 12px">Refresh</button>
+      </div>
+
+      <div class="tablewrap ha-table" style="margin-top:10px">
+        <table>
+          <thead>
+            <tr>
+              <th>Hash</th>
+              <th>Type</th>
+              <th>Status</th>
+              <th>Reason</th>
+              <th>Analyst</th>
+              <th>Removed At</th>
+              <th style="width:140px;text-align:right">Action</th>
+            </tr>
+          </thead>
+          <tbody id="haBlRows">
+            <tr><td colspan="7" class="empty">Loading blacklist overrides...</td></tr>
           </tbody>
         </table>
       </div>
@@ -2129,6 +2174,101 @@ window.sigKey = (list) => list && list.length ? `${list[0].layer}: ${list[0].nam
     box.appendChild(div);
   }
 
+  // Blacklist control: show whitelist priority, blacklist status, or unlist/restore options
+  function blacklistControl(box, hash, data) {
+    const esc = (v) => String(v == null ? "" : v).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+    const div = document.createElement("div");
+    div.style.marginTop = "8px";
+
+    if (data.is_whitelisted) {
+      const wlDiv = document.createElement("div");
+      wlDiv.style.marginBottom = "4px";
+      wlDiv.innerHTML = `<b>Whitelist Status:</b> <span class="tag t-clean">&#10003; Whitelist Priority</span> <span style="font-size:12px;color:var(--text);margin-left:4px">Known benign file (whitelist unconditionally overrides blacklist)</span>`;
+      div.appendChild(wlDiv);
+    }
+
+    if (data.blacklist_removed) {
+      const rem = data.blacklist_removed;
+      const remDiv = document.createElement("div");
+      remDiv.style.marginTop = "6px";
+      remDiv.innerHTML = `<b>Blacklist Override:</b> <span class="tag t-unknown">&#128721; REMOVED</span> <span style="font-size:12px;color:var(--text)">by ${esc(rem.analyst || "analyst")}: <i>${esc(rem.reason || "No reason given")}</i> (${esc(rem.removed_at)})</span> <button class="ghost" type="button" style="padding:2px 8px;font-size:11.5px;margin-left:6px">Restore to Blacklist</button> <span class="hint"></span>`;
+      remDiv.querySelector("button").onclick = async () => {
+        const hint = remDiv.querySelector(".hint");
+        try {
+          const r = await post("/api/blacklist/restore", { hash, analyst: haAnalystName() });
+          if (r.ok) {
+            toast("Restored to Blacklist");
+            $("hashSearchBtn").click();
+            if (window.listBlacklistRemovals) window.listBlacklistRemovals();
+          } else {
+            hint.textContent = r.error || "Failed";
+          }
+        } catch (e) { hint.textContent = e.message; }
+      };
+      div.appendChild(remDiv);
+    } else if (data.is_blacklisted) {
+      const blDiv = document.createElement("div");
+      blDiv.style.marginTop = "6px";
+      blDiv.innerHTML = `<b>Blacklist Status:</b> <span class="tag t-malicious">&#9888; MALICIOUS (XOR Filter)</span> <button class="ghost bad" type="button" style="padding:2px 8px;font-size:11.5px;margin-left:6px">&#128721; Remove from Blacklist…</button> <span class="hint"></span>`;
+      blDiv.querySelector("button").onclick = async () => {
+        const hint = blDiv.querySelector(".hint");
+        const reason = await window.askDlg({
+          title: "Remove from Blacklist Override",
+          sha: hash,
+          html: "<div>Override this hash so it is no longer flagged by the Blacklist XOR filter. A persistent record will be saved to <code>analyst_signatures/blacklist_removals.jsonl</code>.</div>",
+          label: "Reason",
+          placeholder: "False positive, developer certificate, internal tool...",
+          required: true,
+          ok: "Remove from Blacklist",
+          danger: true
+        });
+        if (reason === null) return;
+        try {
+          const r = await post("/api/blacklist/remove", { hash, reason, analyst: haAnalystName() });
+          if (r.ok) {
+            toast("Removed from Blacklist");
+            $("hashSearchBtn").click();
+            if (window.listBlacklistRemovals) window.listBlacklistRemovals();
+          } else {
+            hint.textContent = r.error || "Failed";
+          }
+        } catch (e) { hint.textContent = e.message; }
+      };
+      div.appendChild(blDiv);
+    } else if (!data.is_whitelisted) {
+      const opDiv = document.createElement("div");
+      opDiv.style.marginTop = "6px";
+      opDiv.innerHTML = `<b>Blacklist Action:</b> <button class="ghost" type="button" style="padding:2px 8px;font-size:11.5px">&#128721; Add to Blacklist Overrides…</button> <span class="hint"></span>`;
+      opDiv.querySelector("button").onclick = async () => {
+        const hint = opDiv.querySelector(".hint");
+        const reason = await window.askDlg({
+          title: "Add to Blacklist Overrides",
+          sha: hash,
+          html: "<div>Pre-emptively mark this hash as an unlisted override. It will be excluded from all current and future Blacklist XOR-filter builds.</div>",
+          label: "Reason",
+          placeholder: "Whitelisted by policy, verified clean binary, etc.",
+          required: true,
+          ok: "Add Override",
+          danger: false
+        });
+        if (reason === null) return;
+        try {
+          const r = await post("/api/blacklist/remove", { hash, reason, analyst: haAnalystName() });
+          if (r.ok) {
+            toast("Added to Blacklist Overrides");
+            $("hashSearchBtn").click();
+            if (window.listBlacklistRemovals) window.listBlacklistRemovals();
+          } else {
+            hint.textContent = r.error || "Failed";
+          }
+        } catch (e) { hint.textContent = e.message; }
+      };
+      div.appendChild(opDiv);
+    }
+
+    box.appendChild(div);
+  }
+
   // Delete the sample on request (kept file + static report), with a reason. The
   // verdict and telemetry stay; the server never stores the file again.
   function deleteControl(box, hash, data) {
@@ -2184,6 +2324,7 @@ window.sigKey = (list) => list && list.length ? `${list[0].layer}: ${list[0].nam
       }
       if (data.ok) privateControl(box, hash, data.private);
       if (data.ok) deleteControl(box, hash, data);
+      if (data.ok) blacklistControl(box, hash, data);
     } catch (e) {
       box.innerHTML = `<span style="color:var(--red);">Error searching: ${e.message}</span>`;
     }
@@ -2227,7 +2368,7 @@ window.sigKey = (list) => list && list.length ? `${list[0].layer}: ${list[0].nam
   // Tabs
   document.querySelectorAll("#haTabs button").forEach(b => b.onclick = () => {
     document.querySelectorAll("#haTabs button").forEach(x => x.classList.toggle("active", x === b));
-    ["Queue", "Folder", "Recent", "Urls", "Stats", "Rescan", "Alyzer", "Sources", "Private"].forEach(t => { const el = $("haTab" + t); if (el) el.hidden = t !== b.dataset.tab; });
+    ["Queue", "Folder", "Recent", "Urls", "Stats", "Rescan", "Alyzer", "Sources", "Private", "Blacklist"].forEach(t => { const el = $("haTab" + t); if (el) el.hidden = t !== b.dataset.tab; });
   });
   const haShowTab = (t) => document.querySelector(`#haTabs button[data-tab="${t}"]`).click();
 
@@ -4234,6 +4375,135 @@ window.sigKey = (list) => list && list.length ? `${list[0].layer}: ${list[0].nam
   const privTabBtn = document.querySelector('#haTabs button[data-tab="Private"]');
   if (privTabBtn) privTabBtn.addEventListener("click", listPrivateSamples);
   listPrivateSamples();
+
+  // ---------------- Blacklist overrides management ----------------
+  let haBlList = [];
+
+  window.listBlacklistRemovals = async function() {
+    try {
+      const res = await (await fetch("/api/blacklist/removals", { cache: "no-store" })).json();
+      if (!res.ok) return;
+      haBlList = res.items || [];
+      const countEl = $("haBlCount");
+      if (countEl) countEl.textContent = haBlList.length ? `(${haBlList.length})` : "";
+      renderBlacklistRemovals();
+    } catch (_) {}
+  };
+
+  function renderBlacklistRemovals() {
+    const tbody = $("haBlRows");
+    if (!tbody) return;
+    const q = ($("haBlSearch") ? $("haBlSearch").value : "").trim().toLowerCase();
+    const algo = $("haBlAlgoF") ? $("haBlAlgoF").value : "";
+
+    const filtered = haBlList.filter(item => {
+      if (algo && (item.hash_type || "").toLowerCase() !== algo.toLowerCase()) return false;
+      if (q) {
+        const hay = `${item.hash} ${item.hash_type || ""} ${item.reason || ""} ${item.analyst || ""}`.toLowerCase();
+        if (!hay.includes(q)) return false;
+      }
+      return true;
+    });
+
+    if (filtered.length === 0) {
+      tbody.innerHTML = `<tr><td colspan="7" class="empty">${haBlList.length === 0 ? "No blacklist overrides recorded yet." : "No matching overrides found."}</td></tr>`;
+      return;
+    }
+
+    tbody.innerHTML = filtered.map(item => {
+      const h = item.hash;
+      const shortH = h.length > 20 ? h.slice(0, 10) + "..." + h.slice(-8) : h;
+      const typeLabel = (item.hash_type || "SHA-256").toUpperCase();
+      const statusPill = item.is_whitelisted
+        ? `<span class="pill t-clean" style="padding:2px 7px;font-size:11px">&#10003; Whitelisted</span>`
+        : `<span class="pill t-unknown" style="padding:2px 7px;font-size:11px">&#128721; Overridden</span>`;
+      const dateStr = item.removed_at ? new Date(item.removed_at).toLocaleString() : "—";
+      const isSha256 = (item.hash_type || "").toLowerCase() === "sha256" || h.length === 64;
+
+      return `<tr data-hash="${haEsc(h)}">
+        <td style="font-family:Consolas,monospace;font-size:11.5px">
+          ${isSha256 ? `<a href="#threatInsights" onclick="window.lookupSha && window.lookupSha('${haEsc(h)}')" title="Lookup in Threat Insights" style="color:var(--accent);text-decoration:none">${haEsc(shortH)}</a>` : `<span>${haEsc(shortH)}</span>`}
+          <button class="ghost copy-btn" data-copy="${haEsc(h)}" title="Copy full hash" style="padding:1px 5px;font-size:11px;margin-left:4px">&#128203;</button>
+        </td>
+        <td><span class="pill" style="padding:2px 6px;font-size:10.5px">${haEsc(typeLabel)}</span></td>
+        <td>${statusPill}</td>
+        <td>${item.reason ? haEsc(item.reason) : '<span class="k">—</span>'}</td>
+        <td>${item.analyst ? haEsc(item.analyst) : '<span class="k">—</span>'}</td>
+        <td style="font-size:11.5px;color:var(--muted)">${haEsc(dateStr)}</td>
+        <td style="text-align:right">
+          <button class="ghost" onclick="window.restoreBlacklistHash && window.restoreBlacklistHash('${haEsc(h)}')" style="padding:3px 8px;font-size:11.5px" title="Restore this hash to blacklist">Restore</button>
+        </td>
+      </tr>`;
+    }).join("");
+
+    tbody.querySelectorAll(".copy-btn").forEach(btn => {
+      btn.onclick = (e) => {
+        e.stopPropagation();
+        const text = btn.dataset.copy;
+        navigator.clipboard.writeText(text);
+        const orig = btn.innerHTML;
+        btn.innerHTML = "&#10003;";
+        setTimeout(() => btn.innerHTML = orig, 1200);
+      };
+    });
+  }
+
+  window.restoreBlacklistHash = async function(h) {
+    if (!confirm(`Restore hash ${h.slice(0, 16)}... to the blacklist? It will be flagged as malicious again.`)) return;
+    try {
+      const res = await (await fetch("/api/blacklist/restore", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ hash: h, analyst: haAnalystName() }),
+      })).json();
+      if (res.ok) {
+        toast("Hash restored to blacklist");
+        listBlacklistRemovals();
+      } else {
+        alert("Error: " + (res.error || "failed"));
+      }
+    } catch (e) {
+      alert("Error: " + e.message);
+    }
+  };
+
+  const blAddBtn = $("haBlAddBtn");
+  if (blAddBtn) {
+    blAddBtn.onclick = async () => {
+      const raw = ($("haBlAddHash").value || "").trim().toLowerCase();
+      const reason = ($("haBlAddReason").value || "").trim();
+      const validLen = raw.length === 32 || raw.length === 40 || raw.length === 64;
+      if (!validLen || !/^[0-9a-f]+$/.test(raw)) {
+        alert("Please enter a valid hex hash: MD5 (32 chars), SHA-1 (40 chars), or SHA-256 (64 chars, recommended).");
+        return;
+      }
+      try {
+        const res = await (await fetch("/api/blacklist/remove", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ hash: raw, reason, analyst: haAnalystName() }),
+        })).json();
+        if (res.ok) {
+          toast("Hash removed from blacklist");
+          $("haBlAddHash").value = "";
+          $("haBlAddReason").value = "";
+          listBlacklistRemovals();
+        } else {
+          alert("Error: " + (res.error || "failed"));
+        }
+      } catch (e) {
+        alert("Error: " + e.message);
+      }
+    };
+  }
+
+  if ($("haBlSearch")) $("haBlSearch").oninput = renderBlacklistRemovals;
+  if ($("haBlAlgoF")) $("haBlAlgoF").onchange = renderBlacklistRemovals;
+  if ($("haBlRefresh")) $("haBlRefresh").onclick = listBlacklistRemovals;
+
+  const blTabBtn = document.querySelector('#haTabs button[data-tab="Blacklist"]');
+  if (blTabBtn) blTabBtn.addEventListener("click", listBlacklistRemovals);
+  listBlacklistRemovals();
 })();
 </script>
 </body>

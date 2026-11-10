@@ -226,6 +226,11 @@ impl XorFilter {
         self.fp_width as u32 * 8
     }
 
+    /// Number of fingerprints in the filter.
+    pub fn len(&self) -> usize {
+        self.count
+    }
+
     /// Membership test for a precomputed key.
     pub fn contains_key(&self, k: u64) -> bool {
         let hash = mix64(k.wrapping_add(self.seed));

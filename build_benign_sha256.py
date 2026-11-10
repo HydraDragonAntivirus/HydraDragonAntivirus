@@ -52,11 +52,13 @@ TMP_XF = os.path.join(HERE, ".benign_sha256.build.xf")
 # Tracked .xf destinations. Every one of these is under xorfilter_rules/.
 XF_OUTPUT_FILES = [
     os.path.join(HERE, "OpenMalwareScannerPortable", "xorfilter_rules", "benign_sha256.xf"),
-    # Not docs/ (the web demo): its wasm still reads BinaryFuse16 until it is rebuilt.
 ]
 
 for out_f in XF_OUTPUT_FILES:
     os.makedirs(os.path.dirname(out_f), exist_ok=True)
+
+
+EMPTY_SHA256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
 
 
 def is_sha256(t):
@@ -64,23 +66,29 @@ def is_sha256(t):
 
 
 start_time = time.time()
-args = argparse.Namespace(dataset_paths=None, malicious=None, benign=None, sources="all", no_dedupe=False)
 
-# 1. Training files: benign hashes, and the malicious ones to keep out.
-cache = dataset_paths.HashCache()
+# 1. Training files from cache: benign hashes, and the malicious ones to keep out.
+hash_cache_file = os.path.join(HERE, "hydradragon_ml_models", "dataset_hash_cache.jsonl")
 dataset_benign = set()
 malicious = set()
-for platform in dataset_paths.PLATFORMS:
-    mal_files, ben_files = dataset_paths.collect(args, platform)
-    for path in mal_files:
-        h = cache.sha256(path)
-        if h:
-            malicious.add(h)
-    for path in ben_files:
-        h = cache.sha256(path)
-        if h:
-            dataset_benign.add(h)
-cache.flush()
+if os.path.isfile(hash_cache_file):
+    print(f"[*] Reading dataset hashes from cache: {os.path.basename(hash_cache_file)}")
+    import json
+    with open(hash_cache_file, "r", encoding="utf-8", errors="ignore") as fh:
+        for line in fh:
+            try:
+                d = json.loads(line)
+                if d.get("s", 0) == 0:
+                    continue
+                p = d.get("p", "").lower()
+                h = d.get("h", "").strip().lower()
+                if is_sha256(h) and h != EMPTY_SHA256:
+                    if any(x in p for x in ["benign", "clean", "data2", "ml_fp_benign", "normal"]):
+                        dataset_benign.add(h)
+                    else:
+                        malicious.add(h)
+            except Exception:
+                pass
 
 # 2. Known-malicious hash lists.
 for f in MALICIOUS_LISTS:
@@ -97,7 +105,8 @@ written = dropped = 0
 with open(TMP_TXT, "w", encoding="utf-8") as out:
     def put(t):
         global written, dropped
-        if t in malicious:
+        # 0-size empty file check: never whitelist empty files
+        if t in malicious or t == EMPTY_SHA256:
             dropped += 1
         else:
             out.write(t + "\n")

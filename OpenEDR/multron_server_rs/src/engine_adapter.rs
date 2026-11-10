@@ -80,7 +80,10 @@ pub struct EngineAdapter {
     load_ms: AtomicI64,
     work_dir: Option<PathBuf>,
     file_seq: AtomicI64,
-    malicious_xf: RwLock<Option<BinaryFuse32Filter>>,
+    malicious_sha256_xf: RwLock<Option<BinaryFuse32Filter>>,
+    malicious_sha1_xf: RwLock<Option<BinaryFuse32Filter>>,
+    malicious_md5_xf: RwLock<Option<BinaryFuse32Filter>>,
+    xvirus_plain_md5: RwLock<std::collections::HashSet<String>>,
     whitelist_enabled: bool,
     keep_unknown: bool,
     pub keep_threats: bool,
@@ -156,7 +159,10 @@ impl EngineAdapter {
             load_ms: AtomicI64::new(0),
             work_dir,
             file_seq: AtomicI64::new(0),
-            malicious_xf: RwLock::new(None),
+            malicious_sha256_xf: RwLock::new(None),
+            malicious_sha1_xf: RwLock::new(None),
+            malicious_md5_xf: RwLock::new(None),
+            xvirus_plain_md5: RwLock::new(std::collections::HashSet::new()),
             whitelist_enabled,
             keep_unknown,
             keep_threats,
@@ -191,7 +197,10 @@ impl EngineAdapter {
                 eprintln!("[engine] loading from: {}", rules_dir.display());
                 *adapter.rules_dir.write().unwrap() = Some(rules_dir.clone());
 
-                *adapter.malicious_xf.write().unwrap() = load_malicious_xf(&rules_dir);
+                *adapter.malicious_sha256_xf.write().unwrap() = load_filter(&rules_dir, "malicious_sha256.xf", "SHA-256");
+                *adapter.malicious_sha1_xf.write().unwrap() = load_filter(&rules_dir, "malicious_sha1.xf", "SHA-1");
+                *adapter.malicious_md5_xf.write().unwrap() = load_filter(&rules_dir, "malicious_md5.xf", "MD5");
+                *adapter.xvirus_plain_md5.write().unwrap() = load_plain_xvirus_md5(&rules_dir);
 
                 match std::panic::catch_unwind(|| StaticEngine::init(&rules_dir)) {
                     Ok(engine) => {
@@ -730,14 +739,20 @@ impl EngineAdapter {
                 let started = Instant::now();
                 prepare();
                 eprintln!("[engine] hot reload from: {}", rules_dir.display());
-                let new_xf = load_malicious_xf(&rules_dir);
+                let new_sha256 = load_filter(&rules_dir, "malicious_sha256.xf", "SHA-256");
+                let new_sha1 = load_filter(&rules_dir, "malicious_sha1.xf", "SHA-1");
+                let new_md5 = load_filter(&rules_dir, "malicious_md5.xf", "MD5");
+                let new_xvirus = load_plain_xvirus_md5(&rules_dir);
                 let result = match std::panic::catch_unwind(|| StaticEngine::init(&rules_dir)) {
                     Ok(new_engine) => match adapter.engine.get() {
                         Some(slot) => match slot.write() {
                             Ok(mut guard) => {
                                 let old = std::mem::replace(&mut *guard, new_engine);
                                 drop(guard);
-                                *adapter.malicious_xf.write().unwrap() = new_xf;
+                                *adapter.malicious_sha256_xf.write().unwrap() = new_sha256;
+                                *adapter.malicious_sha1_xf.write().unwrap() = new_sha1;
+                                *adapter.malicious_md5_xf.write().unwrap() = new_md5;
+                                *adapter.xvirus_plain_md5.write().unwrap() = new_xvirus;
                                 drop(old); // free the old engine outside the lock
                                 adapter.load_analyst_yara();
                                 adapter.analyst.reload();
@@ -800,12 +815,11 @@ impl EngineAdapter {
     }
 
     pub fn malicious_hash_count(&self) -> usize {
-        self.malicious_xf
-            .read()
-            .unwrap()
-            .as_ref()
-            .map(|f| f.len())
-            .unwrap_or(0)
+        let c256 = self.malicious_sha256_xf.read().unwrap().as_ref().map(|f| f.len()).unwrap_or(0);
+        let c1 = self.malicious_sha1_xf.read().unwrap().as_ref().map(|f| f.len()).unwrap_or(0);
+        let cmd5 = self.malicious_md5_xf.read().unwrap().as_ref().map(|f| f.len()).unwrap_or(0);
+        let cxv = self.xvirus_plain_md5.read().unwrap().len();
+        c256 + c1 + cmd5 + cxv
     }
 
     pub fn whitelist_active(&self) -> bool {
@@ -904,32 +918,103 @@ impl EngineAdapter {
         }
     }
 
-    /// Verdict from the SHA-256 alone, without the file: hash signatures first (a
-    /// malicious hit must win), then the engine's benign whitelist. None = upload needed.
+    /// Check whether a hash is in the benign whitelist (BinaryFuse32 filter, SHA-256 only).
+    pub fn is_whitelisted(&self, sha_hex: &str) -> bool {
+        if !self.whitelist_enabled {
+            return false;
+        }
+        let clean = sha_hex.trim().to_ascii_lowercase();
+        // 0-size / empty file check
+        if clean == "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+            || clean == "da39a3ee5e6b4b0d3255bfef95601890afd80709"
+            || clean == "d41d8cd98f00b204e9800998ecf8427e"
+        {
+            return false;
+        }
+        // Strictly SHA-256 only for benign whitelist (MD5 and SHA-1 are forbidden)
+        if clean.len() != 64 {
+            return false;
+        }
+        if let Some(engine) = self.engine.get() {
+            if let Ok(guard) = engine.read() {
+                return guard.is_benign(&clean);
+            }
+        }
+        false
+    }
+
+    /// Check whether a hash is in the malicious XOR filter, taking into account
+    /// any analyst blacklist removals / overrides and zero-size protection.
+    pub fn is_blacklisted(&self, sha_hex: &str) -> bool {
+        let clean = sha_hex.trim().to_ascii_lowercase();
+        // 0-size / empty file check: Never blacklist 0-size / empty files!
+        if clean == "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+            || clean == "da39a3ee5e6b4b0d3255bfef95601890afd80709"
+            || clean == "d41d8cd98f00b204e9800998ecf8427e"
+        {
+            return false;
+        }
+        if crate::blacklist_removals::is_removed(&clean) {
+            return false;
+        }
+        match clean.len() {
+            64 => {
+                if let Some(ref filter) = *self.malicious_sha256_xf.read().unwrap() {
+                    return filter.contains(&clean);
+                }
+            }
+            40 => {
+                if let Some(ref filter) = *self.malicious_sha1_xf.read().unwrap() {
+                    return filter.contains(&clean);
+                }
+            }
+            32 => {
+                if self.xvirus_plain_md5.read().unwrap().contains(&clean) {
+                    return true;
+                }
+                if let Some(ref filter) = *self.malicious_md5_xf.read().unwrap() {
+                    return filter.contains(&clean);
+                }
+            }
+            _ => {}
+        }
+        false
+    }
+
+    /// Verdict from the SHA-256 alone, without the file: Whitelist has absolute priority
+    /// over blacklist; blacklist respects analyst override removals. None = upload needed.
     pub fn hash_lookup(&self, _sha: &Sha, sha_hex: &str) -> Option<ResultMessage> {
-        if sha_hex == EICAR_SHA256 {
-            return Some(hash_result("malicious", Some("EICAR-Test-File"), "EICAR standard antivirus test file (hash)", 1.0, sha_hex, "hash"));
+        let clean = sha_hex.trim().to_ascii_lowercase();
+
+        // 0. 0-size / empty file check: 0-size files are never flagged as malicious
+        if clean == "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+            || clean == "da39a3ee5e6b4b0d3255bfef95601890afd80709"
+            || clean == "d41d8cd98f00b204e9800998ecf8427e"
+        {
+            return Some(hash_result("skipped", None, "0 KB / empty file skipped", 0.0, &clean, "hash"));
         }
-        if let Some(ref filter) = *self.malicious_xf.read().unwrap() {
-            if filter.contains(sha_hex) {
-                if self.want_xorfilter_upload(sha_hex) {
-                    return None;
-                }
-                return Some(hash_result("malicious", Some("Malware.Hash.XorFilter"), "Matched malicious SHA-256 (XOR Filter)", 1.0, sha_hex, "hash"));
+
+        // 1. Whitelist has P0 priority over blacklist
+        if self.is_whitelisted(&clean) {
+            if self.want_xorfilter_upload(&clean) {
+                return None;
             }
+            return Some(hash_result("clean", None, "Known benign file (whitelist)", 0.0, &clean, "whitelist"));
         }
-        if self.whitelist_enabled {
-            if let Some(engine) = self.engine.get() {
-                if let Ok(guard) = engine.read() {
-                    if guard.is_benign(sha_hex) {
-                        if self.want_xorfilter_upload(sha_hex) {
-                            return None;
-                        }
-                        return Some(hash_result("clean", None, "Known benign file (whitelist)", 0.0, sha_hex, "whitelist"));
-                    }
-                }
+
+        // 2. Standard EICAR test file
+        if clean == EICAR_SHA256 {
+            return Some(hash_result("malicious", Some("EICAR-Test-File"), "EICAR standard antivirus test file (hash)", 1.0, &clean, "hash"));
+        }
+
+        // 3. Malicious XOR filter (respects override removals)
+        if self.is_blacklisted(&clean) {
+            if self.want_xorfilter_upload(&clean) {
+                return None;
             }
+            return Some(hash_result("malicious", Some("Malware.Hash.XorFilter"), "Matched malicious SHA-256 (XOR Filter)", 1.0, &clean, "hash"));
         }
+
         None
     }
 
@@ -951,12 +1036,43 @@ impl EngineAdapter {
     /// The XOR-filter verdicts `hash_lookup` gives without the file, applied to a full
     /// scan (a collected file must not lose its hash verdict) and tagged with the
     /// `xorfilter/...` ruleset so it is kept in its own folder.
-    fn apply_xorfilter(&self, engine: &StaticEngine, res: &mut ResultMessage, sha: &str) {
+    fn apply_xorfilter(&self, engine: &StaticEngine, res: &mut ResultMessage, sha: &str, data: Option<&[u8]>) {
         let sha_l = sha.to_ascii_lowercase();
-        let malicious_hit = self.malicious_xf.read().unwrap().as_ref().is_some_and(|f| f.contains(&sha_l));
-        if malicious_hit {
+
+        // 1. Whitelist has absolute priority over XOR filter blacklist (SHA-256 only)
+        if self.whitelist_enabled && engine.is_benign(&sha_l) {
+            let was_malicious_xf = res.rule.as_ref().and_then(|r| r.get("ruleset")).and_then(|rs| rs.as_str()) == Some(XORFILTER_MALICIOUS);
+            if res.verdict != "malicious" || was_malicious_xf {
+                res.verdict = "clean".to_string();
+                res.threat = None;
+                res.score = 0.0;
+                res.detail = Some("Known benign file (whitelist)".to_string());
+                let name = res.rule.as_ref().and_then(|r| r["name"].as_str()).unwrap_or("Known benign file (whitelist)").to_string();
+                res.rule = Some(serde_json::json!({ "name": name, "verdict": "clean", "ruleset": XORFILTER_BENIGN }));
+            }
+            return;
+        }
+
+        // 2. Malicious XOR filter: check SHA-256, SHA-1 and MD5 (respects overrides and 0-size protection)
+        let mut hit_algo = None;
+        if self.is_blacklisted(&sha_l) {
+            hit_algo = Some("SHA-256");
+        } else if let Some(d) = data {
+            let sha1_hex = hex::encode(crate::analyzer::sha1(d));
+            if self.is_blacklisted(&sha1_hex) {
+                hit_algo = Some("SHA-1");
+            } else {
+                let md5_hex = hex::encode(crate::analyzer::md5(d));
+                if self.is_blacklisted(&md5_hex) {
+                    hit_algo = Some("MD5");
+                }
+            }
+        }
+
+        if let Some(algo) = hit_algo {
             if res.verdict != "malicious" {
-                let h = hash_result("malicious", Some("Malware.Hash.XorFilter"), "Matched malicious SHA-256 (XOR Filter)", 1.0, &sha_l, "hash");
+                let detail_msg = format!("Matched malicious {} (XOR Filter)", algo);
+                let h = hash_result("malicious", Some("Malware.Hash.XorFilter"), &detail_msg, 1.0, &sha_l, "hash");
                 res.verdict = h.verdict;
                 res.threat = h.threat;
                 res.detail = h.detail;
@@ -968,6 +1084,7 @@ impl EngineAdapter {
             }
             return;
         }
+
         if self.whitelist_enabled && res.verdict == "clean" && engine.is_benign(&sha_l) {
             let name = res.rule.as_ref().and_then(|r| r["name"].as_str()).unwrap_or("").to_string();
             res.rule = Some(serde_json::json!({ "name": name, "verdict": "clean", "ruleset": XORFILTER_BENIGN }));
@@ -1075,7 +1192,7 @@ impl EngineAdapter {
             let mut res = build_result(&report, sha);
             {
                 let _t = openedr_static::memtrack::stage("server:xorfilter");
-                self.apply_xorfilter(&engine, &mut res, sha);
+                self.apply_xorfilter(&engine, &mut res, sha, Some(data));
             }
             // Analyst company lists (Authenticode signer): allow -> clean, block -> malicious.
             // Matched against the publisher, the issuing CA, the countersigning
@@ -1693,15 +1810,13 @@ fn build_result(report: &StaticScanReport, sha: &str) -> ResultMessage {
     res
 }
 
-/// Malicious SHA-256 XOR filter, `xorfilter_rules/malicious_sha256.xf` (BinaryFuse32
-/// only: a false match flags a clean file). `malware.xf` next to it is the malware
-/// domain list of the URL scanner, not hashes; it used to be tried here too.
-fn load_malicious_xf(rules_dir: &Path) -> Option<BinaryFuse32Filter> {
-    let p = rules_dir.join("xorfilter_rules").join("malicious_sha256.xf");
+/// Loads a separated BinaryFuse32 XOR filter (malicious_sha256.xf, malicious_sha1.xf, malicious_md5.xf).
+fn load_filter(rules_dir: &Path, file_name: &str, label: &str) -> Option<BinaryFuse32Filter> {
+    let p = rules_dir.join("xorfilter_rules").join(file_name);
     let bytes = std::fs::read(&p).ok()?;
     match BinaryFuse32Filter::load(&bytes) {
         Ok(f) => {
-            eprintln!("[engine] {} malicious SHA-256 signatures loaded from XOR filter {}", f.len(), p.display());
+            eprintln!("[engine] {} malicious {} signatures loaded from XOR filter {}", f.len(), label, p.display());
             Some(f)
         }
         Err(e) => {
@@ -1709,6 +1824,48 @@ fn load_malicious_xf(rules_dir: &Path) -> Option<BinaryFuse32Filter> {
             None
         }
     }
+}
+
+/// Ingests plain-text Xvirus database file (e.g. dailylist.db, xvirus.db, xvirus.txt).
+/// Validates 32-hex format, drops 0-size empty MD5, and stores into an in-memory HashSet.
+fn load_plain_xvirus_md5(rules_dir: &Path) -> std::collections::HashSet<String> {
+    use std::io::BufRead;
+    let mut set = std::collections::HashSet::new();
+    let candidates = [
+        rules_dir.join("database").join("dailylist.db"),
+        rules_dir.join("xorfilter_rules").join("dailylist.db"),
+        rules_dir.join("dailylist.db"),
+        rules_dir.join("xvirus.db"),
+        rules_dir.join("xvirus.txt"),
+        PathBuf::from("allblooms").join("dailylist.db"),
+        PathBuf::from("allblooms").join("dailylist_xvirus_md5.txt"),
+    ];
+
+    for path in &candidates {
+        if !path.is_file() {
+            continue;
+        }
+        if let Ok(file) = std::fs::File::open(path) {
+            let reader = std::io::BufReader::with_capacity(256 * 1024, file);
+            let mut line = String::with_capacity(64);
+            let mut count = 0usize;
+            let mut r = reader;
+            while r.read_line(&mut line).unwrap_or(0) > 0 {
+                let clean = line.trim().to_ascii_lowercase();
+                if clean.len() == 32
+                    && clean != "d41d8cd98f00b204e9800998ecf8427e"
+                    && clean.chars().all(|c| c.is_ascii_hexdigit())
+                {
+                    set.insert(clean);
+                    count += 1;
+                }
+                line.clear();
+            }
+            eprintln!("[engine] {} plain-text Xvirus MD5 signatures loaded from {}", count, path.display());
+            break;
+        }
+    }
+    set
 }
 
 fn resolve_rules_dir(custom: Option<PathBuf>) -> PathBuf {

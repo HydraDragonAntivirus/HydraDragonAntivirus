@@ -1,0 +1,62 @@
+name: Sync Xvirus Daily Blacklist
+
+on:
+  schedule:
+    # Run twice daily at 04:00 UTC and 16:00 UTC
+    - cron: '0 4,16 * * *'
+  workflow_dispatch:
+    inputs:
+      force_sync:
+        description: 'Force update even if no changes detected'
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+jobs:
+  sync:
+    name: Fetch and Verify Xvirus Blacklist
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Fetch and verify Xvirus dailylist
+        run: |
+          python sync_xvirus_blacklist.py --once
+
+      - name: Commit and push updated blacklist
+        id: commit
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          # Stage plain-text daily database for Multron Server / VDS pickup
+          git add OpenMalwareScannerPortable/xorfilter_rules/dailylist.db
+
+          if git diff --cached --quiet; then
+            echo "changed=false" >> $GITHUB_OUTPUT
+            echo "No changes in Xvirus daily blacklist."
+          else
+            git commit -m "chore(signatures): sync Xvirus daily malicious blacklist [skip ci]"
+            git push origin "HEAD:${{ github.ref_name }}"
+            echo "changed=true" >> $GITHUB_OUTPUT
+            echo "Pushed updated Xvirus daily database."
+          fi
+
+      - name: Upload daily blacklist artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: xvirus-dailylist-db
+          path: OpenMalwareScannerPortable/xorfilter_rules/dailylist.db
+          retention-days: 7

@@ -397,6 +397,9 @@ pub fn dashboard_router(state: Arc<AppState>) -> Router {
         .route("/api/imphash-signatures", get(handle_imphash_list).post(handle_imphash_create))
         .route("/api/imphash-signatures/delete", post(handle_imphash_delete))
         .route("/api/private-samples", get(handle_private_list).post(handle_private_set))
+        .route("/api/blacklist/removals", get(handle_blacklist_removals_list))
+        .route("/api/blacklist/remove", post(handle_blacklist_remove))
+        .route("/api/blacklist/restore", post(handle_blacklist_restore))
         .route("/api/samples/deleted", get(handle_deleted_list))
         .route("/api/samples/delete", post(handle_sample_delete))
         .route("/api/yara-rule-classes", get(handle_yara_classes_list).post(handle_yara_class_set))
@@ -1768,6 +1771,9 @@ async fn handle_dashboard_insights_hash(
     Path(sha256): Path<String>,
 ) -> impl IntoResponse {
     let clean = sha256.trim().to_lowercase();
+    let is_bl = app.engine.is_blacklisted(&clean);
+    let is_wl = app.engine.is_whitelisted(&clean);
+    let bl_removed = crate::blacklist_removals::get(&clean);
     if let Some(insight) = app.threat_intel.get(&clean) {
         Json(serde_json::json!({
             "ok": true,
@@ -1780,6 +1786,9 @@ async fn handle_dashboard_insights_hash(
             "review": app.threat_intel.reviews.get(&clean).map(|r| r.to_dashboard_json()),
             "virustotal": crate::human_review::virustotal_url(&clean),
             "history": crate::verdict_history::get(&clean),
+            "is_blacklisted": is_bl,
+            "is_whitelisted": is_wl,
+            "blacklist_removed": bl_removed,
         }))
     } else {
         Json(serde_json::json!({
@@ -1793,6 +1802,9 @@ async fn handle_dashboard_insights_hash(
             "virustotal": crate::human_review::virustotal_url(&clean),
             "history": crate::verdict_history::get(&clean),
             "message": "Hash has not been observed in VirusKov telemetry",
+            "is_blacklisted": is_bl,
+            "is_whitelisted": is_wl,
+            "blacklist_removed": bl_removed,
         }))
     }
 }
@@ -2640,6 +2652,70 @@ async fn handle_private_set(State(app): State<Arc<AppState>>, who: Option<Extens
             Json(serde_json::json!({ "ok": true, "private": b.private, "changed": changed })).into_response()
         }
         Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({ "ok": false, "error": e.to_string() }))).into_response(),
+    }
+}
+
+// ---------------- Blacklist overrides management ----------------
+
+#[derive(Deserialize)]
+struct BlacklistRemoveBody {
+    hash: String,
+    #[serde(default)]
+    reason: String,
+    #[serde(default)]
+    analyst: String,
+}
+
+#[derive(Deserialize)]
+struct BlacklistRestoreBody {
+    hash: String,
+    #[serde(default)]
+    analyst: String,
+}
+
+async fn handle_blacklist_removals_list(State(app): State<Arc<AppState>>) -> impl IntoResponse {
+    let items = crate::blacklist_removals::list();
+    let enriched: Vec<serde_json::Value> = items
+        .into_iter()
+        .map(|r| {
+            let clean = r.hash.to_ascii_lowercase();
+            let is_bl = app.engine.is_blacklisted(&clean);
+            let is_wl = app.engine.is_whitelisted(&clean);
+            serde_json::json!({
+                "hash": r.hash,
+                "hash_type": r.hash_type,
+                "reason": r.reason,
+                "analyst": r.analyst,
+                "removed_at": r.removed_at,
+                "is_whitelisted": is_wl,
+                "is_blacklisted": is_bl,
+            })
+        })
+        .collect();
+    Json(serde_json::json!({ "ok": true, "items": enriched }))
+}
+
+async fn handle_blacklist_remove(
+    State(_app): State<Arc<AppState>>,
+    who: Option<Extension<AnalystId>>,
+    Json(mut b): Json<BlacklistRemoveBody>,
+) -> Response {
+    apply_analyst(&who, &mut b.analyst);
+    match crate::blacklist_removals::remove_hash(&b.hash, &b.analyst, &b.reason) {
+        Ok(changed) => Json(serde_json::json!({ "ok": true, "changed": changed })).into_response(),
+        Err(e) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({ "ok": false, "error": e.to_string() }))).into_response(),
+    }
+}
+
+async fn handle_blacklist_restore(
+    State(_app): State<Arc<AppState>>,
+    who: Option<Extension<AnalystId>>,
+    Json(mut b): Json<BlacklistRestoreBody>,
+) -> Response {
+    apply_analyst(&who, &mut b.analyst);
+    match crate::blacklist_removals::restore_hash(&b.hash, &b.analyst) {
+        Ok(restored) => Json(serde_json::json!({ "ok": true, "restored": restored })).into_response(),
+        Err(e) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({ "ok": false, "error": e.to_string() }))).into_response(),
     }
 }
 
