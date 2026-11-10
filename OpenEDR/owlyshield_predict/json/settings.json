@@ -20,7 +20,6 @@
     "c:\\windows\\system32\\webviewhost.exe": "Allow",
     "c:\\windows\\explorer.exe": "Allow",
     "c:\\program files\\hydradragonantivirus\\openedr\\edrsvc.exe": "Allow",
-    "c:\\program files\\hydradragonantivirus\\openedr\\edrgui.exe": "Allow"
     "c:\\program files\\hydradragonantivirus\\openedr\\edrgui.exe": "Allow",
     "msedge.exe": "Allow",
     "msedgewebview2.exe": "Allow",
