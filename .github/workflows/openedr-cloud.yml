@@ -1,0 +1,67 @@
+name: Build OpenEDR Cloud DLL
+
+on:
+  push:
+    branches: ["**"]
+    tags: ["v*"]
+    paths:
+      - 'OpenEDR/openedr_cloud/**'
+      - '.github/workflows/openedr-cloud.yml'
+  pull_request:
+    branches: ["**"]
+    paths:
+      - 'OpenEDR/openedr_cloud/**'
+      - '.github/workflows/openedr-cloud.yml'
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  build-windows:
+    name: Build Windows x64 Cloud DLL
+    runs-on: windows-latest
+    steps:
+      - name: Enable Git long paths
+        run: git config --global core.longpaths true
+
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: "OpenEDR/openedr_cloud -> target"
+
+      - name: Build openedr_cloud (Release)
+        working-directory: OpenEDR/openedr_cloud
+        run: cargo build --release --verbose
+
+      - name: Copy openedr_cloud.dll to OpenMalwareScannerPortable
+        shell: pwsh
+        run: |
+          Copy-Item OpenEDR/openedr_cloud/target/release/openedr_cloud.dll -Destination OpenMalwareScannerPortable/openedr_cloud.dll -Force
+
+      - name: Create Pull Request with openedr_cloud.dll
+        if: github.event_name != 'pull_request' && !startsWith(github.ref_name, 'auto-update-')
+        uses: peter-evans/create-pull-request@v8
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          commit-message: "chore(openedr): update openedr_cloud.dll in OpenMalwareScannerPortable"
+          title: "Update openedr_cloud.dll in OpenMalwareScannerPortable"
+          body: "Automated build of openedr_cloud.dll placed into OpenMalwareScannerPortable folder."
+          add-paths: OpenMalwareScannerPortable/openedr_cloud.dll
+          branch: "auto-update-openedr-cloud"
+          base: ${{ github.ref_name }}
+          delete-branch: true
+          labels: binaries, automated-pr, openedr, development-version
