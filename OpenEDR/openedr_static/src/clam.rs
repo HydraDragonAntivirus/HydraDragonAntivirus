@@ -1,4 +1,4 @@
-﻿use std::path::Path;
+use std::path::Path;
 use hydradragonclamav::scanner::{Engine, ScanMatch, ScanOptions};
 
 pub struct ClamScanner {
@@ -32,7 +32,7 @@ impl ClamScanner {
             return Vec::new();
         };
         let options = ScanOptions::default();
-        if data.len() > options.max_child_size {
+        if data.len() <= 12 || data.len() > options.max_child_size {
             return Vec::new();
         }
         crate::memtrack::measure("scan:clamav", crate::memtrack::Kind::Scan, data.len(), || {
@@ -46,7 +46,7 @@ impl ClamScanner {
         };
 
         let options = ScanOptions::default();
-        if data.len() > options.max_child_size {
+        if data.len() <= 12 || data.len() > options.max_child_size {
             return Vec::new();
         }
 
@@ -62,6 +62,9 @@ impl ClamScanner {
                 });
                 if let Ok(entries) = entries {
                     for entry in entries {
+                        if entry.data.len() <= 12 {
+                            continue;
+                        }
                         let child_matches = engine.scan_bytes_named(&entry.data, &entry.name, options, &[]);
                         matches.extend(child_matches);
                     }

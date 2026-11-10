@@ -1841,14 +1841,22 @@ fn record_result(server: &ScanServer, session: &SessionHandle, res: &ResultMessa
         origin_type: None,
     });
 
-    // Record each extracted object as a sub-event in the live feed
+    // Record each extracted object as a sub-event in the live feed (skip <= 12 byte noise with no detections)
     for obj in &res.extracted_objects {
+        if obj.size <= 12 && obj.detections.is_empty() {
+            continue;
+        }
         let sub_threat_name = obj.detections.first().map(|d| d.name.clone());
         let sub_detail = if !obj.detections.is_empty() {
             let d_names: Vec<String> = obj.detections.iter().take(4).map(|d| format!("{} ({})", d.name, d.layer)).collect();
             Some(d_names.join(", "))
         } else {
-            Some(format!("Unpacked payload ({:.1} KB)", (obj.size as f64) / 1024.0))
+            let kb = (obj.size as f64) / 1024.0;
+            if kb < 0.1 {
+                Some(format!("Unpacked payload ({} B)", obj.size))
+            } else {
+                Some(format!("Unpacked payload ({:.1} KB)", kb))
+            }
         };
 
         server.events.add(Event {

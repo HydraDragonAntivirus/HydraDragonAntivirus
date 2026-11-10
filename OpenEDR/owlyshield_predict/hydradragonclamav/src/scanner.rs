@@ -174,13 +174,18 @@ macro_rules! rust_timing_log {
 /// on drop. Wrap at function entry: `let _slow = SlowAlert::new("fn_name", 100);`.
 pub struct SlowAlert {
     name: &'static str,
+    extra: Option<String>,
     threshold_ms: u64,
     start: Instant,
 }
 
 impl SlowAlert {
     pub fn new(name: &'static str, threshold_ms: u64) -> Self {
-        SlowAlert { name, threshold_ms, start: Instant::now() }
+        SlowAlert { name, extra: None, threshold_ms, start: Instant::now() }
+    }
+
+    pub fn with_ctx(name: &'static str, extra: impl Into<String>, threshold_ms: u64) -> Self {
+        SlowAlert { name, extra: Some(extra.into()), threshold_ms, start: Instant::now() }
     }
 }
 
@@ -188,7 +193,11 @@ impl Drop for SlowAlert {
     fn drop(&mut self) {
         let ms = self.start.elapsed().as_millis() as u64;
         if ms > self.threshold_ms {
-            rust_timing_log!("[SLOW-CODE] {} took {}ms (threshold {}ms)", self.name, ms, self.threshold_ms);
+            if let Some(ref extra) = self.extra {
+                rust_timing_log!("[SLOW-CODE] {} [{}] took {}ms (threshold {}ms)", self.name, extra, ms, self.threshold_ms);
+            } else {
+                rust_timing_log!("[SLOW-CODE] {} took {}ms (threshold {}ms)", self.name, ms, self.threshold_ms);
+            }
         }
     }
 }
@@ -685,7 +694,7 @@ impl Engine {
         skip_yara: bool,
     ) {
         let _slow = SlowAlert::new("scan_object", 200);
-        if data.len() > options.max_child_size {
+        if data.len() <= 12 || data.len() > options.max_child_size {
             return;
         }
         // Bounded scan: only the first `max_scan_bytes` (default 100 MiB) are
@@ -1122,8 +1131,22 @@ impl Engine {
         ctx: &ScanContext<'_>,
         matches: &mut Vec<ScanMatch>,
     ) {
-        let _slow = SlowAlert::new("scan_context", 200);
-        if ctx.data.is_empty() { return; }
+        if ctx.data.len() <= 12 { return; }
+
+        let label = match &ctx.container_entry_name {
+            Some(entry) if !entry.is_empty() && !ctx.object_path.ends_with(entry) => {
+                format!("{} [{}]", ctx.object_path, entry)
+            }
+            _ => {
+                if ctx.object_path.is_empty() {
+                    "<root>".to_string()
+                } else {
+                    ctx.object_path.to_string()
+                }
+            }
+        };
+
+        let _slow = SlowAlert::with_ctx("scan_context", &label, 200);
         let _active = crate::atomscan::ActiveScan::enter();
 
         // Phase 0 (calling thread): one atom sweep builds per-slot hit counts
@@ -1165,9 +1188,15 @@ impl Engine {
         self.scan_logical(ctx, matches, &slot_counts, verify_results, scratch.touched());
         let t3 = Instant::now();
         ATOM_SCRATCH.with(|cell| *cell.borrow_mut() = scratch);
+        let size_str = if ctx.data.len() < 1024 {
+            format!("{}B", ctx.data.len())
+        } else {
+            format!("{}KB", ctx.data.len() / 1024)
+        };
         rust_timing_log!(
-            "scan_context :: {}KB view={:?} atomscan={}ms ext_scan={}ms log_scan={}ms",
-            ctx.data.len() / 1024,
+            "scan_context :: [{}] size={} view={:?} atomscan={}ms ext_scan={}ms log_scan={}ms",
+            label,
+            size_str,
             ctx.view,
             (t1 - t0).as_millis(),
             (t2 - t1).as_millis(),

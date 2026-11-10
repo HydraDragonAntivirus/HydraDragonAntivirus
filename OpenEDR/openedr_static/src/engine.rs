@@ -774,12 +774,12 @@ impl StaticEngine {
             };
         }
 
-        // 2. 0 KB check via metadata -> directly skip before reading
+        // 2. Size <= 12 bytes check via metadata -> directly skip before reading (smallest viable virus is 13B)
         if let Ok(meta) = path.metadata() {
-            if meta.len() == 0 {
+            if meta.len() <= 12 {
                 return StaticScanReport {
                     target: target_str,
-                    file_size: 0,
+                    file_size: meta.len(),
                     sha256: String::new(),
                     verdict: "Skipped".to_string(),
                     max_threat_score: 0.0,
@@ -1272,7 +1272,7 @@ impl StaticEngine {
         parent: Option<&hydradragonsig::models::ParentInfo>,
         behavior: Option<&hydradragonsig::models::BehaviorTrace>,
     ) {
-        if bytes.is_empty() {
+        if bytes.len() <= 12 {
             return;
         }
 
@@ -1280,7 +1280,7 @@ impl StaticEngine {
         let is_js = is_js_content(bytes);
 
         // 1. ClamAV
-        for m in self.clam.scan_bytes(bytes, name) {
+        for m in self.clam.scan_bytes_direct(bytes, name) {
             let score = clam_score(&m.name);
             let det_name = if origin_prefix.is_empty() {
                 m.name
@@ -1451,6 +1451,19 @@ impl StaticEngine {
 
     pub fn scan_object(&self, object: &ScanObject) -> ExtractedObject {
         let _t = crate::memtrack::stage("scan:object");
+        if object.bytes.len() <= 12 {
+            return ExtractedObject {
+                name: object.name.clone(),
+                path: object.path.clone(),
+                size: object.bytes.len() as u64,
+                sha256: String::new(),
+                origin_type: object.origin_type.clone(),
+                depth: object.depth,
+                verdict: "Clean".to_string(),
+                max_threat_score: 0.0,
+                detections: Vec::new(),
+            };
+        }
         let mut obj_detections = Vec::new();
         let mut obj_max_score = 0.0f32;
 
@@ -1528,11 +1541,11 @@ impl StaticEngine {
         disk_path: Option<&Path>,
         start_time: Instant,
     ) -> StaticScanReport {
-        // 0 KB / empty buffer: directly skip (no hashing, no collision detection)
-        if data.is_empty() {
+        // Size <= 12 bytes: directly skip (no executable malware is <= 12 bytes; smallest viable virus is 13B)
+        if data.len() <= 12 {
             return StaticScanReport {
                 target: target_name.to_string(),
-                file_size: 0,
+                file_size: data.len() as u64,
                 sha256: String::new(),
                 verdict: "Skipped".to_string(),
                 max_threat_score: 0.0,
@@ -2094,7 +2107,7 @@ impl StaticEngine {
                     });
                     max_score = max_score.max(score);
                 }
-                if !f.body.is_empty() {
+                if f.body.len() > 12 {
                     let obj = ScanObject::new(
                         format!("{target_name}.decrypted.bin"),
                         format!("{target_name} -> [Emulation:Decrypted@{:#x}]", f.body_va),
@@ -2266,6 +2279,7 @@ impl StaticEngine {
                 hydradragonextractor::extract_archive_from_bytes(data, false)
             }) {
                 Ok(entries) => {
+                    let entries: Vec<_> = entries.into_iter().filter(|e| e.data.len() > 12).collect();
                     let mut member_emulations = 0usize;
                     let mut member_emulation_time = std::time::Duration::ZERO;
                     let scanned = self.scan_parallel(entries.len(), |i| {
@@ -2343,7 +2357,7 @@ impl StaticEngine {
                                         }
                                     }
                                     if let Some(Ok(sub_dumped)) = sub_unpacker.wx_hit.map(|_| sub_unpacker.dump_bytes()) {
-                                        if !sub_dumped.is_empty() && sub_dumped != entry.data {
+                                        if sub_dumped.len() > 12 && sub_dumped != entry.data {
                                             let sub_obj = ScanObject::new(
                                                 format!("{}.unpacked.bin", entry.name),
                                                 format!("{target_name} -> {} -> [Unicorn:Unpacked]", entry.name),

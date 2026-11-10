@@ -1125,20 +1125,24 @@ impl EngineAdapter {
         let engine = engine.read().map_err(|_| "engine lock poisoned".to_string())?;
 
         let started = Instant::now();
-        if data.is_empty() {
+        if data.len() <= 12 {
             let res = ResultMessage {
                 r#type: "result".to_string(),
                 id: 0,
                 timestamp: Some(chrono::Utc::now().to_rfc3339()),
                 ecs: Some(serde_json::json!({ "version": "9.5.4" })),
                 event: Some(serde_json::json!({ "action": "scan_skipped", "kind": "event", "category": ["malware", "file"] })),
-                file: Some(serde_json::json!({ "name": name, "size": 0, "hash": { "sha256": sha } })),
+                file: Some(serde_json::json!({ "name": name, "size": data.len(), "hash": { "sha256": sha } })),
                 antivirus: Some(serde_json::json!({ "engine": ENGINE_NAME, "verdict": "skipped" })),
                 threat_indicator: None,
                 rule: None,
                 verdict: "skipped".to_string(),
                 threat: None,
-                detail: Some("0 KB / empty file skipped".to_string()),
+                detail: Some(if data.is_empty() {
+                    "0 KB / empty file skipped".to_string()
+                } else {
+                    format!("File size {} B <= 12 B skipped (below minimum viable executable size 13 B)", data.len())
+                }),
                 score: 0.0,
                 sha256: sha.to_string(),
                 scan_ms: started.elapsed().as_millis() as i64,
