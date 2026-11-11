@@ -796,6 +796,134 @@ pub fn stream_behavior_telemetry_async(
         });
 }
 
+/// Best-effort on-alert thread stack capture for forensic telemetry.
+/// 1. Tries host export `OwlyCaptureThreadStacks` if running inside edrsvc.
+/// 2. Falls back to ToolHelp thread snapshot and context register inspection (RIP/RSP).
+#[cfg(target_os = "windows")]
+pub fn capture_process_thread_stacks(pid: u32) -> Option<String> {
+    if pid == 0 || pid == 4 {
+        return None;
+    }
+
+    // 1. Try host C++ function if exported
+    unsafe {
+        use windows::Win32::System::LibraryLoader::{GetModuleHandleW, GetProcAddress};
+        if let Ok(h_mod) = GetModuleHandleW(None) {
+            if !h_mod.is_invalid() {
+                let sym = std::ffi::CString::new("OwlyCaptureThreadStacks").ok();
+                if let Some(s) = sym {
+                    let proc_addr = GetProcAddress(h_mod, windows::core::PCSTR(s.as_ptr() as *const u8));
+                    if let Some(f) = proc_addr {
+                        let func: extern "C" fn(u32, *mut u8, u32) -> u32 = std::mem::transmute(f);
+                        let mut buf = vec![0u8; 8192];
+                        let n = func(pid, buf.as_mut_ptr(), buf.len() as u32);
+                        if n > 0 {
+                            buf.truncate(n as usize);
+                            if let Ok(st) = String::from_utf8(buf) {
+                                if !st.trim().is_empty() {
+                                    return Some(st);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // 2. Native ToolHelp thread capture fallback
+    unsafe {
+        use windows::Win32::Foundation::CloseHandle;
+        use windows::Win32::System::Diagnostics::ToolHelp::{
+            CreateToolhelp32Snapshot, Thread32First, Thread32Next, TH32CS_SNAPTHREAD, THREADENTRY32,
+        };
+        use windows::Win32::System::Diagnostics::Debug::GetThreadContext;
+        use windows::Win32::System::Threading::{
+            GetCurrentProcessId, GetCurrentThreadId, OpenThread, ResumeThread,
+            SuspendThread, THREAD_GET_CONTEXT, THREAD_SUSPEND_RESUME,
+        };
+
+        let self_pid = GetCurrentProcessId();
+        let self_tid = GetCurrentThreadId();
+        if pid == self_pid {
+            return None;
+        }
+
+        let snap = match CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0) {
+            Ok(s) => s,
+            Err(_) => return None,
+        };
+
+        let mut tids = Vec::with_capacity(8);
+        let mut te = THREADENTRY32 {
+            dwSize: std::mem::size_of::<THREADENTRY32>() as u32,
+            ..Default::default()
+        };
+
+        if Thread32First(snap, &mut te).as_bool() {
+            loop {
+                if te.th32OwnerProcessID == pid && te.th32ThreadID != self_tid {
+                    tids.push(te.th32ThreadID);
+                    if tids.len() >= 8 {
+                        break;
+                    }
+                }
+                if !Thread32Next(snap, &mut te).as_bool() {
+                    break;
+                }
+            }
+        }
+        let _ = CloseHandle(snap);
+
+        if tids.is_empty() {
+            return None;
+        }
+
+        let mut out = String::with_capacity(1024);
+        for tid in tids {
+            if let Ok(h_thread) = OpenThread(THREAD_SUSPEND_RESUME | THREAD_GET_CONTEXT, false, tid) {
+                if !h_thread.is_invalid() {
+                    let prev_suspend = SuspendThread(h_thread);
+                    if prev_suspend != u32::MAX {
+                        #[cfg(target_arch = "x86_64")]
+                        {
+                            use windows::Win32::System::Diagnostics::Debug::CONTEXT;
+                            let mut ctx = std::mem::zeroed::<CONTEXT>();
+                            ctx.ContextFlags = 0x00100000 | 0x00000001 | 0x00000002; // CONTEXT_CONTROL
+                            if GetThreadContext(h_thread, &mut ctx).as_bool() {
+                                if !out.is_empty() {
+                                    out.push(';');
+                                }
+                                out.push_str(&format!("tid={}:rip=0x{:x},rsp=0x{:x}", tid, ctx.Rip, ctx.Rsp));
+                            }
+                        }
+                        #[cfg(not(target_arch = "x86_64"))]
+                        {
+                            if !out.is_empty() {
+                                out.push(';');
+                            }
+                            out.push_str(&format!("tid={}", tid));
+                        }
+                        let _ = ResumeThread(h_thread);
+                    }
+                    let _ = CloseHandle(h_thread);
+                }
+            }
+        }
+
+        if out.is_empty() {
+            None
+        } else {
+            Some(out)
+        }
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+pub fn capture_process_thread_stacks(_pid: u32) -> Option<String> {
+    None
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SystemDiagnosticTelemetry {
     pub machine_id: String,

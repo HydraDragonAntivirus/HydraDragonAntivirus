@@ -835,6 +835,49 @@ impl ActionOnKill for VirusKovCloudFeedbackAction {
             files_read_count: proc.files_read.len(),
         };
 
+        // Capture thread stacks if pid > 0
+        let thread_stacks = if pid > 0 {
+            crate::edr_feedback::capture_process_thread_stacks(pid)
+        } else {
+            None
+        };
+
+        // Extract forensic micro-killchain trace from the suspicious process
+        let mut killchain_trace = serde_json::Map::new();
+        if !proc.fpaths_created.is_empty() {
+            let sample: Vec<String> = proc.fpaths_created.iter().take(50).cloned().collect();
+            killchain_trace.insert("files_created".to_string(), serde_json::json!(sample));
+        }
+        if !proc.fpaths_updated.is_empty() {
+            let sample: Vec<String> = proc.fpaths_updated.iter().take(50).cloned().collect();
+            killchain_trace.insert("files_updated".to_string(), serde_json::json!(sample));
+        }
+        if !proc.dirs_with_files_created.is_empty() {
+            let sample: Vec<String> = proc.dirs_with_files_created.iter().take(20).cloned().collect();
+            killchain_trace.insert("dirs_created".to_string(), serde_json::json!(sample));
+        }
+        if !proc.dirs_with_files_updated.is_empty() {
+            let sample: Vec<String> = proc.dirs_with_files_updated.iter().take(20).cloned().collect();
+            killchain_trace.insert("dirs_updated".to_string(), serde_json::json!(sample));
+        }
+        if !proc.extensions_written.categories_set.is_empty() {
+            let mut ext_map = serde_json::Map::new();
+            for (cat, set) in proc.extensions_written.categories_set.iter() {
+                if !set.is_empty() {
+                    ext_map.insert(format!("{:?}", cat), serde_json::json!(set.len()));
+                }
+            }
+            if !ext_map.is_empty() {
+                killchain_trace.insert("extensions_written_categories".to_string(), serde_json::Value::Object(ext_map));
+            }
+        }
+        if let Some(ref feat) = proc.fast_detection_features {
+            killchain_trace.insert("ml_features".to_string(), serde_json::json!(feat));
+        }
+        killchain_trace.insert("driver_msg_count".to_string(), serde_json::json!(proc.driver_msg_count));
+        killchain_trace.insert("files_renamed_count".to_string(), serde_json::json!(proc.files_renamed.len()));
+        killchain_trace.insert("files_deleted_count".to_string(), serde_json::json!(proc.files_deleted.len()));
+
         let machine_id = crate::edr_feedback::get_machine_guid();
         let payload = crate::edr_feedback::BehaviorTelemetryPayload {
             machine_id,
@@ -857,6 +900,8 @@ impl ActionOnKill for VirusKovCloudFeedbackAction {
                 "threat_type": threat_info.threat_type_label,
                 "enforced_response": threat_info.response_label_for(proc),
                 "pending_decision": threat_info.pending_user_decision,
+                "thread_stacks": thread_stacks,
+                "killchain_trace": killchain_trace,
             }),
         };
 

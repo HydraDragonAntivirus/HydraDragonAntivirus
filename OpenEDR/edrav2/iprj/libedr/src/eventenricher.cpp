@@ -2272,6 +2272,17 @@ namespace {
 		return sOut;
 	}
 
+	extern "C" __declspec(dllexport) uint32_t OwlyCaptureThreadStacks(uint32_t nPid, char* pszOut, uint32_t nMaxLen)
+	{
+		if (!pszOut || nMaxLen == 0) return 0;
+		std::string s = CaptureThreadStacks(nPid);
+		if (s.empty()) { pszOut[0] = 0; return 0; }
+		uint32_t nCopy = (uint32_t)std::min<size_t>(s.size(), (size_t)(nMaxLen - 1));
+		memcpy(pszOut, s.data(), nCopy);
+		pszOut[nCopy] = 0;
+		return nCopy;
+	}
+
 	// Forward enriched event to Owlyshield FastDetect ML engine
 	static void ForwardToOwlyshieldMlEngine(const Variant& vEvent)
 	{
