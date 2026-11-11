@@ -342,6 +342,8 @@ pub fn dashboard_router(state: Arc<AppState>) -> Router {
         .route("/api/v1/edr/telemetry/behaviors", get(crate::edr_telemetry::handle_get_edr_behaviors))
         .route("/api/v1/edr/telemetry/flows", get(crate::edr_telemetry::handle_get_edr_flows))
         .route("/api/v1/edr/telemetry/threats", get(crate::edr_telemetry::handle_get_edr_threats))
+        .route("/api/v1/firewall/rules", get(handle_firewall_rules_export))
+        .route("/api/firewall/rules", get(handle_firewall_rules_export))
         .route("/api/v1/edr/report", post(crate::edr_telemetry::handle_edr_telemetry_threat))
         .route("/api/v1/edr/upload/:sha256", post(crate::edr_telemetry::handle_edr_upload).route_layer(DefaultBodyLimit::max(128 * 1024 * 1024)))
         .route("/api/start", post(handle_start))
@@ -2877,7 +2879,7 @@ async fn handle_signature_save(
     use crate::analyst_engine::{validate_clamav, validate_hydrasig, SigKind};
     let bad = |e: String| (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": e}))).into_response();
     let Some(kind) = SigKind::parse(&b.kind) else {
-        return bad("unknown kind (yara | hydradragonsig | clamav_ndb | clamav_ldb)".into());
+        return bad("unknown kind (yara | hydradragonsig | clamav_ndb | clamav_ldb | firewall)".into());
     };
     let name = match crate::naming::normalize_threat_name(&b.name) {
         Ok(n) => n,
@@ -2897,6 +2899,7 @@ async fn handle_signature_save(
         }
         SigKind::HydraSig => validate_hydrasig(&b.source),
         SigKind::ClamNdb | SigKind::ClamLdb => validate_clamav(kind, &b.source),
+        SigKind::Firewall => crate::analyst_engine::validate_firewall_yaml(&b.source),
     };
     let count = match checked {
         Ok(n) => n,
@@ -2911,6 +2914,8 @@ async fn handle_signature_save(
         } else {
             "Saved and active.".to_string()
         }
+    } else if kind == SigKind::Firewall {
+        format!("Saved and active ({count} firewall rule(s)).")
     } else {
         let engine = Arc::clone(&app.engine);
         let summary = tokio::task::spawn_blocking(move || engine.analyst.reload()).await.unwrap_or_default();
@@ -2918,8 +2923,12 @@ async fn handle_signature_save(
     };
     info_event(&app, format!("signature room: {} {name} {}", kind.id(), if existed { "updated" } else { "added" }));
     // Retrohunt: this signature over every kept file, matches rescanned with the full engine.
-    let hunt = crate::retrohunt::start(&app.scan_server, kind, &name, &b.source);
-    let note = format!("{note} Retrohunt #{hunt} queued over all kept files.");
+    let (note, hunt) = if kind == SigKind::Firewall {
+        (note, 0)
+    } else {
+        let hunt = crate::retrohunt::start(&app.scan_server, kind, &name, &b.source);
+        (format!("{note} Retrohunt #{hunt} queued over all kept files."), hunt)
+    };
     Json(serde_json::json!({ "ok": true, "kind": kind.id(), "name": name, "file": path.display().to_string(), "note": note, "retrohunt": hunt })).into_response()
 }
 
@@ -2937,7 +2946,10 @@ async fn handle_retrohunt_archive(State(app): State<Arc<AppState>>, Json(b): Jso
         return bad("on the main server, saving the signature starts its retrohunt");
     }
     let Some(kind) = SigKind::parse(&b.kind) else {
-        return bad("unknown kind (yara | hydradragonsig | clamav_ndb | clamav_ldb)");
+        return bad("unknown kind (yara | hydradragonsig | clamav_ndb | clamav_ldb | firewall)");
+    };
+    if kind == SigKind::Firewall {
+        return bad("firewall rules filter network traffic, they do not scan static file archives");
     };
     if b.source.trim().is_empty() {
         return bad("the rule is empty");
@@ -2986,6 +2998,36 @@ async fn handle_signature_delete(
     };
     info_event(&app, format!("signature room: {} {name} deleted", kind.id()));
     Json(serde_json::json!({"ok": true, "note": note})).into_response()
+}
+
+
+/// Export consolidated HydraDragon Firewall rules YAML for clients (WinDivert/OpenEDR)
+pub async fn handle_firewall_rules_export() -> impl IntoResponse {
+    use crate::analyst_engine::SigKind;
+    let dir = crate::human_review::analyst_dir().join(SigKind::Firewall.folder());
+    let mut all_rules = Vec::new();
+    if let Ok(rd) = std::fs::read_dir(&dir) {
+        for e in rd.flatten() {
+            let p = e.path();
+            if p.extension().and_then(|x| x.to_str()) != Some("yaml") {
+                continue;
+            }
+            if let Ok(content) = std::fs::read_to_string(&p) {
+                if let Ok(val) = yaml_serde::from_str::<yaml_serde::Value>(&content) {
+                    if let Some(rules) = val.get("rules").and_then(|v| v.as_sequence()) {
+                        all_rules.extend(rules.clone());
+                    } else if let Some(rules) = val.as_sequence() {
+                        all_rules.extend(rules.clone());
+                    }
+                }
+            }
+        }
+    }
+    let mut m = yaml_serde::Mapping::new();
+    m.insert(yaml_serde::Value::String("rules".into()), yaml_serde::Value::Sequence(all_rules));
+    let root = yaml_serde::Value::Mapping(m);
+    let yaml_str = yaml_serde::to_string(&root).unwrap_or_else(|_| "rules: []\n".into());
+    ([(axum::http::header::CONTENT_TYPE, "text/yaml; charset=utf-8")], yaml_str)
 }
 
 // ---------------- Company (signer) allow / block lists ----------------

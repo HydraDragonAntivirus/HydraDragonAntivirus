@@ -30,6 +30,7 @@ pub enum SigKind {
     HydraSig,
     ClamNdb,
     ClamLdb,
+    Firewall,
 }
 
 impl SigKind {
@@ -39,6 +40,7 @@ impl SigKind {
             "hydradragonsig" | "sig" => Some(Self::HydraSig),
             "clamav_ndb" | "ndb" => Some(Self::ClamNdb),
             "clamav_ldb" | "ldb" => Some(Self::ClamLdb),
+            "firewall" | "fw" | "firewall_rule" => Some(Self::Firewall),
             _ => None,
         }
     }
@@ -48,6 +50,7 @@ impl SigKind {
             Self::HydraSig => "hydradragonsig",
             Self::ClamNdb => "clamav_ndb",
             Self::ClamLdb => "clamav_ldb",
+            Self::Firewall => "firewall",
         }
     }
     pub fn folder(self) -> &'static str {
@@ -55,6 +58,7 @@ impl SigKind {
             Self::Yara => "yara",
             Self::HydraSig => "hydradragonsig",
             Self::ClamNdb | Self::ClamLdb => "clamav",
+            Self::Firewall => "firewall",
         }
     }
     pub fn ext(self) -> &'static str {
@@ -63,9 +67,10 @@ impl SigKind {
             Self::HydraSig => "yaml",
             Self::ClamNdb => "ndb",
             Self::ClamLdb => "ldb",
+            Self::Firewall => "yaml",
         }
     }
-    pub const ALL: [SigKind; 4] = [Self::Yara, Self::HydraSig, Self::ClamNdb, Self::ClamLdb];
+    pub const ALL: [SigKind; 5] = [Self::Yara, Self::HydraSig, Self::ClamNdb, Self::ClamLdb, Self::Firewall];
 
     pub fn path(self, name: &str) -> PathBuf {
         let dir = crate::human_review::analyst_dir().join(self.folder());
@@ -204,6 +209,41 @@ pub fn validate_hydrasig(src: &str) -> Result<usize, String> {
         }
     }
     Ok(rs.rules().len())
+}
+
+
+/// Validates a HydraDragon Firewall YAML rule set.
+/// Must parse as valid YAML containing either a `rules:` list or a top-level list of rules.
+/// Verifies each rule has `name` (or `id`) and an acceptable action.
+pub fn validate_firewall_yaml(src: &str) -> Result<usize, String> {
+    let val: yaml_serde::Value = yaml_serde::from_str(src).map_err(|e| format!("YAML parse error: {e}"))?;
+    let rules = if let Some(r) = val.get("rules").and_then(|v| v.as_sequence()) {
+        r
+    } else if let Some(seq) = val.as_sequence() {
+        seq
+    } else {
+        return Err("Firewall YAML must contain either a 'rules:' mapping or a top-level list of rules".into());
+    };
+    if rules.is_empty() {
+        return Err("No rules found in firewall YAML".into());
+    }
+    for (idx, r) in rules.iter().enumerate() {
+        let name = r.get("name")
+            .or_else(|| r.get("id"))
+            .or_else(|| r.get("rule_name"))
+            .and_then(|v| v.as_str());
+        if name.is_none() || name.unwrap().trim().is_empty() {
+            return Err(format!("Rule #{idx} is missing 'name' or 'id'"));
+        }
+        if let Some(act) = r.get("action").and_then(|v| v.as_str()) {
+            let act_low = act.to_ascii_lowercase();
+            match act_low.as_str() {
+                "block" | "drop" | "reject" | "allow" | "pass" | "traffic_attack" | "alert" | "terminate" | "quarantine" | "kill_and_remove" => {},
+                other => return Err(format!("Rule #{idx} has unknown action '{other}' (expected block, allow, traffic_attack, terminate, quarantine, kill_and_remove)")),
+            }
+        }
+    }
+    Ok(rules.len())
 }
 
 // ------------------------------------------------------------------ runtime

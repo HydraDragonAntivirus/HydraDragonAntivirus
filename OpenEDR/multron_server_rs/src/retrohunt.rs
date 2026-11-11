@@ -127,6 +127,7 @@ impl Matcher {
                 Ok(Matcher::Clam(engine))
             }
             SigKind::HydraSig => RuleSet::from_yaml_str(source).map(Matcher::Sig).map_err(|e| format!("{e:#}")),
+            SigKind::Firewall => Err("firewall rules filter network traffic, they do not scan static file archives".into()),
         }
     }
 
