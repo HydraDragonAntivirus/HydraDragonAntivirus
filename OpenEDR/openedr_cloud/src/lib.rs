@@ -131,6 +131,23 @@ pub extern "C" fn openedr_static_scan_bytes(
     openedr_cloud_scan_bytes(data, len, file_name)
 }
 
+/// Firewall reputation lookup of an IP address or certificate SHA-1.
+/// Returns 1 = malicious, 0 = not listed, -1 = cloud could not be asked.
+#[unsafe(no_mangle)]
+pub extern "C" fn openedr_cloud_check_intel(target: *const c_char) -> i32 {
+    if target.is_null() {
+        return -1;
+    }
+    let Ok(target) = unsafe { CStr::from_ptr(target) }.to_str() else {
+        return -1;
+    };
+    match cloud_client::check_intel(target) {
+        Some(true) => 1,
+        Some(false) => 0,
+        None => -1,
+    }
+}
+
 #[unsafe(no_mangle)]
 pub extern "C" fn openedr_cloud_scan_url(url: *const c_char) -> *mut c_char {
     if url.is_null() {

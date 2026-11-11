@@ -212,6 +212,31 @@ pub fn query_cloud_threat_target(target: &str) -> Option<WebThreatMatch> {
             return None;
         }
 
+        // Preferred path: the cloud DLL's lightweight `intel` lookup (own
+        // connection, answered from server-side lists in milliseconds). The
+        // full URL scan below is only the fallback for an older DLL: it costs
+        // the server a DNS probe + page fetch per target (seconds) and shares
+        // the file-scan connection, which made file verdicts time out.
+        type CheckIntelFn = unsafe extern "C" fn(*const std::os::raw::c_char) -> i32;
+        static INTEL_FN: std::sync::OnceLock<Option<CheckIntelFn>> = std::sync::OnceLock::new();
+        let intel_fn = INTEL_FN.get_or_init(|| unsafe {
+            let wide: Vec<u16> = "openedr_cloud.dll\0".encode_utf16().collect();
+            let h = GetModuleHandleW(PCWSTR(wide.as_ptr()))
+                .or_else(|_| LoadLibraryW(PCWSTR(wide.as_ptr())))
+                .ok()?;
+            let p = GetProcAddress(h, PCSTR(b"openedr_cloud_check_intel\0".as_ptr()))?;
+            Some(std::mem::transmute::<_, CheckIntelFn>(p))
+        });
+        if let Some(check) = *intel_fn {
+            let c_target = std::ffi::CString::new(target).ok()?;
+            return (unsafe { check(c_target.as_ptr()) } == 1).then(|| {
+                WebThreatMatch::ip(
+                    target.to_string(),
+                    format!("VirusKov Cloud Threat Intelligence: {}", target),
+                )
+            });
+        }
+
         type ScanUrlFn = unsafe extern "C" fn(*const std::os::raw::c_char) -> *mut std::os::raw::c_char;
         type FreeFn = unsafe extern "C" fn(*mut std::os::raw::c_char);
 

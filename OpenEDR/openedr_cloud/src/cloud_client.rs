@@ -223,6 +223,16 @@ impl CloudSession {
         Ok(self.socket.as_mut().unwrap())
     }
 
+    /// Gives up on a request whose reply did not arrive in time. The server
+    /// works through one connection's messages in order, so a reply that is
+    /// still being computed would make every later request on this socket
+    /// wait behind it (one slow scan turned the following ones into
+    /// timeouts too). Reconnecting starts clean; unlike `drop_connection`
+    /// this is not a connection failure, so no retry throttle is armed.
+    fn abandon_request(&mut self) {
+        self.socket = None;
+    }
+
     fn drop_connection(&mut self) {
         self.socket = None;
         self.last_failure = Some(Instant::now());
@@ -240,6 +250,68 @@ where
         *guard = Some(CloudSession::new());
     }
     f(guard.as_mut().unwrap())
+}
+
+/// Dedicated session for firewall reputation lookups. The server handles one
+/// connection's messages serially, so sharing `CLIENT` made file scans queue
+/// behind per-IP lookups (and vice versa); this keeps the two independent.
+static INTEL_CLIENT: Mutex<Option<CloudSession>> = Mutex::new(None);
+
+/// Lightweight reputation lookup of a firewall target (IP address or
+/// certificate SHA-1) via the cloud `intel` message. `Some(malicious)` when
+/// the cloud answered, `None` when it could not be asked (offline, timeout,
+/// or a server without `intel` support).
+pub fn check_intel(target: &str) -> Option<bool> {
+    let mut guard = INTEL_CLIENT.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    let session = guard.get_or_insert_with(CloudSession::new);
+    let req_id = session.next_request_id();
+    let socket = session.ensure_connected().ok()?;
+
+    let req = serde_json::json!({ "type": "intel", "id": req_id, "url": target });
+    if socket.send(Message::Text(req.to_string().into())).is_err() {
+        session.drop_connection();
+        return None;
+    }
+
+    let start = Instant::now();
+    loop {
+        if start.elapsed() > Duration::from_secs(5) {
+            // Drop it: a late reply must not be mistaken for a later request's.
+            session.drop_connection();
+            return None;
+        }
+        let msg = match socket.read() {
+            Ok(m) => m,
+            Err(_) => {
+                session.drop_connection();
+                return None;
+            }
+        };
+        match msg {
+            Message::Text(txt) => {
+                let Ok(val) = serde_json::from_str::<serde_json::Value>(&txt) else {
+                    continue;
+                };
+                if val.get("id").and_then(|x| x.as_i64()) != Some(req_id) {
+                    continue;
+                }
+                return match val.get("type").and_then(|x| x.as_str()) {
+                    Some("intel_result") => Some(
+                        val.get("result")
+                            .and_then(|r| r.get("malicious"))
+                            .and_then(|m| m.as_bool())
+                            .unwrap_or(false),
+                    ),
+                    // "error": unsupported by this server, or a bad target.
+                    _ => None,
+                };
+            }
+            Message::Ping(p) => {
+                let _ = socket.send(Message::Pong(p));
+            }
+            _ => {}
+        }
+    }
 }
 
 /// Computes SHA256 hex string for a given reader.
@@ -389,6 +461,7 @@ pub fn scan_file(path: &Path) -> FileScanReport {
         let start = Instant::now();
         loop {
             if start.elapsed() > Duration::from_secs(12) {
+                session.abandon_request();
                 return Err("Cloud query timed out".to_string());
             }
 
@@ -511,6 +584,7 @@ pub fn scan_bytes(data: &[u8], name: &str) -> (String, Vec<DetectionItem>, Strin
         let start = Instant::now();
         loop {
             if start.elapsed() > Duration::from_secs(12) {
+                session.abandon_request();
                 return Err("Cloud query timed out".to_string());
             }
 
@@ -597,6 +671,7 @@ pub fn scan_url(url: &str) -> UrlScanReport {
         let start = Instant::now();
         loop {
             if start.elapsed() > Duration::from_secs(8) {
+                session.abandon_request();
                 return Err("Cloud URL query timed out".to_string());
             }
 
@@ -701,6 +776,7 @@ pub fn check_registry(reg_path: &str) -> String {
         let start = Instant::now();
         loop {
             if start.elapsed() > Duration::from_secs(8) {
+                session.abandon_request();
                 return Err("Cloud registry query timed out".to_string());
             }
 
@@ -774,6 +850,7 @@ pub fn get_registry_targets() -> String {
         let start = Instant::now();
         loop {
             if start.elapsed() > Duration::from_secs(8) {
+                session.abandon_request();
                 return Err("Cloud targets query timed out".to_string());
             }
 
@@ -857,6 +934,7 @@ pub fn scan_evtx(path: &Path) -> String {
         let start = Instant::now();
         loop {
             if start.elapsed() > Duration::from_secs(30) {
+                session.abandon_request();
                 return Err("EVTX scan timed out".to_string());
             }
 
@@ -957,6 +1035,7 @@ pub fn scan_system_events() -> String {
         let start = Instant::now();
         loop {
             if start.elapsed() > Duration::from_secs(15) {
+                session.abandon_request();
                 return Err("System events query timed out".to_string());
             }
 

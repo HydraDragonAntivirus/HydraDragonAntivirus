@@ -1284,6 +1284,25 @@ async fn session_loop(
                     Err(err) => send_error(out, Some(msg.id), &err),
                 }
             }
+            "intel" => {
+                // Firewall reputation lookup: answered from local data only
+                // (SSLBL store / engine rules + CIDR). No DNS, no page fetch —
+                // a full `scan_url` takes seconds per target and, since this
+                // loop is serial per connection, starved everything queued
+                // behind it (file checks timed out client-side).
+                let target = msg.url.unwrap_or(msg.name);
+                match intel_lookup(server, &target) {
+                    Ok(result) => {
+                        let res_msg = serde_json::json!({
+                            "type": "intel_result",
+                            "id": msg.id,
+                            "result": result,
+                        });
+                        send_json(out, &res_msg);
+                    }
+                    Err(err) => send_error(out, Some(msg.id), &err),
+                }
+            }
             "check_registry" => {
                 if server.maintenance() {
                     send_error(out, Some(msg.id), server.maintenance_message());
@@ -2483,6 +2502,38 @@ fn merge_url_reports(
     server.risk_score = risk_score;
     server.verdict_reason = verdict_reason;
     Ok(server)
+}
+
+/// Offline reputation of a firewall target: a certificate SHA-1 (Abuse.ch
+/// SSLBL) or a bare IP address (engine URL rules + CIDR lists). Never touches
+/// the network, so it answers in microseconds.
+fn intel_lookup(server: &Arc<ScanServer>, raw: &str) -> Result<serde_json::Value, String> {
+    let target = raw.trim();
+    if let Some(sha1) = crate::sslbl::as_cert_sha1(target) {
+        let hit = crate::sslbl::sslbl_store().lookup(&sha1);
+        return Ok(serde_json::json!({
+            "target": sha1,
+            "kind": "ssl_cert_sha1",
+            "malicious": hit.is_some(),
+            "reason": hit.map(|e| e.reason),
+        }));
+    }
+    let ip: std::net::IpAddr = target
+        .trim_matches(|c| c == '[' || c == ']')
+        .parse()
+        .map_err(|_| "intel: target must be an IP address or a certificate SHA-1".to_string())?;
+    // Loopback / LAN / reserved addresses are never judged.
+    if crate::liveness::is_internal_target(target) {
+        return Ok(serde_json::json!({ "target": ip.to_string(), "kind": "ip", "malicious": false, "reason": null }));
+    }
+    let report = server.engine.inspect_url(target, crate::liveness::LIVENESS_UNKNOWN, None)?;
+    let malicious = report.verdict == "Malicious";
+    Ok(serde_json::json!({
+        "target": ip.to_string(),
+        "kind": "ip",
+        "malicious": malicious,
+        "reason": if malicious { Some(report.verdict_reason) } else { None },
+    }))
 }
 
 pub async fn execute_url_scan(
