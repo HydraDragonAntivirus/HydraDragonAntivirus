@@ -346,7 +346,7 @@ pub fn dashboard_router(state: Arc<AppState>) -> Router {
         .route("/api/v1/firewall/sslbl", get(crate::sslbl::handle_get_sslbl))
         .route("/api/v1/firewall/sslbl/add", post(crate::sslbl::handle_add_sslbl))
         .route("/api/v1/firewall/sslbl/delete", post(crate::sslbl::handle_delete_sslbl))
-        .route("/api/v1/firewall/sslbl/import-abusech", post(crate::sslbl::handle_import_abusech_sslbl))
+        .route("/api/v1/firewall/sslbl/import-abusech", post(crate::sslbl::handle_import_abusech_sslbl).route_layer(DefaultBodyLimit::max(64 * 1024 * 1024)))
         .route("/api/firewall/rules", get(handle_firewall_rules_export))
         .route("/api/v1/edr/report", post(crate::edr_telemetry::handle_edr_telemetry_threat))
         .route("/api/v1/edr/upload/:sha256", post(crate::edr_telemetry::handle_edr_upload).route_layer(DefaultBodyLimit::max(128 * 1024 * 1024)))

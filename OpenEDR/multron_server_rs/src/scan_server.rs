@@ -2496,6 +2496,37 @@ pub async fn execute_url_scan(
     if url_trimmed.is_empty() {
         return Err("URL cannot be empty".to_string());
     }
+    // A bare certificate SHA-1 is a firewall SSLBL lookup (Abuse.ch list held
+    // by this server), not a web address: answer from the blacklist store and
+    // skip DNS / fetch / engine entirely.
+    if let Some(sha1) = crate::sslbl::as_cert_sha1(url_trimmed) {
+        let hit = crate::sslbl::sslbl_store().lookup(&sha1);
+        return Ok(serde_json::json!({
+            "@timestamp": Utc::now().to_rfc3339(),
+            "ecs": { "version": "8.11.0" },
+            "event": {
+                "action": "sslbl_lookup",
+                "category": ["network", "threat"],
+                "kind": "alert",
+                "outcome": if hit.is_some() { "failure" } else { "success" },
+                "duration": started.elapsed().as_nanos() as i64
+            },
+            "antivirus": {
+                "engine": ENGINE_NAME,
+                "verdict": if hit.is_some() { "malicious" } else { "clean" },
+                "verdict_source": "sslbl",
+                "reason": hit.as_ref().map(|e| e.reason.clone()),
+            },
+            "threat": {
+                "indicator": {
+                    "type": "x509-certificate",
+                    "x509": { "hash": { "sha1": sha1 } },
+                    "whitelisted": false,
+                }
+            }
+        }));
+    }
+
     // Web addresses only: file://, ftp://, ... are not something to scan (a bare
     // `example.com` or `host:8080` has no "://" and is read as https).
     if let Some((scheme, _)) = url_trimmed.split_once("://") {

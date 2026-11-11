@@ -110,6 +110,12 @@ impl SslblStore {
         removed
     }
 
+    /// Blacklist entry for a certificate SHA-1 (any case, optional colons).
+    pub fn lookup(&self, sha1: &str) -> Option<SslblEntry> {
+        let clean = sha1.trim().replace(':', "").to_ascii_lowercase();
+        self.entries.read().unwrap().get(&clean).cloned()
+    }
+
     pub fn list(&self) -> Vec<SslblEntry> {
         let map = self.entries.read().unwrap();
         let mut list: Vec<SslblEntry> = map.values().cloned().collect();
@@ -152,6 +158,13 @@ impl SslblStore {
         }
         added
     }
+}
+
+/// `Some(lowercase sha1)` when `target` is a bare certificate fingerprint
+/// (40 hex chars, optionally colon-separated) rather than a URL / host / IP.
+pub fn as_cert_sha1(target: &str) -> Option<String> {
+    let clean = target.trim().replace(':', "").to_ascii_lowercase();
+    (clean.len() == 40 && clean.chars().all(|c| c.is_ascii_hexdigit())).then_some(clean)
 }
 
 // ---------------- REST API Handlers ----------------

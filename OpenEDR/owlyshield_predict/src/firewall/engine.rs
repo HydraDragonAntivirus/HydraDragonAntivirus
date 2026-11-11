@@ -1266,6 +1266,8 @@ pub struct AppManager {
     pub cloud_trusted_pids: RwLock<HashSet<u32>>,
     pub openedr_verdicts: RwLock<HashMap<u32, String>>,
     pub sig_cache: RwLock<HashMap<String, SigInfo>>,
+    /// Paths whose signature verification is running on a background thread.
+    pub sig_inflight: Mutex<HashSet<String>>,
     pub port_neg_cache: RwLock<HashMap<u16, Instant>>,
     /// Tracks which slot (0-based) the user is currently viewing, for the position counter.
     pub view_index: AtomicU64,
@@ -1286,6 +1288,7 @@ impl AppManager {
             cloud_trusted_pids: RwLock::new(HashSet::new()),
             openedr_verdicts: RwLock::new(HashMap::new()),
             sig_cache: RwLock::new(HashMap::new()),
+            sig_inflight: Mutex::new(HashSet::new()),
             port_neg_cache: RwLock::new(HashMap::new()),
             view_index: AtomicU64::new(0),
         }
@@ -1327,6 +1330,36 @@ impl AppManager {
         let mut cache = self.sig_cache.write().unwrap();
         cache.insert(app_path.to_string(), info.clone());
         info
+    }
+
+    /// Non-blocking variant for the WinDivert packet path. Returns the cached
+    /// signature info, or `None` after kicking off verification on a
+    /// background thread (the result lands in `sig_cache`).
+    pub fn try_get_sig(self: &Arc<Self>, app_path: &str) -> Option<SigInfo> {
+        if app_path.is_empty() {
+            return Some(SigInfo::default());
+        }
+        if let Some(info) = self.sig_cache.read().unwrap().get(app_path) {
+            return Some(info.clone());
+        }
+        const MAX_INFLIGHT: usize = 8;
+        let mut inflight = self.sig_inflight.lock().unwrap();
+        if inflight.len() < MAX_INFLIGHT && inflight.insert(app_path.to_string()) {
+            let am = Arc::clone(self);
+            let path = app_path.to_string();
+            let spawned = std::thread::Builder::new()
+                .name("fw_sig_verify".to_string())
+                .spawn(move || {
+                    let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                        am.get_or_verify_sig(&path);
+                    }));
+                    am.sig_inflight.lock().unwrap().remove(&path);
+                });
+            if spawned.is_err() {
+                inflight.remove(app_path);
+            }
+        }
+        None
     }
 
     pub fn update_port_mapping(&self, port: u16, pid: u32) {
@@ -4235,7 +4268,7 @@ impl FirewallEngine {
             }
         }
 
-        // --- Pure CIDR Blacklist Scan (WebFilter) ---
+        // --- Cloud IP reputation (WebFilter; non-blocking, no local CIDR list) ---
         let remote_ip = if info.outbound { info.dst_ip } else { info.src_ip };
         let is_private_or_local = match remote_ip {
             IpAddr::V4(v4) => v4.is_loopback() || v4.is_private() || v4.is_link_local() || v4.is_broadcast() || v4.is_unspecified(),
@@ -4253,7 +4286,7 @@ impl FirewallEngine {
                     timestamp: now,
                     level: LogLevel::Warning,
                     message: format!(
-                        "CIDR Blocked: {} (pid={}) -> {}:{} ({})",
+                        "Threat Intel Blocked: {} (pid={}) -> {}:{} ({})",
                         app_info.name, pid, remote_ip, info.dst_port, web_match.reason
                     ),
                 });
@@ -4270,8 +4303,18 @@ impl FirewallEngine {
         }
 
         // --- TLS Server Certificate Blacklist Scan (Abuse.ch SSLBL) ---
-        if !outbound && super::tls_parser::is_tls_handshake(&data_vec) {
-            if let Some(cert_sha1) = super::tls_parser::extract_server_certificate_sha1(&data_vec) {
+        // `data_vec` is the whole IP packet; the TLS record starts at the
+        // transport payload, not at byte 0 (which is the IP header).
+        let tls_payload: &[u8] = if !outbound
+            && matches!(info.protocol, Protocol::TCP)
+            && payload_offset < data_vec.len()
+        {
+            &data_vec[payload_offset..]
+        } else {
+            &[]
+        };
+        if super::tls_parser::is_tls_handshake(tls_payload) {
+            if let Some(cert_sha1) = super::tls_parser::extract_server_certificate_sha1(tls_payload) {
                 if web_filter.is_ssl_blacklisted(&cert_sha1) {
                     stats.packets_total.fetch_add(1, Ordering::Relaxed);
                     stats.packets_blocked.fetch_add(1, Ordering::Relaxed);
@@ -4593,8 +4636,20 @@ impl FirewallEngine {
                             reason = Some(format!("Default Deny: awaiting authorization for {}", app_name));
                         }
                     }
+                    None if am.try_get_sig(&app_path).is_none() => {
+                        // Signature / cloud file verdict is still being
+                        // computed on a background thread. Never wait for it
+                        // here: it is a file hash + cloud round-trip, and a
+                        // blocked packet worker starves the WinDivert queue
+                        // (including the cloud query's own packets).
+                        if !cloud_wait_mode {
+                            should_forward = false;
+                            reason = Some(format!("Default Deny: verifying {}", app_name));
+                        }
+                    }
                     None => {
                         // Evaluate criteria for interactive HIPS prompting:
+                        // (cached by try_get_sig above, so this does not block)
                         let sig_info = am.get_or_verify_sig(&app_path);
                         let mut is_sig_untrusted = !sig_info.is_trusted;
                         if let Some(ref signer) = sig_info.signer_name {
@@ -4608,7 +4663,6 @@ impl FirewallEngine {
                         }
 
                         // OpenEDR cloud / FLS verdict verification
-                        let verdict_raw = am.openedr_verdicts.read().unwrap().get(&pid).cloned();
                         let is_viruskov_safe = sig_info.cloud_verdict.as_deref() == Some("safe");
                         let is_viruskov_malicious = sig_info.cloud_verdict.as_deref() == Some("malicious");
 

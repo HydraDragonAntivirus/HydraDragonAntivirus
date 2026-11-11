@@ -1,160 +1,22 @@
 use moka::sync::Cache;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
-use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
-use std::path::{Path, PathBuf};
+use std::net::IpAddr;
+use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
 use std::time::Duration;
 
-#[derive(Clone, Debug, Default)]
-struct CidrIndex {
-    v4: Vec<(u32, u32)>,
-    v6: Vec<(u128, u128)>,
-}
-
-impl CidrIndex {
-    fn add(&mut self, cidr: &str) -> bool {
-        let trimmed = cidr.trim();
-        if trimmed == "0.0.0.0/0"
-            || trimmed == "0.0.0.0"
-            || trimmed == "::/0"
-            || trimmed == "::"
-            || trimmed.ends_with("/0")
-        {
-            return false;
-        }
-        match Self::parse_interval(cidr) {
-            Some(CidrInterval::V4(start, end)) => {
-                self.v4.push((start, end));
-                true
-            }
-            Some(CidrInterval::V6(start, end)) => {
-                self.v6.push((start, end));
-                true
-            }
-            None => false,
-        }
-    }
-
-    fn normalize(&mut self) {
-        Self::merge_intervals_u32(&mut self.v4);
-        Self::merge_intervals_u128(&mut self.v6);
-    }
-
-    fn contains(&self, ip: IpAddr) -> bool {
-        match ip {
-            IpAddr::V4(ipv4) => Self::contains_value(&self.v4, u32::from(ipv4)),
-            IpAddr::V6(ipv6) => Self::contains_value(&self.v6, u128::from(ipv6)),
-        }
-    }
-
-    fn parse_interval(cidr: &str) -> Option<CidrInterval> {
-        let cidr = cidr.trim();
-        if let Some((network, prefix)) = cidr.split_once('/') {
-            let prefix_len = prefix.parse::<u32>().ok()?;
-
-            if let Ok(ipv4) = network.parse::<Ipv4Addr>() {
-                // 0.0.0.0/0 protection: prefix_len == 0 or unspecified IP matches entire IPv4 space
-                if prefix_len == 0 || prefix_len > 32 || ipv4.is_unspecified() {
-                    return None;
-                }
-                let mask = !0u32 << (32 - prefix_len);
-                let start = u32::from(ipv4) & mask;
-                let end = start | !mask;
-                return Some(CidrInterval::V4(start, end));
-            }
-
-            if let Ok(ipv6) = network.parse::<Ipv6Addr>() {
-                // ::/0 protection: prefix_len == 0 or unspecified IP matches entire IPv6 space
-                if prefix_len == 0 || prefix_len > 128 || ipv6.is_unspecified() {
-                    return None;
-                }
-                let mask = !0u128 << (128 - prefix_len);
-                let start = u128::from(ipv6) & mask;
-                let end = start | !mask;
-                return Some(CidrInterval::V6(start, end));
-            }
-
-            return None;
-        }
-
-        match cidr.parse::<IpAddr>().ok()? {
-            IpAddr::V4(ipv4) => {
-                if ipv4.is_unspecified() || ipv4.is_broadcast() {
-                    return None;
-                }
-                let value = u32::from(ipv4);
-                Some(CidrInterval::V4(value, value))
-            }
-            IpAddr::V6(ipv6) => {
-                if ipv6.is_unspecified() {
-                    return None;
-                }
-                let value = u128::from(ipv6);
-                Some(CidrInterval::V6(value, value))
-            }
-        }
-    }
-
-    fn merge_intervals_u32(intervals: &mut Vec<(u32, u32)>) {
-        intervals.sort_unstable();
-        let mut merged: Vec<(u32, u32)> = Vec::with_capacity(intervals.len());
-
-        for &(start, end) in intervals.iter() {
-            let Some(last) = merged.last_mut() else {
-                merged.push((start, end));
-                continue;
-            };
-
-            if start > last.1.saturating_add(1) {
-                merged.push((start, end));
-            } else if end > last.1 {
-                last.1 = end;
-            }
-        }
-
-        *intervals = merged;
-    }
-
-    fn merge_intervals_u128(intervals: &mut Vec<(u128, u128)>) {
-        intervals.sort_unstable();
-        let mut merged: Vec<(u128, u128)> = Vec::with_capacity(intervals.len());
-
-        for &(start, end) in intervals.iter() {
-            let Some(last) = merged.last_mut() else {
-                merged.push((start, end));
-                continue;
-            };
-
-            if start > last.1.saturating_add(1) {
-                merged.push((start, end));
-            } else if end > last.1 {
-                last.1 = end;
-            }
-        }
-
-        *intervals = merged;
-    }
-
-    fn contains_value<T>(intervals: &[(T, T)], value: T) -> bool
-    where
-        T: Copy + Ord,
-    {
-        let index = intervals.partition_point(|&(start, _)| start <= value);
-        index > 0 && intervals[index - 1].1 >= value
-    }
-}
-
-enum CidrInterval {
-    V4(u32, u32),
-    V6(u128, u128),
-}
-
 #[derive(Clone)]
 pub struct WebFilter {
-    cidr_blocklist: Arc<RwLock<CidrIndex>>,
     clean_flow_cache: Cache<(IpAddr, IpAddr, u16), ()>,
     ssl_blacklist: Arc<RwLock<std::collections::HashSet<String>>>,
+    /// Resolved cloud verdicts (target -> is_malicious). Filled ONLY by the
+    /// background `fw_cloud_intel` thread, read lock-free by packet workers.
+    cloud_verdicts: Cache<String, bool>,
+    /// Targets already queued for a cloud lookup (dedupe; short TTL so a
+    /// lost lookup is retried).
+    cloud_inflight: Cache<String, ()>,
+    cloud_tx: crossbeam_channel::Sender<String>,
 }
 
 impl Default for WebFilter {
@@ -165,8 +27,42 @@ impl Default for WebFilter {
 
 impl WebFilter {
     pub fn new() -> Self {
+        let cloud_verdicts: Cache<String, bool> = Cache::builder()
+            .max_capacity(65536)
+            .time_to_live(Duration::from_secs(300))
+            .build();
+        let cloud_inflight: Cache<String, ()> = Cache::builder()
+            .max_capacity(4096)
+            .time_to_live(Duration::from_secs(30))
+            .build();
+        let (cloud_tx, cloud_rx) = crossbeam_channel::bounded::<String>(1024);
+
+        // The cloud query is a synchronous WebSocket round-trip (seconds, and
+        // serialized on one global session mutex). It must NEVER run on a
+        // WinDivert packet worker: the query's own packets need a free worker
+        // to be reinjected, so workers blocked on it deadlock the whole
+        // network. This thread is the only caller on the packet path's behalf.
+        {
+            let verdicts = cloud_verdicts.clone();
+            let inflight = cloud_inflight.clone();
+            let _ = std::thread::Builder::new()
+                .name("fw_cloud_intel".to_string())
+                .spawn(move || {
+                    for target in cloud_rx {
+                        let hit = std::panic::catch_unwind(|| {
+                            query_cloud_threat_target(&target).is_some()
+                        })
+                        .unwrap_or(false);
+                        verdicts.insert(target.clone(), hit);
+                        inflight.invalidate(&target);
+                    }
+                });
+        }
+
         Self {
-            cidr_blocklist: Arc::new(RwLock::new(CidrIndex::default())),
+            cloud_verdicts,
+            cloud_inflight,
+            cloud_tx,
             clean_flow_cache: Cache::builder()
                 .max_capacity(65536)
                 .time_to_live(Duration::from_secs(300))
@@ -184,12 +80,27 @@ impl WebFilter {
         if self.ssl_blacklist.read().unwrap().contains(&clean) {
             return true;
         }
-        // Also check cloud threat intel target directly
-        if query_cloud_threat_target(&clean).is_some() {
+        // Also check cloud threat intel (non-blocking: resolved in background)
+        if self.cloud_verdict_nonblocking(&clean) == Some(true) {
             self.ssl_blacklist.write().unwrap().insert(clean);
             return true;
         }
         false
+    }
+
+    /// Cloud verdict for `target` without ever blocking the caller.
+    /// `Some(malicious)` once resolved; `None` while the lookup is queued or
+    /// in flight (callers fail open until the verdict lands).
+    fn cloud_verdict_nonblocking(&self, target: &str) -> Option<bool> {
+        if let Some(v) = self.cloud_verdicts.get(target) {
+            return Some(v);
+        }
+        if !self.cloud_inflight.contains_key(target)
+            && self.cloud_tx.try_send(target.to_string()).is_ok()
+        {
+            self.cloud_inflight.insert(target.to_string(), ());
+        }
+        None
     }
 
     pub fn add_ssl_blacklist_entry(&self, sha1: &str) {
@@ -207,21 +118,42 @@ impl WebFilter {
         if self.clean_flow_cache.contains_key(&flow_key) {
             return None;
         }
-        match self.find_match(remote_ip) {
-            Some(m) => Some(m),
-            None => {
-                self.clean_flow_cache.insert(flow_key, ());
-                None
+        let (hit, resolved) = self.find_match_state(remote_ip);
+        // Only cache the flow as clean once the cloud verdict is actually
+        // known; a still-pending lookup must be re-checked on later packets
+        // so a malicious verdict takes effect as soon as it lands.
+        if hit.is_none() && resolved {
+            self.clean_flow_cache.insert(flow_key, ());
+        }
+        hit
+    }
+
+    /// Returns `(match, resolved)`. Never blocks: the cloud part is answered
+    /// from the verdict cache, and `resolved == false` means the lookup is
+    /// still pending in the background.
+    fn find_match_state(&self, remote_ip: IpAddr) -> (Option<WebThreatMatch>, bool) {
+        if remote_ip.is_unspecified() || remote_ip.is_loopback() {
+            return (None, true);
+        }
+
+        // viruskov.com cloud threat intel (background-resolved)
+        let ip_str = remote_ip.to_string();
+        match self.cloud_verdict_nonblocking(&ip_str) {
+            Some(true) => {
+                let reason = format!("VirusKov Cloud Threat Intelligence: {}", ip_str);
+                (Some(WebThreatMatch::ip(ip_str, reason)), true)
             }
+            Some(false) => (None, true),
+            None => (None, false),
         }
     }
 
+    /// No local CIDR blocklist is loaded: IP reputation lives in the cloud
+    /// only (the in-memory CIDR index just burned RAM). Locally we keep the
+    /// firewall rule set (SDK rules) and the small SSL certificate blacklist.
     pub fn load_default() -> Self {
         let filter = Self::new();
-        let path = Self::get_threat_intel_path();
-        if path.exists() {
-            let _ = filter.load_from_folder(&path);
-        }
+        filter.load_ssl_blacklist(&Self::get_threat_intel_path());
         filter
     }
 
@@ -243,59 +175,18 @@ impl WebFilter {
         PathBuf::from(r"C:\Program Files\HydraDragonAntivirus\OpenEDR\threat_intel")
     }
 
-    pub fn load_from_folder(&self, base_path: &Path) -> std::io::Result<usize> {
-        let mut count = 0;
-
-        let v4_file = base_path.join("CIDRBlackListIPv4.txt");
-        if v4_file.exists() {
-            if let Ok(c) = self.load_txt_file(&v4_file) {
-                count += c;
+    /// Loads `ssl_blacklist.txt` (one SHA-1 per line) from the threat-intel folder.
+    fn load_ssl_blacklist(&self, base_path: &std::path::Path) {
+        let Ok(file) = File::open(base_path.join("ssl_blacklist.txt")) else {
+            return;
+        };
+        let mut ssl_set = self.ssl_blacklist.write().unwrap();
+        for line in BufReader::new(file).lines().map_while(Result::ok) {
+            let trimmed = line.trim().replace(':', "").to_ascii_lowercase();
+            if trimmed.len() == 40 && !trimmed.starts_with('#') {
+                ssl_set.insert(trimmed);
             }
         }
-
-        let v6_file = base_path.join("CIDRBlackListIPv6.txt");
-        if v6_file.exists() {
-            if let Ok(c) = self.load_txt_file(&v6_file) {
-                count += c;
-            }
-        }
-
-        self.cidr_blocklist.write().unwrap().normalize();
-
-        let ssl_file = base_path.join("ssl_blacklist.txt");
-        if ssl_file.exists() {
-            if let Ok(file) = File::open(&ssl_file) {
-                let reader = BufReader::new(file);
-                let mut ssl_set = self.ssl_blacklist.write().unwrap();
-                for line in reader.lines().map_while(Result::ok) {
-                    let trimmed = line.trim().replace(':', "").to_ascii_lowercase();
-                    if trimmed.len() == 40 && !trimmed.starts_with('#') {
-                        ssl_set.insert(trimmed);
-                    }
-                }
-            }
-        }
-
-        Ok(count)
-    }
-
-    fn load_txt_file(&self, path: &Path) -> std::io::Result<usize> {
-        let file = File::open(path)?;
-        let reader = BufReader::new(file);
-        let mut count = 0;
-        let mut cidr_blocklist = self.cidr_blocklist.write().unwrap();
-
-        for line in reader.lines().map_while(Result::ok) {
-            let trimmed = line.trim();
-            if trimmed.is_empty() || trimmed.starts_with('#') {
-                continue;
-            }
-            if cidr_blocklist.add(trimmed) {
-                count += 1;
-            }
-        }
-
-        Ok(count)
     }
 
     pub fn is_blocked_ip(&self, ip: IpAddr) -> bool {
@@ -303,32 +194,11 @@ impl WebFilter {
         if ip.is_unspecified() || ip.is_loopback() {
             return false;
         }
-        if self.cidr_blocklist.read().unwrap().contains(ip) {
-            return true;
-        }
         query_cloud_threat_target(&ip.to_string()).is_some()
     }
 
     pub fn find_match(&self, remote_ip: IpAddr) -> Option<WebThreatMatch> {
-        if remote_ip.is_unspecified() || remote_ip.is_loopback() {
-            return None;
-        }
-
-        // 1. Check local in-memory CIDR index if available
-        if self.cidr_blocklist.read().unwrap().contains(remote_ip) {
-            return Some(WebThreatMatch::ip(
-                remote_ip.to_string(),
-                format!("Blocked Malicious CIDR: {}", remote_ip),
-            ));
-        }
-
-        // 2. Query viruskov.com cloud threat intel directly
-        let ip_str = remote_ip.to_string();
-        if let Some(cloud_hit) = query_cloud_threat_target(&ip_str) {
-            return Some(cloud_hit);
-        }
-
-        None
+        self.find_match_state(remote_ip).0
     }
 }
 

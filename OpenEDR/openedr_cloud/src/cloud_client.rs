@@ -154,6 +154,23 @@ impl CloudSession {
             }
         };
 
+        // Bound every blocking read/write. `socket.read()` otherwise blocks
+        // forever when the reply never arrives, and the per-request elapsed
+        // checks only run *between* messages — so one lost reply would hold
+        // the global CLIENT mutex (and every caller queued on it) for good.
+        {
+            let io_timeout = Some(Duration::from_secs(30));
+            let tcp = match socket.get_ref() {
+                MaybeTlsStream::Plain(s) => Some(s),
+                MaybeTlsStream::Rustls(s) => Some(s.get_ref()),
+                _ => None,
+            };
+            if let Some(tcp) = tcp {
+                let _ = tcp.set_read_timeout(io_timeout);
+                let _ = tcp.set_write_timeout(io_timeout);
+            }
+        }
+
         // Handshake: send hello (v3)
         let hello_msg = serde_json::json!({
             "type": "hello",
@@ -603,7 +620,18 @@ pub fn scan_url(url: &str) -> UrlScanReport {
 
                     if msg_id == req_id && msg_type == "url_result" {
                         let res_obj = val.get("result").cloned().unwrap_or(serde_json::Value::Null);
-                        let is_mal = res_obj.get("is_malicious").and_then(|m| m.as_bool()).unwrap_or(false);
+                        // The server answers with an ECS document: the verdict
+                        // lives at `antivirus.verdict`, not in a flat
+                        // `is_malicious` flag (kept as a fallback for older
+                        // servers). Reading only the flat flag made every
+                        // cloud verdict come back clean.
+                        let ecs_malicious = res_obj
+                            .get("antivirus")
+                            .and_then(|a| a.get("verdict"))
+                            .and_then(|v| v.as_str())
+                            .is_some_and(|v| v.eq_ignore_ascii_case("malicious"));
+                        let is_mal = ecs_malicious
+                            || res_obj.get("is_malicious").and_then(|m| m.as_bool()).unwrap_or(false);
                         let prob = res_obj.get("malware_probability").and_then(|p| p.as_f64()).unwrap_or(0.0);
                         let white = res_obj.get("whitelisted").and_then(|w| w.as_bool()).unwrap_or(!is_mal);
                         let black = res_obj.get("blacklisted").and_then(|b| b.as_bool()).unwrap_or(is_mal);

@@ -687,6 +687,7 @@
         <button class="ghost" data-tab="Sources">Sources (IP)</button>
         <button class="ghost" data-tab="Private">&#128274; Private samples <span id="haPrivCount"></span></button>
         <button class="ghost" data-tab="Blacklist">&#128721; Blacklist overrides <span id="haBlCount"></span></button>
+        <button class="ghost" data-tab="Sslbl">&#128274; SSL Blacklist (Abuse.ch) <span id="haSslCount"></span></button>
         <button class="ghost" data-tab="EdrTelemetry">EDR Telemetry <span id="haEdrCount"></span></button>
       </div>
     </div>
@@ -976,6 +977,49 @@
         </table>
       </div>
     </div>
+    <div class="ha-tab" id="haTabSslbl" hidden>
+      <div class="hint" style="margin:-4px 0 10px">
+        <b>SSL certificate blacklist:</b> SHA-1 fingerprints of malicious TLS server certificates (botnet C2). The firewall looks up every server certificate it sees against this list and drops the connection on a match. Stored in <code>analyst_signatures/sslbl.jsonl</code>.
+      </div>
+
+      <div style="background:var(--panel2);border:1px solid var(--border);border-radius:8px;padding:10px 14px;margin-bottom:12px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+        <b style="font-size:12.5px;color:var(--text)">Add certificate:</b>
+        <input id="haSslAddHash" type="text" placeholder="SHA-1 fingerprint (40 hex, colons allowed)" style="font-family:Consolas,monospace;font-size:12px;width:330px">
+        <input id="haSslAddReason" type="text" placeholder="Reason (e.g. Cobalt Strike C2)" style="font-size:12px;flex:1;min-width:200px">
+        <button class="primary bad" id="haSslAddBtn" style="width:auto;padding:5px 14px;font-size:12.5px">Add to SSL Blacklist</button>
+      </div>
+
+      <div style="background:var(--panel2);border:1px solid var(--border);border-radius:8px;padding:10px 14px;margin-bottom:12px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+        <b style="font-size:12.5px;color:var(--text)">Import Abuse.ch CSV:</b>
+        <input id="haSslCsvFile" type="file" accept=".csv,.txt,text/csv,text/plain" style="font-size:12px">
+        <button class="primary" id="haSslImportBtn" style="width:auto;padding:5px 14px;font-size:12.5px">Import Abuse.ch CSV</button>
+        <span class="hint" style="margin:0">Format: <code>Listingdate,SHA1,Listingreason</code> (sslblacklist.csv from sslbl.abuse.ch)</span>
+      </div>
+
+      <div class="ha-toolbar" style="grid-template-columns:minmax(220px,1fr) auto">
+        <input id="haSslSearch" type="search" placeholder="Search (SHA-1, reason, analyst...)">
+        <button class="ghost" id="haSslRefresh" style="width:auto;padding:5px 12px">Refresh</button>
+      </div>
+      <div class="hint" id="haSslMsg" style="margin:6px 0 0"></div>
+
+      <div class="tablewrap ha-table" style="margin-top:10px;max-height:560px">
+        <table>
+          <thead>
+            <tr>
+              <th>SHA-1 fingerprint</th>
+              <th>Reason</th>
+              <th>Source</th>
+              <th>Added</th>
+              <th style="width:100px;text-align:right">Action</th>
+            </tr>
+          </thead>
+          <tbody id="haSslRows">
+            <tr><td colspan="5" class="empty">Loading SSL blacklist...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
     <div class="ha-tab" id="haTabUrls" hidden>
       <div class="ha-toolbar" style="grid-template-columns:minmax(180px,1fr) 260px">
         <input id="uiSearch" type="search" placeholder="Search URL, host or threat…">
@@ -2498,7 +2542,7 @@ window.sigKey = (list) => list && list.length ? `${list[0].layer}: ${list[0].nam
   // Tabs
   document.querySelectorAll("#haTabs button").forEach(b => b.onclick = () => {
     document.querySelectorAll("#haTabs button").forEach(x => x.classList.toggle("active", x === b));
-    ["Queue", "Folder", "Recent", "Urls", "Stats", "Rescan", "Alyzer", "Sources", "Private", "Blacklist", "EdrTelemetry"].forEach(t => { const el = $("haTab" + t); if (el) el.hidden = t !== b.dataset.tab; });
+    ["Queue", "Folder", "Recent", "Urls", "Stats", "Rescan", "Alyzer", "Sources", "Private", "Blacklist", "Sslbl", "EdrTelemetry"].forEach(t => { const el = $("haTab" + t); if (el) el.hidden = t !== b.dataset.tab; });
   });
   const haShowTab = (t) => document.querySelector(`#haTabs button[data-tab="${t}"]`).click();
 
@@ -4622,6 +4666,94 @@ window.sigKey = (list) => list && list.length ? `${list[0].layer}: ${list[0].nam
   const blTabBtn = document.querySelector('#haTabs button[data-tab="Blacklist"]');
   if (blTabBtn) blTabBtn.addEventListener("click", listBlacklistRemovals);
   listBlacklistRemovals();
+
+  // ---------------- SSL certificate blacklist (Abuse.ch SSLBL) ----------------
+  let haSslList = [];
+  const SSL_MAX_ROWS = 500;
+
+  function renderSslbl() {
+    const tbody = $("haSslRows");
+    if (!tbody) return;
+    const q = ($("haSslSearch") ? $("haSslSearch").value : "").trim().toLowerCase().replace(/:/g, "");
+    const hits = q
+      ? haSslList.filter(e => `${e.sha1} ${e.reason} ${e.analyst}`.toLowerCase().includes(q))
+      : haSslList;
+    if ($("haSslMsg")) {
+      $("haSslMsg").textContent = hits.length > SSL_MAX_ROWS
+        ? `Showing first ${SSL_MAX_ROWS} of ${hits.length.toLocaleString()} matching entries - narrow the search to see more.`
+        : "";
+    }
+    if (!hits.length) {
+      tbody.innerHTML = `<tr><td colspan="5" class="empty">${haSslList.length ? "No entries match the search." : "SSL blacklist is empty. Add a fingerprint or import the Abuse.ch CSV."}</td></tr>`;
+      return;
+    }
+    tbody.innerHTML = hits.slice(0, SSL_MAX_ROWS).map(e => `<tr>
+        <td style="font-family:Consolas,monospace;font-size:12px">${haEsc(e.sha1)}</td>
+        <td>${e.reason ? haEsc(e.reason) : '<span class="k">—</span>'}</td>
+        <td>${e.analyst ? haEsc(e.analyst) : '<span class="k">—</span>'}</td>
+        <td style="font-size:11.5px;color:var(--muted)">${haEsc(String(e.added_at || "").replace("T", " ").slice(0, 19))}</td>
+        <td style="text-align:right"><button class="ghost" data-ssl-del="${haEsc(e.sha1)}" style="padding:3px 8px;font-size:11.5px">Delete</button></td>
+      </tr>`).join("");
+    tbody.querySelectorAll("button[data-ssl-del]").forEach(btn => {
+      btn.onclick = async () => {
+        const h = btn.dataset.sslDel;
+        if (!confirm(`Remove certificate ${h.slice(0, 16)}... from the SSL blacklist? The firewall will stop blocking it.`)) return;
+        try {
+          await post("/api/v1/firewall/sslbl/delete", { sha1: h });
+          toast("Certificate removed from SSL blacklist");
+          listSslbl();
+        } catch (e) { alert("Error: " + e.message); }
+      };
+    });
+  }
+
+  async function listSslbl() {
+    const tbody = $("haSslRows");
+    if (!tbody) return;
+    try {
+      const d = await get("/api/v1/firewall/sslbl");
+      haSslList = d.entries || [];
+      if ($("haSslCount")) $("haSslCount").textContent = haSslList.length ? `(${haSslList.length.toLocaleString()})` : "";
+      renderSslbl();
+    } catch (e) {
+      tbody.innerHTML = `<tr><td colspan="5" class="empty" style="color:var(--red)">Failed to load SSL blacklist: ${haEsc(e.message)}</td></tr>`;
+    }
+  }
+
+  if ($("haSslAddBtn")) $("haSslAddBtn").onclick = async () => {
+    const raw = ($("haSslAddHash").value || "").trim().toLowerCase().replace(/:/g, "");
+    if (!/^[0-9a-f]{40}$/.test(raw)) { alert("Please enter a valid SHA-1 fingerprint (40 hex characters)."); return; }
+    const body = { sha1: raw, analyst: haAnalystName() };
+    const reason = ($("haSslAddReason").value || "").trim();
+    if (reason) body.reason = reason;
+    try {
+      await post("/api/v1/firewall/sslbl/add", body);
+      toast("Certificate added to SSL blacklist");
+      $("haSslAddHash").value = "";
+      $("haSslAddReason").value = "";
+      listSslbl();
+    } catch (e) { alert("Error: " + e.message); }
+  };
+
+  if ($("haSslImportBtn")) $("haSslImportBtn").onclick = async () => {
+    const f = $("haSslCsvFile").files[0];
+    if (!f) { alert("Choose the Abuse.ch sslblacklist.csv file first."); return; }
+    const btn = $("haSslImportBtn");
+    btn.disabled = true;
+    try {
+      const d = await post("/api/v1/firewall/sslbl/import-abusech", { csv: await f.text() });
+      toast(`Imported ${d.imported} certificates (total ${d.total})`);
+      $("haSslCsvFile").value = "";
+      listSslbl();
+    } catch (e) { alert("Import failed: " + e.message); }
+    finally { btn.disabled = false; }
+  };
+
+  if ($("haSslSearch")) $("haSslSearch").oninput = renderSslbl;
+  if ($("haSslRefresh")) $("haSslRefresh").onclick = listSslbl;
+  const sslTabBtn = document.querySelector('#haTabs button[data-tab="Sslbl"]');
+  if (sslTabBtn) sslTabBtn.addEventListener("click", listSslbl);
+  listSslbl();
 
   // ---------------- EDR Telemetry Management ----------------
   (() => {
