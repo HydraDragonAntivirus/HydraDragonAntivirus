@@ -34,6 +34,7 @@ pub struct AppState {
     pub events: Arc<EventLog>,
     pub scan_server: Arc<ScanServer>,
     pub threat_intel: Arc<ThreatIntelStore>,
+    pub edr_telemetry: Arc<crate::edr_telemetry::EdrTelemetryStore>,
     pub settings: RwLock<SavedSettings>,
     pub settings_path: PathBuf,
     pub listener_handle: Mutex<Option<ListenerControl>>,
@@ -146,6 +147,7 @@ impl AppState {
             events,
             scan_server,
             threat_intel,
+            edr_telemetry: Arc::new(crate::edr_telemetry::EdrTelemetryStore::new()),
             settings: RwLock::new(settings),
             settings_path,
             listener_handle: Mutex::new(None),
@@ -336,6 +338,12 @@ pub fn dashboard_router(state: Arc<AppState>) -> Router {
         .route("/api/v1/edr/telemetry/network-flows", post(crate::edr_telemetry::handle_edr_telemetry_network_flows))
         .route("/api/v1/edr/telemetry/threat", post(crate::edr_telemetry::handle_edr_telemetry_threat))
         .route("/api/v1/edr/telemetry/report", post(crate::edr_telemetry::handle_edr_telemetry_report))
+        .route("/api/v1/edr/telemetry/stats", get(crate::edr_telemetry::handle_get_edr_stats))
+        .route("/api/v1/edr/telemetry/behaviors", get(crate::edr_telemetry::handle_get_edr_behaviors))
+        .route("/api/v1/edr/telemetry/flows", get(crate::edr_telemetry::handle_get_edr_flows))
+        .route("/api/v1/edr/telemetry/threats", get(crate::edr_telemetry::handle_get_edr_threats))
+        .route("/api/v1/edr/report", post(crate::edr_telemetry::handle_edr_telemetry_threat))
+        .route("/api/v1/edr/upload/:sha256", post(crate::edr_telemetry::handle_edr_upload).route_layer(DefaultBodyLimit::max(128 * 1024 * 1024)))
         .route("/api/start", post(handle_start))
         .route("/api/stop", post(handle_stop))
         .route("/api/maintenance", get(handle_maintenance_status).post(handle_maintenance))

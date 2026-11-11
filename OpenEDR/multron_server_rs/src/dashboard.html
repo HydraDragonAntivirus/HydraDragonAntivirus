@@ -686,6 +686,7 @@
         <button class="ghost" data-tab="Sources">Sources (IP)</button>
         <button class="ghost" data-tab="Private">&#128274; Private samples <span id="haPrivCount"></span></button>
         <button class="ghost" data-tab="Blacklist">&#128721; Blacklist overrides <span id="haBlCount"></span></button>
+        <button class="ghost" data-tab="EdrTelemetry">EDR Telemetry <span id="haEdrCount"></span></button>
       </div>
     </div>
 
@@ -1265,6 +1266,128 @@
         </table>
       </div>
       <div class="hint" id="rsListHint"></div>
+    </div>
+
+    <div class="ha-tab" id="haTabEdrTelemetry" hidden>
+      <div class="hint" style="margin:-4px 0 10px">
+        <b>OpenEDR Live Telemetry Engine:</b> Real-time process behavior monitoring, WinDivert network flow captures, and dynamic threat telemetry ingested from connected endpoints.
+      </div>
+
+      <!-- Stat cards -->
+      <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px">
+        <div style="background:var(--panel2);border:1px solid var(--border);border-radius:8px;padding:8px 14px;flex:1;min-width:130px">
+          <div style="font-size:11px;color:var(--muted);text-transform:uppercase;font-weight:600">Total Behaviors</div>
+          <div style="font-size:20px;font-weight:700" id="edrStatBehaviors">0</div>
+        </div>
+        <div style="background:var(--panel2);border:1px solid var(--red);border-radius:8px;padding:8px 14px;flex:1;min-width:130px">
+          <div style="font-size:11px;color:var(--red);text-transform:uppercase;font-weight:600">Malicious Behaviors</div>
+          <div style="font-size:20px;font-weight:700;color:var(--red)" id="edrStatMalicious">0</div>
+        </div>
+        <div style="background:var(--panel2);border:1px solid var(--orange);border-radius:8px;padding:8px 14px;flex:1;min-width:130px">
+          <div style="font-size:11px;color:var(--orange);text-transform:uppercase;font-weight:600">Suspicious Behaviors</div>
+          <div style="font-size:20px;font-weight:700;color:var(--orange)" id="edrStatSuspicious">0</div>
+        </div>
+        <div style="background:var(--panel2);border:1px solid var(--border);border-radius:8px;padding:8px 14px;flex:1;min-width:130px">
+          <div style="font-size:11px;color:var(--green);text-transform:uppercase;font-weight:600">Clean Behaviors</div>
+          <div style="font-size:20px;font-weight:700;color:var(--green)" id="edrStatClean">0</div>
+        </div>
+        <div style="background:var(--panel2);border:1px solid var(--border);border-radius:8px;padding:8px 14px;flex:1;min-width:130px">
+          <div style="font-size:11px;color:var(--accent);text-transform:uppercase;font-weight:600">WinDivert Flows</div>
+          <div style="font-size:20px;font-weight:700;color:var(--accent)" id="edrStatFlows">0</div>
+        </div>
+        <div style="background:var(--panel2);border:1px solid var(--border);border-radius:8px;padding:8px 14px;flex:1;min-width:130px">
+          <div style="font-size:11px;color:var(--muted);text-transform:uppercase;font-weight:600">Threat Reports</div>
+          <div style="font-size:20px;font-weight:700" id="edrStatThreats">0</div>
+        </div>
+      </div>
+
+      <!-- Subtab switch & Toolbar -->
+      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:10px">
+        <div style="display:flex;gap:6px">
+          <button class="ghost active" id="haEdrViewBehaviors" style="padding:5px 12px;font-size:12.5px;font-weight:600">Process Behaviors</button>
+          <button class="ghost" id="haEdrViewFlows" style="padding:5px 12px;font-size:12.5px;font-weight:600">WinDivert Network Flows</button>
+          <button class="ghost" id="haEdrViewThreats" style="padding:5px 12px;font-size:12.5px;font-weight:600">Threat Reports</button>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center;flex:1;max-width:650px;justify-content:flex-end">
+          <select id="haEdrRiskF" style="width:130px;padding:5px 8px;font-size:12px">
+            <option value="all">Risk: All</option>
+            <option value="malicious">Malicious only</option>
+            <option value="suspicious">Suspicious only</option>
+            <option value="clean">Clean only</option>
+          </select>
+          <input id="haEdrSearch" type="search" placeholder="Search PID, process, command, IP, threat..." style="flex:1;padding:5px 9px;font-size:12px">
+          <button class="ghost" id="haEdrRefresh" style="padding:5px 12px;font-size:12px">Refresh</button>
+          <label style="display:flex;align-items:center;gap:4px;font-size:12px;color:var(--muted);white-space:nowrap;cursor:pointer">
+            <input type="checkbox" id="haEdrAuto" checked style="width:auto;margin:0"> Live
+          </label>
+        </div>
+      </div>
+
+      <!-- Behaviors Table Section -->
+      <div id="haEdrSecBehaviors">
+        <div class="tablewrap ha-table" style="max-height:560px">
+          <table>
+            <thead>
+              <tr>
+                <th style="width:110px">Time</th>
+                <th style="width:120px">Machine / PID</th>
+                <th>Process / Binary</th>
+                <th style="width:110px">Risk / Verdict</th>
+                <th>Detection / Threat</th>
+                <th>Command Line &amp; Indicators</th>
+                <th style="width:130px">I/O &amp; Entropy</th>
+              </tr>
+            </thead>
+            <tbody id="haEdrBehaviorRows">
+              <tr><td colspan="7" class="empty">No behavior telemetry ingested yet.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Network Flows Table Section -->
+      <div id="haEdrSecFlows" hidden>
+        <div class="tablewrap ha-table" style="max-height:560px">
+          <table>
+            <thead>
+              <tr>
+                <th style="width:110px">Time</th>
+                <th style="width:120px">Machine ID</th>
+                <th style="width:90px">PID</th>
+                <th>Process Name</th>
+                <th>Source Address</th>
+                <th>Destination Address</th>
+                <th style="width:80px">Proto</th>
+                <th>Domain / Hostname</th>
+              </tr>
+            </thead>
+            <tbody id="haEdrFlowRows">
+              <tr><td colspan="8" class="empty">No network flows ingested yet.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Threats Table Section -->
+      <div id="haEdrSecThreats" hidden>
+        <div class="tablewrap ha-table" style="max-height:560px">
+          <table>
+            <thead>
+              <tr>
+                <th style="width:110px">Time</th>
+                <th style="width:80px">PID</th>
+                <th>File Name &amp; Path</th>
+                <th>SHA-256</th>
+                <th>Detection Name</th>
+                <th style="width:100px">Source</th>
+              </tr>
+            </thead>
+            <tbody id="haEdrThreatRows">
+              <tr><td colspan="6" class="empty">No threat reports logged yet.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
     </div>
   </section>
 
@@ -2374,7 +2497,7 @@ window.sigKey = (list) => list && list.length ? `${list[0].layer}: ${list[0].nam
   // Tabs
   document.querySelectorAll("#haTabs button").forEach(b => b.onclick = () => {
     document.querySelectorAll("#haTabs button").forEach(x => x.classList.toggle("active", x === b));
-    ["Queue", "Folder", "Recent", "Urls", "Stats", "Rescan", "Alyzer", "Sources", "Private", "Blacklist"].forEach(t => { const el = $("haTab" + t); if (el) el.hidden = t !== b.dataset.tab; });
+    ["Queue", "Folder", "Recent", "Urls", "Stats", "Rescan", "Alyzer", "Sources", "Private", "Blacklist", "EdrTelemetry"].forEach(t => { const el = $("haTab" + t); if (el) el.hidden = t !== b.dataset.tab; });
   });
   const haShowTab = (t) => document.querySelector(`#haTabs button[data-tab="${t}"]`).click();
 
@@ -4495,6 +4618,215 @@ window.sigKey = (list) => list && list.length ? `${list[0].layer}: ${list[0].nam
   const blTabBtn = document.querySelector('#haTabs button[data-tab="Blacklist"]');
   if (blTabBtn) blTabBtn.addEventListener("click", listBlacklistRemovals);
   listBlacklistRemovals();
+
+  // ---------------- EDR Telemetry Management ----------------
+  (() => {
+    let edrActiveSub = "behaviors";
+    let edrTimer = null;
+
+    const edrEsc = (x) => String(x ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
+    async function loadEdrStats() {
+      try {
+        const res = await fetch("/api/v1/edr/telemetry/stats", { cache: "no-store" });
+        if (!res.ok) return;
+        const d = await res.json();
+        const total = (d.total_behaviors || 0) + (d.total_threats || 0);
+        if ($("haEdrCount")) $("haEdrCount").textContent = total ? `(${total})` : "";
+        if ($("edrStatBehaviors")) $("edrStatBehaviors").textContent = d.total_behaviors || 0;
+        if ($("edrStatMalicious")) $("edrStatMalicious").textContent = d.malicious_behaviors || 0;
+        if ($("edrStatSuspicious")) $("edrStatSuspicious").textContent = d.suspicious_behaviors || 0;
+        if ($("edrStatClean")) $("edrStatClean").textContent = d.clean_behaviors || 0;
+        if ($("edrStatFlows")) $("edrStatFlows").textContent = d.total_flows || 0;
+        if ($("edrStatThreats")) $("edrStatThreats").textContent = d.total_threats || 0;
+      } catch (_) {}
+    }
+
+    async function loadEdrBehaviors() {
+      const tbody = $("haEdrBehaviorRows");
+      if (!tbody) return;
+      try {
+        const risk = $("haEdrRiskF") ? $("haEdrRiskF").value : "all";
+        const q = ($("haEdrSearch") ? $("haEdrSearch").value : "").trim();
+        const res = await fetch(`/api/v1/edr/telemetry/behaviors?limit=150&risk=${encodeURIComponent(risk)}&q=${encodeURIComponent(q)}`, { cache: "no-store" });
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        const data = await res.json();
+        const items = data.behaviors || [];
+        if (!items.length) {
+          tbody.innerHTML = '<tr><td colspan="7" class="empty">No behaviors match filter.</td></tr>';
+          return;
+        }
+        tbody.innerHTML = items.map(b => {
+          const time = b.time_iso ? b.time_iso.slice(11, 19) : "";
+          const vClass = b.verdict === "malicious" ? "t-malicious" : b.verdict === "suspicious" ? "t-suspicious" : "t-clean";
+          const score = (b.risk_score || 0).toFixed(2);
+          const inds = (b.indicators && b.indicators.length) ? b.indicators.map(i => `<span class="sigc">${edrEsc(i)}</span>`).join(" ") : '<span style="color:var(--muted)">none</span>';
+          let ioHtml = '<span style="color:var(--muted)">—</span>';
+          if (b.ops_summary) {
+            const ops = b.ops_summary;
+            ioHtml = `<div style="font-size:11px;line-height:1.3">R:<b>${ops.ops_read}</b> W:<b>${ops.ops_written}</b> ren:<b>${ops.files_renamed_count}</b><br>H(w):<b>${ops.entropy_written.toFixed(2)}</b></div>`;
+          }
+          return `<tr>
+            <td style="white-space:nowrap;font-size:11.5px;color:var(--muted)">${edrEsc(time)}</td>
+            <td>
+              <div style="font-weight:600;font-family:Consolas,monospace">PID ${b.pid}</div>
+              <div style="font-size:11px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;max-width:110px" title="${edrEsc(b.machine_id)}">${edrEsc(b.machine_id)}</div>
+            </td>
+            <td>
+              <div style="font-weight:600">${edrEsc(b.process_name)}</div>
+              <div style="font-size:11px;color:var(--muted);font-family:Consolas,monospace;word-break:break-all">${edrEsc(b.exe_path)}</div>
+            </td>
+            <td>
+              <span class="tag ${vClass}">${edrEsc(b.verdict)}</span>
+              <div style="font-size:11px;color:var(--muted);margin-top:2px">Score: <b>${score}</b></div>
+            </td>
+            <td>
+              <div style="font-weight:600;color:${b.verdict === 'malicious' ? 'var(--red)' : b.verdict === 'suspicious' ? 'var(--orange)' : 'var(--text)'}">${edrEsc(b.threat_name || b.detection || 'Clean')}</div>
+              <div style="font-size:11px;color:var(--muted)">Source: ${edrEsc(b.source)}</div>
+            </td>
+            <td>
+              <div style="font-family:Consolas,monospace;font-size:11.5px;word-break:break-all;max-height:48px;overflow:auto">${edrEsc(b.command_line || '—')}</div>
+              <div class="sigs" style="margin-top:4px">${inds}</div>
+            </td>
+            <td>${ioHtml}</td>
+          </tr>`;
+        }).join("");
+      } catch (err) {
+        tbody.innerHTML = `<tr><td colspan="7" class="empty" style="color:var(--red)">Failed to load behaviors: ${edrEsc(err.message)}</td></tr>`;
+      }
+    }
+
+    async function loadEdrFlows() {
+      const tbody = $("haEdrFlowRows");
+      if (!tbody) return;
+      try {
+        const q = ($("haEdrSearch") ? $("haEdrSearch").value : "").trim();
+        const res = await fetch(`/api/v1/edr/telemetry/flows?limit=250&q=${encodeURIComponent(q)}`, { cache: "no-store" });
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        const data = await res.json();
+        const items = data.flows || [];
+        if (!items.length) {
+          tbody.innerHTML = '<tr><td colspan="8" class="empty">No network flows match filter.</td></tr>';
+          return;
+        }
+        tbody.innerHTML = items.map(f => {
+          const time = f.time_iso ? f.time_iso.slice(11, 19) : "";
+          return `<tr>
+            <td style="white-space:nowrap;font-size:11.5px;color:var(--muted)">${edrEsc(time)}</td>
+            <td style="font-size:11px;color:var(--muted);max-width:110px;overflow:hidden;text-overflow:ellipsis" title="${edrEsc(f.machine_id)}">${edrEsc(f.machine_id)}</td>
+            <td style="font-family:Consolas,monospace">PID ${f.pid}</td>
+            <td style="font-weight:600">${edrEsc(f.process_name)}</td>
+            <td style="font-family:Consolas,monospace;color:var(--muted)">${edrEsc(f.src_ip)}:${f.src_port}</td>
+            <td style="font-family:Consolas,monospace;font-weight:600">${edrEsc(f.dst_ip)}:${f.dst_port}</td>
+            <td><span class="tag" style="background:var(--panel2)">${edrEsc(f.protocol)}</span></td>
+            <td style="word-break:break-all">${edrEsc(f.hostname || '—')}</td>
+          </tr>`;
+        }).join("");
+      } catch (err) {
+        tbody.innerHTML = `<tr><td colspan="8" class="empty" style="color:var(--red)">Failed to load network flows: ${edrEsc(err.message)}</td></tr>`;
+      }
+    }
+
+    async function loadEdrThreats() {
+      const tbody = $("haEdrThreatRows");
+      if (!tbody) return;
+      try {
+        const res = await fetch("/api/v1/edr/telemetry/threats?limit=150", { cache: "no-store" });
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        const data = await res.json();
+        const items = data.threats || [];
+        if (!items.length) {
+          tbody.innerHTML = '<tr><td colspan="6" class="empty">No threat reports logged yet.</td></tr>';
+          return;
+        }
+        tbody.innerHTML = items.map(t => {
+          const time = t.time_iso ? t.time_iso.slice(11, 19) : "";
+          return `<tr>
+            <td style="white-space:nowrap;font-size:11.5px;color:var(--muted)">${edrEsc(time)}</td>
+            <td style="font-family:Consolas,monospace">PID ${t.pid || '—'}</td>
+            <td>
+              <div style="font-weight:600">${edrEsc(t.file_name)}</div>
+              <div style="font-size:11px;color:var(--muted);word-break:break-all">${edrEsc(t.original_path)}</div>
+            </td>
+            <td style="font-family:Consolas,monospace;font-size:11.5px">${edrEsc(t.sha256)}</td>
+            <td style="font-weight:600;color:var(--red)">${edrEsc(t.detection)}</td>
+            <td><span class="tag" style="background:var(--panel2)">${edrEsc(t.source)}</span></td>
+          </tr>`;
+        }).join("");
+      } catch (err) {
+        tbody.innerHTML = `<tr><td colspan="6" class="empty" style="color:var(--red)">Failed to load threats: ${edrEsc(err.message)}</td></tr>`;
+      }
+    }
+
+    function refreshActiveView() {
+      loadEdrStats();
+      if (edrActiveSub === "behaviors") loadEdrBehaviors();
+      else if (edrActiveSub === "flows") loadEdrFlows();
+      else if (edrActiveSub === "threats") loadEdrThreats();
+    }
+
+    window.refreshEdrTelemetry = refreshActiveView;
+
+    // Subtab click handlers
+    $("haEdrViewBehaviors").onclick = () => {
+      edrActiveSub = "behaviors";
+      $("haEdrViewBehaviors").classList.add("active");
+      $("haEdrViewFlows").classList.remove("active");
+      $("haEdrViewThreats").classList.remove("active");
+      $("haEdrSecBehaviors").hidden = false;
+      $("haEdrSecFlows").hidden = true;
+      $("haEdrSecThreats").hidden = true;
+      loadEdrBehaviors();
+    };
+
+    $("haEdrViewFlows").onclick = () => {
+      edrActiveSub = "flows";
+      $("haEdrViewFlows").classList.add("active");
+      $("haEdrViewBehaviors").classList.remove("active");
+      $("haEdrViewThreats").classList.remove("active");
+      $("haEdrSecBehaviors").hidden = true;
+      $("haEdrSecFlows").hidden = false;
+      $("haEdrSecThreats").hidden = true;
+      loadEdrFlows();
+    };
+
+    $("haEdrViewThreats").onclick = () => {
+      edrActiveSub = "threats";
+      $("haEdrViewThreats").classList.add("active");
+      $("haEdrViewBehaviors").classList.remove("active");
+      $("haEdrViewFlows").classList.remove("active");
+      $("haEdrSecBehaviors").hidden = true;
+      $("haEdrSecFlows").hidden = true;
+      $("haEdrSecThreats").hidden = false;
+      loadEdrThreats();
+    };
+
+    if ($("haEdrRefresh")) $("haEdrRefresh").onclick = refreshActiveView;
+    if ($("haEdrRiskF")) $("haEdrRiskF").onchange = refreshActiveView;
+    if ($("haEdrSearch")) $("haEdrSearch").oninput = () => {
+      clearTimeout(edrTimer);
+      edrTimer = setTimeout(refreshActiveView, 250);
+    };
+
+    const edrTabBtn = document.querySelector('#haTabs button[data-tab="EdrTelemetry"]');
+    if (edrTabBtn) {
+      edrTabBtn.addEventListener("click", () => {
+        refreshActiveView();
+      });
+    }
+
+    // Auto refresh interval
+    setInterval(() => {
+      const edrTab = $("haTabEdrTelemetry");
+      if (edrTab && !edrTab.hidden && $("haEdrAuto") && $("haEdrAuto").checked) {
+        refreshActiveView();
+      } else {
+        loadEdrStats();
+      }
+    }, 3000);
+
+    loadEdrStats();
+  })();
 })();
 </script>
 </body>
