@@ -292,8 +292,21 @@ struct ServerTarget {
 }
 
 fn resolve_server_target() -> ServerTarget {
-    if let Ok(url_str) = std::env::var("VIRUSKOV_API_URL") {
-        if let Ok(u) = url::Url::parse(&url_str) {
+    let mut url_str = std::env::var("VIRUSKOV_API_URL").ok();
+    if url_str.is_none() {
+        if let Ok(cur_exe) = std::env::current_exe() {
+            let dir = cur_exe.parent().unwrap_or(std::path::Path::new("."));
+            if let Ok(s) = std::fs::read_to_string(dir.join("viruskov_server.txt")) {
+                let trimmed = s.trim();
+                if !trimmed.is_empty() {
+                    url_str = Some(trimmed.to_string());
+                }
+            }
+        }
+    }
+
+    if let Some(ref raw) = url_str {
+        if let Ok(u) = url::Url::parse(raw) {
             let is_https = u.scheme() == "https";
             let default_port = if is_https {
                 INTERNET_DEFAULT_HTTPS_PORT as u16
@@ -301,7 +314,7 @@ fn resolve_server_target() -> ServerTarget {
                 INTERNET_DEFAULT_HTTP_PORT as u16
             };
             let port = u.port().unwrap_or(default_port);
-            let host = u.host_str().unwrap_or("viruskov.com").to_string();
+            let host = u.host_str().unwrap_or("127.0.0.1").to_string();
             let path_prefix = u.path().trim_end_matches('/').to_string();
             return ServerTarget {
                 host,
@@ -312,11 +325,11 @@ fn resolve_server_target() -> ServerTarget {
         }
     }
 
-    // Default primary target
+    // Default primary target: local Multron Server (127.0.0.1:9440)
     ServerTarget {
-        host: "viruskov.com".to_string(),
-        port: 443,
-        is_https: true,
+        host: "127.0.0.1".to_string(),
+        port: 9440,
+        is_https: false,
         path_prefix: String::new(),
     }
 }

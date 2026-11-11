@@ -38,6 +38,7 @@ mod sample_zip;
 mod similarity;
 mod string_wl;
 mod events;
+mod edr_telemetry;
 mod handoff;
 mod limits;
 mod liveness;

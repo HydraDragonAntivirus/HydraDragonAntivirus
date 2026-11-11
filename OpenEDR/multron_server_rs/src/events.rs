@@ -85,6 +85,28 @@ impl Event {
                 let msg = self.message.as_deref().unwrap_or("");
                 format!("[{} #{}] {:<10} {}: {}", client, session, self.kind, file, msg)
             }
+            "edr_behavior" => {
+                let verdict = self.verdict.as_deref().unwrap_or("behavior");
+                let proc = self.file.as_deref().unwrap_or("");
+                let threat = self.threat.as_deref().unwrap_or("");
+                let detail = self.detail.as_deref().unwrap_or("");
+                format!("[EDR:Behavior] [{}] {} -> {} [{}]", verdict, proc, threat, detail)
+            }
+            "edr_flow" => {
+                let proc = self.file.as_deref().unwrap_or("");
+                let detail = self.detail.as_deref().unwrap_or("");
+                format!("[EDR:Network] {} -> {}", proc, detail)
+            }
+            "edr_threat" => {
+                let verdict = self.verdict.as_deref().unwrap_or("THREAT");
+                let file = self.file.as_deref().unwrap_or("");
+                let threat = self.threat.as_deref().unwrap_or("");
+                format!("[EDR:Threat] [{}] {} -> {}", verdict, file, threat)
+            }
+            "edr_report" => {
+                let detail = self.detail.as_deref().unwrap_or("");
+                format!("[EDR:Report] {}", detail)
+            }
             _ => self.message.clone().unwrap_or_default(),
         }
     }
@@ -99,7 +121,15 @@ impl Event {
             "event": {
                 "sequence": self.seq,
                 "kind": if is_threat { "alert" } else { "event" },
-                "category": if self.kind == "connect" || self.kind == "disconnect" { vec!["network"] } else { vec!["malware", "file"] },
+                "category": if self.kind == "connect" || self.kind == "disconnect" {
+                    vec!["network"]
+                } else if self.kind == "edr_flow" {
+                    vec!["network", "flow"]
+                } else if self.kind.starts_with("edr_") {
+                    vec!["process", "malware"]
+                } else {
+                    vec!["malware", "file"]
+                },
                 "type": if is_threat { vec!["info", "indicator"] } else { vec!["info"] },
                 "action": self.kind.clone(),
                 "duration": self.ms.unwrap_or(0) * 1_000_000,

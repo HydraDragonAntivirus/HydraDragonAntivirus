@@ -86,6 +86,10 @@
   .t-error, .t-rejected { background: var(--orange-bg); color: var(--orange); }
   .t-unknown, .t-disconnect, .t-info { background: var(--panel2); color: var(--muted); }
   .t-connect { background: var(--blue-bg); color: var(--accent); }
+  .t-edr_behavior { background: var(--red-bg); color: var(--red); }
+  .t-edr_flow, .t-flow { background: var(--blue-bg); color: var(--accent); }
+  .t-edr_threat { background: var(--red-bg); color: var(--red); font-weight: 700; }
+  .t-edr_report { background: var(--green-bg); color: var(--green); }
   tr.threat td { background: color-mix(in srgb, var(--red-bg) 55%, transparent); }
   .feedbar { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; flex-wrap: wrap; }
   .feedbar h2 { margin: 0 8px 0 0; }
@@ -653,6 +657,7 @@
         <button class="ghost" data-filter="threats">Threats</button>
         <button class="ghost" data-filter="problems">Errors</button>
         <button class="ghost" data-filter="connections">Connections</button>
+        <button class="ghost" data-filter="edr">EDR Telemetry</button>
         <span class="spacer"></span>
         <label class="chk"><input type="checkbox" id="pause"> Pause</label>
         <button class="ghost" id="clearBtn">Clear</button>
@@ -1531,16 +1536,17 @@ window.sigKey = (list) => list && list.length ? `${list[0].layer}: ${list[0].nam
     switch (filter) {
       case "files": return e.kind === "result" || e.kind === "extracted" || e.kind === "error" || e.kind === "rejected";
       case "urls": return e.kind === "url_scan" || e.origin_type === "url";
-      case "threats": return (e.kind === "result" || e.kind === "extracted" || e.kind === "url_scan") && (e.verdict === "malicious" || e.verdict === "suspicious");
+      case "threats": return (e.kind === "result" || e.kind === "extracted" || e.kind === "url_scan" || (e.kind && e.kind.startsWith("edr_"))) && (e.verdict === "malicious" || e.verdict === "suspicious");
       case "problems": return e.kind === "error" || e.kind === "rejected";
       case "connections": return e.kind === "connect" || e.kind === "disconnect";
+      case "edr": return e.kind && e.kind.startsWith("edr_");
       default: return true;
     }
   }
 
   function eventRow(e) {
     const tr = el("tr");
-    const label = (e.kind === "result" || e.kind === "extracted" || e.kind === "url_scan") ? (e.verdict || e.kind) : e.kind;
+    const label = (e.kind === "result" || e.kind === "extracted" || e.kind === "url_scan" || (e.kind && e.kind.startsWith("edr_"))) ? (e.verdict || e.kind) : e.kind;
     const tag = el("span", "tag t-" + label, label);
     const who = e.client ? `${e.client} #${e.session || 0}` : "server";
     let detail = e.threat || e.message || e.detail || "";
@@ -1561,7 +1567,7 @@ window.sigKey = (list) => list && list.length ? `${list[0].layer}: ${list[0].nam
     const tdDetail = el("td", "detail", detail); tdDetail.title = detail;
     tr.append(el("td", "mono", fmtTime(e.time)), el("td", "mono", who), tdTag, tdFile,
               el("td", "num", e.size ? fmtSize(e.size) : ""), tdDetail, el("td", "num", e.ms ? e.ms + " ms" : ""));
-    if ((e.kind === "result" || e.kind === "extracted" || e.kind === "url_scan") && (e.verdict === "malicious" || e.verdict === "suspicious")) tr.className = "threat";
+    if ((e.kind === "result" || e.kind === "extracted" || e.kind === "url_scan" || (e.kind && e.kind.startsWith("edr_"))) && (e.verdict === "malicious" || e.verdict === "suspicious")) tr.className = "threat";
     // Right-click menu (same as the other file lists) for events that name a file.
     if (e.sha256 && /^[0-9a-fA-F]{64}$/.test(e.sha256)) {
       tr.dataset.sha = e.sha256.toLowerCase();
