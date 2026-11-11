@@ -5947,17 +5947,26 @@
 			"eventType": "LLE_FILE_CREATE",
 			"rule": {
 				"condition": {
-						"$operation": "or",
+						"$operation": "and",
 						"args": [
 							{
-								"$operation": "imatch",
-								"pattern": "@const.godmodeDumpFiles",
-								"args": [ "@event.file.abstractPath" ]
+								"$operation": "or",
+								"args": [
+									{
+										"$operation": "imatch",
+										"pattern": "@const.godmodeDumpFiles",
+										"args": [ "@event.file.abstractPath" ]
+									},
+									{
+										"$operation": "imatch",
+										"pattern": "@const.godmodeDumpFiles",
+										"args": [ "@event.file.rawPath" ]
+									}
+								]
 							},
 							{
-								"$operation": "imatch",
-								"pattern": "@const.godmodeDumpFiles",
-								"args": [ "@event.file.rawPath" ]
+								"$operation": "!equal",
+								"args": [ "@event.process.isTrustedAccordingToCertificate", true ]
 							}
 						]
 					},
@@ -5982,17 +5991,26 @@
 			"eventType": "LLE_REGISTRY_KEY_CREATE",
 			"rule": {
 				"condition": {
-						"$operation": "or",
+						"$operation": "and",
 						"args": [
 							{
-								"$operation": "imatch",
-								"pattern": "@const.godmodeRegTargets",
-								"args": [ "@event.registry.abstractPath" ]
+								"$operation": "or",
+								"args": [
+									{
+										"$operation": "imatch",
+										"pattern": "@const.godmodeRegTargets",
+										"args": [ "@event.registry.abstractPath" ]
+									},
+									{
+										"$operation": "imatch",
+										"pattern": "@const.godmodeRegTargets",
+										"args": [ "@event.registry.rawPath" ]
+									}
+								]
 							},
 							{
-								"$operation": "imatch",
-								"pattern": "@const.godmodeRegTargets",
-								"args": [ "@event.registry.rawPath" ]
+								"$operation": "!equal",
+								"args": [ "@event.process.isTrustedAccordingToCertificate", true ]
 							}
 						]
 					},
@@ -6017,17 +6035,26 @@
 			"eventType": "LLE_REGISTRY_VALUE_SET",
 			"rule": {
 				"condition": {
-						"$operation": "or",
+						"$operation": "and",
 						"args": [
 							{
-								"$operation": "imatch",
-								"pattern": "@const.godmodeRegTargets",
-								"args": [ "@event.registry.abstractPath" ]
+								"$operation": "or",
+								"args": [
+									{
+										"$operation": "imatch",
+										"pattern": "@const.godmodeRegTargets",
+										"args": [ "@event.registry.abstractPath" ]
+									},
+									{
+										"$operation": "imatch",
+										"pattern": "@const.godmodeRegTargets",
+										"args": [ "@event.registry.rawPath" ]
+									}
+								]
 							},
 							{
-								"$operation": "imatch",
-								"pattern": "@const.godmodeRegTargets",
-								"args": [ "@event.registry.rawPath" ]
+								"$operation": "!equal",
+								"args": [ "@event.process.isTrustedAccordingToCertificate", true ]
 							}
 						]
 					},
