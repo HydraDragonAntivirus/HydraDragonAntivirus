@@ -57,20 +57,32 @@
 		"vulnerableDriverPorts": [
 			"*rwfilter*",
 			"*{157980d8-09b4-4580-b8b6-d32971d056da}*",
-			"*gio*",
-			"*gdrv*",
-			"*rtcore64*",
-			"*dbutil_2_3*",
-			"*mhyprot2*",
-			"*echodrv*",
-			"*procexp152*",
-			"*procexp*",
-			"*asusgio*",
-			"*zam64*",
-			"*zemana*",
-			"*viragt64*",
-			"*speedfan*",
-			"*atszio*"
+			"*\\device\\gio*",
+			"*\\global??\\gio*",
+			"*\\device\\gdrv*",
+			"*\\global??\\gdrv*",
+			"*\\device\\rtcore64*",
+			"*\\global??\\rtcore64*",
+			"*\\device\\dbutil_2_3*",
+			"*\\global??\\dbutil_2_3*",
+			"*\\device\\mhyprot2*",
+			"*\\global??\\mhyprot2*",
+			"*\\device\\echodrv*",
+			"*\\global??\\echodrv*",
+			"*\\device\\procexp*",
+			"*\\global??\\procexp*",
+			"*\\device\\asusgio*",
+			"*\\global??\\asusgio*",
+			"*\\device\\zam64*",
+			"*\\global??\\zam64*",
+			"*\\device\\zemana*",
+			"*\\global??\\zemana*",
+			"*\\device\\viragt64*",
+			"*\\global??\\viragt64*",
+			"*\\device\\speedfan*",
+			"*\\global??\\speedfan*",
+			"*\\device\\atszio*",
+			"*\\global??\\atszio*"
 		],
 		"whitelistedDriverPorts": [
 			"*\\device\\namedpipe*",
@@ -3987,6 +3999,10 @@
 			"*New-Service*-StartupType*Boot*",
 			"*New-Service*-StartupType*System*"
 		],
+		"driverSelfPaths": [
+			"%programfiles%\\hydradragonantivirus\\*",
+			"*\\program files\\hydradragonantivirus\\*"
+		],
 		"driverSuspiciousPaths": [
 			"*\\temp\\*",
 			"*\\appdata\\*",
@@ -6438,6 +6454,16 @@
 								"$operation": "imatch",
 								"pattern": "@const.driverSuspiciousPaths",
 								"args": [ "@event.file.abstractPath" ]
+							},
+							{
+								"$operation": "not",
+								"args": [
+									{
+										"$operation": "imatch",
+										"pattern": "@const.driverSelfPaths",
+										"args": [ "@event.file.abstractPath" ]
+									}
+								]
 							},
 							{
 								"$operation": "not",

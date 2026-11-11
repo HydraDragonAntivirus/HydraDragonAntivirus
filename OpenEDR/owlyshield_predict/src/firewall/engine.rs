@@ -5021,7 +5021,33 @@ impl FirewallEngine {
         let dst = Self::build_quarantine_destination(src, &qdir);
         let sha256 = compute_sha256(src).unwrap_or_else(|_| "unknown".to_string());
 
+        // Keep a copy for the cloud report: the source file is deleted below,
+        // and the firewall's quarantine writer (unlike windows::quarantine)
+        // does not report on its own — so a file quarantined from a HIPS
+        // prompt or an SDK rule never showed up on the server.
+        let sample = fs::read(src)
+            .ok()
+            .filter(|b| b.len() <= crate::edr_feedback::MAX_SAMPLE_BYTES);
+
         if write_quarantine_file(src, &dst, detection, &sha256).is_ok() {
+            if sha256 != "unknown" {
+                let report = crate::edr_feedback::ThreatReport {
+                    sha256: sha256.clone(),
+                    file_name: src
+                        .file_name()
+                        .map(|n| n.to_string_lossy().to_string())
+                        .unwrap_or_else(|| "sample.bin".to_string()),
+                    original_path: src.to_string_lossy().to_string(),
+                    detection: detection.to_string(),
+                    source: "firewall_quarantine".to_string(),
+                    pid: None,
+                    details: serde_json::json!({
+                        "original_size": sample.as_ref().map(|b| b.len()),
+                        "timestamp": Self::now_ts(),
+                    }),
+                };
+                crate::edr_feedback::report_threat_async(report, sample);
+            }
             if let Ok(metadata) = fs::metadata(src) {
                 let mut permissions = metadata.permissions();
                 if permissions.readonly() {
