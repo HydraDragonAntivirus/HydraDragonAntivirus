@@ -325,11 +325,11 @@ fn resolve_server_target() -> ServerTarget {
         }
     }
 
-    // Default primary target: local Multron Server (127.0.0.1:9440)
+    // Default primary target: official VirusKov cloud (api.viruskov.com)
     ServerTarget {
-        host: "127.0.0.1".to_string(),
-        port: 9440,
-        is_https: false,
+        host: "api.viruskov.com".to_string(),
+        port: 443,
+        is_https: true,
         path_prefix: String::new(),
     }
 }
