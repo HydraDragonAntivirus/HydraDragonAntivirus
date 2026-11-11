@@ -796,6 +796,64 @@ pub fn stream_behavior_telemetry_async(
         });
 }
 
+/// Stream Sigma/Hayabusa event log threat detection to VirusKov cloud.
+pub fn stream_sigma_detection_async(
+    rule_title: &str,
+    level: &str,
+    details: serde_json::Value,
+) {
+    let machine_id = get_machine_guid();
+    let now_ts = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+
+    let risk_score = match level.to_ascii_lowercase().as_str() {
+        "critical" => 1.0,
+        "high" => 0.85,
+        "medium" => 0.6,
+        _ => 0.3,
+    };
+
+    let payload = BehaviorTelemetryPayload {
+        machine_id,
+        timestamp: now_ts,
+        pid: 0,
+        gid: 0,
+        process_name: "winevt/hayabusa".to_string(),
+        exe_path: r"C:\Windows\System32\winevt\Logs".to_string(),
+        command_line: format!("Sigma Rule: {}", rule_title),
+        sha256: String::new(),
+        parent_pid: None,
+        parent_name: None,
+        detection: format!("Sigma.{}", rule_title.replace(' ', ".")),
+        source: "sigma_event_log".to_string(),
+        risk_score,
+        indicators: vec![
+            format!("Sigma Level: {}", level),
+            format!("Rule Title: {}", rule_title),
+        ],
+        ops_summary: None,
+        details: serde_json::json!({
+            "engine": "hayabusa_sigma",
+            "rule_title": rule_title,
+            "level": level,
+            "event_details": details,
+        }),
+    };
+
+    // If level is critical or high, notify the Pascal GUI via HIPS pipe too
+    if level.eq_ignore_ascii_case("critical") || level.eq_ignore_ascii_case("high") {
+        send_threat_alert(
+            &format!("Sigma: {}", rule_title),
+            r"C:\Windows\System32\winevt\Logs",
+            false,
+        );
+    }
+
+    stream_behavior_telemetry_async(payload, None);
+}
+
 /// Best-effort on-alert thread stack capture for forensic telemetry.
 /// 1. Tries host export `OwlyCaptureThreadStacks` if running inside edrsvc.
 /// 2. Falls back to ToolHelp thread snapshot and context register inspection (RIP/RSP).

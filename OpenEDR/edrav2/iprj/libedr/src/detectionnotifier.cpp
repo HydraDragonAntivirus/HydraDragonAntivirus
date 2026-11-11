@@ -2844,6 +2844,22 @@ void startSigmaScanTimer(unsigned nIntervalMs)
 						"run=" + std::to_string(nRun) + " bytes=" +
 						std::to_string(sReport.size()) + " ms=" + std::to_string(nMs));
 					LOGLVL(Detailed, FMT("detnotif: Sigma event-log scan run=" << nRun << " bytes=" << sReport.size() << " ms=" << nMs));
+
+					// Stream Sigma detections to Owlyshield / VirusKov Cloud feedback loop
+					if (sReport.size() > 2)
+					{
+						typedef void (*FnStreamSigmaReport)(const char*);
+						static FnStreamSigmaReport s_fnStreamSigma = nullptr;
+						static std::once_flag s_onceSigma;
+						std::call_once(s_onceSigma, []() {
+							HMODULE hOwly = ::GetModuleHandleW(L"owlyshield_ransom.dll");
+							if (!hOwly) hOwly = ::LoadLibraryW(L"owlyshield_ransom.dll");
+							if (hOwly)
+								s_fnStreamSigma = (FnStreamSigmaReport)::GetProcAddress(hOwly, "owlyshield_stream_sigma_report");
+						});
+						if (s_fnStreamSigma)
+							s_fnStreamSigma(sReport.c_str());
+					}
 				}
 				else
 				{

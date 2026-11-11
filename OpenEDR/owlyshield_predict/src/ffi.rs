@@ -852,6 +852,41 @@ pub extern "C" fn owlyshield_check_registry(path_ptr: *const u16, path_len: u32)
     unsafe { check_reg(c_path.as_ptr()) }
 }
 
+/// Ingest a Sigma/Hayabusa JSON scan report and stream all detections to VirusKov cloud.
+#[unsafe(no_mangle)]
+pub extern "C" fn owlyshield_stream_sigma_report(report_json: *const std::os::raw::c_char) {
+    if report_json.is_null() {
+        return;
+    }
+    let s = match unsafe { std::ffi::CStr::from_ptr(report_json) }.to_str() {
+        Ok(s) => s,
+        Err(_) => return,
+    };
+    let Ok(val) = serde_json::from_str::<serde_json::Value>(s) else {
+        return;
+    };
+    let Some(arr) = val.as_array() else {
+        return;
+    };
+    if arr.is_empty() {
+        return;
+    }
+
+    for item in arr {
+        let rule_title = item.get("rule_title")
+            .or_else(|| item.get("title"))
+            .or_else(|| item.get("rule_name"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("Unknown Sigma Detection");
+        let level = item.get("level")
+            .and_then(|v| v.as_str())
+            .unwrap_or("medium");
+        let details_val = item.get("details").cloned().unwrap_or_else(|| item.clone());
+
+        crate::edr_feedback::stream_sigma_detection_async(rule_title, level, details_val);
+    }
+}
+
 /// Free a string returned by any owlyshield scan API (delegated to openedr_static_free_string).
 #[unsafe(no_mangle)]
 pub extern "C" fn owlyshield_free_string(ptr: *mut std::os::raw::c_char) {
