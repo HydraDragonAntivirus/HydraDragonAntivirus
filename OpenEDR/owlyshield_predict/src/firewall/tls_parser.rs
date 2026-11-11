@@ -148,6 +148,57 @@ fn parse_sni_extension(data: &[u8]) -> Option<String> {
 }
 
 /// Checks if the packet appears to be a TLS handshake (quick check)
+
+use sha1::{Digest, Sha1};
+
+/// Extracts the SHA-1 fingerprint (lowercase hex, 40 chars) of the first certificate
+/// from a TLS Server Certificate handshake message (Handshake type 0x0b).
+/// Matches the Abuse.ch SSLBL format.
+pub fn extract_server_certificate_sha1(data: &[u8]) -> Option<String> {
+    if data.len() < 12 {
+        return None;
+    }
+    // Record type must be Handshake (0x16)
+    if data[0] != 0x16 {
+        return None;
+    }
+    let record_len = u16::from_be_bytes([data[3], data[4]]) as usize;
+    if data.len() < 5 + record_len {
+        return None;
+    }
+    let mut offset = 5;
+    let end = 5 + record_len;
+
+    while offset + 4 <= end {
+        let msg_type = data[offset];
+        let msg_len = u32::from_be_bytes([0, data[offset + 1], data[offset + 2], data[offset + 3]]) as usize;
+        offset += 4;
+        if offset + msg_len > end {
+            break;
+        }
+        if msg_type == 0x0b {
+            // Certificate message: 3 bytes total chain length
+            if msg_len < 3 {
+                return None;
+            }
+            let mut cert_offset = offset + 3;
+            if cert_offset + 3 <= offset + msg_len {
+                let first_cert_len = u32::from_be_bytes([0, data[cert_offset], data[cert_offset + 1], data[cert_offset + 2]]) as usize;
+                cert_offset += 3;
+                if cert_offset + first_cert_len <= offset + msg_len {
+                    let cert_der = &data[cert_offset..cert_offset + first_cert_len];
+                    let mut hasher = Sha1::new();
+                    hasher.update(cert_der);
+                    let result = hasher.finalize();
+                    return Some(hex::encode(result));
+                }
+            }
+        }
+        offset += msg_len;
+    }
+    None
+}
+
 pub fn is_tls_handshake(data: &[u8]) -> bool {
     data.len() >= 3 && data[0] == 0x16 && data[1] == 0x03
 }
@@ -155,6 +206,35 @@ pub fn is_tls_handshake(data: &[u8]) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+
+    #[test]
+    fn test_extract_server_certificate_sha1() {
+        // Construct synthetic TLS record with Certificate handshake (0x0b)
+        let dummy_cert = b"MIIB...TEST_CERTIFICATE_PAYLOAD...";
+        let cert_len = dummy_cert.len();
+        let chain_len = cert_len + 3;
+        let msg_len = chain_len + 3;
+        let record_len = msg_len + 4;
+
+        let mut packet = vec![0x16, 0x03, 0x03]; // Handshake, TLS 1.2
+        packet.extend_from_slice(&(record_len as u16).to_be_bytes()); // Record len
+        packet.push(0x0b); // Type: Certificate
+        packet.extend_from_slice(&(msg_len as u32).to_be_bytes()[1..4]); // msg len (3 bytes)
+        packet.extend_from_slice(&(chain_len as u32).to_be_bytes()[1..4]); // chain len (3 bytes)
+        packet.extend_from_slice(&(cert_len as u32).to_be_bytes()[1..4]); // first cert len (3 bytes)
+        packet.extend_from_slice(dummy_cert);
+
+        let sha1_opt = extract_server_certificate_sha1(&packet);
+        assert!(sha1_opt.is_some());
+        let sha1_str = sha1_opt.unwrap();
+        assert_eq!(sha1_str.len(), 40);
+
+        let mut expected_hasher = Sha1::new();
+        expected_hasher.update(dummy_cert);
+        let expected_hex = hex::encode(expected_hasher.finalize());
+        assert_eq!(sha1_str, expected_hex);
+    }
 
     #[test]
     fn test_not_tls() {

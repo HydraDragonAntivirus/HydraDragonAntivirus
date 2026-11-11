@@ -154,6 +154,7 @@ enum CidrInterval {
 pub struct WebFilter {
     cidr_blocklist: Arc<RwLock<CidrIndex>>,
     clean_flow_cache: Cache<(IpAddr, IpAddr, u16), ()>,
+    ssl_blacklist: Arc<RwLock<std::collections::HashSet<String>>>,
 }
 
 impl Default for WebFilter {
@@ -170,6 +171,31 @@ impl WebFilter {
                 .max_capacity(65536)
                 .time_to_live(Duration::from_secs(300))
                 .build(),
+            ssl_blacklist: Arc::new(RwLock::new(std::collections::HashSet::new())),
+        }
+    }
+
+    /// Check if an SSL certificate SHA-1 fingerprint (Abuse.ch SSLBL) is blacklisted.
+    pub fn is_ssl_blacklisted(&self, sha1: &str) -> bool {
+        let clean = sha1.trim().replace(':', "").to_ascii_lowercase();
+        if clean.len() != 40 {
+            return false;
+        }
+        if self.ssl_blacklist.read().unwrap().contains(&clean) {
+            return true;
+        }
+        // Also check cloud threat intel target directly
+        if query_cloud_threat_target(&clean).is_some() {
+            self.ssl_blacklist.write().unwrap().insert(clean);
+            return true;
+        }
+        false
+    }
+
+    pub fn add_ssl_blacklist_entry(&self, sha1: &str) {
+        let clean = sha1.trim().replace(':', "").to_ascii_lowercase();
+        if clean.len() == 40 {
+            self.ssl_blacklist.write().unwrap().insert(clean);
         }
     }
 
@@ -235,6 +261,20 @@ impl WebFilter {
         }
 
         self.cidr_blocklist.write().unwrap().normalize();
+
+        let ssl_file = base_path.join("ssl_blacklist.txt");
+        if ssl_file.exists() {
+            if let Ok(file) = File::open(&ssl_file) {
+                let reader = BufReader::new(file);
+                let mut ssl_set = self.ssl_blacklist.write().unwrap();
+                for line in reader.lines().map_while(Result::ok) {
+                    let trimmed = line.trim().replace(':', "").to_ascii_lowercase();
+                    if trimmed.len() == 40 && !trimmed.starts_with('#') {
+                        ssl_set.insert(trimmed);
+                    }
+                }
+            }
+        }
 
         Ok(count)
     }

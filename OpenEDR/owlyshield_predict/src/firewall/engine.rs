@@ -4206,7 +4206,7 @@ impl FirewallEngine {
         // Initialize decision state
         let mut should_forward = true;
         let mut reason: Option<String> = None;
-        let (late_blocking_mode, tls_proxy_cfg, log_mode, show_blocked_only, cloud_wait_mode, unknown_hold_timeout_ms) = {
+        let (late_blocking_mode, tls_proxy_cfg, log_mode, show_blocked_only, cloud_wait_mode, _unknown_hold_timeout_ms) = {
             let s = settings.read().unwrap();
             (
                 s.late_blocking_mode,
@@ -4266,6 +4266,34 @@ impl FirewallEngine {
                     outbound_override: None,
                     _reason: web_match.reason,
                 };
+            }
+        }
+
+        // --- TLS Server Certificate Blacklist Scan (Abuse.ch SSLBL) ---
+        if !outbound && super::tls_parser::is_tls_handshake(&data_vec) {
+            if let Some(cert_sha1) = super::tls_parser::extract_server_certificate_sha1(&data_vec) {
+                if web_filter.is_ssl_blacklisted(&cert_sha1) {
+                    stats.packets_total.fetch_add(1, Ordering::Relaxed);
+                    stats.packets_blocked.fetch_add(1, Ordering::Relaxed);
+                    let now = Self::now_ts();
+                    emit_log_event(LogEntry {
+                        id: format!("{}-sslbl-{}", now, pid),
+                        timestamp: now,
+                        level: LogLevel::Warning,
+                        message: format!(
+                            "SSLBL Block: Certificate SHA-1 [{}] matched Abuse.ch Blacklist for {} (pid={}) -> Dropped",
+                            cert_sha1, app_info.name, pid
+                        ),
+                    });
+                    return PacketDecision {
+                        packet_data: data.to_vec(),
+                        address_data: address_data.to_vec(),
+                        should_forward: false,
+                        recalc_checksums: false,
+                        outbound_override: None,
+                        _reason: format!("Abuse.ch SSLBL Blacklisted Certificate: {}", cert_sha1),
+                    };
+                }
             }
         }
 
@@ -4510,21 +4538,34 @@ impl FirewallEngine {
         }
 
         // --- 11. DEFAULT DENY & INTERACTIVE USER PROMPTING ---
-        // 1. Guard critical system processes & exempt DNS queries (port 53) from app-level default deny
+        // 1. Guard critical system processes & essential network protocols (DNS, DHCP, NTP, NCSI)
         let is_dns_query = info.dst_port == 53 || info.src_port == 53;
+        let is_dhcp = info.dst_port == 67 || info.src_port == 67 || info.dst_port == 68 || info.src_port == 68;
+        let is_ntp = info.dst_port == 123 || info.src_port == 123;
+        let is_ncsi = info.hostname.as_deref().map_or(false, |h| h.contains("msftconnecttest") || h.contains("msftncsi"))
+            || info.full_url.as_deref().map_or(false, |u| u.contains("msftconnecttest") || u.contains("msftncsi"));
+        let is_essential_net = is_dns_query || is_dhcp || is_ntp || is_ncsi;
+
         let default_deny = settings.read().map(|s| s.default_deny).unwrap_or(true);
-        if default_deny && should_forward && outbound && pid != 0 && pid != std::process::id() && !is_dns_query {
+        if default_deny && should_forward && outbound && pid != 0 && pid != std::process::id() && !is_essential_net {
             let app_path = app_info.path.clone();
             let app_name = app_info.name.clone();
             let app_name_lower = app_name.to_lowercase();
             let app_path_lower = app_path.to_lowercase();
 
-            if pid == 4
+            let is_system_essential_proc = pid == 4
                 || app_name_lower == "system"
                 || app_name_lower == "idle"
                 || app_name_lower == "registry"
-            {
-                // Inherent OS kernel/pseudo-processes (System, Idle, Registry), allowed
+                || ((app_name_lower == "svchost.exe"
+                    || app_name_lower == "services.exe"
+                    || app_name_lower == "lsass.exe"
+                    || app_name_lower == "smss.exe"
+                    || app_name_lower == "csrss.exe")
+                    && (app_path_lower.starts_with(r"c:\windows\system32") || app_path_lower.starts_with(r"c:\windows\syswow64")));
+
+            if is_system_essential_proc {
+                // Inherent OS kernel/pseudo-processes and core Windows network services, allowed
             } else if !is_unresolved_identity(&app_path_lower)
                 && !is_unresolved_identity(&app_name_lower)
             {
@@ -4567,25 +4608,13 @@ impl FirewallEngine {
                         }
 
                         // OpenEDR cloud / FLS verdict verification
-                        let mut verdict_raw = am.openedr_verdicts.read().unwrap().get(&pid).cloned();
+                        let verdict_raw = am.openedr_verdicts.read().unwrap().get(&pid).cloned();
                         let is_viruskov_safe = sig_info.cloud_verdict.as_deref() == Some("safe");
                         let is_viruskov_malicious = sig_info.cloud_verdict.as_deref() == Some("malicious");
 
-                        // If cloud verdict is pending / unknown, hold briefly ("kısa süreliğine bekletsin")
-                        let hold_ms = unknown_hold_timeout_ms.min(3000);
-                        if hold_ms > 0 && verdict_raw.is_none() && !is_viruskov_safe && !is_viruskov_malicious {
-                            let start = std::time::Instant::now();
-                            let max_wait = std::time::Duration::from_millis(hold_ms);
-                            while start.elapsed() < max_wait {
-                                std::thread::sleep(std::time::Duration::from_millis(100));
-                                if let Some(v) = am.openedr_verdicts.read().unwrap().get(&pid) {
-                                    verdict_raw = Some(v.clone());
-                                    if v == "1" || v == "2" || v == "safe" || v == "malicious" {
-                                        break;
-                                    }
-                                }
-                            }
-                        }
+                        // Non-blocking verdict check: NEVER sleep inside the WinDivert packet worker loop!
+                        // Sleeping in worker threads starves the shared WinDivert handle (max 16384 pkts) and causes dropped packets / internet cuts.
+                        let verdict_raw = am.openedr_verdicts.read().unwrap().get(&pid).cloned();
 
                         let is_comodo_safe = match verdict_raw.as_deref() {
                             Some("1") | Some("0x1") | Some("safe") => true,
