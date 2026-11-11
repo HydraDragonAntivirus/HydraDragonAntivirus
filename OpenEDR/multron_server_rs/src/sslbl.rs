@@ -1,5 +1,11 @@
 //! Abuse.ch SSLBL (SSL Certificate Blacklist) Manager for Multron Server.
 //! Stores and serves SHA-1 fingerprints of malicious SSL certificates used by botnet C2s.
+//!
+//! Two layers, like the other signature folders next to the executable:
+//! - `firewall_signatures/*.csv` — shipped feeds (Abuse.ch `sslblacklist.csv`),
+//!   read-only, loaded at start-up and never rewritten by the server.
+//! - `analyst_signatures/sslbl.jsonl` — what analysts add or import from the
+//!   dashboard; it overlays the shipped layer.
 
 use std::collections::HashMap;
 use std::fs::File;
@@ -23,6 +29,42 @@ pub struct SslblEntry {
     pub added_at: String,
     #[serde(default)]
     pub analyst: String,
+    /// Shipped in `firewall_signatures/` (not persisted to `sslbl.jsonl`, and
+    /// not removable from the dashboard: edit the shipped feed instead).
+    #[serde(default, skip_deserializing)]
+    pub builtin: bool,
+}
+
+/// Shipped firewall signatures: `firewall_signatures/` next to the executable
+/// (Abuse.ch SSLBL feed as `*.csv`, firewall rules as `*.yaml`).
+pub fn firewall_signatures_dir() -> PathBuf {
+    crate::config::app_dir().join("firewall_signatures")
+}
+
+/// Parses an Abuse.ch SSLBL CSV (`Listingdate,SHA1,Listingreason`, `#` comments)
+/// into `(sha1, reason)` pairs; malformed lines are skipped.
+fn parse_abusech_csv(csv_text: &str) -> Vec<(String, String)> {
+    let mut out = Vec::new();
+    for line in csv_text.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
+        }
+        let parts: Vec<&str> = trimmed.split(',').collect();
+        if parts.len() < 2 {
+            continue;
+        }
+        let Some(sha1) = as_cert_sha1(parts[1]) else {
+            continue;
+        };
+        let reason = if parts.len() >= 3 {
+            format!("Abuse.ch SSLBL: {}", parts[2..].join(",").trim())
+        } else {
+            "Abuse.ch SSLBL Malicious Certificate".to_string()
+        };
+        out.push((sha1, reason));
+    }
+    out
 }
 
 #[derive(Default)]
@@ -45,7 +87,47 @@ impl SslblStore {
         crate::human_review::analyst_dir().join(SSLBL_FILE)
     }
 
+    /// Loads every `*.csv` feed of `firewall_signatures/` as built-in entries.
+    fn load_shipped(&self) {
+        let dir = firewall_signatures_dir();
+        let Ok(rd) = std::fs::read_dir(&dir) else {
+            return;
+        };
+        let mut map = self.entries.write().unwrap();
+        let mut loaded = 0usize;
+        for e in rd.flatten() {
+            let p = e.path();
+            let is_csv = p
+                .extension()
+                .and_then(|x| x.to_str())
+                .is_some_and(|x| x.eq_ignore_ascii_case("csv"));
+            if !is_csv {
+                continue;
+            }
+            let Ok(text) = std::fs::read_to_string(&p) else {
+                continue;
+            };
+            let added_at = std::fs::metadata(&p)
+                .and_then(|m| m.modified())
+                .map(|t| chrono::DateTime::<Utc>::from(t).to_rfc3339())
+                .unwrap_or_default();
+            for (sha1, reason) in parse_abusech_csv(&text) {
+                map.insert(sha1.clone(), SslblEntry {
+                    sha1,
+                    reason,
+                    added_at: added_at.clone(),
+                    analyst: "abuse.ch_feed".to_string(),
+                    builtin: true,
+                });
+                loaded += 1;
+            }
+        }
+        tracing::info!("[sslbl] Loaded {} shipped SSL blacklist entries from {:?}", loaded, dir);
+    }
+
     pub fn load(&self) {
+        // Shipped feeds first; the analyst file overlays them below.
+        self.load_shipped();
         let p = Self::file_path();
         let Ok(file) = File::open(&p) else {
             return;
@@ -71,7 +153,8 @@ impl SslblStore {
         }
         let mut file = File::create(&p)?;
         let map = self.entries.read().unwrap();
-        for entry in map.values() {
+        // Shipped entries live in `firewall_signatures/`, never in this file.
+        for entry in map.values().filter(|e| !e.builtin) {
             if let Ok(json) = serde_json::to_string(entry) {
                 writeln!(file, "{}", json)?;
             }
@@ -89,6 +172,7 @@ impl SslblStore {
             reason: reason.trim().to_string(),
             added_at: Utc::now().to_rfc3339(),
             analyst: analyst.trim().to_string(),
+            builtin: false,
         };
         {
             let mut map = self.entries.write().unwrap();
@@ -102,7 +186,13 @@ impl SslblStore {
         let clean_sha1 = sha1.trim().replace(':', "").to_ascii_lowercase();
         let removed = {
             let mut map = self.entries.write().unwrap();
-            map.remove(&clean_sha1).is_some()
+            // A shipped entry would come back on the next start: it is
+            // removed by editing the feed in `firewall_signatures/`.
+            if map.get(&clean_sha1).is_some_and(|e| e.builtin) {
+                false
+            } else {
+                map.remove(&clean_sha1).is_some()
+            }
         };
         if removed {
             let _ = self.save();
@@ -127,30 +217,19 @@ impl SslblStore {
         let mut added = 0;
         let mut map = self.entries.write().unwrap();
         let now_str = Utc::now().to_rfc3339();
-        for line in csv_text.lines() {
-            let trimmed = line.trim();
-            if trimmed.is_empty() || trimmed.starts_with('#') {
+        for (sha1, reason) in parse_abusech_csv(csv_text) {
+            // Already shipped in `firewall_signatures/`: nothing to store.
+            if map.get(&sha1).is_some_and(|e| e.builtin) {
                 continue;
             }
-            // CSV format: Listingdate,SHA1,Listingreason
-            let parts: Vec<&str> = trimmed.split(',').collect();
-            if parts.len() >= 2 {
-                let sha1_raw = parts[1].trim().replace(':', "").to_ascii_lowercase();
-                if sha1_raw.len() == 40 && sha1_raw.chars().all(|c| c.is_ascii_hexdigit()) {
-                    let reason = if parts.len() >= 3 {
-                        format!("Abuse.ch SSLBL: {}", parts[2..].join(",").trim())
-                    } else {
-                        "Abuse.ch SSLBL Malicious Certificate".to_string()
-                    };
-                    map.insert(sha1_raw.clone(), SslblEntry {
-                        sha1: sha1_raw,
-                        reason,
-                        added_at: now_str.clone(),
-                        analyst: "abuse.ch_feed".to_string(),
-                    });
-                    added += 1;
-                }
-            }
+            map.insert(sha1.clone(), SslblEntry {
+                sha1,
+                reason,
+                added_at: now_str.clone(),
+                analyst: "abuse.ch_feed".to_string(),
+                builtin: false,
+            });
+            added += 1;
         }
         drop(map);
         if added > 0 {
@@ -216,4 +295,36 @@ pub struct SslblImportBody {
 pub async fn handle_import_abusech_sslbl(Json(body): Json<SslblImportBody>) -> impl IntoResponse {
     let count = sslbl_store().import_abusech_csv(&body.csv);
     Json(serde_json::json!({ "ok": true, "imported": count, "total": sslbl_store().list().len() }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_abusech_csv_lines() {
+        let csv = "# Listingdate,SHA1,Listingreason\n\
+                   2026-09-21 16:26:12,ADCFF1C66A3BA1C9446886EB9F6EFDBEC4F17688,ACRStealer C&C\n\
+                   garbage line\n\
+                   2026-09-21 15:49:25,nothex,AsyncRAT C&C\n";
+        let got = parse_abusech_csv(csv);
+        assert_eq!(got.len(), 1);
+        assert_eq!(got[0].0, "adcff1c66a3ba1c9446886eb9f6efdbec4f17688");
+        assert_eq!(got[0].1, "Abuse.ch SSLBL: ACRStealer C&C");
+    }
+
+    /// The feed shipped in `OpenMalwareScannerPortable/firewall_signatures/`
+    /// must stay parseable: every data line yields an entry.
+    #[test]
+    fn shipped_feed_parses_completely() {
+        let p = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../OpenMalwareScannerPortable/firewall_signatures/sslblacklist.csv");
+        let text = std::fs::read_to_string(&p).expect("shipped sslblacklist.csv");
+        let data_lines = text
+            .lines()
+            .filter(|l| !l.trim().is_empty() && !l.trim_start().starts_with('#'))
+            .count();
+        assert!(data_lines > 1000);
+        assert_eq!(parse_abusech_csv(&text).len(), data_lines);
+    }
 }

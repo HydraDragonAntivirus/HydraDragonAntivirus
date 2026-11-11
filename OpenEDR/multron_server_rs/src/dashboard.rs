@@ -3008,11 +3008,19 @@ async fn handle_signature_delete(
 /// Export consolidated HydraDragon Firewall rules YAML for clients (WinDivert/OpenEDR)
 pub async fn handle_firewall_rules_export() -> impl IntoResponse {
     use crate::analyst_engine::SigKind;
-    let dir = crate::human_review::analyst_dir().join(SigKind::Firewall.folder());
+    // Shipped rules (`firewall_signatures/*.yaml`) first, then the analysts'.
+    let dirs = [
+        crate::sslbl::firewall_signatures_dir(),
+        crate::human_review::analyst_dir().join(SigKind::Firewall.folder()),
+    ];
     let mut all_rules = Vec::new();
-    if let Ok(rd) = std::fs::read_dir(&dir) {
-        for e in rd.flatten() {
-            let p = e.path();
+    for dir in &dirs {
+        let Ok(rd) = std::fs::read_dir(dir) else {
+            continue;
+        };
+        let mut files: Vec<std::path::PathBuf> = rd.flatten().map(|e| e.path()).collect();
+        files.sort();
+        for p in files {
             if p.extension().and_then(|x| x.to_str()) != Some("yaml") {
                 continue;
             }

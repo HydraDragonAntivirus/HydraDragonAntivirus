@@ -979,7 +979,7 @@
     </div>
     <div class="ha-tab" id="haTabSslbl" hidden>
       <div class="hint" style="margin:-4px 0 10px">
-        <b>SSL certificate blacklist:</b> SHA-1 fingerprints of malicious TLS server certificates (botnet C2). The firewall looks up every server certificate it sees against this list and drops the connection on a match. Stored in <code>analyst_signatures/sslbl.jsonl</code>.
+        <b>SSL certificate blacklist:</b> SHA-1 fingerprints of malicious TLS server certificates (botnet C2). The firewall looks up every server certificate it sees against this list and drops the connection on a match. Shipped feed: <code>firewall_signatures/sslblacklist.csv</code> (loaded at start-up, read-only); analyst additions and imports: <code>analyst_signatures/sslbl.jsonl</code>.
       </div>
 
       <div style="background:var(--panel2);border:1px solid var(--border);border-radius:8px;padding:10px 14px;margin-bottom:12px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
@@ -4692,7 +4692,7 @@ window.sigKey = (list) => list && list.length ? `${list[0].layer}: ${list[0].nam
         <td>${e.reason ? haEsc(e.reason) : '<span class="k">—</span>'}</td>
         <td>${e.analyst ? haEsc(e.analyst) : '<span class="k">—</span>'}</td>
         <td style="font-size:11.5px;color:var(--muted)">${haEsc(String(e.added_at || "").replace("T", " ").slice(0, 19))}</td>
-        <td style="text-align:right"><button class="ghost" data-ssl-del="${haEsc(e.sha1)}" style="padding:3px 8px;font-size:11.5px">Delete</button></td>
+        <td style="text-align:right">${e.builtin ? '<span class="k" title="Shipped in firewall_signatures/ - edit the feed file to remove it">shipped</span>' : `<button class="ghost" data-ssl-del="${haEsc(e.sha1)}" style="padding:3px 8px;font-size:11.5px">Delete</button>`}</td>
       </tr>`).join("");
     tbody.querySelectorAll("button[data-ssl-del]").forEach(btn => {
       btn.onclick = async () => {
