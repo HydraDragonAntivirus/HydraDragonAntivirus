@@ -1947,16 +1947,33 @@ fn csv_lower(v: &Option<String>) -> Vec<String> {
 /// `engine_verdict`, `folder`, `not_folder`): the pending files that pass the filters,
 /// oldest first, one page at a time; `next_offset` is null on the last page.
 async fn handle_reviews_list(State(app): State<Arc<AppState>>, Query(q): Query<ReviewsQuery>) -> impl IntoResponse {
+    // Every step reads SQLite or stats kept files (the whole queue with `all=1`): off
+    // the async workers, so the other dashboard requests are not held up meanwhile.
+    let out = tokio::task::spawn_blocking(move || reviews_list(&app, q)).await;
+    match out {
+        Ok(v) => Json(v).into_response(),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"ok": false, "error": e.to_string()}))).into_response(),
+    }
+}
+
+fn reviews_list(app: &AppState, q: ReviewsQuery) -> serde_json::Value {
     // Open files that are not queued yet (e.g. removed by hand, or seen before
-    // auto-queueing) are added before listing.
-    let (ti, eng) = (Arc::clone(&app.threat_intel), Arc::clone(&app.engine));
-    let _ = tokio::task::spawn_blocking(move || {
-        ti.sync_review_queue(&|s| eng.is_kept(s));
-        if eng.work_dir().is_some() {
-            ti.prune_queue_without_file(&|s| eng.is_kept(s));
+    // auto-queueing) are added before listing. `is_kept` stats the file, so each
+    // answer is remembered for the rows below (the prune asks for every pending file).
+    let kept_memo: std::cell::RefCell<std::collections::HashMap<String, bool>> = Default::default();
+    let is_kept = |s: &str| -> bool {
+        let key = s.to_ascii_uppercase();
+        if let Some(k) = kept_memo.borrow().get(&key) {
+            return *k;
         }
-    })
-    .await;
+        let k = app.engine.is_kept(&key);
+        kept_memo.borrow_mut().insert(key, k);
+        k
+    };
+    app.threat_intel.sync_review_queue(&is_kept);
+    if app.engine.work_dir().is_some() {
+        app.threat_intel.prune_queue_without_file(&is_kept);
+    }
     let r = &app.threat_intel.reviews;
     let all = q.all.as_deref().is_some_and(|v| v == "1" || v == "true");
     let offset = q.offset.unwrap_or(0);
@@ -2014,7 +2031,10 @@ async fn handle_reviews_list(State(app): State<Arc<AppState>>, Query(q): Query<R
     }
     let pending: Vec<serde_json::Value> = page
         .into_iter()
-        .map(|(rv, ins, ext)| review_row(&app, &rv, ins, ext))
+        .map(|(rv, ins, ext)| {
+            let kept = is_kept(&rv.sha256);
+            review_row(app, &rv, ins, ext, kept)
+        })
         .collect();
     let with_recent = match q.recent.as_deref() {
         Some(v) => v != "0" && v != "false",
@@ -2044,7 +2064,8 @@ async fn handle_reviews_list(State(app): State<Arc<AppState>>, Query(q): Query<R
                 }
             }
             let ext = file_ext(&review_name(&rv, ins.as_ref()));
-            let mut v = review_row(&app, &rv, ins, ext);
+            let kept = is_kept(&rv.sha256);
+            let mut v = review_row(app, &rv, ins, ext, kept);
             // In this list the analyst's verdict gives the malware type.
             v["classification"] = crate::scan_server::classification_json(rv.verdict.as_deref().unwrap_or(""), rv.threat_name.as_deref());
             if rtype.as_ref().is_some_and(|t| v["classification"]["category"].as_str().map(str::to_lowercase).as_deref() != Some(t.as_str())) {
@@ -2063,7 +2084,7 @@ async fn handle_reviews_list(State(app): State<Arc<AppState>>, Query(q): Query<R
             }
         }
     }
-    Json(serde_json::json!({
+    serde_json::json!({
         "ok": true,
         "stats": r.stats(),
         "coverage": app.threat_intel.queue_coverage(),
@@ -2075,7 +2096,7 @@ async fn handle_reviews_list(State(app): State<Arc<AppState>>, Query(q): Query<R
         "next_offset": if offset.saturating_add(pending.len()) < matched { serde_json::json!(offset + pending.len()) } else { serde_json::Value::Null },
         "pending": pending,
         "recent": recent,
-    }))
+    })
 }
 
 /// Which engines flagged the file ("jpeg (YARA), MalwareNet.PE (PE_ML)"), from the
@@ -2092,6 +2113,7 @@ fn review_row(
     rv: &crate::human_review::HumanReview,
     ins: Option<crate::threat_intel::ThreatInsight>,
     ext: String,
+    kept: bool,
 ) -> serde_json::Value {
     let mut v = rv.to_dashboard_json();
     v["file_name"] = serde_json::json!(review_name(rv, ins.as_ref()));
@@ -2112,7 +2134,7 @@ fn review_row(
     }
     add_engine_detail(app, &mut v, &rv.sha256);
     // No file on the server: say why (never uploaded, keep quota full, offloaded).
-    if !app.engine.is_kept(&rv.sha256) {
+    if !kept {
         v["file_missing"] = serde_json::json!(crate::missing_files::explain(&rv.sha256));
     }
     v["classification"] = crate::scan_server::classification_json(
@@ -2139,19 +2161,10 @@ fn json_text(v: &serde_json::Value, out: &mut String) {
     }
 }
 
+/// The last engine result from the scan cache. Signer and detections come from the
+/// telemetry record `review_row` was given (looking it up again here was one SQLite
+/// read per row: most of the time of a whole-queue load).
 fn add_engine_detail(app: &AppState, v: &mut serde_json::Value, sha256: &str) {
-    if v.get("signer").map_or(true, |s| s.is_null()) || v.get("detections").is_none() {
-        if let Some(ins) = app.threat_intel.get(sha256) {
-            if v.get("signer").map_or(true, |s| s.is_null()) {
-                if let Some(sg) = ins.signer {
-                    v["signer"] = serde_json::json!(sg);
-                }
-            }
-            if v.get("detections").is_none() {
-                v["detections"] = serde_json::json!(ins.detections);
-            }
-        }
-    }
     if let Some(sha) = crate::cache::parse_sha(sha256) {
         if let Some(c) = app.scan_server.cache.get(&sha) {
             if let Some(d) = c.detail.filter(|d| !d.is_empty()) {
@@ -3259,21 +3272,30 @@ async fn handle_fp_detections(
     Path(sha256): Path<String>,
     Query(q): Query<FpDetectionsQuery>,
 ) -> impl IntoResponse {
-    let sha = sha256.trim().to_ascii_lowercase();
-    let given = q.detail.trim();
-    let detail = (!given.is_empty() && given.len() <= 64 * 1024)
-        .then(|| given.to_string())
-        .or_else(|| {
-            crate::cache::parse_sha(&sha.to_ascii_uppercase())
-                .and_then(|s| app.scan_server.cache.get(&s))
-                .and_then(|c| c.detail.clone())
-        })
-        .or_else(|| app.scan_server.rescan.log().into_iter().find(|e| e.sha256 == sha && e.error.is_none()).and_then(|e| e.detail));
-    let threat = app.threat_intel.get(&sha).and_then(|i| i.threat_name);
-    match detail {
-        Some(d) => Json(serde_json::json!({"ok": true, "detail": d, "threat": threat, "detections": crate::fp_ignore::parse_detail(&d)})),
-        None => Json(serde_json::json!({"ok": true, "detail": null, "threat": threat, "detections": [],
-            "note": "No engine detail for this file in memory: rescan it first."})),
+    // Off the async workers: the telemetry read can wait behind SQLite, the rescan log
+    // is copied whole.
+    let out = tokio::task::spawn_blocking(move || {
+        let sha = sha256.trim().to_ascii_lowercase();
+        let given = q.detail.trim();
+        let detail = (!given.is_empty() && given.len() <= 64 * 1024)
+            .then(|| given.to_string())
+            .or_else(|| {
+                crate::cache::parse_sha(&sha.to_ascii_uppercase())
+                    .and_then(|s| app.scan_server.cache.get(&s))
+                    .and_then(|c| c.detail.clone())
+            })
+            .or_else(|| app.scan_server.rescan.log().into_iter().find(|e| e.sha256 == sha && e.error.is_none()).and_then(|e| e.detail));
+        let threat = app.threat_intel.get(&sha).and_then(|i| i.threat_name);
+        match detail {
+            Some(d) => serde_json::json!({"ok": true, "detail": d, "threat": threat, "detections": crate::fp_ignore::parse_detail(&d)}),
+            None => serde_json::json!({"ok": true, "detail": null, "threat": threat, "detections": [],
+                "note": "No engine detail for this file in memory: rescan it first."}),
+        }
+    })
+    .await;
+    match out {
+        Ok(v) => Json(v).into_response(),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": e.to_string()}))).into_response(),
     }
 }
 
@@ -3369,7 +3391,12 @@ async fn handle_fp_lists(State(app): State<Arc<AppState>>) -> Response {
         Ok(r) => r,
         Err(e) => return e,
     };
-    let lists: Vec<_> = crate::fp_ignore::Kind::ALL.iter().map(|k| crate::fp_ignore::list(&rules, *k)).collect();
+    // Reads every list file (directory walks + file reads): off the async workers.
+    let lists = tokio::task::spawn_blocking(move || {
+        crate::fp_ignore::Kind::ALL.iter().map(|k| crate::fp_ignore::list(&rules, *k)).collect::<Vec<_>>()
+    })
+    .await
+    .unwrap_or_default();
     Json(serde_json::json!({"ok": true, "lists": lists})).into_response()
 }
 
