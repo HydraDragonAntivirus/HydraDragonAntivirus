@@ -1333,10 +1333,13 @@ FLT_POSTOP_CALLBACK_STATUS FLTAPI postCreate(
 				pStreamHandleContext->eCreationStatus = CreationStatus::Opened;
 		}
 
-		// Detect skipped items
+		// Detect skipped items. FLT_FILE_NAME_INFORMATION::Name is a counted string
+		// (not NUL-terminated): wcsstr ran past its end into the next pool page
+		// (PAGE_FAULT_IN_NONPAGED_AREA, the same bug the old Regedit.cpp had).
 		if (pStreamHandleContext->pNameInfo != nullptr && pStreamHandleContext->pNameInfo->Name.Buffer != nullptr)
 		{
-			if (wcsstr(pStreamHandleContext->pNameInfo->Name.Buffer, L"HydraDragonBackups") != nullptr)
+			static const UNICODE_STRING c_usBackupsDir = RTL_CONSTANT_STRING(L"HydraDragonBackups");
+			if (findSubStrCch(&pStreamHandleContext->pNameInfo->Name, &c_usBackupsDir) != SIZE_MAX)
 			{
 				pStreamHandleContext->fSkipItem = TRUE;
 				pStreamHandleContext->fIsBackupFile = TRUE;
