@@ -7,7 +7,7 @@ use std::collections::VecDeque;
 use std::sync::{Arc, RwLock};
 
 use crate::dashboard::AppState;
-use crate::events::Event;
+use crate::events::{Event, EventLog};
 
 const MAX_STORED_BEHAVIORS: usize = 1000;
 const MAX_STORED_FLOWS: usize = 3000;
@@ -360,6 +360,12 @@ pub async fn handle_edr_telemetry_behavior(
     State(app): State<Arc<AppState>>,
     Json(payload): Json<BehaviorTelemetryPayload>,
 ) -> impl IntoResponse {
+    Json(ingest_behavior(&app.edr_telemetry, &app.events, payload))
+}
+
+/// Records one behavior record (EDR store + live feed) and returns the verdict
+/// the client acts on. Shared by the dashboard and the public API routes.
+pub fn ingest_behavior(store: &EdrTelemetryStore, events: &EventLog, payload: BehaviorTelemetryPayload) -> serde_json::Value {
     let is_malicious = payload.risk_score >= 0.75 || (!payload.detection.is_empty() && payload.detection != "Clean");
     let is_suspicious = payload.risk_score >= 0.40 || !payload.indicators.is_empty();
 
@@ -411,10 +417,10 @@ pub async fn handle_edr_telemetry_behavior(
     );
 
     // Save into dedicated EDR store
-    app.edr_telemetry.add_behavior(payload.clone(), verdict.to_string(), threat_name.clone());
+    store.add_behavior(payload.clone(), verdict.to_string(), threat_name.clone());
 
     // Also push to Live Feed EventLog
-    app.events.add(Event {
+    events.add(Event {
         seq: 0,
         time: Utc::now(),
         kind: "edr_behavior".to_string(),
@@ -438,7 +444,7 @@ pub async fn handle_edr_telemetry_behavior(
         origin_type: Some("EDR-Behavior".to_string()),
     });
 
-    Json(serde_json::json!({
+    serde_json::json!({
         "status": "ok",
         "verdict": verdict,
         "threat_name": threat_name,
@@ -446,7 +452,7 @@ pub async fn handle_edr_telemetry_behavior(
         "confidence": payload.risk_score,
         "reason": format!("Evaluated by Multron Server EDR engine (score: {:.2})", payload.risk_score),
         "need_sample": is_malicious
-    }))
+    })
 }
 
 /// Handler for POST /api/v1/edr/telemetry/network-flows
@@ -454,10 +460,15 @@ pub async fn handle_edr_telemetry_network_flows(
     State(app): State<Arc<AppState>>,
     Json(batch): Json<NetworkFlowBatch>,
 ) -> impl IntoResponse {
+    Json(ingest_flows(&app.edr_telemetry, &app.events, &batch))
+}
+
+/// Records a batch of network flows (EDR store + at most 5 live-feed lines).
+pub fn ingest_flows(store: &EdrTelemetryStore, events: &EventLog, batch: &NetworkFlowBatch) -> serde_json::Value {
     let count = batch.flows.len();
 
     // Store in structured telemetry store
-    app.edr_telemetry.add_flows(&batch.machine_id, &batch.flows);
+    store.add_flows(&batch.machine_id, &batch.flows);
 
     // Log sample flows in EventLog (at most 5 to avoid flooding)
     for flow in batch.flows.iter().take(5) {
@@ -466,7 +477,7 @@ pub async fn handle_edr_telemetry_network_flows(
             flow.src_ip, flow.src_port, flow.dst_ip, flow.dst_port, flow.protocol
         );
 
-        app.events.add(Event {
+        events.add(Event {
             seq: 0,
             time: Utc::now(),
             kind: "edr_flow".to_string(),
@@ -484,10 +495,10 @@ pub async fn handle_edr_telemetry_network_flows(
         });
     }
 
-    Json(serde_json::json!({
+    serde_json::json!({
         "status": "ok",
         "ingested": count
-    }))
+    })
 }
 
 /// Handler for POST /api/v1/edr/telemetry/threat and POST /api/v1/edr/report
@@ -526,12 +537,18 @@ pub async fn handle_edr_telemetry_report(
     State(app): State<Arc<AppState>>,
     Json(payload): Json<serde_json::Value>,
 ) -> impl IntoResponse {
+    Json(ingest_system_report(&app.events, &payload))
+}
+
+/// Records a system diagnostic report (live feed). Shared by the dashboard's
+/// /api/v1/edr/telemetry/report and the public /api/v1/edr/telemetry/system.
+pub fn ingest_system_report(events: &EventLog, payload: &serde_json::Value) -> serde_json::Value {
     let host = payload
         .get("machine_id")
         .and_then(|v| v.as_str())
         .unwrap_or("unknown");
 
-    app.events.add(Event {
+    events.add(Event {
         seq: 0,
         time: Utc::now(),
         kind: "edr_report".to_string(),
@@ -548,11 +565,11 @@ pub async fn handle_edr_telemetry_report(
         origin_type: Some("EDR-Diagnostic".to_string()),
     });
 
-    Json(serde_json::json!({
+    serde_json::json!({
         "status": "ok",
         "need_sample": false,
         "message": "Diagnostic report received"
-    }))
+    })
 }
 
 /// Handler for POST /api/v1/edr/upload/:sha256 (sample upload)

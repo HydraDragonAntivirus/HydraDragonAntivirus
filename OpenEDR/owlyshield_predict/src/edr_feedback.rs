@@ -13,6 +13,7 @@
 use crate::logging::Logging;
 use serde::{Deserialize, Serialize};
 use std::io::Write;
+use std::sync::atomic::{AtomicU32, Ordering};
 
 #[cfg(target_os = "windows")]
 use windows::core::PCWSTR;
@@ -73,6 +74,31 @@ pub struct NetworkFlowBatch {
     pub flows: Vec<NetworkFlowRecord>,
 }
 
+/// Last outcome of the flow / system telemetry posts (HTTP status, 0 = network
+/// error). Flows go out every few seconds, so only a change is logged.
+static LAST_FLOWS_STATUS: AtomicU32 = AtomicU32::new(200);
+static LAST_SYSTEM_STATUS: AtomicU32 = AtomicU32::new(200);
+
+/// Logs a telemetry post's failure (or its recovery) when the outcome differs
+/// from the previous post's, instead of dropping it silently or on every post.
+fn log_telemetry_outcome(kind: &str, last: &AtomicU32, res: &Result<(u32, Vec<u8>), String>) {
+    let status = match res {
+        Ok((st, _)) => *st,
+        Err(_) => 0,
+    };
+    if last.swap(status, Ordering::Relaxed) == status {
+        return;
+    }
+    match res {
+        Ok((200, _)) => Logging::info(&format!("[EDR Feedback] {kind} telemetry delivered again (HTTP 200)")),
+        Ok((st, body)) => {
+            let text = String::from_utf8_lossy(&body[..body.len().min(256)]);
+            Logging::warning(&format!("[EDR Feedback] {kind} telemetry endpoint returned HTTP {st}: {text}"));
+        }
+        Err(e) => Logging::warning(&format!("[EDR Feedback] Failed to stream {kind} telemetry: {e}")),
+    }
+}
+
 /// Stream process network telemetry to VirusKov cloud for ML model training.
 pub fn stream_network_flows_async(flows: Vec<NetworkFlowRecord>) {
     if flows.is_empty() {
@@ -103,7 +129,7 @@ pub fn stream_network_flows_async(flows: Vec<NetworkFlowRecord>) {
                 headers.push(("X-API-Key", key.as_str()));
             }
 
-            let _ = winhttp_post(
+            let res = winhttp_post(
                 &target.host,
                 target.port,
                 target.is_https,
@@ -111,6 +137,7 @@ pub fn stream_network_flows_async(flows: Vec<NetworkFlowRecord>) {
                 &headers,
                 &json_body,
             );
+            log_telemetry_outcome("network flow", &LAST_FLOWS_STATUS, &res);
         });
 }
 
@@ -1044,7 +1071,7 @@ pub fn stream_system_report_async(report: &crate::report::SystemReport) {
             if let Some(ref key) = api_key_opt {
                 headers.push(("X-API-Key", key.as_str()));
             }
-            let _ = winhttp_post(
+            let res = winhttp_post(
                 &target.host,
                 target.port,
                 target.is_https,
@@ -1052,6 +1079,7 @@ pub fn stream_system_report_async(report: &crate::report::SystemReport) {
                 &headers,
                 &json_body,
             );
+            log_telemetry_outcome("system report", &LAST_SYSTEM_STATUS, &res);
         });
 }
 

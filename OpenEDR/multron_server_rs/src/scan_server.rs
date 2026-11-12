@@ -39,6 +39,15 @@ const UPLOAD_WINDOW_FACTOR: usize = 4;
 const LZMA_UPLOAD_MEM_LIMIT_KB: u32 = 64 * 1024;
 const EDR_MAX_REPORT_BYTES: usize = 10 * 1024 * 1024;
 const EDR_MAX_SAMPLE_BYTES: usize = 100 * 1024 * 1024;
+/// Body limits of the EDR telemetry posts (one behavior record; a flow batch of
+/// at most 50 flows; a system report with its process list).
+const EDR_MAX_BEHAVIOR_BYTES: usize = 256 * 1024;
+const EDR_MAX_FLOWS_BYTES: usize = 1024 * 1024;
+const EDR_MAX_SYSTEM_BYTES: usize = 2 * 1024 * 1024;
+/// Per-IP EDR telemetry budget: the client flushes flows every 3 s (20/min) plus
+/// rare behavior / system posts, so 30 at once refilled at one every 2 s.
+const EDR_TELEMETRY_BURST: f64 = 30.0;
+const EDR_TELEMETRY_PER_SEC: f64 = 0.5;
 
 /// 3 = hash-first: the client sends `check` batches of SHA-256s and uploads only the
 /// files the server answers with `need_upload`. Version 2 clients (scan only) still work.
@@ -233,6 +242,12 @@ pub struct ScanServer {
     pub mirror: Arc<crate::archive::Mirror>,
     /// Uploaded files waiting for or inside the engine (dashboard "Scan queue").
     pub scan_queue: Arc<ScanQueueList>,
+    /// EDR telemetry (behaviors, flows, threats) posted by OpenEDR clients on the
+    /// public API; the dashboard's "EDR Telemetry" tab reads the same store.
+    pub edr_telemetry: Arc<crate::edr_telemetry::EdrTelemetryStore>,
+    /// Per-IP budget for the EDR telemetry posts (kept apart from `rest_limiter`:
+    /// flow batches arrive every few seconds and must not eat the lookup quota).
+    edr_telemetry_buckets: StdMutex<HashMap<String, Bucket>>,
 }
 
 /// One uploaded file waiting for, or inside, the engine (dashboard list).
@@ -383,7 +398,18 @@ impl ScanServer {
             offload: Arc::new(crate::offload::Offload::default()),
             mirror: Arc::new(crate::archive::Mirror::default()),
             scan_queue: Arc::new(ScanQueueList::default()),
+            edr_telemetry: Arc::new(crate::edr_telemetry::EdrTelemetryStore::new()),
+            edr_telemetry_buckets: StdMutex::new(HashMap::new()),
         })
+    }
+
+    /// One EDR telemetry post from `ip` allowed? (burst EDR_TELEMETRY_BURST,
+    /// refilled at EDR_TELEMETRY_PER_SEC.)
+    fn edr_telemetry_allowed(&self, ip: &str) -> bool {
+        let mut map = self.edr_telemetry_buckets.lock().unwrap();
+        map.entry(ip.to_string())
+            .or_insert_with(|| Bucket::full(EDR_TELEMETRY_BURST))
+            .take(1.0, EDR_TELEMETRY_BURST, EDR_TELEMETRY_PER_SEC)
     }
 
     /// Seconds since the server process started.
@@ -470,6 +496,19 @@ impl ScanServer {
             .route(
                 "/api/v1/edr/upload/:sha256",
                 post(handle_edr_upload).route_layer(DefaultBodyLimit::max(EDR_MAX_SAMPLE_BYTES)),
+            )
+            // EDR telemetry from OpenEDR clients (the dashboard reads it on its own port).
+            .route(
+                "/api/v1/edr/telemetry/behavior",
+                post(handle_public_edr_behavior).route_layer(DefaultBodyLimit::max(EDR_MAX_BEHAVIOR_BYTES)),
+            )
+            .route(
+                "/api/v1/edr/telemetry/network-flows",
+                post(handle_public_edr_flows).route_layer(DefaultBodyLimit::max(EDR_MAX_FLOWS_BYTES)),
+            )
+            .route(
+                "/api/v1/edr/telemetry/system",
+                post(handle_public_edr_system).route_layer(DefaultBodyLimit::max(EDR_MAX_SYSTEM_BYTES)),
             )
             .layer(axum::middleware::from_fn_with_state(Arc::clone(self), ban_guard))
             .layer(cors)
@@ -2986,6 +3025,17 @@ async fn handle_edr_report(
 
     let already_kept = server.engine.is_kept(&sha);
 
+    // Dashboard "EDR Telemetry" tab (threat list and total_threats).
+    server.edr_telemetry.add_threat(&crate::edr_telemetry::ThreatReport {
+        sha256: sha.clone(),
+        file_name: file_name.clone(),
+        original_path: payload.original_path.clone(),
+        detection: detection.clone(),
+        source: source.to_string(),
+        pid: payload.pid,
+        details: serde_json::Value::Null,
+    });
+
     // Record sighting / threat insight
     server.threat_intel.record(
         &sha,
@@ -3025,6 +3075,65 @@ async fn handle_edr_report(
         }),
         "no-store",
     )
+}
+
+/// 429 when `ip` is over its EDR telemetry budget.
+fn edr_telemetry_refused(server: &ScanServer, ip: &str) -> Option<Response> {
+    if server.edr_telemetry_allowed(ip) {
+        return None;
+    }
+    let retry = (1.0 / EDR_TELEMETRY_PER_SEC).ceil() as u64;
+    Some(json_response(
+        StatusCode::TOO_MANY_REQUESTS,
+        serde_json::json!({"status": "error", "retry_after_seconds": retry}),
+        "no-store",
+    ))
+}
+
+/// POST /api/v1/edr/telemetry/behavior (public): one behavior record from an
+/// OpenEDR client, stored for the dashboard's EDR Telemetry tab.
+async fn handle_public_edr_behavior(
+    ConnectInfo(addr): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
+    State(server): State<Arc<ScanServer>>,
+    axum::Json(payload): axum::Json<crate::edr_telemetry::BehaviorTelemetryPayload>,
+) -> Response {
+    let client_ip = extract_client_ip(addr, &headers);
+    if let Some(r) = edr_telemetry_refused(&server, &client_ip) {
+        return r;
+    }
+    let body = crate::edr_telemetry::ingest_behavior(&server.edr_telemetry, &server.events, payload);
+    json_response(StatusCode::OK, body, "no-store")
+}
+
+/// POST /api/v1/edr/telemetry/network-flows (public): a batch of flows.
+async fn handle_public_edr_flows(
+    ConnectInfo(addr): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
+    State(server): State<Arc<ScanServer>>,
+    axum::Json(batch): axum::Json<crate::edr_telemetry::NetworkFlowBatch>,
+) -> Response {
+    let client_ip = extract_client_ip(addr, &headers);
+    if let Some(r) = edr_telemetry_refused(&server, &client_ip) {
+        return r;
+    }
+    let body = crate::edr_telemetry::ingest_flows(&server.edr_telemetry, &server.events, &batch);
+    json_response(StatusCode::OK, body, "no-store")
+}
+
+/// POST /api/v1/edr/telemetry/system (public): a system diagnostic report.
+async fn handle_public_edr_system(
+    ConnectInfo(addr): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
+    State(server): State<Arc<ScanServer>>,
+    axum::Json(payload): axum::Json<serde_json::Value>,
+) -> Response {
+    let client_ip = extract_client_ip(addr, &headers);
+    if let Some(r) = edr_telemetry_refused(&server, &client_ip) {
+        return r;
+    }
+    let body = crate::edr_telemetry::ingest_system_report(&server.events, &payload);
+    json_response(StatusCode::OK, body, "no-store")
 }
 
 async fn handle_edr_upload(

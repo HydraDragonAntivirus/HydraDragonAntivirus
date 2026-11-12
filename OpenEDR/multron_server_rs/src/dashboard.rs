@@ -141,13 +141,16 @@ impl AppState {
             settings.limits = Some(applied);
         }
 
+        // One EDR store for both listeners: clients post to the public API, the
+        // dashboard (this computer only) reads it.
+        let edr_telemetry = Arc::clone(&scan_server.edr_telemetry);
         Arc::new(Self {
             cfg,
             engine,
             events,
             scan_server,
             threat_intel,
-            edr_telemetry: Arc::new(crate::edr_telemetry::EdrTelemetryStore::new()),
+            edr_telemetry,
             settings: RwLock::new(settings),
             settings_path,
             listener_handle: Mutex::new(None),
