@@ -36,6 +36,11 @@ static PDEVICE_OBJECT g_HvDeviceObject = NULL;
 static PFILE_OBJECT g_HvFileObject = NULL;
 static BOOLEAN g_HvCallbackRegistered = FALSE;
 
+// Defined below with the hypervisor event queue. It used to be called by
+// InitCommData() (legacy \RWFilter port, removed); InitVmmCommunication() is
+// the entry point of the bridge now.
+static VOID EnsureQueuedHypervisorEventsInitialized(VOID);
+
 // Asynchronous worker routine to register VMM callback without blocking driver init
 static VOID OwlyVmmRegisterWorker(_In_ PVOID Context)
 {
@@ -166,6 +171,15 @@ NTSTATUS InitVmmCommunication() {
     UNICODE_STRING intelDevName = RTL_CONSTANT_STRING(L"\\Device\\hyperhv");
     UNICODE_STRING amdDevName = RTL_CONSTANT_STRING(L"\\Device\\RedDbgCore");
     NTSTATUS status;
+
+    // Already bound to a hypervisor device: nothing to do. This makes the call
+    // repeatable, see cmd::owly::RetryHypervisorBridge().
+    if (g_HvFileObject != NULL)
+    {
+        return STATUS_SUCCESS;
+    }
+
+    EnsureQueuedHypervisorEventsInitialized();
 
     // Try Intel first
     status = IoGetDeviceObjectPointer(&intelDevName, FILE_ALL_ACCESS, &g_HvFileObject, &g_HvDeviceObject);

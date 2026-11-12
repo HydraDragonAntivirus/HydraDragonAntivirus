@@ -122,6 +122,20 @@ NTSTATUS InitializeFeatureHost(_In_ PDRIVER_OBJECT DriverObject)
 }
 
 _IRQL_requires_(PASSIVE_LEVEL)
+VOID RetryHypervisorBridge()
+{
+#if OWLY_HYPERVISOR_SUPPORT
+    // driverData is created by InitializeFeatureHost and destroyed by
+    // FinalizeFeatureHost: the bridge lives only between them.
+    if (driverData == nullptr)
+        return;
+
+    if (NT_SUCCESS(InitVmmCommunication()))
+        g_VmmInitialized = true;
+#endif
+}
+
+_IRQL_requires_(PASSIVE_LEVEL)
 VOID FinalizeFeatureHost()
 {
     if (g_RootkitInitialized)

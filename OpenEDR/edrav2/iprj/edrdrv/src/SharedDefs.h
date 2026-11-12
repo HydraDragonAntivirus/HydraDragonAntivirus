@@ -15,13 +15,16 @@ Environment :
 --*/
 
 //
-// Hypervisor (VMM/HyperDbg) bridge support switch.
-// The standalone hypervisor is no longer part of the product; this compiles
-// to 0 so the VMM registration and hypervisor-event queue code is disabled.
-// Set to 1 only if an external hypervisor is reintroduced.
+// Hypervisor (VMM) bridge support switch.
+// The standalone hypervisors are part of the product again (OpenEDR/HyperDbg
+// for Intel VT-x - \Device\hyperhv, OpenEDR/RedDbg for AMD SVM -
+// \Device\RedDbgCore), so the VMM registration and the hypervisor-event
+// path are compiled in. The bridge is optional at run time: when neither
+// device exists the driver continues without a VMM. Set to 0 to compile the
+// bridge out. Keep in sync with libsysmon/inc/edrdrvapi.hpp.
 //
 #ifndef OWLY_HYPERVISOR_SUPPORT
-#define OWLY_HYPERVISOR_SUPPORT 0
+#define OWLY_HYPERVISOR_SUPPORT 1
 #endif
 
 //

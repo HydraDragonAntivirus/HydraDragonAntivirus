@@ -14,6 +14,7 @@
 #include "workerthread.h"
 #include "fltport.h"
 #include "procmon.h"
+#include "owly/OwlyFeatureHost.h"
 
 namespace cmd {
 namespace fltport {
@@ -518,6 +519,10 @@ NTSTATUS notifyOnConnect(
 
 	// Waking up the worker
 	g_PortData.workerThread.notify();
+
+	// The standalone hypervisor drivers start after edrdrv: bind the bridge
+	// now if it could not be bound at the driver initialization.
+	owly::RetryHypervisorBridge();
 
 	LOGINFO2("fltport connected from ProcessId: %Iu\r\n", (ULONG_PTR)PsGetCurrentProcessId());
     return STATUS_SUCCESS;
