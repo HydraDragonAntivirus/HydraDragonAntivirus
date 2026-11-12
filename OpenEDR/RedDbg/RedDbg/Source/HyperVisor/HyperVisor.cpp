@@ -78,6 +78,8 @@ bool HyperVisorSvm::DevirtualizeAllProcessors()
         }
     }
 
+    VirtualMemory::FreePoolMemory(PrivateVmDataArray);
+
     g_IsVirtualized = false;
 
     return true;
@@ -90,27 +92,52 @@ void HyperVisorSvm::BuildNestedPagingTables(
 
     if (!Npt) return;
 
-    Npt->Pml4e.x64.Page2Mb.P = TRUE; // Present
-    Npt->Pml4e.x64.Page2Mb.RW = TRUE; // Writeable
-    Npt->Pml4e.x64.Page2Mb.US = TRUE; // User
-    Npt->Pml4e.x64.Page2Mb.PDP = PAGE_TO_PFN(reinterpret_cast<UINT64>(GetPhysicalAddress(&Npt->Pdpe[0])));
-
-    for (int i = 0; i < _ARRAYSIZE(Npt->Pdpe); ++i)
+    // One PML4 entry maps 512 GB; SVM::NPT_PML4E_COUNT of them are identity-mapped
+    // with 2 MB pages (see SvBuildNestedPageTables in Source/Deps/SimpleSvm):
+    for (unsigned int k = 0; k < SVM::NPT_PML4E_COUNT; ++k)
     {
-        Npt->Pdpe[i].x64.NonPageSize.Page2Mb.P = TRUE; // Present
-        Npt->Pdpe[i].x64.NonPageSize.Page2Mb.RW = TRUE; // Writeable
-        Npt->Pdpe[i].x64.NonPageSize.Page2Mb.US = TRUE; // User
-        Npt->Pdpe[i].x64.NonPageSize.Page2Mb.PD = PAGE_TO_PFN(reinterpret_cast<UINT64>(GetPhysicalAddress(&Npt->Pde[i][0])));
+        Npt->Pml4e[k].x64.Page2Mb.P = TRUE; // Present
+        Npt->Pml4e[k].x64.Page2Mb.RW = TRUE; // Writeable
+        Npt->Pml4e[k].x64.Page2Mb.US = TRUE; // User
+        Npt->Pml4e[k].x64.Page2Mb.PDP = PAGE_TO_PFN(reinterpret_cast<UINT64>(GetPhysicalAddress(&Npt->Pdpe[k][0])));
 
-        for (int j = 0; j < _ARRAYSIZE(Npt->Pde[i]); ++j)
+        for (int i = 0; i < _ARRAYSIZE(Npt->Pdpe[k]); ++i)
         {
-            Npt->Pde[i][j].x64.Page2Mb.P = TRUE; // Present
-            Npt->Pde[i][j].x64.Page2Mb.RW = TRUE; // Writeable
-            Npt->Pde[i][j].x64.Page2Mb.US = TRUE; // User
-            Npt->Pde[i][j].x64.Page2Mb.PS = TRUE; // Large page
-            Npt->Pde[i][j].x64.Page2Mb.PhysicalPageFrameNumber = i * _ARRAYSIZE(Npt->Pde[i]) + j;
+            Npt->Pdpe[k][i].x64.NonPageSize.Page2Mb.P = TRUE; // Present
+            Npt->Pdpe[k][i].x64.NonPageSize.Page2Mb.RW = TRUE; // Writeable
+            Npt->Pdpe[k][i].x64.NonPageSize.Page2Mb.US = TRUE; // User
+            Npt->Pdpe[k][i].x64.NonPageSize.Page2Mb.PD = PAGE_TO_PFN(reinterpret_cast<UINT64>(GetPhysicalAddress(&Npt->Pde[k][i][0])));
+
+            for (int j = 0; j < _ARRAYSIZE(Npt->Pde[k][i]); ++j)
+            {
+                Npt->Pde[k][i][j].x64.Page2Mb.P = TRUE; // Present
+                Npt->Pde[k][i][j].x64.Page2Mb.RW = TRUE; // Writeable
+                Npt->Pde[k][i][j].x64.Page2Mb.US = TRUE; // User
+                Npt->Pde[k][i][j].x64.Page2Mb.PS = TRUE; // Large page
+                Npt->Pde[k][i][j].x64.Page2Mb.PhysicalPageFrameNumber =
+                    (static_cast<unsigned long long>(k) * _ARRAYSIZE(Npt->Pdpe[k]) + i) * _ARRAYSIZE(Npt->Pde[k][i]) + j;
+            }
         }
     }
+}
+
+// Builds the MSR permissions map so that only a write to EFER causes #VMEXIT
+// (ported from SvBuildMsrPermissionsMap in Source/Deps/SimpleSvm). Without the
+// bit below the VMEXIT_MSR handler never sees the EFER write and the guest is
+// able to clear EFER.SVME while it is running:
+void HyperVisorSvm::BuildMsrPermissionsMap(
+    __out SVM::MSRPM* Msrpm)
+{
+    constexpr unsigned int BitsPerMsr = 2; // Bit 0 - RDMSR intercept, bit 1 - WRMSR intercept
+    constexpr unsigned int SecondMsrRangeBase = 0xC0000000; // Covered by the Msrpm1 vector
+    constexpr unsigned int BitsPerByte = 8;
+
+    if (!Msrpm) return;
+
+    // The map comes zeroed from AllocPhys (no intercepts); bits that the
+    // Interceptions callback could have set are preserved.
+    const unsigned int Offset = (static_cast<unsigned int>(AMD::AMD_MSR::MSR_EFER) - SecondMsrRangeBase) * BitsPerMsr + 1;
+    Msrpm->Vectors.Msrpm1[Offset / BitsPerByte] |= static_cast<unsigned char>(1u << (Offset % BitsPerByte));
 }
 
 void HyperVisorSvm::FillVmcbSegmentAttributes(
@@ -148,6 +175,7 @@ bool HyperVisorSvm::VirtualizeProcessor(unsigned int ProcessorNumber)
     __writemsr(static_cast<unsigned long>(AMD::AMD_MSR::MSR_EFER), Efer.Value);
 
     SVM::PRIVATE_VM_DATA* Private = reinterpret_cast<SVM::PRIVATE_VM_DATA*>(AllocPhys(sizeof(*Private)));
+    if (!Private) { return false; } // Insufficient memory
     if (ProcessorNumber < 64) {
         g_ProcessorVmData[ProcessorNumber] = Private;
     }
@@ -163,6 +191,9 @@ bool HyperVisorSvm::VirtualizeProcessor(unsigned int ProcessorNumber)
     BuildNestedPagingTables(&Private->Npt);
     Private->Guest.ControlArea.NpEnable = TRUE;
     Private->Guest.ControlArea.NestedPageTableCr3 = reinterpret_cast<UINT64>(PhysicalMemory::GetPhysicalAddress(&Private->Npt.Pml4e));
+
+    // MSR permissions map (intercepts the EFER write only):
+    BuildMsrPermissionsMap(&Private->Msrpm);
 
     DESCRIPTOR_TABLE_REGISTER_LONG Gdtr = {}, Idtr = {}; _sgdt(&Gdtr); __sidt(&Idtr);
 
@@ -226,6 +257,12 @@ bool HyperVisorSvm::VirtualizeProcessor(unsigned int ProcessorNumber)
 
 bool HyperVisorSvm::VirtualizeAllProcessors()
 {
+    // Virtualizing an already virtualized processor executes VMRUN in the guest,
+    // which is intercepted and answered with #GP. SimpleSvm refuses to install
+    // twice by its CPUID vendor leaf; here the state is tracked instead to
+    // not expose the hypervisor to the guest (transparent mode):
+    if (g_IsVirtualized) { return true; }
+
     struct Callback_ {
         static bool inForEachCpu(void* Arg, unsigned int ProcessorNumber) {
             return static_cast<HyperVisorSvm*>(Arg)->VirtualizeProcessor(ProcessorNumber);
@@ -235,7 +272,9 @@ bool HyperVisorSvm::VirtualizeAllProcessors()
         }
     };
     bool Status = Callable::CallInSystemContext(&Callback_::inSystemContext, this);
-    if (!Status) { DevirtualizeAllProcessors(); } return Status;
+    if (!Status) { DevirtualizeAllProcessors(); }
+    else { g_IsVirtualized = true; }
+    return Status;
 }
 
 bool HyperVisorSvm::IsSvmSupported()

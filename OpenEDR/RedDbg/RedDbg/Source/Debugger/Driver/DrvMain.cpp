@@ -273,7 +273,9 @@ extern "C" SVM::VMM_STATUS SvmVmexitHandler(
 		int SubLeaf = static_cast<int>(Context->Rcx);
 		__cpuidex(Regs.Raw, Function, SubLeaf);
 
-		if (Function == CPUID_VMM_SHUTDOWN) { Status = SVM::VMM_STATUS::VMM_SHUTDOWN; }
+		// The shutdown request is honoured from the kernel mode only (as SimpleSvm
+		// does in SvHandleCpuid); for the user mode it is an ordinary CPUID leaf:
+		if (Function == CPUID_VMM_SHUTDOWN && Private->Guest.StateSaveArea.Cpl == 0) { Status = SVM::VMM_STATUS::VMM_SHUTDOWN; }
 		else if (TransparentMode && Function == CPUID::Generic::CPUID_EXTENDED_FEATURE_INFORMATION) 
 		{ 
 			CPUID::FEATURE_INFORMATION RegsFeature = (CPUID::FEATURE_INFORMATION)Regs; 
@@ -297,7 +299,9 @@ extern "C" SVM::VMM_STATUS SvmVmexitHandler(
 			if (!Efer.Bitmap.SecureVirtualMachineEnable)
 			{
 				InjectEvent(&Private->Guest, INTERRUPT_VECTOR::GeneralProtection, EXCEPTION_VECTOR::FaultTrapException, 0); // #GP (Vector = 13, Type = Exception)
-				break;
+				// #GP is a fault: RIP must stay on the faulting instruction (see SvHandleMsrAccess in SimpleSvm):
+				Private->Guest.StateSaveArea.Rax = Context->Rax;
+				return Status;
 			}
 			Private->Guest.StateSaveArea.Efer = Efer.Value;
 		}
@@ -306,11 +310,20 @@ extern "C" SVM::VMM_STATUS SvmVmexitHandler(
 	case SVM::SVM_EXIT_CODE::VMEXIT_VMRUN://128
 	{
 		InjectEvent(&Private->Guest, INTERRUPT_VECTOR::GeneralProtection, EXCEPTION_VECTOR::FaultTrapException, 0); // #GP (Vector = 13, Type = Exception)
-		break;
+		// #GP is a fault: RIP must stay on the faulting instruction (see SvHandleVmrun in SimpleSvm):
+		Private->Guest.StateSaveArea.Rax = Context->Rax;
+		return Status;
 	}
 	case SVM::SVM_EXIT_CODE::VMEXIT_RDTSCP://135
 	{
 		break;
+	}
+	case SVM::SVM_EXIT_CODE::VMEXIT_INVALID:
+	{
+		// The guest state in the VMCB is illegal, the guest can not be resumed:
+		// resuming would only re-enter here forever with interrupts disabled.
+		// SimpleSvm bug checks on this path as well (see SvHandleVmExit):
+		KeBugCheck(MANUALLY_INITIATED_CRASH);
 	}
 	}
 	
@@ -349,6 +362,59 @@ extern "C" SVM::VMM_STATUS SvmVmexitHandler(
 //Define in asm file(in my example)
 extern "C" void SvmVmmRun(_In_ void* InitialVmmStackPointer);
 
+// Power state callback (ported from SvPowerCallbackRoutine in SimpleSvm).
+// The virtualized state does not survive the sleep/hibernate transitions: the
+// processors come back with EFER.SVME cleared while the system still expects
+// to run as a guest. So the processors are devirtualized before the system
+// leaves S0 and are virtualized again when it is back:
+static PVOID g_PowerCallbackRegistration = NULL;
+static bool g_VirtualizeOnResume = false;
+
+static VOID PowerCallbackRoutine(_In_opt_ PVOID CallbackContext, _In_opt_ PVOID Argument1, _In_opt_ PVOID Argument2)
+{
+	UNREFERENCED_PARAMETER(CallbackContext);
+
+	// PO_CB_SYSTEM_STATE_LOCK of Argument1 indicates that a system power state
+	// change is imminent:
+	if (Argument1 != reinterpret_cast<PVOID>(PO_CB_SYSTEM_STATE_LOCK)) { return; }
+
+	if (Argument2 != FALSE)
+	{
+		// The system has just reentered S0:
+		if (g_VirtualizeOnResume)
+		{
+			g_VirtualizeOnResume = false;
+			objHyperVisorSvm.VirtualizeAllProcessors();
+		}
+	}
+	else
+	{
+		// The system is about to exit S0:
+		if (objHyperVisorSvm.IsVirtualized())
+		{
+			g_VirtualizeOnResume = true;
+			objHyperVisorSvm.DevirtualizeAllProcessors();
+		}
+	}
+}
+
+static void RegisterPowerCallback()
+{
+	UNICODE_STRING ObjectName = RTL_CONSTANT_STRING(L"\\Callback\\PowerState");
+	OBJECT_ATTRIBUTES ObjectAttributes = RTL_CONSTANT_OBJECT_ATTRIBUTES(&ObjectName, OBJ_CASE_INSENSITIVE);
+	PCALLBACK_OBJECT CallbackObject = NULL;
+
+	if (!NT_SUCCESS(ExCreateCallback(&CallbackObject, &ObjectAttributes, FALSE, TRUE)))
+	{
+		DbgPrint("[*] Failed to open the power state callback object !\n");
+		return;
+	}
+
+	g_PowerCallbackRegistration = ExRegisterCallback(CallbackObject, PowerCallbackRoutine, NULL);
+	ObDereferenceObject(CallbackObject);
+	if (g_PowerCallbackRegistration == NULL) { DbgPrint("[*] Failed to register a power state callback !\n"); }
+}
+
 void DrvUnload(_In_ PDRIVER_OBJECT DriverObj)
 {
 	UNICODE_STRING DosDeviceName;
@@ -364,6 +430,15 @@ void DrvUnload(_In_ PDRIVER_OBJECT DriverObj)
 		ZwClose(g_PollingThreadHandle);
 		g_PollingThreadHandle = NULL;
 	}
+
+	// The driver image must not go away while the processors still run under
+	// it (SimpleSvm devirtualizes in SvDriverUnload the same way):
+	if (g_PowerCallbackRegistration != NULL)
+	{
+		ExUnregisterCallback(g_PowerCallbackRegistration);
+		g_PowerCallbackRegistration = NULL;
+	}
+	if (objHyperVisorSvm.IsVirtualized()) { objHyperVisorSvm.DevirtualizeAllProcessors(); }
 
 	objTrace.TraceShutdown();
 
@@ -667,6 +742,8 @@ extern "C" NTSTATUS DriverEntry(_In_ PDRIVER_OBJECT DriverObject, PUNICODE_STRIN
 		DriverObject->DriverUnload = NULL;
 #endif
 		IoCreateSymbolicLink(&DosDeviceName, &DriverName);
+
+		RegisterPowerCallback();
 	}
 
 	return STATUS_SUCCESS;

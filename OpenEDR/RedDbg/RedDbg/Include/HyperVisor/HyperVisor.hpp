@@ -43,6 +43,9 @@ private:
 	void BuildNestedPagingTables(
 		__out SVM::NESTED_PAGING_TABLES* Npt);
 
+	void BuildMsrPermissionsMap(
+		__out SVM::MSRPM* Msrpm);
+
 	void FillVmcbSegmentAttributes(
 		_Out_ SVM::VMCB_STATE_SAVE_AREA::VMCB_SEGMENT_ATTRIBUTE* Attribute,
 		_In_ const SEGMENT_SELECTOR* Selector,
@@ -57,4 +60,5 @@ public:
 	bool DevirtualizeAllProcessors();
 	bool VirtualizeAllProcessors();
 	bool IsSvmSupported();
+	bool IsVirtualized() const { return g_IsVirtualized; }
 };

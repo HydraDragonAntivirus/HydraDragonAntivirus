@@ -70,6 +70,29 @@
     <Filter Include="Header Files\Debugger\Pe">
       <UniqueIdentifier>{97a1da5c-ad36-4b8a-b647-acd19558e302}</UniqueIdentifier>
     </Filter>
+    <Filter Include="Reference">
+      <UniqueIdentifier>{6b0d3c52-7f1e-4c0a-9a57-2f4f5d0c8e11}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Reference\SimpleSvm">
+      <UniqueIdentifier>{c2a4e8f7-1d39-4b6e-8f25-73b9a0d4e6c3}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="Source\Deps\SimpleSvm\LICENSE">
+      <Filter>Reference\SimpleSvm</Filter>
+    </None>
+    <None Include="Source\Deps\SimpleSvm\README.md">
+      <Filter>Reference\SimpleSvm</Filter>
+    </None>
+    <None Include="Source\Deps\SimpleSvm\SimpleSvm.cpp">
+      <Filter>Reference\SimpleSvm</Filter>
+    </None>
+    <None Include="Source\Deps\SimpleSvm\SimpleSvm.hpp">
+      <Filter>Reference\SimpleSvm</Filter>
+    </None>
+    <None Include="Source\Deps\SimpleSvm\x64.asm">
+      <Filter>Reference\SimpleSvm</Filter>
+    </None>
   </ItemGroup>
   <ItemGroup>
     <Inf Include="RedDbgDrv.inf">

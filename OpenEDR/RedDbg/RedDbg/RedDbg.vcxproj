@@ -160,6 +160,14 @@
     <ClInclude Include="Include\TransparentMode\TransparentMode.hpp" />
   </ItemGroup>
   <ItemGroup>
+    <!-- SimpleSvm (merged into RedDbg): upstream sources kept as a reference, not compiled -->
+    <None Include="Source\Deps\SimpleSvm\LICENSE" />
+    <None Include="Source\Deps\SimpleSvm\README.md" />
+    <None Include="Source\Deps\SimpleSvm\SimpleSvm.cpp" />
+    <None Include="Source\Deps\SimpleSvm\SimpleSvm.hpp" />
+    <None Include="Source\Deps\SimpleSvm\x64.asm" />
+  </ItemGroup>
+  <ItemGroup>
     <ProjectReference Include="Source\Deps\zydis\msvc\zydis\Zydis.vcxproj">
       <Project>{88a23124-5640-35a0-b890-311d7a67a7d2}</Project>
     </ProjectReference>

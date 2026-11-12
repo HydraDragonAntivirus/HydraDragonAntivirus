@@ -451,7 +451,8 @@ HydraDragon uses a **Zero-Disk Rule Architecture** to prevent post-infection tam
 - I used these projects to optimize the antivirus.
 
 - https://github.com/HyperDbg/HyperDbg
-- https://github.com/HyperDbg/RedDbg (Might need to unite with SimpleSVM but for now I use this.)
+- https://github.com/HyperDbg/RedDbg (United with SimpleSvm: see OpenEDR/RedDbg)
+- https://github.com/tandasat/SimpleSvm (Merged into RedDbg)
 
 - I used these projects to HyperVisor
 

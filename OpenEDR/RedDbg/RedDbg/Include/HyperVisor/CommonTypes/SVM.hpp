@@ -610,11 +610,16 @@ namespace SVM
         VMEXIT_VMGEXIT
     };
 
+    // Number of the PML4 entries (512 GB each) covered by the identity map.
+    // Two entries = 1 TB, as in SimpleSvm (Source/Deps/SimpleSvm): devices
+    // mapped above 512 GB must be reachable by the guest.
+    constexpr unsigned int NPT_PML4E_COUNT = 2;
+
     struct NESTED_PAGING_TABLES
     {
-        DECLSPEC_ALIGN(PAGE_SIZE) PML4E Pml4e;
-        DECLSPEC_ALIGN(PAGE_SIZE) PDPE Pdpe[512];
-        DECLSPEC_ALIGN(PAGE_SIZE) PDE Pde[512][512];
+        DECLSPEC_ALIGN(PAGE_SIZE) PML4E Pml4e[512];
+        DECLSPEC_ALIGN(PAGE_SIZE) PDPE Pdpe[NPT_PML4E_COUNT][512];
+        DECLSPEC_ALIGN(PAGE_SIZE) PDE Pde[NPT_PML4E_COUNT][512][512];
     };
 
     enum class VMM_STATUS : bool

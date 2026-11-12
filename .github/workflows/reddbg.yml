@@ -5,12 +5,12 @@ on:
     branches: ["**"]
     tags: ["v*"]
     paths:
-      - 'Owlyshield/RedDbg/**'
+      - 'OpenEDR/RedDbg/**'
       - '.github/workflows/reddbg.yml'
   pull_request:
     branches: ["**"]
     paths:
-      - 'Owlyshield/RedDbg/**'
+      - 'OpenEDR/RedDbg/**'
       - '.github/workflows/reddbg.yml'
   workflow_dispatch:
 
@@ -20,8 +20,8 @@ permissions:
 
 env:
   WDK_URL: https://go.microsoft.com/fwlink/?linkid=2335869
-  SOLUTION_FILE_PATH: Owlyshield/RedDbg/RedDbg/RedDbg.sln
-  BUILD_BIN_DIR: ./Owlyshield/RedDbg/RedDbg/x64/
+  SOLUTION_FILE_PATH: OpenEDR/RedDbg/RedDbg/RedDbg.sln
+  BUILD_BIN_DIR: ./OpenEDR/RedDbg/RedDbg/x64/
 
 jobs:
   ci:
@@ -99,11 +99,11 @@ jobs:
             Start-Process -FilePath $vsixInstaller -ArgumentList "/q `"$vsixPath`"" -NoNewWindow -Wait
           }
       - name: Build RedDbg
-        run: msbuild Owlyshield/RedDbg/RedDbg/RedDbg.sln /p:Configuration=Release /p:Platform=x64
+        run: msbuild OpenEDR/RedDbg/RedDbg/RedDbg.sln /p:Configuration=Release /p:Platform=x64
       - name: Stage RedDbg Files
         shell: pwsh
         run: |
-          $source = "Owlyshield/RedDbg/RedDbg/x64/ReleaseX64Kernel/RedDbgDrv"
+          $source = "OpenEDR/RedDbg/RedDbg/x64/ReleaseX64Kernel/RedDbgDrv"
           $destination = "hydradragon/Owlyshield/RedDbg"
           if (Test-Path $source) {
             New-Item -ItemType Directory -Force -Path $destination | Out-Null

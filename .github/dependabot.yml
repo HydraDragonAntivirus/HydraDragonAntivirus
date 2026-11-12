@@ -26,7 +26,7 @@ updates:
       - "**/*"
     exclude-paths:
       - "OpenEDR/edrav2/**"
-      - "Owlyshield/HyperDbg/**"
+      - "OpenEDR/HyperDbg/**"
       - "Owlyshield/ia32-doc/**"
       - "hydradragon/old_machine_learning/**"
     schedule:
@@ -54,7 +54,7 @@ updates:
       - "**/*"
     exclude-paths:
       - "OpenEDR/edrav2/**"
-      - "Owlyshield/HyperDbg/**"
+      - "OpenEDR/HyperDbg/**"
     schedule:
       interval: "weekly"
     groups:

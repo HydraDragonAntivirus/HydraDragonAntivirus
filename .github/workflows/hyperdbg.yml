@@ -5,12 +5,12 @@ on:
     branches: ["**"]
     tags: ["v*"]
     paths:
-      - 'Owlyshield/HyperDbg/**'
+      - 'OpenEDR/HyperDbg/**'
       - '.github/workflows/hyperdbg.yml'
   pull_request:
     branches: ["**"]
     paths:
-      - 'Owlyshield/HyperDbg/**'
+      - 'OpenEDR/HyperDbg/**'
       - '.github/workflows/hyperdbg.yml'
   workflow_dispatch:
 
@@ -20,8 +20,8 @@ permissions:
 
 env:
   WDK_URL: https://go.microsoft.com/fwlink/?linkid=2335869
-  SOLUTION_FILE_PATH: Owlyshield/HyperDbg/hyperdbg/hyperdbg.sln
-  BUILD_BIN_DIR: ./Owlyshield/HyperDbg/hyperdbg/build/bin/
+  SOLUTION_FILE_PATH: OpenEDR/HyperDbg/hyperdbg/hyperdbg.sln
+  BUILD_BIN_DIR: ./OpenEDR/HyperDbg/hyperdbg/build/bin/
 
 jobs:
   ci:
@@ -89,11 +89,11 @@ jobs:
             Start-Process -FilePath $vsixInstaller -ArgumentList "/q `"$vsixPath`"" -NoNewWindow -Wait
           }
       - name: Build HyperDbg
-        run: msbuild Owlyshield/HyperDbg/hyperdbg/hyperdbg.sln /p:Configuration=release /p:Platform=x64
+        run: msbuild OpenEDR/HyperDbg/hyperdbg/hyperdbg.sln /p:Configuration=release /p:Platform=x64
       - name: Stage HyperDbg Files
         shell: pwsh
         run: |
-          $source = "Owlyshield/HyperDbg/hyperdbg/build/bin/release/hyperhv"
+          $source = "OpenEDR/HyperDbg/hyperdbg/build/bin/release/hyperhv"
           $destination = "hydradragon/Owlyshield/HyperDbg"
           if (Test-Path $source) {
             New-Item -ItemType Directory -Force -Path $destination | Out-Null

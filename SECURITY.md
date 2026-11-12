@@ -38,7 +38,7 @@ routed to the signature project instead.
 
 Out of scope:
 
-- Vulnerabilities in vendored third-party trees (`clamav\`, `hayabusa\`, `unicorn-engine-sys\`, `Owlyshield\HyperDbg\`, `Owlyshield\RedDbg\`, `eprj\` SDKs, …) — report those upstream; see below
+- Vulnerabilities in vendored third-party trees (`clamav\`, `hayabusa\`, `unicorn-engine-sys\`, `OpenEDR\HyperDbg\`, `OpenEDR\RedDbg\`, `eprj\` SDKs, …) — report those upstream; see below
 - Deprecated directories kept in the tree for reference (everything outside `OpenEDR\`, `MBRFilter\`, `Sanctum\`)
 - Missing detection of a specific sample with no code defect
 - Vulnerabilities that require an attacker to already hold administrator rights and rely only on that
