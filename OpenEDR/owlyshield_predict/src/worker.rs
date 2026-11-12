@@ -300,6 +300,25 @@ pub mod worker_instance {
     }
 
     impl<'a> Worker<'a> {
+        /// Sends the OpenEDR detections queued by `owlyshield_stream_detection`,
+        /// each with the kill chain of its process when that process is tracked
+        /// here. Called on every turn of the worker loop.
+        pub fn stream_pending_detections(&mut self) {
+            for event in crate::edr_feedback::take_pending_detections() {
+                let pid = crate::edr_feedback::openedr_detection_pid(&event);
+                let proc = if pid != 0 {
+                    self.process_records
+                        .process_records
+                        .iter()
+                        .find(|(_, precord)| precord.pids.contains(&pid))
+                        .map(|(_, precord)| precord)
+                } else {
+                    None
+                };
+                crate::edr_feedback::stream_openedr_detection_with_process(&event, proc);
+            }
+        }
+
         pub fn generate_system_report(&mut self) {
             let config = self.config;
             let _ = &config[crate::config::Param::ConfigPath]; // Explicit read to ensure compiler sees it as used

@@ -925,10 +925,79 @@ fn event_str(event: &serde_json::Value, paths: &[&str]) -> Option<String> {
     })
 }
 
+/// OpenEDR detections waiting for the worker thread. The worker owns the process
+/// records (file operations, written extensions, ML features), so it is the one
+/// that can attach the kill chain of the detected process to the report.
+static PENDING_DETECTIONS: std::sync::Mutex<Vec<serde_json::Value>> = std::sync::Mutex::new(Vec::new());
+
+/// The worker loop is running and drains `PENDING_DETECTIONS` every few
+/// milliseconds. When it is not, detections are sent at once without a kill chain
+/// so that none is lost.
+static DETECTION_WORKER_ALIVE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// More detections than this waiting for the worker means it is stuck: send the
+/// new ones directly instead of growing the queue.
+const MAX_PENDING_DETECTIONS: usize = 256;
+
+/// Called by the worker loop when it starts (`true`) and when it ends (`false`).
+pub fn set_detection_worker_alive(alive: bool) {
+    DETECTION_WORKER_ALIVE.store(alive, Ordering::SeqCst);
+}
+
+/// Detections queued since the last call, oldest first. Called by the worker loop.
+pub fn take_pending_detections() -> Vec<serde_json::Value> {
+    match PENDING_DETECTIONS.lock() {
+        Ok(mut q) => std::mem::take(&mut *q),
+        Err(_) => Vec::new(),
+    }
+}
+
+/// PID of the process an OpenEDR detection event is about (0 when it names none).
+pub fn openedr_detection_pid(event: &serde_json::Value) -> u32 {
+    event_str(event, &["process.pid", "process.id", "childProcess.pid", "childProcess.id"])
+        .and_then(|s| s.parse::<u32>().ok())
+        .unwrap_or(0)
+}
+
+/// Attaches the kill chain of the detected process to its behavior report: the
+/// forensic trace (`details.killchain_trace`), the file-operation counters and the
+/// process group id.
+fn attach_process_killchain(payload: &mut BehaviorTelemetryPayload, proc: &crate::process::ProcessRecord) {
+    payload.gid = proc.gid;
+    payload.ops_summary = Some(crate::actions_on_kill::process_ops_summary(proc));
+    let trace = crate::actions_on_kill::process_killchain_trace(proc);
+    if let Some(details) = payload.details.as_object_mut() {
+        details.insert("killchain_trace".to_string(), serde_json::Value::Object(trace));
+    }
+}
+
+/// Sends an OpenEDR detection as a behavior report, with the kill chain of the
+/// detected process when the worker has its record. Called by the worker loop.
+pub fn stream_openedr_detection_with_process(
+    event: &serde_json::Value,
+    proc: Option<&crate::process::ProcessRecord>,
+) {
+    let mut payload = behavior_from_openedr_detection(event);
+    if let Some(proc) = proc {
+        attach_process_killchain(&mut payload, proc);
+    }
+    stream_behavior_telemetry_inner(payload, None, false);
+}
+
 /// Stream an OpenEDR policy detection (detnotif, e.g. MLE_GODMODE_ACTIVITY) to the
 /// VirusKov behavior endpoint. OpenEDR already killed / quarantined, so the user is
 /// not prompted again.
 pub fn stream_openedr_detection_async(event: &serde_json::Value) {
+    // Hand the detection to the worker: it attaches the kill chain of the
+    // detected process (see `stream_openedr_detection_with_process`).
+    if DETECTION_WORKER_ALIVE.load(Ordering::SeqCst)
+        && let Ok(mut pending) = PENDING_DETECTIONS.lock()
+        && pending.len() < MAX_PENDING_DETECTIONS
+    {
+        pending.push(event.clone());
+        return;
+    }
+    // No worker (or it is stuck): the report still goes out, without a kill chain.
     stream_behavior_telemetry_inner(behavior_from_openedr_detection(event), None, false);
 }
 
@@ -936,9 +1005,7 @@ pub fn stream_openedr_detection_async(event: &serde_json::Value) {
 /// policies write them: process.pid / process.id, process.imageFile.*, cmdLine).
 fn behavior_from_openedr_detection(event: &serde_json::Value) -> BehaviorTelemetryPayload {
     let detection = event_str(event, &["type", "eventType", "title"]).unwrap_or_else(|| "OpenEDR.Detection".to_string());
-    let pid = event_str(event, &["process.pid", "process.id", "childProcess.pid", "childProcess.id"])
-        .and_then(|s| s.parse::<u32>().ok())
-        .unwrap_or(0);
+    let pid = openedr_detection_pid(event);
     let exe_path = event_str(
         event,
         &[
@@ -1051,6 +1118,45 @@ mod openedr_detection_tests {
         let p = behavior_from_openedr_detection(&serde_json::json!({ "type": "T", "processes": [big] }));
         assert!(p.details.get("openedr_event").is_none());
         assert!(p.details.get("openedr_event_omitted_bytes").is_some());
+    }
+
+    #[test]
+    fn detection_carries_the_kill_chain_of_its_process_record() {
+        let event = serde_json::json!({ "type": "MLE_RANSOM_BEHAVIOR", "process": { "pid": 4242 } });
+        assert_eq!(openedr_detection_pid(&event), 4242);
+        assert_eq!(openedr_detection_pid(&serde_json::json!({})), 0);
+
+        let mut proc = crate::process::ProcessRecord::new(77, "evil.exe".to_string(), std::path::PathBuf::new());
+        proc.pids.insert(4242);
+        proc.ops_written = 9;
+        proc.fpaths_created.insert(r"C:\Users\x\doc.txt.locked".to_string());
+        proc.driver_msg_count = 12;
+
+        let mut p = behavior_from_openedr_detection(&event);
+        assert_eq!(p.gid, 0);
+        assert!(p.ops_summary.is_none());
+        attach_process_killchain(&mut p, &proc);
+
+        assert_eq!(p.gid, 77);
+        assert_eq!(p.ops_summary.as_ref().map(|o| o.ops_written), Some(9));
+        let trace = &p.details["killchain_trace"];
+        assert_eq!(trace["files_created"][0], r"C:\Users\x\doc.txt.locked");
+        assert_eq!(trace["driver_msg_count"], 12);
+        // The original event stays in the report.
+        assert!(p.details.get("openedr_event").is_some());
+    }
+
+    #[test]
+    fn detections_are_queued_only_while_the_worker_is_alive() {
+        // One test owns the global queue: both states are checked in sequence.
+        let _ = take_pending_detections();
+        set_detection_worker_alive(true);
+        stream_openedr_detection_async(&serde_json::json!({ "type": "QUEUED_ONE" }));
+        let pending = take_pending_detections();
+        assert_eq!(pending.len(), 1);
+        assert_eq!(pending[0]["type"], "QUEUED_ONE");
+        assert!(take_pending_detections().is_empty(), "the queue is drained by a take");
+        set_detection_worker_alive(false);
     }
 }
 

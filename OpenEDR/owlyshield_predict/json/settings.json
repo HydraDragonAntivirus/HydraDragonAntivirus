@@ -58,7 +58,7 @@
     "listen_port": 8877,
     "block_quic_udp_443": false,
     "auto_start": true,
-    "mitm_all_traffic": false,
+    "mitm_all_traffic": true,
     "monitored_hosts": [],
     "bypass_hosts": [
       "127.0.0.1:5890",

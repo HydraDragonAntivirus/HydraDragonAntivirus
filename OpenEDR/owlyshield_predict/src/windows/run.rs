@@ -135,6 +135,9 @@ pub fn run_worker_loop(
     // decisions stay on the OpenEDR side.
     let mut last_housekeeping = std::time::Instant::now();
     let housekeeping_interval = std::time::Duration::from_millis(750);
+    // From here OpenEDR detections go through this loop, which attaches the kill
+    // chain of the detected process (it owns the process records).
+    crate::edr_feedback::set_detection_worker_alive(true);
     loop {
         match rx.recv_timeout(std::time::Duration::from_millis(20)) {
             Ok(mut iomsg) => {
@@ -143,6 +146,9 @@ pub fn run_worker_loop(
             Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
             Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
         }
+
+        // Before the housekeeping below, which may drop records of dead processes.
+        worker.stream_pending_detections();
 
         if last_housekeeping.elapsed() >= housekeeping_interval {
             let th_opt = worker.threat_handler.as_ref().map(|h| h.clone_box());
@@ -154,4 +160,8 @@ pub fn run_worker_loop(
             last_housekeeping = std::time::Instant::now();
         }
     }
+
+    // The loop ended: new detections are sent directly again, the queued ones now.
+    crate::edr_feedback::set_detection_worker_alive(false);
+    worker.stream_pending_detections();
 }

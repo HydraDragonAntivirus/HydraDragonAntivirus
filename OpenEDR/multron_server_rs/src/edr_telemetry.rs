@@ -365,9 +365,32 @@ pub async fn handle_edr_telemetry_behavior(
 
 /// Records one behavior record (EDR store + live feed) and returns the verdict
 /// the client acts on. Shared by the dashboard and the public API routes.
+/// Sources whose detection name is the title of a matched rule with a severity
+/// of its own, carried in `risk_score` (Sigma level: critical 1.0, high 0.85,
+/// medium 0.6, anything lower 0.3). For every other source a detection name is
+/// a verdict the agent already acted on.
+const GRADED_DETECTION_SOURCES: &[&str] = &["sigma_event_log"];
+
+const MALICIOUS_RISK_SCORE: f32 = 0.75;
+const SUSPICIOUS_RISK_SCORE: f32 = 0.40;
+
+/// `(is_malicious, is_suspicious)` of a behavior report.
+///
+/// A named detection is malicious, except from a graded source: there the name
+/// only says which rule matched, so the severity decides and a low / medium
+/// match is suspicious, not malicious.
+fn behavior_severity(payload: &BehaviorTelemetryPayload) -> (bool, bool) {
+    let named_detection = !payload.detection.is_empty() && payload.detection != "Clean";
+    let graded = GRADED_DETECTION_SOURCES.iter().any(|s| payload.source.eq_ignore_ascii_case(s));
+
+    let is_malicious = payload.risk_score >= MALICIOUS_RISK_SCORE || (named_detection && !graded);
+    let is_suspicious =
+        payload.risk_score >= SUSPICIOUS_RISK_SCORE || !payload.indicators.is_empty() || (named_detection && graded);
+    (is_malicious, is_suspicious)
+}
+
 pub fn ingest_behavior(store: &EdrTelemetryStore, events: &EventLog, payload: BehaviorTelemetryPayload) -> serde_json::Value {
-    let is_malicious = payload.risk_score >= 0.75 || (!payload.detection.is_empty() && payload.detection != "Clean");
-    let is_suspicious = payload.risk_score >= 0.40 || !payload.indicators.is_empty();
+    let (is_malicious, is_suspicious) = behavior_severity(&payload);
 
     let verdict = if is_malicious {
         "malicious"
@@ -647,4 +670,68 @@ pub async fn handle_get_edr_threats(
         "total": items.len(),
         "threats": items
     }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn report(source: &str, detection: &str, risk_score: f32, indicators: &[&str]) -> BehaviorTelemetryPayload {
+        BehaviorTelemetryPayload {
+            machine_id: "m".to_string(),
+            timestamp: 0,
+            pid: 1,
+            gid: 0,
+            process_name: "p.exe".to_string(),
+            exe_path: r"C:\p.exe".to_string(),
+            command_line: String::new(),
+            sha256: String::new(),
+            parent_pid: None,
+            parent_name: None,
+            detection: detection.to_string(),
+            source: source.to_string(),
+            risk_score,
+            indicators: indicators.iter().map(|s| s.to_string()).collect(),
+            ops_summary: None,
+            details: serde_json::Value::Null,
+        }
+    }
+
+    #[test]
+    fn sigma_matches_are_graded_by_their_level() {
+        let sigma = |score| report("sigma_event_log", "Sigma.Some.Rule", score, &["Sigma Level: x"]);
+        // critical / high: malicious
+        assert_eq!(behavior_severity(&sigma(1.0)), (true, true));
+        assert_eq!(behavior_severity(&sigma(0.85)), (true, true));
+        // medium / low: suspicious, not malicious
+        assert_eq!(behavior_severity(&sigma(0.6)), (false, true));
+        assert_eq!(behavior_severity(&sigma(0.3)), (false, true));
+    }
+
+    #[test]
+    fn a_named_detection_from_any_other_source_is_malicious() {
+        assert!(behavior_severity(&report("openedr_detnotif", "MLE_GODMODE_ACTIVITY", 1.0, &[])).0);
+        // Even with a low score: the agent already acted on the verdict.
+        assert!(behavior_severity(&report("ransomware", "Ransom.Generic", 0.1, &[])).0);
+    }
+
+    #[test]
+    fn reports_without_a_detection_follow_the_score_and_the_indicators() {
+        assert_eq!(behavior_severity(&report("generic", "", 0.1, &[])), (false, false));
+        assert_eq!(behavior_severity(&report("generic", "Clean", 0.1, &[])), (false, false));
+        assert_eq!(behavior_severity(&report("generic", "", 0.5, &[])), (false, true));
+        assert_eq!(behavior_severity(&report("generic", "", 0.1, &["x"])), (false, true));
+        assert_eq!(behavior_severity(&report("generic", "", 0.9, &[])), (true, true));
+    }
+
+    #[test]
+    fn ingest_counts_a_medium_sigma_match_as_suspicious() {
+        let store = EdrTelemetryStore::new();
+        let events = EventLog::new(false);
+        let body = ingest_behavior(&store, &events, report("sigma_event_log", "Sigma.Some.Rule", 0.6, &["Sigma Level: medium"]));
+        assert_eq!(body["verdict"], "suspicious");
+        assert_eq!(body["need_sample"], false);
+        let stats = store.get_stats();
+        assert_eq!((stats.malicious_behaviors, stats.suspicious_behaviors, stats.clean_behaviors), (0, 1, 0));
+    }
 }
