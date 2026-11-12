@@ -2122,6 +2122,52 @@ impl FirewallEngine {
         }
     }
 
+    /// Adds `raw` to a `bypass_hosts` list. The entry is normalized the same way
+    /// the list is read (`normalize_proxy_bypass_entry`: scheme, path and quotes
+    /// are dropped), so a pasted URL becomes its host. Returns the normalized
+    /// entry and whether it was added (`false`: the list already has it).
+    pub(crate) fn add_proxy_bypass_entry(list: &mut Vec<String>, raw: &str) -> Result<(String, bool), String> {
+        let entry = Self::normalize_proxy_bypass_entry(raw)
+            .ok_or_else(|| "The host is empty".to_string())?
+            .to_ascii_lowercase();
+
+        // A host name, an IP address, an optional port and the `*` wildcards the
+        // matcher understands (`*.example.com`, `*example.com`). Nothing else.
+        if entry.len() > 255
+            || !entry
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_' | ':' | '*' | '[' | ']'))
+        {
+            return Err(format!("Not a host name: {entry}"));
+        }
+        // "*" or "*." alone would bypass everything.
+        if !entry.chars().any(|c| c.is_ascii_alphanumeric()) {
+            return Err(format!("Not a host name: {entry}"));
+        }
+
+        let exists = list.iter().any(|existing| {
+            Self::normalize_proxy_bypass_entry(existing).is_some_and(|n| n.eq_ignore_ascii_case(&entry))
+        });
+        if !exists {
+            list.push(entry.clone());
+        }
+        Ok((entry, !exists))
+    }
+
+    /// Adds a host to `tls_proxy.bypass_hosts` at run time (GUI "Add MITM bypass
+    /// host"). The list is read from the settings on every decision, so the new
+    /// entry applies to the next connection; it is persisted when it is new.
+    pub fn add_proxy_bypass_host(&self, raw: &str) -> Result<(String, bool), String> {
+        let result = {
+            let mut settings = self.settings.write().unwrap();
+            Self::add_proxy_bypass_entry(&mut settings.tls_proxy.bypass_hosts, raw)?
+        };
+        if result.1 {
+            self.save_settings();
+        }
+        Ok(result)
+    }
+
     fn proxy_bypass_entry_matches_target(entry: &str, target: &str) -> bool {
         let entry_lower = entry.to_ascii_lowercase();
         let target_lower = target.to_ascii_lowercase();
@@ -5409,7 +5455,7 @@ impl FirewallEngine {
         let mut http_content_type = None;
         let mut http_referer = None;
         let payload_entropy = None;
-        let payload_sample = None;
+        let mut payload_sample = None;
         let mut payload_bytes: Option<&[u8]> = None;
         let mut payload_urls: Vec<String> = Vec::new();
         let mut payload_domains: Vec<String> = Vec::new();
@@ -5472,6 +5518,13 @@ impl FirewallEngine {
                 // Only inspect payload for URLs/domains if it looks like plaintext HTTP text protocol,
                 // and NEVER on encrypted TLS Application Data (0x17 0x03) or pure binary payloads.
                 let is_tls_encrypted = bytes.len() >= 3 && bytes[0] == 0x17 && bytes[1] == 0x03;
+
+                // Hex preview of the first payload bytes (forensic visibility).
+                // Encrypted TLS application data is skipped: its bytes say
+                // nothing and it is the bulk of the traffic.
+                if !is_tls_encrypted {
+                    payload_sample = Some(Self::payload_hex_sample(bytes));
+                }
                 let is_http_text = bytes.starts_with(b"GET ")
                     || bytes.starts_with(b"POST ")
                     || bytes.starts_with(b"HEAD ")
@@ -5589,6 +5642,22 @@ impl FirewallEngine {
         }
 
         parts.join(" | ")
+    }
+
+    /// Number of leading payload bytes kept in `PacketInfo::payload_sample`.
+    const PAYLOAD_SAMPLE_BYTES: usize = 32;
+
+    /// Lower-case hex of the first `PAYLOAD_SAMPLE_BYTES` bytes of a payload.
+    /// Runs for every packet with a payload: one small allocation, no formatting.
+    fn payload_hex_sample(bytes: &[u8]) -> String {
+        const HEX: &[u8; 16] = b"0123456789abcdef";
+        let n = bytes.len().min(Self::PAYLOAD_SAMPLE_BYTES);
+        let mut out = String::with_capacity(n * 2);
+        for &b in &bytes[..n] {
+            out.push(HEX[(b >> 4) as usize] as char);
+            out.push(HEX[(b & 0x0f) as usize] as char);
+        }
+        out
     }
 
     fn shannon_entropy(bytes: &[u8]) -> f64 {
@@ -5879,5 +5948,53 @@ fn ip_in_cidr(ip: IpAddr, cidr: &str) -> bool {
             };
             (u128::from(v6) & mask) == (u128::from(net) & mask)
         }
+    }
+}
+
+#[cfg(test)]
+mod bypass_host_tests {
+    use super::FirewallEngine;
+
+    #[test]
+    fn payload_hex_sample_is_the_first_bytes_in_lower_case_hex() {
+        assert_eq!(FirewallEngine::payload_hex_sample(b"GET /"), "474554202f");
+        assert_eq!(FirewallEngine::payload_hex_sample(&[0x00, 0xff, 0x0a]), "00ff0a");
+        assert_eq!(FirewallEngine::payload_hex_sample(&[]), "");
+        // Only the first PAYLOAD_SAMPLE_BYTES bytes are kept.
+        let long = vec![0xabu8; 100];
+        let sample = FirewallEngine::payload_hex_sample(&long);
+        assert_eq!(sample.len(), FirewallEngine::PAYLOAD_SAMPLE_BYTES * 2);
+        assert!(sample.bytes().all(|c| c == b'a' || c == b'b'));
+    }
+
+    #[test]
+    fn add_proxy_bypass_entry_normalizes_dedupes_and_rejects_non_hosts() {
+        let mut list = vec!["api.viruskov.com".to_string()];
+
+        // A pasted URL becomes its host; the entry is stored lower-case.
+        let (entry, added) = FirewallEngine::add_proxy_bypass_entry(&mut list, " https://Bank.Example.com/login?x=1 ").unwrap();
+        assert_eq!(entry, "bank.example.com");
+        assert!(added);
+        assert_eq!(list.last().unwrap(), "bank.example.com");
+
+        // Already present (any case, any form): not added twice.
+        let (_, added) = FirewallEngine::add_proxy_bypass_entry(&mut list, "BANK.example.com").unwrap();
+        assert!(!added);
+        let (_, added) = FirewallEngine::add_proxy_bypass_entry(&mut list, "http://api.viruskov.com/").unwrap();
+        assert!(!added);
+        assert_eq!(list.len(), 2);
+
+        // Wildcards and host:port are the forms the matcher understands.
+        assert!(FirewallEngine::add_proxy_bypass_entry(&mut list, "*.example.org").unwrap().1);
+        assert!(FirewallEngine::add_proxy_bypass_entry(&mut list, "127.0.0.1:9440").unwrap().1);
+
+        // Not hosts.
+        assert!(FirewallEngine::add_proxy_bypass_entry(&mut list, "").is_err());
+        assert!(FirewallEngine::add_proxy_bypass_entry(&mut list, "   ").is_err());
+        assert!(FirewallEngine::add_proxy_bypass_entry(&mut list, "*").is_err());
+        assert!(FirewallEngine::add_proxy_bypass_entry(&mut list, "*.").is_err());
+        assert!(FirewallEngine::add_proxy_bypass_entry(&mut list, "two words.com").is_err());
+        assert!(FirewallEngine::add_proxy_bypass_entry(&mut list, "a\"b.com").is_err());
+        assert_eq!(list.len(), 4);
     }
 }

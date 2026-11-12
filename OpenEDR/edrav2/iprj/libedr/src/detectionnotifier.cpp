@@ -2422,6 +2422,30 @@ Variant DetectionNotifier::execute(Variant vCommand, Variant vParams){
 		return Dictionary({ {"success", nResult == 1}, {"enabled", fApplied} });
 	}
 
+	// Adds a host to the TLS proxy bypass list (tls_proxy.bypass_hosts) of the
+	// firewall engine: hosts of applications that pin their certificates must
+	// not be intercepted while "MITM All Traffic" is enabled.
+	// Result codes of the engine: 1 - added, 2 - already in the list,
+	// 0 - engine is not running, -1 - not a host name.
+	if (vCommand == "addMitmBypassHost")
+	{
+		std::string sHost;
+		if (vParams.isDictionaryLike())
+			sHost = vParams.get("host", std::string());
+
+		int nResult = 0;
+		HMODULE hDll = ::GetModuleHandleW(L"owlyshield_ransom.dll");
+		if (hDll)
+		{
+			typedef int32_t (*AddBypassHostFn)(const char*);
+			if (auto fn = (AddBypassHostFn)::GetProcAddress(hDll, "owlyshield_firewall_add_bypass_host"))
+				nResult = fn(sHost.c_str());
+		}
+
+		LOGLVL(Critical, FMT("detnotif RPC: firewall MITM bypass host <" << sHost << "> result " << nResult));
+		return Dictionary({ {"success", nResult == 1 || nResult == 2}, {"added", nResult == 1}, {"code", nResult} });
+	}
+
 	if (vCommand == "getCloudWaitStatus" || vCommand == "getRiskyModeStatus")
 	{
 		bool fEnabled = true;

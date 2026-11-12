@@ -136,6 +136,58 @@ pub extern "system" fn owlyshield_firewall_set_mitm_enabled(enabled: u8) -> i32 
     1
 }
 
+/// Adds a host to the TLS proxy bypass list (`tls_proxy.bypass_hosts`) at run
+/// time. Called by edrsvc (`addMitmBypassHost` JSON-RPC) on behalf of the
+/// Pascal GUI tray menu. `host` is a NUL-terminated UTF-8 string: a host name,
+/// `*.example.com`, `host:port` or a URL (its host is taken).
+/// Returns 1 when the host was added, 2 when the list already had it, 0 when
+/// the engine is not running and -1 when `host` is not a host name.
+///
+/// # Safety
+/// `host` must be null or point to a NUL-terminated string.
+#[unsafe(no_mangle)]
+pub unsafe extern "system" fn owlyshield_firewall_add_bypass_host(host: *const c_char) -> i32 {
+    if host.is_null() {
+        set_last_error("The host is empty");
+        return -1;
+    }
+    let raw = match unsafe { std::ffi::CStr::from_ptr(host) }.to_str() {
+        Ok(s) => s.to_string(),
+        Err(_) => {
+            set_last_error("The host is not valid UTF-8");
+            return -1;
+        }
+    };
+
+    let Some(engine) = super::headless::engine() else {
+        set_last_error("Firewall engine is not running");
+        return 0;
+    };
+
+    match engine.add_proxy_bypass_host(&raw) {
+        Ok((entry, added)) => {
+            if added {
+                let now_ms = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_millis() as u64;
+                emit_log_event(LogEntry {
+                    id: format!("{now_ms}-mitm-bypass-add"),
+                    timestamp: now_ms,
+                    level: LogLevel::Info,
+                    message: format!("TLS proxy bypass host added via GUI: {entry}"),
+                });
+            }
+            clear_last_error();
+            if added { 1 } else { 2 }
+        }
+        Err(e) => {
+            set_last_error(e);
+            -1
+        }
+    }
+}
+
 /// Query whether MITM interception (mitm_all_traffic) is currently enabled (1) or disabled (0).
 /// Returns -1 only if neither a live engine nor readable settings exist.
 /// Falls back to the persisted settings file so the GUI shows the on-disk

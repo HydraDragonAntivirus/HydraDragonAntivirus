@@ -47,6 +47,7 @@ type
     MenuQuarantine: TMenuItem;
     MenuReputation: TMenuItem;
     MenuCheckUpdates: TMenuItem;
+    MenuAddBypassHost: TMenuItem;
     procedure FormCreate(Sender: TObject);
     procedure FormDestroy(Sender: TObject);
     procedure MenuExitClick(Sender: TObject);
@@ -66,6 +67,7 @@ type
     procedure MenuReputationClick(Sender: TObject);
     procedure RepFormClosed(Sender: TObject; var CloseAction: TCloseAction);
     procedure MenuCheckUpdatesClick(Sender: TObject);
+    procedure MenuAddBypassHostClick(Sender: TObject);
     procedure Timer1Timer(Sender: TObject);
     procedure TrayIcon1DblClick(Sender: TObject);
   private
@@ -222,6 +224,15 @@ begin
   MenuCheckUpdates.OnClick := @MenuCheckUpdatesClick;
   PopupMenu1.Items.Insert(PopupMenu1.Items.IndexOf(MenuReputation) + 1,
     MenuCheckUpdates);
+
+  // Adds a host to the TLS proxy bypass list (tls_proxy.bypass_hosts) through
+  // the addMitmBypassHost JSON-RPC. Created last so that it sits directly
+  // under the MITM toggle.
+  MenuAddBypassHost := TMenuItem.Create(Self);
+  MenuAddBypassHost.Caption := 'Add MITM bypass host...';
+  MenuAddBypassHost.OnClick := @MenuAddBypassHostClick;
+  PopupMenu1.Items.Insert(PopupMenu1.Items.IndexOf(MenuMitmToggle) + 1,
+    MenuAddBypassHost);
 
   FBehaviorLogs := TStringList.Create;
   FMLPredictions := TStringList.Create;
@@ -945,6 +956,91 @@ end;
 procedure TForm1.MenuMitmToggleClick(Sender: TObject);
 begin
   WriteMitmEnabled(not ReadMitmEnabled);
+end;
+
+// ---------------------------------------------------------------------------
+// Add MITM bypass host
+//
+// Asks for a host and adds it to tls_proxy.bypass_hosts of the live engine
+// through edrsvc JSON-RPC (addMitmBypassHost). The engine normalizes the
+// entry (a pasted URL becomes its host), applies it to the next connection
+// and persists it. Result codes: 1 - added, 2 - already in the list,
+// 0 - engine is not running, -1 - not a host name.
+// ---------------------------------------------------------------------------
+
+procedure TForm1.MenuAddBypassHostClick(Sender: TObject);
+var
+  Host, Req, Resp: string;
+  ReqObj: TJSONObject;
+  Params: TJSONObject;
+  j, d: TJSONData;
+  Code: Integer;
+  Answered: Boolean;
+begin
+  Host := '';
+  if not InputQuery('Add MITM bypass host',
+    'Host that must not be intercepted (example.com, *.example.com, host:port or a URL):',
+    Host) then
+    Exit;
+  Host := Trim(Host);
+  if Host = '' then
+    Exit;
+
+  // Build the request with fpjson so the host is escaped correctly.
+  Params := TJSONObject.Create;
+  Params.Add('host', Host);
+  ReqObj := TJSONObject.Create;
+  try
+    ReqObj.Add('jsonrpc', '2.0');
+    ReqObj.Add('id', 1);
+    ReqObj.Add('method', 'addMitmBypassHost');
+    ReqObj.Add('params', Params);
+    Req := ReqObj.AsJSON;
+  finally
+    ReqObj.Free;
+  end;
+
+  Code := 0;
+  Answered := False;
+  try
+    if HttpPostJson(GUI_RPC_HOST, GUI_RPC_PORT, Req, Resp) then
+    begin
+      j := GetJSON(Resp);
+      try
+        d := j.FindPath('result.code');
+        if d <> nil then
+        begin
+          Code := d.AsInteger;
+          Answered := True;
+        end;
+      finally
+        j.Free;
+      end;
+    end;
+  except
+    Answered := False;
+  end;
+
+  if not Answered then
+    TAlertForm.ShowAlert('Add bypass host failed',
+      'The service did not answer (service or DLL may be outdated).',
+      asCritical, 5000)
+  else if Code = 1 then
+    TAlertForm.ShowAlert('MITM bypass host added',
+      Host + ' is no longer intercepted by the TLS proxy.',
+      asSuccess, 4000)
+  else if Code = 2 then
+    TAlertForm.ShowAlert('MITM bypass host',
+      Host + ' is already in the bypass list.',
+      asWarning, 4000)
+  else if Code = -1 then
+    TAlertForm.ShowAlert('Add bypass host failed',
+      'Not a host name: ' + Host,
+      asCritical, 5000)
+  else
+    TAlertForm.ShowAlert('Add bypass host failed',
+      'The firewall engine is not running.',
+      asCritical, 5000);
 end;
 
 // ---------------------------------------------------------------------------

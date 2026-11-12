@@ -256,6 +256,19 @@ fn proxy_crl_response(crl_bytes: &[u8]) -> http_mitm_proxy::hyper::Response<BoxB
         })
 }
 
+/// The upstream request failed on the connection itself, the way it does when a
+/// pooled connection was already closed by the server: an HTTP/2 connection or
+/// stream error, a closed connection or a request dropped before it was sent.
+/// TLS, DNS and connect failures are not that: they would fail again.
+fn is_stale_upstream_connection_error(err: &http_mitm_proxy::default_client::Error) -> bool {
+    match err {
+        http_mitm_proxy::default_client::Error::HyperError(e) => {
+            e.is_canceled() || e.is_closed() || e.to_string().contains("http2 error")
+        }
+        _ => false,
+    }
+}
+
 /// Build a 502 Bad Gateway response when upstream fails.
 fn error_response_502() -> http_mitm_proxy::hyper::Response<BoxBody<Bytes, DynErr>> {
     let body = boxed_full(Bytes::from_static(b"Bad Gateway"));
@@ -937,6 +950,22 @@ async fn handle_proxy_request(
         }
         Full::new(raw_body)
     };
+    // Kept for one retry on a stale pooled upstream connection (see below). The
+    // body is fully buffered (`Full<Bytes>`), so cloning it is a refcount bump.
+    let retry_idempotent = matches!(
+        req_parts.method,
+        http_mitm_proxy::hyper::Method::GET
+            | http_mitm_proxy::hyper::Method::HEAD
+            | http_mitm_proxy::hyper::Method::OPTIONS
+    );
+    let retry_request = if retry_idempotent {
+        Some(http_mitm_proxy::hyper::Request::from_parts(
+            req_parts.clone(),
+            req_body_obj.clone(),
+        ))
+    } else {
+        None
+    };
     let req = http_mitm_proxy::hyper::Request::from_parts(req_parts, req_body_obj);
 
     // ── Forward upstream (matches working GUI proxy: no aggressive timeout) ──
@@ -950,12 +979,36 @@ async fn handle_proxy_request(
     // (no Proxy: line, no proxy-err) when the upstream path blackholes,
     // which looks exactly like a delivery failure in logs. Timeout turns
     // it into a visible error + 502 instead.
-    let (res, _) = match tokio::time::timeout(
-        std::time::Duration::from_secs(request_timeout.max(1)),
-        client.send_request(req),
-    )
-    .await
-    {
+    let upstream_timeout = std::time::Duration::from_secs(request_timeout.max(1));
+    let mut upstream_result =
+        tokio::time::timeout(upstream_timeout, client.send_request(req)).await;
+
+    // The upstream client keeps HTTP/2 (and HTTP/1 keep-alive) connections in a
+    // pool. A server closes an idle connection or sends GOAWAY whenever it
+    // likes; the pool only notices when the next request sent on that
+    // connection fails ("http2 error", "connection closed"). A browser retries
+    // such a request silently on a new connection; without the same retry the
+    // user gets an occasional 502. The failed connection is no longer handed
+    // out by the pool, so one retry runs on a fresh connection. Only requests
+    // that are safe to repeat are retried.
+    if let (Ok(Err(first_err)), Some(retry)) = (&upstream_result, retry_request) {
+        if is_stale_upstream_connection_error(first_err) {
+            let ts = now_ts();
+            emit_log_event(LogEntry {
+                id: format!("{}-proxy-retry", ts),
+                timestamp: ts,
+                level: LogLevel::Info,
+                message: format!(
+                    "Proxy: stale upstream connection ({}), retrying once: {}{}{}",
+                    first_err, scheme, host, path
+                ),
+            });
+            upstream_result =
+                tokio::time::timeout(upstream_timeout, client.send_request(retry)).await;
+        }
+    }
+
+    let (res, _) = match upstream_result {
         Ok(Ok(response)) => response,
         Ok(Err(e)) => {
             return Err(format!("Upstream failed: {}", e));
