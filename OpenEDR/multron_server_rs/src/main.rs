@@ -131,12 +131,14 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
     // Seamless update (`--handoff`, started by Multron Updater next to the running
     // server): load everything while the running server keeps scanning, then take over.
     let mut handoff_from: Option<u32> = None;
+    let mut beater: Option<handoff::Beater> = None;
     if args.handoff {
         match handoff::begin(ui_addr).await {
             handoff::Begin::Accepted { pid } => {
                 eprintln!("[handoff] standby: the running server (pid {pid}) keeps scanning while this version loads");
                 config::set_standby(true);
                 handoff_from = Some(pid);
+                beater = Some(handoff::Beater::start(ui_addr));
             }
             handoff::Begin::NoServer => eprintln!("[handoff] no server is running on {ui_addr}: normal start"),
             handoff::Begin::Unsupported => {
@@ -217,6 +219,9 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
                 }
                 tokio::task::block_in_place(|| follow.catch_up(&threat_intel));
             }
+        }
+        if let Some(b) = beater.take() {
+            b.stop();
         }
         eprintln!("[handoff] ready after {} s; asking pid {old_pid} to hand over", waited.elapsed().as_secs());
         let switch = std::time::Instant::now();

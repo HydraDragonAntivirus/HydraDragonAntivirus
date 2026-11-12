@@ -187,6 +187,53 @@ pub async fn begin(ui: SocketAddr) -> Begin {
     }
 }
 
+/// Standby: calls the running server every `BEAT_EVERY` from its own thread, so the
+/// heartbeat goes on while the main thread is busy loading (the insights database
+/// alone can take minutes; without beats the old server gives up after `BEAT_TIMEOUT`
+/// and refuses the release).
+pub struct Beater {
+    stop: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    thread: Option<std::thread::JoinHandle<()>>,
+}
+
+impl Beater {
+    pub fn start(ui: SocketAddr) -> Self {
+        let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let flag = std::sync::Arc::clone(&stop);
+        let thread = std::thread::Builder::new()
+            .name("handoff-beat".into())
+            .spawn(move || {
+                let Ok(rt) = tokio::runtime::Builder::new_current_thread().enable_all().build() else {
+                    eprintln!("[handoff] heartbeat thread: no runtime; the main loop beats alone");
+                    return;
+                };
+                let step = Duration::from_millis(100);
+                loop {
+                    let mut slept = Duration::ZERO;
+                    while slept < BEAT_EVERY {
+                        if flag.load(std::sync::atomic::Ordering::Relaxed) {
+                            return;
+                        }
+                        std::thread::sleep(step);
+                        slept += step;
+                    }
+                    rt.block_on(begin(ui));
+                }
+            })
+            .ok();
+        Self { stop, thread }
+    }
+
+    /// Stops beating and waits for a call in flight, so no beat reaches the dashboard
+    /// port after this process takes it over.
+    pub fn stop(mut self) {
+        self.stop.store(true, std::sync::atomic::Ordering::Relaxed);
+        if let Some(t) = self.thread.take() {
+            let _ = t.join();
+        }
+    }
+}
+
 /// The running server was told to hand over; `listening` = its scan listener was up.
 pub struct Released {
     pub listening: bool,
