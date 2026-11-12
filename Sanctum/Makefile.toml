@@ -20,7 +20,10 @@ args = ["build", "--release", "-p", "um_engine"]
 description = "Build and package the Sanctum kernel driver."
 workspace = false
 cwd = "driver"
-env = { CARGO_MAKE_EXTEND_WORKSPACE_MAKEFILE = false, CARGO_MAKE_WORKSPACE_WORKING_DIRECTORY = "${CARGO_MAKE_WORKING_DIRECTORY}/driver" }
+# Unset RUSTUP_TOOLCHAIN: rustup exports it as Sanctum/'s "nightly" (latest),
+# which would override driver/rust-toolchain.toml. Latest nightly's build-dir
+# layout pushes rust-script's linker output past MAX_PATH (LNK1104).
+env = { CARGO_MAKE_EXTEND_WORKSPACE_MAKEFILE = false, CARGO_MAKE_WORKSPACE_WORKING_DIRECTORY = "${CARGO_MAKE_WORKING_DIRECTORY}/driver", RUSTUP_TOOLCHAIN = { unset = true } }
 command = "cargo"
 args = ["make", "default"]
 
@@ -28,7 +31,10 @@ args = ["make", "default"]
 description = "Build and package the Sanctum kernel driver in release mode."
 workspace = false
 cwd = "driver"
-env = { CARGO_MAKE_EXTEND_WORKSPACE_MAKEFILE = false, CARGO_MAKE_WORKSPACE_WORKING_DIRECTORY = "${CARGO_MAKE_WORKING_DIRECTORY}/driver" }
+# Unset RUSTUP_TOOLCHAIN: rustup exports it as Sanctum/'s "nightly" (latest),
+# which would override driver/rust-toolchain.toml. Latest nightly's build-dir
+# layout pushes rust-script's linker output past MAX_PATH (LNK1104).
+env = { CARGO_MAKE_EXTEND_WORKSPACE_MAKEFILE = false, CARGO_MAKE_WORKSPACE_WORKING_DIRECTORY = "${CARGO_MAKE_WORKING_DIRECTORY}/driver", RUSTUP_TOOLCHAIN = { unset = true } }
 command = "cargo"
 args = ["make", "release"]
 
