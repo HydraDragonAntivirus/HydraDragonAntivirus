@@ -151,7 +151,6 @@ impl Rule {
                 | RuleCondition::PeAnchorPattern { .. }
                 | RuleCondition::Authenticode { .. }
                 | RuleCondition::AuthentihashAny { .. }
-                | RuleCondition::PageHashAny { .. }
                 | RuleCondition::PeSubsystem { .. }
                 | RuleCondition::VersionInfo { .. }
                 | RuleCondition::ResourceMatch { .. }
@@ -820,15 +819,14 @@ pub enum RuleCondition {
     },
 
     /// The PE's Authenticode image digest (SHA-1 or SHA-256, the WDAC
-    /// "Hash Sha1/Sha256" value) is one of these.
+    /// "Hash Sha1/Sha256" value) is one of `values`, or the digest of its
+    /// first 4 KiB page (headers, Authenticode style; the WDAC "Hash Page
+    /// Sha1/Sha256" value) is one of `pages`.
     AuthentihashAny {
+        #[serde(default)]
         values: Vec<String>,
-    },
-
-    /// The digest of the PE's first 4 KiB page (headers, Authenticode style;
-    /// the WDAC "Hash Page Sha1/Sha256" value) is one of these.
-    PageHashAny {
-        values: Vec<String>,
+        #[serde(default)]
+        pages: Vec<String>,
     },
 
     /// `IMAGE_OPTIONAL_HEADER.Subsystem` is one of these (`native` for kernel

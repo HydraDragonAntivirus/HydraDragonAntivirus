@@ -2264,7 +2264,6 @@ fn ensure_condition_data(cond: &RuleCondition, report: &mut ScanReport, view: &m
         | RuleCondition::ByteRepeat { .. }
         | RuleCondition::Authenticode { .. }
         | RuleCondition::AuthentihashAny { .. }
-        | RuleCondition::PageHashAny { .. }
         | RuleCondition::PeSubsystem { .. }
         | RuleCondition::VersionInfo { .. }
         | RuleCondition::ResourceMatch { .. }
@@ -3163,23 +3162,20 @@ fn evaluate_condition(
             }
             Some(why.join("; "))
         }
-        RuleCondition::AuthentihashAny { values } => {
+        RuleCondition::AuthentihashAny { values, pages } => {
             report.pe.as_ref()?;
             let h = view.ci_hashes(bytes)?;
-            let hit = values.iter().map(|v| v.trim()).find(|v| {
-                v.eq_ignore_ascii_case(&h.authentihash_sha1) || v.eq_ignore_ascii_case(&h.authentihash_sha256)
-            })?;
-            Some(format!("authentihash matched {}", hit.to_ascii_lowercase()))
-        }
-        RuleCondition::PageHashAny { values } => {
-            report.pe.as_ref()?;
-            let h = view.ci_hashes(bytes)?;
+            let find = |list: &[String], a: &str, b: &str| {
+                list.iter()
+                    .map(|v| v.trim())
+                    .find(|v| v.eq_ignore_ascii_case(a) || v.eq_ignore_ascii_case(b))
+                    .map(str::to_ascii_lowercase)
+            };
+            if let Some(hit) = find(values, &h.authentihash_sha1, &h.authentihash_sha256) {
+                return Some(format!("authentihash matched {hit}"));
+            }
             let (p1, p256) = (h.page_sha1.as_deref()?, h.page_sha256.as_deref()?);
-            let hit = values
-                .iter()
-                .map(|v| v.trim())
-                .find(|v| v.eq_ignore_ascii_case(p1) || v.eq_ignore_ascii_case(p256))?;
-            Some(format!("first page hash matched {}", hit.to_ascii_lowercase()))
+            find(pages, p1, p256).map(|hit| format!("first page hash matched {hit}"))
         }
         RuleCondition::PeSubsystem { values } => {
             report.pe.as_ref()?;

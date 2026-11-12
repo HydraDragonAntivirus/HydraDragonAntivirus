@@ -90,8 +90,7 @@ pub const CONDITION_KEYS: &[(&str, &[&str])] = &[
     ("bytecode", &["program", "entry_func", "max_ops", "params", "expect_return", "virname_glob", "apis"]),
     ("not_mz", &[]),
     ("authenticode", &["signed", "subject_glob", "cert_tbs_any", "publisher", "oem_id"]),
-    ("authentihash_any", &["values"]),
-    ("page_hash_any", &["values"]),
+    ("authentihash_any", &["values", "pages"]),
     ("pe_subsystem", &["values"]),
     ("version_info", &["fields", "absent", "file_version_min", "file_version_max", "product_version_min", "product_version_max"]),
     ("resource_match", &["type_glob", "size_min", "size_max", "data_patterns", "min"]),
@@ -846,9 +845,11 @@ fn check_condition(cond: &RuleCondition, rules: &[Rule], own_id: &str, known_ids
                 out.push(format!("cert_tbs_any `{v}` must be 40, 64 or 96 hex characters (SHA-1 / SHA-256 / SHA-384)"));
             }
         }
-        RuleCondition::AuthentihashAny { values } | RuleCondition::PageHashAny { values } => {
-            list_problems("values", values, None, &mut out);
-            for v in values.iter().filter(|v| !hex_len(v.trim(), 40) && !hex_len(v.trim(), 64)) {
+        RuleCondition::AuthentihashAny { values, pages } => {
+            if values.is_empty() && pages.is_empty() {
+                out.push("authentihash_any needs `values` or `pages`: never matches".into());
+            }
+            for v in values.iter().chain(pages).filter(|v| !hex_len(v.trim(), 40) && !hex_len(v.trim(), 64)) {
                 out.push(format!("hash `{v}` must be 40 or 64 hex characters (SHA-1 / SHA-256)"));
             }
         }
