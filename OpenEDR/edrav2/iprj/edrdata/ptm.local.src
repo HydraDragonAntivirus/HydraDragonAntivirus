@@ -1684,6 +1684,12 @@
 			"MLE_TOKEN_THEFT_ATTEMPT": 1000013,
 			"MLE_PROCESS_INJECTION_TAMPERING": 1000014
 		},
+		"hollowingEventBaseType": {
+			"MLE_PROCESS_HOLLOWING": 1000031
+		},
+		"hollowingBasket": {
+			"freshChild": "PROCESS_HOLLOWING"
+		},
 		"securitySubsystemProcesses": [
 			"*\\winlogon.exe*",
 			"*\\lsass.exe*",
@@ -5705,6 +5711,138 @@
 				}
 			}
 		], // SECURITY_SUBSYSTEM_TAMPERING
+		//
+		// Pattern for Process Hollowing (RunPE / transacted hollowing):
+		// a freshly created process is written by a foreign (untrusted) process
+		// inside the hollowing window. Classic chain is CreateProcess
+		// (CREATE_SUSPENDED) -> NtUnmapViewOfSection / NtMapViewOfSection ->
+		// WriteProcessMemory / NtWriteVirtualMemory -> ResumeThread; the driver
+		// reports that overwrite as a foreign LLE_PROCESS_MEMORY_WRITE whose
+		// target pid was just created. One detection per hollowed child
+		// (loadContext deletes the entry).
+		//
+		"PROCESS_HOLLOWING": [
+			// Step 1: mark every newly created child as "fresh" (30s hollowing
+			// window). Unconditional - the write step applies the exclusions.
+			{
+				"eventType": "LLE_PROCESS_CREATE",
+				"rule": {
+					"saveContext": {
+						"basket": "@const.hollowingBasket.freshChild",
+						"key": "@event.childProcess.id",
+						"group": "@event.childProcess.id",
+						"lifetime": 30000,
+						"data": {
+							"childPath": "@event.childProcess.imageFile.abstractPath",
+							"childPathRaw": "@event.childProcess.imageFile.rawPath"
+						}
+					}
+				}
+			},
+			// Step 2: foreign memory write into a fresh child -> hollowing verdict.
+			// Trusted writers (system / AV / VM agents) and self-writes excluded.
+			{
+				"eventType": "LLE_PROCESS_MEMORY_WRITE",
+				"rule": {
+					"condition": {
+						"$operation": "and",
+						"args": [
+							{
+								"$operation": "!equal",
+								"args": [ "@event.process.id", "@event.target.id" ]
+							},
+							{
+								"$operation": "or",
+								"args": [
+									{
+										"$operation": "imatch",
+										"pattern": "?*",
+										"args": [ "@event.process.imageFile.abstractPath" ]
+									},
+									{
+										"$operation": "imatch",
+										"pattern": "?*",
+										"args": [ "@event.process.imageFile.rawPath" ]
+									}
+								]
+							},
+							{
+								"$operation": "!imatch",
+								"pattern": "@const.trustedSecurityCallers",
+								"args": [ "@event.process.imageFile.abstractPath" ]
+							},
+							{
+								"$operation": "!imatch",
+								"pattern": "@const.trustedSecurityCallers",
+								"args": [ "@event.process.imageFile.rawPath" ]
+							},
+							{
+								"$operation": "!equal",
+								"args": [ "@event.process.isTrusted", true ]
+							},
+							{
+								// exclude same-image writes (legit re-exec / crashpad
+								// style parent writes its own image copy)
+								"$operation": "and",
+								"args": [
+									{
+										"$operation": "!equal",
+										"args": [
+											"@event.process.imageFile.abstractPath",
+											"@event.target.imageFile.abstractPath"
+										]
+									},
+									{
+										"$operation": "!equal",
+										"args": [
+											"@event.process.imageFile.rawPath",
+											"@event.target.imageFile.rawPath"
+										]
+									}
+								]
+							}
+						]
+					},
+					"loadContext": {
+						"basket": "@const.hollowingBasket.freshChild",
+						"key": "@event.target.id",
+						"delete": true
+					},
+					"createEvent": {
+						"eventType": "MLE_PROCESS_HOLLOWING",
+						"destination": "OUT",
+						"clone": false,
+						"data": [
+							{ "name": "baseType", "value": "@const.hollowingEventBaseType.MLE_PROCESS_HOLLOWING" },
+							{ "name": "threatName", "value": "Trojan.Win32.ProcessHollowing" },
+							{ "name": "threatType", "value": "PROCESS_HOLLOWING" },
+							{ "name": "verdict", "value": 2 },
+							{ "name": "flsVerdict", "value": 2 },
+							{ "name": "process", "value": "@event.process" },
+							{ "name": "processes", "value": "@event.processes" },
+							{ "name": "time", "value": "@event.time" },
+							{ "name": "tickTime", "value": "@event.tickTime" },
+							{ "name": "hollowedProcessId", "value": "@event.target.id" },
+							{ "name": "hollowedProcessPath", "value": "@event.target.imageFile.abstractPath" },
+							{ "name": "hollowedProcessPathRaw", "value": "@event.target.imageFile.rawPath" },
+							{ "name": "quarantineTarget", "value": "@event.process.imageFile.abstractPath" },
+							{ "name": "should_trust_company_whitelist", "value": true },
+							{ "name": "should_trust_comodo_fls_cloud", "value": false }
+						]
+					}
+				}
+			},
+			// Step 3: free contexts on child exit (guards against pid reuse)
+			{
+				"eventType": "LLE_PROCESS_DELETE",
+				"rule": {
+					"deleteContext": {
+						"basket": "@const.hollowingBasket.freshChild",
+						"group": "@event.process.id"
+					}
+				}
+			}
+		], // PROCESS_HOLLOWING
 		"PUA_REGISTRY_WRITE": [
 			// PUA persistence keys (converted from hydradragonsig reglist_pua.yaml):
 			// second-layer delete when revert_registry missed the key.
