@@ -1155,4 +1155,48 @@ mod tests {
     fn version_blob_empty_is_absent() {
         assert_eq!(parse_version_blob(&[0, 0, 0]).fields.len(), 0);
     }
+
+    /// PE32+ image of `len` bytes: e_lfanew 0x80, SizeOfHeaders 0x400,
+    /// native subsystem, and an attribute certificate table at `cert`.
+    fn tiny_pe64(len: usize, cert: Option<(u32, u32)>) -> Vec<u8> {
+        let mut b: Vec<u8> = (0..len).map(|i| (i * 31 + 7) as u8).collect();
+        b[0..2].copy_from_slice(b"MZ");
+        b[0x3C..0x40].copy_from_slice(&0x80u32.to_le_bytes());
+        b[0x80..0x84].copy_from_slice(b"PE\0\0");
+        let oh = 0x80 + 24;
+        b[oh..oh + 2].copy_from_slice(&0x20Bu16.to_le_bytes());
+        b[oh + 60..oh + 64].copy_from_slice(&0x400u32.to_le_bytes());
+        b[oh + 68..oh + 70].copy_from_slice(&1u16.to_le_bytes());
+        b[oh + 108..oh + 112].copy_from_slice(&16u32.to_le_bytes());
+        let (off, size) = cert.unwrap_or((0, 0));
+        b[oh + 144..oh + 148].copy_from_slice(&off.to_le_bytes());
+        b[oh + 148..oh + 152].copy_from_slice(&size.to_le_bytes());
+        b
+    }
+
+    #[test]
+    fn ci_digests_skip_checksum_security_entry_and_cert_table() {
+        use sha2::{Digest, Sha256};
+        let pe = tiny_pe64(0x1800, Some((0x1600, 0x200)));
+        let (checksum, sec) = (0x80 + 24 + 64, 0x80 + 24 + 144);
+        let image: Vec<u8> = [&pe[..checksum], &pe[checksum + 4..sec], &pe[sec + 8..0x1600]].concat();
+        let h = ci_image_hashes(&pe).expect("pe");
+        assert_eq!(h.authentihash_sha256, hex::encode(Sha256::digest(&image)));
+        assert_eq!(h.authentihash_sha1, hex::encode(crate::utils::hash::sha1(&image)));
+        let mut page: Vec<u8> = [&pe[..checksum], &pe[checksum + 4..sec], &pe[sec + 8..0x400]].concat();
+        page.resize(4096 - 12, 0);
+        assert_eq!(h.page_sha256.as_deref(), Some(hex::encode(Sha256::digest(&page)).as_str()));
+        // The checksum and the certificate table do not change the digests.
+        let mut resigned = pe.clone();
+        resigned[checksum] ^= 0xFF;
+        resigned[0x1700] ^= 0xFF;
+        assert_eq!(ci_image_hashes(&resigned), Some(h));
+        assert_eq!(pe_subsystem(&pe), Some(1));
+        // Unsigned: everything up to the end of the file.
+        let unsigned = tiny_pe64(0x1234, None);
+        let image: Vec<u8> = [&unsigned[..checksum], &unsigned[checksum + 4..sec], &unsigned[sec + 8..]].concat();
+        assert_eq!(ci_image_hashes(&unsigned).unwrap().authentihash_sha256, hex::encode(Sha256::digest(&image)));
+        assert_eq!(ci_signatures(&unsigned), Some(Vec::new()));
+        assert!(ci_image_hashes(b"MZ not a pe").is_none());
+    }
 }
