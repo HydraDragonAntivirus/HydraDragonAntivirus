@@ -13,7 +13,7 @@
 use crate::logging::Logging;
 use serde::{Deserialize, Serialize};
 use std::io::Write;
-use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 
 #[cfg(target_os = "windows")]
 use windows::core::PCWSTR;
@@ -97,6 +97,76 @@ fn log_telemetry_outcome(kind: &str, last: &AtomicU32, res: &Result<(u32, Vec<u8
         }
         Err(e) => Logging::warning(&format!("[EDR Feedback] Failed to stream {kind} telemetry: {e}")),
     }
+}
+
+/// Number of flows left out of the telemetry because they are the product's own
+/// loopback traffic (see `is_own_loopback_flow`).
+static SUPPRESSED_OWN_LOOPBACK_FLOWS: AtomicU64 = AtomicU64::new(0);
+
+/// Install root of the product: the directory of the running service executable
+/// (edrsvc.exe loads this DLL; edrgui.exe and the other components live in the
+/// same directory tree). The same notion as `utils::is_own_companion_process`.
+fn own_install_root() -> Option<&'static std::path::Path> {
+    static ROOT: std::sync::OnceLock<Option<std::path::PathBuf>> = std::sync::OnceLock::new();
+    ROOT.get_or_init(|| {
+        std::env::current_exe()
+            .ok()
+            .and_then(|p| p.parent().map(|d| d.to_path_buf()))
+    })
+    .as_deref()
+}
+
+/// A loopback address, including an IPv4-mapped one (`::ffff:127.0.0.1`).
+fn is_loopback_ip(ip: &std::net::IpAddr) -> bool {
+    ip.to_canonical().is_loopback()
+}
+
+/// Both ends of the flow are loopback and the image of the process is inside
+/// `install_root`. The image is matched by its full path, not by its file name:
+/// any process can be called `edrsvc.exe`. Windows paths compare case-insensitively.
+pub fn is_loopback_flow_of_image_under(
+    src_ip: &std::net::IpAddr,
+    dst_ip: &std::net::IpAddr,
+    image_path: &str,
+    install_root: &std::path::Path,
+) -> bool {
+    if !is_loopback_ip(src_ip) || !is_loopback_ip(dst_ip) {
+        return false;
+    }
+    if image_path.is_empty() || install_root.as_os_str().is_empty() {
+        return false;
+    }
+    let image = std::path::PathBuf::from(image_path.to_lowercase());
+    let root = std::path::PathBuf::from(install_root.to_string_lossy().to_lowercase());
+    // Component-wise: "...\OpenEDR-evil\x.exe" is not under "...\OpenEDR".
+    image.starts_with(&root)
+}
+
+/// The product's own loopback traffic (edrsvc.exe <-> edrgui.exe and the other
+/// components of the install directory talking over 127.0.0.1 / ::1). It carries
+/// no detection value, the server never judges loopback addresses, and it is the
+/// bulk of the flow telemetry, so it is left out. Everything else stays: loopback
+/// traffic of any other process (local proxies, tunnels) and the product's own
+/// connections to remote addresses.
+pub fn is_own_loopback_flow(src_ip: &std::net::IpAddr, dst_ip: &std::net::IpAddr, image_path: &str) -> bool {
+    let Some(root) = own_install_root() else {
+        return false;
+    };
+    if !is_loopback_flow_of_image_under(src_ip, dst_ip, image_path, root) {
+        return false;
+    }
+    let n = SUPPRESSED_OWN_LOOPBACK_FLOWS.fetch_add(1, Ordering::Relaxed) + 1;
+    if n == 1 || n % 1000 == 0 {
+        Logging::info(&format!(
+            "[EDR Feedback] Own loopback flows left out of the network telemetry so far: {n}"
+        ));
+    }
+    true
+}
+
+/// How many own loopback flows were left out of the telemetry since the start.
+pub fn suppressed_own_loopback_flows() -> u64 {
+    SUPPRESSED_OWN_LOOPBACK_FLOWS.load(Ordering::Relaxed)
 }
 
 /// Stream process network telemetry to VirusKov cloud for ML model training.
@@ -1303,5 +1373,36 @@ mod tests {
         assert_eq!(urlencoding::encode("test file.exe"), "test%20file.exe");
         assert_eq!(urlencoding::encode("abc-123_xyz.bin"), "abc-123_xyz.bin");
         assert_eq!(urlencoding::encode("Trojan:Win32/Wacatac.B!ml"), "Trojan%3AWin32%2FWacatac.B%21ml");
+    }
+
+    #[test]
+    fn own_loopback_flow_needs_loopback_ends_and_image_under_install_root() {
+        use std::net::IpAddr;
+        let root = std::path::Path::new(r"C:\Program Files\HydraDragonAntivirus\OpenEDR");
+        let lo4: IpAddr = "127.0.0.1".parse().unwrap();
+        let lo6: IpAddr = "::1".parse().unwrap();
+        let mapped: IpAddr = "::ffff:127.0.0.1".parse().unwrap();
+        let lan: IpAddr = "192.168.1.5".parse().unwrap();
+        let svc = r"C:\Program Files\HydraDragonAntivirus\OpenEDR\edrsvc.exe";
+        let gui = r"c:\program files\hydradragonantivirus\openedr\EDRGUI.EXE";
+        let sub = r"C:\Program Files\HydraDragonAntivirus\OpenEDR\Sanctum\um_engine.exe";
+
+        // Own components talking over loopback: left out.
+        assert!(is_loopback_flow_of_image_under(&lo4, &lo4, svc, root));
+        assert!(is_loopback_flow_of_image_under(&lo6, &lo6, gui, root));
+        assert!(is_loopback_flow_of_image_under(&lo4, &mapped, sub, root));
+
+        // Own component talking to a remote address: kept.
+        assert!(!is_loopback_flow_of_image_under(&lo4, &lan, svc, root));
+        assert!(!is_loopback_flow_of_image_under(&lan, &lo4, svc, root));
+
+        // Another process on loopback, even one that borrows the name: kept.
+        assert!(!is_loopback_flow_of_image_under(&lo4, &lo4, r"C:\Users\x\AppData\Local\Temp\edrsvc.exe", root));
+        assert!(!is_loopback_flow_of_image_under(&lo4, &lo4, r"C:\Program Files\HydraDragonAntivirus\OpenEDR-evil\edrsvc.exe", root));
+        assert!(!is_loopback_flow_of_image_under(&lo4, &lo4, r"C:\Windows\System32\svchost.exe", root));
+
+        // Unknown image or root: kept.
+        assert!(!is_loopback_flow_of_image_under(&lo4, &lo4, "", root));
+        assert!(!is_loopback_flow_of_image_under(&lo4, &lo4, svc, std::path::Path::new("")));
     }
 }

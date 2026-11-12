@@ -3670,6 +3670,14 @@ impl FirewallEngine {
                                             let flow_key = (pid, parsed_info.dst_ip, parsed_info.dst_port);
                                             if notified_flows.insert(flow_key) {
                                                 let p_path = am_w.info_cache.get_info(pid).path;
+                                                // The product's own loopback chatter (edrsvc.exe <->
+                                                // edrgui.exe ...) is the bulk of the flows and has no
+                                                // detection value: it is not sent.
+                                                if !crate::edr_feedback::is_own_loopback_flow(
+                                                    &parsed_info.src_ip,
+                                                    &parsed_info.dst_ip,
+                                                    &p_path,
+                                                ) {
                                                 let proc_name = std::path::Path::new(&p_path)
                                                     .file_name()
                                                     .and_then(|s| s.to_str())
@@ -3688,6 +3696,7 @@ impl FirewallEngine {
                                                     hostname: parsed_info.hostname.clone().or_else(|| parsed_info.dns_query.clone()),
                                                 };
                                                 let _ = flow_tx.send(rec);
+                                                }
                                             }
                                         }
                                     }
