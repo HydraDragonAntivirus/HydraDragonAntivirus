@@ -386,7 +386,7 @@ CRASH_LOG = os.path.join(BASE_DIR, "pe_feature_dump_crashes.txt")
 def _dump_v2(files, chunk_dir):
     """pe_feature_dump --v2 over `files`: (rows, names, paths), or None when the process
     died (a crash inside the emulator cannot be caught in-process). `paths` is the file of
-    each row (the dump's first column), so a row can be traced back to its sample."""
+    each row (the dump's first column is its line in the list), so a row can be traced back to its sample."""
     import csv
     import subprocess
     lst = os.path.join(chunk_dir, "_batch.lst")
@@ -407,7 +407,7 @@ def _dump_v2(files, chunk_dir):
         rows, paths = [], []
         for r in rd:
             rows.append([float(v) for v in r[1:]])
-            paths.append(r[0])
+            paths.append(files[int(r[0])])  # column 0 is the 0-based line in the list
     os.remove(out)
     return rows, names, paths
 
