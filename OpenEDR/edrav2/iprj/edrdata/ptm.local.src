@@ -3940,6 +3940,27 @@
 		"rootkitEventBaseType": {
 			"MLE_ROOTKIT_KERNEL_FRAME": 1000017
 		},
+		"hypervisorEventBaseType": {
+			"MLE_HYPERVISOR_MSR_TAMPER": 1000030
+		},
+		// Raw event types of the hypervisor bridge (HvSendEventToOwlyshield in
+		// OpenEDR/HyperDbg hyperhv). They arrive in @event.owlyHook.eventType
+		// of an LLE_DEVICE_IOCTL event that also carries the @event.owlyHv dict.
+		"hypervisorRawEvent": {
+			"WRMSR": 65
+		},
+		// MSRs that hold the system call entry points and the mode switches.
+		// The kernel writes them only while it initializes a processor (boot,
+		// resume) in the System context. A write from any other process
+		// context means a driver redirecting system calls on behalf of that
+		// process (WRMSR primitive of a vulnerable driver, syscall-hook rootkit).
+		// The MSR index arrives in @event.owlyHv.context.
+		"hypervisorMsr": {
+			"IA32_SYSENTER_EIP": 374,
+			"IA32_EFER": 3221225600,
+			"IA32_LSTAR": 3221225602,
+			"IA32_CSTAR": 3221225603
+		},
 		// Matches resolved kernel-stack chains containing at least one frame
 		// with no owning module (manually mapped driver / rootkit code).
 		// The resolver marks those "unknown!0x...".
@@ -6166,6 +6187,82 @@
 			}
 		}
 		],
+		// Hypervisor signal (OpenEDR/HyperDbg on Intel; OpenEDR/RedDbg on AMD
+		// does not report MSR writes yet): WRMSR to a system call entry MSR
+		// or to EFER outside the System context by a process that is not
+		// trusted. The event is produced by edrdrv's hypervisor bridge
+		// (QueueHypervisorEvent) and is recognized by the owlyHv dict, whose
+		// timestamp is always set.
+		"HYPERVISOR_MSR_TAMPER": [
+		{
+			"eventType": "LLE_DEVICE_IOCTL",
+			"rule": {
+				"name": "HypervisorSyscallMsrTamperDetection",
+				"condition": {
+					"$operation": "and",
+					"args": [
+						{
+							"$operation": "greater",
+							"args": [ "@event.owlyHv.timestamp", 0 ]
+						},
+						{
+							"$operation": "equal",
+							"args": [ "@event.owlyHook.eventType", "@const.hypervisorRawEvent.WRMSR" ]
+						},
+						{
+							"$operation": "or",
+							"args": [
+								{ "$operation": "equal", "args": [ "@event.owlyHv.context", "@const.hypervisorMsr.IA32_LSTAR" ] },
+								{ "$operation": "equal", "args": [ "@event.owlyHv.context", "@const.hypervisorMsr.IA32_CSTAR" ] },
+								{ "$operation": "equal", "args": [ "@event.owlyHv.context", "@const.hypervisorMsr.IA32_SYSENTER_EIP" ] },
+								{ "$operation": "equal", "args": [ "@event.owlyHv.context", "@const.hypervisorMsr.IA32_EFER" ] }
+							]
+						},
+						{
+							"$operation": "greater",
+							"args": [ "@event.process.pid", 4 ]
+						},
+						{
+							"$operation": "or",
+							"args": [
+								{
+									"$operation": "!equal",
+									"args": [ "@event.process.isTrusted", true ]
+								},
+								{
+									"$operation": "!equal",
+									"args": [ "@event.process.isTrustedAccordingToFls", true ]
+								},
+								{
+									"$operation": "!equal",
+									"args": [ "@event.process.isTrustedAccordingToCertificate", true ]
+								}
+							]
+						}
+					]
+				},
+				"createEvent": {
+					"eventType": "MLE_HYPERVISOR_MSR_TAMPER",
+					"destination": "OUT",
+					"clone": false,
+					"data": [
+						{ "name": "baseType", "value": "@const.hypervisorEventBaseType.MLE_HYPERVISOR_MSR_TAMPER" },
+						{ "name": "threatName", "value": "Rootkit.Win64.SyscallMsrTamper" },
+						{ "name": "threatType", "value": "HYPERVISOR_MSR_TAMPER" },
+						{ "name": "process", "value": "@event.process" },
+						{ "name": "processes", "value": "@event.processes" },
+						{ "name": "owlyHv", "value": "@event.owlyHv" },
+						{ "name": "targetMsr", "value": "@event.owlyHv.context" },
+						{ "name": "time", "value": "@event.time" },
+						{ "name": "tickTime", "value": "@event.tickTime" },
+						{ "name": "should_trust_company_whitelist", "value": false },
+						{ "name": "should_trust_comodo_fls_cloud", "value": false }
+					]
+				}
+			}
+		}
+		], // HYPERVISOR_MSR_TAMPER
+
 		// Rootkit signal: any file/process/registry operation whose kernel
 		// stack contains a frame owned by NO loaded driver (manually mapped
 		// code). The resolver marks such frames "unknown!0x...". Raw hex

@@ -1076,6 +1076,10 @@ QueueHypervisorEvent(_In_ const OWLY_HV_EVENT_DETAILS * EventDetails)
             (uint64_t)timestamp.QuadPart))                             goto send_done;
     if (!serializer.write(cmd::edrdrv::EventField::OwlyHvTargetPid,
             (uint32_t)targetPid))                                      goto send_done;
+    // Event-specific value of the hypervisor (HvSendEventToOwlyshield passes the
+    // MSR index, the exit qualification, the VMCALL number... here).
+    if (!serializer.write(cmd::edrdrv::EventField::OwlyHvContext,
+            (uint64_t)EventDetails->Context))                          goto send_done;
 
 send_done:
     cmd::fltport::sendRawEvent(serializer);

@@ -1549,6 +1549,7 @@ bool SystemMonitorController::parseEvent(const Byte* pBuffer, const Size nBuffer
 				vHv.put("isAcgEnabled",       vHvRaw.get("isAcgEnabled",       uint32_t(0)));
 				vHv.put("timestamp",          vHvRaw.get("timestamp",          uint64_t(0)));
 				vHv.put("targetPid",          vHvRaw.get("targetPid",          uint32_t(0)));
+				vHv.put("context",            vHvRaw.get("context",            uint64_t(0)));
 				vEvent.put("owlyHv", vHv);
 				// Hypervisor events get a distinct baseType
 				eEvent = Event::LLE_DEVICE_IOCTL;

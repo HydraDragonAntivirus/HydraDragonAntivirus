@@ -166,6 +166,7 @@ enum class EventField : variant::lbvs::FieldId
 	ThreadId = 127,                ///< uint32 - target thread ID (thread handle open)
 	FileBackupPath = 128,          ///< str - where the pre-image backup was saved
 	KernelStack = 129,             ///< str (wide) - comma-separated hex kernel return addresses (RtlWalkFrameChain)
+	OwlyHvContext = 130,           ///< uint64 - hypervisor event-specific value (MSR index, exit qualification, VMCALL number...)
 };
 
 ///
@@ -303,7 +304,8 @@ constexpr char c_sEventSchema[] = R"json({
 	{ "name": "file.renameTarget" },
 	{ "name": "thread.id" },
 	{ "name": "file.backupPath" },
-	{ "name": "file.kernelStack" }
+	{ "name": "file.kernelStack" },
+	{ "name": "owlyHv.context" }
 ]})json";
 
 //////////////////////////////////////////////////////////////////////////
