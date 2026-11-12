@@ -388,7 +388,9 @@ fn uninstall_all_sanctum_services(h_sc_mgr: windows::Win32::System::Services::SC
         let deleted = unsafe { windows::Win32::System::Services::DeleteService(h_svc) };
         let _ = unsafe { windows::Win32::System::Services::CloseServiceHandle(h_svc) };
         match deleted {
-            Ok(()) => println!("[+] sanctum_ppl_runner service unprotected, stopped and uninstalled."),
+            Ok(()) => {
+                println!("[+] sanctum_ppl_runner service unprotected, stopped and uninstalled.")
+            }
             Err(e) => {
                 println!("[!] DeleteService(sanctum_ppl_runner) failed: {e}");
                 remove_ppl_runner_service_key();
@@ -467,8 +469,7 @@ const PPL_RUNNER_UNINSTALL_EVENT: &str = r"Global\SanctumPplRunnerUninstall";
 fn request_ppl_runner_self_uninstall(h_sc_mgr: windows::Win32::System::Services::SC_HANDLE) {
     use windows::Win32::Foundation::CloseHandle;
     use windows::Win32::System::Services::{
-        CloseServiceHandle, OpenServiceW, QueryServiceStatus, SERVICE_QUERY_STATUS,
-        SERVICE_STATUS,
+        CloseServiceHandle, OpenServiceW, QueryServiceStatus, SERVICE_QUERY_STATUS, SERVICE_STATUS,
     };
     use windows::Win32::System::Threading::{EVENT_MODIFY_STATE, OpenEventW, SetEvent};
 
@@ -513,7 +514,10 @@ fn remove_ppl_runner_service_key() {
     if r == ERROR_SUCCESS {
         println!("[+] sanctum_ppl_runner service key removed (gone after reboot).");
     } else {
-        println!("[!] Could not remove the sanctum_ppl_runner service key: {}", r.0);
+        println!(
+            "[!] Could not remove the sanctum_ppl_runner service key: {}",
+            r.0
+        );
     }
 }
 
