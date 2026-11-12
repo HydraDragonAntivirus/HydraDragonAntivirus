@@ -356,6 +356,9 @@ def parse_args():
     parser.add_argument("--balance", action="store_true", help="Old behaviour: undersample both classes to 50/50 (default: use ALL samples)")
     parser.add_argument("--max-benign-ratio", type=float, default=0.0, help="Cap benign at N x malicious (0 = no cap, e.g. 4 = at most 4 benign per malicious)")
     parser.add_argument("--target-fpr", type=float, default=0.001, help="Pick the threshold so at most this share of held-out benign is flagged (0.001 = 0.1%%)")
+    parser.add_argument("--exclude-rows", type=str, default=None,
+                        help="File of row keys to leave out of training (one per line, `#` comments), "
+                             "e.g. the reviewed pe_label_noise_exclude.txt of find_pe_label_noise.py")
     parser.add_argument("--no-sync", action="store_true", help="Do not copy pe_trees.bin into the engine model folders")
     parser.add_argument("--features", choices=("v1", "v2"), default="v1",
                         help="v1: the 65 shell features (default). v2: unified model on the full feature "
@@ -381,8 +384,9 @@ CRASH_LOG = os.path.join(BASE_DIR, "pe_feature_dump_crashes.txt")
 
 
 def _dump_v2(files, chunk_dir):
-    """pe_feature_dump --v2 over `files`: (rows, names), or None when the process died
-    (a crash inside the emulator cannot be caught in-process)."""
+    """pe_feature_dump --v2 over `files`: (rows, names, paths), or None when the process
+    died (a crash inside the emulator cannot be caught in-process). `paths` is the file of
+    each row (the dump's first column), so a row can be traced back to its sample."""
     import csv
     import subprocess
     lst = os.path.join(chunk_dir, "_batch.lst")
@@ -400,14 +404,17 @@ def _dump_v2(files, chunk_dir):
     with open(out, newline="", encoding="utf-8") as fh:
         rd = csv.reader(fh)
         names = next(rd)[1:]
-        rows = [[float(v) for v in r[1:]] for r in rd]
+        rows, paths = [], []
+        for r in rd:
+            rows.append([float(v) for v in r[1:]])
+            paths.append(r[0])
     os.remove(out)
-    return rows, names
+    return rows, names, paths
 
 
 def collect_features_v2(file_batch, chunk_dir):
     """v2 vectors of a batch with pe_feature_dump (the engine's own extractor). Returns
-    (rows, names); files it rejects (not a PE) are left out. When the tool dies on the
+    (rows, names, paths); files it rejects (not a PE) are left out. When the tool dies on the
     batch it is split in halves until the files that crash it are found; those are
     skipped and listed in pe_feature_dump_crashes.txt (emulator bugs to fix)."""
     if not os.path.isfile(PE_DUMP_EXE):
@@ -419,7 +426,7 @@ def collect_features_v2(file_batch, chunk_dir):
             ok.append(f)
         except UnicodeEncodeError:
             pass  # a UTF-8 list cannot hold the name (lone UTF-16 surrogate)
-    rows, names, crashed = [], None, []
+    rows, names, paths, crashed = [], None, [], []
     todo = [ok]
     while todo:
         part = todo.pop()
@@ -429,6 +436,7 @@ def collect_features_v2(file_batch, chunk_dir):
         if r is not None:
             rows.extend(r[0])
             names = names or r[1]
+            paths.extend(r[2])
         elif len(part) == 1:
             crashed.append(part[0])
         else:
@@ -437,7 +445,7 @@ def collect_features_v2(file_batch, chunk_dir):
         with open(CRASH_LOG, "a", encoding="utf-8") as fh:
             fh.write("\n".join(crashed) + "\n")
         print(f"  [!] {len(crashed)} files crash pe_feature_dump; skipped (listed in {CRASH_LOG})", flush=True)
-    return rows, names
+    return rows, names, paths
 
 
 def retry_crashed_files(args):
@@ -482,7 +490,7 @@ def retry_crashed_files(args):
         files = by_label[label]
         if not files:
             continue
-        rows, names = collect_features_v2(files, args.chunk_dir)
+        rows, names, paths = collect_features_v2(files, args.chunk_dir)
         print(f"  [+] {label}: {len(rows)} of {len(files)} crashed files now extract")
         if not rows:
             continue
@@ -494,7 +502,8 @@ def retry_crashed_files(args):
             old = joblib.load(chunk_path)
             if list(old.get("names", names)) == list(names):
                 X = np.vstack([old["X"], X])
-        data = {"X": X, "y": np.full(len(X), label_val, dtype=np.int32), "names": names}
+                paths = list(old.get("paths", [""] * len(old["X"]))) + list(paths)
+        data = {"X": X, "y": np.full(len(X), label_val, dtype=np.int32), "names": names, "paths": paths}
         joblib.dump(data, chunk_path, compress=3)
         # `chunk_pe_retry_*` is loaded with the other chunks and is outside the
         # `chunk_pe_<label>_` prefix, so a normal extraction never forgets it.
@@ -542,9 +551,9 @@ def extract_chunks_to_disk(file_list, executor, label_name, label_val, chunk_dir
             chunk_idx += 1
             continue
             
-        names_v2 = None
+        names_v2 = paths_v2 = None
         if features == "v2":
-            feats, names_v2 = collect_features_v2(chunk_files, chunk_dir)
+            feats, names_v2, paths_v2 = collect_features_v2(chunk_files, chunk_dir)
         else:
             feats = collect_features_batch(chunk_files, executor)
         if feats:
@@ -553,6 +562,8 @@ def extract_chunks_to_disk(file_list, executor, label_name, label_val, chunk_dir
             data = {"X": X_chunk, "y": y_chunk}
             if names_v2:
                 data["names"] = names_v2
+            if paths_v2:
+                data["paths"] = paths_v2  # find_pe_label_noise.py traces a row to its file
             joblib.dump(data, chunk_path, compress=3)
             manifest.record(chunk_path, chunk_files + tool)
             total_valid += len(feats)
@@ -592,11 +603,29 @@ PE_URL_ML_NAMES = ("url_unwhitelisted_count_log", "url_ml_max_prob",
                    "url_ml_mean_prob", "url_ml_high_count_log")
 
 
-def load_chunks(chunk_dir, balance=False, max_benign_ratio=0.0):
+def read_excluded_rows(path):
+    """Row keys (find_pe_label_noise.row_key) listed in `path`; empty without a file."""
+    if not path:
+        return set()
+    with open(path, encoding="utf-8") as fh:
+        return {l.split("#", 1)[0].strip() for l in fh if l.split("#", 1)[0].strip()}
+
+
+def drop_excluded(X, excluded):
+    if not excluded or not len(X):
+        return X
+    import hashlib
+    keep = [hashlib.sha1(np.ascontiguousarray(r, dtype=np.float32).tobytes()).hexdigest()[:20] not in excluded
+            for r in X]
+    return X[np.array(keep, dtype=bool)]
+
+
+def load_chunks(chunk_dir, balance=False, max_benign_ratio=0.0, exclude_rows=None):
     """Load every feature chunk. By default ALL samples are used (benign > malicious is
     fine and lowers false positives); `balance` restores the old 50/50 undersampling.
     Exact duplicate feature rows are removed, and rows that occur in BOTH classes
-    (label noise) are dropped."""
+    (label noise) are dropped, as are the rows listed in `exclude_rows` (reviewed
+    label noise from find_pe_label_noise.py)."""
     import glob
     chunk_files = dataset_paths.ChunkManifest(chunk_dir).chunk_files(
         chunk_dir, "chunk_pe_", glob.glob(os.path.join(chunk_dir, "chunk_pe_*.joblib")))
@@ -626,6 +655,12 @@ def load_chunks(chunk_dir, balance=False, max_benign_ratio=0.0):
     X_mal = np.unique(np.vstack(X_mal_list), axis=0)
     X_ben = np.unique(np.vstack(X_ben_list), axis=0)
     del X_mal_list, X_ben_list
+    excluded = read_excluded_rows(exclude_rows)
+    if excluded:
+        n_mal, n_ben = len(X_mal), len(X_ben)
+        X_mal, X_ben = drop_excluded(X_mal, excluded), drop_excluded(X_ben, excluded)
+        print(f"[*] --exclude-rows: left out {n_mal - len(X_mal)} malicious and {n_ben - len(X_ben)} benign rows "
+              f"({len(excluded)} keys listed)")
 
     # Same feature vector labelled both ways: the model cannot learn it, drop from both.
     mal_keys = {r.tobytes() for r in X_mal}
@@ -685,7 +720,8 @@ def main():
         print("[+] Feature extraction finished. Exiting as --extract-only was specified.")
         return
 
-    X, y = load_chunks(args.chunk_dir, balance=args.balance, max_benign_ratio=args.max_benign_ratio)
+    X, y = load_chunks(args.chunk_dir, balance=args.balance, max_benign_ratio=args.max_benign_ratio,
+                       exclude_rows=args.exclude_rows)
 
     # 70 % train, 15 % validation (threshold), 15 % test (final numbers).
     X_train, X_rest, y_train, y_rest = train_test_split(X, y, test_size=0.30, random_state=42, stratify=y)
