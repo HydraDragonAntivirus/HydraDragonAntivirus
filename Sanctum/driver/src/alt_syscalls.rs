@@ -226,7 +226,10 @@ impl AltSyscalls {
         let table = match lookup_legacy_handler_table(p_register as *const u8) {
             Ok(t) => t,
             Err(e) => {
-                println!("[sanctum] [-] Could not resolve PspAltSystemCallHandlers: {:?}", e);
+                println!(
+                    "[sanctum] [-] Could not resolve PspAltSystemCallHandlers: {:?}",
+                    e
+                );
                 return;
             }
         };
@@ -255,7 +258,9 @@ impl AltSyscalls {
         LEGACY_HANDLER_TABLE.store(table as *mut AtomicUsize, Ordering::SeqCst);
         ALT_SYSCALL_MECHANISM.store(AltSyscallMechanism::LegacyHandler as u8, Ordering::SeqCst);
         ALT_SYSCALLS_INITIALISED.store(true, Ordering::SeqCst);
-        println!("[sanctum] [+] Alt Syscalls enabled via legacy PsRegisterAltSystemCallHandler (Windows 10).");
+        println!(
+            "[sanctum] [+] Alt Syscalls enabled via legacy PsRegisterAltSystemCallHandler (Windows 10)."
+        );
     }
 
     /// Windows 11 24H2+ path: insert a row into `PspServiceDescriptorGroupTable`.
@@ -881,7 +886,9 @@ fn intercept_syscall(ssn: u32, ktrap_frame: KTRAP_FRAME) -> AllowSyscall {
         SSN_NT_OPEN_PROCESS | SSN_NT_ALLOCATE_VIRTUAL_MEMORY | SSN_NT_WRITE_VM => {
             KernelSyscallIntercept::from_alt_syscall(ktrap_frame)
         }
-        ssn if ssn == ssn_nt_create_thread_ex() => KernelSyscallIntercept::from_alt_syscall(ktrap_frame),
+        ssn if ssn == ssn_nt_create_thread_ex() => {
+            KernelSyscallIntercept::from_alt_syscall(ktrap_frame)
+        }
         _ => AllowSyscall::Yes,
     }
 }
