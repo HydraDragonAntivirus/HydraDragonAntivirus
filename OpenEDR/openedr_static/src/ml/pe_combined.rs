@@ -170,32 +170,21 @@ pub fn should_unpack(data: &[u8]) -> bool {
 /// unpacked image of a packed PE.
 pub fn inner_of(data: &[u8]) -> Inner {
     if hydradragonextractor::detect_format(data).is_some() {
+        // Extracted once per file: this file's members are kept for the engine's archive
+        // step (`take_extraction`) and for the next `inner_of` of the same file.
+        let cached = LAST_EXTRACTION.with(|c| {
+            c.borrow().as_ref().filter(|(d, _)| d.as_slice() == data).map(|(_, entries)| inner_of_members(entries))
+        });
+        if let Some(inner) = cached {
+            return inner;
+        }
         let extracted = crate::memtrack::measure("scan:archive_extract", crate::memtrack::Kind::Scan, data.len(), || {
             hydradragonextractor::extract_archive_from_bytes(data, false)
         });
         if let Ok(entries) = extracted {
             if !entries.is_empty() {
-                let mut inner = Inner { source: InnerSource::Extracted, members: entries.len(), ..Inner::none() };
-                let mut best: Option<&[u8]> = None;
-                for e in &entries {
-                    if inner.bytes >= INNER_MAX_BYTES {
-                        break;
-                    }
-                    let d = &e.data[..e.data.len().min(INNER_MAX_BYTES - inner.bytes)];
-                    inner.bytes += d.len();
-                    inner.strings = inner.strings.add(StringCounts::of(d));
-                    if e.data.starts_with(b"MZ") && best.is_none_or(|b| e.data.len() > b.len()) && extract_pe_features(&e.data).is_some() {
-                        best = Some(&e.data);
-                    }
-                }
-                // The largest PE member is the program the installer / archive holds:
-                // content, like an unpacked payload. Taken as its memory image after
-                // emulation, the same way as every other content image, so the content
-                // model never sees "raw file vs dump" as a difference between sources.
-                if let Some(emu) = best.filter(|b| should_unpack(b)).and_then(emulate) {
-                    inner.pe = emu.dump.clone();
-                    inner.trace = Some(emu.trace.clone());
-                }
+                let inner = inner_of_members(&entries);
+                LAST_EXTRACTION.with(|c| *c.borrow_mut() = Some((data.to_vec(), entries)));
                 return inner;
             }
         }
@@ -220,6 +209,59 @@ pub fn inner_of(data: &[u8]) -> Inner {
         };
     }
     Inner::none()
+}
+
+/// The inner part of an archive / installer from its extracted members.
+fn inner_of_members(entries: &[hydradragonextractor::ExtractedEntry]) -> Inner {
+    let mut inner = Inner { source: InnerSource::Extracted, members: entries.len(), ..Inner::none() };
+    let mut best: Option<&[u8]> = None;
+    for e in entries {
+        if inner.bytes >= INNER_MAX_BYTES {
+            break;
+        }
+        let d = &e.data[..e.data.len().min(INNER_MAX_BYTES - inner.bytes)];
+        inner.bytes += d.len();
+        inner.strings = inner.strings.add(StringCounts::of(d));
+        if e.data.starts_with(b"MZ") && best.is_none_or(|b| e.data.len() > b.len()) && extract_pe_features(&e.data).is_some() {
+            best = Some(&e.data);
+        }
+    }
+    // The largest PE member is the program the installer / archive holds:
+    // content, like an unpacked payload. Taken as its memory image after
+    // emulation, the same way as every other content image, so the content
+    // model never sees "raw file vs dump" as a difference between sources.
+    if let Some(emu) = best.filter(|b| should_unpack(b)).and_then(emulate) {
+        inner.pe = emu.dump.clone();
+        inner.trace = Some(emu.trace.clone());
+    }
+    inner
+}
+
+thread_local! {
+    /// The members `inner_of` extracted from the last archive / installer on this
+    /// thread, with the file. The PE features and the engine's archive step look at the
+    /// same file one after the other: a file with thousands of members was decompressed
+    /// twice. Taken by `take_extraction`, dropped by `forget_extraction`.
+    static LAST_EXTRACTION: std::cell::RefCell<Option<(Vec<u8>, Vec<hydradragonextractor::ExtractedEntry>)>> = const { std::cell::RefCell::new(None) };
+}
+
+/// The members of `data` when `inner_of` already extracted them on this thread (and
+/// drops them from the cache), else `None`.
+pub fn take_extraction(data: &[u8]) -> Option<Vec<hydradragonextractor::ExtractedEntry>> {
+    LAST_EXTRACTION.with(|c| {
+        let mut c = c.borrow_mut();
+        if c.as_ref().is_some_and(|(d, _)| d.as_slice() == data) {
+            c.take().map(|(_, entries)| entries)
+        } else {
+            None
+        }
+    })
+}
+
+/// Drops the cached extraction (the engine calls it when a file or object is done, so a
+/// thread never keeps an archive's members after its scan).
+pub fn forget_extraction() {
+    LAST_EXTRACTION.with(|c| *c.borrow_mut() = None);
 }
 
 /// The image `hydradragonunicorn` dumps after emulating from the entry point (`dump`). The stub

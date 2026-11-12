@@ -1240,7 +1240,16 @@ impl EngineAdapter {
             }
             Ok(res)
         });
-        crate::scan_timing::record(name, sha, data.len(), started.elapsed(), out.as_ref().ok().map(|r| r.verdict.as_str()), stages);
+        let ok = out.as_ref().ok();
+        crate::scan_timing::record(
+            name,
+            sha,
+            data.len(),
+            started.elapsed(),
+            ok.map(|r| r.verdict.as_str()),
+            stages,
+            ok.map_or(&[][..], |r| r.extracted_objects.as_slice()),
+        );
         out
     }
 

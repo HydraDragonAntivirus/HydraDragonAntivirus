@@ -28,6 +28,7 @@ use wdk_sys::{
 
 use crate::{
     DRIVER_MESSAGES, REGISTRATION_HANDLE,
+    alt_syscalls::{AltSyscallStatus, AltSyscalls},
     core::{
         injection::inject_dll,
         process_monitor::{LoadedModule, ProcessMonitor},
@@ -92,6 +93,10 @@ pub unsafe extern "C" fn process_create_callback(
                 size_of::<ProcessLoggingInformation>() as _,
             )
         };
+
+        // Windows 10 only (no-op on other builds): opt the new process into legacy alt syscall dispatch so its threads
+        // inherit the alt-syscall bit. On 24H2+ the provider-table mechanism is driven per thread instead.
+        AltSyscalls::configure_process_handle(process_handle, AltSyscallStatus::Enable);
 
         let process_started = ProcessStarted {
             image_name: image_name.unwrap().replace("\\??\\", ""),

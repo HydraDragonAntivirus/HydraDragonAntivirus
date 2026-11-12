@@ -3373,6 +3373,12 @@ window.sigKey = (list) => list && list.length ? `${list[0].layer}: ${list[0].nam
         const parts = s.stages.map(t => `<b>${esc(t.name)}</b> ${msText(t.ms)}${t.calls > 1 ? ` ×${t.calls}` : ""} (${t.share.toFixed(0)} %)`);
         if (s.otherStagesMs >= 1) parts.push(`other stages ${msText(s.otherStagesMs)}`);
         if (s.unstagedMs >= 1) parts.push(`outside the stages ${msText(s.unstagedMs)}`);
+        // How many objects the engine took out of the file and scanned one by one:
+        // thousands of archive members make a scan slow, not one slow engine.
+        if (s.objects) {
+          const kinds = (s.objectKinds || []).map(k => `${k.count.toLocaleString()} ${esc(k.kind)}`).join(", ");
+          parts.unshift(`<b>${s.objects.toLocaleString()} object${s.objects === 1 ? "" : "s"} extracted</b> (${size(s.objectBytes)}${kinds ? `: ${kinds}` : ""})`);
+        }
         return `<tr data-sha="${esc(s.sha256)}" data-name="${esc(s.file)}">
           <td>${esc(new Date(s.at).toLocaleTimeString())}</td>
           <td class="file" title="${esc(s.file)}"><b>${esc(s.file)}</b></td>

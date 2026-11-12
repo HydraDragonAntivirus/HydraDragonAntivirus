@@ -27,7 +27,7 @@ use wdk_sys::{
 
 use crate::{
     alt_syscalls::{
-        SSN_NT_ALLOCATE_VIRTUAL_MEMORY, SSN_NT_CREATE_THREAD_EX, SSN_NT_OPEN_PROCESS,
+        SSN_NT_ALLOCATE_VIRTUAL_MEMORY, SSN_NT_OPEN_PROCESS, ssn_nt_create_thread_ex,
         SSN_NT_WRITE_VM,
     },
     core::process_monitor::ProcessMonitor,
@@ -130,7 +130,9 @@ impl KernelSyscallIntercept {
             SSN_NT_ALLOCATE_VIRTUAL_MEMORY => Self::nt_allocate_vm(ktrap_frame, rip, hex_payload),
             SSN_NT_OPEN_PROCESS => Self::nt_open_process(ktrap_frame, rip, hex_payload),
             SSN_NT_WRITE_VM => Self::nt_write_vm(ktrap_frame, rip, hex_payload),
-            SSN_NT_CREATE_THREAD_EX => Self::nt_create_thread_ex(ktrap_frame, rip, hex_payload),
+            ssn if ssn == ssn_nt_create_thread_ex() => {
+                Self::nt_create_thread_ex(ktrap_frame, rip, hex_payload)
+            }
             _ => {
                 println!(
                     "[-] [sanctum] Unknown SSN received, {:?}",

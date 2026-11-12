@@ -8,6 +8,7 @@ use std::sync::Mutex;
 use std::time::Duration;
 
 use openedr_static::memtrack::{self, StageTime};
+use openedr_static::report::ExtractedObject;
 
 /// A scan counts as slow from this long on.
 const SLOW: Duration = Duration::from_secs(1);
@@ -25,6 +26,35 @@ struct SlowScan {
     total: Duration,
     verdict: String,
     stages: Vec<StageTime>,
+    /// Objects the engine took out of the file and scanned on their own (archive
+    /// members, unpacked / decrypted payloads, overlay, ...): a file with thousands of
+    /// members is slow for that reason, not because one engine is slow.
+    objects: Objects,
+}
+
+#[derive(Clone, Default)]
+struct Objects {
+    count: usize,
+    bytes: u64,
+    /// Count and bytes per kind (`ArchiveMember`, `UnpackedPE`, ...), most first.
+    kinds: Vec<(String, usize, u64)>,
+}
+
+impl Objects {
+    fn of(objects: &[ExtractedObject]) -> Self {
+        let mut kinds: Vec<(String, usize, u64)> = Vec::new();
+        for o in objects {
+            match kinds.iter_mut().find(|k| k.0 == o.origin_type) {
+                Some(k) => {
+                    k.1 += 1;
+                    k.2 += o.size;
+                }
+                None => kinds.push((o.origin_type.clone(), 1, o.size)),
+            }
+        }
+        kinds.sort_by(|a, b| b.1.cmp(&a.1));
+        Self { count: objects.len(), bytes: objects.iter().map(|o| o.size).sum(), kinds }
+    }
 }
 
 struct State {
@@ -47,8 +77,17 @@ fn label(name: &str) -> &str {
     name.strip_prefix("scan:").unwrap_or(name)
 }
 
-/// Called after every engine scan (`scan_blocking_opts`), with its stage times.
-pub fn record(file: &str, sha: &str, size: usize, total: Duration, verdict: Option<&str>, stages: Vec<StageTime>) {
+/// Called after every engine scan (`scan_blocking_opts`), with its stage times and the
+/// objects taken out of the file (empty when the scan failed).
+pub fn record(
+    file: &str,
+    sha: &str,
+    size: usize,
+    total: Duration,
+    verdict: Option<&str>,
+    stages: Vec<StageTime>,
+    objects: &[ExtractedObject],
+) {
     let mut s = STATE.lock().unwrap_or_else(|e| e.into_inner());
     s.scans += 1;
     s.total_ns += total.as_nanos();
@@ -56,6 +95,24 @@ pub fn record(file: &str, sha: &str, size: usize, total: Duration, verdict: Opti
         return;
     }
     s.slow += 1;
+    let objects = Objects::of(objects);
+    let kinds: Vec<String> = objects.kinds.iter().map(|(k, c, _)| format!("{c} {k}")).collect();
+    let top: Vec<String> = stages
+        .iter()
+        .take(3)
+        .map(|t| format!("{} {:.0}ms", label(t.name), ms(t.self_ns as u128)))
+        .collect();
+    eprintln!(
+        "[SLOW-SCAN] {:.0}ms {file} ({} KB, sha256 {sha}) verdict={} objects={} ({} KB{}{}) top: {}",
+        ms(total.as_nanos()),
+        size / 1024,
+        verdict.unwrap_or("error"),
+        objects.count,
+        objects.bytes / 1024,
+        if kinds.is_empty() { "" } else { ": " },
+        kinds.join(", "),
+        top.join(", "),
+    );
     let scan = SlowScan {
         at: chrono::Utc::now(),
         file: file.to_string(),
@@ -64,6 +121,7 @@ pub fn record(file: &str, sha: &str, size: usize, total: Duration, verdict: Opti
         total,
         verdict: verdict.unwrap_or("error").to_string(),
         stages,
+        objects,
     };
     if s.slowest.len() < SLOWEST || s.slowest.last().is_some_and(|l| l.total < total) {
         let at = s.slowest.partition_point(|x| x.total >= total);
@@ -88,6 +146,13 @@ fn scan_json(s: &SlowScan) -> serde_json::Value {
         "size": s.size,
         "totalMs": ms(total_ns),
         "verdict": s.verdict,
+        "objects": s.objects.count,
+        "objectBytes": s.objects.bytes,
+        "objectKinds": s.objects.kinds.iter().map(|(kind, count, bytes)| serde_json::json!({
+            "kind": kind,
+            "count": count,
+            "bytes": bytes,
+        })).collect::<Vec<_>>(),
         "slowest": shown.first().map(|t| label(t.name)),
         "stages": shown.iter().map(|t| serde_json::json!({
             "name": label(t.name),

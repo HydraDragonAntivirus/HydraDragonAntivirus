@@ -134,10 +134,20 @@ pub const CLAM_PUA_SCORE: f32 = 0.60;
 /// or metadata saying suspicious): the Suspicious cut-off.
 const YARA_SUSPICIOUS_SCORE: f32 = 0.50;
 
-const MEMBER_EMULATION_TIME: std::time::Duration = std::time::Duration::from_secs(5);
-const MEMBER_EMULATION_BUDGET: std::time::Duration = std::time::Duration::from_secs(20);
-const MAX_MEMBER_EMULATIONS: usize = 8;
+/// Archive members whose unpacked payload is scanned as an object of its own (the first
+/// ones that can unpack, in archive order). The payload's scan emulates it again, so this
+/// bounds a malicious archive of thousands of packed programs.
+const MAX_MEMBER_PAYLOADS: usize = 8;
 const MAX_OBJECT_THREADS: usize = 8;
+
+/// One archive member scanned by `scan_member`.
+struct MemberScan {
+    object: ExtractedObject,
+    /// Behavior-rule hits on the member's emulation trace (named `Archive:<member>:Emulation:...`).
+    emulated: Vec<DetectionItem>,
+    /// The member's unpacked payload, scanned as an object of its own.
+    payload: Option<ExtractedObject>,
+}
 const OBJECT_THREAD_STACK: usize = 32 * 1024 * 1024;
 
 /// YARA-X hit score by the rule's class (`yara::rule_class`: name parts and metadata):
@@ -1363,8 +1373,9 @@ impl StaticEngine {
 
         // 4. ML (PE / JS)
         if is_pe {
+            // The emulation stays cached: `scan_object` reuses it for the member's
+            // behavior rules and unpacked payload, then drops it.
             let predicted = self.ml.predict_pe(bytes);
-            crate::ml::pe_combined::forget_emulation();
             if let Some(prob) = predicted {
                 if prob >= pe_tree_threshold() {
                     let det_name = if origin_prefix.is_empty() {
@@ -1407,16 +1418,16 @@ impl StaticEngine {
     /// Scan a first-class extracted object (archive member, emulated unpacked PE, overlay, or stripped buffer).
     /// Runs all detection engines (ClamAV, YARA-X, HydraDragonSig, ML and PE heuristics)
     /// on the in-memory bytes and returns an isolated `ExtractedObject`.
-    fn scan_parallel(&self, count: usize, make: impl Fn(usize) -> ScanObject + Sync) -> Vec<ExtractedObject> {
+    fn scan_parallel<T: Send>(&self, count: usize, work: impl Fn(usize) -> T + Sync) -> Vec<T> {
         let threads = std::thread::available_parallelism()
             .map_or(1, |n| n.get())
             .min(MAX_OBJECT_THREADS)
             .min(count);
         if threads <= 1 {
-            return (0..count).map(|i| self.scan_object(&make(i))).collect();
+            return (0..count).map(&work).collect();
         }
         let next = std::sync::atomic::AtomicUsize::new(0);
-        let slots: Vec<std::sync::Mutex<Option<ExtractedObject>>> =
+        let slots: Vec<std::sync::Mutex<Option<T>>> =
             (0..count).map(|_| std::sync::Mutex::new(None)).collect();
         // The workers' stage times belong to the scan that started them.
         let ctx = crate::memtrack::scan_context();
@@ -1430,7 +1441,7 @@ impl StaticEngine {
                         if i >= count {
                             break;
                         }
-                        let result = self.scan_object(&make(i));
+                        let result = work(i);
                         if let Ok(mut slot) = slots[i].lock() {
                             *slot = Some(result);
                         }
@@ -1444,13 +1455,69 @@ impl StaticEngine {
                 slot.into_inner()
                     .ok()
                     .flatten()
-                    .unwrap_or_else(|| self.scan_object(&make(i)))
+                    .unwrap_or_else(|| work(i))
             })
             .collect()
     }
 
     pub fn scan_object(&self, object: &ScanObject) -> ExtractedObject {
+        self.scan_member(object, false).object
+    }
+
+    /// `scan_object`, plus for a PE archive member what its emulation shows: the
+    /// behavior rules on its API trace, and (`scan_payload`) its unpacked payload scanned
+    /// as an object of its own. The emulation is the one the PE model just ran on this
+    /// thread (`pe_combined::emulate` caches it), so a member is emulated once, not once
+    /// for the model and again for the trace.
+    fn scan_member(&self, object: &ScanObject, scan_payload: bool) -> MemberScan {
         let _t = crate::memtrack::stage("scan:object");
+        let mut member = MemberScan { object: self.scan_object_bytes(object), emulated: Vec::new(), payload: None };
+        let bytes = &object.bytes;
+        if object.origin_type == "ArchiveMember"
+            && !member.object.sha256.is_empty()
+            && bytes.starts_with(b"MZ")
+            && crate::ml::pe_combined::should_unpack(bytes)
+        {
+            let _t = crate::memtrack::stage("scan:member_unpack");
+            if let Some(emu) = crate::ml::pe_combined::emulate(bytes) {
+                if !emu.trace.calls.is_empty() {
+                    let strings = pe_strings::extract_strings(pe_strings::decompile_slice(bytes));
+                    for hit in self.string_rules.scan_emulated(bytes, &object.name, &member.object.sha256, &strings, true, 10, &emu.trace) {
+                        let name = if hit.rule.is_empty() { "HydraSig.EmulatedMatch".to_string() } else { hit.rule.clone() };
+                        let mut details = hit.title.clone();
+                        if let Some(ev) = hit.evidence.first() {
+                            details.push_str(" | ");
+                            details.push_str(&ev.chars().take(120).collect::<String>());
+                        }
+                        member.emulated.push(DetectionItem {
+                            layer: "Archive_Emulation_Trace_HydraSig".to_string(),
+                            name: format!("Archive:{}:Emulation:{}", object.name, name),
+                            score: Some(hit.score as f32 / 100.0),
+                            details: Some(details),
+                        });
+                    }
+                }
+                let dump = emu.dump.clone().filter(|d| scan_payload && emu.unpacked && d.len() > 12 && d.as_slice() != bytes.as_slice());
+                drop(emu);
+                crate::ml::pe_combined::forget_emulation();
+                if let Some(dump) = dump {
+                    let payload = ScanObject::new(
+                        format!("{}.unpacked.bin", object.name),
+                        format!("{} -> [Unicorn:Unpacked]", object.path),
+                        dump,
+                        object.depth + 1,
+                        "UnpackedPE",
+                    )
+                    .with_parent(object.name.clone(), bytes);
+                    member.payload = Some(self.scan_object(&payload));
+                }
+            }
+        }
+        crate::ml::pe_combined::forget_emulation();
+        member
+    }
+
+    fn scan_object_bytes(&self, object: &ScanObject) -> ExtractedObject {
         if object.bytes.len() <= 12 {
             return ExtractedObject {
                 name: object.name.clone(),
@@ -1473,6 +1540,23 @@ impl StaticEngine {
             hex::encode(hasher.finalize())
         };
 
+        // A known-benign hash (NSRL / Tranco whitelist) is clean, as the same bytes are
+        // when scanned as a file of their own (`scan_bytes_internal` 0.2). Installers carry
+        // hundreds of such runtime DLLs; each was scanned and emulated in full.
+        if self.is_benign(&sha256) {
+            return ExtractedObject {
+                name: object.name.clone(),
+                path: object.path.clone(),
+                size: object.bytes.len() as u64,
+                sha256,
+                origin_type: object.origin_type.clone(),
+                depth: object.depth,
+                verdict: "Clean".to_string(),
+                max_threat_score: 0.0,
+                detections: Vec::new(),
+            };
+        }
+
         // Multi-engine evaluation on object bytes
         self.scan_bytes_core(
             &object.bytes,
@@ -1484,6 +1568,8 @@ impl StaticEngine {
             object.parent.as_ref(),
             None,
         );
+        // A member that is itself an installer: the PE model extracted it.
+        crate::ml::pe_combined::forget_extraction();
 
         // A script inside an archive (or other object) is also scanned deobfuscated; not
         // the deobfuscated object itself again.
@@ -2275,23 +2361,58 @@ impl StaticEngine {
         // 10. Archive Recursive Extraction & Zip Bomb Detection
         if hydradragonextractor::detect_format(data).is_some() {
             let _t = crate::memtrack::stage("scan:archive");
-            match crate::memtrack::measure("scan:archive_extract", crate::memtrack::Kind::Scan, data.len(), || {
-                hydradragonextractor::extract_archive_from_bytes(data, false)
-            }) {
+            // The PE model already extracted an installer (`pe_combined::inner_of`).
+            let extracted = match crate::ml::pe_combined::take_extraction(data) {
+                Some(entries) => Ok(entries),
+                None => crate::memtrack::measure("scan:archive_extract", crate::memtrack::Kind::Scan, data.len(), || {
+                    hydradragonextractor::extract_archive_from_bytes(data, false)
+                }),
+            };
+            match extracted {
                 Ok(entries) => {
                     let entries: Vec<_> = entries.into_iter().filter(|e| e.data.len() > 12).collect();
-                    let mut member_emulations = 0usize;
-                    let mut member_emulation_time = std::time::Duration::ZERO;
-                    let scanned = self.scan_parallel(entries.len(), |i| {
-                        ScanObject::new(
-                            entries[i].name.clone(),
-                            format!("{target_name} -> {}", entries[i].name),
-                            entries[i].data.clone(),
-                            1,
-                            "ArchiveMember",
-                        )
+                    // Identical members (the same DLL in several folders of an installer)
+                    // are scanned once; every copy still gets its own result.
+                    let (unique, copy_of) = {
+                        let _t = crate::memtrack::stage("scan:archive_dedup");
+                        let mut first: std::collections::HashMap<[u8; 32], usize> = std::collections::HashMap::new();
+                        let mut unique: Vec<usize> = Vec::new();
+                        let copy_of: Vec<usize> = entries
+                            .iter()
+                            .enumerate()
+                            .map(|(i, e)| {
+                                let digest: [u8; 32] = Sha256::digest(&e.data).into();
+                                *first.entry(digest).or_insert_with(|| {
+                                    unique.push(i);
+                                    unique.len() - 1
+                                })
+                            })
+                            .collect();
+                        (unique, copy_of)
+                    };
+                    // The first members (archive order) that can unpack get their payload
+                    // scanned too.
+                    let mut payloads = 0usize;
+                    let scan_payload: Vec<bool> = unique
+                        .iter()
+                        .map(|&i| {
+                            let d = &entries[i].data;
+                            let yes = payloads < MAX_MEMBER_PAYLOADS && d.starts_with(b"MZ") && crate::ml::pe_combined::should_unpack(d);
+                            payloads += yes as usize;
+                            yes
+                        })
+                        .collect();
+                    let scanned = self.scan_parallel(unique.len(), |u| {
+                        let e = &entries[unique[u]];
+                        let obj = ScanObject::new(e.name.clone(), format!("{target_name} -> {}", e.name), e.data.clone(), 1, "ArchiveMember");
+                        self.scan_member(&obj, scan_payload[u])
                     });
-                    for (entry, extracted) in entries.into_iter().zip(scanned) {
+                    let mut reported = vec![false; scanned.len()];
+                    for (entry, &u) in entries.iter().zip(&copy_of) {
+                        let member = &scanned[u];
+                        let mut extracted = member.object.clone();
+                        extracted.name = entry.name.clone();
+                        extracted.path = format!("{target_name} -> {}", entry.name);
                         max_score = max_score.max(extracted.max_threat_score);
                         for d in &extracted.detections {
                             detections.push(DetectionItem {
@@ -2301,88 +2422,25 @@ impl StaticEngine {
                                 details: d.details.clone(),
                             });
                         }
-
-                        // Also check if child entry itself is a packed PE: run Unicorn once if packed
-                        if entry.data.starts_with(b"MZ")
-                            && crate::ml::pe_combined::should_unpack(&entry.data)
-                            && member_emulations < MAX_MEMBER_EMULATIONS
-                            && member_emulation_time < MEMBER_EMULATION_BUDGET
-                        {
-                            if let Ok(sub_sample) = hydradragonunicorn::unpacker::engine::Sample::from_bytes(&entry.data) {
-                                let sub_trace_enabled = self.string_rules.needs_behavior();
-                                let mut sub_unpacker = hydradragonunicorn::unpacker::engine::UnpackerEngine::new(sub_sample, "memory")
-                                    .with_trace_mode(sub_trace_enabled);
-                                if sub_unpacker.init_uc().is_ok() {
-                                    member_emulations += 1;
-                                    let emu_start = Instant::now();
-                                    let limit = MEMBER_EMULATION_TIME
-                                        .min(MEMBER_EMULATION_BUDGET.saturating_sub(member_emulation_time));
-                                    let _ = sub_unpacker.emu_for(limit);
-                                    member_emulation_time += emu_start.elapsed();
-                                    let sub_trace = sub_unpacker.behavior_trace();
-                                    if !sub_trace.calls.is_empty() {
-                                        let strings = pe_strings::extract_strings(pe_strings::decompile_slice(&entry.data));
-                                        let entry_sha256 = {
-                                            let mut h = Sha256::new();
-                                            h.update(&entry.data);
-                                            hex::encode(h.finalize())
-                                        };
-                                        for hit in self.string_rules.scan_emulated(
-                                            &entry.data,
-                                            &entry.name,
-                                            &entry_sha256,
-                                            &strings,
-                                            true,
-                                            10,
-                                            sub_trace,
-                                        ) {
-                                            let name = if hit.rule.is_empty() {
-                                                "HydraSig.EmulatedMatch".to_string()
-                                            } else {
-                                                hit.rule.clone()
-                                            };
-                                            let mut details = hit.title.clone();
-                                            if let Some(ev) = hit.evidence.first() {
-                                                details.push_str(" | ");
-                                                details.push_str(&ev.chars().take(120).collect::<String>());
-                                            }
-                                            let score = hit.score as f32 / 100.0;
-                                            detections.push(DetectionItem {
-                                                layer: "Archive_Emulation_Trace_HydraSig".to_string(),
-                                                name: format!("Archive:{}:Emulation:{}", entry.name, name),
-                                                score: Some(score),
-                                                details: Some(details),
-                                            });
-                                            max_score = max_score.max(score);
-                                        }
-                                    }
-                                    if let Some(Ok(sub_dumped)) = sub_unpacker.wx_hit.map(|_| sub_unpacker.dump_bytes()) {
-                                        if sub_dumped.len() > 12 && sub_dumped != entry.data {
-                                            let sub_obj = ScanObject::new(
-                                                format!("{}.unpacked.bin", entry.name),
-                                                format!("{target_name} -> {} -> [Unicorn:Unpacked]", entry.name),
-                                                sub_dumped,
-                                                2,
-                                                "UnpackedPE",
-                                            )
-                                            .with_parent(entry.name.clone(), &entry.data);
-                                            let sub_extracted = self.scan_object(&sub_obj);
-                                            max_score = max_score.max(sub_extracted.max_threat_score);
-                                            for d in &sub_extracted.detections {
-                                                detections.push(DetectionItem {
-                                                    layer: format!("Archive_Unpacked_{}", d.layer),
-                                                    name: format!("Archive:{}:Unpacked:{}", entry.name, d.name),
-                                                    score: d.score,
-                                                    details: d.details.clone(),
-                                                });
-                                            }
-                                            extracted_objects.push(sub_extracted);
-                                        }
-                                    }
+                        // What the member's emulation found, once per distinct member.
+                        if !std::mem::replace(&mut reported[u], true) {
+                            for d in &member.emulated {
+                                max_score = max_score.max(d.score.unwrap_or(0.0));
+                                detections.push(d.clone());
+                            }
+                            if let Some(payload) = &member.payload {
+                                max_score = max_score.max(payload.max_threat_score);
+                                for d in &payload.detections {
+                                    detections.push(DetectionItem {
+                                        layer: format!("Archive_Unpacked_{}", d.layer),
+                                        name: format!("Archive:{}:Unpacked:{}", member.object.name, d.name),
+                                        score: d.score,
+                                        details: d.details.clone(),
+                                    });
                                 }
+                                extracted_objects.push(payload.clone());
                             }
                         }
-
                         extracted_objects.push(extracted);
                     }
                 }
@@ -2399,6 +2457,8 @@ impl StaticEngine {
                 }
             }
         }
+        // Not taken above (the file is not an archive the extractor reads): not kept.
+        crate::ml::pe_combined::forget_extraction();
 
         // Final Verdict calculation: score-gated only.
         // Low-score standalone heuristics must NOT become Malicious on their own.

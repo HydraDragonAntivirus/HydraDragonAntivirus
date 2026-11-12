@@ -149,26 +149,126 @@ pub fn scan_module_for_byte_pattern(
     image_size: usize,
     pattern: &[u8],
 ) -> Result<*const c_void, DriverError> {
-    // Convert the raw address pointer to a byte pointer so we can read individual bytes
-    let image_base = image_base as *const u8;
-    let mut cursor = image_base as *const u8;
-    // End of image denotes the end of our reads, if nothing is found by that point we have not found the
-    // sequence of bytes
-    let end_of_image = unsafe { image_base.add(image_size) };
+    if pattern.is_empty() {
+        return Err(DriverError::FunctionNotFoundInModule);
+    }
 
-    while cursor != end_of_image {
-        unsafe {
-            let bytes = from_raw_parts(cursor, pattern.len());
+    // Only scan resident code. Walking the raw image range byte-by-byte is not safe in the kernel: discardable
+    // sections (e.g. ntoskrnl INIT / Pad*) are unmapped once boot initialisation finishes, so a scan that misses
+    // (or a pattern that sits after them) touches non-present pages and bugchecks with 0x50. The old loop also
+    // compared `pattern.len()` bytes at every offset up to the very last byte of the image, over-reading past it.
+    let sections = image_sections(image_base, image_size)?;
 
-            if bytes == pattern {
-                return Ok(cursor as *const _);
-            }
+    for section in sections.iter().filter(|s| {
+        s.characteristics & IMAGE_SCN_MEM_EXECUTE != 0
+            && s.characteristics & IMAGE_SCN_MEM_DISCARDABLE == 0
+    }) {
+        if section.size < pattern.len() {
+            continue;
+        }
 
-            cursor = cursor.add(1);
+        // SAFETY: `image_sections` guarantees the section lies within [image_base, image_base + image_size),
+        // and non-discardable sections of a loaded image remain mapped (pageable ones are paged in on access,
+        // callers run at PASSIVE_LEVEL).
+        let bytes =
+            unsafe { from_raw_parts((image_base as *const u8).add(section.start), section.size) };
+
+        if let Some(pos) = bytes.windows(pattern.len()).position(|w| w == pattern) {
+            return Ok(unsafe { (image_base as *const u8).add(section.start + pos) } as *const _);
         }
     }
 
     Err(DriverError::FunctionNotFoundInModule)
+}
+
+pub const IMAGE_SCN_MEM_DISCARDABLE: u32 = 0x0200_0000;
+pub const IMAGE_SCN_MEM_EXECUTE: u32 = 0x2000_0000;
+pub const IMAGE_SCN_MEM_WRITE: u32 = 0x8000_0000;
+
+/// A section of a loaded PE image, taken from the image's in-memory section table.
+#[derive(Clone, Copy, Debug)]
+pub struct ImageSection {
+    /// Raw 8-byte section name (NUL padded)
+    pub name: [u8; 8],
+    /// RVA of the start of the section
+    pub start: usize,
+    /// Size in bytes, clamped so that `start + size <= image_size`
+    pub size: usize,
+    pub characteristics: u32,
+}
+
+impl ImageSection {
+    /// The section name without its NUL padding.
+    pub fn name(&self) -> &[u8] {
+        let len = self.name.iter().position(|&b| b == 0).unwrap_or(self.name.len());
+        &self.name[..len]
+    }
+
+    pub fn contains_rva(&self, rva: usize, len: usize) -> bool {
+        rva >= self.start && rva.saturating_add(len) <= self.start + self.size
+    }
+}
+
+/// Parse the section table of a loaded (mapped) PE image, validating every header read against `image_size`.
+pub fn image_sections(
+    image_base: *const c_void,
+    image_size: usize,
+) -> Result<Vec<ImageSection>, DriverError> {
+    if image_base.is_null() {
+        return Err(DriverError::NullPtr);
+    }
+    let base = image_base as *const u8;
+    // SAFETY: every read below is bounds-checked against `image_size`; the headers page of a loaded image is mapped.
+    let read_u16 = |off: usize| -> Option<u16> {
+        (off + 2 <= image_size)
+            .then(|| unsafe { core::ptr::read_unaligned(base.add(off) as *const u16) })
+    };
+    let read_u32 = |off: usize| -> Option<u32> {
+        (off + 4 <= image_size)
+            .then(|| unsafe { core::ptr::read_unaligned(base.add(off) as *const u32) })
+    };
+    let bad = || DriverError::UnexpectedSignature("Invalid PE headers".into());
+
+    if read_u16(0).ok_or_else(bad)? != 0x5A4D {
+        return Err(bad());
+    }
+    let nt = read_u32(0x3c).ok_or_else(bad)? as usize;
+    if read_u32(nt).ok_or_else(bad)? != 0x0000_4550 {
+        return Err(bad());
+    }
+    let num_sections = read_u16(nt + 6).ok_or_else(bad)? as usize;
+    let opt_size = read_u16(nt + 20).ok_or_else(bad)? as usize;
+    let table = nt + 24 + opt_size;
+
+    let mut sections = Vec::with_capacity(num_sections);
+    for i in 0..num_sections {
+        let hdr = table + i * 40;
+        if hdr + 40 > image_size {
+            return Err(bad());
+        }
+        let mut name = [0u8; 8];
+        // SAFETY: bounds checked above
+        unsafe { core::ptr::copy_nonoverlapping(base.add(hdr), name.as_mut_ptr(), 8) };
+        let virtual_size = read_u32(hdr + 8).ok_or_else(bad)? as usize;
+        let start = read_u32(hdr + 12).ok_or_else(bad)? as usize;
+        let raw_size = read_u32(hdr + 16).ok_or_else(bad)? as usize;
+        let characteristics = read_u32(hdr + 36).ok_or_else(bad)?;
+
+        if start >= image_size {
+            continue;
+        }
+        let size = if virtual_size != 0 { virtual_size } else { raw_size };
+        let size = size.min(image_size - start);
+
+        sections.push(ImageSection {
+            name,
+            start,
+            size,
+            characteristics,
+        });
+    }
+
+    Ok(sections)
 }
 
 /// Creates a Windows API compatible unicode string from a u16 slice.

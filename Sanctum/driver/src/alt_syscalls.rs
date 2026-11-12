@@ -12,19 +12,20 @@ use core::{
     arch::asm,
     ffi::c_void,
     ptr::null_mut,
-    sync::atomic::{AtomicBool, Ordering},
+    sync::atomic::{AtomicBool, AtomicPtr, AtomicU8, AtomicU32, AtomicUsize, Ordering},
 };
 
 use alloc::{boxed::Box, vec::Vec};
-use wdk::println;
+use wdk::{nt_success, println};
 use wdk_sys::{
     _KTRAP_FRAME,
     _MODE::KernelMode,
-    BOOLEAN, DISPATCHER_HEADER, DRIVER_OBJECT, HANDLE, KTRAP_FRAME, OBJ_KERNEL_HANDLE, PETHREAD,
-    PKTHREAD, PROCESS_ALL_ACCESS, PsThreadType, THREAD_ALL_ACCESS, UNICODE_STRING,
+    BOOLEAN, DISPATCHER_HEADER, DRIVER_OBJECT, HANDLE, KTRAP_FRAME, NTSTATUS, OBJ_KERNEL_HANDLE,
+    PETHREAD, PKTHREAD, PROCESS_ALL_ACCESS, PsProcessType, PsThreadType, THREAD_ALL_ACCESS,
+    UNICODE_STRING,
     ntddk::{
-        IoGetCurrentProcess, IoThreadToProcess, ObReferenceObjectByHandle, ObfDereferenceObject,
-        ZwClose,
+        IoGetCurrentProcess, IoThreadToProcess, MmGetSystemRoutineAddress, ObOpenObjectByPointer,
+        ObReferenceObjectByHandle, ObfDereferenceObject, RtlInitUnicodeString, ZwClose,
     },
 };
 
@@ -32,8 +33,9 @@ use crate::{
     core::syscall_processing::{AllowSyscall, KernelSyscallIntercept},
     ffi::{ZwGetNextProcess, ZwGetNextThread},
     utils::{
-        DriverError, get_module_base_and_sz, get_process_name, scan_module_for_byte_pattern,
-        thread_to_process_name,
+        DriverError, IMAGE_SCN_MEM_DISCARDABLE, IMAGE_SCN_MEM_EXECUTE, IMAGE_SCN_MEM_WRITE,
+        ModuleImageBaseInfo, get_module_base_and_sz, get_process_name, image_sections,
+        scan_module_for_byte_pattern, thread_to_process_name,
     },
 };
 
@@ -42,7 +44,20 @@ const SSN_COUNT: usize = 0x500;
 
 pub const SSN_NT_OPEN_PROCESS: u32 = 0x26;
 pub const SSN_NT_ALLOCATE_VIRTUAL_MEMORY: u32 = 0x18;
-pub const SSN_NT_CREATE_THREAD_EX: u32 = 0x00c9;
+
+// NtOpenProcess / NtAllocateVirtualMemory / NtWriteVirtualMemory are identical on Win10 19041 and Win11 26100/26200,
+// but NtCreateThreadEx is not (hfiref0x/SyscallTables): 0xC2 on Win10 2004-22H2, 0xC9 on Win11 24H2/25H2. On Win10,
+// 0xC9 is NtCreateUserProcess, so a hardcoded 0xC9 would decode its arguments as NtCreateThreadEx's.
+const SSN_NT_CREATE_THREAD_EX_WIN10_2004: u32 = 0x00c2;
+const SSN_NT_CREATE_THREAD_EX_WIN11_24H2: u32 = 0x00c9;
+/// Set once the mechanism is chosen; `u32::MAX` never matches a real SSN.
+static SSN_NT_CREATE_THREAD_EX: AtomicU32 = AtomicU32::new(u32::MAX);
+
+/// The `NtCreateThreadEx` SSN for the running kernel (only meaningful once Alt Syscalls are initialised).
+#[inline]
+pub fn ssn_nt_create_thread_ex() -> u32 {
+    SSN_NT_CREATE_THREAD_EX.load(Ordering::Relaxed)
+}
 pub const SSN_NT_WRITE_VM: u32 = 0x003a;
 
 const NT_OPEN_FILE: u32 = 0x0033;
@@ -56,6 +71,38 @@ pub struct AltSyscalls;
 
 static ALT_SYSCALLS_INITIALISED: AtomicBool = AtomicBool::new(false);
 
+/// Which Alt Syscall implementation the running kernel uses (and which one we installed).
+#[derive(Copy, Clone, PartialEq, Eq, Debug)]
+#[repr(u8)]
+enum AltSyscallMechanism {
+    None = 0,
+    /// Windows 10 (< 22000): exported `PsRegisterAltSystemCallHandler` fills `PspAltSystemCallHandlers[1]`, which
+    /// `KiSystemServiceUser -> PsAltSystemCallDispatch` calls with the thread's real `KTRAP_FRAME`. Enabled per process
+    /// with `NtSetInformationProcess(ProcessAltSystemCallInformation)` and per thread with `DebugActive |= 0x20`.
+    LegacyHandler = 1,
+    /// Windows 11 24H2+ (>= 26100): syscall providers, `PsSyscallProviderDispatch` + `PspServiceDescriptorGroupTable`.
+    ProviderTable = 2,
+}
+
+static ALT_SYSCALL_MECHANISM: AtomicU8 = AtomicU8::new(AltSyscallMechanism::None as u8);
+
+/// `&PspAltSystemCallHandlers[0]` for the legacy mechanism, so it can be cleared on unload (there is no unregister API,
+/// and a stale pointer into an unloaded driver would bugcheck on the next alt syscall).
+static LEGACY_HANDLER_TABLE: AtomicPtr<AtomicUsize> = AtomicPtr::new(null_mut());
+
+/// The only index `PsRegisterAltSystemCallHandler` accepts for third parties (0 is reserved and bugchecks, >= 2 fails).
+const LEGACY_HANDLER_INDEX: usize = 1;
+/// `PROCESSINFOCLASS::ProcessAltSystemCallInformation`
+const PROCESS_ALT_SYSTEM_CALL_INFORMATION: u32 = 0x64;
+
+/// Win10 2004 (20H1). 20H1 - 22H2 (19041 - 19045) share one kernel syscall table.
+const BUILD_WIN10_2004: u32 = 19041;
+const BUILD_WIN11_21H2: u32 = 22000;
+const BUILD_WIN11_24H2: u32 = 26100;
+
+type PsRegisterAltSystemCallHandlerFn =
+    unsafe extern "system" fn(handler: *const c_void, handler_index: i32) -> NTSTATUS;
+
 unsafe extern "system" {
     fn PsGetVersion(
         MajorVersion: *mut u32,
@@ -63,18 +110,31 @@ unsafe extern "system" {
         BuildNumber: *mut u32,
         CSDVersion: *mut UNICODE_STRING,
     ) -> BOOLEAN;
+
+    fn ZwSetInformationProcess(
+        ProcessHandle: HANDLE,
+        ProcessInformationClass: u32,
+        ProcessInformation: *mut c_void,
+        ProcessInformationLength: u32,
+    ) -> NTSTATUS;
 }
 
-pub fn is_alt_syscalls_supported() -> bool {
+fn kernel_build_number() -> u32 {
     let mut major = 0u32;
     let mut minor = 0u32;
     let mut build = 0u32;
     unsafe {
         PsGetVersion(&mut major, &mut minor, &mut build, null_mut());
     }
-    // Alt Syscalls in Sanctum is hardcoded for Windows 11 24H2 (Build >= 26100).
-    // Windows 10 and Windows 11 23H2 (Build 22631) have different kernel offsets (0x77, 0x7d0) and are unsupported.
-    build >= 26100
+    build
+}
+
+fn current_mechanism() -> AltSyscallMechanism {
+    match ALT_SYSCALL_MECHANISM.load(Ordering::Acquire) {
+        1 => AltSyscallMechanism::LegacyHandler,
+        2 => AltSyscallMechanism::ProviderTable,
+        _ => AltSyscallMechanism::None,
+    }
 }
 
 #[repr(C)]
@@ -113,13 +173,84 @@ impl AltSyscalls {
     ///
     /// This function should only be called once until it is disabled.
     pub fn initialise_for_system(driver: &mut DRIVER_OBJECT) {
-        if !is_alt_syscalls_supported() {
+        if ALT_SYSCALLS_INITIALISED.load(Ordering::SeqCst) {
+            return;
+        }
+
+        // - Windows 10 2004 - 22H2 (19041 - 19045): legacy `PsRegisterAltSystemCallHandler`. Older Windows 10 builds
+        //   are untested (BEOTM only validated 22H2) and have different SSNs, so they are left disabled.
+        // - Windows 11 21H2 - 23H2 (22000 - 26099): unsupported. `PsRegisterAltSystemCallHandler` is still exported and
+        //   still fills its table, but nothing dispatches through it any more, and the provider mechanism there has
+        //   different, unverified layouts (see Xacone/BestEdrOfTheMarket#18).
+        // - Windows 11 24H2+ (>= 26100): syscall provider table.
+        let build = kernel_build_number();
+        if build >= BUILD_WIN11_24H2 {
+            Self::initialise_provider_table(driver);
+        } else if (BUILD_WIN10_2004..BUILD_WIN11_21H2).contains(&build) {
+            Self::initialise_legacy_handler();
+        } else {
             println!(
-                "[sanctum] [!] Alt Syscalls strictly requires Windows 11 24H2+ (Build >= 26100). Windows 10 and Windows 11 23H2 are unsupported due to differing kernel offsets; disabling Alt Syscalls safely."
+                "[sanctum] [!] Alt Syscalls are not supported on build {build} (supported: Win10 19041-19045, Win11 26100+).                  On Windows 11 21H2-23H2 the legacy \
+                 PsRegisterAltSystemCallHandler table is no longer dispatched and the provider layout differs from 24H2. \
+                 Disabling Alt Syscalls safely."
+            );
+        }
+    }
+
+    /// Windows 10 path: register through the exported `PsRegisterAltSystemCallHandler`.
+    fn initialise_legacy_handler() {
+        let name: Vec<u16> = "PsRegisterAltSystemCallHandler"
+            .encode_utf16()
+            .chain(core::iter::once(0))
+            .collect();
+        let mut us_name = UNICODE_STRING::default();
+        unsafe { RtlInitUnicodeString(&mut us_name, name.as_ptr()) };
+        let p_register = unsafe { MmGetSystemRoutineAddress(&mut us_name) };
+        if p_register.is_null() {
+            println!(
+                "[sanctum] [-] PsRegisterAltSystemCallHandler is not exported by this kernel; Alt Syscalls disabled."
             );
             return;
         }
 
+        // Resolve PspAltSystemCallHandlers so we can check the slot is free and clear it again on unload.
+        let table = match lookup_legacy_handler_table(p_register as *const u8) {
+            Ok(t) => t,
+            Err(e) => {
+                println!("[sanctum] [-] Could not resolve PspAltSystemCallHandlers: {:?}", e);
+                return;
+            }
+        };
+
+        let slot = unsafe { &*table.add(LEGACY_HANDLER_INDEX) };
+        let handler = legacy_syscall_handler as *const c_void;
+        let existing = slot.load(Ordering::SeqCst);
+        if existing != 0 && existing != handler as usize {
+            println!(
+                "[sanctum] [-] PspAltSystemCallHandlers[{LEGACY_HANDLER_INDEX}] already owned by another driver ({existing:#x}); Alt Syscalls disabled."
+            );
+            return;
+        }
+
+        if existing == 0 {
+            let register: PsRegisterAltSystemCallHandlerFn =
+                unsafe { core::mem::transmute(p_register) };
+            let status = unsafe { register(handler, LEGACY_HANDLER_INDEX as i32) };
+            if !nt_success(status) {
+                println!("[sanctum] [-] PsRegisterAltSystemCallHandler failed: {status:#x}");
+                return;
+            }
+        }
+
+        SSN_NT_CREATE_THREAD_EX.store(SSN_NT_CREATE_THREAD_EX_WIN10_2004, Ordering::SeqCst);
+        LEGACY_HANDLER_TABLE.store(table as *mut AtomicUsize, Ordering::SeqCst);
+        ALT_SYSCALL_MECHANISM.store(AltSyscallMechanism::LegacyHandler as u8, Ordering::SeqCst);
+        ALT_SYSCALLS_INITIALISED.store(true, Ordering::SeqCst);
+        println!("[sanctum] [+] Alt Syscalls enabled via legacy PsRegisterAltSystemCallHandler (Windows 10).");
+    }
+
+    /// Windows 11 24H2+ path: insert a row into `PspServiceDescriptorGroupTable`.
+    fn initialise_provider_table(driver: &mut DRIVER_OBJECT) {
         // How many stack args we want to memcpy; I use my own method to get these..
         const NUM_QWORD_STACK_ARGS_TO_CPY: u32 = 0x0;
         // These flags ensure we go the PspSyscallProviderServiceDispatchGeneric route
@@ -135,6 +266,17 @@ impl AltSyscalls {
             Ok(info) => info.base_address,
             Err(e) => {
                 println!("[-] Could not get base address of driver. {:?}", e);
+                return;
+            }
+        };
+
+        // Get the address of PspServiceDescriptorGroupTable from the kernel by doing some pattern matching; I don't believe
+        // we can link to the symbol. Resolved (and validated as writable) before allocating anything, so an unsupported
+        // kernel build bails out cleanly without leaking the metadata table.
+        let kernel_service_descriptor_table = match lookup_global_table_address(driver) {
+            Ok(t) => t as *mut PspServiceDescriptorGroupTable,
+            Err(_) => {
+                println!("[sanctum] failed to find kernel table");
                 return;
             }
         };
@@ -173,16 +315,6 @@ impl AltSyscalls {
                     | (GENERIC_PATH_FLAGS | (NUM_QWORD_STACK_ARGS_TO_CPY & 0xF));
         }
 
-        // Get the address of PspServiceDescriptorGroupTable from the kernel by doing some pattern matching; I don't believe
-        // we can link to the symbol.
-        let kernel_service_descriptor_table = match lookup_global_table_address(driver) {
-            Ok(t) => t as *mut PspServiceDescriptorGroupTable,
-            Err(_) => {
-                println!("[sanctum] failed to find kernel table");
-                return;
-            }
-        };
-
         //
         // Insert a new row at index 0 in the PspServiceDescriptorGroupTable; in theory, if these were already occupied by other software
         // using alt syscalls, we would want to find an unoccupied slot.
@@ -200,6 +332,8 @@ impl AltSyscalls {
             (*kernel_service_descriptor_table).rows[SLOT_ID as usize] = new_row;
         }
 
+        SSN_NT_CREATE_THREAD_EX.store(SSN_NT_CREATE_THREAD_EX_WIN11_24H2, Ordering::SeqCst);
+        ALT_SYSCALL_MECHANISM.store(AltSyscallMechanism::ProviderTable as u8, Ordering::SeqCst);
         ALT_SYSCALLS_INITIALISED.store(true, Ordering::SeqCst);
 
         // Enumerate all active processes and threads, and enable the relevant bits so that the alt syscall 'machine' can work :)
@@ -253,10 +387,40 @@ impl AltSyscalls {
         }
     }
 
-    pub fn configure_process_for_alt_syscalls(p_k_thread: PKTHREAD) {
-        if !ALT_SYSCALLS_INITIALISED.load(Ordering::Relaxed) {
+    pub fn configure_process_for_alt_syscalls(p_k_thread: PKTHREAD, status: AltSyscallStatus) {
+        if !ALT_SYSCALLS_INITIALISED.load(Ordering::Relaxed) || p_k_thread.is_null() {
             return;
         }
+
+        if current_mechanism() == AltSyscallMechanism::LegacyHandler {
+            // Windows 10: the process opt-in is a documented-shape info class rather than an EPROCESS offset.
+            let p_eprocess = unsafe { IoThreadToProcess(p_k_thread as PETHREAD) };
+            if p_eprocess.is_null() {
+                return;
+            }
+            let mut h_process: HANDLE = null_mut();
+            let st = unsafe {
+                ObOpenObjectByPointer(
+                    p_eprocess as *mut _,
+                    OBJ_KERNEL_HANDLE,
+                    null_mut(),
+                    PROCESS_ALL_ACCESS,
+                    *PsProcessType,
+                    KernelMode as _,
+                    &mut h_process,
+                )
+            };
+            if nt_success(st) && !h_process.is_null() {
+                Self::configure_process_handle(h_process, status);
+                let _ = unsafe { ZwClose(h_process) };
+            }
+            return;
+        }
+
+        if current_mechanism() != AltSyscallMechanism::ProviderTable {
+            return;
+        }
+
         // We can cast the KTHREAD* as a ETHREAD* as KTHREAD = ETHREAD bytes 0x0 - 0x4c0
         // so they directly map.
         // We will cast the resulting EPROCESS as a *mut u8 as EPROCESS is not defined by the Windows API, and we can just use
@@ -278,12 +442,60 @@ impl AltSyscalls {
         syscall_provider_dispatch_ctx.slot = SLOT_ID;
     }
 
-    /// Uninstall the Alt Syscall handlers from the kernel.
-    pub fn uninstall() {
-        if !ALT_SYSCALLS_INITIALISED.swap(false, Ordering::SeqCst) {
+    /// Legacy (Windows 10) only: opt a process in / out of alt syscall dispatch through an already-open kernel
+    /// process handle (`ZwSetInformationProcess(ProcessAltSystemCallInformation)`, which also flips the
+    /// `DebugActive` alt-syscall bit on the process's existing threads). No-op for every other mechanism.
+    pub fn configure_process_handle(h_process: HANDLE, status: AltSyscallStatus) {
+        if !ALT_SYSCALLS_INITIALISED.load(Ordering::Relaxed)
+            || current_mechanism() != AltSyscallMechanism::LegacyHandler
+            || h_process.is_null()
+        {
             return;
         }
+
+        // A one-byte BOOLEAN; any non-zero value enables.
+        let mut enable: u8 = match status {
+            AltSyscallStatus::Enable => 1,
+            AltSyscallStatus::Disable => 0,
+        };
+        let st = unsafe {
+            ZwSetInformationProcess(
+                h_process,
+                PROCESS_ALT_SYSTEM_CALL_INFORMATION,
+                &mut enable as *mut u8 as *mut c_void,
+                1,
+            )
+        };
+        if !nt_success(st) {
+            println!("[sanctum] [-] ProcessAltSystemCallInformation failed: {st:#x}");
+        }
+    }
+
+    /// Uninstall the Alt Syscall handlers from the kernel.
+    pub fn uninstall() {
+        if !ALT_SYSCALLS_INITIALISED.load(Ordering::SeqCst) {
+            return;
+        }
+        // Clear the per-process / per-thread bits while the mechanism is still known, then mark uninitialised.
         Self::walk_active_processes_and_set_bits(AltSyscallStatus::Disable, None);
+        ALT_SYSCALLS_INITIALISED.store(false, Ordering::SeqCst);
+
+        if current_mechanism() == AltSyscallMechanism::LegacyHandler {
+            // There is no unregister export; clear our slot (only if it is still ours) so the kernel never calls
+            // into this driver's image after it is unloaded. The table is in writable `.data`, validated at init.
+            let table = LEGACY_HANDLER_TABLE.swap(null_mut(), Ordering::SeqCst);
+            if !table.is_null() {
+                let slot = unsafe { &*table.add(LEGACY_HANDLER_INDEX) };
+                let _ = slot.compare_exchange(
+                    legacy_syscall_handler as *const c_void as usize,
+                    0,
+                    Ordering::SeqCst,
+                    Ordering::SeqCst,
+                );
+            }
+        }
+
+        ALT_SYSCALL_MECHANISM.store(AltSyscallMechanism::None as u8, Ordering::SeqCst);
 
         // todo clean up the allocated memory
     }
@@ -393,6 +605,7 @@ impl AltSyscalls {
                                         );
                                         Self::configure_process_for_alt_syscalls(
                                             pe_thread as *mut _,
+                                            status,
                                         );
                                     }
                                 }
@@ -406,7 +619,7 @@ impl AltSyscalls {
                         }
                     } else {
                         Self::configure_thread_for_alt_syscalls(pe_thread as *mut _, status);
-                        Self::configure_process_for_alt_syscalls(pe_thread as *mut _);
+                        Self::configure_process_for_alt_syscalls(pe_thread as *mut _, status);
                     }
 
                     let _ = unsafe { ObfDereferenceObject(pe_thread) };
@@ -467,7 +680,7 @@ pub unsafe extern "system" fn syscall_handler(
     _args_base: *const c_void,
     _p3_home: *const c_void,
 ) -> i32 {
-    // todo remove once ready for mass testing
+    // Cheap name gate before touching the trap frame (see `intercept_syscall`).
     let proc_name = get_process_name().to_lowercase();
     if !proc_name.contains("notepad.e") && !proc_name.contains("alware.e") {
         return 1;
@@ -481,15 +694,7 @@ pub unsafe extern "system" fn syscall_handler(
         }
     };
 
-    let allowed = match ssn {
-        SSN_NT_OPEN_PROCESS
-        | SSN_NT_ALLOCATE_VIRTUAL_MEMORY
-        | SSN_NT_WRITE_VM
-        | SSN_NT_CREATE_THREAD_EX => KernelSyscallIntercept::from_alt_syscall(ktrap_frame),
-        _ => AllowSyscall::Yes,
-    };
-
-    allowed as i32
+    intercept_syscall(ssn, ktrap_frame) as i32
 }
 
 /// Get the address of the non-exported kernel symbol: `PspServiceDescriptorGroupTable`
@@ -525,10 +730,149 @@ fn lookup_global_table_address(_driver: &DRIVER_OBJECT) -> Result<*mut c_void, D
     // offset from fn
     let instruction_address = unsafe { fn_address.add(0x77) };
 
+    // The instruction at +0x77 must be `lea r64, [rip+disp32]` (REX.W 8D /r, mod=00 rm=101), e.g.
+    // `48 8d 0d xx xx xx xx  lea rcx, [nt!PspServiceDescriptorGroupTable]`. If a kernel update moves it, we must not
+    // decode random bytes as a displacement and then write through the result.
+    let opcode = unsafe { core::slice::from_raw_parts(instruction_address, 3) };
+    if !matches!(opcode[0], 0x48 | 0x4c) || opcode[1] != 0x8d || (opcode[2] & 0xc7) != 0x05 {
+        println!(
+            "[sanctum] [-] PsSyscallProviderDispatch+0x77 is not `lea r64, [rip+disp32]` ({:02x?}); unsupported kernel build.",
+            opcode
+        );
+        return Err(DriverError::UnexpectedSignature(
+            "PsSyscallProviderDispatch layout changed".into(),
+        ));
+    }
+
     let disp32 =
         unsafe { core::ptr::read_unaligned((instruction_address.add(3)) as *const i32) } as isize;
     let next_rip = instruction_address as isize + 7;
     let absolute = (next_rip + disp32) as *const c_void;
 
+    // See `is_runtime_writable_kernel_global` for why this check is what prevents the 0x50 bugcheck on newer
+    // 26100-family kernels, where the table lives in the read-only-after-boot `CFGRO` section.
+    is_runtime_writable_kernel_global(
+        &module,
+        absolute,
+        size_of::<PspServiceDescriptorGroupTable>(),
+        "PspServiceDescriptorGroupTable",
+    )?;
+
     Ok(absolute as *mut _)
+}
+
+/// Kernel sections that ntoskrnl keeps writable after boot.
+const RUNTIME_WRITABLE_SECTIONS: [&[u8]; 3] = [b".data", b"ALMOSTRO", b"CACHEALI"];
+
+/// Refuse to write to a kernel global unless all `len` bytes at `address` sit inside a section the kernel genuinely
+/// keeps writable at runtime.
+///
+/// On newer 26100-family kernels (e.g. 26100.9974 / 26200) PspServiceDescriptorGroupTable was moved into the `CFGRO`
+/// section, which the kernel makes read-only once boot initialisation completes (and which HVCI/KDP protect at the
+/// SLAT level). Writing a row into it there bugchecks with PAGE_FAULT_IN_NONPAGED_AREA (0x50) on a write to
+/// nt+<table RVA>. The PE section characteristics alone are not enough (CFGRO is flagged MEM_WRITE in the file), so
+/// only an allow-list of runtime-writable sections is accepted.
+fn is_runtime_writable_kernel_global(
+    module: &ModuleImageBaseInfo,
+    address: *const c_void,
+    len: usize,
+    what: &str,
+) -> Result<(), DriverError> {
+    let rva = (address as usize).wrapping_sub(module.base_address as usize);
+    let sections = image_sections(module.base_address, module.size_of_image)?;
+    let section = sections.iter().find(|s| s.contains_rva(rva, len));
+
+    match section {
+        Some(s)
+            if s.characteristics & IMAGE_SCN_MEM_WRITE != 0
+                && s.characteristics & IMAGE_SCN_MEM_DISCARDABLE == 0
+                && RUNTIME_WRITABLE_SECTIONS.contains(&s.name()) =>
+        {
+            Ok(())
+        }
+        other => {
+            println!(
+                "[sanctum] [-] {} (nt+{:#x}) is in a read-only / protected section ({:?});                  Alt Syscalls cannot be enabled safely on this kernel build.",
+                what,
+                rva,
+                other.map(|s| core::str::from_utf8(s.name()).unwrap_or("?"))
+            );
+            Err(DriverError::UnexpectedSignature(alloc::format!(
+                "{what} is not in writable kernel memory"
+            )))
+        }
+    }
+}
+
+/// Resolve `PspAltSystemCallHandlers` (Windows 10) from the exported `PsRegisterAltSystemCallHandler`, which loads the
+/// table with a RIP-relative `lea` (e.g. `4c 8d 35 xx xx xx xx  lea r14, [nt!PspAltSystemCallHandlers]`).
+///
+/// Every `lea r64, [rip+disp32]` in the first 0x100 bytes is considered; the first whose target is a 2-entry pointer
+/// table inside a runtime-writable kernel data section wins. Nothing is decoded outside the function's own section.
+fn lookup_legacy_handler_table(p_register: *const u8) -> Result<*const AtomicUsize, DriverError> {
+    let module = get_module_base_and_sz("ntoskrnl.exe").map_err(|e| {
+        println!("[sanctum] [-] Unable to get kernel base address. {:?}", e);
+        DriverError::ModuleNotFound
+    })?;
+
+    let fn_rva = (p_register as usize).wrapping_sub(module.base_address as usize);
+    let sections = image_sections(module.base_address, module.size_of_image)?;
+    let code = sections
+        .iter()
+        .find(|s| s.contains_rva(fn_rva, 1) && s.characteristics & IMAGE_SCN_MEM_EXECUTE != 0)
+        .ok_or(DriverError::FunctionNotFoundInModule)?;
+
+    let scan_len = (code.start + code.size - fn_rva).min(0x100);
+    // SAFETY: bounded to the (resident, executable) section containing the exported function.
+    let bytes = unsafe { core::slice::from_raw_parts(p_register, scan_len) };
+    let table_len = (LEGACY_HANDLER_INDEX + 1) * size_of::<usize>();
+
+    for k in 0..scan_len.saturating_sub(7) {
+        let b = &bytes[k..k + 7];
+        if !matches!(b[0], 0x48 | 0x4c) || b[1] != 0x8d || (b[2] & 0xc7) != 0x05 {
+            continue;
+        }
+        let disp32 = i32::from_le_bytes([b[3], b[4], b[5], b[6]]) as isize;
+        let target = (p_register as isize + k as isize + 7 + disp32) as *const c_void;
+        let rva = (target as usize).wrapping_sub(module.base_address as usize);
+        if sections.iter().any(|s| {
+            s.contains_rva(rva, table_len)
+                && s.characteristics & IMAGE_SCN_MEM_WRITE != 0
+                && s.characteristics & IMAGE_SCN_MEM_DISCARDABLE == 0
+                && RUNTIME_WRITABLE_SECTIONS.contains(&s.name())
+        }) {
+            return Ok(target as *const AtomicUsize);
+        }
+    }
+
+    Err(DriverError::UnexpectedSignature(
+        "PspAltSystemCallHandlers lea not found in PsRegisterAltSystemCallHandler".into(),
+    ))
+}
+
+/// Windows 10 alt syscall handler (`PspAltSystemCallHandlers[1]`), called by `PsAltSystemCallDispatch` with a pointer
+/// to the thread's real `KTRAP_FRAME`. Returns non-zero to let the system call continue, matching the 24H2 path.
+pub unsafe extern "system" fn legacy_syscall_handler(p_trap_frame: *mut KTRAP_FRAME) -> BOOLEAN {
+    if p_trap_frame.is_null() {
+        return 1;
+    }
+    let ktrap_frame = unsafe { *p_trap_frame };
+    intercept_syscall(ktrap_frame.Rax as u32, ktrap_frame) as BOOLEAN
+}
+
+/// Shared policy for both alt syscall mechanisms.
+fn intercept_syscall(ssn: u32, ktrap_frame: KTRAP_FRAME) -> AllowSyscall {
+    // todo remove once ready for mass testing
+    let proc_name = get_process_name().to_lowercase();
+    if !proc_name.contains("notepad.e") && !proc_name.contains("alware.e") {
+        return AllowSyscall::Yes;
+    }
+
+    match ssn {
+        SSN_NT_OPEN_PROCESS | SSN_NT_ALLOCATE_VIRTUAL_MEMORY | SSN_NT_WRITE_VM => {
+            KernelSyscallIntercept::from_alt_syscall(ktrap_frame)
+        }
+        ssn if ssn == ssn_nt_create_thread_ex() => KernelSyscallIntercept::from_alt_syscall(ktrap_frame),
+        _ => AllowSyscall::Yes,
+    }
 }
