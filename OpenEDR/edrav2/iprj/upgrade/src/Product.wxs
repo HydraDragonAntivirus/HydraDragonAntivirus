@@ -101,6 +101,8 @@
                     <ServiceControl Id="StopSanctumRunnerX64" Name="sanctum_ppl_runner" Stop="uninstall" Remove="uninstall" />
                     <RemoveFile Id="RemovingDriverX64" Directory="DRIVERSDIR" Name="edrdrv.sys" On="uninstall" />
                     <RemoveFile Id="RemovingMbrFilterDriverX64" Directory="DRIVERSDIR" Name="MBRFilter.sys" On="uninstall" />
+                    <RemoveFile Id="RemovingRedDbgDriverX64" Directory="DRIVERSDIR" Name="RedDbgDrv.sys" On="uninstall" />
+                    <RemoveFile Id="RemovingHyperDbgDriverX64" Directory="DRIVERSDIR" Name="hyperhv.sys" On="uninstall" />
                     <RegistryKey Root="HKLM" Key="Software\Owlyshield">
                         <RegistryValue Name="VERBOSE_LOGGING" Value="0" Type="string" KeyPath="yes" />
                         <RegistryValue Name="TELEMETRY" Value="1" Type="string" />

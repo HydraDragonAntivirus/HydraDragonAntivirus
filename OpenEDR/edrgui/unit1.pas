@@ -46,6 +46,7 @@ type
     MenuCloudFirstToggle: TMenuItem;
     MenuQuarantine: TMenuItem;
     MenuReputation: TMenuItem;
+    MenuCheckUpdates: TMenuItem;
     procedure FormCreate(Sender: TObject);
     procedure FormDestroy(Sender: TObject);
     procedure MenuExitClick(Sender: TObject);
@@ -64,6 +65,7 @@ type
     procedure QuarFormClosed(Sender: TObject; var CloseAction: TCloseAction);
     procedure MenuReputationClick(Sender: TObject);
     procedure RepFormClosed(Sender: TObject; var CloseAction: TCloseAction);
+    procedure MenuCheckUpdatesClick(Sender: TObject);
     procedure Timer1Timer(Sender: TObject);
     procedure TrayIcon1DblClick(Sender: TObject);
   private
@@ -213,6 +215,13 @@ begin
   MenuReputation.OnClick := @MenuReputationClick;
   PopupMenu1.Items.Insert(PopupMenu1.Items.IndexOf(MenuQuarantine) + 1,
     MenuReputation);
+
+  // Manual update check: opens the GitHub releases page in the browser.
+  MenuCheckUpdates := TMenuItem.Create(Self);
+  MenuCheckUpdates.Caption := 'Check for updates manually';
+  MenuCheckUpdates.OnClick := @MenuCheckUpdatesClick;
+  PopupMenu1.Items.Insert(PopupMenu1.Items.IndexOf(MenuReputation) + 1,
+    MenuCheckUpdates);
 
   FBehaviorLogs := TStringList.Create;
   FMLPredictions := TStringList.Create;
@@ -1347,6 +1356,20 @@ procedure TForm1.RepFormClosed(Sender: TObject; var CloseAction: TCloseAction);
 begin
   CloseAction := caFree;
   FRepForm := nil;
+end;
+
+procedure TForm1.MenuCheckUpdatesClick(Sender: TObject);
+const
+  ReleasesUrl = 'https://github.com/HydraDragonAntivirus/HydraDragonAntivirus/releases';
+begin
+  // There is no automatic updater: send the user to the releases page.
+  // ShellExecute returns a value greater than 32 on success.
+  if ShellExecuteW(0, PWideChar(UnicodeString('open')),
+    PWideChar(UnicodeString(ReleasesUrl)), nil, nil,
+    SW_SHOWNORMAL) <= 32 then
+    TAlertForm.ShowAlert('Check for updates',
+      'Could not open the browser. Releases page: ' + ReleasesUrl,
+      asWarning, 8000);
 end;
 
 procedure TForm1.RunCommand(ACmd: TSvcCommand);

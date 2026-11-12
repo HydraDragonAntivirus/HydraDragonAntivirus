@@ -18,6 +18,7 @@
 #include <mutex>
 #include <string_view>
 #include <windows.h>
+#include <intrin.h>
 #include <tlhelp32.h>
 #include <cctype>
 #include <fstream>
@@ -707,6 +708,150 @@ void SystemMonitorController::ensureMbrFilterDriver()
 	}
 }
 
+//
+// Standalone hypervisor drivers staged next to the service by the installer.
+// The driver is chosen by the processor vendor: RedDbg virtualizes AMD (SVM)
+// processors, HyperDbg's hyperhv - Intel (VT-x) ones. The service names are
+// the ones of the driver INF files.
+//
+struct HypervisorDriverInfo
+{
+	const wchar_t* pszFileName;
+	const wchar_t* pszServiceName;
+	const wchar_t* pszDisplayName;
+};
+
+static constexpr HypervisorDriverInfo c_AmdHypervisorDriver = { L"RedDbgDrv.sys", L"RedDbg", L"RedDbg Kernel Debugger Service" };
+static constexpr HypervisorDriverInfo c_IntelHypervisorDriver = { L"hyperhv.sys", L"hyperhv", L"HyperDbg Hypervisor Service" };
+
+//
+// Returns the hypervisor driver for the current processor or nullptr.
+//
+static const HypervisorDriverInfo* getHypervisorDriverForCpu()
+{
+	int regs[4] = {};
+	__cpuid(regs, 0);
+
+	char sVendor[13] = {};
+	memcpy(sVendor + 0, &regs[1], 4); // EBX
+	memcpy(sVendor + 4, &regs[3], 4); // EDX
+	memcpy(sVendor + 8, &regs[2], 4); // ECX
+
+	if (strcmp(sVendor, "AuthenticAMD") == 0)
+		return &c_AmdHypervisorDriver;
+	if (strcmp(sVendor, "GenuineIntel") == 0)
+		return &c_IntelHypervisorDriver;
+	return nullptr;
+}
+
+//
+// Stages, registers and starts the hypervisor driver that matches the
+// processor. edrdrv binds to its device (hypervisor bridge) when the service
+// connects to the filter port, so this is called before that connection.
+// The driver is optional: nothing happens if it is not staged by the installer.
+//
+void SystemMonitorController::ensureHypervisorDriver()
+{
+	namespace fs = std::filesystem;
+
+	const HypervisorDriverInfo* pDriver = getHypervisorDriverForCpu();
+	if (pDriver == nullptr)
+	{
+		LOGINF("[HV] Unknown processor vendor, no hypervisor driver is used");
+		return;
+	}
+
+	wchar_t szSysDir[MAX_PATH] = { 0 };
+	::GetSystemDirectoryW(szSysDir, MAX_PATH);
+	fs::path destPath = fs::path(szSysDir) / L"drivers" / pDriver->pszFileName;
+
+	wchar_t szModule[MAX_PATH] = { 0 };
+	::GetModuleFileNameW(NULL, szModule, MAX_PATH);
+	fs::path srcPath = fs::path(szModule).parent_path() / pDriver->pszFileName;
+
+	// update_existing: a newer staged driver (product upgrade) replaces the old one
+	std::error_code ec;
+	if (fs::exists(srcPath, ec))
+	{
+		if (fs::copy_file(srcPath, destPath, fs::copy_options::update_existing, ec) && !ec)
+		{
+			LOGINF("[HV] Staged hypervisor driver to " << destPath.string());
+		}
+	}
+
+	if (!fs::exists(destPath, ec))
+	{
+		LOGINF("[HV] Hypervisor driver is not installed: " << destPath.string());
+		return;
+	}
+
+	SC_HANDLE hSCM = ::OpenSCManagerW(NULL, NULL, SC_MANAGER_ALL_ACCESS);
+	if (hSCM == NULL)
+		return;
+
+	SC_HANDLE hSvc = ::OpenServiceW(hSCM, pDriver->pszServiceName, SERVICE_ALL_ACCESS);
+	if (hSvc == NULL)
+	{
+		// Demand start: the driver is started by this service only
+		hSvc = ::CreateServiceW(
+			hSCM,
+			pDriver->pszServiceName,
+			pDriver->pszDisplayName,
+			SERVICE_ALL_ACCESS,
+			SERVICE_KERNEL_DRIVER,
+			SERVICE_DEMAND_START,
+			SERVICE_ERROR_NORMAL,
+			destPath.c_str(),
+			NULL, NULL, NULL, NULL, NULL
+		);
+		if (hSvc != NULL)
+		{
+			LOGINF("[HV] Created hypervisor driver service");
+		}
+	}
+
+	if (hSvc != NULL)
+	{
+		if (::StartServiceW(hSvc, 0, NULL))
+		{
+			LOGINF("[HV] Hypervisor driver service started");
+		}
+		else if (::GetLastError() != ERROR_SERVICE_ALREADY_RUNNING)
+		{
+			LOGWRN("[HV] Can't start hypervisor driver service, error " << ::GetLastError());
+		}
+		::CloseServiceHandle(hSvc);
+	}
+	::CloseServiceHandle(hSCM);
+}
+
+//
+// Removes both hypervisor drivers (the product can be moved between machines).
+// A running hypervisor driver can not be unloaded: its service is marked for
+// deletion and its file is removed after the reboot if it is still in use.
+//
+void SystemMonitorController::uninstallHypervisorDriver()
+{
+	wchar_t szSysDir[MAX_PATH] = { 0 };
+	::GetSystemDirectoryW(szSysDir, MAX_PATH);
+
+	for (const HypervisorDriverInfo* pDriver : { &c_AmdHypervisorDriver, &c_IntelHypervisorDriver })
+	{
+		std::string sServiceName = string::convertWCharToUtf8(pDriver->pszServiceName);
+		(void)execCommand(createObject(CLSID_WinServiceController), "stop",
+			Dictionary({ { "name", sServiceName } }));
+		(void)execCommand(createObject(CLSID_WinServiceController), "delete",
+			Dictionary({ { "name", sServiceName } }));
+
+		std::filesystem::path destPath = std::filesystem::path(szSysDir) / L"drivers" / pDriver->pszFileName;
+		std::error_code ec;
+		if (std::filesystem::exists(destPath, ec) && !std::filesystem::remove(destPath, ec))
+		{
+			::MoveFileExW(destPath.c_str(), NULL, MOVEFILE_DELAY_UNTIL_REBOOT);
+		}
+	}
+}
+
 void SystemMonitorController::uninstallMbrFilterDriver()
 {
 	// Clean up UpperFilters
@@ -773,6 +918,9 @@ void SystemMonitorController::uninstall(Variant vParams)
 {
 	// Clean up MBRFilter driver completely in C++
 	uninstallMbrFilterDriver();
+
+	// Remove the standalone hypervisor driver (RedDbg / HyperDbg)
+	uninstallHypervisorDriver();
 
 	// FIXME: I'm not sure that it is correct to call shutdown here because teoretically the controller
 	// can be even not started
@@ -1021,6 +1169,11 @@ void SystemMonitorController::startThreads()
 	{
 		return this->parseEvent(ctxt.pInData, ctxt.nInDataSize);
 	};
+
+	// Ensure the standalone hypervisor driver (RedDbg on AMD, HyperDbg on
+	// Intel) is staged and started before the filter port is connected:
+	// edrdrv binds its hypervisor bridge on that connection.
+	ensureHypervisorDriver();
 
 	m_hFltPortReceiver.Start(handler);
 

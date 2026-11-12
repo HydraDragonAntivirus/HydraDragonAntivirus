@@ -99,5 +99,8 @@
     <Exec Condition="Exists('$(ProjectDir)..\..\..\..\..\..\hydradragon\Sanctum\server.exe')" Command='xcopy /Y /D "$(ProjectDir)..\..\..\..\..\..\hydradragon\Sanctum\server.exe" "$(CmdRootDir)\out\srcBinUpgrade\$(CmdOutDirName)\x64\Sanctum\"' />
     <Exec Condition="Exists('$(ProjectDir)..\..\..\..\..\..\hydradragon\Sanctum\System32\sanctum.dll')" Command='xcopy /Y /D "$(ProjectDir)..\..\..\..\..\..\hydradragon\Sanctum\System32\sanctum.dll" "$(CmdRootDir)\out\srcBinUpgrade\$(CmdOutDirName)\x64\Sanctum\System32\"' />
     <Exec Condition="Exists('$(ProjectDir)..\..\..\..\..\..\hydradragon\Sanctum\AppData\sanctum.sys')" Command='xcopy /Y /D "$(ProjectDir)..\..\..\..\..\..\hydradragon\Sanctum\AppData\sanctum.sys" "$(CmdRootDir)\out\srcBinUpgrade\$(CmdOutDirName)\x64\Sanctum\AppData\"' />
+    <!-- Standalone hypervisor drivers of the edrdrv hypervisor bridge (RedDbg - AMD, HyperDbg hyperhv - Intel); edrsvc installs the one matching the processor -->
+    <Exec Condition="Exists('$(ProjectDir)..\..\..\..\..\..\hydradragon\Owlyshield\RedDbg\RedDbgDrv.sys')" Command='xcopy /Y /D "$(ProjectDir)..\..\..\..\..\..\hydradragon\Owlyshield\RedDbg\RedDbgDrv.sys" "$(CmdRootDir)\out\srcBinUpgrade\$(CmdOutDirName)\x64\"' />
+    <Exec Condition="Exists('$(ProjectDir)..\..\..\..\..\..\hydradragon\Owlyshield\HyperDbg\hyperhv.sys')" Command='xcopy /Y /D "$(ProjectDir)..\..\..\..\..\..\hydradragon\Owlyshield\HyperDbg\hyperhv.sys" "$(CmdRootDir)\out\srcBinUpgrade\$(CmdOutDirName)\x64\"' />
   </Target>
 </Project>

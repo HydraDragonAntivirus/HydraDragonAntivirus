@@ -158,6 +158,11 @@ public:
 	void ensureMbrFilterDriver();
 	void uninstallMbrFilterDriver();
 
+	// Standalone hypervisor driver of the hypervisor bridge (edrdrv):
+	// OpenEDR/RedDbg on AMD, OpenEDR/HyperDbg (hyperhv) on Intel.
+	void ensureHypervisorDriver();
+	void uninstallHypervisorDriver();
+
 	std::thread m_hipsDecisionPipeThread;
 	std::atomic<bool> m_fStopHipsDecisionPipe{false};
 	void hipsDecisionPipeServerLoop();
