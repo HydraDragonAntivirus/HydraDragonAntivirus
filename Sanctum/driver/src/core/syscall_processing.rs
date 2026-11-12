@@ -27,8 +27,8 @@ use wdk_sys::{
 
 use crate::{
     alt_syscalls::{
-        SSN_NT_ALLOCATE_VIRTUAL_MEMORY, SSN_NT_OPEN_PROCESS, ssn_nt_create_thread_ex,
-        SSN_NT_WRITE_VM,
+        SSN_NT_ALLOCATE_VIRTUAL_MEMORY, SSN_NT_OPEN_PROCESS, SSN_NT_WRITE_VM,
+        ssn_nt_create_thread_ex,
     },
     core::process_monitor::ProcessMonitor,
     utils::{DriverError, duration_to_large_int, handle_to_pid},
