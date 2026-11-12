@@ -200,7 +200,11 @@ pub struct ImageSection {
 impl ImageSection {
     /// The section name without its NUL padding.
     pub fn name(&self) -> &[u8] {
-        let len = self.name.iter().position(|&b| b == 0).unwrap_or(self.name.len());
+        let len = self
+            .name
+            .iter()
+            .position(|&b| b == 0)
+            .unwrap_or(self.name.len());
         &self.name[..len]
     }
 
@@ -257,7 +261,11 @@ pub fn image_sections(
         if start >= image_size {
             continue;
         }
-        let size = if virtual_size != 0 { virtual_size } else { raw_size };
+        let size = if virtual_size != 0 {
+            virtual_size
+        } else {
+            raw_size
+        };
         let size = size.min(image_size - start);
 
         sections.push(ImageSection {
