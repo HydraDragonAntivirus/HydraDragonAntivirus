@@ -1590,7 +1590,19 @@ NTSTATUS KillProcessesInGid(ULONGLONG GID, PLONG OutputStatus, ULONG removalMode
     NTSTATUS status = STATUS_SUCCESS;
     HANDLE processHandle;
     BOOLEAN isGidExist = FALSE;
-    ULONGLONG gidSize = driverData->GetGidSize(GID, &isGidExist);
+    // `PID | 0x8000000000000000`: one process, not in the GID table (every caller
+    // sends this form; looking it up in the table found nothing, so no kill ran).
+    ULONG directPid = 0;
+    const BOOLEAN isPidGid = DriverData::PidFromGid(GID, &directPid);
+    if (isPidGid && (directPid == 4 || directPid == driverData->getPID() ||
+                     directPid == (ULONG)(ULONG_PTR)PsGetCurrentProcessId()))
+    {
+        *OutputStatus = STATUS_ACCESS_DENIED;  // System, our service or the caller itself
+        return STATUS_SUCCESS;
+    }
+    ULONGLONG gidSize = isPidGid ? 1 : driverData->GetGidSize(GID, &isGidExist);
+    if (isPidGid)
+        isGidExist = TRUE;
 
     if (gidSize == 0 || isGidExist == FALSE)
     {
@@ -1614,7 +1626,15 @@ NTSTATUS KillProcessesInGid(ULONGLONG GID, PLONG OutputStatus, ULONG removalMode
     }
 
     ULONGLONG pidsReturned = 0;
-    isGidExist = driverData->GetGidPids(GID, Buffer, gidSize, &pidsReturned);
+    if (isPidGid)
+    {
+        Buffer[0] = directPid;
+        pidsReturned = 1;
+    }
+    else
+    {
+        isGidExist = driverData->GetGidPids(GID, Buffer, gidSize, &pidsReturned);
+    }
 
     if (isGidExist)
     {
@@ -1638,8 +1658,9 @@ NTSTATUS KillProcessesInGid(ULONGLONG GID, PLONG OutputStatus, ULONG removalMode
 #endif
         }
 
-        // Kill each process
-        for (ULONGLONG i = 0; i < gidSize; i++)
+        // Kill each process (only the slots GetGidPids filled: the group can
+        // shrink between GetGidSize and GetGidPids)
+        for (ULONGLONG i = 0; i < pidsReturned; i++)
         {
             CLIENT_ID clientId;
             clientId.UniqueProcess = (HANDLE)Buffer[i];

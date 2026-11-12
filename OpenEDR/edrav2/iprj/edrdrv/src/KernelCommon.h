@@ -162,27 +162,33 @@ struct GID_ENTRY {
 
 typedef GID_ENTRY* PGID_ENTRY;
 
-// NEW: list entry for registry backups
+// A registry value as it was before a user-mode process set or deleted it
+// (regmon.cpp, pre-operation callbacks), so the process's changes can be
+// reverted when it is killed as ransomware (MESSAGE_REVERT_REGISTRY_CHANGES).
+// One allocation: the key path, value name and data follow the struct.
+// Allocated and freed by DriverData (AllocRegistryBackup / FreeRegistryBackup).
 typedef struct _REGISTRY_BACKUP_ENTRY
 {
     LIST_ENTRY list;
-    ULONGLONG Gid;
-    BOOLEAN IsDeletion;
+    ULONG Pid;                 // process that changed the value
+    ULONG Ancestors[8];        // its creator chain then, nearest first: the revert
+    ULONG AncestorCount;       // of a killed process includes its descendants
+    ULONGLONG NameHash;        // of key path + value name, case-insensitive
+    BOOLEAN ValueExisted;      // FALSE: the process created it, revert deletes it
+    BOOLEAN IsKeyDelete;       // the whole key was deleted: Data holds its values
+                               // as REGISTRY_KEY_VALUE_RECORDs, ValueName is empty
     ULONG Type;
     ULONG DataSize;
-    WCHAR KeyPath[MAX_FILE_NAME_LENGTH];
-    WCHAR ValueName[MAX_FILE_NAME_LENGTH];
-    UCHAR RegistryData[1024]; // Max 1KB of data backed up per value
-
-    void* operator new(size_t size) {
-        void* ptr = ExAllocatePoolWithTag(NonPagedPool, size, OWLY_POOL_TAG_REGISTRY_BACKUP);
-        if (size && ptr != nullptr)
-            memset(ptr, 0, size);
-        return ptr;
-    }
-
-    void operator delete(void* ptr) {
-        ExFreePoolWithTag(ptr, OWLY_POOL_TAG_REGISTRY_BACKUP);
-    }
-
+    UNICODE_STRING KeyPath;    // \REGISTRY\..., NUL-terminated
+    UNICODE_STRING ValueName;  // NUL-terminated, empty for the default value
+    PUCHAR Data;
 } REGISTRY_BACKUP_ENTRY, * PREGISTRY_BACKUP_ENTRY;
+
+// One value of a deleted key in REGISTRY_BACKUP_ENTRY::Data (IsKeyDelete),
+// followed by NameBytes of name and DataSize of data. Unaligned: copy it out.
+typedef struct _REGISTRY_KEY_VALUE_RECORD
+{
+    USHORT NameBytes;
+    ULONG Type;
+    ULONG DataSize;
+} REGISTRY_KEY_VALUE_RECORD;

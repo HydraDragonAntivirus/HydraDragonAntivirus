@@ -7,13 +7,10 @@
 #include "RootkitDetector.h"
 #include "UserModeHookEngine.h"
 #include "AmsiProtection.h"
-#include "Regedit.h"
 #include <ntstrsafe.h>
 
-// Regedit.cpp expects this symbol for IoAllocateWorkItem(). In the old
-// Owlyshield driver it was created by FSfilter.cpp. In the integrated build we
-// create a small control device only for work-item ownership.
-extern PDEVICE_OBJECT g_DeviceObject;
+// A small control device owning the work items of the Owly modules
+// (RootkitDetector); the integrated build has no FSfilter.cpp device for it.
 
 namespace cmd {
 namespace owly {
@@ -27,7 +24,6 @@ static bool g_HookDeviceInitialized = false;
 #if OWLY_HYPERVISOR_SUPPORT
 static bool g_VmmInitialized = false;
 #endif
-static bool g_RegeditInitialized = false;
 
 static NTSTATUS CreateWorkItemDevice(_In_ PDRIVER_OBJECT DriverObject)
 {
@@ -49,15 +45,11 @@ static NTSTATUS CreateWorkItemDevice(_In_ PDRIVER_OBJECT DriverObject)
     if (!NT_SUCCESS(status))
         return status;
 
-    g_DeviceObject = g_OwlyWorkItemDeviceObject;
     return STATUS_SUCCESS;
 }
 
 static VOID DeleteWorkItemDevice()
 {
-    if (g_DeviceObject == g_OwlyWorkItemDeviceObject)
-        g_DeviceObject = nullptr;
-
     if (g_OwlyWorkItemDeviceObject != nullptr)
     {
         IoDeleteDevice(g_OwlyWorkItemDeviceObject);
@@ -101,9 +93,6 @@ NTSTATUS InitializeFeatureHost(_In_ PDRIVER_OBJECT DriverObject)
     status = InitVmmCommunication();
     if (NT_SUCCESS(status)) g_VmmInitialized = true;
 #endif
-
-    status = RegeditDriverEntry();
-    if (NT_SUCCESS(status)) g_RegeditInitialized = true;
 
     status = InitProcessProtection();
     if (NT_SUCCESS(status)) g_ProcessProtectionInitialized = true;
@@ -184,7 +173,6 @@ VOID FinalizeFeatureHost()
     }
 
     DeleteWorkItemDevice();
-    g_RegeditInitialized = false;
 }
 
 } // namespace owly

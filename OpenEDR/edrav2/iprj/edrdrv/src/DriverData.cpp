@@ -38,6 +38,10 @@ DriverData::DriverData(PDRIVER_OBJECT DriverObject) :
     InitializeListHead(&registryBackups);
     KeInitializeSpinLock(&registryBackupsLock);
 
+    RtlZeroMemory(lineageRing, sizeof(lineageRing));
+    lineageNext = 0;
+    KeInitializeSpinLock(&lineageLock);
+
     // Initialize volumeCacheLock
     KeInitializeSpinLock(&volumeCacheLock);
 
@@ -1161,126 +1165,279 @@ VOID DriverData::ClearBlockedPaths() {
 //# Registry handling
 //#######################################################################################
 
-VOID DriverData::AddRegistryBackup(PREGISTRY_BACKUP_ENTRY newEntry) {
+ULONGLONG DriverData::RegistryNameHash(PCUNICODE_STRING keyPath, PCUNICODE_STRING valueName) {
+    // FNV-1a over the upper-cased characters; 0xFFFF (not a name character)
+    // separates the key from the value name.
+    ULONGLONG h = 14695981039346656037ULL;
+    auto mix = [&h](PCUNICODE_STRING s) {
+        if (s == nullptr || s->Buffer == nullptr)
+            return;
+        for (USHORT i = 0; i < s->Length / sizeof(WCHAR); ++i) {
+            h ^= (ULONGLONG)RtlUpcaseUnicodeChar(s->Buffer[i]);
+            h *= 1099511628211ULL;
+        }
+    };
+    mix(keyPath);
+    h ^= 0xFFFFULL;
+    h *= 1099511628211ULL;
+    mix(valueName);
+    return h;
+}
+
+PREGISTRY_BACKUP_ENTRY DriverData::AllocRegistryBackup(
+    PCUNICODE_STRING keyPath, PCUNICODE_STRING valueName, ULONG dataSize) {
+    if (keyPath == nullptr || keyPath->Buffer == nullptr || keyPath->Length == 0)
+        return nullptr;
+    const SIZE_T keyBytes = keyPath->Length;
+    const SIZE_T valueBytes = (valueName != nullptr && valueName->Buffer != nullptr) ? valueName->Length : 0;
+    // MaximumLength (USHORT) holds the length plus the NUL.
+    if (keyBytes > MAXUSHORT - sizeof(WCHAR) || valueBytes > MAXUSHORT - sizeof(WCHAR))
+        return nullptr;
+    const SIZE_T total = sizeof(REGISTRY_BACKUP_ENTRY) + keyBytes + sizeof(WCHAR) + valueBytes + sizeof(WCHAR) + dataSize;
+
+    auto entry = (PREGISTRY_BACKUP_ENTRY)ExAllocatePool2(POOL_FLAG_NON_PAGED, total, OWLY_POOL_TAG_REGISTRY_BACKUP);
+    if (entry == nullptr)
+        return nullptr;
+
+    PUCHAR p = (PUCHAR)(entry + 1);
+    entry->KeyPath.Buffer = (PWCH)p;
+    entry->KeyPath.Length = (USHORT)keyBytes;
+    entry->KeyPath.MaximumLength = (USHORT)(keyBytes + sizeof(WCHAR));
+    RtlCopyMemory(p, keyPath->Buffer, keyBytes);
+    p += keyBytes + sizeof(WCHAR);  // zeroed by ExAllocatePool2: NUL-terminated
+
+    entry->ValueName.Buffer = (PWCH)p;
+    entry->ValueName.Length = (USHORT)valueBytes;
+    entry->ValueName.MaximumLength = (USHORT)(valueBytes + sizeof(WCHAR));
+    if (valueBytes)
+        RtlCopyMemory(p, valueName->Buffer, valueBytes);
+    p += valueBytes + sizeof(WCHAR);
+
+    entry->Data = p;
+    entry->DataSize = dataSize;
+    entry->NameHash = RegistryNameHash(keyPath, valueName);
+    return entry;
+}
+
+VOID DriverData::FreeRegistryBackup(PREGISTRY_BACKUP_ENTRY entry) {
+    if (entry != nullptr)
+        ExFreePoolWithTag(entry, OWLY_POOL_TAG_REGISTRY_BACKUP);
+}
+
+BOOLEAN DriverData::HasRegistryBackup(ULONG processId, ULONGLONG nameHash) {
+    BOOLEAN found = FALSE;
     KIRQL oldIrql;
     KeAcquireSpinLock(&registryBackupsLock, &oldIrql);
-    if (registryBackupsSize < MAX_OPS_SAVE) { // Reuse MAX_OPS_SAVE for now
-        registryBackupsSize++;
-        InsertTailList(&registryBackups, &newEntry->list);
-    }
-    else {
-        delete newEntry; // Too many backups, discard the new one
+    for (PLIST_ENTRY e = registryBackups.Flink; e != &registryBackups; e = e->Flink) {
+        auto b = CONTAINING_RECORD(e, REGISTRY_BACKUP_ENTRY, list);
+        if (b->Pid == processId && b->NameHash == nameHash) {
+            found = TRUE;
+            break;
+        }
     }
     KeReleaseSpinLock(&registryBackupsLock, oldIrql);
+    return found;
+}
+
+VOID DriverData::AddRegistryBackup(PREGISTRY_BACKUP_ENTRY newEntry) {
+    if (newEntry == nullptr)
+        return;
+    PREGISTRY_BACKUP_ENTRY dropped = nullptr;
+    KIRQL oldIrql;
+    KeAcquireSpinLock(&registryBackupsLock, &oldIrql);
+    // Only the value as it was before the process first touched it matters:
+    // a later change by the same process is not a new original.
+    for (PLIST_ENTRY e = registryBackups.Flink; e != &registryBackups; e = e->Flink) {
+        auto b = CONTAINING_RECORD(e, REGISTRY_BACKUP_ENTRY, list);
+        if (b->Pid == newEntry->Pid && b->NameHash == newEntry->NameHash) {
+            dropped = newEntry;
+            newEntry = nullptr;
+            break;
+        }
+    }
+    if (newEntry != nullptr) {
+        // Full: drop the oldest. (Dropping the new one stopped every later backup.)
+        if (registryBackupsSize >= MAX_REGISTRY_BACKUPS && !IsListEmpty(&registryBackups)) {
+            dropped = CONTAINING_RECORD(RemoveHeadList(&registryBackups), REGISTRY_BACKUP_ENTRY, list);
+            registryBackupsSize--;
+        }
+        InsertTailList(&registryBackups, &newEntry->list);
+        registryBackupsSize++;
+    }
+    KeReleaseSpinLock(&registryBackupsLock, oldIrql);
+    FreeRegistryBackup(dropped);
 }
 
 VOID DriverData::ClearRegistryBackups() {
+    LIST_ENTRY toFree;
+    InitializeListHead(&toFree);
     KIRQL oldIrql;
     KeAcquireSpinLock(&registryBackupsLock, &oldIrql);
-    while (!IsListEmpty(&registryBackups)) {
-        PLIST_ENTRY entry = RemoveHeadList(&registryBackups);
-        PREGISTRY_BACKUP_ENTRY backup =
-            (PREGISTRY_BACKUP_ENTRY)CONTAINING_RECORD(entry, REGISTRY_BACKUP_ENTRY, list);
-        delete backup;
-    }
+    while (!IsListEmpty(&registryBackups))
+        InsertTailList(&toFree, RemoveHeadList(&registryBackups));
     registryBackupsSize = 0;
     KeReleaseSpinLock(&registryBackupsLock, oldIrql);
+    while (!IsListEmpty(&toFree))
+        FreeRegistryBackup(CONTAINING_RECORD(RemoveHeadList(&toFree), REGISTRY_BACKUP_ENTRY, list));
 }
 
-VOID DriverData::ClearGidRegistryBackups(ULONGLONG gid) {
-    LIST_ENTRY toDelete;
-    InitializeListHead(&toDelete);
-
+VOID DriverData::RecordProcessCreator(ULONG processId, ULONG creatorPid) {
+    if (processId == 0)
+        return;
     KIRQL oldIrql;
-    KeAcquireSpinLock(&registryBackupsLock, &oldIrql);
-
-    PLIST_ENTRY current = registryBackups.Flink;
-    while (current != &registryBackups) {
-        PREGISTRY_BACKUP_ENTRY backup = (PREGISTRY_BACKUP_ENTRY)CONTAINING_RECORD(current, REGISTRY_BACKUP_ENTRY, list);
-        PLIST_ENTRY next = current->Flink;
-        if (backup->Gid == gid) {
-            RemoveEntryList(current);
-            registryBackupsSize--;
-            InsertTailList(&toDelete, &backup->list);
-        }
-        current = next;
+    KeAcquireSpinLock(&lineageLock, &oldIrql);
+    const ULONG slot = lineageNext;
+    lineageNext = (lineageNext + 1) % LINEAGE_CAPACITY;
+    // Evict the PID recorded in this slot, unless it was recorded again since
+    // (then its value names a newer slot).
+    const ULONG evicted = lineageRing[slot];
+    if (evicted != 0) {
+        const ULONGLONG v = (ULONGLONG)PidToCreator.get(evicted);
+        if ((ULONG)(v >> 32) == slot + 1)
+            PidToCreator.deleteNode(evicted);
     }
+    lineageRing[slot] = processId;
+    PidToCreator.insertNode(processId, (HANDLE)(((ULONGLONG)(slot + 1) << 32) | creatorPid));
+    KeReleaseSpinLock(&lineageLock, oldIrql);
+}
 
-    KeReleaseSpinLock(&registryBackupsLock, oldIrql);
-
-    while (!IsListEmpty(&toDelete)) {
-        PLIST_ENTRY entry = RemoveHeadList(&toDelete);
-        PREGISTRY_BACKUP_ENTRY backup =
-            (PREGISTRY_BACKUP_ENTRY)CONTAINING_RECORD(entry, REGISTRY_BACKUP_ENTRY, list);
-        delete backup;
+ULONG DriverData::GetProcessAncestors(ULONG processId, PULONG ancestors, ULONG maxCount) {
+    ULONG n = 0;
+    KIRQL oldIrql;
+    KeAcquireSpinLock(&lineageLock, &oldIrql);
+    ULONG cur = processId;
+    while (n < maxCount) {
+        const ULONGLONG v = (ULONGLONG)PidToCreator.get(cur);
+        if (v == 0)
+            break;
+        const ULONG creator = (ULONG)(v & 0xFFFFFFFFULL);
+        if (creator == 0 || creator == 4 || creator == cur)
+            break;
+        // A loop (PID reuse) ends the chain.
+        BOOLEAN seen = (creator == processId);
+        for (ULONG i = 0; i < n && !seen; ++i)
+            seen = (ancestors[i] == creator);
+        if (seen)
+            break;
+        ancestors[n++] = creator;
+        cur = creator;
     }
+    KeReleaseSpinLock(&lineageLock, oldIrql);
+    return n;
+}
+
+VOID DriverData::ClearProcessLineage() {
+    KIRQL oldIrql;
+    KeAcquireSpinLock(&lineageLock, &oldIrql);
+    PidToCreator.clear(NULL);
+    RtlZeroMemory(lineageRing, sizeof(lineageRing));
+    lineageNext = 0;
+    KeReleaseSpinLock(&lineageLock, oldIrql);
+}
+
+// Writes back one deleted key: creates it again and sets the values it had
+// (REGISTRY_BACKUP_ENTRY::IsKeyDelete, records written by regmon.cpp).
+static NTSTATUS RestoreDeletedKey(PREGISTRY_BACKUP_ENTRY backup) {
+    OBJECT_ATTRIBUTES objAttr;
+    InitializeObjectAttributes(&objAttr, &backup->KeyPath, OBJ_CASE_INSENSITIVE | OBJ_KERNEL_HANDLE, NULL, NULL);
+    HANDLE hKey = NULL;
+    ULONG disposition = 0;
+    NTSTATUS status = ZwCreateKey(&hKey, KEY_SET_VALUE, &objAttr, 0, NULL, REG_OPTION_NON_VOLATILE, &disposition);
+    if (!NT_SUCCESS(status))
+        return status;
+
+    PUCHAR p = backup->Data;
+    PUCHAR end = backup->Data + backup->DataSize;
+    while ((SIZE_T)(end - p) >= sizeof(REGISTRY_KEY_VALUE_RECORD)) {
+        REGISTRY_KEY_VALUE_RECORD rec;
+        RtlCopyMemory(&rec, p, sizeof(rec));
+        p += sizeof(rec);
+        if ((SIZE_T)(end - p) < (SIZE_T)rec.NameBytes + rec.DataSize)
+            break;
+        UNICODE_STRING name;
+        name.Buffer = (PWCH)p;
+        name.Length = rec.NameBytes;
+        name.MaximumLength = rec.NameBytes;
+        ZwSetValueKey(hKey, &name, 0, rec.Type, p + rec.NameBytes, rec.DataSize);
+        p += (SIZE_T)rec.NameBytes + rec.DataSize;
+    }
+    ZwClose(hKey);
+    return status;
 }
 
 VOID DriverData::RevertRegistryChangesForGid(ULONGLONG gid) {
+    // The processes of the gid: a PID-flagged gid is one process, else the GID table.
+    ULONG pids[64];
+    ULONGLONG pidCount = 0;
+    ULONG single = 0;
+    if (PidFromGid(gid, &single)) {
+        pids[0] = single;
+        pidCount = 1;
+    } else {
+        GetGidPids(gid, pids, RTL_NUMBER_OF(pids), &pidCount);
+    }
+    if (pidCount == 0)
+        return;
+
+    auto inGroup = [&](ULONG pid) -> BOOLEAN {
+        for (ULONGLONG i = 0; i < pidCount; ++i)
+            if (pids[i] == pid)
+                return TRUE;
+        return FALSE;
+    };
+
     LIST_ENTRY toRevert;
     InitializeListHead(&toRevert);
 
+    // A change belongs to the group when the process that made it, or any process
+    // in its creator chain at that time, is in the group: the children (any depth)
+    // of a killed ransomware process are reverted with it.
     KIRQL oldIrql;
     KeAcquireSpinLock(&registryBackupsLock, &oldIrql);
-
-    // Find all backups for the given GID and move them to a temporary list
     PLIST_ENTRY current = registryBackups.Flink;
     while (current != &registryBackups) {
-        PREGISTRY_BACKUP_ENTRY backup = (PREGISTRY_BACKUP_ENTRY)CONTAINING_RECORD(current, REGISTRY_BACKUP_ENTRY, list);
         PLIST_ENTRY next = current->Flink;
-        if (backup->Gid == gid) {
+        auto backup = CONTAINING_RECORD(current, REGISTRY_BACKUP_ENTRY, list);
+        BOOLEAN match = inGroup(backup->Pid);
+        for (ULONG i = 0; i < backup->AncestorCount && !match; ++i)
+            match = inGroup(backup->Ancestors[i]);
+        if (match) {
             RemoveEntryList(current);
             registryBackupsSize--;
-            InsertTailList(&toRevert, &backup->list);
+            InsertTailList(&toRevert, current);
         }
         current = next;
     }
-
     KeReleaseSpinLock(&registryBackupsLock, oldIrql);
 
-    // Now process the temporary list without holding the lock
+    // Newest first: when the same value was changed twice, the oldest original is
+    // written last and stays; a deleted key is created again before the keys under
+    // it (RegDeleteTree deletes the children first, so they are older).
     while (!IsListEmpty(&toRevert)) {
-        PLIST_ENTRY entry = RemoveHeadList(&toRevert);
-        PREGISTRY_BACKUP_ENTRY backup = (PREGISTRY_BACKUP_ENTRY)CONTAINING_RECORD(entry, REGISTRY_BACKUP_ENTRY, list);
+        auto backup = CONTAINING_RECORD(RemoveTailList(&toRevert), REGISTRY_BACKUP_ENTRY, list);
 
-        UNICODE_STRING keyPath, valueName;
-        RtlInitUnicodeString(&keyPath, backup->KeyPath);
-        RtlInitUnicodeString(&valueName, backup->ValueName);
-
-        OBJECT_ATTRIBUTES objAttr;
-        InitializeObjectAttributes(&objAttr, &keyPath, OBJ_CASE_INSENSITIVE | OBJ_KERNEL_HANDLE, NULL, NULL);
-
-        HANDLE hKey;
-        NTSTATUS status = ZwOpenKey(&hKey, KEY_SET_VALUE, &objAttr);
-
-        if (NT_SUCCESS(status)) {
-            if (backup->IsDeletion) {
-                // If it was a deletion, we restore the value
-                
-#if IS_DEBUG_IRP
-DbgPrint("!!! Regedit: Reverting DELETION of %wZ\\%wZ\n", &keyPath, &valueName);
-#endif
-
-                ZwSetValueKey(hKey, &valueName, 0, backup->Type, (PVOID)backup->RegistryData, backup->DataSize);
-            }
-            else {
-                // If it was a SetValue, we restore the original value
-                
-#if IS_DEBUG_IRP
-DbgPrint("!!! Regedit: Reverting SET of %wZ\\%wZ\n", &keyPath, &valueName);
-#endif
-
-                ZwSetValueKey(hKey, &valueName, 0, backup->Type, (PVOID)backup->RegistryData, backup->DataSize);
-            }
-            ZwClose(hKey);
+        NTSTATUS status;
+        if (backup->IsKeyDelete) {
+            status = RestoreDeletedKey(backup);
         } else {
-            
-#if IS_DEBUG_IRP
-DbgPrint("!!! Regedit: Failed to open key %wZ for revert. Status: 0x%X\n", &keyPath, status);
-#endif
-
+            OBJECT_ATTRIBUTES objAttr;
+            InitializeObjectAttributes(&objAttr, &backup->KeyPath, OBJ_CASE_INSENSITIVE | OBJ_KERNEL_HANDLE, NULL, NULL);
+            HANDLE hKey = NULL;
+            status = ZwOpenKey(&hKey, KEY_SET_VALUE, &objAttr);
+            if (NT_SUCCESS(status)) {
+                if (backup->ValueExisted)
+                    status = ZwSetValueKey(hKey, &backup->ValueName, 0, backup->Type, backup->Data, backup->DataSize);
+                else
+                    status = ZwDeleteValueKey(hKey, &backup->ValueName);  // created by the process
+                ZwClose(hKey);
+            }
         }
-
-        delete backup;
+#if IS_DEBUG_IRP
+        DbgPrint("!!! Registry revert pid %lu %wZ\\%wZ (%s): 0x%X\n", backup->Pid, &backup->KeyPath,
+                 &backup->ValueName,
+                 backup->IsKeyDelete ? "key" : (backup->ValueExisted ? "restore" : "delete"), status);
+#endif
+        UNREFERENCED_PARAMETER(status);
+        FreeRegistryBackup(backup);
     }
 }

@@ -88,9 +88,6 @@
     <ClCompile Include="..\..\src\kernelinjectlib\injectengine\apcinjector.cpp">
       <Filter>kernelinjectlib\injectengine</Filter>
     </ClCompile>
-    <ClCompile Include="..\..\src\Regedit.cpp">
-      <Filter>owly</Filter>
-    </ClCompile>
     <ClCompile Include="..\..\src\ProcessProtection.cpp">
       <Filter>owly</Filter>
     </ClCompile>
@@ -122,9 +119,6 @@
       <Filter>owly</Filter>
     </ClCompile>
     <ClCompile Include="..\..\src\owly\OwlyFeatureHost.cpp">
-      <Filter>owly</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\src\owly\OwlyGlobals.cpp">
       <Filter>owly</Filter>
     </ClCompile>
   </ItemGroup>
@@ -236,9 +230,6 @@
     </ClInclude>
     <ClInclude Include="..\..\src\kernelinjectlib\injectengine\apcinjector.hpp">
       <Filter>kernelinjectlib\injectengine</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\src\Regedit.h">
-      <Filter>owly</Filter>
     </ClInclude>
     <ClInclude Include="..\..\src\ProcessProtection.h">
       <Filter>owly</Filter>

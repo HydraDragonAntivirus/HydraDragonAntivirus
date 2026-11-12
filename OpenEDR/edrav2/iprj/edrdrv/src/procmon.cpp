@@ -19,6 +19,7 @@
 #include "dllinj.h"
 #include "config.h"
 #include "UserModeHookEngine.h"
+#include "DriverData.h"
 
 namespace cmd {
 namespace procmon {
@@ -1373,6 +1374,12 @@ VOID notifyOnCreateProcess(_Inout_ PEPROCESS pProcess,
 	// Process start
 	if (pCreateInfo != NULL)
 	{
+		// Lineage for the registry revert of a killed process and its children:
+		// the real creator, not the reported (spoofable) parent.
+		if (driverData != nullptr)
+			driverData->RecordProcessCreator((ULONG)(ULONG_PTR)nProcessId,
+				(ULONG)(ULONG_PTR)pCreateInfo->CreatingThreadId.UniqueProcess);
+
 		procmon::Context* pNewProcessCtx = nullptr;
 		procmon::Context* pParentProcessCtx = nullptr;
 		__try

@@ -48,6 +48,18 @@ class DriverData {
     LIST_ENTRY registryBackups;
     KSPIN_LOCK registryBackupsLock;
 
+    /* Process lineage: the creator of each recent process, kept after the
+       process exits (the ransomware parent often exits before it is killed).
+       PidToCreator value: creator PID | (ring slot + 1) << 32; the ring evicts
+       the oldest PID once LINEAGE_CAPACITY processes were recorded. */
+  public:
+    static constexpr ULONG LINEAGE_CAPACITY = 8192;
+  private:
+    HashMap PidToCreator;
+    ULONG lineageRing[LINEAGE_CAPACITY];
+    ULONG lineageNext;
+    KSPIN_LOCK lineageLock;
+
   private:
     // Helper to free a UNICODE_STRING and its buffer
     static VOID FreeCachedUnicodeString(PVOID str);
@@ -128,11 +140,42 @@ class DriverData {
 
     ULONGLONG GidsSize();
 
-    // NEW: Registry backup functions
+    // The callers of the kill / revert messages (owlyshield_predict, HIPS in
+    // libsysmon, the firewall) send `PID | 0x8000000000000000` as the gid: the
+    // GID table is not filled for them. Returns the PID of such a gid.
+    static BOOLEAN PidFromGid(ULONGLONG gid, PULONG processId) {
+        if ((gid & GID_PID_FLAG) == 0)
+            return FALSE;
+        *processId = (ULONG)(gid & 0xFFFFFFFFULL);
+        return *processId != 0;
+    }
+    static constexpr ULONGLONG GID_PID_FLAG = 0x8000000000000000ULL;
+
+    /* Registry backups (regmon.cpp takes them, MESSAGE_REVERT_REGISTRY_CHANGES
+       restores them). At most MAX_REGISTRY_BACKUPS, the oldest dropped first. */
+    static constexpr ULONG MAX_REGISTRY_BACKUPS = 4096;
+    // Case-insensitive hash of key path + value name (backup identity per PID).
+    static ULONGLONG RegistryNameHash(PCUNICODE_STRING keyPath, PCUNICODE_STRING valueName);
+    // One allocation for the entry and copies of the strings / data; nullptr on failure.
+    static PREGISTRY_BACKUP_ENTRY AllocRegistryBackup(
+        PCUNICODE_STRING keyPath, PCUNICODE_STRING valueName, ULONG dataSize);
+    static VOID FreeRegistryBackup(PREGISTRY_BACKUP_ENTRY entry);
+    // Whether this process's original value of this name is already kept.
+    BOOLEAN HasRegistryBackup(ULONG processId, ULONGLONG nameHash);
+    // Takes ownership of the entry (freed when it is a duplicate).
     VOID AddRegistryBackup(PREGISTRY_BACKUP_ENTRY newEntry);
+    // Writes back the values and keys that the processes of this gid and every
+    // process they started (any depth) changed, newest first.
     VOID RevertRegistryChangesForGid(ULONGLONG gid);
     VOID ClearRegistryBackups();
-    VOID ClearGidRegistryBackups(ULONGLONG gid);
+
+    // Process lineage (procmon create notify). The creator is the process that
+    // really created it (CreatingThreadId), not the reported parent, which a
+    // caller can spoof.
+    VOID RecordProcessCreator(ULONG processId, ULONG creatorPid);
+    // Creator chain of a process, nearest first; returns how many were written.
+    ULONG GetProcessAncestors(ULONG processId, PULONG ancestors, ULONG maxCount);
+    VOID ClearProcessLineage();
 
     BOOLEAN setFilterStart() {
         return (FilterRun = TRUE);
@@ -218,6 +261,7 @@ class DriverData {
 
         // clear registry backups
         ClearRegistryBackups();
+        ClearProcessLineage();
 
         // Free quarantine path buffer if allocated
         if (quarantinePath.Buffer != NULL) {

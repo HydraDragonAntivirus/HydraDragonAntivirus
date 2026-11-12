@@ -16,6 +16,7 @@
 #include "procmon.h"
 #include "regmon.h"
 #include "config.h"
+#include "DriverData.h"
 
 namespace cmd {
 namespace regmon {
@@ -1192,6 +1193,230 @@ NTSTATUS writeRegValue(DefaultSerializer& serializer, ULONG eType,
 
 //////////////////////////////////////////////////////////////////////////
 //
+// Registry backup (ransomware rollback)
+//
+//////////////////////////////////////////////////////////////////////////
+
+// Larger values are not kept (the backups live in non-paged pool).
+constexpr ULONG c_nMaxRegBackupDataSize = 16 * 1024;
+
+//
+// Whether changes of the calling process are backed up: user-mode callers only
+// (kernel callers, our own revert included, are not), not System nor our service.
+//
+static bool shouldBackupCaller(ULONG* pnPid)
+{
+	if (driverData == nullptr)
+		return false;
+	if (ExGetPreviousMode() == KernelMode || KeGetCurrentIrql() != PASSIVE_LEVEL)
+		return false;
+	const ULONG nPid = (ULONG)(ULONG_PTR)PsGetCurrentProcessId();
+	if (nPid <= 4 || nPid == driverData->getPID())
+		return false;
+	*pnPid = nPid;
+	return true;
+}
+
+//
+// Stamps the entry with the writer and its creator chain, then hands it over.
+//
+static void addBackup(PREGISTRY_BACKUP_ENTRY pEntry, ULONG nPid)
+{
+	pEntry->Pid = nPid;
+	pEntry->AncestorCount = driverData->GetProcessAncestors(nPid, pEntry->Ancestors,
+		RTL_NUMBER_OF(pEntry->Ancestors));
+	driverData->AddRegistryBackup(pEntry);
+}
+
+// Values of a deleted key kept at most (non-paged pool); the rest is not kept.
+constexpr ULONG c_nMaxKeyBackupSize = 512 * 1024;
+// Marks a key-delete backup apart from the default value of the same key.
+constexpr ULONGLONG c_nKeyDeleteHashSalt = 0x4B455944454C4554ULL;
+
+//
+// Keeps every value of a key before a user-mode process deletes it (a wiper or
+// ransomware removing services, policies, Run keys...), so the revert creates it
+// again. NtDeleteKey only deletes a key without subkeys (RegDeleteTree deletes
+// the leaves first, each one a separate call), so the values are all there is.
+//
+void backupKeyBeforeDelete(PVOID pKeyObject)
+{
+	ULONG nPid = 0;
+	if (pKeyObject == nullptr || !shouldBackupCaller(&nPid))
+		return;
+
+	RegKeyName keyName;
+	if (!NT_SUCCESS(keyName.init(pKeyObject)) || keyName.getValue() == nullptr)
+		return;
+	PCUNICODE_STRING pusKeyPath = keyName.getValue();
+
+	const ULONGLONG nHash = DriverData::RegistryNameHash(pusKeyPath, nullptr) ^ c_nKeyDeleteHashSalt;
+	if (driverData->HasRegistryBackup(nPid, nHash))
+		return;
+
+	HANDLE hKey = nullptr;
+	if (!NT_SUCCESS(ObOpenObjectByPointer(pKeyObject, OBJ_KERNEL_HANDLE, nullptr, KEY_QUERY_VALUE,
+		nullptr, KernelMode, &hKey)))
+		return;
+
+	PUCHAR pBlob = nullptr;
+	PKEY_VALUE_FULL_INFORMATION pInfo = nullptr;
+	ULONG nUsed = 0;
+	do
+	{
+		KEY_FULL_INFORMATION keyInfo = {};
+		ULONG nRet = 0;
+		NTSTATUS eStatus = ZwQueryKey(hKey, KeyFullInformation, &keyInfo, sizeof(keyInfo), &nRet);
+		if (!NT_SUCCESS(eStatus) && eStatus != STATUS_BUFFER_OVERFLOW)
+			break;
+
+		if (keyInfo.Values != 0)
+		{
+			const ULONG nInfoSize = sizeof(KEY_VALUE_FULL_INFORMATION) + keyInfo.MaxValueNameLen +
+				keyInfo.MaxValueDataLen + 2 * sizeof(ULONG);
+			pInfo = (PKEY_VALUE_FULL_INFORMATION)ExAllocatePool2(POOL_FLAG_PAGED, nInfoSize, OWLY_POOL_TAG_REGISTRY_BACKUP);
+			pBlob = (PUCHAR)ExAllocatePool2(POOL_FLAG_PAGED, c_nMaxKeyBackupSize, OWLY_POOL_TAG_REGISTRY_BACKUP);
+			if (pInfo == nullptr || pBlob == nullptr)
+				break;
+
+			for (ULONG i = 0; i < keyInfo.Values; ++i)
+			{
+				if (!NT_SUCCESS(ZwEnumerateValueKey(hKey, i, KeyValueFullInformation, pInfo, nInfoSize, &nRet)))
+					continue;
+				if (pInfo->NameLength > MAXUSHORT)
+					continue;
+				const ULONG nRecSize = sizeof(REGISTRY_KEY_VALUE_RECORD) + pInfo->NameLength + pInfo->DataLength;
+				if (nRecSize > c_nMaxKeyBackupSize - nUsed)
+					continue;  // does not fit: keep the others
+				REGISTRY_KEY_VALUE_RECORD rec = {};
+				rec.NameBytes = (USHORT)pInfo->NameLength;
+				rec.Type = pInfo->Type;
+				rec.DataSize = pInfo->DataLength;
+				RtlCopyMemory(pBlob + nUsed, &rec, sizeof(rec));
+				nUsed += sizeof(rec);
+				RtlCopyMemory(pBlob + nUsed, pInfo->Name, pInfo->NameLength);
+				nUsed += pInfo->NameLength;
+				RtlCopyMemory(pBlob + nUsed, (PUCHAR)pInfo + pInfo->DataOffset, pInfo->DataLength);
+				nUsed += pInfo->DataLength;
+			}
+		}
+
+		// An empty key is kept too: the revert creates it again.
+		PREGISTRY_BACKUP_ENTRY pEntry = DriverData::AllocRegistryBackup(pusKeyPath, nullptr, nUsed);
+		if (pEntry == nullptr)
+			break;
+		pEntry->IsKeyDelete = TRUE;
+		pEntry->ValueExisted = TRUE;
+		pEntry->NameHash = nHash;
+		if (nUsed != 0)
+			RtlCopyMemory(pEntry->Data, pBlob, nUsed);
+		addBackup(pEntry, nPid);
+	} while (false);
+
+	if (pInfo != nullptr)
+		ExFreePoolWithTag(pInfo, OWLY_POOL_TAG_REGISTRY_BACKUP);
+	if (pBlob != nullptr)
+		ExFreePoolWithTag(pBlob, OWLY_POOL_TAG_REGISTRY_BACKUP);
+	ZwClose(hKey);
+}
+
+//
+// Keeps the value as it is now, before a user-mode process sets or deletes it,
+// so DriverData::RevertRegistryChangesForGid can write it back when the process
+// is killed as ransomware. Runs in the pre-operation callback, synchronously:
+// a deferred read (the old Regedit.cpp work item) saw the new value. A value the
+// process creates is kept as "did not exist" and deleted on revert. Only the
+// first change per process and value is kept: that is the original.
+//
+void backupValueBeforeChange(PVOID pKeyObject, PCUNICODE_STRING pusValueName)
+{
+	ULONG nPid = 0;
+	if (pKeyObject == nullptr || !shouldBackupCaller(&nPid))
+		return;
+
+	// The value name can be a caller buffer: copy it under __try.
+	UNICODE_STRING usValueName = {};
+	WCHAR* pValueNameBuf = nullptr;
+	if (pusValueName != nullptr && pusValueName->Length != 0)
+	{
+		const USHORT nLen = pusValueName->Length & ~(USHORT)1;
+		if (nLen > MAXUSHORT - sizeof(WCHAR))
+			return;
+		pValueNameBuf = (WCHAR*)ExAllocatePool2(POOL_FLAG_NON_PAGED, nLen + sizeof(WCHAR), OWLY_POOL_TAG_REGISTRY_BACKUP);
+		if (pValueNameBuf == nullptr)
+			return;
+		__try
+		{
+			RtlCopyMemory(pValueNameBuf, pusValueName->Buffer, nLen);
+		}
+		__except (EXCEPTION_EXECUTE_HANDLER)
+		{
+			ExFreePoolWithTag(pValueNameBuf, OWLY_POOL_TAG_REGISTRY_BACKUP);
+			return;
+		}
+		usValueName.Buffer = pValueNameBuf;
+		usValueName.Length = nLen;
+		usValueName.MaximumLength = nLen + sizeof(WCHAR);
+	}
+
+	do
+	{
+		RegKeyName keyName;
+		if (!NT_SUCCESS(keyName.init(pKeyObject)) || keyName.getValue() == nullptr)
+			break;
+		PCUNICODE_STRING pusKeyPath = keyName.getValue();
+
+		const ULONGLONG nHash = DriverData::RegistryNameHash(pusKeyPath, &usValueName);
+		if (driverData->HasRegistryBackup(nPid, nHash))
+			break;
+
+		HANDLE hKey = nullptr;
+		if (!NT_SUCCESS(ObOpenObjectByPointer(pKeyObject, OBJ_KERNEL_HANDLE, nullptr, KEY_QUERY_VALUE,
+			nullptr, KernelMode, &hKey)))
+			break;
+
+		// Size first, then the value.
+		ULONG nNeeded = 0;
+		NTSTATUS eStatus = ZwQueryValueKey(hKey, &usValueName, KeyValuePartialInformation, nullptr, 0, &nNeeded);
+		PREGISTRY_BACKUP_ENTRY pEntry = nullptr;
+		if (eStatus == STATUS_OBJECT_NAME_NOT_FOUND)
+		{
+			pEntry = DriverData::AllocRegistryBackup(pusKeyPath, &usValueName, 0);
+			if (pEntry != nullptr)
+				pEntry->ValueExisted = FALSE;
+		}
+		else if ((eStatus == STATUS_BUFFER_TOO_SMALL || eStatus == STATUS_BUFFER_OVERFLOW) &&
+			nNeeded <= sizeof(KEY_VALUE_PARTIAL_INFORMATION) + c_nMaxRegBackupDataSize)
+		{
+			auto pInfo = (PKEY_VALUE_PARTIAL_INFORMATION)ExAllocatePool2(POOL_FLAG_PAGED, nNeeded, OWLY_POOL_TAG_REGISTRY_BACKUP);
+			if (pInfo != nullptr)
+			{
+				eStatus = ZwQueryValueKey(hKey, &usValueName, KeyValuePartialInformation, pInfo, nNeeded, &nNeeded);
+				if (NT_SUCCESS(eStatus) && pInfo->DataLength <= c_nMaxRegBackupDataSize)
+				{
+					pEntry = DriverData::AllocRegistryBackup(pusKeyPath, &usValueName, pInfo->DataLength);
+					if (pEntry != nullptr)
+					{
+						pEntry->ValueExisted = TRUE;
+						pEntry->Type = pInfo->Type;
+						RtlCopyMemory(pEntry->Data, pInfo->Data, pInfo->DataLength);
+					}
+				}
+				ExFreePoolWithTag(pInfo, OWLY_POOL_TAG_REGISTRY_BACKUP);
+			}
+		}
+		ZwClose(hKey);
+
+		if (pEntry != nullptr)
+			addBackup(pEntry, nPid);
+	} while (false);
+
+	if (pValueNameBuf != nullptr)
+		ExFreePoolWithTag(pValueNameBuf, OWLY_POOL_TAG_REGISTRY_BACKUP);
+}
+
+//////////////////////////////////////////////////////////////////////////
+//
 // Registry callback
 //
 //////////////////////////////////////////////////////////////////////////
@@ -1275,6 +1500,8 @@ NTSTATUS notifyOnRegistryActions(_In_ PVOID /*pCallbackContext*/,
 			if (!isFullAccessAllowed(pInfo->Object, eNotifyClass))
 				return STATUS_ACCESS_DENIED;
 
+			backupValueBeforeChange(pInfo->Object, pInfo->ValueName);
+
 			pInfo->CallContext = createEventData(eEvent, pInfo->Object, 
 				[pInfo](auto pSerializer)
 				{
@@ -1298,6 +1525,8 @@ NTSTATUS notifyOnRegistryActions(_In_ PVOID /*pCallbackContext*/,
 			if (!isFullAccessAllowed(pInfo->Object, eNotifyClass))
 				return STATUS_ACCESS_DENIED;
 
+			backupKeyBeforeDelete(pInfo->Object);
+
 			pInfo->CallContext = createEventData(eEvent, pInfo->Object);
 
 			return STATUS_SUCCESS;
@@ -1309,6 +1538,8 @@ NTSTATUS notifyOnRegistryActions(_In_ PVOID /*pCallbackContext*/,
 			// Self defense
 			if (!isFullAccessAllowed(pInfo->Object, eNotifyClass))
 				return STATUS_ACCESS_DENIED;
+
+			backupValueBeforeChange(pInfo->Object, pInfo->ValueName);
 			return STATUS_SUCCESS;
 		}
 		case RegNtPreCreateKeyEx:
