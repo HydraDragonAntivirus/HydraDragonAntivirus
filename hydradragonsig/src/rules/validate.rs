@@ -89,7 +89,10 @@ pub const CONDITION_KEYS: &[(&str, &[&str])] = &[
     ]),
     ("bytecode", &["program", "entry_func", "max_ops", "params", "expect_return", "virname_glob", "apis"]),
     ("not_mz", &[]),
-    ("authenticode", &["signed", "subject_glob"]),
+    ("authenticode", &["signed", "subject_glob", "cert_tbs_any", "publisher", "oem_id"]),
+    ("authentihash_any", &["values"]),
+    ("page_hash_any", &["values"]),
+    ("pe_subsystem", &["values"]),
     ("version_info", &["fields", "absent", "file_version_min", "file_version_max", "product_version_min", "product_version_max"]),
     ("resource_match", &["type_glob", "size_min", "size_max", "data_patterns", "min"]),
     ("resource_hash_any", &["values"]),
@@ -828,9 +831,31 @@ fn check_condition(cond: &RuleCondition, rules: &[Rule], own_id: &str, known_ids
         RuleCondition::Authenticode {
             signed,
             subject_glob,
+            cert_tbs_any,
+            publisher,
+            oem_id,
         } => {
-            if signed.is_none() && subject_glob.as_deref().is_none_or(|s| s.trim().is_empty()) {
-                out.push("authenticode needs `signed` or `subject_glob`".into());
+            let blank = |s: &Option<String>| s.as_deref().is_none_or(|s| s.trim().is_empty());
+            if signed.is_none() && blank(subject_glob) && cert_tbs_any.is_empty() && blank(publisher) && blank(oem_id) {
+                out.push("authenticode needs `signed`, `subject_glob`, `cert_tbs_any`, `publisher` or `oem_id`".into());
+            }
+            if *signed == Some(false) && (!cert_tbs_any.is_empty() || !blank(publisher) || !blank(oem_id)) {
+                out.push("`signed: false` with signer keys never matches".into());
+            }
+            for v in cert_tbs_any.iter().filter(|v| ![40, 64, 96].iter().any(|n| hex_len(v.trim(), *n))) {
+                out.push(format!("cert_tbs_any `{v}` must be 40, 64 or 96 hex characters (SHA-1 / SHA-256 / SHA-384)"));
+            }
+        }
+        RuleCondition::AuthentihashAny { values } | RuleCondition::PageHashAny { values } => {
+            list_problems("values", values, None, &mut out);
+            for v in values.iter().filter(|v| !hex_len(v.trim(), 40) && !hex_len(v.trim(), 64)) {
+                out.push(format!("hash `{v}` must be 40 or 64 hex characters (SHA-1 / SHA-256)"));
+            }
+        }
+        RuleCondition::PeSubsystem { values } => {
+            list_problems("values", values, None, &mut out);
+            for v in values.iter().filter(|v| super::engine::pe_subsystem_value(v).is_none()) {
+                out.push(format!("unknown pe_subsystem `{v}`"));
             }
         }
         RuleCondition::VersionInfo {

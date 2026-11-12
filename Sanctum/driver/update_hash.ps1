@@ -56,10 +56,16 @@ if ($hashMatch) {
         
         Write-Host "[*] Building driver with updated hash..." -ForegroundColor Cyan
         cargo make $Profile
-        
+        if ($LASTEXITCODE -ne 0) {
+            Write-Error "Driver build failed (cargo make $Profile exited with $LASTEXITCODE)."
+        }
+
         Write-Host "[*] Signing driver..." -ForegroundColor Cyan
         if (Test-Path "sign.bat") {
             & .\sign.bat $Profile
+            if ($LASTEXITCODE -ne 0) {
+                Write-Error "Driver signing failed (sign.bat exited with $LASTEXITCODE)."
+            }
         } else {
             Write-Error "sign.bat not found in current directory."
         }

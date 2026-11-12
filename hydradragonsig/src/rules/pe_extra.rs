@@ -692,6 +692,370 @@ fn is_name_oid(oid: &[u8]) -> bool {
     matches!(oid, [0x55, 0x04, 0x03] | [0x55, 0x04, 0x0A] | [0x55, 0x04, 0x0B])
 }
 
+// ---------------------------------------------------------------------------
+// Code Integrity identity (authentihash_any, page_hash_any, pe_subsystem and
+// the authenticode cert_tbs_any / publisher / oem_id keys)
+//
+// These are the values Windows Code Integrity (WDAC / App Control for
+// Business) keys its rules on, so the Microsoft vulnerable driver blocklist
+// and any other CI policy can be expressed as rules:
+// * `<Deny Hash=...>` "Hash Sha1/Sha256": the Authenticode image digest.
+// * `<Deny Hash=...>` "Hash Page Sha1/Sha256": the digest of the first 4 KiB
+//   page (headers only), as the first entry of `SpcPageHashes`.
+// * `<Signer>` `<CertRoot Type="TBS">`: digest of a chain certificate's
+//   DER `tbsCertificate`, with the algorithm of that certificate's signature
+//   (40 / 64 / 96 hex = SHA-1 / SHA-256 / SHA-384).
+// * `<CertPublisher>`: CN of the leaf (signing) certificate.
+// * `<CertOemID>`: `SpcSpOpusInfo.programName` of the signer (the OEM name
+//   Microsoft puts into WHCP / attestation signatures).
+// All four were checked byte for byte against `New-CIPolicy -Level Hash`,
+// `FilePublisher` and `WHQLPublisher` output.
+// ---------------------------------------------------------------------------
+
+/// Offsets the Authenticode digests are built from.
+struct PeDigestLayout {
+    checksum: usize,
+    /// IMAGE_DIRECTORY_ENTRY_SECURITY entry; `None` with fewer than 5 directories.
+    security_entry: Option<usize>,
+    size_of_headers: usize,
+    /// End of the image bytes covered by the digest (the attribute certificate
+    /// table and anything after it are left out).
+    image_end: usize,
+    subsystem: u16,
+}
+
+fn rd_u16(b: &[u8], at: usize) -> Option<u16> {
+    Some(u16::from_le_bytes(b.get(at..at.checked_add(2)?)?.try_into().ok()?))
+}
+
+fn rd_u32(b: &[u8], at: usize) -> Option<u32> {
+    Some(u32::from_le_bytes(b.get(at..at.checked_add(4)?)?.try_into().ok()?))
+}
+
+fn pe_digest_layout(bytes: &[u8]) -> Option<PeDigestLayout> {
+    if !bytes.starts_with(b"MZ") {
+        return None;
+    }
+    let e_lfanew = rd_u32(bytes, 0x3C)? as usize;
+    if bytes.get(e_lfanew..e_lfanew.checked_add(4)?)? != b"PE\0\0" {
+        return None;
+    }
+    let oh = e_lfanew + 24;
+    let dir_start = match rd_u16(bytes, oh)? {
+        0x10B => oh + 96,
+        0x20B => oh + 112,
+        _ => return None,
+    };
+    let checksum = oh + 64;
+    let subsystem = rd_u16(bytes, oh + 68)?;
+    let size_of_headers = rd_u32(bytes, oh + 60)? as usize;
+    let dir_count = rd_u32(bytes, dir_start - 4)?;
+    let security_entry = (dir_count > 4 && dir_start + 40 <= bytes.len()).then_some(dir_start + 32);
+    let mut image_end = bytes.len();
+    if let Some(se) = security_entry {
+        let cert_off = rd_u32(bytes, se)? as usize;
+        let cert_size = rd_u32(bytes, se + 4)?;
+        if cert_size != 0 && cert_off >= se + 8 && cert_off <= bytes.len() {
+            image_end = cert_off;
+        }
+    }
+    if checksum + 4 > image_end || security_entry.is_some_and(|se| se + 8 > image_end) {
+        return None;
+    }
+    Some(PeDigestLayout { checksum, security_entry, size_of_headers, image_end, subsystem })
+}
+
+/// Feed `bytes[..end]` without the checksum and the security directory entry.
+fn feed_digest_ranges(bytes: &[u8], l: &PeDigestLayout, end: usize, mut feed: impl FnMut(&[u8])) {
+    feed(&bytes[..l.checksum]);
+    match l.security_entry {
+        Some(se) => {
+            feed(&bytes[l.checksum + 4..se]);
+            feed(&bytes[se + 8..end]);
+        }
+        None => feed(&bytes[l.checksum + 4..end]),
+    }
+}
+
+/// `IMAGE_OPTIONAL_HEADER.Subsystem` (1 = native, the subsystem of kernel drivers).
+pub fn pe_subsystem(bytes: &[u8]) -> Option<u16> {
+    pe_digest_layout(bytes).map(|l| l.subsystem)
+}
+
+/// Authenticode image digests and first-page digests, lowercase hex.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct CiImageHashes {
+    pub authentihash_sha1: String,
+    pub authentihash_sha256: String,
+    /// `None` when the headers do not fit in the first page.
+    pub page_sha1: Option<String>,
+    pub page_sha256: Option<String>,
+}
+
+const CI_PAGE_SIZE: usize = 4096;
+
+pub fn ci_image_hashes(bytes: &[u8]) -> Option<CiImageHashes> {
+    use sha2::{Digest, Sha256};
+    let l = pe_digest_layout(bytes)?;
+    let mut s1 = crate::utils::hash::Sha1::new();
+    let mut s256 = Sha256::new();
+    feed_digest_ranges(bytes, &l, l.image_end, |part| {
+        s1.update(part);
+        s256.update(part);
+    });
+    let mut out = CiImageHashes {
+        authentihash_sha1: hex::encode(s1.finalize()),
+        authentihash_sha256: hex::encode(s256.finalize()),
+        ..Default::default()
+    };
+    let soh = l.size_of_headers;
+    let headers_fit = soh <= CI_PAGE_SIZE
+        && soh <= l.image_end
+        && soh >= l.security_entry.map_or(l.checksum + 4, |se| se + 8);
+    if headers_fit {
+        let mut p1 = crate::utils::hash::Sha1::new();
+        let mut p256 = Sha256::new();
+        let zeros = [0u8; CI_PAGE_SIZE];
+        feed_digest_ranges(bytes, &l, soh, |part| {
+            p1.update(part);
+            p256.update(part);
+        });
+        p1.update(&zeros[..CI_PAGE_SIZE - soh]);
+        p256.update(&zeros[..CI_PAGE_SIZE - soh]);
+        out.page_sha1 = Some(hex::encode(p1.finalize()));
+        out.page_sha256 = Some(hex::encode(p256.finalize()));
+    }
+    Some(out)
+}
+
+/// One Authenticode signature (the primary one or a nested one).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct CiSignature {
+    /// CN of the signing certificate (WDAC `CertPublisher`).
+    pub publisher: Option<String>,
+    /// `SpcSpOpusInfo.programName` (WDAC `CertOemID`).
+    pub oem_id: Option<String>,
+    /// SHA-1, SHA-256 and SHA-384 of the `tbsCertificate` of every certificate
+    /// from the leaf up the chain, as far as the embedded certificates reach
+    /// (lowercase hex). Every embedded certificate when the leaf is not found.
+    pub chain_tbs: Vec<String>,
+}
+
+struct CertView<'a> {
+    tbs: &'a [u8],
+    serial: &'a [u8],
+    issuer: &'a [u8],
+    subject: &'a [u8],
+}
+
+/// DER-encoded OIDs (content bytes).
+const OID_SPC_SP_OPUS_INFO: &[u8] = &[0x2B, 0x06, 0x01, 0x04, 0x01, 0x82, 0x37, 0x02, 0x01, 0x0C];
+const OID_SPC_NESTED_SIGNATURE: &[u8] = &[0x2B, 0x06, 0x01, 0x04, 0x01, 0x82, 0x37, 0x02, 0x04, 0x01];
+
+impl<'a> Der<'a> {
+    /// Like [`Der::tlv`], also returning the whole element (header included).
+    fn tlv_full(&mut self) -> Option<(u8, &'a [u8], &'a [u8])> {
+        let start = self.pos;
+        let (tag, span) = self.tlv()?;
+        Some((tag, &self.data[start..span.end], &self.data[span.start..span.end]))
+    }
+}
+
+fn der_children(content: &[u8]) -> Vec<(u8, &[u8], &[u8])> {
+    let mut walk = Der { data: content, pos: 0 };
+    let mut out = Vec::new();
+    while out.len() < 256 {
+        let Some(item) = walk.tlv_full() else { break };
+        out.push(item);
+    }
+    out
+}
+
+fn parse_cert(cert_content: &[u8]) -> Option<CertView<'_>> {
+    let (tag, tbs_full, tbs) = *der_children(cert_content).first()?;
+    if tag != 0x30 {
+        return None;
+    }
+    let fields = der_children(tbs);
+    let skip = usize::from(fields.first()?.0 == 0xA0); // [0] version
+    // serialNumber, signature, issuer, validity, subject
+    let serial = fields.get(skip)?;
+    let issuer = fields.get(skip + 2)?;
+    let subject = fields.get(skip + 4)?;
+    (serial.0 == 0x02 && issuer.0 == 0x30 && subject.0 == 0x30).then_some(CertView {
+        tbs: tbs_full,
+        serial: serial.2,
+        issuer: issuer.1,
+        subject: subject.1,
+    })
+}
+
+fn decode_der_string(tag: u8, raw: &[u8]) -> Option<String> {
+    let text = match tag {
+        // UTF8String, PrintableString, IA5String, T61String (Latin-1 in practice)
+        0x0C | 0x13 | 0x16 => String::from_utf8_lossy(raw).into_owned(),
+        0x14 => raw.iter().map(|&b| b as char).collect(),
+        // BMPString
+        0x1E => String::from_utf16_lossy(
+            &raw.as_chunks::<2>().0.iter().map(|c| u16::from_be_bytes(*c)).collect::<Vec<_>>(),
+        ),
+        _ => return None,
+    };
+    let text = text.trim_end_matches('\0').trim().to_string();
+    (!text.is_empty()).then_some(text)
+}
+
+/// The commonName of an X.509 Name (whole TLV).
+fn name_common_name(name_full: &[u8]) -> Option<String> {
+    let (_, _, rdns) = *der_children(name_full).first()?;
+    for (_, _, rdn) in der_children(rdns) {
+        for (_, _, attr) in der_children(rdn) {
+            let parts = der_children(attr);
+            if let [(0x06, _, oid), (tag, _, value), ..] = parts[..]
+                && oid == [0x55, 0x04, 0x03]
+            {
+                return decode_der_string(tag, value);
+            }
+        }
+    }
+    None
+}
+
+/// `SpcSpOpusInfo ::= SEQUENCE { programName [0] EXPLICIT SpcString OPTIONAL, ... }`,
+/// `SpcString ::= CHOICE { unicode [0] IMPLICIT BMPString, ascii [1] IMPLICIT IA5String }`.
+fn opus_program_name(attr_values: &[u8]) -> Option<String> {
+    let (_, _, opus) = *der_children(attr_values).first()?;
+    let (tag, _, program) = *der_children(opus).first()?;
+    if tag != 0xA0 {
+        return None;
+    }
+    let (choice, _, raw) = *der_children(program).first()?;
+    match choice {
+        0x80 => decode_der_string(0x1E, raw),
+        0x81 => decode_der_string(0x16, raw),
+        _ => None,
+    }
+}
+
+/// Signatures of one `ContentInfo { signedData }`, nested signatures included.
+fn collect_ci_signatures(content_info: &[u8], depth: usize, out: &mut Vec<CiSignature>) {
+    use sha2::{Digest, Sha256, Sha384};
+    if depth > 3 || out.len() >= 16 {
+        return;
+    }
+    let Some(&(0x30, _, ci)) = der_children(content_info).first() else { return };
+    let ci = der_children(ci);
+    let Some(&(0xA0, _, explicit)) = ci.get(1) else { return };
+    let Some(&(0x30, _, signed_data)) = der_children(explicit).first() else { return };
+    let mut certs = Vec::new();
+    let mut signer_infos: &[u8] = &[];
+    for (tag, _, content) in der_children(signed_data) {
+        match tag {
+            0xA0 => {
+                for (ctag, _, cert) in der_children(content).into_iter().take(64) {
+                    if ctag == 0x30
+                        && let Some(view) = parse_cert(cert)
+                    {
+                        certs.push(view);
+                    }
+                }
+            }
+            0x31 => signer_infos = content,
+            _ => {}
+        }
+    }
+    let tbs_hashes = |c: &CertView<'_>, into: &mut Vec<String>| {
+        into.push(hex::encode(crate::utils::hash::sha1(c.tbs)));
+        into.push(hex::encode(Sha256::digest(c.tbs)));
+        into.push(hex::encode(Sha384::digest(c.tbs)));
+    };
+    for (stag, _, signer) in der_children(signer_infos).into_iter().take(8) {
+        if stag != 0x30 {
+            continue;
+        }
+        let fields = der_children(signer);
+        let mut sig = CiSignature::default();
+        // sid: issuerAndSerialNumber (a subjectKeyIdentifier sid is not matched).
+        let leaf = fields.get(1).filter(|f| f.0 == 0x30).and_then(|sid| {
+            let parts = der_children(sid.2);
+            let (issuer, serial) = (parts.first()?, parts.get(1)?);
+            certs.iter().position(|c| c.issuer == issuer.1 && c.serial == serial.2)
+        });
+        match leaf {
+            Some(mut at) => {
+                sig.publisher = name_common_name(certs[at].subject);
+                let mut seen = vec![at];
+                tbs_hashes(&certs[at], &mut sig.chain_tbs);
+                while seen.len() < 10 {
+                    let cur = &certs[at];
+                    if cur.issuer == cur.subject {
+                        break; // self-signed root
+                    }
+                    let Some(next) = certs
+                        .iter()
+                        .enumerate()
+                        .position(|(i, c)| c.subject == cur.issuer && !seen.contains(&i))
+                    else {
+                        break;
+                    };
+                    at = next;
+                    seen.push(at);
+                    tbs_hashes(&certs[at], &mut sig.chain_tbs);
+                }
+            }
+            None => certs.iter().for_each(|c| tbs_hashes(c, &mut sig.chain_tbs)),
+        }
+        for (ftag, _, content) in &fields {
+            if *ftag != 0xA0 && *ftag != 0xA1 {
+                continue;
+            }
+            for (_, _, attr) in der_children(content) {
+                let parts = der_children(attr);
+                let [(0x06, _, oid), (0x31, _, values), ..] = parts[..] else { continue };
+                if *ftag == 0xA0 && oid == OID_SPC_SP_OPUS_INFO {
+                    sig.oem_id = opus_program_name(values);
+                } else if *ftag == 0xA1 && oid == OID_SPC_NESTED_SIGNATURE {
+                    for (_, nested_full, _) in der_children(values).into_iter().take(8) {
+                        collect_ci_signatures(nested_full, depth + 1, out);
+                    }
+                }
+            }
+        }
+        out.push(sig);
+    }
+}
+
+/// Every Authenticode signature of the PE (the first PKCS#7 attribute
+/// certificate and the signatures nested in it). Empty for an unsigned PE,
+/// `None` for a non-PE.
+pub fn ci_signatures(bytes: &[u8]) -> Option<Vec<CiSignature>> {
+    let l = pe_digest_layout(bytes)?;
+    let mut out = Vec::new();
+    let Some(se) = l.security_entry else { return Some(out) };
+    let (off, size) = (rd_u32(bytes, se)? as usize, rd_u32(bytes, se + 4)? as usize);
+    if size == 0 || off >= bytes.len() {
+        return Some(out);
+    }
+    let end = off.saturating_add(size).min(bytes.len());
+    let mut at = off;
+    for _ in 0..64 {
+        if at + 8 > end {
+            break;
+        }
+        let total = rd_u32(bytes, at)? as usize;
+        let cert_type = rd_u16(bytes, at + 6)?;
+        if total < 8 || at + total > end {
+            break;
+        }
+        if cert_type == 2 {
+            collect_ci_signatures(&bytes[at + 8..at + total], 0, &mut out);
+            break;
+        }
+        at += total.div_ceil(8) * 8;
+    }
+    Some(out)
+}
+
 /// Parse Authenticode signer subjects, `VS_VERSIONINFO`, and resource blobs in a
 /// single pass for static analysis reports (such as VirusKovAlyzer).
 pub fn inspect_pe_extras(

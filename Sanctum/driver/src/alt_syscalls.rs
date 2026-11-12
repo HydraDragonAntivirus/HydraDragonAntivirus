@@ -177,12 +177,20 @@ impl AltSyscalls {
             return;
         }
 
+        // Supported builds:
+        //
         // - Windows 10 2004 - 22H2 (19041 - 19045): legacy `PsRegisterAltSystemCallHandler`. Older Windows 10 builds
         //   are untested (BEOTM only validated 22H2) and have different SSNs, so they are left disabled.
-        // - Windows 11 21H2 - 23H2 (22000 - 26099): unsupported. `PsRegisterAltSystemCallHandler` is still exported and
-        //   still fills its table, but nothing dispatches through it any more, and the provider mechanism there has
-        //   different, unverified layouts (see Xacone/BestEdrOfTheMarket#18).
-        // - Windows 11 24H2+ (>= 26100): syscall provider table.
+        // - Windows 11 21H2 - 23H2 (22000 - 26099): unsupported. Two independent reasons, both verified against
+        //   the actual kernel binaries (22000.194, 22000.3260, 22621.382):
+        //     1. The legacy `PsRegisterAltSystemCallHandler` table is still filled by the exported function, but
+        //        nothing dispatches through it any more (Xacone/BestEdrOfTheMarket#18; author retracted compat
+        //        range after confirming).
+        //     2. The provider mechanism exists from 22000.3xxx onwards, but `PspServiceDescriptorGroupTable` lives
+        //        in the `CFGRO` section on every Win11 build checked. That section is made read-only after boot
+        //        and is SLAT-protected under HVCI/KDP, so writing a row into it bugchecks with 0x50 (same as the
+        //        original crash on 26100.9974). The safe-write guard below would refuse these builds anyway.
+        // - Windows 11 24H2+ (>= 26100): syscall provider table (guarded by the safe-write check).
         let build = kernel_build_number();
         if build >= BUILD_WIN11_24H2 {
             Self::initialise_provider_table(driver);
@@ -190,9 +198,10 @@ impl AltSyscalls {
             Self::initialise_legacy_handler();
         } else {
             println!(
-                "[sanctum] [!] Alt Syscalls are not supported on build {build} (supported: Win10 19041-19045, Win11 26100+).                  On Windows 11 21H2-23H2 the legacy \
-                 PsRegisterAltSystemCallHandler table is no longer dispatched and the provider layout differs from 24H2. \
-                 Disabling Alt Syscalls safely."
+                "[sanctum] [!] Alt Syscalls are not supported on build {build} (supported: Win10 19041-19045, \
+                 Win11 26100+). On Windows 11 21H2-23H2 the legacy PsRegisterAltSystemCallHandler table is no \
+                 longer dispatched (BestEdrOfTheMarket#18) and the provider table lives in the read-only CFGRO \
+                 section (verified on 22000.3260 and 22621.382). Disabling Alt Syscalls safely."
             );
         }
     }

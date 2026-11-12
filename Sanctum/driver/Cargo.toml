@@ -16,10 +16,10 @@ default = []
 nightly = ["wdk/nightly", "wdk-sys/nightly"]
 
 [dependencies]
-wdk = "0.4"
+wdk = "0.5"
 wdk-alloc = "0.4"
 wdk-sys = "0.5"
-wdk-panic = "0.4"
+wdk-panic = "0.5"
 # For local testing of my wdk open-source contributions
 # wdk = { path="../../windows-drivers-rs/crates/wdk", version = "0.3"}
 # wdk-alloc = { path="../../windows-drivers-rs/crates/wdk-alloc", version = "0.3"}
@@ -44,6 +44,6 @@ panic = "abort"
 lto = true
 
 [build-dependencies]
-wdk-build = "0.5"
+wdk-build = "0.6"
 # For local testing of my wdk open-source contributions
 # wdk-build = { path="../../windows-drivers-rs/crates/wdk-build", version = "0.3"}

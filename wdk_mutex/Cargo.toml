@@ -29,7 +29,7 @@ crate-type = ["lib"]
 nightly = ["wdk/nightly", "wdk-sys/nightly"]
 
 [dependencies]
-wdk = "0.4"
+wdk = "0.5"
 wdk-sys = "0.5"
 wdk-alloc = "0.4"
 

@@ -56,6 +56,11 @@ struct ScanView {
     /// (address) and number of decoded strings seen, found once per scan for all
     /// the rules (the malware and phishing rules read the same strings).
     domain_hits: std::cell::RefCell<Vec<(usize, usize, std::rc::Rc<Vec<(String, String)>>)>>,
+    /// Authenticode / first-page digests (`authentihash_any`, `page_hash_any`),
+    /// computed once per scan for all the rules.
+    ci_hashes: std::cell::OnceCell<Option<super::pe_extra::CiImageHashes>>,
+    /// Authenticode signatures (`authenticode` signer keys), parsed once per scan.
+    ci_signatures: std::cell::OnceCell<Option<Vec<super::pe_extra::CiSignature>>>,
 }
 
 /// Categorized host blocklist loaded from external text files: one
@@ -601,7 +606,17 @@ impl ScanView {
             opcode_listings: Default::default(),
             formats: Default::default(),
             domain_hits: Default::default(),
+            ci_hashes: Default::default(),
+            ci_signatures: Default::default(),
         }
+    }
+
+    fn ci_hashes(&self, bytes: &[u8]) -> Option<&super::pe_extra::CiImageHashes> {
+        self.ci_hashes.get_or_init(|| super::pe_extra::ci_image_hashes(bytes)).as_ref()
+    }
+
+    fn ci_signatures(&self, bytes: &[u8]) -> Option<&[super::pe_extra::CiSignature]> {
+        self.ci_signatures.get_or_init(|| super::pe_extra::ci_signatures(bytes)).as_deref()
     }
 
     /// Extracts the printable ASCII / UTF-16LE strings of the file the first time a
@@ -2248,6 +2263,9 @@ fn ensure_condition_data(cond: &RuleCondition, report: &mut ScanReport, view: &m
         | RuleCondition::PeAnchorPattern { .. }
         | RuleCondition::ByteRepeat { .. }
         | RuleCondition::Authenticode { .. }
+        | RuleCondition::AuthentihashAny { .. }
+        | RuleCondition::PageHashAny { .. }
+        | RuleCondition::PeSubsystem { .. }
         | RuleCondition::VersionInfo { .. }
         | RuleCondition::ResourceMatch { .. }
         | RuleCondition::ResourceHashAny { .. }
@@ -3086,6 +3104,9 @@ fn evaluate_condition(
         RuleCondition::Authenticode {
             signed,
             subject_glob,
+            cert_tbs_any,
+            publisher,
+            oem_id,
         } => {
             let pe = report.pe.as_ref()?;
             let auth = super::pe_extra::authenticode(bytes, pe)?;
@@ -3094,6 +3115,7 @@ fn evaluate_condition(
             {
                 return None;
             }
+            let mut why = Vec::new();
             if let Some(glob) = subject_glob.as_deref().filter(|g| !g.is_empty()) {
                 if !auth.has_certificate {
                     return None;
@@ -3102,9 +3124,70 @@ fn evaluate_condition(
                     .subjects
                     .iter()
                     .find(|s| super::glob::glob_match(glob, s))?;
-                return Some(format!("authenticode subject `{hit}` matched `{glob}`"));
+                why.push(format!("authenticode subject `{hit}` matched `{glob}`"));
             }
-            Some(format!("authenticode signed={}", auth.has_certificate))
+            let publisher = publisher.as_deref().map(str::trim).filter(|p| !p.is_empty());
+            let oem_id = oem_id.as_deref().map(str::trim).filter(|p| !p.is_empty());
+            if !cert_tbs_any.is_empty() || publisher.is_some() || oem_id.is_some() {
+                // Every given key must hold on the same signature.
+                let same = |want: Option<&str>, got: &Option<String>| {
+                    want.is_none_or(|w| got.as_deref().is_some_and(|g| g.eq_ignore_ascii_case(w)))
+                };
+                let (sig, tbs) = view.ci_signatures(bytes)?.iter().find_map(|sig| {
+                    if !same(publisher, &sig.publisher) || !same(oem_id, &sig.oem_id) {
+                        return None;
+                    }
+                    if cert_tbs_any.is_empty() {
+                        return Some((sig, None));
+                    }
+                    let hit = cert_tbs_any
+                        .iter()
+                        .map(|v| v.trim())
+                        .find(|v| sig.chain_tbs.iter().any(|t| t.eq_ignore_ascii_case(v)))?;
+                    Some((sig, Some(hit)))
+                })?;
+                let mut parts = Vec::new();
+                if let Some(t) = tbs {
+                    parts.push(format!("cert tbs {}", t.to_ascii_lowercase()));
+                }
+                if let Some(p) = sig.publisher.as_deref().filter(|_| publisher.is_some()) {
+                    parts.push(format!("publisher `{p}`"));
+                }
+                if let Some(o) = sig.oem_id.as_deref().filter(|_| oem_id.is_some()) {
+                    parts.push(format!("oem_id `{o}`"));
+                }
+                why.push(format!("authenticode signer {}", parts.join(", ")));
+            }
+            if why.is_empty() {
+                return Some(format!("authenticode signed={}", auth.has_certificate));
+            }
+            Some(why.join("; "))
+        }
+        RuleCondition::AuthentihashAny { values } => {
+            report.pe.as_ref()?;
+            let h = view.ci_hashes(bytes)?;
+            let hit = values.iter().map(|v| v.trim()).find(|v| {
+                v.eq_ignore_ascii_case(&h.authentihash_sha1) || v.eq_ignore_ascii_case(&h.authentihash_sha256)
+            })?;
+            Some(format!("authentihash matched {}", hit.to_ascii_lowercase()))
+        }
+        RuleCondition::PageHashAny { values } => {
+            report.pe.as_ref()?;
+            let h = view.ci_hashes(bytes)?;
+            let (p1, p256) = (h.page_sha1.as_deref()?, h.page_sha256.as_deref()?);
+            let hit = values
+                .iter()
+                .map(|v| v.trim())
+                .find(|v| v.eq_ignore_ascii_case(p1) || v.eq_ignore_ascii_case(p256))?;
+            Some(format!("first page hash matched {}", hit.to_ascii_lowercase()))
+        }
+        RuleCondition::PeSubsystem { values } => {
+            report.pe.as_ref()?;
+            let got = super::pe_extra::pe_subsystem(bytes)?;
+            values
+                .iter()
+                .any(|v| pe_subsystem_value(v) == Some(got))
+                .then(|| format!("pe subsystem {got}"))
         }
         RuleCondition::VersionInfo {
             fields,
@@ -3521,6 +3604,28 @@ fn evaluate_condition(
         | RuleCondition::PdfKeyword { .. }
         | RuleCondition::PdfStreamMatch { .. } => super::formats::evaluate(cond, report, &view.formats, bytes),
     }
+}
+
+/// `pe_subsystem` value: a name (`native`, `windows_gui`, ...) or a number.
+pub(crate) fn pe_subsystem_value(v: &str) -> Option<u16> {
+    let v = v.trim().to_ascii_lowercase().replace(['-', ' '], "_");
+    Some(match v.as_str() {
+        "unknown" => 0,
+        "native" => 1,
+        "windows_gui" | "gui" => 2,
+        "windows_cui" | "cui" | "console" => 3,
+        "os2_cui" => 5,
+        "posix_cui" => 7,
+        "native_windows" => 8,
+        "windows_ce_gui" => 9,
+        "efi_application" => 10,
+        "efi_boot_service_driver" => 11,
+        "efi_runtime_driver" => 12,
+        "efi_rom" => 13,
+        "xbox" => 14,
+        "windows_boot_application" => 16,
+        n => return n.strip_prefix("0x").map_or_else(|| n.parse().ok(), |h| u16::from_str_radix(h, 16).ok()),
+    })
 }
 
 fn normalize_version_field_key(raw: &str) -> String {

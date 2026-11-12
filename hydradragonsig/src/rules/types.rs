@@ -150,6 +150,9 @@ impl Rule {
                 | RuleCondition::PackedPe
                 | RuleCondition::PeAnchorPattern { .. }
                 | RuleCondition::Authenticode { .. }
+                | RuleCondition::AuthentihashAny { .. }
+                | RuleCondition::PageHashAny { .. }
+                | RuleCondition::PeSubsystem { .. }
                 | RuleCondition::VersionInfo { .. }
                 | RuleCondition::ResourceMatch { .. }
                 | RuleCondition::ResourceHashAny { .. }
@@ -799,12 +802,39 @@ pub enum RuleCondition {
     NotMz,
 
     /// PE Authenticode code-signing check: `signed: true|false` and/or a glob
-    /// over certificate subject CN / O / OU strings.
+    /// over certificate subject CN / O / OU strings, and/or a Code Integrity
+    /// signer: one signature whose chain holds a certificate with a listed
+    /// `tbsCertificate` hash, whose leaf CN is `publisher` and whose OPUS
+    /// program name is `oem_id` (WDAC `CertRoot` / `CertPublisher` / `CertOemID`).
     Authenticode {
         #[serde(default)]
         signed: Option<bool>,
         #[serde(default)]
         subject_glob: Option<String>,
+        #[serde(default)]
+        cert_tbs_any: Vec<String>,
+        #[serde(default)]
+        publisher: Option<String>,
+        #[serde(default)]
+        oem_id: Option<String>,
+    },
+
+    /// The PE's Authenticode image digest (SHA-1 or SHA-256, the WDAC
+    /// "Hash Sha1/Sha256" value) is one of these.
+    AuthentihashAny {
+        values: Vec<String>,
+    },
+
+    /// The digest of the PE's first 4 KiB page (headers, Authenticode style;
+    /// the WDAC "Hash Page Sha1/Sha256" value) is one of these.
+    PageHashAny {
+        values: Vec<String>,
+    },
+
+    /// `IMAGE_OPTIONAL_HEADER.Subsystem` is one of these (`native` for kernel
+    /// drivers, `windows_gui`, `windows_cui`, `efi_application`, ... or a number).
+    PeSubsystem {
+        values: Vec<String>,
     },
 
     /// PE `RT_VERSION` (`VS_VERSIONINFO`) check: `absent: true` when no version
