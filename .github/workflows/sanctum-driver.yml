@@ -72,12 +72,16 @@ jobs:
           $sourceFile = Join-Path $wdkBuildPath "rust-driver-makefile.toml"
           $destFile = "target\rust-driver-makefile.toml"
           if (Test-Path $sourceFile) { Copy-Item $sourceFile $destFile -Force }
+      # Run from Sanctum/driver (not Sanctum/) so rustup picks the driver's
+      # pinned nightly. Starting in Sanctum/ exports RUSTUP_TOOLCHAIN=nightly
+      # (latest) to children; its deeper build-dir layout pushes rust-script's
+      # linker output past MAX_PATH (LNK1104). Matches the publish job.
       - name: Build Driver (Debug)
-        working-directory: Sanctum
-        run: cargo make build-driver
+        working-directory: Sanctum/driver
+        run: cargo make default
       - name: Build Driver (Release)
-        working-directory: Sanctum
-        run: cargo make build-driver-release
+        working-directory: Sanctum/driver
+        run: cargo make release
 
   publish:
     if: github.event_name == 'push' && github.ref == 'refs/heads/development-version' && !startsWith(github.ref_name, 'auto-update-')
