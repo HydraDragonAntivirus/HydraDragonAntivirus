@@ -353,7 +353,12 @@ fn trigger_auto_reboot() {
 fn uninstall_all_sanctum_services(h_sc_mgr: windows::Win32::System::Services::SC_HANDLE) {
     println!("[i] Uninstalling Sanctum & ELAM services...");
 
-    // 1. Unprotect sanctum_ppl_runner PPL protection so it can be stopped and deleted without Access Denied
+    // 1. sanctum_ppl_runner runs as an antimalware PPL: this (unprotected) process
+    //    can neither stop it nor remove its launch protection, so the calls below
+    //    were all denied and the service stayed registered after its exe was
+    //    removed. The runner removes its own protection and stops when the
+    //    uninstall event is set; wait for that, then delete it.
+    request_ppl_runner_self_uninstall(h_sc_mgr);
     let ppl_svc_name = svc_name();
     if let Ok(h_svc) = unsafe {
         windows::Win32::System::Services::OpenServiceW(
@@ -380,9 +385,19 @@ fn uninstall_all_sanctum_services(h_sc_mgr: windows::Win32::System::Services::SC
                 &mut status,
             )
         };
-        let _ = unsafe { windows::Win32::System::Services::DeleteService(h_svc) };
+        let deleted = unsafe { windows::Win32::System::Services::DeleteService(h_svc) };
         let _ = unsafe { windows::Win32::System::Services::CloseServiceHandle(h_svc) };
-        println!("[+] sanctum_ppl_runner service unprotected, stopped and uninstalled.");
+        match deleted {
+            Ok(()) => println!("[+] sanctum_ppl_runner service unprotected, stopped and uninstalled."),
+            Err(e) => {
+                println!("[!] DeleteService(sanctum_ppl_runner) failed: {e}");
+                remove_ppl_runner_service_key();
+            }
+        }
+    } else {
+        // Not openable (protected and its exe already gone, so it cannot run to
+        // unprotect itself): remove the service key directly.
+        remove_ppl_runner_service_key();
     }
 
     // 2. Stop and delete Sanctum kernel driver service
@@ -441,6 +456,64 @@ fn uninstall_all_sanctum_services(h_sc_mgr: windows::Win32::System::Services::SC
         let _ = unsafe { windows::Win32::System::Services::DeleteService(h_svc) };
         let _ = unsafe { windows::Win32::System::Services::CloseServiceHandle(h_svc) };
         println!("[+] elam_installer service uninstalled.");
+    }
+}
+
+/// Set to make sanctum_ppl_runner remove its own launch protection and stop.
+/// Keep in sync with sanctum_ppl_runner (UNINSTALL_EVENT_NAME).
+const PPL_RUNNER_UNINSTALL_EVENT: &str = r"Global\SanctumPplRunnerUninstall";
+
+/// Sets the runner's uninstall event and waits (up to 20 s) for the service to stop.
+fn request_ppl_runner_self_uninstall(h_sc_mgr: windows::Win32::System::Services::SC_HANDLE) {
+    use windows::Win32::Foundation::CloseHandle;
+    use windows::Win32::System::Services::{
+        CloseServiceHandle, OpenServiceW, QueryServiceStatus, SERVICE_QUERY_STATUS,
+        SERVICE_STATUS,
+    };
+    use windows::Win32::System::Threading::{EVENT_MODIFY_STATE, OpenEventW, SetEvent};
+
+    let name = to_wstring(PPL_RUNNER_UNINSTALL_EVENT);
+    match unsafe { OpenEventW(EVENT_MODIFY_STATE, false, PCWSTR(name.as_ptr())) } {
+        Ok(ev) => {
+            let _ = unsafe { SetEvent(ev) };
+            let _ = unsafe { CloseHandle(ev) };
+            println!("[i] Asked sanctum_ppl_runner to unprotect itself and stop.");
+        }
+        Err(e) => {
+            // Not running (or an older runner without the event).
+            println!("[i] sanctum_ppl_runner uninstall event not available: {e}");
+            return;
+        }
+    }
+
+    let svc_name = svc_name();
+    let Ok(h_svc) =
+        (unsafe { OpenServiceW(h_sc_mgr, PCWSTR(svc_name.as_ptr()), SERVICE_QUERY_STATUS) })
+    else {
+        return;
+    };
+    for _ in 0..80 {
+        let mut status = SERVICE_STATUS::default();
+        if unsafe { QueryServiceStatus(h_svc, &mut status) }.is_err()
+            || status.dwCurrentState == SERVICE_STOPPED
+        {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(250));
+    }
+    let _ = unsafe { CloseServiceHandle(h_svc) };
+}
+
+/// Last resort: deletes HKLM\SYSTEM\CurrentControlSet\Services\sanctum_ppl_runner.
+/// The SCM drops the service at the next boot.
+fn remove_ppl_runner_service_key() {
+    use windows::Win32::System::Registry::RegDeleteTreeW;
+    let key = to_wstring("SYSTEM\\CurrentControlSet\\Services\\sanctum_ppl_runner");
+    let r = unsafe { RegDeleteTreeW(HKEY_LOCAL_MACHINE, PCWSTR(key.as_ptr())) };
+    if r == ERROR_SUCCESS {
+        println!("[+] sanctum_ppl_runner service key removed (gone after reboot).");
+    } else {
+        println!("[!] Could not remove the sanctum_ppl_runner service key: {}", r.0);
     }
 }
 

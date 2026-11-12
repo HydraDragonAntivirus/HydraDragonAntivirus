@@ -11,15 +11,25 @@ use logging::{EventID, event_log};
 use tracing::start_threat_intel_trace;
 use windows::{
     Win32::{
-        Foundation::ERROR_SUCCESS,
+        Foundation::{CloseHandle, ERROR_SUCCESS, HLOCAL, LocalFree, WAIT_OBJECT_0},
+        Security::{
+            Authorization::{
+                ConvertStringSecurityDescriptorToSecurityDescriptorW, SDDL_REVISION_1,
+            },
+            PSECURITY_DESCRIPTOR, SECURITY_ATTRIBUTES,
+        },
         System::{
-            EventLog::EVENTLOG_INFORMATION_TYPE,
+            EventLog::{EVENTLOG_ERROR_TYPE, EVENTLOG_INFORMATION_TYPE},
             Services::{
-                RegisterServiceCtrlHandlerW, SERVICE_CONTROL_STOP, SERVICE_RUNNING,
+                ChangeServiceConfig2W, CloseServiceHandle, OpenSCManagerW, OpenServiceW,
+                RegisterServiceCtrlHandlerW, SC_MANAGER_CONNECT, SERVICE_CHANGE_CONFIG,
+                SERVICE_CONFIG_LAUNCH_PROTECTED, SERVICE_CONTROL_STOP,
+                SERVICE_LAUNCH_PROTECTED_INFO, SERVICE_LAUNCH_PROTECTED_NONE, SERVICE_RUNNING,
                 SERVICE_START_PENDING, SERVICE_STATUS, SERVICE_STATUS_CURRENT_STATE,
                 SERVICE_STATUS_HANDLE, SERVICE_STOPPED, SERVICE_TABLE_ENTRYW,
                 SERVICE_WIN32_OWN_PROCESS, SetServiceStatus, StartServiceCtrlDispatcherW,
             },
+            Threading::{CreateEventW, WaitForSingleObject},
         },
     },
     core::{PCWSTR, PWSTR},
@@ -76,6 +86,8 @@ fn run_service(h_status: SERVICE_STATUS_HANDLE) {
             start_threat_intel_trace();
         });
 
+        spawn_uninstall_listener();
+
         // event loop
         while !SERVICE_STOP.load(Ordering::SeqCst) {
             sleep(Duration::from_secs(1));
@@ -83,6 +95,110 @@ fn run_service(h_status: SERVICE_STATUS_HANDLE) {
 
         update_service_status(h_status, SERVICE_STOPPED.0);
     }
+}
+
+/// Set by `elam_installer --uninstall`. The service runs as an antimalware PPL: an
+/// unprotected process (the uninstaller, the MSI) can neither stop it nor remove its
+/// launch protection, so DeleteService failed and the service stayed registered
+/// after its exe was removed. On this event the runner removes its own protection
+/// and stops; the uninstaller then deletes the service. Keep the name in sync with
+/// elam_installer.
+const UNINSTALL_EVENT_NAME: &str = r"Global\SanctumPplRunnerUninstall";
+/// Only SYSTEM and Administrators may open (and so set) the event.
+const UNINSTALL_EVENT_SDDL: &str = "D:P(A;;GA;;;SY)(A;;GA;;;BA)";
+
+fn spawn_uninstall_listener() {
+    std::thread::spawn(|| {
+        let name = to_wide(UNINSTALL_EVENT_NAME);
+        let sddl = to_wide(UNINSTALL_EVENT_SDDL);
+        let mut psd = PSECURITY_DESCRIPTOR::default();
+        if let Err(e) = unsafe {
+            ConvertStringSecurityDescriptorToSecurityDescriptorW(
+                PCWSTR(sddl.as_ptr()),
+                SDDL_REVISION_1,
+                &mut psd,
+                None,
+            )
+        } {
+            event_log(
+                &format!("Uninstall event: security descriptor failed: {e}"),
+                EVENTLOG_ERROR_TYPE,
+                EventID::GeneralError,
+            );
+            return;
+        }
+        let sa = SECURITY_ATTRIBUTES {
+            nLength: size_of::<SECURITY_ATTRIBUTES>() as u32,
+            lpSecurityDescriptor: psd.0,
+            bInheritHandle: false.into(),
+        };
+        let event = unsafe { CreateEventW(Some(&sa), true, false, PCWSTR(name.as_ptr())) };
+        unsafe {
+            let _ = LocalFree(Some(HLOCAL(psd.0)));
+        }
+        let event = match event {
+            Ok(h) => h,
+            Err(e) => {
+                event_log(
+                    &format!("Uninstall event could not be created: {e}"),
+                    EVENTLOG_ERROR_TYPE,
+                    EventID::GeneralError,
+                );
+                return;
+            }
+        };
+
+        while !is_service_stopping() {
+            if unsafe { WaitForSingleObject(event, 1000) } == WAIT_OBJECT_0 {
+                match unprotect_self() {
+                    Ok(()) => event_log(
+                        "Uninstall requested: launch protection removed, stopping.",
+                        EVENTLOG_INFORMATION_TYPE,
+                        EventID::Info,
+                    ),
+                    Err(e) => event_log(
+                        &format!("Uninstall requested: removing launch protection failed: {e}"),
+                        EVENTLOG_ERROR_TYPE,
+                        EventID::GeneralError,
+                    ),
+                }
+                SERVICE_STOP.store(true, Ordering::SeqCst);
+                break;
+            }
+        }
+        unsafe {
+            let _ = CloseHandle(event);
+        }
+    });
+}
+
+/// Sets this service's launch protection to none (allowed from inside the PPL).
+fn unprotect_self() -> windows::core::Result<()> {
+    unsafe {
+        let scm = OpenSCManagerW(PCWSTR::null(), PCWSTR::null(), SC_MANAGER_CONNECT)?;
+        let svc = match OpenServiceW(scm, PCWSTR(svc_name().as_ptr()), SERVICE_CHANGE_CONFIG) {
+            Ok(h) => h,
+            Err(e) => {
+                let _ = CloseServiceHandle(scm);
+                return Err(e);
+            }
+        };
+        let mut info = SERVICE_LAUNCH_PROTECTED_INFO {
+            dwLaunchProtected: SERVICE_LAUNCH_PROTECTED_NONE,
+        };
+        let r = ChangeServiceConfig2W(
+            svc,
+            SERVICE_CONFIG_LAUNCH_PROTECTED,
+            Some(&mut info as *mut _ as *mut _),
+        );
+        let _ = CloseServiceHandle(svc);
+        let _ = CloseServiceHandle(scm);
+        r
+    }
+}
+
+fn to_wide(s: &str) -> Vec<u16> {
+    s.encode_utf16().chain(std::iter::once(0)).collect()
 }
 
 /// Handles service control events (e.g., stop)
