@@ -852,6 +852,26 @@ pub extern "C" fn owlyshield_check_registry(path_ptr: *const u16, path_len: u32)
     unsafe { check_reg(c_path.as_ptr()) }
 }
 
+/// Called by OpenEDR's detection notifier (edrsvc.exe, GetProcAddress) for every
+/// stored detection: the event as UTF-8 JSON, sent to VirusKov as a behavior record
+/// (dashboard "EDR Telemetry"). Returns at once; the upload runs on its own thread.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn owlyshield_stream_detection(data: *const u8, len: u32) -> i32 {
+    if data.is_null() || len == 0 {
+        return OWLY_OK;
+    }
+    let bytes = unsafe { std::slice::from_raw_parts(data, len as usize) };
+    let event: serde_json::Value = match serde_json::from_slice(bytes) {
+        Ok(v) => v,
+        Err(e) => {
+            Logging::warning(&format!("[Owlyshield FFI] detection event is not JSON: {e}"));
+            return OWLY_DESERIALIZE_ERROR;
+        }
+    };
+    crate::edr_feedback::stream_openedr_detection_async(&event);
+    OWLY_OK
+}
+
 /// Ingest a Sigma/Hayabusa JSON scan report and stream all detections to VirusKov cloud.
 #[unsafe(no_mangle)]
 pub extern "C" fn owlyshield_stream_sigma_report(report_json: *const std::os::raw::c_char) {

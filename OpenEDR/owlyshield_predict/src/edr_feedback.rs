@@ -656,6 +656,17 @@ pub fn stream_behavior_telemetry_async(
     payload: BehaviorTelemetryPayload,
     file_bytes: Option<Vec<u8>>,
 ) {
+    stream_behavior_telemetry_inner(payload, file_bytes, true);
+}
+
+/// `prompt_user`: forward the server's verdict to the Pascal HIPS prompt. Off for
+/// records of detections OpenEDR already acted on (killed / quarantined), so the user
+/// is not asked a second time about the same process.
+fn stream_behavior_telemetry_inner(
+    payload: BehaviorTelemetryPayload,
+    file_bytes: Option<Vec<u8>>,
+    prompt_user: bool,
+) {
     let _ = std::thread::Builder::new()
         .name("edr-behavior-telemetry".into())
         .spawn(move || {
@@ -732,7 +743,9 @@ pub fn stream_behavior_telemetry_async(
                 v.eq_ignore_ascii_case("malicious") || v.eq_ignore_ascii_case("suspicious")
             });
 
-            if is_ask || (is_threat_verdict && resp.action.as_deref() != Some("ignore")) {
+            if !prompt_user {
+                // OpenEDR already handled this detection; the record is for the server.
+            } else if is_ask || (is_threat_verdict && resp.action.as_deref() != Some("ignore")) {
                 let req_id = format!("ask_{}_{}", payload.pid, payload.timestamp);
                 let first_ind = payload.indicators.first().cloned().unwrap_or_else(|| "VirusKov Cloud Behavioral Threat".to_string());
                 let verdict_label = format!(
@@ -821,6 +834,154 @@ pub fn stream_behavior_telemetry_async(
                 }
             }
         });
+}
+
+/// The raw detection event goes along in `details` only below this size (an event
+/// carries the whole `processes` chain; the server takes 256 KB per record).
+const MAX_DETECTION_DETAILS_BYTES: usize = 64 * 1024;
+
+/// First non-empty string among `paths` ("process.imageFile.path" style) in `event`.
+fn event_str(event: &serde_json::Value, paths: &[&str]) -> Option<String> {
+    paths.iter().find_map(|p| {
+        let mut v = event;
+        for key in p.split('.') {
+            v = v.get(key)?;
+        }
+        match v {
+            serde_json::Value::String(s) if !s.is_empty() && s != "<undefined>" && s != "null" => Some(s.clone()),
+            serde_json::Value::Number(n) => Some(n.to_string()),
+            _ => None,
+        }
+    })
+}
+
+/// Stream an OpenEDR policy detection (detnotif, e.g. MLE_GODMODE_ACTIVITY) to the
+/// VirusKov behavior endpoint. OpenEDR already killed / quarantined, so the user is
+/// not prompted again.
+pub fn stream_openedr_detection_async(event: &serde_json::Value) {
+    stream_behavior_telemetry_inner(behavior_from_openedr_detection(event), None, false);
+}
+
+/// The behavior record of an OpenEDR detection event (field paths as the ptm
+/// policies write them: process.pid / process.id, process.imageFile.*, cmdLine).
+fn behavior_from_openedr_detection(event: &serde_json::Value) -> BehaviorTelemetryPayload {
+    let detection = event_str(event, &["type", "eventType", "title"]).unwrap_or_else(|| "OpenEDR.Detection".to_string());
+    let pid = event_str(event, &["process.pid", "process.id", "childProcess.pid", "childProcess.id"])
+        .and_then(|s| s.parse::<u32>().ok())
+        .unwrap_or(0);
+    let exe_path = event_str(
+        event,
+        &[
+            "process.imageFile.path",
+            "process.imageFile.rawPath",
+            "process.imageFile.abstractPath",
+            "process.imagePath",
+            "quarantineTarget",
+        ],
+    )
+    .unwrap_or_default();
+    let process_name = exe_path
+        .rsplit(['\\', '/'])
+        .next()
+        .filter(|n| !n.is_empty())
+        .map(str::to_string)
+        .or_else(|| event_str(event, &["process.name"]))
+        .unwrap_or_else(|| "unknown".to_string());
+    let command_line = event_str(event, &["process.cmdLine", "childProcess.cmdLine"]).unwrap_or_default();
+    let sha256 = event_str(event, &["process.imageFile.rawHash", "process.imageFile.hash", "process.imageHash"])
+        .filter(|h| h.len() == 64 && h.chars().all(|c| c.is_ascii_hexdigit()))
+        .map(|h| h.to_ascii_lowercase())
+        .unwrap_or_default();
+
+    let mut indicators = vec![format!("OpenEDR policy: {detection}")];
+    if let Some(base) = event_str(event, &["baseType"]) {
+        indicators.push(format!("baseType: {base}"));
+    }
+    if let Some(target) = event_str(event, &["quarantineTarget"]) {
+        indicators.push(format!("target: {target}"));
+    }
+    let child_cmd = event_str(event, &["childProcess.cmdLine"]);
+
+    let raw_len = serde_json::to_vec(event).map(|b| b.len()).unwrap_or(usize::MAX);
+    let details = if raw_len <= MAX_DETECTION_DETAILS_BYTES {
+        serde_json::json!({ "openedr_event": event, "child_cmdline": child_cmd })
+    } else {
+        serde_json::json!({ "openedr_event_omitted_bytes": raw_len, "child_cmdline": child_cmd })
+    };
+
+    BehaviorTelemetryPayload {
+        machine_id: get_machine_guid(),
+        timestamp: std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs(),
+        pid,
+        gid: 0,
+        process_name,
+        exe_path,
+        command_line,
+        sha256,
+        parent_pid: None,
+        parent_name: None,
+        detection,
+        source: "openedr_detnotif".to_string(),
+        // A policy detection is a verdict, not a score: OpenEDR acted on it.
+        risk_score: 1.0,
+        indicators,
+        ops_summary: None,
+        details,
+    }
+}
+
+#[cfg(test)]
+mod openedr_detection_tests {
+    use super::*;
+
+    #[test]
+    fn godmode_detection_becomes_a_behavior_record() {
+        // Shape of MLE_GODMODE_ACTIVITY as ptm.local.src builds it.
+        let event = serde_json::json!({
+            "type": "MLE_GODMODE_ACTIVITY",
+            "baseType": 1000016,
+            "process": {
+                "id": 4242,
+                "cmdLine": "cmd.exe /c start shell:::{ED7BA470-8E54-465E-825C-99712043E01C}",
+                "imageFile": { "path": "C:\\Windows\\System32\\cmd.exe",
+                               "rawHash": "AB".repeat(32) }
+            },
+            "childProcess": { "cmdLine": "explorer.exe GodMode" },
+            "quarantineTarget": ""
+        });
+        let p = behavior_from_openedr_detection(&event);
+        assert_eq!(p.detection, "MLE_GODMODE_ACTIVITY");
+        assert_eq!(p.pid, 4242);
+        assert_eq!(p.process_name, "cmd.exe");
+        assert_eq!(p.exe_path, "C:\\Windows\\System32\\cmd.exe");
+        assert!(p.command_line.starts_with("cmd.exe /c"));
+        assert_eq!(p.sha256, "ab".repeat(32));
+        assert_eq!(p.source, "openedr_detnotif");
+        assert!(p.risk_score >= 0.75, "server must count it as malicious");
+        assert!(p.indicators.iter().any(|i| i == "baseType: 1000016"));
+        assert!(!p.indicators.iter().any(|i| i.starts_with("target:")), "empty target is skipped");
+        assert_eq!(p.details["child_cmdline"], "explorer.exe GodMode");
+        assert!(p.details.get("openedr_event").is_some());
+    }
+
+    #[test]
+    fn empty_event_still_yields_a_record() {
+        let p = behavior_from_openedr_detection(&serde_json::json!({}));
+        assert_eq!(p.detection, "OpenEDR.Detection");
+        assert_eq!(p.pid, 0);
+        assert_eq!(p.process_name, "unknown");
+    }
+
+    #[test]
+    fn huge_event_is_not_attached() {
+        let big = "x".repeat(MAX_DETECTION_DETAILS_BYTES + 1);
+        let p = behavior_from_openedr_detection(&serde_json::json!({ "type": "T", "processes": [big] }));
+        assert!(p.details.get("openedr_event").is_none());
+        assert!(p.details.get("openedr_event_omitted_bytes").is_some());
+    }
 }
 
 /// Stream Sigma/Hayabusa event log threat detection to VirusKov cloud.

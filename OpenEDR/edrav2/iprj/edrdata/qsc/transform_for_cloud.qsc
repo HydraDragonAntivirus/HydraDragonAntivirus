@@ -117,6 +117,30 @@
 						"item": "registryDeleteTargetRaw",
 						"localPath": "registryDeleteTargetRaw",
 						"default": ""
+					},
+					// The process the policy fired on, as the policy saw it. The
+					// 'processes' chain below is rebuilt from it and comes out empty
+					// when the process is already gone; these keep the source so the
+					// detection notifier and the GUI still know what triggered it.
+					{
+						"item": "sourceProcessPid",
+						"localPath": "process.pid",
+						"default": "<undefined>"
+					},
+					{
+						"item": "sourceProcessId",
+						"localPath": "process.id",
+						"default": "<undefined>"
+					},
+					{
+						"item": "sourceImagePath",
+						"localPath": "process.imageFile.rawPath",
+						"default": "<undefined>"
+					},
+					{
+						"item": "sourceParentPid",
+						"localPath": "process.parent.pid",
+						"default": "<undefined>"
 					}
 				],
 				"args": [

@@ -2274,9 +2274,13 @@ Variant DetectionNotifier::execute(Variant vCommand, Variant vParams){
 					EventEnricher::rollbackRansomBackups(nShieldPid);
 				if (nGid > 0 && nGid != static_cast<uint64_t>(nShieldPid) && nGid != static_cast<uint64_t>(nRootMalwarePid))
 					EventEnricher::rollbackRansomBackups(static_cast<int64_t>(nGid));
-				else
+				else if (sPath.empty())
 				{
-					LOGLVL(Critical, "detnotif: quarantineTarget path is empty! Cannot quarantine anything.");
+					// Neither a quarantine target nor a process to kill/roll back: the
+					// event reached us without process information (see sourceImagePath /
+					// sourceProcessPid in the event for what the policy fired on).
+					LOGLVL(Critical, "detnotif: <" << vEvent.get("type", "<undefined>") << "> carries no quarantine target and no process (gid=" << nGid
+						<< "); nothing was killed or quarantined");
 				}
 			}
 			else
@@ -2297,6 +2301,31 @@ Variant DetectionNotifier::execute(Variant vCommand, Variant vParams){
 		}
 
 		LOGLVL(Detailed, "Detection event <" << vEvent.get("type", "<undefined>") << "> is stored (id <" << m_nLastId << ">)");
+
+		// VirusKov behavior telemetry (dashboard "EDR Telemetry"): owlyshield sends the
+		// detection on its own thread; this call only hands the JSON over.
+		try
+		{
+			HMODULE hOwly = ::GetModuleHandleW(L"owlyshield_ransom.dll");
+			if (!hOwly) hOwly = ::LoadLibraryW(L"owlyshield_ransom.dll");
+			if (hOwly)
+			{
+				typedef int32_t (*StreamDetectionFn)(const uint8_t*, uint32_t);
+				auto fnStream = (StreamDetectionFn)::GetProcAddress(hOwly, "owlyshield_stream_detection");
+				if (fnStream)
+				{
+					std::string sJson = variant::serializeToJson(vEvent, variant::JsonFormat::SingleLine);
+					if (!sJson.empty())
+						fnStream(reinterpret_cast<const uint8_t*>(sJson.data()), static_cast<uint32_t>(sJson.size()));
+				}
+				else
+					LOGLVL(Detailed, "detnotif: owlyshield_ransom.dll has no owlyshield_stream_detection (older build); detection not sent to VirusKov");
+			}
+		}
+		catch (...)
+		{
+			LOGLVL(Detailed, "detnotif: sending the detection to VirusKov failed");
+		}
 		return {};
 	}
 
