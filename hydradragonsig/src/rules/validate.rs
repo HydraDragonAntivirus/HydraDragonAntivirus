@@ -97,7 +97,7 @@ pub const CONDITION_KEYS: &[(&str, &[&str])] = &[
     ("resource_hash_any", &["values"]),
     ("resources_absent", &[]),
     ("registry_key", &["key", "recursive", "value_pattern"]),
-    ("registry_value", &["key", "recursive", "value_regex", "data_regex", "data_hex", "md5", "sha256", "min"]),
+    ("registry_value", &["key", "recursive", "value_regex", "data_regex", "data_not_regex", "data_hex", "md5", "sha256", "min"]),
     ("clsid", &["guids", "inproc_regex"]),
     ("hosts_entry", &["ip", "host"]),
     ("sector_pattern", &["device", "lba", "count", "patterns", "min", "excludes"]),
@@ -937,6 +937,7 @@ fn check_condition(cond: &RuleCondition, rules: &[Rule], own_id: &str, known_ids
             key,
             value_regex,
             data_regex,
+            data_not_regex,
             md5,
             sha256,
             ..
@@ -948,6 +949,9 @@ fn check_condition(cond: &RuleCondition, rules: &[Rule], own_id: &str, known_ids
                 out.extend(regex_problem(p));
             }
             if let Some(p) = data_regex {
+                out.extend(regex_problem(p));
+            }
+            if let Some(p) = data_not_regex {
                 out.extend(regex_problem(p));
             }
             if let Some(m) = md5
@@ -1388,7 +1392,7 @@ mod tests {
             "emulated_arg_regex" => "        api: x\n        pattern: x\n",
             "emulated_sequence" => "        steps: [{api: x}]\n",
             "emulated_count_gte" => "        api: x\n        min: 1\n",
-            "dotnet_guid_any" | "macho_uuid_any" | "elf_build_id_any" => "        values: [x]\n",
+            "dotnet_guid_any" | "macho_uuid_any" | "elf_build_id_any" | "pe_subsystem" => "        values: [x]\n",
             "dotnet_type_regex" | "dotnet_method_regex" | "dotnet_user_string_regex" | "elf_import_regex" | "macho_sym_regex" => {
                 "        pattern: x\n"
             }

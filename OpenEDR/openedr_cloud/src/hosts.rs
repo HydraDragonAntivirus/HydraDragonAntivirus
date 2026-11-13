@@ -50,14 +50,14 @@ pub struct HostsRestoreReport {
 }
 
 pub fn get_default_hosts_path() -> PathBuf {
-    #[cfg(target_os = "windows")]
+    #[cfg(windows)]
     {
         if let Ok(sysroot) = std::env::var("SystemRoot") {
             return PathBuf::from(sysroot).join(r"System32\drivers\etc\hosts");
         }
         PathBuf::from(r"C:\Windows\System32\drivers\etc\hosts")
     }
-    #[cfg(not(target_os = "windows"))]
+    #[cfg(not(windows))]
     {
         PathBuf::from("/etc/hosts")
     }
@@ -104,6 +104,7 @@ pub fn check_hosts_file(custom_path: Option<&Path>) -> HostsCheckReport {
             continue;
         }
 
+        // Remove inline comments
         let line_no_comment = if let Some(idx) = trimmed.find('#') {
             trimmed[..idx].trim()
         } else {
@@ -124,6 +125,7 @@ pub fn check_hosts_file(custom_path: Option<&Path>) -> HostsCheckReport {
                 continue;
             }
 
+            // Standard default localhost mapping is not considered a modification
             if (domain == "localhost" || domain == "localhost.localdomain") && is_loopback {
                 continue;
             }
@@ -149,6 +151,7 @@ pub fn check_hosts_file(custom_path: Option<&Path>) -> HostsCheckReport {
 }
 
 /// Restore the hosts file back to the clean default Microsoft Windows template.
+/// Optionally creates a timestamped backup before replacing.
 pub fn restore_hosts_file(custom_path: Option<&Path>, create_backup: bool) -> HostsRestoreReport {
     let path = custom_path
         .map(|p| p.to_path_buf())
@@ -168,6 +171,7 @@ pub fn restore_hosts_file(custom_path: Option<&Path>, create_backup: bool) -> Ho
         }
     }
 
+    // Ensure write permissions
     if path.exists() {
         if let Ok(metadata) = std::fs::metadata(&path) {
             let mut perms = metadata.permissions();
@@ -179,7 +183,8 @@ pub fn restore_hosts_file(custom_path: Option<&Path>, create_backup: bool) -> Ho
 
     match std::fs::write(&path, DEFAULT_WINDOWS_HOSTS_TEMPLATE) {
         Ok(_) => {
-            #[cfg(target_os = "windows")]
+            // Flush DNS cache on Windows
+            #[cfg(windows)]
             {
                 use std::os::windows::process::CommandExt;
                 let _ = std::process::Command::new("ipconfig")

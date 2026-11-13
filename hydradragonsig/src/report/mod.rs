@@ -127,5 +127,6 @@ pub fn build_report(ctx: ScanContext) -> ScanReport {
         elf: None,
         macho: None,
         pdf: None,
+        registry_event: None,
     }
 }

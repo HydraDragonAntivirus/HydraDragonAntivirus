@@ -1734,20 +1734,25 @@
 			"*\\repair\\sam*"
 		],
 		//
-		// PUM (Potentially Unwanted Modification) — ported from the
-		// hydradragonsig pum_registry_rules.yaml that hydradragonav (now
-		// deprecated) scanned on demand. Here they fire live on the write,
-		// the FLS cloud / company whitelist decides trust, and the driver
-		// registry journal reverts the write (registryRevert).
+		// PUM (Potentially Unwanted Modification) candidate gate. The actual
+		// rule content (which value names, which values are safe) now lives
+		// in the cloud ONLY - pum_registry_rules.yaml on multron_server,
+		// matched by StaticEngine::check_registry_content - so it updates
+		// without a client redeploy. This policy only narrows which writes
+		// are even worth asking the cloud about: PUM-relevant key subtrees,
+		// written by an untrusted process. detectionnotifier.cpp calls
+		// openedr_cloud (via owlyshield_ransom.dll's
+		// owlyshield_check_registry_content export) with the key, value name
+		// and data, and reverts the write only on that cloud verdict.
 		//
 		"pumEventBaseType": {
-			"MLE_PUM_REGISTRY_MODIFICATION": 1000037
+			"MLE_PUM_REGISTRY_CANDIDATE": 1000037
 		},
-		// The keys hydradragonav scanned for PUMs (PUM_PATHS_HKLM/HKCU), plus
-		// the policy twins and the System Restore / firewall / Security
-		// Center keys the old rules named by value only. abstractPath and
-		// rawPath are the key; the value name is @event.registry.name.
-		"pumPolicyRegKeys": [
+		// Every key subtree hydradragonav's PUM_PATHS_HKLM/HKCU and the
+		// pum_registry_rules.yaml rules ever named. Broad on purpose: a false
+		// "candidate" only costs one cloud round trip, never a revert, since
+		// the cloud decides is_pum.
+		"pumCandidateRegKeys": [
 			"*\\software\\microsoft\\windows\\currentversion\\policies\\system",
 			"*\\software\\microsoft\\windows\\currentversion\\policies\\explorer",
 			"*\\software\\microsoft\\windows\\currentversion\\policies\\activedesktop",
@@ -1762,96 +1767,11 @@
 			"*\\software\\microsoft\\windows nt\\currentversion\\winlogon",
 			"*\\software\\policies\\microsoft\\windowsfirewall\\*",
 			"*\\system\\*controlset*\\services\\sharedaccess\\parameters\\firewallpolicy\\*",
-			"*\\system\\*controlset*\\control\\lsa"
-		],
-		// Value is PUM unless it is 0 (feature restrictions / protections off).
-		"pumValuesSafeZero": [
-			"disabletaskmgr",
-			"disableregistrytools",
-			"disablecmd",
-			"disablelockworkstation",
-			"disablechangepassword",
-			"disablecad",
-			"nologonui",
-			"nodispbackgroundpage",
-			"nodispappearancepage",
-			"nodispcpl",
-			"nodispscrsavpage",
-			"nofolderoptions",
-			"nocontrolpanel",
-			"noviewondrive",
-			"norun",
-			"nofind",
-			"nodesktop",
-			"notraycontextmenu",
-			"nosettaskbar",
-			"noclose",
-			"nopublishingwizard",
-			"nochangingwallpaper",
-			"hidescahealth",
-			"nowindowsupdate",
-			"disablewindowsupdateaccess",
-			"disablesr",
-			"disableconfig",
-			"disableantispyware",
-			"disablerealtimemonitoring",
-			"autoadminlogon"
-		],
-		"pumSafeZero": [ "0" ],
-		// Value is PUM unless it is 1 (protections that must stay on).
-		"pumValuesSafeOne": [
-			"enablelua",
-			"enablefirewall",
-			"enableinstallerdetection",
-			"limitblankpassworduse"
-		],
-		"pumSafeOne": [ "1" ],
-		// Value is PUM only when weakened to 0: higher values are the default
-		// or stricter (UAC admin prompt, autorun drive mask, LSA protection).
-		"pumValuesBadZero": [
-			"consentpromptbehavioradmin",
-			"nodrivetypeautorun",
-			"runasppl"
-		],
-		"pumBadZero": [ "0" ],
-		// Defender Tamper Protection: 5 / 1 on, anything else off.
-		"pumValuesTamper": [ "tamperprotection" ],
-		"pumSafeTamper": [ "1", "5" ],
-		// Forced strings: any non-empty value is PUM.
-		"pumValuesForcedString": [
-			"wallpaper",
-			"scrnsave.exe",
-			"legalnoticecaption",
-			"legalnoticetext"
-		],
-		// Hijacked system paths, with the stock value each must keep.
-		"pumHijackRegKeys": [
-			"*\\software\\microsoft\\windows nt\\currentversion\\winlogon",
+			"*\\system\\*controlset*\\control\\lsa",
 			"*\\system\\*controlset*\\services\\wscsvc\\parameters",
-			"*\\system\\*controlset*\\services\\tcpip\\parameters"
-		],
-		"pumValuesHijack": [
-			"shell",
-			"userinit",
-			"servicedll",
-			"databasepath"
-		],
-		"pumSafeHijack": [
-			"explorer.exe",
-			"*\\system32\\userinit.exe",
-			"*\\system32\\userinit.exe,",
-			"*\\system32\\wscsvc.dll",
-			"*\\system32\\drivers\\etc"
-		],
-		// Debugger / silent-exit hijacks: any value set is PUM.
-		"pumDebuggerRegKeys": [
+			"*\\system\\*controlset*\\services\\tcpip\\parameters",
 			"*\\image file execution options\\*",
 			"*\\currentversion\\silentprocessexit\\*"
-		],
-		"pumValuesDebugger": [
-			"debugger",
-			"reportingmode",
-			"monitorprocess"
 		],
 		// Scripted registry writers: System32 binaries that apply a PUM for
 		// whoever launched them. The detection notifier's ancestor trace and
@@ -6391,11 +6311,11 @@
 		// the driver to restore the journaled original value for the writer's
 		// GID, after the FLS cloud / company whitelist trust check.
 		//
-		"PUM_REGISTRY_MODIFICATION": [
+		"PUM_REGISTRY_CANDIDATE": [
 			{
 				"eventType": "LLE_REGISTRY_VALUE_SET",
 				"rule": {
-					"name": "PumRegistryValueSet",
+					"name": "PumRegistryValueSetCandidate",
 					"condition": {
 						"$operation": "and",
 						"args": [
@@ -6403,208 +6323,14 @@
 								"$operation": "or",
 								"args": [
 									{
-										"$operation": "and",
-										"args": [
-											{
-												"$operation": "or",
-												"args": [
-													{
-														"$operation": "imatch",
-														"pattern": "@const.pumPolicyRegKeys",
-														"args": [ "@event.registry.abstractPath" ]
-													},
-													{
-														"$operation": "imatch",
-														"pattern": "@const.pumPolicyRegKeys",
-														"args": [ "@event.registry.rawPath" ]
-													}
-												]
-											},
-											{
-												"$operation": "imatch",
-												"pattern": "@const.pumValuesSafeZero",
-												"args": [ "@event.registry.name" ]
-											},
-											{
-												"$operation": "!imatch",
-												"pattern": "@const.pumSafeZero",
-												"args": [ "@event.registry.data" ]
-											}
-										]
+										"$operation": "imatch",
+										"pattern": "@const.pumCandidateRegKeys",
+										"args": [ "@event.registry.abstractPath" ]
 									},
 									{
-										"$operation": "and",
-										"args": [
-											{
-												"$operation": "or",
-												"args": [
-													{
-														"$operation": "imatch",
-														"pattern": "@const.pumPolicyRegKeys",
-														"args": [ "@event.registry.abstractPath" ]
-													},
-													{
-														"$operation": "imatch",
-														"pattern": "@const.pumPolicyRegKeys",
-														"args": [ "@event.registry.rawPath" ]
-													}
-												]
-											},
-											{
-												"$operation": "imatch",
-												"pattern": "@const.pumValuesSafeOne",
-												"args": [ "@event.registry.name" ]
-											},
-											{
-												"$operation": "!imatch",
-												"pattern": "@const.pumSafeOne",
-												"args": [ "@event.registry.data" ]
-											}
-										]
-									},
-									{
-										"$operation": "and",
-										"args": [
-											{
-												"$operation": "or",
-												"args": [
-													{
-														"$operation": "imatch",
-														"pattern": "@const.pumPolicyRegKeys",
-														"args": [ "@event.registry.abstractPath" ]
-													},
-													{
-														"$operation": "imatch",
-														"pattern": "@const.pumPolicyRegKeys",
-														"args": [ "@event.registry.rawPath" ]
-													}
-												]
-											},
-											{
-												"$operation": "imatch",
-												"pattern": "@const.pumValuesBadZero",
-												"args": [ "@event.registry.name" ]
-											},
-											{
-												"$operation": "imatch",
-												"pattern": "@const.pumBadZero",
-												"args": [ "@event.registry.data" ]
-											}
-										]
-									},
-									{
-										"$operation": "and",
-										"args": [
-											{
-												"$operation": "or",
-												"args": [
-													{
-														"$operation": "imatch",
-														"pattern": "@const.pumPolicyRegKeys",
-														"args": [ "@event.registry.abstractPath" ]
-													},
-													{
-														"$operation": "imatch",
-														"pattern": "@const.pumPolicyRegKeys",
-														"args": [ "@event.registry.rawPath" ]
-													}
-												]
-											},
-											{
-												"$operation": "imatch",
-												"pattern": "@const.pumValuesTamper",
-												"args": [ "@event.registry.name" ]
-											},
-											{
-												"$operation": "!imatch",
-												"pattern": "@const.pumSafeTamper",
-												"args": [ "@event.registry.data" ]
-											}
-										]
-									},
-									{
-										"$operation": "and",
-										"args": [
-											{
-												"$operation": "or",
-												"args": [
-													{
-														"$operation": "imatch",
-														"pattern": "@const.pumPolicyRegKeys",
-														"args": [ "@event.registry.abstractPath" ]
-													},
-													{
-														"$operation": "imatch",
-														"pattern": "@const.pumPolicyRegKeys",
-														"args": [ "@event.registry.rawPath" ]
-													}
-												]
-											},
-											{
-												"$operation": "imatch",
-												"pattern": "@const.pumValuesForcedString",
-												"args": [ "@event.registry.name" ]
-											},
-											{
-												"$operation": "!equal",
-												"args": [ "@event.registry.data", "" ]
-											}
-										]
-									},
-									{
-										"$operation": "and",
-										"args": [
-											{
-												"$operation": "or",
-												"args": [
-													{
-														"$operation": "imatch",
-														"pattern": "@const.pumHijackRegKeys",
-														"args": [ "@event.registry.abstractPath" ]
-													},
-													{
-														"$operation": "imatch",
-														"pattern": "@const.pumHijackRegKeys",
-														"args": [ "@event.registry.rawPath" ]
-													}
-												]
-											},
-											{
-												"$operation": "imatch",
-												"pattern": "@const.pumValuesHijack",
-												"args": [ "@event.registry.name" ]
-											},
-											{
-												"$operation": "!imatch",
-												"pattern": "@const.pumSafeHijack",
-												"args": [ "@event.registry.data" ]
-											}
-										]
-									},
-									{
-										"$operation": "and",
-										"args": [
-											{
-												"$operation": "or",
-												"args": [
-													{
-														"$operation": "imatch",
-														"pattern": "@const.pumDebuggerRegKeys",
-														"args": [ "@event.registry.abstractPath" ]
-													},
-													{
-														"$operation": "imatch",
-														"pattern": "@const.pumDebuggerRegKeys",
-														"args": [ "@event.registry.rawPath" ]
-													}
-												]
-											},
-											{
-												"$operation": "imatch",
-												"pattern": "@const.pumValuesDebugger",
-												"args": [ "@event.registry.name" ]
-											}
-										]
+										"$operation": "imatch",
+										"pattern": "@const.pumCandidateRegKeys",
+										"args": [ "@event.registry.rawPath" ]
 									}
 								]
 							},
@@ -6631,31 +6357,26 @@
 						]
 					},
 					"createEvent": {
-						"eventType": "MLE_PUM_REGISTRY_MODIFICATION",
+						"eventType": "MLE_PUM_REGISTRY_CANDIDATE",
 						"destination": "OUT",
 						"clone": false,
 						"data": [
-							{ "name": "baseType", "value": "@const.pumEventBaseType.MLE_PUM_REGISTRY_MODIFICATION" },
-							{ "name": "threatName", "value": "PUM.Optional.RegistryModification" },
-							{ "name": "threatType", "value": "PUM" },
-							{ "name": "verdict", "value": 2 },
-							{ "name": "flsVerdict", "value": 2 },
+							{ "name": "baseType", "value": "@const.pumEventBaseType.MLE_PUM_REGISTRY_CANDIDATE" },
+							{ "name": "threatType", "value": "PUM_CANDIDATE" },
 							{ "name": "process", "value": "@event.process" },
 							{ "name": "processes", "value": "@event.processes" },
 							{ "name": "time", "value": "@event.time" },
 							{ "name": "tickTime", "value": "@event.tickTime" },
 							{ "name": "registry", "value": "@event.registry" },
+							{ "name": "pumKeyPath", "value": "@event.registry.abstractPath" },
 							{ "name": "pumValueName", "value": "@event.registry.name" },
 							{ "name": "pumValueData", "value": "@event.registry.data" },
-							{ "name": "registryRevert", "value": true },
-							{ "name": "quarantineTarget", "value": "@event.process.imageFile.abstractPath" },
-							{ "name": "should_trust_company_whitelist", "value": true },
-							{ "name": "should_trust_comodo_fls_cloud", "value": true }
+							{ "name": "quarantineTarget", "value": "@event.process.imageFile.abstractPath" }
 						]
 					}
 				}
 			}
-		], // PUM_REGISTRY_MODIFICATION
+		], // PUM_REGISTRY_CANDIDATE
 		//
 		// Security software tampering: untrusted process opens or writes the
 		// memory of AV / self-defense processes (kill or injection attempts

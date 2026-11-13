@@ -92,6 +92,13 @@ struct ClientMessage {
     pub status: String,
     #[serde(default)]
     pub path: String,
+    /// `check_registry_content`: the value name under `path` (the key).
+    #[serde(default)]
+    pub value_name: String,
+    /// `check_registry_content`: the value's data, as the EDR client
+    /// stringified it (REG_SZ as-is, REG_DWORD/QWORD as decimal text).
+    #[serde(default)]
+    pub value_data: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -1360,6 +1367,28 @@ async fn session_loop(
                     Ok(report) => {
                         let res_msg = serde_json::json!({
                             "type": "registry_result",
+                            "id": msg.id,
+                            "result": report,
+                        });
+                        send_json(out, &res_msg);
+                    }
+                    Err(err) => send_error(out, Some(msg.id), &err),
+                }
+            }
+            "check_registry_content" => {
+                if server.maintenance() {
+                    send_error(out, Some(msg.id), server.maintenance_message());
+                    continue;
+                }
+                let path = if !msg.path.is_empty() {
+                    msg.path
+                } else {
+                    msg.name
+                };
+                match server.engine.check_registry_content(&path, &msg.value_name, &msg.value_data) {
+                    Ok(report) => {
+                        let res_msg = serde_json::json!({
+                            "type": "registry_content_result",
                             "id": msg.id,
                             "result": report,
                         });

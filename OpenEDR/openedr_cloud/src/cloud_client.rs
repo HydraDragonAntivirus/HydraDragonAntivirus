@@ -827,6 +827,92 @@ pub fn check_registry(reg_path: &str) -> String {
     }
 }
 
+/// Queries the cloud WebSocket for a PUM (Potentially Unwanted Modification)
+/// verdict on one registry write: key path, value name and its data, judged
+/// server-side by the hydradragonsig `registry_value` rules of
+/// `pum_registry_rules.yaml` (`StaticEngine::check_registry_content`).
+pub fn check_registry_content(key_path: &str, value_name: &str, value_data: &str) -> String {
+    let res = with_client(|session| {
+        let req_id = session.next_request_id();
+
+        let socket = match session.ensure_connected() {
+            Ok(s) => s,
+            Err(e) => return Err(e),
+        };
+
+        let req = serde_json::json!({
+            "type": "check_registry_content",
+            "id": req_id,
+            "path": key_path,
+            "value_name": value_name,
+            "value_data": value_data
+        });
+
+        if let Err(e) = socket.send(Message::Text(req.to_string().into())) {
+            session.drop_connection();
+            return Err(format!("Socket write error: {}", e));
+        }
+
+        let start = Instant::now();
+        loop {
+            if start.elapsed() > Duration::from_secs(8) {
+                session.abandon_request();
+                return Err("Cloud registry content query timed out".to_string());
+            }
+
+            let msg = match socket.read() {
+                Ok(m) => m,
+                Err(e) => {
+                    session.drop_connection();
+                    return Err(format!("Socket read error: {}", e));
+                }
+            };
+
+            match msg {
+                Message::Text(txt) => {
+                    let val: serde_json::Value = match serde_json::from_str(&txt) {
+                        Ok(v) => v,
+                        Err(_) => continue,
+                    };
+
+                    let msg_id = val.get("id").and_then(|x| x.as_i64()).unwrap_or(0);
+                    let msg_type = val.get("type").and_then(|x| x.as_str()).unwrap_or("");
+
+                    if msg_id == req_id && msg_type == "registry_content_result" {
+                        let res_obj = val.get("result").unwrap_or(&val);
+                        return Ok(res_obj.to_string());
+                    } else if msg_id == req_id && msg_type == "error" {
+                        let err_msg = val.get("message").and_then(|m| m.as_str()).unwrap_or("cloud error");
+                        return Err(err_msg.to_string());
+                    }
+                }
+                Message::Ping(p) => {
+                    let _ = socket.send(Message::Pong(p));
+                }
+                _ => {}
+            }
+        }
+    });
+
+    match res {
+        Ok(json_str) => json_str,
+        Err(e) => {
+            // Fail CLOSED on cloud unavailability only in the sense that the
+            // caller sees is_pum=false and must not revert a value it cannot
+            // confirm: a network blip must never cause a spurious revert.
+            serde_json::json!({
+                "key_path": key_path,
+                "value_name": value_name,
+                "is_pum": false,
+                "matched_rules": [],
+                "threat_name": null,
+                "error": e
+            })
+            .to_string()
+        }
+    }
+}
+
 /// Retrieves configured malicious/PUA registry target patterns from cloud WebSocket.
 pub fn get_registry_targets() -> String {
     let res = with_client(|session| {

@@ -13,7 +13,8 @@ use crate::ml::scanner::MlScanner;
 use crate::pe_strings;
 use crate::ptm_registry::PuaRegistryMatcher;
 use crate::report::{
-    DetectionItem, ExtractedObject, MemoryScanReport, RegistryCheckReport, ScanObject, SignerDetails, StaticScanReport,
+    DetectionItem, ExtractedObject, MemoryScanReport, RegistryCheckReport, RegistryContentCheckReport, ScanObject,
+    SignerDetails, StaticScanReport,
 };
 use crate::signers::{verify_authenticode, BinaryFuse32Filter, SignerDb};
 use crate::string_rules::PeStringRules;
@@ -195,6 +196,11 @@ pub struct StaticEngine {
     hayabusa_dir: PathBuf,
     hayabusa: std::sync::OnceLock<HayabusaScanner>,
     string_rules: PeStringRules,
+    /// PUM (Potentially Unwanted Modification) rules
+    /// (`pum_registry_rules.yaml`), evaluated only against one reported
+    /// registry write via `check_registry_content` - see the loader's comment
+    /// for why this is not `string_rules`.
+    registry_content_rules: PeStringRules,
     /// Tranco 1M domain/IP whitelist (`.xf`). Gates the embedded-URL layer so a
     /// benign link sitting inside a document never becomes a finding.
     url_whitelist: Option<BinaryFuse32Filter>,
@@ -334,6 +340,14 @@ impl StaticEngine {
         // startup down.
         let t_scope = std::time::Instant::now();
         let mut string_rules = PeStringRules::default();
+        // PUM (Potentially Unwanted Modification) rules
+        // (`pum_registry_rules.yaml`, hydradragonsig `registry_value`
+        // conditions). Deliberately their OWN PeStringRules store, never merged
+        // into `string_rules`: every file scan evaluates `string_rules`, and a
+        // `registry_value` condition there would query this machine's hive once
+        // per file and flag every file while a PUM is present. This store is
+        // evaluated only against one reported write (`check_registry_content`).
+        let mut registry_content_rules = PeStringRules::default();
         // URL threat rules load on this thread: the document is ~7 KB of YAML,
         // so there is nothing to parallelise, and it has to be finished before
         // the engine is handed out.
@@ -452,8 +466,29 @@ impl StaticEngine {
                                 let is_disinfect = p.file_name().is_some_and(|n| {
                                     n.to_string_lossy().eq_ignore_ascii_case(hydradragonunicorn::DISINFECT_RULES_FILE)
                                 });
+                                // PUM registry-content rules go to their own store (see
+                                // `registry_content_rules` above), never into `string_rules`.
+                                let is_pum_registry = p.file_name().is_some_and(|n| {
+                                    n.to_string_lossy().eq_ignore_ascii_case("pum_registry_rules.yaml")
+                                });
+                                if p.is_file()
+                                    && is_pum_registry
+                                    && p.extension()
+                                        .and_then(|e| e.to_str())
+                                        .map_or(false, |e| e.eq_ignore_ascii_case("yaml") || e.eq_ignore_ascii_case("yml"))
+                                {
+                                    if let Ok(text) = std::fs::read_to_string(&p) {
+                                        let n = registry_content_rules.load_yaml(&text);
+                                        diagnostics::log(
+                                            "pum-registry-rules",
+                                            &format!("{}: {} rule(s)", p.display(), n.max(0)),
+                                        );
+                                    }
+                                    continue;
+                                }
                                 if p.is_file()
                                     && !is_disinfect
+                                    && !is_pum_registry
                                     && p.extension()
                                         .and_then(|e| e.to_str())
                                         .map_or(false, |e| e.eq_ignore_ascii_case("yaml") || e.eq_ignore_ascii_case("yml"))
@@ -595,6 +630,7 @@ impl StaticEngine {
             hayabusa_dir,
             hayabusa: std::sync::OnceLock::new(),
             string_rules,
+            registry_content_rules,
             url_whitelist,
             cidr_engine,
             domain_intel,
@@ -2496,7 +2532,6 @@ impl StaticEngine {
     pub fn check_hosts(&self, custom_path: Option<&Path>) -> HostsCheckReport {
         hosts::check_hosts_file(custom_path)
     }
-
     /// Restore the hosts file back to the clean default Microsoft Windows template.
     pub fn restore_hosts(&self, custom_path: Option<&Path>, backup: bool) -> HostsRestoreReport {
         hosts::restore_hosts_file(custom_path, backup)
@@ -2510,6 +2545,30 @@ impl StaticEngine {
             query_path: reg_path.to_string(),
             matched_patterns: matches,
             is_pua_autostart: is_pua,
+        }
+    }
+
+    /// PUM check for one registry write an endpoint reported (OpenEDR
+    /// `PUM_REGISTRY_CANDIDATE` in ptm.local.src). The hydradragonsig
+    /// `registry_value` rules of `pum_registry_rules.yaml` judge the write
+    /// itself (`RegistryEvent`), never this machine's registry: on the cloud
+    /// server that would be the wrong computer.
+    pub fn check_registry_content(&self, key_path: &str, value_name: &str, data: &str) -> RegistryContentCheckReport {
+        let event = hydradragonsig::models::RegistryEvent {
+            key: key_path.to_string(),
+            value: value_name.to_string(),
+            data: data.to_string(),
+        };
+        let hits = self.registry_content_rules.scan_registry_event(&event, 10);
+
+        let matched_rules: Vec<String> = hits.iter().map(|h| h.rule.clone()).collect();
+        let threat_name = hits.first().map(|h| h.title.clone());
+        RegistryContentCheckReport {
+            key_path: key_path.to_string(),
+            value_name: value_name.to_string(),
+            is_pum: !hits.is_empty(),
+            matched_rules,
+            threat_name,
         }
     }
 

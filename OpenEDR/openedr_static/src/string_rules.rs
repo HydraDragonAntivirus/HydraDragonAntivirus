@@ -133,6 +133,39 @@ impl PeStringRules {
         .collect()
     }
 
+    /// Judge one registry write with the loaded rules (`registry_value`
+    /// conditions match the write via `ScanReport::registry_event`, not the
+    /// live hive). No file bytes or strings: only registry rules can hit.
+    pub fn scan_registry_event(&self, event: &hydradragonsig::models::RegistryEvent, cap: usize) -> Vec<Hit> {
+        let Some(rs) = self.ruleset.as_ref() else { return Vec::new() };
+        let mut report = ScanReport {
+            path: PathBuf::from("registry"),
+            scanned_at: Default::default(),
+            registry_event: Some(event.clone()),
+            ..ScanReport::default()
+        };
+        let options = RuleEvalOptions {
+            profile_rules: false,
+            parallel_rules: false,
+            stop_on_detection: false,
+            min_string_len: 0,
+            decode_strings: false,
+        };
+        rs.evaluate_into(&mut report, &[], options);
+        aggregate_verdict(&mut report);
+        report
+            .findings
+            .iter()
+            .take(cap)
+            .map(|f| Hit {
+                rule: f.rule_id.clone(),
+                title: f.title.clone(),
+                score: f.score,
+                evidence: f.evidence.clone(),
+            })
+            .collect()
+    }
+
     pub fn pattern_count(&self) -> usize {
         self.ruleset.as_ref().map(|r| r.rules().len()).unwrap_or(0)
     }
@@ -335,6 +368,7 @@ impl PeStringRules {
             elf: None,
             macho: None,
             pdf: None,
+            registry_event: None,
         };
         let options = RuleEvalOptions {
             profile_rules: false,

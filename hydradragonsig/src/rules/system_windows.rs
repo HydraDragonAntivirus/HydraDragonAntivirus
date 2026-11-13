@@ -243,8 +243,16 @@ fn is_number_kind(kind: u32) -> bool {
 // Hosts-file conditions
 // ---------------------------------------------------------------------------
 
+/// The stock Windows mapping (`127.x` / `0.0.0.0` / `::1` -> `localhost`,
+/// `localhost.localdomain`): never a hosts hijack.
+fn is_default_localhost(ip: &str, host: &str) -> bool {
+    let loopback = ip == "0.0.0.0" || ip == "::1" || ip.starts_with("127.");
+    loopback && (host.eq_ignore_ascii_case("localhost") || host.eq_ignore_ascii_case("localhost.localdomain"))
+}
+
 /// Parse hosts lines against `ip_glob` (glob over the dotted quad) and
-/// `host_regex` (regex over every hostname). Deterministic and testable;
+/// `host_regex` (regex over every hostname). Inline `#` comments and the
+/// default localhost mapping are ignored. Deterministic and testable;
 /// the file wrappers live in `hosts_entry_evidence`.
 pub fn hosts_scan(
     text: &str,
@@ -255,14 +263,18 @@ pub fn hosts_scan(
         return None;
     }
     for raw in text.lines() {
-        let line = raw.trim();
-        if line.is_empty() || line.starts_with('#') {
+        let line = raw.split('#').next().unwrap_or("").trim();
+        if line.is_empty() {
             continue;
         }
         let mut parts = line.split_whitespace();
         let Some(ip) = parts.next() else { continue };
+        let hosts: Vec<&str> = parts.filter(|host| !is_default_localhost(ip, host)).collect();
+        if hosts.is_empty() {
+            continue;
+        }
         let mut matched_host: Option<String> = None;
-        for host in parts {
+        for host in hosts {
             if let Some(regex) = host_regex && regex.is_match(host) {
                 matched_host = Some(host.to_string());
                 break;
@@ -282,25 +294,35 @@ pub fn hosts_scan(
 }
 
 /// `hosts_entry` condition: read the Windows hosts file and run the scan.
+#[cfg(not(windows))]
+pub fn hosts_entry_evidence(_ip_glob: Option<&str>, _host_regex: Option<&Regex>) -> Option<String> {
+    unsupported_warning("hosts_entry");
+    None
+}
+
+/// `hosts_entry` condition: read the Windows hosts file and run the scan.
+/// The cache key carries the file's modification time and size: the process
+/// cache is never cleared, so in a long-running scanner (edrsvc, the cloud
+/// server) a key without them would keep the first answer after the file
+/// is changed.
+#[cfg(windows)]
 pub fn hosts_entry_evidence(ip_glob: Option<&str>, host_regex: Option<&Regex>) -> Option<String> {
+    let hosts_path = expand_windows_vars("%SYSDIR%\\drivers\\etc\\hosts");
+    let meta = std::fs::metadata(&hosts_path).ok()?;
+    let modified = meta
+        .modified()
+        .ok()
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
     let cache_key = format!(
-        "hosts|{ip_glob:?}|{}",
+        "hosts|{modified}|{}|{ip_glob:?}|{}",
+        meta.len(),
         host_regex.map(|r| r.as_str().to_string()).unwrap_or_default()
     );
     cached(cache_key, || {
-        #[cfg(not(windows))]
-        {
-            unsupported_warning("hosts_entry");
-            None
-        }
-        #[cfg(windows)]
-        {
-            let hosts_path = expand_windows_vars("%SYSDIR%\\drivers\\etc\\hosts");
-            let Ok(text) = std::fs::read_to_string(&hosts_path) else {
-                return None;
-            };
-            hosts_scan(&text, ip_glob, host_regex)
-        }
+        let text = std::fs::read_to_string(&hosts_path).ok()?;
+        hosts_scan(&text, ip_glob, host_regex)
     })
 }
 
@@ -357,6 +379,8 @@ pub struct RegistryQuery {
     pub value_regex: Option<String>,
     /// Text regex against REG_SZ / EXPAND / MULTI (DWORD/QWORD as text).
     pub data_regex: Option<String>,
+    /// Like `data_regex`, but the value only counts when its text does NOT match.
+    pub data_not_regex: Option<String>,
     /// Hex glob over REG_BINARY data (must be lower-case hex).
     pub data_hex: Option<String>,
     pub md5: Option<String>,
@@ -598,6 +622,16 @@ fn eval_registry_values(
                 continue;
             }
         }
+        if let Some(pattern) = &query.data_not_regex {
+            // Binary data has no text form to compare against a safe value.
+            if is_binary_kind(kind) {
+                continue;
+            }
+            let Some(not_re) = super::engine::cached_regex(pattern) else { continue };
+            if not_re.is_match(&data_preview(kind, &raw)) {
+                continue;
+            }
+        }
         if let Some(want) = &query.md5 && md5_hex(&raw) != want.to_ascii_lowercase() {
             continue;
         }
@@ -620,8 +654,8 @@ fn is_binary_kind(kind: u32) -> bool {
 /// collecting at least `min` (default 1) hits.
 pub fn registry_value_evidence(query: &RegistryQuery) -> Option<String> {
     let cache_key = format!(
-        "regvalue|{}|{}|{:?}|{:?}|{:?}|{:?}|{:?}|{}",
-        query.key, query.recursive, query.value_regex, query.data_regex,
+        "regvalue|{}|{}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{}",
+        query.key, query.recursive, query.value_regex, query.data_regex, query.data_not_regex,
         query.data_hex, query.md5, query.sha256, query.min
     );
     cached(cache_key, || registry_value_evidence_uncached(query))
@@ -683,6 +717,132 @@ fn registry_value_evidence_uncached(query: &RegistryQuery) -> Option<String> {
         "registry_value matched {} hit(s): {}",
         hits.len(),
         summary.join("; ")
+    ))
+}
+
+/// Canonical `(hive, components)` of an event key. User hives come back as
+/// `HKCU` with the SID dropped (an EDR sees `\REGISTRY\USER\<sid>\...` for the
+/// writer's own hive); `ControlSet00N` reads as `CurrentControlSet` and
+/// `Software\WOW6432Node` as `Software`, the forms rules are written in.
+fn canonical_event_key(raw: &str) -> Option<(&'static str, Vec<String>)> {
+    let path = raw.trim().replace('/', "\\");
+    let mut parts: Vec<&str> = path.split('\\').filter(|c| !c.is_empty()).collect();
+    if parts.is_empty() {
+        return None;
+    }
+    let head = parts[0].to_ascii_uppercase();
+    let hive = match head.as_str() {
+        "REGISTRY" => {
+            let root = parts.get(1)?.to_ascii_uppercase();
+            match root.as_str() {
+                "MACHINE" => {
+                    parts.drain(..2);
+                    "HKLM"
+                }
+                "USER" => {
+                    // \REGISTRY\USER\<sid>\... ; `<sid>_Classes` is the user's HKCR.
+                    let sid = parts.get(2)?.to_ascii_uppercase();
+                    parts.drain(..3);
+                    if sid.ends_with("_CLASSES") { "HKCR" } else { "HKCU" }
+                }
+                _ => return None,
+            }
+        }
+        "HKLM" | "HKEY_LOCAL_MACHINE" | "%HKLM%" => {
+            parts.remove(0);
+            "HKLM"
+        }
+        "HKCU" | "HKEY_CURRENT_USER" | "%HKCU%" => {
+            parts.remove(0);
+            "HKCU"
+        }
+        "HKU" | "HKEY_USERS" | "%HKU%" => {
+            // HKU\<sid>\... is a user hive: same as HKCU for rule matching.
+            parts.drain(..2.min(parts.len()));
+            "HKCU"
+        }
+        "HKCR" | "HKEY_CLASSES_ROOT" | "%HKCR%" => {
+            parts.remove(0);
+            "HKCR"
+        }
+        "HKCC" | "HKEY_CURRENT_CONFIG" => {
+            parts.remove(0);
+            "HKCC"
+        }
+        _ => return None,
+    };
+    let mut out: Vec<String> = Vec::with_capacity(parts.len());
+    for (i, part) in parts.iter().enumerate() {
+        let upper = part.to_ascii_uppercase();
+        if hive == "HKLM" && i == 1 && out.first().is_some_and(|p| p.eq_ignore_ascii_case("SYSTEM"))
+            && upper.starts_with("CONTROLSET") && upper[10..].chars().all(|c| c.is_ascii_digit())
+        {
+            out.push("CurrentControlSet".to_string());
+            continue;
+        }
+        if upper == "WOW6432NODE" && out.last().is_some_and(|p| p.eq_ignore_ascii_case("SOFTWARE")) {
+            continue;
+        }
+        out.push((*part).to_string());
+    }
+    Some((hive, out))
+}
+
+/// `registry_value` against one EDR registry write instead of the live hive
+/// (`ScanReport::registry_event`): the same rule judges a value an endpoint
+/// just set, on any machine. Key components are globbed one by one; with
+/// `recursive` the rule key only has to be a prefix of the event key.
+/// `data_hex` / `md5` / `sha256` need raw bytes the event does not carry, so
+/// a rule using them never matches an event.
+pub fn registry_event_evidence(
+    event: &crate::models::RegistryEvent,
+    query: &RegistryQuery,
+) -> Option<String> {
+    if query.data_hex.is_some() || query.md5.is_some() || query.sha256.is_some() || query.min > 1 {
+        return None;
+    }
+    let (ev_hive, ev_parts) = canonical_event_key(&event.key)?;
+    let spec = expand_windows_vars(&query.key);
+    let (rule_hive, _, rest) = split_hive(&spec)?;
+    // Rules may say HKU\*\... for "any user": the SID component is already dropped.
+    let (rule_hive, rest) = if rule_hive == "HKU" {
+        ("HKCU", rest.split_once('\\').map(|(_, r)| r).unwrap_or(""))
+    } else {
+        (rule_hive, rest)
+    };
+    if rule_hive != ev_hive {
+        return None;
+    }
+    let rule_parts: Vec<&str> = rest.split('\\').filter(|c| !c.is_empty()).collect();
+    if rule_parts.len() > ev_parts.len() || (!query.recursive && rule_parts.len() != ev_parts.len()) {
+        return None;
+    }
+    if !rule_parts.iter().zip(ev_parts.iter()).all(|(p, e)| glob_match(p, e)) {
+        return None;
+    }
+    if let Some(pattern) = &query.value_regex {
+        if !super::engine::cached_regex(pattern)?.is_match(&event.value) {
+            return None;
+        }
+    }
+    if let Some(pattern) = &query.data_regex {
+        if !super::engine::cached_regex(pattern)?.is_match(&event.data) {
+            return None;
+        }
+    }
+    if let Some(pattern) = &query.data_not_regex {
+        if super::engine::cached_regex(pattern)?.is_match(&event.data) {
+            return None;
+        }
+    }
+    Some(truncate_preview(
+        &format!(
+            "registry_value matched event: {ev_hive}\\{}: {} = {}",
+            ev_parts.join("\\"),
+            event.value,
+            event.data
+        ),
+        300,
     ))
 }
 
@@ -1299,6 +1459,18 @@ mod tests {
     }
 
     #[test]
+    fn hosts_default_localhost_is_not_an_entry() {
+        let any = Regex::new(".").unwrap();
+        let stock = "# comment\n127.0.0.1 localhost\n::1 localhost # loopback\n0.0.0.0 localhost.localdomain\n";
+        assert!(hosts_scan(stock, None, Some(&any)).is_none());
+        assert!(hosts_scan(stock, Some("*"), None).is_none());
+        // Same loopback line with an extra host is a redirect.
+        assert!(hosts_scan("127.0.0.1 localhost update.microsoft.com\n", None, Some(&any)).is_some());
+        // A host after `#` is a comment, not an entry.
+        assert!(hosts_scan("10.0.0.1 # evil.com\n", None, Some(&any)).is_none());
+    }
+
+    #[test]
     fn expand_vars_always_safe() {
         // Unknown variables survive verbatim.
         assert_eq!(expand_windows_vars("%NOPEVARX%"), "%NOPEVARX%");
@@ -1334,5 +1506,68 @@ mod tests {
         };
         assert!(registry_value_evidence(&query).is_some());
         assert!(registry_key_evidence("HKLM\\SOFTWARE", false, None).is_some());
+    }
+
+    fn ev(key: &str, value: &str, data: &str) -> crate::models::RegistryEvent {
+        crate::models::RegistryEvent { key: key.into(), value: value.into(), data: data.into() }
+    }
+
+    fn q(key: &str, value: &str, data: &str) -> RegistryQuery {
+        RegistryQuery {
+            key: key.into(),
+            value_regex: Some(value.into()),
+            data_regex: Some(data.into()),
+            min: 1,
+            ..RegistryQuery::default()
+        }
+    }
+
+    #[test]
+    fn registry_event_key_forms() {
+        let rule = q("HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\System", "(?i)^DisableTaskMgr$", "^[1-9][0-9]*$");
+        for key in [
+            "\\REGISTRY\\USER\\S-1-5-21-1-2-3-1001\\Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\System",
+            "%hkcu%\\software\\microsoft\\windows\\currentversion\\policies\\system",
+            "HKEY_USERS\\S-1-5-21-1-2-3-1001\\Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\System",
+        ] {
+            assert!(registry_event_evidence(&ev(key, "disabletaskmgr", "1"), &rule).is_some(), "{key}");
+        }
+        // Restoring the safe value is not a PUM.
+        let k = "\\REGISTRY\\USER\\S-1\\Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\System";
+        assert!(registry_event_evidence(&ev(k, "DisableTaskMgr", "0"), &rule).is_none());
+        // Another value under the same key is not this rule.
+        assert!(registry_event_evidence(&ev(k, "Other", "1"), &rule).is_none());
+        // HKLM write does not match an HKCU rule; a subkey does not match without `recursive`.
+        assert!(registry_event_evidence(&ev("\\REGISTRY\\MACHINE\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System", "DisableTaskMgr", "1"), &rule).is_none());
+        assert!(registry_event_evidence(&ev(&format!("{k}\\Sub"), "DisableTaskMgr", "1"), &rule).is_none());
+    }
+
+    #[test]
+    fn registry_event_controlset_and_wow64() {
+        let rule = RegistryQuery {
+            key: "HKLM\\SYSTEM\\CurrentControlSet\\Services\\Tcpip\\Parameters".into(),
+            value_regex: Some("(?i)^DataBasePath$".into()),
+            data_not_regex: Some("(?i)^%SystemRoot%\\\\System32\\\\drivers\\\\etc$".into()),
+            min: 1,
+            ..RegistryQuery::default()
+        };
+        let tcpip = "\\REGISTRY\\MACHINE\\SYSTEM\\ControlSet001\\Services\\Tcpip\\Parameters";
+        assert!(registry_event_evidence(&ev(tcpip, "DataBasePath", "C:\\evil"), &rule).is_some());
+        // The stock value is safe.
+        assert!(registry_event_evidence(&ev(tcpip, "DataBasePath", "%SystemRoot%\\System32\\drivers\\etc"), &rule).is_none());
+        let wow = q("HKLM\\Software\\Microsoft\\Windows NT\\CurrentVersion\\Winlogon", "(?i)^Shell$", ".");
+        assert!(registry_event_evidence(&ev("\\REGISTRY\\MACHINE\\SOFTWARE\\WOW6432Node\\Microsoft\\Windows NT\\CurrentVersion\\Winlogon", "Shell", "x.exe"), &wow).is_some());
+        // Recursive: rule key is a prefix; globs per component.
+        let ifeo = RegistryQuery {
+            key: "HKLM\\Software\\Microsoft\\Windows NT\\CurrentVersion\\Image File Execution Options".into(),
+            recursive: true,
+            value_regex: Some("(?i)^Debugger$".into()),
+            min: 1,
+            ..RegistryQuery::default()
+        };
+        assert!(registry_event_evidence(&ev("\\REGISTRY\\MACHINE\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Image File Execution Options\\taskmgr.exe", "Debugger", "evil.exe"), &ifeo).is_some());
+        // Raw-byte filters never match an event.
+        let hex = RegistryQuery { data_hex: Some("00".into()), ..ifeo.clone() };
+        assert!(registry_event_evidence(&ev("\\REGISTRY\\MACHINE\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Image File Execution Options\\a.exe", "Debugger", "x"), &hex).is_none());
     }
 }

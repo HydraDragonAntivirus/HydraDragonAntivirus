@@ -1384,6 +1384,20 @@ impl EngineAdapter {
         Ok(engine.get_registry_targets())
     }
 
+    /// PUM check for one live registry write, against `pum_registry_rules.yaml`
+    /// (see `StaticEngine::check_registry_content`). Called by the EDR client
+    /// (via owlyshield_ransom.dll) on every `LLE_REGISTRY_VALUE_SET`.
+    pub fn check_registry_content(
+        &self,
+        key_path: &str,
+        value_name: &str,
+        value_data: &str,
+    ) -> Result<openedr_static::report::RegistryContentCheckReport, String> {
+        let engine = self.engine.get().ok_or_else(|| "engine not ready".to_string())?;
+        let engine = engine.read().map_err(|_| "engine lock poisoned".to_string())?;
+        Ok(engine.check_registry_content(key_path, value_name, value_data))
+    }
+
     pub fn scan_evtx_file(&self, path: &Path) -> Result<Vec<openedr_static::hayabusa_scanner::HayabusaEventMatch>, String> {
         let engine = self.engine.get().ok_or_else(|| "engine not ready".to_string())?;
         let engine = engine.read().map_err(|_| "engine lock poisoned".to_string())?;

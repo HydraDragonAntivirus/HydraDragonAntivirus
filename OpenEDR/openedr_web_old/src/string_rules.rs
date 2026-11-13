@@ -162,6 +162,7 @@ impl PeStringRules {
             elf: None,
             macho: None,
             pdf: None,
+            registry_event: None,
         };
         let options = RuleEvalOptions {
             profile_rules: false,

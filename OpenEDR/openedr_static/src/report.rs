@@ -149,6 +149,22 @@ pub struct RegistryCheckReport {
     pub is_pua_autostart: bool,
 }
 
+/// PUM (Potentially Unwanted Modification) verdict for one live registry
+/// write, matched against `pum_registry_rules.yaml` by
+/// `StaticEngine::check_registry_content`. Returned to the EDR client
+/// (via multron_server's `check_registry_content` command) so it can decide
+/// whether to revert the value.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct RegistryContentCheckReport {
+    pub key_path: String,
+    pub value_name: String,
+    pub is_pum: bool,
+    /// Matched rule ids (e.g. "PUM_0001"), most-confident first.
+    pub matched_rules: Vec<String>,
+    /// Title of the first/highest-confidence match, for display.
+    pub threat_name: Option<String>,
+}
+
 fn format_iso8601_now() -> String {
     let dur = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)

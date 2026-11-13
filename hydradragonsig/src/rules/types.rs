@@ -898,6 +898,11 @@ pub enum RuleCondition {
         value_regex: Option<String>,
         #[serde(default)]
         data_regex: Option<String>,
+        /// Hit only when the text data does NOT match (the value differs from its
+        /// safe/stock form, e.g. Winlogon `Shell` other than `explorer.exe`).
+        /// The regex crate has no lookahead, so this cannot go in `data_regex`.
+        #[serde(default)]
+        data_not_regex: Option<String>,
         #[serde(default)]
         data_hex: Option<String>,
         #[serde(default)]

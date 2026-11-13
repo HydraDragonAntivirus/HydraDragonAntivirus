@@ -462,6 +462,46 @@ pub extern "C" fn openedr_static_check_registry(reg_path: *const c_char) -> *mut
     openedr_cloud_check_registry(reg_path)
 }
 
+/// PUM check for one live registry write (key path + value name + data),
+/// queried from the cloud (`check_registry_content`). Called by
+/// detectionnotifier.cpp (edrsvc.exe, GetProcAddress) on every
+/// `LLE_REGISTRY_VALUE_SET` to decide whether to revert the value.
+#[unsafe(no_mangle)]
+pub extern "C" fn openedr_cloud_check_registry_content(
+    key_path: *const c_char,
+    value_name: *const c_char,
+    value_data: *const c_char,
+) -> *mut c_char {
+    if key_path.is_null() {
+        return error_json("key_path pointer is null");
+    }
+    let key_path_str = match unsafe { CStr::from_ptr(key_path) }.to_str() {
+        Ok(s) => s,
+        Err(_) => return error_json("Invalid UTF-8 in key_path"),
+    };
+    let value_name_str = if value_name.is_null() {
+        ""
+    } else {
+        unsafe { CStr::from_ptr(value_name) }.to_str().unwrap_or("")
+    };
+    let value_data_str = if value_data.is_null() {
+        ""
+    } else {
+        unsafe { CStr::from_ptr(value_data) }.to_str().unwrap_or("")
+    };
+    let report_json = cloud_client::check_registry_content(key_path_str, value_name_str, value_data_str);
+    to_c_string(report_json)
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn openedr_static_check_registry_content(
+    key_path: *const c_char,
+    value_name: *const c_char,
+    value_data: *const c_char,
+) -> *mut c_char {
+    openedr_cloud_check_registry_content(key_path, value_name, value_data)
+}
+
 #[unsafe(no_mangle)]
 pub extern "C" fn openedr_cloud_get_registry_targets() -> *mut c_char {
     let targets_json = cloud_client::get_registry_targets();

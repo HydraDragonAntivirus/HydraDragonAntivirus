@@ -91,11 +91,48 @@ namespace {
 		return s;
 	}
 
-	// Sanitizes C:\Windows\System32\drivers\etc\hosts to ensure it remains 100% clean (comments only).
-	// Returns true if active (non-comment) entries were found and sanitized.
+	// True when a hosts line maps a host other than the stock Windows localhost
+	// entry. Same judgment as openedr_static's hosts.rs (`check_hosts_file`):
+	// inline comments are ignored, and "127.x / 0.0.0.0 / ::1 -> localhost
+	// [localhost.localdomain]" is the default mapping, never a modification.
+	static bool isHijackingHostsLine(const std::string& line)
+	{
+		std::string body = line;
+		const size_t hash = body.find('#');
+		if (hash != std::string::npos)
+			body.resize(hash);
+
+		std::istringstream iss(body);
+		std::string ip;
+		if (!(iss >> ip))
+			return false; // blank or comment-only
+		// Only IPv4 ('.') / IPv6 (':') mappings are entries; anything else is left as-is.
+		if (ip.find('.') == std::string::npos && ip.find(':') == std::string::npos)
+			return false;
+		const std::string ipLow = toLowerStr(ip);
+		const bool isLoopback = ipLow == "0.0.0.0" || ipLow == "::1" || ipLow.rfind("127.", 0) == 0;
+
+		std::string host;
+		while (iss >> host)
+		{
+			const std::string hostLow = toLowerStr(host);
+			if (!(isLoopback && (hostLow == "localhost" || hostLow == "localhost.localdomain")))
+				return true;
+		}
+		return false; // only the default localhost mapping (or an IP with no host)
+	}
+
+	// Sanitizes %SystemRoot%\System32\drivers\etc\hosts: removes every line that maps a
+	// host other than the stock localhost entry (see isHijackingHostsLine); comments,
+	// blank lines and the default localhost mapping are kept.
+	// Returns true if hijacking entries were found and removed.
 	static bool sanitizeHostsFile()
 	{
-		const wchar_t* wsHostsPath = L"C:\\Windows\\System32\\drivers\\etc\\hosts";
+		wchar_t wsHostsPath[MAX_PATH * 2] = {};
+		if (::ExpandEnvironmentStringsW(L"%SystemRoot%\\System32\\drivers\\etc\\hosts", wsHostsPath,
+				static_cast<DWORD>(std::size(wsHostsPath))) == 0)
+			return false;
+
 		std::ifstream ifs(wsHostsPath);
 		if (!ifs.is_open()) return false;
 
@@ -105,30 +142,10 @@ namespace {
 
 		while (std::getline(ifs, line))
 		{
-			std::string trimmed = line;
-			size_t first = trimmed.find_first_not_of(" \t\r\n");
-			if (first == std::string::npos) {
+			if (isHijackingHostsLine(line))
+				bModified = true;
+			else
 				cleanLines.push_back(line);
-				continue;
-			}
-			trimmed = trimmed.substr(first);
-
-			if (trimmed.empty() || trimmed[0] == '#') {
-				cleanLines.push_back(line);
-			} else {
-				// Active mapping entry with 2 entries/tokens (Token 1 = IPv4 '.' or IPv6 ':', Token 2 = Domain)
-				std::istringstream iss(trimmed);
-				std::string t1, t2;
-				if (iss >> t1 && iss >> t2) {
-					if (t1.find('.') != std::string::npos || t1.find(':') != std::string::npos) {
-						bModified = true;
-					} else {
-						cleanLines.push_back(line);
-					}
-				} else {
-					cleanLines.push_back(line);
-				}
-			}
 		}
 		ifs.close();
 
@@ -140,7 +157,7 @@ namespace {
 					ofs << l << "\n";
 				}
 			}
-			LOGLVL(Critical, "detnotif: Sanitized malicious active entry in C:\\Windows\\System32\\drivers\\etc\\hosts");
+			LOGLVL(Critical, "detnotif: Removed hijacking entries from the hosts file");
 		}
 		return bModified;
 	}
@@ -623,6 +640,131 @@ static bool deleteRegistryTreeKey(const std::string& sTarget)
 	}
 	LOGLVL(Critical, FMT("detnotif: FAILED to delete PUA or Malware registry key <" << sTarget << "> err=" << st));
 	return false;
+}
+
+//
+// PUM revert: asks edrdrv to write back every registry value the GID (and the
+// processes it started) changed, from the journal regmon keeps before each
+// set/delete (MESSAGE_REVERT_REGISTRY_CHANGES). Restores the original value
+// instead of deleting the key, so a PUM under Policies\System is undone
+// without taking the user's own policies with it. Must run before the kill:
+// the driver resolves the GID to its PIDs, which are gone after it.
+//
+static bool revertRegistryChangesForGid(uint64_t nGid)
+{
+	if (nGid == 0)
+		return false;
+	HANDLE hDev = ::CreateFileW(L"\\\\.\\{157980D8-09B4-4580-B8B6-D32971D056DA}",
+		GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE,
+		NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+	if (hDev == INVALID_HANDLE_VALUE)
+	{
+		LOGLVL(Critical, FMT("detnotif: Could not open edrdrv IOCTL device to revert registry for GID=" << nGid));
+		return false;
+	}
+	struct COM_MESSAGE {
+		ULONG msgType;
+		ULONG pid;
+		ULONGLONG gid;
+		WCHAR path[520];
+		WCHAR quarantinePath[520];
+	};
+	COM_MESSAGE msg = {0};
+	msg.msgType = 8; // MESSAGE_REVERT_REGISTRY_CHANGES
+	msg.gid = nGid;
+	DWORD retBytes = 0;
+	uint32_t output = 0;
+	const DWORD IOCTL_OWLY = (0x00000022 << 16) | (0 << 14) | (0x921 << 2) | 0; // CTL_CODE(FILE_DEVICE_UNKNOWN, 0x921, METHOD_BUFFERED, FILE_ANY_ACCESS)
+	const BOOL fOk = ::DeviceIoControl(hDev, IOCTL_OWLY, &msg, sizeof(msg), &output, sizeof(output), &retBytes, NULL);
+	if (fOk)
+		LOGLVL(Critical, FMT("detnotif: reverted registry changes (PUM) of GID=" << nGid << " via edrdrv IOCTL"));
+	else
+		LOGLVL(Critical, FMT("detnotif: FAILED to revert registry changes (PUM) of GID=" << nGid << " err=" << ::GetLastError()));
+	::CloseHandle(hDev);
+	return fOk != FALSE;
+}
+
+//
+// PUM (Potentially Unwanted Modification) cloud check: the PTM policy only
+// narrows WHICH registry writes are candidates (PUM_REGISTRY_CANDIDATE in
+// ptm.local.src); the actual rule content - which value names, which values
+// are safe - lives solely in the cloud's pum_registry_rules.yaml, matched by
+// multron_server's check_registry_content and reached here through
+// owlyshield_ransom.dll -> openedr_cloud.dll, the same bridge
+// scanFileWithLocalEngines uses for file verdicts. Fails CLOSED: any
+// missing export, bad JSON, or cloud error means "not PUM" - a candidate
+// that cannot be confirmed must never be reverted.
+static bool queryCloudPumVerdict(const std::string& sKeyPath, const std::string& sValueName,
+	const std::string& sValueData, std::string& sThreatNameOut)
+{
+	sThreatNameOut.clear();
+	HMODULE hOwly = ::GetModuleHandleW(L"owlyshield_ransom.dll");
+	if (!hOwly) hOwly = ::LoadLibraryW(L"owlyshield_ransom.dll");
+	if (!hOwly)
+	{
+		LOGLVL(Critical, "detnotif: PUM cloud check: owlyshield_ransom.dll not loaded");
+		return false;
+	}
+
+	typedef char* (*CheckRegContentFn)(const wchar_t*, uint32_t, const wchar_t*, uint32_t, const wchar_t*, uint32_t);
+	typedef void (*FreeStringFn)(char*);
+	auto fnCheck = (CheckRegContentFn)::GetProcAddress(hOwly, "owlyshield_check_registry_content");
+	auto fnFree = (FreeStringFn)::GetProcAddress(hOwly, "owlyshield_free_string");
+	if (!fnCheck)
+	{
+		LOGLVL(Critical, "detnotif: PUM cloud check: owlyshield_check_registry_content export missing");
+		return false;
+	}
+
+	const std::wstring wsKey = widenUtf8Local(sKeyPath);
+	const std::wstring wsValueName = widenUtf8Local(sValueName);
+	const std::wstring wsValueData = widenUtf8Local(sValueData);
+
+	char* pResult = fnCheck(
+		wsKey.c_str(), static_cast<uint32_t>(wsKey.length()),
+		wsValueName.c_str(), static_cast<uint32_t>(wsValueName.length()),
+		wsValueData.c_str(), static_cast<uint32_t>(wsValueData.length()));
+	if (!pResult)
+	{
+		LOGLVL(Critical, FMT("detnotif: PUM cloud check: no result for <" << sKeyPath << "\\" << sValueName << ">"));
+		return false;
+	}
+
+	std::string sJson(pResult);
+	if (fnFree)
+		fnFree(pResult);
+
+	// Minimal, dependency-free field pull (matches the compiled-rule-check
+	// style already used in mode_compile.cpp): looking for exactly what
+	// RegistryContentCheckReport serializes, never arbitrary JSON.
+	const bool bIsPum = sJson.find("\"is_pum\":true") != std::string::npos
+		|| sJson.find("\"is_pum\": true") != std::string::npos;
+	if (bIsPum)
+	{
+		const std::string sKeyField = "\"threat_name\":\"";
+		auto pos = sJson.find(sKeyField);
+		if (pos == std::string::npos)
+		{
+			const std::string sKeyFieldSp = "\"threat_name\": \"";
+			pos = sJson.find(sKeyFieldSp);
+			if (pos != std::string::npos)
+				pos += sKeyFieldSp.length();
+		}
+		else
+		{
+			pos += sKeyField.length();
+		}
+		if (pos != std::string::npos)
+		{
+			const auto end = sJson.find('"', pos);
+			if (end != std::string::npos)
+				sThreatNameOut = sJson.substr(pos, end - pos);
+		}
+		if (sThreatNameOut.empty())
+			sThreatNameOut = "PUM.Optional.RegistryModification";
+	}
+	LOGLVL(Detailed, FMT("detnotif: PUM cloud check <" << sKeyPath << "\\" << sValueName << "> -> is_pum=" << bIsPum));
+	return bIsPum;
 }
 
 //
@@ -1564,6 +1706,36 @@ Variant DetectionNotifier::execute(Variant vCommand, Variant vParams){
 			return {};
 		}
 
+		// PUM registry candidate (PUM_REGISTRY_CANDIDATE in ptm.local.src):
+		// the policy only narrowed the key path and writer trust; ask the
+		// cloud whether this specific value name/data is actually a PUM
+		// before anything else runs. Not PUM (or cloud unreachable) -> drop
+		// the event here, never falling through to kill/quarantine/revert.
+		{
+			std::string sEventTypeForPum = vEvent.get("eventType", std::string());
+			if (sEventTypeForPum.empty())
+				sEventTypeForPum = vEvent.get("type", std::string());
+			if (sEventTypeForPum == "MLE_PUM_REGISTRY_CANDIDATE")
+			{
+				std::string sKeyPath = vEvent.get("pumKeyPath", std::string());
+				std::string sValueName = vEvent.get("pumValueName", std::string());
+				std::string sValueData = vEvent.get("pumValueData", std::string());
+				std::string sThreatName;
+				if (!queryCloudPumVerdict(sKeyPath, sValueName, sValueData, sThreatName))
+					return {}; // Cloud said no, or was unreachable: fail closed, no action.
+
+				// Confirmed PUM: promote into a normal detection and fall
+				// through to the existing kill/quarantine/notification flow.
+				vEvent.put("threatName", sThreatName);
+				vEvent.put("threatType", std::string("PUM"));
+				vEvent.put("verdict", int64_t(2));
+				vEvent.put("flsVerdict", int64_t(2));
+				vEvent.put("registryRevert", true);
+				vEvent.put("should_trust_company_whitelist", true);
+				vEvent.put("should_trust_comodo_fls_cloud", true);
+			}
+		}
+
 		// Hosts File Self-Defense & Behavioral Protection:
 		// Always sanitize Hosts file so active non-comment entries are deleted!
 		(void)sanitizeHostsFile();
@@ -2073,9 +2245,32 @@ Variant DetectionNotifier::execute(Variant vCommand, Variant vParams){
 			
 			if (!s_fProtectionPaused.load())
 			{
+				// 0. PUM revert (policy "registryRevert"): restore the values the
+				// GID changed before it is killed. nGid is already 0 here when the
+				// FLS cloud verdict or company whitelist trusted the writer and no
+				// untrusted ancestor was found, so a trusted change stays.
+				{
+					bool bRegistryRevert = false;
+					if (auto optRevert = variant::getByPathSafe(vEvent, "registryRevert"))
+					{
+						try {
+							auto vRevert = optRevert.value();
+							if (vRevert.getType() == variant::ValueType::Boolean)
+								bRegistryRevert = static_cast<bool>(vRevert);
+						} catch (...) {}
+					}
+					if (bRegistryRevert)
+					{
+						if (nGid > 0)
+							revertRegistryChangesForGid(nGid);
+						else
+							LOGLVL(Critical, FMT("detnotif: PUM revert skipped: writer trusted (FLS cloud / company whitelist)"));
+					}
+				}
+
 				if (nGid > 0)
 				{
-					HANDLE hDev = ::CreateFileW(L"\\\\.\\{157980D8-09B4-4580-B8B6-D32971D056DA}", 
+					HANDLE hDev = ::CreateFileW(L"\\\\.\\{157980D8-09B4-4580-B8B6-D32971D056DA}",
 						GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, 
 						NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
 					if (hDev != INVALID_HANDLE_VALUE)

@@ -403,6 +403,11 @@ type StaticSignerFn = unsafe extern "C" fn(*const std::os::raw::c_char) -> u32;
 type StaticEvtxScanFn = unsafe extern "C" fn(*const std::os::raw::c_char) -> *mut std::os::raw::c_char;
 type StaticSystemEventsScanFn = unsafe extern "C" fn() -> *mut std::os::raw::c_char;
 type StaticCheckRegistryFn = unsafe extern "C" fn(*const std::os::raw::c_char) -> *mut std::os::raw::c_char;
+type StaticCheckRegistryContentFn = unsafe extern "C" fn(
+    *const std::os::raw::c_char,
+    *const std::os::raw::c_char,
+    *const std::os::raw::c_char,
+) -> *mut std::os::raw::c_char;
 
 #[derive(Clone, Copy)]
 struct StaticBinding {
@@ -418,6 +423,7 @@ struct StaticBinding {
     scan_evtx: Option<StaticEvtxScanFn>,
     scan_system_events: Option<StaticSystemEventsScanFn>,
     check_registry: Option<StaticCheckRegistryFn>,
+    check_registry_content: Option<StaticCheckRegistryContentFn>,
 }
 unsafe impl Send for StaticBinding {}
 unsafe impl Sync for StaticBinding {}
@@ -522,6 +528,15 @@ fn static_binding() -> Option<StaticBinding> {
                 Some(std::mem::transmute::<*mut std::ffi::c_void, StaticCheckRegistryFn>(check_reg_ptr))
             };
 
+            let check_reg_content_ptr = sym(b"openedr_static_check_registry_content\0");
+            let check_registry_content = if check_reg_content_ptr.is_null() {
+                None
+            } else {
+                Some(std::mem::transmute::<*mut std::ffi::c_void, StaticCheckRegistryContentFn>(
+                    check_reg_content_ptr,
+                ))
+            };
+
             Mutex::new(Some(StaticBinding {
                 scan,
                 free,
@@ -533,6 +548,7 @@ fn static_binding() -> Option<StaticBinding> {
                 scan_evtx,
                 scan_system_events,
                 check_registry,
+                check_registry_content,
             }))
         }
     });
@@ -850,6 +866,58 @@ pub extern "C" fn owlyshield_check_registry(path_ptr: *const u16, path_len: u32)
         Err(_) => return std::ptr::null_mut(),
     };
     unsafe { check_reg(c_path.as_ptr()) }
+}
+
+/// PUM (Potentially Unwanted Modification) check for one live registry
+/// write: key path, value name and its data (all UTF-16, as the OpenEDR
+/// detection notifier has them from the enriched event), forwarded to the
+/// cloud (openedr_cloud.dll -> multron_server's `check_registry_content`,
+/// matched against `pum_registry_rules.yaml`). Returns a JSON
+/// `RegistryContentCheckReport`, or null on any binding/argument failure -
+/// the caller must treat null/`is_pum:false` the same as "do not revert".
+#[unsafe(no_mangle)]
+pub extern "C" fn owlyshield_check_registry_content(
+    key_path_ptr: *const u16,
+    key_path_len: u32,
+    value_name_ptr: *const u16,
+    value_name_len: u32,
+    value_data_ptr: *const u16,
+    value_data_len: u32,
+) -> *mut std::os::raw::c_char {
+    if key_path_ptr.is_null() || key_path_len == 0 || key_path_len > 32768 {
+        return std::ptr::null_mut();
+    }
+    let binding = match static_binding() {
+        Some(b) => b,
+        None => return std::ptr::null_mut(),
+    };
+    let check_reg_content = match binding.check_registry_content {
+        Some(f) => f,
+        None => return std::ptr::null_mut(),
+    };
+
+    let to_cstring = |ptr: *const u16, len: u32| -> Option<std::ffi::CString> {
+        if ptr.is_null() || len == 0 {
+            return Some(std::ffi::CString::new("").ok()?);
+        }
+        if len > 65536 {
+            return None;
+        }
+        let slice = unsafe { std::slice::from_raw_parts(ptr, len as usize) };
+        std::ffi::CString::new(String::from_utf16_lossy(slice)).ok()
+    };
+
+    let Some(c_key) = to_cstring(key_path_ptr, key_path_len) else {
+        return std::ptr::null_mut();
+    };
+    let Some(c_value_name) = to_cstring(value_name_ptr, value_name_len) else {
+        return std::ptr::null_mut();
+    };
+    let Some(c_value_data) = to_cstring(value_data_ptr, value_data_len) else {
+        return std::ptr::null_mut();
+    };
+
+    unsafe { check_reg_content(c_key.as_ptr(), c_value_name.as_ptr(), c_value_data.as_ptr()) }
 }
 
 /// Called by OpenEDR's detection notifier (edrsvc.exe, GetProcAddress) for every

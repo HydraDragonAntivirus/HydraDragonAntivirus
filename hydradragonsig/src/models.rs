@@ -712,6 +712,24 @@ pub struct ScanReport {
     /// PDF structure, when a rule needed it and the file is a PDF.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pdf: Option<crate::scanner::pdf::PdfInfo>,
+
+    /// One registry write to judge instead of the live registry (an EDR
+    /// event, possibly from another machine). When set, `registry_value`
+    /// conditions match this write; when absent they query the local hive.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub registry_event: Option<RegistryEvent>,
+}
+
+/// A single registry value write, as an EDR saw it.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RegistryEvent {
+    /// Key path in any common form: `HKLM\...`, `HKEY_USERS\<sid>\...`,
+    /// `\REGISTRY\MACHINE\...`, `\REGISTRY\USER\<sid>\...`, `%hklm%\...`.
+    pub key: String,
+    /// Value name (empty for the default value).
+    pub value: String,
+    /// Value data as text: strings as-is, DWORD/QWORD in decimal.
+    pub data: String,
 }
 
 impl Default for ScanReport {
@@ -749,6 +767,7 @@ impl Default for ScanReport {
             elf: None,
             macho: None,
             pdf: None,
+            registry_event: None,
         }
     }
 }

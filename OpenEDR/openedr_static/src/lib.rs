@@ -452,6 +452,51 @@ pub extern "C" fn openedr_static_check_registry(reg_path: *const c_char) -> *mut
     }
 }
 
+/// PUM check for one registry write (key path + value name + data) when
+/// openedr_static.dll is the engine (no openedr_cloud.dll): the same
+/// hydradragonsig `pum_registry_rules.yaml` the cloud uses, evaluated in this
+/// process. Same `RegistryContentCheckReport` JSON as the cloud path.
+/// Returns a JSON-formatted string allocated on the heap. Caller MUST free using `openedr_static_free_string`.
+#[unsafe(no_mangle)]
+pub extern "C" fn openedr_static_check_registry_content(
+    key_path: *const c_char,
+    value_name: *const c_char,
+    value_data: *const c_char,
+) -> *mut c_char {
+    if key_path.is_null() {
+        return error_json("key_path pointer is null");
+    }
+    let key_path_str = match unsafe { CStr::from_ptr(key_path) }.to_str() {
+        Ok(s) => s,
+        Err(_) => return error_json("Invalid UTF-8 in key_path"),
+    };
+    let value_name_str = if value_name.is_null() {
+        ""
+    } else {
+        unsafe { CStr::from_ptr(value_name) }.to_str().unwrap_or("")
+    };
+    let value_data_str = if value_data.is_null() {
+        ""
+    } else {
+        unsafe { CStr::from_ptr(value_data) }.to_str().unwrap_or("")
+    };
+
+    let engine_lock = match get_or_init_engine(None) {
+        Ok(lock) => lock,
+        Err(e) => return error_json(&format!("Failed to initialize engine: {}", e)),
+    };
+    let engine = match engine_lock.read() {
+        Ok(guard) => guard,
+        Err(_) => return error_json("Engine lock poisoned"),
+    };
+
+    let report = engine.check_registry_content(key_path_str, value_name_str, value_data_str);
+    match serde_json::to_string_pretty(&report) {
+        Ok(json) => to_c_string(json),
+        Err(e) => error_json(&format!("JSON serialization error: {}", e)),
+    }
+}
+
 /// Returns 1 when the shared static engine loaded the URL tree model.
 #[unsafe(no_mangle)]
 pub extern "C" fn openedr_static_url_model_loaded() -> u32 {

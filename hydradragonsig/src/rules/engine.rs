@@ -3374,6 +3374,7 @@ fn evaluate_condition(
             recursive,
             value_regex,
             data_regex,
+            data_not_regex,
             data_hex,
             md5,
             sha256,
@@ -3384,12 +3385,18 @@ fn evaluate_condition(
                 recursive: *recursive,
                 value_regex: value_regex.clone(),
                 data_regex: data_regex.clone(),
+                data_not_regex: data_not_regex.clone(),
                 data_hex: data_hex.clone(),
                 md5: md5.clone(),
                 sha256: sha256.clone(),
                 min: min.unwrap_or(1),
             };
-            super::system_windows::registry_value_evidence(&query)
+            // A supplied EDR write is judged instead of the live registry: the
+            // scanner may run on another machine (cloud) than the one written to.
+            match &report.registry_event {
+                Some(event) => super::system_windows::registry_event_evidence(event, &query),
+                None => super::system_windows::registry_value_evidence(&query),
+            }
         }
         RuleCondition::Clsid { guids, inproc_regex } => {
             super::system_windows::clsid_evidence(guids, inproc_regex.as_deref())

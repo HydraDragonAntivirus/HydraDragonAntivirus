@@ -478,9 +478,9 @@ On non-Windows hosts these conditions log a one-time warning and never match.
 | Type | Keys | Matches when |
 |---|---|---|
 | `registry_key` | `key`, `recursive` (false), `value_pattern` | The registry key path (with optional glob segments) exists, and when `value_pattern` is set, a value name matching that regex exists in the key (or subtree if `recursive: true`). |
-| `registry_value` | `key`, `recursive` (false), `value_regex`, `data_regex`, `data_hex`, `md5`, `sha256`, `min` (default 1) | At least `min` registry values under `key` pass all supplied filters. |
+| `registry_value` | `key`, `recursive` (false), `value_regex`, `data_regex`, `data_not_regex`, `data_hex`, `md5`, `sha256`, `min` (default 1) | At least `min` registry values under `key` pass all supplied filters. `data_not_regex` keeps only values whose text data does NOT match (a value other than its safe/stock form). When the caller supplies one registry write (`ScanReport::registry_event`, e.g. an EDR event), that write is judged instead of the live registry; `data_hex` / `md5` / `sha256` never match a write. |
 | `clsid` | `guids`, `inproc_regex` | Any listed COM `CLSID` is registered under `HKCR\CLSID` or `HKLM\SOFTWARE\Classes\CLSID` (and its `InprocServer32` default value matches `inproc_regex` when set). |
-| `hosts_entry` | `ip`, `host` | A non-comment line in `%SystemRoot%\System32\drivers\etc\hosts` matches the `ip` glob and/or `host` regex. |
+| `hosts_entry` | `ip`, `host` | A non-comment line in `%SystemRoot%\System32\drivers\etc\hosts` matches the `ip` glob and/or `host` regex. Inline `#` comments and the stock localhost mapping (`127.x` / `0.0.0.0` / `::1` -> `localhost`, `localhost.localdomain`) are not entries. |
 | `sector_pattern` | `device`, `lba` (0), `count` (1, max 64), `patterns`, `min` (default 1), `excludes` | Raw 512-byte sectors read from `device` (`physical0`, `volume:C`, `\\.\PhysicalDrive0`) at `lba` match at least `min` hex patterns and no `excludes`. |
 
 ### 5.9 Remediation (`remediation`)
