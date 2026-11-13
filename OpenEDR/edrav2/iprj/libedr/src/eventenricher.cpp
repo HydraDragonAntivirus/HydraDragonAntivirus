@@ -3157,7 +3157,12 @@ void EventEnricher::executeUnfilteredLocalScan(Variant& vEvent, Variant& vProces
 				{
 					int64_t nfls = 0;
 					try { nfls = static_cast<int64_t>(vF["flsVerdict"]); } catch (...) {}
-					if (nfls == 1 || nfls == 2) continue; // Safe or Trusted
+					// cloud::fls::FileVerdict: 1 = Safe, 2 = Malicious (malwareVerdict),
+					// 3 = Unknown. Only Safe may skip the scan; a Malicious verdict used to
+					// be skipped here too (read as "Trusted"), so FLS-known malware was
+					// never scanned or flagged in real time. It now falls through: the scan
+					// below asks FLS first (cloudFirst) and gets the Malicious verdict.
+					if (nfls == 1) continue;
 				}
 			}
 		}
