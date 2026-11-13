@@ -42,6 +42,7 @@ import numpy as np
 from sklearn.model_selection import StratifiedKFold
 
 import dataset_paths
+from train_pe_lgbm import RETIRED_V2_FEATURES
 
 
 def row_key(row: np.ndarray) -> str:
@@ -58,6 +59,9 @@ def load(chunk_dir):
         if len(d["y"]) == 0:
             continue
         n = list(d.get("names", []))
+        if RETIRED_V2_FEATURES.intersection(n):  # same columns as the trainer sees
+            keep = [i for i, name in enumerate(n) if name not in RETIRED_V2_FEATURES]
+            d["X"], n = d["X"][:, keep], [n[i] for i in keep]
         if names is None:
             names = n
         elif n != names:

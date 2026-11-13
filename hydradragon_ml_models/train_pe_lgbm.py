@@ -405,6 +405,11 @@ PE_DUMP_EXE = os.path.join(BASE_DIR, "pe_feature_dump", "target", "release", "pe
 UNICORN_DIR = os.path.normpath(os.path.join(BASE_DIR, "..", "OpenMalwareScannerPortable"))
 # Feature names of the chunks being trained (v2: read from pe_feature_dump's header).
 TRAIN_FEATURE_NAMES = list(FEATURE_NAMES)
+# v2 features the engine no longer computes. Chunks built before the removal still hold
+# them; load_chunks drops those columns, so the old chunks train a model the current
+# engine can run (no re-extraction). unknown_str_ratio: the string filters are built from
+# the training corpus, so it measured "not seen in training" and flagged unseen clean files.
+RETIRED_V2_FEATURES = {"inner_unknown_str_ratio", "shell_unknown_str_ratio"}
 
 
 CRASH_LOG = os.path.join(BASE_DIR, "pe_feature_dump_crashes.txt")
@@ -688,6 +693,10 @@ def load_chunks(chunk_dir, balance=False, max_benign_ratio=0.0, exclude_rows=Non
         data = joblib.load(cf)
         if len(data["y"]) == 0:
             continue
+        if "names" in data and RETIRED_V2_FEATURES.intersection(data["names"]):
+            keep = [i for i, n in enumerate(data["names"]) if n not in RETIRED_V2_FEATURES]
+            data["X"] = np.ascontiguousarray(data["X"][:, keep])
+            data["names"] = [data["names"][i] for i in keep]
         if "names" in data:
             if TRAIN_FEATURE_NAMES != list(FEATURE_NAMES) and TRAIN_FEATURE_NAMES != list(data["names"]):
                 if "retry" in os.path.basename(cf):

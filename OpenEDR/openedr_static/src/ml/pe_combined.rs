@@ -433,8 +433,7 @@ pub fn dotnet_kind(data: &[u8]) -> u8 {
 
 /// Shell 65 + shell strings 3 + inner 65 + inner strings 3 + meta 4 + combined strings 3
 /// + shell / inner `dotnet_kind` + shell / inner `PeMimicryMetrics` + inner `PeStringMlMetrics` (6)
-/// + shell `PeStringMlMetrics` (6) + inner / shell `unknown_str_ratio`
-/// + inner / shell `total_unique_strings_log`
+/// + shell `PeStringMlMetrics` (6) + inner / shell `total_unique_strings_log`
 /// + inner `UrlMlMetrics` (4) + shell `UrlMlMetrics` (4)
 /// + shell `PeInfectorMetrics` (9: file-infector traces, so a virus-infected copy and
 ///   its clean original no longer share one vector)
@@ -442,6 +441,10 @@ pub fn dotnet_kind(data: &[u8]) -> u8 {
 ///   i.e. changed after signing)
 /// (each block appended last, so earlier positions never move: a model trained before
 /// a block was added reads it as unused columns).
+/// `unknown_str_ratio` (inner / shell) was removed: the string filters are built from the
+/// training corpus itself, so it measured "not seen in training" and flagged unseen clean
+/// files (signed vendor .NET tools). The positions after it moved down by 2; models from
+/// before the removal must be retrained (train_pe_lgbm drops the column from old chunks).
 /// The unified PE model (`pe_trees.bin`) reads all of it.
 pub const PE_V2_FEATURE_COUNT: usize = 65
     + 3
@@ -451,7 +454,8 @@ pub const PE_V2_FEATURE_COUNT: usize = 65
     + 3
     + 2
     + 2 * PeMimicryMetrics::LEN
-    + 2 * PeStringMlMetrics::LEN
+    + 2 * PeStringMlMetrics::BASE_LEN
+    + 2 // inner / shell total_unique_strings_log
     + 2 * UrlMlMetrics::LEN
     + PeInfectorMetrics::LEN
     + super::pe_signature::LEN;
@@ -465,9 +469,7 @@ const INNER_STRING_ML: usize = INNER_MIMICRY + PeMimicryMetrics::LEN;
 #[cfg(test)]
 const SHELL_STRING_ML: usize = INNER_STRING_ML + PeStringMlMetrics::BASE_LEN;
 #[cfg(test)]
-const UNKNOWN_STR_RATIO: usize = SHELL_STRING_ML + PeStringMlMetrics::BASE_LEN;
-#[cfg(test)]
-const TOTAL_UNIQUE_STR_LOG: usize = UNKNOWN_STR_RATIO + 2;
+const TOTAL_UNIQUE_STR_LOG: usize = SHELL_STRING_ML + PeStringMlMetrics::BASE_LEN;
 #[cfg(test)]
 const INNER_URL_ML: usize = TOTAL_UNIQUE_STR_LOG + 2;
 #[cfg(test)]
@@ -548,8 +550,6 @@ fn extract_pe_features_v2_inner(data: &[u8]) -> Option<[f32; PE_V2_FEATURE_COUNT
     };
     put(&shell_str_ml.base_array());
     put(&[
-        inner_str_ml.unknown_str_ratio,
-        shell_str_ml.unknown_str_ratio,
         inner_str_ml.total_unique_strings_log,
         shell_str_ml.total_unique_strings_log,
     ]);
@@ -599,8 +599,6 @@ pub fn pe_v2_feature_names() -> Vec<String> {
     n.extend(PeStringMlMetrics::BASE_NAMES.iter().map(|s| format!("inner_{s}")));
     n.extend(PeStringMlMetrics::BASE_NAMES.iter().map(|s| format!("shell_{s}")));
     n.extend([
-        "inner_unknown_str_ratio",
-        "shell_unknown_str_ratio",
         "inner_total_unique_strings_log",
         "shell_total_unique_strings_log",
     ].map(String::from));
@@ -673,20 +671,18 @@ mod tests {
         assert_eq!(names[136], "inner_source");
         assert_eq!(names[137], "inner_is_pe");
         assert_eq!(names[164], "shell_unicorn_trace_strings");
-        assert_eq!(names[UNKNOWN_STR_RATIO], "inner_unknown_str_ratio");
         assert_eq!(names[TOTAL_UNIQUE_STR_LOG], "inner_total_unique_strings_log");
-        assert_eq!(names[168], "shell_total_unique_strings_log");
-        assert_eq!(PE_V2_FEATURE_COUNT, 187);
-        assert_eq!(INNER_URL_ML, 169);
+        assert_eq!(names[166], "shell_total_unique_strings_log");
+        assert!(!names.iter().any(|n| n.contains("unknown_str_ratio")), "removed: leaks the training corpus");
+        assert_eq!(PE_V2_FEATURE_COUNT, 185);
+        assert_eq!(INNER_URL_ML, 167);
         assert_eq!(names[INNER_URL_ML], "inner_url_unwhitelisted_count_log");
         assert_eq!(names[SHELL_URL_ML], "shell_url_unwhitelisted_count_log");
         assert_eq!(names[SHELL_INFECTOR - 1], "shell_url_ml_high_count_log");
-        // Appended last: every earlier position (and so an older model) is unchanged.
-        assert_eq!(SHELL_INFECTOR, 177);
+        assert_eq!(SHELL_INFECTOR, 175);
         assert_eq!(names[SHELL_INFECTOR], "shell_inf_ep_section_position");
-        assert_eq!(names[185], "shell_inf_overlay_pe_share");
-        // Also appended last (a model from before it reads column 186 as unused).
-        assert_eq!(names[186], "shell_signature_tampered");
+        assert_eq!(names[183], "shell_inf_overlay_pe_share");
+        assert_eq!(names[184], "shell_signature_tampered");
         assert_eq!(names[PE_V2_FEATURE_COUNT - 1], "shell_signature_tampered");
         assert_eq!(pe_v2_feature_names_static().len(), PE_V2_FEATURE_COUNT);
         assert!(extract_pe_features_v2(b"not a pe").is_none());
