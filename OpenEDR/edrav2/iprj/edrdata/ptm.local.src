@@ -1690,6 +1690,177 @@
 		"hollowingBasket": {
 			"freshChild": "PROCESS_HOLLOWING"
 		},
+		"shortcutInfectionEventBaseType": {
+			"MLE_SUSPICIOUS_SHORTCUT": 1000032
+		},
+		"hostsTamperEventBaseType": {
+			"MLE_HOSTS_FILE_HIJACK": 1000033
+		},
+		"browserHijackEventBaseType": {
+			"MLE_BROWSER_HIJACK_REGISTRY": 1000034
+		},
+		"avTamperEventBaseType": {
+			"MLE_AV_PROCESS_TAMPERING": 1000035
+		},
+		"credDumpEventBaseType": {
+			"MLE_CREDENTIAL_DUMP_ATTEMPT": 1000036
+		},
+		"shortcutExtensions": [
+			"*.lnk*",
+			"*.pif*",
+			"*.scr*"
+		],
+		"suspiciousShortcutDirs": [
+			"*\\temp\\*",
+			"*\\appdata\\*",
+			"*\\users\\public\\*",
+			"*\\downloads\\*",
+			"*\\desktop\\*"
+		],
+		"hostsFileLocations": [
+			"*\\drivers\\etc\\hosts"
+		],
+		"browserHijackRegPaths": [
+			"*\\software\\policies\\google\\chrome*",
+			"*\\software\\policies\\microsoft\\edge*",
+			"*\\software\\policies\\mozilla\\firefox*",
+			"*\\software\\microsoft\\internet explorer\\main*",
+			"*\\software\\microsoft\\windows\\currentversion\\internet settings*",
+			"*\\image file execution options*",
+			"*\\currentversion\\windows*" // AppInit_DLLs / LoadAppInit_DLLs
+		],
+		"samHiveLocations": [
+			"*\\config\\sam*",
+			"*\\repair\\sam*"
+		],
+		//
+		// PUM (Potentially Unwanted Modification) — ported from the
+		// hydradragonsig pum_registry_rules.yaml that hydradragonav (now
+		// deprecated) scanned on demand. Here they fire live on the write,
+		// the FLS cloud / company whitelist decides trust, and the driver
+		// registry journal reverts the write (registryRevert).
+		//
+		"pumEventBaseType": {
+			"MLE_PUM_REGISTRY_MODIFICATION": 1000037
+		},
+		// The keys hydradragonav scanned for PUMs (PUM_PATHS_HKLM/HKCU), plus
+		// the policy twins and the System Restore / firewall / Security
+		// Center keys the old rules named by value only. abstractPath and
+		// rawPath are the key; the value name is @event.registry.name.
+		"pumPolicyRegKeys": [
+			"*\\software\\microsoft\\windows\\currentversion\\policies\\system",
+			"*\\software\\microsoft\\windows\\currentversion\\policies\\explorer",
+			"*\\software\\microsoft\\windows\\currentversion\\policies\\activedesktop",
+			"*\\software\\microsoft\\windows\\currentversion\\policies\\windowsupdate",
+			"*\\software\\policies\\microsoft\\windows\\system",
+			"*\\software\\policies\\microsoft\\windows\\windowsupdate*",
+			"*\\software\\policies\\microsoft\\windows\\control panel\\desktop",
+			"*\\software\\policies\\microsoft\\windows defender*",
+			"*\\software\\microsoft\\windows defender*",
+			"*\\software\\policies\\microsoft\\windows nt\\systemrestore",
+			"*\\software\\microsoft\\windows nt\\currentversion\\systemrestore",
+			"*\\software\\microsoft\\windows nt\\currentversion\\winlogon",
+			"*\\software\\policies\\microsoft\\windowsfirewall\\*",
+			"*\\system\\*controlset*\\services\\sharedaccess\\parameters\\firewallpolicy\\*",
+			"*\\system\\*controlset*\\control\\lsa"
+		],
+		// Value is PUM unless it is 0 (feature restrictions / protections off).
+		"pumValuesSafeZero": [
+			"disabletaskmgr",
+			"disableregistrytools",
+			"disablecmd",
+			"disablelockworkstation",
+			"disablechangepassword",
+			"disablecad",
+			"nologonui",
+			"nodispbackgroundpage",
+			"nodispappearancepage",
+			"nodispcpl",
+			"nodispscrsavpage",
+			"nofolderoptions",
+			"nocontrolpanel",
+			"noviewondrive",
+			"norun",
+			"nofind",
+			"nodesktop",
+			"notraycontextmenu",
+			"nosettaskbar",
+			"noclose",
+			"nopublishingwizard",
+			"nochangingwallpaper",
+			"hidescahealth",
+			"nowindowsupdate",
+			"disablewindowsupdateaccess",
+			"disablesr",
+			"disableconfig",
+			"disableantispyware",
+			"disablerealtimemonitoring",
+			"autoadminlogon"
+		],
+		"pumSafeZero": [ "0" ],
+		// Value is PUM unless it is 1 (protections that must stay on).
+		"pumValuesSafeOne": [
+			"enablelua",
+			"enablefirewall",
+			"enableinstallerdetection",
+			"limitblankpassworduse"
+		],
+		"pumSafeOne": [ "1" ],
+		// Value is PUM only when weakened to 0: higher values are the default
+		// or stricter (UAC admin prompt, autorun drive mask, LSA protection).
+		"pumValuesBadZero": [
+			"consentpromptbehavioradmin",
+			"nodrivetypeautorun",
+			"runasppl"
+		],
+		"pumBadZero": [ "0" ],
+		// Defender Tamper Protection: 5 / 1 on, anything else off.
+		"pumValuesTamper": [ "tamperprotection" ],
+		"pumSafeTamper": [ "1", "5" ],
+		// Forced strings: any non-empty value is PUM.
+		"pumValuesForcedString": [
+			"wallpaper",
+			"scrnsave.exe",
+			"legalnoticecaption",
+			"legalnoticetext"
+		],
+		// Hijacked system paths, with the stock value each must keep.
+		"pumHijackRegKeys": [
+			"*\\software\\microsoft\\windows nt\\currentversion\\winlogon",
+			"*\\system\\*controlset*\\services\\wscsvc\\parameters",
+			"*\\system\\*controlset*\\services\\tcpip\\parameters"
+		],
+		"pumValuesHijack": [
+			"shell",
+			"userinit",
+			"servicedll",
+			"databasepath"
+		],
+		"pumSafeHijack": [
+			"explorer.exe",
+			"*\\system32\\userinit.exe",
+			"*\\system32\\userinit.exe,",
+			"*\\system32\\wscsvc.dll",
+			"*\\system32\\drivers\\etc"
+		],
+		// Debugger / silent-exit hijacks: any value set is PUM.
+		"pumDebuggerRegKeys": [
+			"*\\image file execution options\\*",
+			"*\\currentversion\\silentprocessexit\\*"
+		],
+		"pumValuesDebugger": [
+			"debugger",
+			"reportingmode",
+			"monitorprocess"
+		],
+		// Scripted registry writers: System32 binaries that apply a PUM for
+		// whoever launched them. The detection notifier's ancestor trace and
+		// FLS cloud verdict decide whether that launcher is trusted.
+		"pumScriptedWriters": [
+			"*\\reg.exe*",
+			"*\\regedit.exe*",
+			"*\\regini.exe*"
+		],
 		"securitySubsystemProcesses": [
 			"*\\winlogon.exe*",
 			"*\\lsass.exe*",
@@ -5843,6 +6014,1057 @@
 				}
 			}
 		], // PROCESS_HOLLOWING
+		//
+		// Shortcut infection: .lnk/.pif/.scr dropped into user-writable dirs
+		// (temp/appdata/downloads/USB-styled paths) by an untrusted or script
+		// interpreter parent. Office maldocs landing here are covered because
+		// office binaries are not in trustedSecurityCallers.
+		//
+		"SUSPICIOUS_SHORTCUT_INFECTION": [
+			{
+				"eventType": "LLE_FILE_CREATE",
+				"rule": {
+					"name": "SuspiciousShortcutDrop",
+					"condition": {
+						"$operation": "and",
+						"args": [
+							{
+								"$operation": "or",
+								"args": [
+									{
+										"$operation": "imatch",
+										"pattern": "@const.shortcutExtensions",
+										"args": [ "@event.file.path" ]
+									},
+									{
+										"$operation": "imatch",
+										"pattern": "@const.shortcutExtensions",
+										"args": [ "@event.file.rawPath" ]
+									}
+								]
+							},
+							{
+								"$operation": "or",
+								"args": [
+									{
+										"$operation": "imatch",
+										"pattern": "@const.suspiciousShortcutDirs",
+										"args": [ "@event.file.path" ]
+									},
+									{
+										"$operation": "imatch",
+										"pattern": "@const.suspiciousShortcutDirs",
+										"args": [ "@event.file.rawPath" ]
+									}
+								]
+							},
+							{
+								"$operation": "or",
+								"args": [
+									{
+										"$operation": "!imatch",
+										"pattern": "@const.trustedSecurityCallers",
+										"args": [ "@event.process.imageFile.abstractPath" ]
+									},
+									{
+										"$operation": "imatch",
+										"pattern": "@const.untrustedSecurityCallers",
+										"args": [ "@event.process.imageFile.abstractPath" ]
+									}
+								]
+							},
+							{
+								"$operation": "!equal",
+								"args": [ "@event.process.isTrusted", true ]
+							}
+						]
+					},
+					"createEvent": {
+						"eventType": "MLE_SUSPICIOUS_SHORTCUT",
+						"destination": "OUT",
+						"clone": false,
+						"data": [
+							{ "name": "baseType", "value": "@const.shortcutInfectionEventBaseType.MLE_SUSPICIOUS_SHORTCUT" },
+							{ "name": "threatName", "value": "Trojan.Win32.ShortcutInfection" },
+							{ "name": "threatType", "value": "SHORTCUT_INFECTION" },
+							{ "name": "verdict", "value": 2 },
+							{ "name": "flsVerdict", "value": 2 },
+							{ "name": "process", "value": "@event.process" },
+							{ "name": "processes", "value": "@event.processes" },
+							{ "name": "file", "value": "@event.file" },
+							{ "name": "time", "value": "@event.time" },
+							{ "name": "tickTime", "value": "@event.tickTime" },
+							{ "name": "quarantineTarget", "value": "@event.file.rawPath" },
+							{ "name": "should_trust_company_whitelist", "value": true },
+							{ "name": "should_trust_comodo_fls_cloud", "value": false }
+						]
+					}
+				}
+			}
+		], // SUSPICIOUS_SHORTCUT_INFECTION
+		//
+		// Hosts file hijack: untrusted writes to the hosts file (redirect
+		// endpoints, kill-update domains). Covers full writes and partial
+		// data changes; trusted system writers are excluded.
+		//
+		"HOSTS_FILE_HIJACK": [
+			{
+				"eventType": "LLE_FILE_DATA_WRITE_FULL",
+				"rule": {
+					"name": "HostsFileFullWrite",
+					"condition": {
+						"$operation": "and",
+						"args": [
+							{
+								"$operation": "or",
+								"args": [
+									{
+										"$operation": "imatch",
+										"pattern": "@const.hostsFileLocations",
+										"args": [ "@event.file.path" ]
+									},
+									{
+										"$operation": "imatch",
+										"pattern": "@const.hostsFileLocations",
+										"args": [ "@event.file.rawPath" ]
+									}
+								]
+							},
+							{
+								"$operation": "or",
+								"args": [
+									{
+										"$operation": "!imatch",
+										"pattern": "@const.trustedSecurityCallers",
+										"args": [ "@event.process.imageFile.abstractPath" ]
+									},
+									{
+										"$operation": "imatch",
+										"pattern": "@const.untrustedSecurityCallers",
+										"args": [ "@event.process.imageFile.abstractPath" ]
+									}
+								]
+							},
+							{
+								"$operation": "!equal",
+								"args": [ "@event.process.isTrusted", true ]
+							}
+						]
+					},
+					"createEvent": {
+						"eventType": "MLE_HOSTS_FILE_HIJACK",
+						"destination": "OUT",
+						"clone": false,
+						"data": [
+							{ "name": "baseType", "value": "@const.hostsTamperEventBaseType.MLE_HOSTS_FILE_HIJACK" },
+							{ "name": "threatName", "value": "Trojan.Win32.HostsHijack" },
+							{ "name": "threatType", "value": "HOSTS_HIJACK" },
+							{ "name": "verdict", "value": 2 },
+							{ "name": "flsVerdict", "value": 2 },
+							{ "name": "process", "value": "@event.process" },
+							{ "name": "processes", "value": "@event.processes" },
+							{ "name": "file", "value": "@event.file" },
+							{ "name": "hostsFile", "value": "@event.file.rawPath" },
+							{ "name": "time", "value": "@event.time" },
+							{ "name": "tickTime", "value": "@event.tickTime" },
+							{ "name": "quarantineTarget", "value": "@event.process.imageFile.abstractPath" },
+							{ "name": "should_trust_company_whitelist", "value": true },
+							{ "name": "should_trust_comodo_fls_cloud", "value": false }
+						]
+					}
+				}
+			},
+			{
+				"eventType": "LLE_FILE_DATA_CHANGE",
+				"rule": {
+					"name": "HostsFilePartialChange",
+					"condition": {
+						"$operation": "and",
+						"args": [
+							{
+								"$operation": "or",
+								"args": [
+									{
+										"$operation": "imatch",
+										"pattern": "@const.hostsFileLocations",
+										"args": [ "@event.file.path" ]
+									},
+									{
+										"$operation": "imatch",
+										"pattern": "@const.hostsFileLocations",
+										"args": [ "@event.file.rawPath" ]
+									}
+								]
+							},
+							{
+								"$operation": "or",
+								"args": [
+									{
+										"$operation": "!imatch",
+										"pattern": "@const.trustedSecurityCallers",
+										"args": [ "@event.process.imageFile.abstractPath" ]
+									},
+									{
+										"$operation": "imatch",
+										"pattern": "@const.untrustedSecurityCallers",
+										"args": [ "@event.process.imageFile.abstractPath" ]
+									}
+								]
+							},
+							{
+								"$operation": "!equal",
+								"args": [ "@event.process.isTrusted", true ]
+							}
+						]
+					},
+					"createEvent": {
+						"eventType": "MLE_HOSTS_FILE_HIJACK",
+						"destination": "OUT",
+						"clone": false,
+						"data": [
+							{ "name": "baseType", "value": "@const.hostsTamperEventBaseType.MLE_HOSTS_FILE_HIJACK" },
+							{ "name": "threatName", "value": "Trojan.Win32.HostsHijack" },
+							{ "name": "threatType", "value": "HOSTS_HIJACK" },
+							{ "name": "verdict", "value": 2 },
+							{ "name": "flsVerdict", "value": 2 },
+							{ "name": "process", "value": "@event.process" },
+							{ "name": "processes", "value": "@event.processes" },
+							{ "name": "file", "value": "@event.file" },
+							{ "name": "hostsFile", "value": "@event.file.rawPath" },
+							{ "name": "time", "value": "@event.time" },
+							{ "name": "tickTime", "value": "@event.tickTime" },
+							{ "name": "quarantineTarget", "value": "@event.process.imageFile.abstractPath" },
+							{ "name": "should_trust_company_whitelist", "value": true },
+							{ "name": "should_trust_comodo_fls_cloud", "value": false }
+						]
+					}
+				}
+			}
+		], // HOSTS_FILE_HIJACK
+		//
+		// Browser / network hijack persistence: untrusted writes into browser
+		// policy keys, proxy settings, IFEO debugger redirection and AppInit_DLLs.
+		//
+		"BROWSER_HIJACK_REGISTRY": [
+			{
+				"eventType": "LLE_REGISTRY_VALUE_SET",
+				"rule": {
+					"name": "BrowserHijackValueSet",
+					"condition": {
+						"$operation": "and",
+						"args": [
+							{
+								"$operation": "or",
+								"args": [
+									{
+										"$operation": "imatch",
+										"pattern": "@const.browserHijackRegPaths",
+										"args": [ "@event.registry.abstractPath" ]
+									},
+									{
+										"$operation": "imatch",
+										"pattern": "@const.browserHijackRegPaths",
+										"args": [ "@event.registry.rawPath" ]
+									}
+								]
+							},
+							{
+								"$operation": "or",
+								"args": [
+									{
+										"$operation": "!imatch",
+										"pattern": "@const.trustedSecurityCallers",
+										"args": [ "@event.process.imageFile.abstractPath" ]
+									},
+									{
+										"$operation": "imatch",
+										"pattern": "@const.untrustedSecurityCallers",
+										"args": [ "@event.process.imageFile.abstractPath" ]
+									}
+								]
+							},
+							{
+								"$operation": "!equal",
+								"args": [ "@event.process.isTrusted", true ]
+							}
+						]
+					},
+					"createEvent": {
+						"eventType": "MLE_BROWSER_HIJACK_REGISTRY",
+						"destination": "OUT",
+						"clone": false,
+						"data": [
+							{ "name": "baseType", "value": "@const.browserHijackEventBaseType.MLE_BROWSER_HIJACK_REGISTRY" },
+							{ "name": "threatName", "value": "Trojan.Win32.BrowserHijack" },
+							{ "name": "threatType", "value": "BROWSER_HIJACK" },
+							{ "name": "verdict", "value": 2 },
+							{ "name": "flsVerdict", "value": 2 },
+							{ "name": "process", "value": "@event.process" },
+							{ "name": "processes", "value": "@event.processes" },
+							{ "name": "time", "value": "@event.time" },
+							{ "name": "tickTime", "value": "@event.tickTime" },
+							{ "name": "registry", "value": "@event.registry" },
+							{ "name": "registryDeleteTarget", "value": "@event.registry.abstractPath" },
+							{ "name": "registryDeleteTargetRaw", "value": "@event.registry.rawPath" },
+							{ "name": "quarantineTarget", "value": "@event.process.imageFile.abstractPath" },
+							{ "name": "should_trust_company_whitelist", "value": true },
+							{ "name": "should_trust_comodo_fls_cloud", "value": true }
+						]
+					}
+				}
+			},
+			{
+				"eventType": "LLE_REGISTRY_KEY_CREATE",
+				"rule": {
+					"name": "BrowserHijackKeyCreate",
+					"condition": {
+						"$operation": "and",
+						"args": [
+							{
+								"$operation": "or",
+								"args": [
+									{
+										"$operation": "imatch",
+										"pattern": "@const.browserHijackRegPaths",
+										"args": [ "@event.registry.abstractPath" ]
+									},
+									{
+										"$operation": "imatch",
+										"pattern": "@const.browserHijackRegPaths",
+										"args": [ "@event.registry.rawPath" ]
+									}
+								]
+							},
+							{
+								"$operation": "or",
+								"args": [
+									{
+										"$operation": "!imatch",
+										"pattern": "@const.trustedSecurityCallers",
+										"args": [ "@event.process.imageFile.abstractPath" ]
+									},
+									{
+										"$operation": "imatch",
+										"pattern": "@const.untrustedSecurityCallers",
+										"args": [ "@event.process.imageFile.abstractPath" ]
+									}
+								]
+							},
+							{
+								"$operation": "!equal",
+								"args": [ "@event.process.isTrusted", true ]
+							}
+						]
+					},
+					"createEvent": {
+						"eventType": "MLE_BROWSER_HIJACK_REGISTRY",
+						"destination": "OUT",
+						"clone": false,
+						"data": [
+							{ "name": "baseType", "value": "@const.browserHijackEventBaseType.MLE_BROWSER_HIJACK_REGISTRY" },
+							{ "name": "threatName", "value": "Trojan.Win32.BrowserHijack" },
+							{ "name": "threatType", "value": "BROWSER_HIJACK" },
+							{ "name": "verdict", "value": 2 },
+							{ "name": "flsVerdict", "value": 2 },
+							{ "name": "process", "value": "@event.process" },
+							{ "name": "processes", "value": "@event.processes" },
+							{ "name": "time", "value": "@event.time" },
+							{ "name": "tickTime", "value": "@event.tickTime" },
+							{ "name": "registry", "value": "@event.registry" },
+							{ "name": "registryDeleteTarget", "value": "@event.registry.abstractPath" },
+							{ "name": "registryDeleteTargetRaw", "value": "@event.registry.rawPath" },
+							{ "name": "quarantineTarget", "value": "@event.process.imageFile.abstractPath" },
+							{ "name": "should_trust_company_whitelist", "value": true },
+							{ "name": "should_trust_comodo_fls_cloud", "value": true }
+						]
+					}
+				}
+			}
+		], // BROWSER_HIJACK_REGISTRY
+		//
+		// PUM: a policy / security registry value set to its weakened state
+		// (Task Manager / regedit / UAC / Defender / firewall disabled, Winlogon
+		// shell or IFEO debugger hijacked). Ported from hydradragonsig
+		// pum_registry_rules.yaml; matches only the bad value, so restoring the
+		// safe value never fires. No registryDeleteTarget: deleting a Policies
+		// key would take the user's own policies with it. registryRevert asks
+		// the driver to restore the journaled original value for the writer's
+		// GID, after the FLS cloud / company whitelist trust check.
+		//
+		"PUM_REGISTRY_MODIFICATION": [
+			{
+				"eventType": "LLE_REGISTRY_VALUE_SET",
+				"rule": {
+					"name": "PumRegistryValueSet",
+					"condition": {
+						"$operation": "and",
+						"args": [
+							{
+								"$operation": "or",
+								"args": [
+									{
+										"$operation": "and",
+										"args": [
+											{
+												"$operation": "or",
+												"args": [
+													{
+														"$operation": "imatch",
+														"pattern": "@const.pumPolicyRegKeys",
+														"args": [ "@event.registry.abstractPath" ]
+													},
+													{
+														"$operation": "imatch",
+														"pattern": "@const.pumPolicyRegKeys",
+														"args": [ "@event.registry.rawPath" ]
+													}
+												]
+											},
+											{
+												"$operation": "imatch",
+												"pattern": "@const.pumValuesSafeZero",
+												"args": [ "@event.registry.name" ]
+											},
+											{
+												"$operation": "!imatch",
+												"pattern": "@const.pumSafeZero",
+												"args": [ "@event.registry.data" ]
+											}
+										]
+									},
+									{
+										"$operation": "and",
+										"args": [
+											{
+												"$operation": "or",
+												"args": [
+													{
+														"$operation": "imatch",
+														"pattern": "@const.pumPolicyRegKeys",
+														"args": [ "@event.registry.abstractPath" ]
+													},
+													{
+														"$operation": "imatch",
+														"pattern": "@const.pumPolicyRegKeys",
+														"args": [ "@event.registry.rawPath" ]
+													}
+												]
+											},
+											{
+												"$operation": "imatch",
+												"pattern": "@const.pumValuesSafeOne",
+												"args": [ "@event.registry.name" ]
+											},
+											{
+												"$operation": "!imatch",
+												"pattern": "@const.pumSafeOne",
+												"args": [ "@event.registry.data" ]
+											}
+										]
+									},
+									{
+										"$operation": "and",
+										"args": [
+											{
+												"$operation": "or",
+												"args": [
+													{
+														"$operation": "imatch",
+														"pattern": "@const.pumPolicyRegKeys",
+														"args": [ "@event.registry.abstractPath" ]
+													},
+													{
+														"$operation": "imatch",
+														"pattern": "@const.pumPolicyRegKeys",
+														"args": [ "@event.registry.rawPath" ]
+													}
+												]
+											},
+											{
+												"$operation": "imatch",
+												"pattern": "@const.pumValuesBadZero",
+												"args": [ "@event.registry.name" ]
+											},
+											{
+												"$operation": "imatch",
+												"pattern": "@const.pumBadZero",
+												"args": [ "@event.registry.data" ]
+											}
+										]
+									},
+									{
+										"$operation": "and",
+										"args": [
+											{
+												"$operation": "or",
+												"args": [
+													{
+														"$operation": "imatch",
+														"pattern": "@const.pumPolicyRegKeys",
+														"args": [ "@event.registry.abstractPath" ]
+													},
+													{
+														"$operation": "imatch",
+														"pattern": "@const.pumPolicyRegKeys",
+														"args": [ "@event.registry.rawPath" ]
+													}
+												]
+											},
+											{
+												"$operation": "imatch",
+												"pattern": "@const.pumValuesTamper",
+												"args": [ "@event.registry.name" ]
+											},
+											{
+												"$operation": "!imatch",
+												"pattern": "@const.pumSafeTamper",
+												"args": [ "@event.registry.data" ]
+											}
+										]
+									},
+									{
+										"$operation": "and",
+										"args": [
+											{
+												"$operation": "or",
+												"args": [
+													{
+														"$operation": "imatch",
+														"pattern": "@const.pumPolicyRegKeys",
+														"args": [ "@event.registry.abstractPath" ]
+													},
+													{
+														"$operation": "imatch",
+														"pattern": "@const.pumPolicyRegKeys",
+														"args": [ "@event.registry.rawPath" ]
+													}
+												]
+											},
+											{
+												"$operation": "imatch",
+												"pattern": "@const.pumValuesForcedString",
+												"args": [ "@event.registry.name" ]
+											},
+											{
+												"$operation": "!equal",
+												"args": [ "@event.registry.data", "" ]
+											}
+										]
+									},
+									{
+										"$operation": "and",
+										"args": [
+											{
+												"$operation": "or",
+												"args": [
+													{
+														"$operation": "imatch",
+														"pattern": "@const.pumHijackRegKeys",
+														"args": [ "@event.registry.abstractPath" ]
+													},
+													{
+														"$operation": "imatch",
+														"pattern": "@const.pumHijackRegKeys",
+														"args": [ "@event.registry.rawPath" ]
+													}
+												]
+											},
+											{
+												"$operation": "imatch",
+												"pattern": "@const.pumValuesHijack",
+												"args": [ "@event.registry.name" ]
+											},
+											{
+												"$operation": "!imatch",
+												"pattern": "@const.pumSafeHijack",
+												"args": [ "@event.registry.data" ]
+											}
+										]
+									},
+									{
+										"$operation": "and",
+										"args": [
+											{
+												"$operation": "or",
+												"args": [
+													{
+														"$operation": "imatch",
+														"pattern": "@const.pumDebuggerRegKeys",
+														"args": [ "@event.registry.abstractPath" ]
+													},
+													{
+														"$operation": "imatch",
+														"pattern": "@const.pumDebuggerRegKeys",
+														"args": [ "@event.registry.rawPath" ]
+													}
+												]
+											},
+											{
+												"$operation": "imatch",
+												"pattern": "@const.pumValuesDebugger",
+												"args": [ "@event.registry.name" ]
+											}
+										]
+									}
+								]
+							},
+							{
+								"$operation": "or",
+								"args": [
+									{
+										"$operation": "!imatch",
+										"pattern": "@const.trustedSecurityCallers",
+										"args": [ "@event.process.imageFile.abstractPath" ]
+									},
+									{
+										"$operation": "imatch",
+										"pattern": "@const.untrustedSecurityCallers",
+										"args": [ "@event.process.imageFile.abstractPath" ]
+									},
+									{
+										"$operation": "imatch",
+										"pattern": "@const.pumScriptedWriters",
+										"args": [ "@event.process.imageFile.abstractPath" ]
+									}
+								]
+							}
+						]
+					},
+					"createEvent": {
+						"eventType": "MLE_PUM_REGISTRY_MODIFICATION",
+						"destination": "OUT",
+						"clone": false,
+						"data": [
+							{ "name": "baseType", "value": "@const.pumEventBaseType.MLE_PUM_REGISTRY_MODIFICATION" },
+							{ "name": "threatName", "value": "PUM.Optional.RegistryModification" },
+							{ "name": "threatType", "value": "PUM" },
+							{ "name": "verdict", "value": 2 },
+							{ "name": "flsVerdict", "value": 2 },
+							{ "name": "process", "value": "@event.process" },
+							{ "name": "processes", "value": "@event.processes" },
+							{ "name": "time", "value": "@event.time" },
+							{ "name": "tickTime", "value": "@event.tickTime" },
+							{ "name": "registry", "value": "@event.registry" },
+							{ "name": "pumValueName", "value": "@event.registry.name" },
+							{ "name": "pumValueData", "value": "@event.registry.data" },
+							{ "name": "registryRevert", "value": true },
+							{ "name": "quarantineTarget", "value": "@event.process.imageFile.abstractPath" },
+							{ "name": "should_trust_company_whitelist", "value": true },
+							{ "name": "should_trust_comodo_fls_cloud", "value": true }
+						]
+					}
+				}
+			}
+		], // PUM_REGISTRY_MODIFICATION
+		//
+		// Security software tampering: untrusted process opens or writes the
+		// memory of AV / self-defense processes (kill or injection attempts
+		// against protected endpoints).
+		//
+		"AV_PROCESS_TAMPERING": [
+			{
+				"eventType": "LLE_PROCESS_OPEN",
+				"rule": {
+					"name": "UntrustedOpenAvProcess",
+					"condition": {
+						"$operation": "and",
+						"args": [
+							{
+								"$operation": "or",
+								"args": [
+									{
+										"$operation": "imatch",
+										"pattern": "@const.driverSelfPaths",
+										"args": [ "@event.target.imageFile.abstractPath" ]
+									},
+									{
+										"$operation": "imatch",
+										"pattern": "@const.driverSelfPaths",
+										"args": [ "@event.target.imageFile.rawPath" ]
+									},
+									{
+										"$operation": "imatch",
+										"pattern": "@const.driverSelfPaths",
+										"args": [ "@event.target.imagePath" ]
+									}
+								]
+							},
+							{
+								"$operation": "or",
+								"args": [
+									{
+										"$operation": "!imatch",
+										"pattern": "@const.trustedSecurityCallers",
+										"args": [ "@event.process.imageFile.abstractPath" ]
+									},
+									{
+										"$operation": "imatch",
+										"pattern": "@const.untrustedSecurityCallers",
+										"args": [ "@event.process.imageFile.abstractPath" ]
+									}
+								]
+							},
+							{
+								"$operation": "and",
+								"args": [
+									{
+										"$operation": "!imatch",
+										"pattern": "@const.driverSelfPaths",
+										"args": [ "@event.process.imageFile.abstractPath" ]
+									},
+									{
+										"$operation": "!imatch",
+										"pattern": "@const.driverSelfPaths",
+										"args": [ "@event.process.imageFile.rawPath" ]
+									}
+								]
+							},
+							{
+								"$operation": "!equal",
+								"args": [ "@event.process.id", "@event.target.id" ]
+							},
+							{
+								"$operation": "!equal",
+								"args": [ "@event.process.isTrusted", true ]
+							}
+						]
+					},
+					"createEvent": {
+						"eventType": "MLE_AV_PROCESS_TAMPERING",
+						"destination": "OUT",
+						"clone": false,
+						"data": [
+							{ "name": "baseType", "value": "@const.avTamperEventBaseType.MLE_AV_PROCESS_TAMPERING" },
+							{ "name": "threatName", "value": "Trojan.Win32.AvTamper" },
+							{ "name": "threatType", "value": "AV_TAMPER" },
+							{ "name": "verdict", "value": 2 },
+							{ "name": "flsVerdict", "value": 2 },
+							{ "name": "process", "value": "@event.process" },
+							{ "name": "processes", "value": "@event.processes" },
+							{ "name": "time", "value": "@event.time" },
+							{ "name": "tickTime", "value": "@event.tickTime" },
+							{ "name": "targetProcessId", "value": "@event.target.id" },
+							{ "name": "targetProcessPath", "value": "@event.target.imageFile.abstractPath" },
+							{ "name": "targetProcessPathRaw", "value": "@event.target.imageFile.rawPath" },
+							{ "name": "quarantineTarget", "value": "@event.process.imageFile.abstractPath" },
+							{ "name": "should_trust_company_whitelist", "value": true },
+							{ "name": "should_trust_comodo_fls_cloud", "value": false }
+						]
+					}
+				}
+			},
+			{
+				"eventType": "LLE_PROCESS_MEMORY_WRITE",
+				"rule": {
+					"name": "ForeignWriteAvProcess",
+					"condition": {
+						"$operation": "and",
+						"args": [
+							{
+								"$operation": "or",
+								"args": [
+									{
+										"$operation": "imatch",
+										"pattern": "@const.driverSelfPaths",
+										"args": [ "@event.target.imageFile.abstractPath" ]
+									},
+									{
+										"$operation": "imatch",
+										"pattern": "@const.driverSelfPaths",
+										"args": [ "@event.target.imageFile.rawPath" ]
+									},
+									{
+										"$operation": "imatch",
+										"pattern": "@const.driverSelfPaths",
+										"args": [ "@event.target.imagePath" ]
+									}
+								]
+							},
+							{
+								"$operation": "or",
+								"args": [
+									{
+										"$operation": "!imatch",
+										"pattern": "@const.trustedSecurityCallers",
+										"args": [ "@event.process.imageFile.abstractPath" ]
+									},
+									{
+										"$operation": "imatch",
+										"pattern": "@const.untrustedSecurityCallers",
+										"args": [ "@event.process.imageFile.abstractPath" ]
+									}
+								]
+							},
+							{
+								"$operation": "and",
+								"args": [
+									{
+										"$operation": "!imatch",
+										"pattern": "@const.driverSelfPaths",
+										"args": [ "@event.process.imageFile.abstractPath" ]
+									},
+									{
+										"$operation": "!imatch",
+										"pattern": "@const.driverSelfPaths",
+										"args": [ "@event.process.imageFile.rawPath" ]
+									}
+								]
+							},
+							{
+								"$operation": "!equal",
+								"args": [ "@event.process.id", "@event.target.id" ]
+							},
+							{
+								"$operation": "!equal",
+								"args": [ "@event.process.isTrusted", true ]
+							}
+						]
+					},
+					"createEvent": {
+						"eventType": "MLE_AV_PROCESS_TAMPERING",
+						"destination": "OUT",
+						"clone": false,
+						"data": [
+							{ "name": "baseType", "value": "@const.avTamperEventBaseType.MLE_AV_PROCESS_TAMPERING" },
+							{ "name": "threatName", "value": "Trojan.Win32.AvTamper" },
+							{ "name": "threatType", "value": "AV_TAMPER" },
+							{ "name": "verdict", "value": 2 },
+							{ "name": "flsVerdict", "value": 2 },
+							{ "name": "process", "value": "@event.process" },
+							{ "name": "processes", "value": "@event.processes" },
+							{ "name": "time", "value": "@event.time" },
+							{ "name": "tickTime", "value": "@event.tickTime" },
+							{ "name": "targetProcessId", "value": "@event.target.id" },
+							{ "name": "targetProcessPath", "value": "@event.target.imageFile.abstractPath" },
+							{ "name": "targetProcessPathRaw", "value": "@event.target.imageFile.rawPath" },
+							{ "name": "quarantineTarget", "value": "@event.process.imageFile.abstractPath" },
+							{ "name": "should_trust_company_whitelist", "value": true },
+							{ "name": "should_trust_comodo_fls_cloud", "value": false }
+						]
+					}
+				}
+			}
+		], // AV_PROCESS_TAMPERING
+		//
+		// Credential dumping: foreign memory reads of lsass/winlogon/csrss/
+		// services (LSASS dump primitives) and raw reads of the SAM hive.
+		// Abstract-path and raw-path caller variants mirror the token theft
+		// pattern structure.
+		//
+		"CREDENTIAL_DUMP_ATTEMPT": [
+			{
+				"eventType": "LLE_PROCESS_MEMORY_READ",
+				"rule": {
+					"name": "CredentialDumpMemoryReadAbstract",
+					"condition": {
+						"$operation": "and",
+						"args": [
+							{
+								"$operation": "imatch",
+								"pattern": "?*",
+								"args": [ "@event.process.imageFile.abstractPath" ]
+							},
+							{
+								"$operation": "or",
+								"args": [
+									{
+										"$operation": "imatch",
+										"pattern": "@const.securitySubsystemProcesses",
+										"args": [ "@event.target.imageFile.abstractPath" ]
+									},
+									{
+										"$operation": "imatch",
+										"pattern": "@const.securitySubsystemProcesses",
+										"args": [ "@event.target.imageFile.rawPath" ]
+									},
+									{
+										"$operation": "imatch",
+										"pattern": "@const.securitySubsystemProcesses",
+										"args": [ "@event.target.imagePath" ]
+									}
+								]
+							},
+							{
+								"$operation": "or",
+								"args": [
+									{
+										"$operation": "!imatch",
+										"pattern": "@const.trustedSecurityCallers",
+										"args": [ "@event.process.imageFile.abstractPath" ]
+									},
+									{
+										"$operation": "imatch",
+										"pattern": "@const.untrustedSecurityCallers",
+										"args": [ "@event.process.imageFile.abstractPath" ]
+									}
+								]
+							},
+							{
+								"$operation": "!equal",
+								"args": [ "@event.process.id", "@event.target.id" ]
+							}
+						]
+					},
+					"createEvent": {
+						"eventType": "MLE_CREDENTIAL_DUMP_ATTEMPT",
+						"destination": "OUT",
+						"clone": false,
+						"data": [
+							{ "name": "baseType", "value": "@const.credDumpEventBaseType.MLE_CREDENTIAL_DUMP_ATTEMPT" },
+							{ "name": "threatName", "value": "Trojan.Win32.CredentialDump" },
+							{ "name": "threatType", "value": "CRED_DUMP" },
+							{ "name": "verdict", "value": 2 },
+							{ "name": "flsVerdict", "value": 2 },
+							{ "name": "process", "value": "@event.process" },
+							{ "name": "processes", "value": "@event.processes" },
+							{ "name": "time", "value": "@event.time" },
+							{ "name": "tickTime", "value": "@event.tickTime" },
+							{ "name": "targetProcessId", "value": "@event.target.id" },
+							{ "name": "targetProcessPath", "value": "@event.target.imageFile.abstractPath" },
+							{ "name": "quarantineTarget", "value": "@event.process.imageFile.abstractPath" },
+							{ "name": "should_trust_company_whitelist", "value": true },
+							{ "name": "should_trust_comodo_fls_cloud", "value": false }
+						]
+					}
+				}
+			},
+			{
+				"eventType": "LLE_PROCESS_MEMORY_READ",
+				"rule": {
+					"name": "CredentialDumpMemoryReadRaw",
+					"condition": {
+						"$operation": "and",
+						"args": [
+							{
+								"$operation": "!imatch",
+								"pattern": "?*",
+								"args": [ "@event.process.imageFile.abstractPath" ]
+							},
+							{
+								"$operation": "or",
+								"args": [
+									{
+										"$operation": "imatch",
+										"pattern": "@const.securitySubsystemProcesses",
+										"args": [ "@event.target.imageFile.rawPath" ]
+									},
+									{
+										"$operation": "imatch",
+										"pattern": "@const.securitySubsystemProcesses",
+										"args": [ "@event.target.imagePath" ]
+									}
+								]
+							},
+							{
+								"$operation": "or",
+								"args": [
+									{
+										"$operation": "!imatch",
+										"pattern": "@const.trustedSecurityCallers",
+										"args": [ "@event.process.imageFile.rawPath" ]
+									},
+									{
+										"$operation": "imatch",
+										"pattern": "@const.untrustedSecurityCallers",
+										"args": [ "@event.process.imageFile.rawPath" ]
+									}
+								]
+							},
+							{
+								"$operation": "!equal",
+								"args": [ "@event.process.id", "@event.target.id" ]
+							}
+						]
+					},
+					"createEvent": {
+						"eventType": "MLE_CREDENTIAL_DUMP_ATTEMPT",
+						"destination": "OUT",
+						"clone": false,
+						"data": [
+							{ "name": "baseType", "value": "@const.credDumpEventBaseType.MLE_CREDENTIAL_DUMP_ATTEMPT" },
+							{ "name": "threatName", "value": "Trojan.Win32.CredentialDump" },
+							{ "name": "threatType", "value": "CRED_DUMP" },
+							{ "name": "verdict", "value": 2 },
+							{ "name": "flsVerdict", "value": 2 },
+							{ "name": "process", "value": "@event.process" },
+							{ "name": "processes", "value": "@event.processes" },
+							{ "name": "time", "value": "@event.time" },
+							{ "name": "tickTime", "value": "@event.tickTime" },
+							{ "name": "targetProcessId", "value": "@event.target.id" },
+							{ "name": "targetProcessPath", "value": "@event.target.imageFile.rawPath" },
+							{ "name": "quarantineTarget", "value": "@event.process.imageFile.rawPath" },
+							{ "name": "should_trust_company_whitelist", "value": true },
+							{ "name": "should_trust_comodo_fls_cloud", "value": false }
+						]
+					}
+				}
+			},
+			{
+				"eventType": "LLE_FILE_DATA_READ_FULL",
+				"rule": {
+					"name": "CredentialDumpSamHiveRead",
+					"condition": {
+						"$operation": "and",
+						"args": [
+							{
+								"$operation": "or",
+								"args": [
+									{
+										"$operation": "imatch",
+										"pattern": "@const.samHiveLocations",
+										"args": [ "@event.file.path" ]
+									},
+									{
+										"$operation": "imatch",
+										"pattern": "@const.samHiveLocations",
+										"args": [ "@event.file.rawPath" ]
+									}
+								]
+							},
+							{
+								"$operation": "or",
+								"args": [
+									{
+										"$operation": "!imatch",
+										"pattern": "@const.trustedSecurityCallers",
+										"args": [ "@event.process.imageFile.abstractPath" ]
+									},
+									{
+										"$operation": "imatch",
+										"pattern": "@const.untrustedSecurityCallers",
+										"args": [ "@event.process.imageFile.abstractPath" ]
+									}
+								]
+							},
+							{
+								"$operation": "!equal",
+								"args": [ "@event.process.isTrusted", true ]
+							}
+						]
+					},
+					"createEvent": {
+						"eventType": "MLE_CREDENTIAL_DUMP_ATTEMPT",
+						"destination": "OUT",
+						"clone": false,
+						"data": [
+							{ "name": "baseType", "value": "@const.credDumpEventBaseType.MLE_CREDENTIAL_DUMP_ATTEMPT" },
+							{ "name": "threatName", "value": "Trojan.Win32.CredentialDump" },
+							{ "name": "threatType", "value": "CRED_DUMP" },
+							{ "name": "verdict", "value": 2 },
+							{ "name": "flsVerdict", "value": 2 },
+							{ "name": "process", "value": "@event.process" },
+							{ "name": "processes", "value": "@event.processes" },
+							{ "name": "file", "value": "@event.file" },
+							{ "name": "time", "value": "@event.time" },
+							{ "name": "tickTime", "value": "@event.tickTime" },
+							{ "name": "quarantineTarget", "value": "@event.process.imageFile.abstractPath" },
+							{ "name": "should_trust_company_whitelist", "value": true },
+							{ "name": "should_trust_comodo_fls_cloud", "value": false }
+						]
+					}
+				}
+			}
+		], // CREDENTIAL_DUMP_ATTEMPT
 		"PUA_REGISTRY_WRITE": [
 			// PUA persistence keys (converted from hydradragonsig reglist_pua.yaml):
 			// second-layer delete when revert_registry missed the key.

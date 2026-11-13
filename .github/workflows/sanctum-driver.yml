@@ -33,6 +33,20 @@ jobs:
     steps:
       - name: Enable Git long paths
         run: git config --global core.longpaths true
+      # Short cargo build-dir for rust-script only (cargo-make's load_script).
+      # Newer cargo nests build files as build\<pkg>\<hash>\out\, and the
+      # 89-char rust-script package name appears twice, pushing link.exe's
+      # output past MAX_PATH (LNK1104). Scoped via a config file in
+      # rust-script's cache (its cargo runs from projects\<hash>) because a
+      # global CARGO_BUILD_BUILD_DIR breaks wdk-build, which looks for
+      # Cargo.lock above OUT_DIR.
+      - name: Shorten rust-script build-dir
+        shell: pwsh
+        run: |
+          $dir = Join-Path $env:LOCALAPPDATA "rust-script\.cargo"
+          New-Item -ItemType Directory -Force -Path $dir | Out-Null
+          $buildDir = (Join-Path $env:RUNNER_TEMP "rsb").Replace('\', '/')
+          "[build]`nbuild-dir = `"$buildDir`"`n" | Set-Content -Encoding ascii (Join-Path $dir "config.toml")
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
@@ -89,6 +103,20 @@ jobs:
     steps:
       - name: Enable Git long paths
         run: git config --global core.longpaths true
+      # Short cargo build-dir for rust-script only (cargo-make's load_script).
+      # Newer cargo nests build files as build\<pkg>\<hash>\out\, and the
+      # 89-char rust-script package name appears twice, pushing link.exe's
+      # output past MAX_PATH (LNK1104). Scoped via a config file in
+      # rust-script's cache (its cargo runs from projects\<hash>) because a
+      # global CARGO_BUILD_BUILD_DIR breaks wdk-build, which looks for
+      # Cargo.lock above OUT_DIR.
+      - name: Shorten rust-script build-dir
+        shell: pwsh
+        run: |
+          $dir = Join-Path $env:LOCALAPPDATA "rust-script\.cargo"
+          New-Item -ItemType Directory -Force -Path $dir | Out-Null
+          $buildDir = (Join-Path $env:RUNNER_TEMP "rsb").Replace('\', '/')
+          "[build]`nbuild-dir = `"$buildDir`"`n" | Set-Content -Encoding ascii (Join-Path $dir "config.toml")
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
