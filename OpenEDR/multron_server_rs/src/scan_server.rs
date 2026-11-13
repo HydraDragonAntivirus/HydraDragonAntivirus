@@ -405,7 +405,9 @@ impl ScanServer {
             offload: Arc::new(crate::offload::Offload::default()),
             mirror: Arc::new(crate::archive::Mirror::default()),
             scan_queue: Arc::new(ScanQueueList::default()),
-            edr_telemetry: Arc::new(crate::edr_telemetry::EdrTelemetryStore::new()),
+            edr_telemetry: Arc::new(crate::edr_telemetry::EdrTelemetryStore::open(&app_dir().join(
+                if crate::config::is_archive() { "edr_telemetry.archive.db" } else { "edr_telemetry.db" },
+            ))),
             edr_telemetry_buckets: StdMutex::new(HashMap::new()),
         })
     }
@@ -1927,6 +1929,10 @@ fn record_result(server: &ScanServer, session: &SessionHandle, res: &ResultMessa
         file: Some(file_name.to_string()),
         size: Some(size),
         ms: Some(res.scan_ms),
+        // Objects the engine took out of the file and scanned one by one (archive
+        // members, unpacked payloads, ...): what a long scan time was spent on. A
+        // verdict answered from the cache or a review scanned nothing.
+        items: (res.source == "scan").then_some(res.extracted_objects.len() as i64),
         threat: res.threat.clone(),
         detail: res.detail.clone(),
         sha256: Some(res.sha256.clone()),
@@ -1962,6 +1968,7 @@ fn record_result(server: &ScanServer, session: &SessionHandle, res: &ResultMessa
             file: Some(format!("↳ {}", obj.name)),
             size: Some(obj.size as i64),
             ms: None,
+            items: None,
             threat: sub_threat_name,
             detail: sub_detail,
             sha256: Some(obj.sha256.clone()),
@@ -2320,6 +2327,7 @@ fn simple_event(kind: &str, session: Option<i64>, client: Option<String>, messag
         file: None,
         size: None,
         ms: None,
+        items: None,
         threat: None,
         detail: None,
         sha256: None,
@@ -2405,6 +2413,7 @@ fn handle_verdict_report(server: &Arc<ScanServer>, session: &Arc<SessionHandle>,
                 file: if name.is_empty() { None } else { Some(name.clone()) },
                 size: None,
                 ms: None,
+                items: None,
                 threat: None,
                 detail: None,
                 sha256: Some(sha.clone()),
@@ -2724,6 +2733,7 @@ pub async fn execute_url_scan(
         file: Some(report.target_url.clone()),
         size: None,
         ms: Some(scan_ms),
+        items: None,
         threat: if report.verdict != "Clean" {
             report.detections.first().map(|d| d.title.clone())
         } else {

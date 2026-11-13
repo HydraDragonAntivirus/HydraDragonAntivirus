@@ -27,6 +27,8 @@ pub struct Change {
     /// Size of the kept file in bytes.
     #[serde(default)]
     pub size: u64,
+    /// Objects taken out of the file and scanned on their own.
+    pub items: u64,
 }
 
 /// One rescanned file for the dashboard log (verdict kept or changed, or failed).
@@ -46,6 +48,8 @@ pub struct LogEntry {
     pub changed: bool,
     pub size: u64,
     pub ms: u64,
+    /// Objects taken out of the file and scanned on their own (0 when it failed).
+    pub items: u64,
     pub at: String,
     /// "single" (one file from the dashboard), "bulk" or "reload" (after an engine reload).
     pub source: &'static str,
@@ -188,6 +192,7 @@ pub fn rescan_one(server: &Arc<ScanServer>, sha_hex: &str) -> Result<Change, Str
         detail: res.detail.clone(),
         at: chrono::Utc::now().to_rfc3339(),
         size: data_len,
+        items: res.extracted_objects.len() as u64,
     };
     server.log_info(format!(
         "rescan {} ({}): {} -> {}{}",
@@ -218,6 +223,7 @@ pub fn rescan_logged(server: &Arc<ScanServer>, sha_hex: &str, source: &'static s
             changed: c.old_verdict != c.new_verdict,
             size: c.size,
             ms,
+            items: c.items,
             at,
             source,
             run,
@@ -236,6 +242,7 @@ pub fn rescan_logged(server: &Arc<ScanServer>, sha_hex: &str, source: &'static s
                 changed: false,
                 size: 0,
                 ms,
+                items: 0,
                 at,
                 source,
                 run,

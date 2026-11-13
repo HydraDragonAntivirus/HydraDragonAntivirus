@@ -39,6 +39,7 @@ mod sample_zip;
 mod similarity;
 mod string_wl;
 mod events;
+mod edr_db;
 mod edr_telemetry;
 mod handoff;
 mod limits;
@@ -358,6 +359,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
                     file: None,
                     size: None,
                     ms: None,
+                    items: None,
                     threat: None,
                     detail: None,
                     sha256: None,

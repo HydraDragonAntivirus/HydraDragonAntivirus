@@ -21,6 +21,9 @@ pub struct Event {
     pub size: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ms: Option<i64>,
+    /// Objects taken out of the file and scanned on their own (scan results only).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub items: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub threat: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -50,7 +53,8 @@ impl Event {
                 let file = self.file.as_deref().unwrap_or("");
                 let size_str = format_size(self.size.unwrap_or(0));
                 let ms = self.ms.unwrap_or(0);
-                let mut line = format!("[{} #{}] {:<10} {} ({}, {} ms)", client, session, verdict, file, size_str, ms);
+                let items = self.items.map(|n| format!(", {n} item{}", if n == 1 { "" } else { "s" })).unwrap_or_default();
+                let mut line = format!("[{} #{}] {:<10} {} ({}, {} ms{})", client, session, verdict, file, size_str, ms, items);
                 if let Some(t) = &self.threat {
                     if !t.is_empty() {
                         line.push_str(" -> ");
@@ -187,6 +191,9 @@ impl Event {
             if let Some(av) = obj.get_mut("antivirus").and_then(|a| a.as_object_mut()) {
                 av.insert("scan_time_ms".to_string(), serde_json::json!(ms));
             }
+        }
+        if let Some(items) = self.items {
+            multron.insert("items_scanned".to_string(), serde_json::json!(items));
         }
         if let Some(ref detail) = self.detail {
             multron.insert("detail".to_string(), serde_json::json!(detail));

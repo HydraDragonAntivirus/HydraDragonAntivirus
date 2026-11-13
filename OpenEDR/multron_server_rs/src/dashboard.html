@@ -1733,8 +1733,17 @@ window.sigKey = (list) => list && list.length ? `${list[0].layer}: ${list[0].nam
       tdFile.style.fontStyle = "italic";
     }
     const tdDetail = el("td", "detail", detail); tdDetail.title = detail;
+    // Scan time, and under it how many objects (archive members, unpacked payloads...)
+    // the engine took out of the file and scanned one by one: what a long time went on.
+    const tdMs = el("td", "num", e.ms ? e.ms + " ms" : "");
+    if (e.items != null) {
+      const it = el("div", "hint", `${e.items.toLocaleString()} item${e.items === 1 ? "" : "s"}`);
+      it.style.margin = "0";
+      it.title = "Objects taken out of this file and scanned on their own";
+      tdMs.append(it);
+    }
     tr.append(el("td", "mono", fmtTime(e.time)), el("td", "mono", who), tdTag, tdFile,
-              el("td", "num", e.size ? fmtSize(e.size) : ""), tdDetail, el("td", "num", e.ms ? e.ms + " ms" : ""));
+              el("td", "num", e.size ? fmtSize(e.size) : ""), tdDetail, tdMs);
     if ((e.kind === "result" || e.kind === "extracted" || e.kind === "url_scan" || (e.kind && e.kind.startsWith("edr_"))) && (e.verdict === "malicious" || e.verdict === "suspicious")) tr.className = "threat";
     // Right-click menu (same as the other file lists) for events that name a file.
     if (e.sha256 && /^[0-9a-fA-F]{64}$/.test(e.sha256)) {
@@ -1899,7 +1908,7 @@ window.sigKey = (list) => list && list.length ? `${list[0].layer}: ${list[0].nam
         <td class="rsd">${e.error ? rsEsc(e.error) : (e.threat ? "<b>" + rsEsc(e.threat) + "</b>" : (e.new_verdict === "clean" || e.new_verdict === "possible_clean" ? "" : "—")) + (e.detail ? `<div class="engd">${rsEsc(e.detail)}</div>` : "")}</td>
         <td>${rsEsc(e.source)}${e.run ? " #" + e.run : ""}</td>
         <td class="num">${rsSize(e.size)}</td>
-        <td class="num">${rsDur(e.ms)}</td>
+        <td class="num">${rsDur(e.ms)}${e.error ? "" : `<div class="hint" style="margin:0" title="Objects taken out of this file and scanned on their own">${(e.items || 0).toLocaleString()} item${e.items === 1 ? "" : "s"}</div>`}</td>
         <td style="white-space:nowrap"><a href="https://www.virustotal.com/gui/file/${rsEsc(e.sha256)}" target="_blank" rel="noopener" style="color:var(--accent)">VT&nbsp;&#8599;</a>
           <button class="ghost" title="Open in human analysis" onclick="haFill('${rsEsc(e.sha256)}');document.getElementById('humanAnalysis').scrollIntoView({behavior:'smooth'})">Analyse</button>
           <button class="ghost" title="Rescan this file again" onclick="rescanSha('${rsEsc(e.sha256)}')">Rescan</button></td>

@@ -154,8 +154,12 @@ struct EdrStoreInner {
     stats: EdrStats,
 }
 
+/// The live telemetry: the newest records in memory (what the dashboard polls) and,
+/// when opened with [`EdrTelemetryStore::open`], every record kept in SQLite
+/// (`edr_db`), read back at start and asked for searches and filters.
 pub struct EdrTelemetryStore {
     inner: RwLock<EdrStoreInner>,
+    db: Option<crate::edr_db::EdrDb>,
 }
 
 impl Default for EdrTelemetryStore {
@@ -165,16 +169,81 @@ impl Default for EdrTelemetryStore {
 }
 
 impl EdrTelemetryStore {
+    /// A store that keeps only the in-memory window (nothing survives a restart).
     pub fn new() -> Self {
         Self {
             inner: RwLock::new(EdrStoreInner::default()),
+            db: None,
+        }
+    }
+
+    /// A store backed by the SQLite history at `path`: the newest records and the
+    /// totals are read back from it. When it cannot be opened the store runs in
+    /// memory only, as before, and says so.
+    pub fn open(path: &std::path::Path) -> Self {
+        let db = match crate::edr_db::EdrDb::open(path) {
+            Ok(db) => db,
+            Err(e) => {
+                eprintln!("[EDR] telemetry history {} unavailable ({e}); keeping it in memory only", path.display());
+                return Self::new();
+            }
+        };
+        let mut inner = EdrStoreInner::default();
+        match db.stats() {
+            Ok(stats) => inner.stats = stats,
+            Err(e) => eprintln!("[EDR] could not count the telemetry history: {e}"),
+        }
+        match db.behaviors(MAX_STORED_BEHAVIORS, None, None) {
+            Ok(rows) => inner.behaviors = rows.into(),
+            Err(e) => eprintln!("[EDR] could not read stored behaviors: {e}"),
+        }
+        match db.flows(MAX_STORED_FLOWS, None) {
+            Ok(rows) => inner.flows = rows.into(),
+            Err(e) => eprintln!("[EDR] could not read stored flows: {e}"),
+        }
+        match db.threats(MAX_STORED_THREATS) {
+            Ok(rows) => inner.threats = rows.into(),
+            Err(e) => eprintln!("[EDR] could not read stored threats: {e}"),
+        }
+        // A record that fails to reach the database takes its id from this counter;
+        // keep it past the stored ones.
+        inner.next_id = [
+            inner.behaviors.front().map(|b| b.id),
+            inner.flows.front().map(|f| f.id),
+            inner.threats.front().map(|t| t.id),
+        ]
+        .into_iter()
+        .flatten()
+        .max()
+        .unwrap_or(0);
+        Self {
+            inner: RwLock::new(inner),
+            db: Some(db),
+        }
+    }
+
+    /// The record's id: its row id in the history, or the next in-memory id when
+    /// there is no history (or the write failed; the record then stays live in memory).
+    fn assign_id(g: &mut EdrStoreInner, written: Option<rusqlite::Result<u64>>, what: &str) -> u64 {
+        match written {
+            Some(Ok(id)) => {
+                g.next_id = g.next_id.max(id);
+                id
+            }
+            Some(Err(e)) => {
+                eprintln!("[EDR] could not store {what} in the telemetry history: {e}");
+                g.next_id += 1;
+                g.next_id
+            }
+            None => {
+                g.next_id += 1;
+                g.next_id
+            }
         }
     }
 
     pub fn add_behavior(&self, payload: BehaviorTelemetryPayload, verdict: String, threat_name: Option<String>) {
         if let Ok(mut g) = self.inner.write() {
-            g.next_id += 1;
-            let id = g.next_id;
             let time_iso = Utc::now().to_rfc3339();
 
             g.stats.total_behaviors += 1;
@@ -184,8 +253,8 @@ impl EdrTelemetryStore {
                 _ => g.stats.clean_behaviors += 1,
             }
 
-            let item = StoredBehavior {
-                id,
+            let mut item = StoredBehavior {
+                id: 0,
                 timestamp: payload.timestamp,
                 time_iso,
                 machine_id: payload.machine_id,
@@ -206,6 +275,8 @@ impl EdrTelemetryStore {
                 ops_summary: payload.ops_summary,
             };
 
+            let written = self.db.as_ref().map(|db| db.insert_behavior(&item));
+            item.id = Self::assign_id(&mut g, written, "a behavior");
             g.behaviors.push_front(item);
             if g.behaviors.len() > MAX_STORED_BEHAVIORS {
                 g.behaviors.pop_back();
@@ -219,11 +290,10 @@ impl EdrTelemetryStore {
         }
         if let Ok(mut g) = self.inner.write() {
             let time_iso = Utc::now().to_rfc3339();
-            for f in flows {
-                g.next_id += 1;
-                g.stats.total_flows += 1;
-                let item = StoredFlow {
-                    id: g.next_id,
+            let mut items: Vec<StoredFlow> = flows
+                .iter()
+                .map(|f| StoredFlow {
+                    id: 0,
                     timestamp: f.timestamp,
                     time_iso: time_iso.clone(),
                     machine_id: machine_id.to_string(),
@@ -235,7 +305,24 @@ impl EdrTelemetryStore {
                     dst_port: f.dst_port,
                     protocol: f.protocol.clone(),
                     hostname: f.hostname.clone(),
-                };
+                })
+                .collect();
+            let stored = match self.db.as_ref().map(|db| db.insert_flows(&mut items)) {
+                Some(Ok(())) => true,
+                Some(Err(e)) => {
+                    eprintln!("[EDR] could not store {} flows in the telemetry history: {e}", items.len());
+                    false
+                }
+                None => false,
+            };
+            for mut item in items {
+                g.stats.total_flows += 1;
+                if stored {
+                    g.next_id = g.next_id.max(item.id);
+                } else {
+                    g.next_id += 1;
+                    item.id = g.next_id;
+                }
                 g.flows.push_front(item);
                 if g.flows.len() > MAX_STORED_FLOWS {
                     g.flows.pop_back();
@@ -246,11 +333,10 @@ impl EdrTelemetryStore {
 
     pub fn add_threat(&self, report: &ThreatReport) {
         if let Ok(mut g) = self.inner.write() {
-            g.next_id += 1;
             g.stats.total_threats += 1;
             let time_iso = Utc::now().to_rfc3339();
-            let item = StoredThreat {
-                id: g.next_id,
+            let mut item = StoredThreat {
+                id: 0,
                 timestamp: Utc::now().timestamp() as u64,
                 time_iso,
                 sha256: report.sha256.clone(),
@@ -260,6 +346,8 @@ impl EdrTelemetryStore {
                 source: report.source.clone(),
                 pid: report.pid,
             };
+            let written = self.db.as_ref().map(|db| db.insert_threat(&item));
+            item.id = Self::assign_id(&mut g, written, "a threat report");
             g.threats.push_front(item);
             if g.threats.len() > MAX_STORED_THREATS {
                 g.threats.pop_back();
@@ -272,13 +360,23 @@ impl EdrTelemetryStore {
     }
 
     pub fn get_behaviors(&self, limit: usize, risk_filter: Option<&str>, q: Option<&str>) -> Vec<StoredBehavior> {
+        let q_lower = q.map(|s| s.trim().to_lowercase()).filter(|s| !s.is_empty());
+        let risk_lower = risk_filter.map(|s| s.trim().to_lowercase()).filter(|s| !s.is_empty() && s != "all");
+
+        // A filter or a search looks through the whole history; the newest records
+        // alone are the in-memory window.
+        let wants_history = q_lower.is_some() || risk_lower.is_some() || limit > MAX_STORED_BEHAVIORS;
+        if let Some(db) = self.db.as_ref().filter(|_| wants_history) {
+            match db.behaviors(limit, risk_lower.as_deref(), q_lower.as_deref()) {
+                Ok(rows) => return rows,
+                Err(e) => eprintln!("[EDR] behavior history query failed ({e}); answering from memory"),
+            }
+        }
+
         let guard = match self.inner.read() {
             Ok(g) => g,
             Err(_) => return Vec::new(),
         };
-
-        let q_lower = q.map(|s| s.trim().to_lowercase()).filter(|s| !s.is_empty());
-        let risk_lower = risk_filter.map(|s| s.trim().to_lowercase()).filter(|s| !s.is_empty() && s != "all");
 
         guard
             .behaviors
@@ -309,12 +407,19 @@ impl EdrTelemetryStore {
     }
 
     pub fn get_flows(&self, limit: usize, q: Option<&str>) -> Vec<StoredFlow> {
+        let q_lower = q.map(|s| s.trim().to_lowercase()).filter(|s| !s.is_empty());
+
+        if let Some(db) = self.db.as_ref().filter(|_| q_lower.is_some() || limit > MAX_STORED_FLOWS) {
+            match db.flows(limit, q_lower.as_deref()) {
+                Ok(rows) => return rows,
+                Err(e) => eprintln!("[EDR] flow history query failed ({e}); answering from memory"),
+            }
+        }
+
         let guard = match self.inner.read() {
             Ok(g) => g,
             Err(_) => return Vec::new(),
         };
-
-        let q_lower = q.map(|s| s.trim().to_lowercase()).filter(|s| !s.is_empty());
 
         guard
             .flows
@@ -340,6 +445,12 @@ impl EdrTelemetryStore {
     }
 
     pub fn get_threats(&self, limit: usize) -> Vec<StoredThreat> {
+        if let Some(db) = self.db.as_ref().filter(|_| limit > MAX_STORED_THREATS) {
+            match db.threats(limit) {
+                Ok(rows) => return rows,
+                Err(e) => eprintln!("[EDR] threat history query failed ({e}); answering from memory"),
+            }
+        }
         let guard = match self.inner.read() {
             Ok(g) => g,
             Err(_) => return Vec::new(),
@@ -453,6 +564,7 @@ pub fn ingest_behavior(store: &EdrTelemetryStore, events: &EventLog, payload: Be
         file: Some(format!("{} (PID:{})", payload.process_name, payload.pid)),
         size: None,
         ms: None,
+        items: None,
         threat: threat_name.clone(),
         detail: Some(detail_str),
         sha256: if !payload.sha256.is_empty() {
@@ -510,6 +622,7 @@ pub fn ingest_flows(store: &EdrTelemetryStore, events: &EventLog, batch: &Networ
             file: Some(format!("{} (PID:{})", flow.process_name, flow.pid)),
             size: None,
             ms: None,
+            items: None,
             threat: flow.hostname.clone(),
             detail: Some(detail_str),
             sha256: None,
@@ -541,6 +654,7 @@ pub async fn handle_edr_telemetry_threat(
         file: Some(report.file_name.clone()),
         size: None,
         ms: None,
+        items: None,
         threat: Some(report.detection.clone()),
         detail: Some(format!("source:{} path:{}", report.source, report.original_path)),
         sha256: Some(report.sha256.clone()),
@@ -581,6 +695,7 @@ pub fn ingest_system_report(events: &EventLog, payload: &serde_json::Value) -> s
         file: Some("System Diagnostic Report".to_string()),
         size: None,
         ms: None,
+        items: None,
         threat: None,
         detail: Some(format!("System diagnostic report from {}", host)),
         sha256: None,
@@ -612,6 +727,7 @@ pub async fn handle_edr_upload(
         file: Some(format!("Sample Upload ({len} bytes)")),
         size: Some(len as i64),
         ms: None,
+        items: None,
         threat: Some("Sample.Received".to_string()),
         detail: Some(format!("Received uploaded sample {sha256}")),
         sha256: Some(sha256.clone()),
@@ -722,6 +838,77 @@ mod tests {
         assert_eq!(behavior_severity(&report("generic", "", 0.5, &[])), (false, true));
         assert_eq!(behavior_severity(&report("generic", "", 0.1, &["x"])), (false, true));
         assert_eq!(behavior_severity(&report("generic", "", 0.9, &[])), (true, true));
+    }
+
+    fn tmp_db(name: &str) -> std::path::PathBuf {
+        let p = std::env::temp_dir().join(format!("edr_db_{}_{name}.db", std::process::id()));
+        for ext in ["", "-wal", "-shm"] {
+            let _ = std::fs::remove_file(format!("{}{ext}", p.display()));
+        }
+        p
+    }
+
+    fn flow(dst_ip: &str) -> NetworkFlowRecord {
+        NetworkFlowRecord {
+            timestamp: 0,
+            pid: 7,
+            process_name: "Net.exe".to_string(),
+            src_ip: "10.0.0.1".to_string(),
+            src_port: 5000,
+            dst_ip: dst_ip.to_string(),
+            dst_port: 443,
+            protocol: "TCP".to_string(),
+            hostname: None,
+        }
+    }
+
+    #[test]
+    fn history_survives_a_restart_and_searches_past_the_memory_window() {
+        let path = tmp_db("restart");
+        {
+            let store = EdrTelemetryStore::open(&path);
+            let events = EventLog::new(false);
+            let mut old = report("generic", "", 0.9, &[]);
+            old.process_name = "OldDropper.exe".to_string();
+            ingest_behavior(&store, &events, old);
+            for _ in 0..MAX_STORED_BEHAVIORS {
+                ingest_behavior(&store, &events, report("generic", "", 0.1, &[]));
+            }
+            store.add_flows("m", &[flow("1.2.3.4"), flow("5.6.7.8")]);
+            store.add_threat(&ThreatReport {
+                sha256: "ab".repeat(32),
+                file_name: "x.exe".to_string(),
+                original_path: r"C:\x.exe".to_string(),
+                detection: "Trojan.X".to_string(),
+                source: "edr".to_string(),
+                pid: None,
+                details: serde_json::Value::Null,
+            });
+            // The first behavior has left the memory window but a search still finds it.
+            assert!(store.inner.read().unwrap().behaviors.iter().all(|b| b.process_name != "OldDropper.exe"));
+            let found = store.get_behaviors(10, None, Some("olddropper"));
+            assert_eq!(found.len(), 1);
+            assert_eq!(found[0].verdict, "malicious");
+        }
+
+        let store = EdrTelemetryStore::open(&path);
+        let stats = store.get_stats();
+        let total = MAX_STORED_BEHAVIORS as u64 + 1;
+        assert_eq!(
+            (stats.total_behaviors, stats.malicious_behaviors, stats.clean_behaviors, stats.total_flows, stats.total_threats),
+            (total, 1, total - 1, 2, 1)
+        );
+        assert_eq!(store.get_behaviors(5, None, None).len(), 5);
+        assert_eq!(store.get_behaviors(5, Some("malicious"), None).len(), 1);
+        let flows = store.get_flows(10, None);
+        assert_eq!(flows.iter().map(|f| f.dst_ip.as_str()).collect::<Vec<_>>(), ["5.6.7.8", "1.2.3.4"]);
+        assert_eq!(store.get_flows(10, Some("5.6.7")).len(), 1);
+        assert_eq!(store.get_threats(10)[0].detection, "Trojan.X");
+
+        // New records continue the ids after the stored ones.
+        let before = store.get_behaviors(1, None, None)[0].id;
+        store.add_behavior(report("generic", "", 0.1, &[]), "clean".to_string(), None);
+        assert!(store.get_behaviors(1, None, None)[0].id > before);
     }
 
     #[test]
