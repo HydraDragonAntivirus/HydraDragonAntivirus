@@ -1,0 +1,41 @@
+windows_status	signer	path	layout
+HashMismatch	|	C:\Users\semae\OneDrive\Belgeler\usbdosyalar\data2\2230f123368eccb392a097b49de5787b01b9045da5f7f39790004f4714f6895a.exe	|
+NotSigned	|	C:\Users\semae\OneDrive\Belgeler\usbdosyalar\data2\2dbd4e8b9c556dbb7f5b80e0362c0cdcba3e19f2437a7a91b73bf8c69823a546.dll	|
+HashMismatch	|	C:\Users\semae\OneDrive\Belgeler\usbdosyalar\data2\6cecb28cd305a419493ab69862a83c610462e1329374986c9e3542e1088206e3.exe	|
+NotSigned	|	C:\Users\semae\OneDrive\Belgeler\usbdosyalar\data2\7448ee00bad2bf24a6aca228e7318c9d1989f7c596988d313c0918659df3ed45.dll	|
+HashMismatch	|	C:\Users\semae\OneDrive\Belgeler\usbdosyalar\data2\BPSRegWD32.dll	|
+HashMismatch	|	C:\Users\semae\OneDrive\Belgeler\usbdosyalar\data2\Devil Engine.exe	Engine.exe
+NotSigned	|	C:\Users\semae\OneDrive\Belgeler\usbdosyalar\data2\FileSync.LocalizedResources.dll_28.mui	|
+NotSigned	|	C:\Users\semae\OneDrive\Belgeler\usbdosyalar\data2\FileSync.LocalizedResources.dll_45.mui	|
+HashMismatch	|	C:\Users\semae\OneDrive\Belgeler\usbdosyalar\data2\FileSync.LocalizedResources.dll_9.mui	|
+HashMismatch	|	C:\Users\semae\OneDrive\Belgeler\usbdosyalar\data2\HWorks32.exe	|
+NotSigned	|	C:\Users\semae\OneDrive\Belgeler\usbdosyalar\data2\Microsoft.Build.ILTasks.resources_49.dll	|
+NotSigned	|	C:\Users\semae\OneDrive\Belgeler\usbdosyalar\data2\Microsoft.NET.Sdk.Publish.Tasks.resources_13.dll	|
+HashMismatch	|	C:\Users\semae\OneDrive\Belgeler\usbdosyalar\data2\Procxon64.exe	|
+HashMismatch	|	C:\Users\semae\OneDrive\Belgeler\usbdosyalar\data2\Qt5Core (3).dll	(3).dll
+HashMismatch	|	C:\Users\semae\OneDrive\Belgeler\usbdosyalar\data2\Set-up (1).exe	(1).exe
+HashMismatch	|	C:\Users\semae\OneDrive\Belgeler\usbdosyalar\data2\Set-up.exe	|
+HashMismatch	|	C:\Users\semae\OneDrive\Belgeler\usbdosyalar\data2\Spybot3.LicenseInstaller (1).exe	(1).exe
+NotSigned	|	C:\Users\semae\OneDrive\Belgeler\usbdosyalar\data2\System.Dynamic.Runtime_19.dll	|
+NotSigned	|	C:\Users\semae\OneDrive\Belgeler\usbdosyalar\data2\System.Reflection.TypeExtensions_15.dll	|
+NotSigned	|	C:\Users\semae\OneDrive\Belgeler\usbdosyalar\data2\System.Threading_23.dll	|
+NotSigned	|	C:\Users\semae\OneDrive\Belgeler\usbdosyalar\data2\Update_SA_2827_0.01_B08_8K_ARGB_32K_20250920_V3.20.exe	|
+HashMismatch	|	C:\Users\semae\OneDrive\Belgeler\usbdosyalar\data2\WinHex64.exe	|
+HashMismatch	|	C:\Users\semae\OneDrive\Belgeler\usbdosyalar\data2\hid - Kopya.dll	-
+NotSigned	|	C:\Users\semae\OneDrive\Belgeler\usbdosyalar\data2\mqcmiplugin_3_1.dll	|
+NotSigned	|	C:\Users\semae\OneDrive\Belgeler\usbdosyalar\data2\osfmount_Help.exe	|
+NotSigned	|	C:\Users\semae\OneDrive\Belgeler\usbdosyalar\data2\pdmui_6.dll	|
+HashMismatch	|	C:\Users\semae\OneDrive\Belgeler\usbdosyalar\data2\pexplorer.exe	|
+HashMismatch	|	C:\Users\semae\OneDrive\Belgeler\usbdosyalar\data2\putty_modified.exe	|
+NotSigned	|	C:\Users\semae\OneDrive\Belgeler\usbdosyalar\data2\rundll32_exe_PID2738_hiddenmodule_16158E90000_x86.dll	|
+HashMismatch	|	C:\Users\semae\OneDrive\Belgeler\usbdosyalar\data2\sourceinit.dat	|
+NotSigned	|	C:\Users\semae\OneDrive\Belgeler\usbdosyalar\data2\sppinst_3_1.dll	|
+HashMismatch	|	C:\Users\semae\OneDrive\Belgeler\usbdosyalar\data2\winhex.exe	|
+HashMismatch	|	C:\Users\semae\OneDrive\Belgeler\usbdosyalar\clean\pe32\4165220D71C8F84979B8AF6664B9A9E9A0E5341679EFCD91DBCEBEE575EB53A9_DriverBooster.exe	|
+HashMismatch	|	C:\Users\semae\OneDrive\Belgeler\usbdosyalar\clean\pe32\5DD11F2B6321F2485CD1ADE053930BBFF4E773BB32937B014DC05B8E10B59DBD_Cheat Engine.exe	|
+HashMismatch	|	C:\Users\semae\OneDrive\Belgeler\usbdosyalar\clean\pe32\CC8C99F87CA3A7797D0BD7D2FD49169BF1CA2EBE122381115D84D8AB4A4E9D2C_TransitionWPFLibrary.dll	|
+HashMismatch	|	C:\Users\semae\OneDrive\Belgeler\usbdosyalar\clean\pe32\D7DFA238A49E7FD253B3A89014CB7E625401A1638A7D4BADC3B2626842223247_QuickCPU.exe	|
+HashMismatch	|	C:\Users\semae\OneDrive\Belgeler\usbdosyalar\clean\pe32\ECBE29A7621553F7681C8431EF86B4891738DF5EE0B30B78F41A2D583C01D9C5_madExcept_.bpl	|
+HashMismatch	|	C:\Users\semae\OneDrive\Belgeler\usbdosyalar\clean\pe64\2806F4A91C7E440ECE8B4DE0B272AD17B7C8207F5D8B66C70CB7AD6C8936646F_xpvinyl_x64.dll	|
+HashMismatch	|	C:\Users\semae\OneDrive\Belgeler\usbdosyalar\clean\pe64\A250E62F88E98D7E5C8DB4F2C4E225C1B3EA2DDC9287D30364707FEC6F84BE3A_CCleaner64.exe	|
+HashMismatch	|	C:\Users\semae\OneDrive\Belgeler\usbdosyalar\clean\pe64\E8E499405E8C66D0A078CF64DE15E9491E4E783184C65F9F35A57D4A335551C9_WiseCare365.exe	|

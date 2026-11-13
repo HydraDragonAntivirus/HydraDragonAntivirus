@@ -359,6 +359,13 @@ def parse_args():
     parser.add_argument("--exclude-rows", type=str, default=None,
                         help="File of row keys to leave out of training (one per line, `#` comments), "
                              "e.g. the reviewed pe_label_noise_exclude.txt of find_pe_label_noise.py")
+    parser.add_argument("--fp-weight", type=float, default=1.0,
+                        help="Training weight of benign rows from the --fp-dirs folders (collected false "
+                             "positives; 1 = no extra weight). Measured 2026-11-13 at 1/20/50: the held-out "
+                             "collected FPs scored the same (1 of 8 still >= 0.95 at every weight), so it is opt-in")
+    parser.add_argument("--fp-dirs", type=str, default="ml_fp_benign",
+                        help="Comma-separated folder names: a benign file with one of them in its path is a "
+                             "collected false positive (needs chunks that store paths)")
     parser.add_argument("--no-sync", action="store_true", help="Do not copy pe_trees.bin into the engine model folders")
     parser.add_argument("--features", choices=("v1", "v2"), default="v1",
                         help="v1: the 65 shell features (default). v2: unified model on the full feature "
@@ -604,9 +611,19 @@ PE_URL_ML_NAMES = ("url_unwhitelisted_count_log", "url_ml_max_prob",
 
 
 def read_excluded_rows(path):
-    """Row keys (find_pe_label_noise.row_key) listed in `path`; empty without a file."""
+    """Row keys (find_pe_label_noise.row_key) listed in `path`; empty without --exclude-rows.
+    A relative path is looked up in the current folder, then next to this script (where
+    find_pe_label_noise.py writes it). A missing file stops the run: training without the
+    exclusions that were asked for would quietly keep the poisoned rows."""
     if not path:
         return set()
+    if not os.path.isabs(path) and not os.path.isfile(path) and os.path.isfile(os.path.join(BASE_DIR, path)):
+        path = os.path.join(BASE_DIR, path)
+    if not os.path.isfile(path):
+        sys.exit(f"--exclude-rows: {path} not found (also looked in {BASE_DIR}). It is written by "
+                 f"find_pe_label_noise.py: run `python find_pe_label_noise.py --chunk-dir <the same chunk dir>`, "
+                 f"review it, then train again; or leave out --exclude-rows")
+    print(f"[*] --exclude-rows: reading {path}")
     with open(path, encoding="utf-8") as fh:
         return {l.split("#", 1)[0].strip() for l in fh if l.split("#", 1)[0].strip()}
 
@@ -620,12 +637,20 @@ def drop_excluded(X, excluded):
     return X[np.array(keep, dtype=bool)]
 
 
-def load_chunks(chunk_dir, balance=False, max_benign_ratio=0.0, exclude_rows=None):
+def _in_fp_dirs(path, fp_dirs):
+    parts = [p.lower() for p in os.path.normpath(path).split(os.sep)]
+    return any(d in parts for d in fp_dirs)
+
+
+def load_chunks(chunk_dir, balance=False, max_benign_ratio=0.0, exclude_rows=None, fp_dirs=()):
     """Load every feature chunk. By default ALL samples are used (benign > malicious is
     fine and lowers false positives); `balance` restores the old 50/50 undersampling.
     Exact duplicate feature rows are removed, and rows that occur in BOTH classes
     (label noise) are dropped, as are the rows listed in `exclude_rows` (reviewed
-    label noise from find_pe_label_noise.py)."""
+    label noise from find_pe_label_noise.py). Returns (X, y, fp): `fp` marks the benign
+    rows whose file is in one of `fp_dirs` (collected false positives, weighted in training)."""
+    fp_dirs = [d.strip().lower() for d in fp_dirs if d.strip()]
+    fp_keys = set()
     import glob
     chunk_files = dataset_paths.ChunkManifest(chunk_dir).chunk_files(
         chunk_dir, "chunk_pe_", glob.glob(os.path.join(chunk_dir, "chunk_pe_*.joblib")))
@@ -649,6 +674,9 @@ def load_chunks(chunk_dir, balance=False, max_benign_ratio=0.0, exclude_rows=Non
                 TRAIN_FEATURE_NAMES = list(data["names"])
         data_X = data["X"]
         (X_mal_list if data["y"][0] == 1 else X_ben_list).append(data_X)
+        paths = data.get("paths")
+        if fp_dirs and data["y"][0] == 0 and paths is not None and len(paths) == len(data_X):
+            fp_keys.update(data_X[i].tobytes() for i, p in enumerate(paths) if _in_fp_dirs(p, fp_dirs))
     if not X_mal_list or not X_ben_list:
         raise RuntimeError(f"Need both Malicious and Benign chunks in {chunk_dir} to train!")
 
@@ -669,22 +697,28 @@ def load_chunks(chunk_dir, balance=False, max_benign_ratio=0.0, exclude_rows=Non
         X_mal = np.array([r for r in X_mal if r.tobytes() not in both])
         X_ben = np.array([r for r in X_ben if r.tobytes() not in both])
     print(f"[*] After dedup: {len(X_mal)} Malicious, {len(X_ben)} Benign ({len(both)} conflicting rows dropped)")
+    fp_ben = np.array([r.tobytes() in fp_keys for r in X_ben], dtype=bool)
+    if fp_dirs:
+        print(f"[*] {int(fp_ben.sum())} benign rows from the collected false positives ({', '.join(fp_dirs)})")
 
     rng = np.random.default_rng(42)
     if balance:
         n = min(len(X_mal), len(X_ben))
         X_mal = X_mal[rng.choice(len(X_mal), n, replace=False)]
-        X_ben = X_ben[rng.choice(len(X_ben), n, replace=False)]
+        pick = rng.choice(len(X_ben), n, replace=False)
+        X_ben, fp_ben = X_ben[pick], fp_ben[pick]
         print(f"[*] --balance: undersampled to {n} each (50/50)")
     elif max_benign_ratio > 0 and len(X_ben) > max_benign_ratio * len(X_mal):
         n = int(max_benign_ratio * len(X_mal))
-        X_ben = X_ben[rng.choice(len(X_ben), n, replace=False)]
+        pick = rng.choice(len(X_ben), n, replace=False)
+        X_ben, fp_ben = X_ben[pick], fp_ben[pick]
         print(f"[*] --max-benign-ratio {max_benign_ratio}: benign capped at {n}")
 
     X = np.vstack([X_mal, X_ben])
     y = np.array([1] * len(X_mal) + [0] * len(X_ben), dtype=np.int32)
+    fp = np.concatenate([np.zeros(len(X_mal), dtype=bool), fp_ben])
     print(f"[+] Dataset: {len(X)} samples ({len(X_mal)} Malicious, {len(X_ben)} Benign, ratio 1:{len(X_ben) / max(len(X_mal), 1):.2f})")
-    return X, y
+    return X, y, fp
 
 
 def report(name, y_true, prob, thr):
@@ -720,12 +754,18 @@ def main():
         print("[+] Feature extraction finished. Exiting as --extract-only was specified.")
         return
 
-    X, y = load_chunks(args.chunk_dir, balance=args.balance, max_benign_ratio=args.max_benign_ratio,
-                       exclude_rows=args.exclude_rows)
+    X, y, fp = load_chunks(args.chunk_dir, balance=args.balance, max_benign_ratio=args.max_benign_ratio,
+                           exclude_rows=args.exclude_rows, fp_dirs=args.fp_dirs.split(","))
+    weight = np.where(fp, args.fp_weight, 1.0)
 
     # 70 % train, 15 % validation (threshold), 15 % test (final numbers).
-    X_train, X_rest, y_train, y_rest = train_test_split(X, y, test_size=0.30, random_state=42, stratify=y)
-    X_val, X_test, y_val, y_test = train_test_split(X_rest, y_rest, test_size=0.50, random_state=42, stratify=y_rest)
+    X_train, X_rest, y_train, y_rest, w_train, _, fp_train, fp_rest = train_test_split(
+        X, y, weight, fp, test_size=0.30, random_state=42, stratify=y)
+    X_val, X_test, y_val, y_test, fp_val, fp_test = train_test_split(
+        X_rest, y_rest, fp_rest, test_size=0.50, random_state=42, stratify=y_rest)
+    if fp.any():
+        print(f"[*] Collected false positives: {int(fp_train.sum())} train (weight {args.fp_weight:g}), "
+              f"{int(fp_val.sum())} validation, {int(fp_test.sum())} test")
     print(f"[*] Train: {len(X_train)} | Validation: {len(X_val)} | Test: {len(X_test)}")
 
     print("[*] Training LightGBM Classifier (no class re-weighting: extra benign keeps FPs down)...")
@@ -741,7 +781,7 @@ def main():
         random_state=42,
         n_jobs=-1
     )
-    clf.fit(X_train, y_train)
+    clf.fit(X_train, y_train, sample_weight=w_train)
 
     # Threshold from the validation benign scores: at most target-fpr of them above it.
     val_ben = np.sort(clf.predict_proba(X_val[y_val == 0])[:, 1])
@@ -752,8 +792,13 @@ def main():
     prob_test = clf.predict_proba(X_test)[:, 1]
     print("\n" + "=" * 30 + " EVALUATION REPORT (test set) " + "=" * 30)
     report("default 0.50", y_test, prob_test, 0.50)
-    report("engine PE_TREE_THRESHOLD 0.90", y_test, prob_test, 0.90)
+    report("0.90", y_test, prob_test, 0.90)
+    report("engine PE_TREE_THRESHOLD 0.95", y_test, prob_test, 0.95)  # openedr_static engine.rs
     report(f"calibrated (target FPR {args.target_fpr * 100:.3f}%)", y_test, prob_test, thr)
+    if fp_test.any():
+        fp_scores = prob_test[fp_test]
+        print(f"  collected false positives in test: {int((fp_scores >= 0.95).sum())}/{len(fp_scores)} at 0.95, "
+              f"{int((fp_scores >= thr).sum())}/{len(fp_scores)} at {thr:.4f} (max score {fp_scores.max():.4f})")
     print(f"\n[!] Set the PE threshold to {thr:.4f} for this model (dashboard: ML thresholds).")
     with open(os.path.splitext(args.output_bin)[0] + "_threshold.json", "w") as f:
         json.dump({"pe_tree_threshold": round(thr, 4), "target_fpr": args.target_fpr}, f)

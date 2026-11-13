@@ -90,9 +90,13 @@ def main():
     ap.add_argument("--mal-cut", type=float, default=0.10, help="malicious-labelled rows scoring below this are suspects")
     ap.add_argument("--blame-k", type=int, default=10, help="malicious rows blamed per false positive")
     ap.add_argument("--max-blame", type=int, default=5000, help="trace at most this many false positives")
-    ap.add_argument("--out", default="pe_label_noise.csv")
-    ap.add_argument("--exclude-out", default="pe_label_noise_exclude.txt")
+    # Next to the scripts by default, so train_pe_lgbm --exclude-rows finds it from any folder.
+    base = os.path.dirname(os.path.abspath(__file__))
+    ap.add_argument("--out", default=os.path.join(base, "pe_label_noise.csv"))
+    ap.add_argument("--exclude-out", default=os.path.join(base, "pe_label_noise_exclude.txt"))
     args = ap.parse_args()
+    if not os.path.isabs(args.chunk_dir) and not os.path.isdir(args.chunk_dir):
+        args.chunk_dir = os.path.join(base, args.chunk_dir)
 
     X, y, src, paths, _ = load(args.chunk_dir)
     keys = np.array([row_key(r) for r in X])
