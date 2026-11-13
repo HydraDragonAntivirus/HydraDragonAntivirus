@@ -135,17 +135,30 @@ pub fn lower_hex(bytes: &[u8]) -> String {
     hex::encode(bytes)
 }
 
-/// Deterministic memoization of per-condition queries: evaluating the same rule
-/// over thousands of files would otherwise repeat the same syscall.
+/// How long a live system answer (registry, hosts, CLSID, disk sectors) is
+/// reused. Long enough that one rule evaluated over thousands of files queries
+/// the system about once per window instead of once per file; short enough that
+/// a long-running scanner (edrsvc, the cloud server) sees a change within it.
+#[cfg(windows)]
+const SYSTEM_CACHE_TTL: std::time::Duration = std::time::Duration::from_secs(5);
+
+/// Memoization of per-condition system queries for `SYSTEM_CACHE_TTL`:
+/// evaluating the same rule over thousands of files would otherwise repeat the
+/// same syscall. Entries expire, so a changed value is read again.
+#[cfg(windows)]
 fn cached(key: String, compute: impl FnOnce() -> Option<String>) -> Option<String> {
-    static CACHE: OnceLock<Mutex<HashMap<String, Option<String>>>> = OnceLock::new();
+    use std::time::Instant;
+    type Entry = (Instant, Option<String>);
+    static CACHE: OnceLock<Mutex<HashMap<String, Entry>>> = OnceLock::new();
     let cache = CACHE.get_or_init(|| Mutex::new(HashMap::new()));
     {
         let guard = match cache.lock() {
             Ok(g) => g,
             Err(poisoned) => poisoned.into_inner(),
         };
-        if let Some(hit) = guard.get(&key) {
+        if let Some((at, hit)) = guard.get(&key)
+            && at.elapsed() < SYSTEM_CACHE_TTL
+        {
             return hit.clone();
         }
     }
@@ -155,10 +168,20 @@ fn cached(key: String, compute: impl FnOnce() -> Option<String>) -> Option<Strin
         Err(poisoned) => poisoned.into_inner(),
     };
     if guard.len() > 4096 {
-        guard.clear();
+        guard.retain(|_, (at, _)| at.elapsed() < SYSTEM_CACHE_TTL);
+        if guard.len() > 4096 {
+            guard.clear();
+        }
     }
-    guard.insert(key, computed.clone());
+    guard.insert(key, (Instant::now(), computed.clone()));
     computed
+}
+
+/// Nothing is queried off Windows (the conditions only warn), and `Instant`
+/// panics on wasm32-unknown-unknown: no cache there.
+#[cfg(not(windows))]
+fn cached(_key: String, compute: impl FnOnce() -> Option<String>) -> Option<String> {
+    compute()
 }
 
 pub(crate) fn truncate_preview(text: &str, cap: usize) -> String {
@@ -291,6 +314,13 @@ pub fn hosts_scan(
         }
     }
     None
+}
+
+/// True for `...\drivers\etc\hosts` (any drive or Windows directory, either
+/// slash): the scanned file is a hosts file, possibly another machine's.
+pub fn is_hosts_file_path(path: &std::path::Path) -> bool {
+    let text = path.to_string_lossy().replace('/', "\\").to_ascii_lowercase();
+    text.ends_with("\\drivers\\etc\\hosts")
 }
 
 /// `hosts_entry` condition: read the Windows hosts file and run the scan.
@@ -1468,6 +1498,15 @@ mod tests {
         assert!(hosts_scan("127.0.0.1 localhost update.microsoft.com\n", None, Some(&any)).is_some());
         // A host after `#` is a comment, not an entry.
         assert!(hosts_scan("10.0.0.1 # evil.com\n", None, Some(&any)).is_none());
+    }
+
+    #[test]
+    fn hosts_file_path_recognized() {
+        use std::path::Path;
+        assert!(is_hosts_file_path(Path::new("C:\\Windows\\System32\\drivers\\etc\\hosts")));
+        assert!(is_hosts_file_path(Path::new("D:/WINNT/system32/Drivers/Etc/HOSTS")));
+        assert!(!is_hosts_file_path(Path::new("C:\\Windows\\System32\\drivers\\etc\\hosts.bak")));
+        assert!(!is_hosts_file_path(Path::new("C:\\work\\00000001_hosts")));
     }
 
     #[test]

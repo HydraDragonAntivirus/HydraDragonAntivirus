@@ -3406,10 +3406,13 @@ fn evaluate_condition(
                 Some(p) => Some(cached_regex(p)?),
                 None => None,
             };
-            super::system_windows::hosts_entry_evidence(
-                ip.as_deref().filter(|s| !s.is_empty()),
-                host_re.as_deref(),
-            )
+            let ip_glob = ip.as_deref().filter(|s| !s.is_empty());
+            // When the scanned file IS a hosts file, judge its bytes: a cloud
+            // server scanning an endpoint's upload must not read its own hosts.
+            if super::system_windows::is_hosts_file_path(&report.path) {
+                return super::system_windows::hosts_scan(&String::from_utf8_lossy(bytes), ip_glob, host_re.as_deref());
+            }
+            super::system_windows::hosts_entry_evidence(ip_glob, host_re.as_deref())
         }
         RuleCondition::SectorPattern {
             device,

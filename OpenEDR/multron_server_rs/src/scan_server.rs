@@ -1617,6 +1617,12 @@ async fn handle_scan(
     }
     let id = msg.id;
     let name: String = msg.name.chars().take(260).collect();
+    // The client's full path, when it sent one: the engine scans the upload under
+    // it so hydradragonsig rules scoped with `file_path` (e.g. the hosts-file PUM
+    // rule) match. Records and the queue keep the bare name.
+    let client_path: Option<String> = Some(msg.path.trim())
+        .filter(|p| !p.is_empty())
+        .map(|p| p.chars().take(1024).collect());
     let sha_hex = msg.sha256.trim().to_ascii_uppercase();
     let Some(sha) = parse_sha(&sha_hex) else {
         send_error(out, Some(id), "invalid sha256");
@@ -1755,7 +1761,7 @@ async fn handle_scan(
                     std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| crate::analyzer::analyze(&data, &job_name))).ok()
                 };
                 let mut report = None;
-                let r = engine.scan_blocking_with(&data, &job_name, &job_sha, |res| {
+                let r = engine.scan_blocking_with(&data, &job_name, client_path.as_deref(), &job_sha, |res| {
                     report = apply_threat_intel(&ti, &data, &job_name, res);
                 });
                 let _ = rtx.send(r);

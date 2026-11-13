@@ -30,6 +30,31 @@ fn file_pum_rules_are_scoped_to_their_file() {
     }
 }
 
+/// The way the cloud runs it: an endpoint's hosts file uploaded and scanned
+/// under its client path. The uploaded bytes are judged, not this machine's
+/// hosts file, and the same bytes under any other path never match.
+fn hosts_hits(rs: &RuleSet, path: &str, content: &str) -> Vec<String> {
+    let mut report = ScanReport { path: PathBuf::from(path), ..ScanReport::default() };
+    rs.evaluate_into(
+        &mut report,
+        content.as_bytes(),
+        RuleEvalOptions { profile_rules: false, parallel_rules: false, stop_on_detection: false, min_string_len: 0, decode_strings: false },
+    );
+    report.findings.iter().map(|f| f.rule_id.clone()).collect()
+}
+
+#[test]
+fn hosts_file_upload_is_judged_by_its_bytes() {
+    let rs = load("file_pum_rules.yaml");
+    let root = std::env::var("SystemRoot").unwrap_or_else(|_| "C:\\Windows".into());
+    let hosts = format!("{root}\\System32\\drivers\\etc\\hosts");
+    let stock = "# Copyright (c) 1993-2009 Microsoft Corp.\n#\t127.0.0.1       localhost\n127.0.0.1 localhost\n::1 localhost\n";
+    let hijacked = format!("{stock}0.0.0.0 update.microsoft.com\n");
+    assert_eq!(hosts_hits(&rs, &hosts, &hijacked), vec!["PUM_FILE_0001"]);
+    assert!(hosts_hits(&rs, &hosts, stock).is_empty());
+    assert!(hosts_hits(&rs, "C:\\Users\\Public\\notes.txt", &hijacked).is_empty());
+}
+
 fn hits(rs: &RuleSet, key: &str, value: &str, data: &str) -> Vec<String> {
     let mut report = ScanReport {
         registry_event: Some(RegistryEvent { key: key.into(), value: value.into(), data: data.into() }),

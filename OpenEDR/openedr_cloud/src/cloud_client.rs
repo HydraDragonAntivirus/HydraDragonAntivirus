@@ -489,12 +489,16 @@ pub fn scan_file(path: &Path) -> FileScanReport {
                             return Ok((verdict, detections));
                         } else if msg_type == "need_upload" {
                             // Upload file
+                            // `path`: the full local path, so the server scans the
+                            // upload under it (path-scoped rules such as the
+                            // hosts-file PUM rule only match that file).
                             let scan_req = serde_json::json!({
                                 "type": "scan",
                                 "id": req_id,
                                 "sha256": sha256_hex,
                                 "name": file_name,
-                                "size": file_size
+                                "size": file_size,
+                                "path": path_str
                             });
                             if let Err(e) = socket.send(Message::Text(scan_req.to_string().into())) {
                                 session.drop_connection();

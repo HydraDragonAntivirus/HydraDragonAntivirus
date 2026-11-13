@@ -791,17 +791,19 @@ impl StaticEngine {
     /// Scan a file on disk. Evaluates WinTrust signature, ClamAV, YARA, and PE/JS ML.
     /// If 0 KB or unreachable (permission denied, locked, absent), directly skips.
     pub fn scan_file(&self, path: &Path) -> StaticScanReport {
+        self.scan_file_as(path, None)
+    }
+
+    /// `scan_file` of a local copy of another machine's file (a cloud upload in
+    /// the server's work folder): `client_path` is that file's real path on the
+    /// client, used as the target name so path-scoped hydradragonsig rules
+    /// (`file_path`, e.g. the hosts-file PUM rule) see it. It is only a name:
+    /// every read still goes to `path`.
+    pub fn scan_file_as(&self, path: &Path, client_path: Option<&str>) -> StaticScanReport {
         let t0 = Instant::now();
-        let target_str = match std::fs::canonicalize(path) {
-            Ok(p) => {
-                let s = p.to_string_lossy().to_string();
-                if let Some(stripped) = s.strip_prefix(r"\\?\") {
-                    stripped.to_string()
-                } else {
-                    s
-                }
-            }
-            Err(_) => path.display().to_string(),
+        let target_str = match client_path.map(str::trim).filter(|p| !p.is_empty()) {
+            Some(p) => p.to_string(),
+            None => Self::local_target_name(path),
         };
 
         // 1. Unreachable check: path absent or not a regular file -> directly skip
@@ -874,6 +876,22 @@ impl StaticEngine {
         }
 
         self.scan_bytes_internal(&data, &target_str, Some(path), t0)
+    }
+
+    /// Canonical local path of `path` without the `\\?\` prefix (falls back to
+    /// the path as given when it cannot be canonicalized).
+    fn local_target_name(path: &Path) -> String {
+        match std::fs::canonicalize(path) {
+            Ok(p) => {
+                let s = p.to_string_lossy().to_string();
+                if let Some(stripped) = s.strip_prefix(r"\\?\") {
+                    stripped.to_string()
+                } else {
+                    s
+                }
+            }
+            Err(_) => path.display().to_string(),
+        }
     }
 
     /// Scan raw in-memory bytes with optional filename for extension matching.

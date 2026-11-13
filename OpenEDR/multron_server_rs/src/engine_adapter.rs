@@ -1095,20 +1095,23 @@ impl EngineAdapter {
     /// engine can check its Authenticode signature; it falls back to an in-memory scan.
     #[allow(dead_code)]
     pub fn scan_blocking(&self, data: &[u8], name: &str, sha: &str) -> Result<ResultMessage, String> {
-        self.scan_blocking_with(data, name, sha, |_| {})
+        self.scan_blocking_with(data, name, None, sha, |_| {})
     }
 
     /// Like `scan_blocking`, with `refine` run on the result before the file is kept or
     /// removed (the TLSH smart whitelist uses it, so `possible_clean` files are kept
-    /// under their own prefix).
+    /// under their own prefix). `client_path` is the file's full path on the
+    /// client when it sent one: the engine scans the work-folder copy under that
+    /// name, so path-scoped rules (`file_path`) match.
     pub fn scan_blocking_with(
         &self,
         data: &[u8],
         name: &str,
+        client_path: Option<&str>,
         sha: &str,
         refine: impl FnOnce(&mut ResultMessage),
     ) -> Result<ResultMessage, String> {
-        self.scan_blocking_opts(data, name, sha, true, refine)
+        self.scan_blocking_inner(data, name, client_path, sha, true, refine)
     }
 
     /// `keep = false` (rescans of an already kept file): the temporary copy is always
@@ -1117,6 +1120,18 @@ impl EngineAdapter {
         &self,
         data: &[u8],
         name: &str,
+        sha: &str,
+        keep: bool,
+        refine: impl FnOnce(&mut ResultMessage),
+    ) -> Result<ResultMessage, String> {
+        self.scan_blocking_inner(data, name, None, sha, keep, refine)
+    }
+
+    fn scan_blocking_inner(
+        &self,
+        data: &[u8],
+        name: &str,
+        client_path: Option<&str>,
         sha: &str,
         keep: bool,
         refine: impl FnOnce(&mut ResultMessage),
@@ -1169,16 +1184,16 @@ impl EngineAdapter {
                 };
                 let rep = if written {
                     temp_path = Some(path.clone());
-                    Some(engine.scan_file(&path))
+                    Some(engine.scan_file_as(&path, client_path))
                 } else {
                     None
                 };
                 match rep {
                     Some(r) if !r.verdict.eq_ignore_ascii_case("Error") => r,
-                    _ => engine.scan_bytes(data, name),
+                    _ => engine.scan_bytes(data, client_path.unwrap_or(name)),
                 }
             } else {
-                engine.scan_bytes(data, name)
+                engine.scan_bytes(data, client_path.unwrap_or(name))
             };
 
             if report.verdict.eq_ignore_ascii_case("Error") {
