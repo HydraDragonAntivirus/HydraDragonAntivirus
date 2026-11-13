@@ -438,6 +438,8 @@ pub fn dotnet_kind(data: &[u8]) -> u8 {
 /// + inner `UrlMlMetrics` (4) + shell `UrlMlMetrics` (4)
 /// + shell `PeInfectorMetrics` (9: file-infector traces, so a virus-infected copy and
 ///   its clean original no longer share one vector)
+/// + shell `pe_signature` (1: intact signature whose digest no longer matches the file,
+///   i.e. changed after signing)
 /// (each block appended last, so earlier positions never move: a model trained before
 /// a block was added reads it as unused columns).
 /// The unified PE model (`pe_trees.bin`) reads all of it.
@@ -451,7 +453,8 @@ pub const PE_V2_FEATURE_COUNT: usize = 65
     + 2 * PeMimicryMetrics::LEN
     + 2 * PeStringMlMetrics::LEN
     + 2 * UrlMlMetrics::LEN
-    + PeInfectorMetrics::LEN;
+    + PeInfectorMetrics::LEN
+    + super::pe_signature::LEN;
 /// Where the shell / inner `PeMimicryMetrics` and inner / shell `PeStringMlMetrics` start in the v2 vector.
 #[cfg(test)]
 const SHELL_MIMICRY: usize = 145;
@@ -556,6 +559,10 @@ fn extract_pe_features_v2_inner(data: &[u8]) -> Option<[f32; PE_V2_FEATURE_COUNT
         let _t = crate::memtrack::stage("ml:pe_header_features");
         extract_pe_infector(data).unwrap_or_default().to_array()
     });
+    put(&{
+        let _t = crate::memtrack::stage("ml:pe_header_features");
+        super::pe_signature::to_array(data)
+    });
     Some(v)
 }
 
@@ -600,6 +607,7 @@ pub fn pe_v2_feature_names() -> Vec<String> {
     n.extend(UrlMlMetrics::NAMES.iter().map(|s| format!("inner_{s}")));
     n.extend(UrlMlMetrics::NAMES.iter().map(|s| format!("shell_{s}")));
     n.extend(PeInfectorMetrics::NAMES.iter().map(|s| format!("shell_{s}")));
+    n.extend(super::pe_signature::NAMES.iter().map(|s| format!("shell_{s}")));
     n
 }
 
@@ -668,7 +676,7 @@ mod tests {
         assert_eq!(names[UNKNOWN_STR_RATIO], "inner_unknown_str_ratio");
         assert_eq!(names[TOTAL_UNIQUE_STR_LOG], "inner_total_unique_strings_log");
         assert_eq!(names[168], "shell_total_unique_strings_log");
-        assert_eq!(PE_V2_FEATURE_COUNT, 186);
+        assert_eq!(PE_V2_FEATURE_COUNT, 187);
         assert_eq!(INNER_URL_ML, 169);
         assert_eq!(names[INNER_URL_ML], "inner_url_unwhitelisted_count_log");
         assert_eq!(names[SHELL_URL_ML], "shell_url_unwhitelisted_count_log");
@@ -676,7 +684,10 @@ mod tests {
         // Appended last: every earlier position (and so an older model) is unchanged.
         assert_eq!(SHELL_INFECTOR, 177);
         assert_eq!(names[SHELL_INFECTOR], "shell_inf_ep_section_position");
-        assert_eq!(names[PE_V2_FEATURE_COUNT - 1], "shell_inf_overlay_pe_share");
+        assert_eq!(names[185], "shell_inf_overlay_pe_share");
+        // Also appended last (a model from before it reads column 186 as unused).
+        assert_eq!(names[186], "shell_signature_tampered");
+        assert_eq!(names[PE_V2_FEATURE_COUNT - 1], "shell_signature_tampered");
         assert_eq!(pe_v2_feature_names_static().len(), PE_V2_FEATURE_COUNT);
         assert!(extract_pe_features_v2(b"not a pe").is_none());
     }
