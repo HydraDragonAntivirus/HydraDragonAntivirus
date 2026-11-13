@@ -23,7 +23,6 @@ Exports:
 
 import argparse
 import csv
-import gc
 import itertools
 import json
 import os
@@ -32,7 +31,6 @@ import struct
 import subprocess
 import sys
 import tempfile
-from typing import List, Optional
 
 import lightgbm as lgb
 import numpy as np
@@ -173,7 +171,7 @@ def load_features(csv_path: str, max_per_class: int = 0, balance: bool = False):
     mal, ben = [], []
     with open(csv_path, newline="", encoding="utf-8") as fh:
         reader = csv.reader(fh)
-        header = next(reader, None)
+        next(reader, None)  # skip the header row
         expected_len = 2 + len(APK_FEATURE_NAMES)
         for row in reader:
             if not row or len(row) < expected_len:
@@ -185,8 +183,10 @@ def load_features(csv_path: str, max_per_class: int = 0, balance: bool = False):
             else:
                 ben.append(feats)
 
-    mal = np.unique(np.array(mal, dtype=np.float32), axis=0) if mal else np.empty((0, len(APK_FEATURE_NAMES)), dtype=np.float32)
-    ben = np.unique(np.array(ben, dtype=np.float32), axis=0) if ben else np.empty((0, len(APK_FEATURE_NAMES)), dtype=np.float32)
+    mal = np.unique(np.array(mal, dtype=np.float32), axis=0) if mal else np.empty((0, len(APK_FEATURE_NAMES)),
+                                                                                  dtype=np.float32)
+    ben = np.unique(np.array(ben, dtype=np.float32), axis=0) if ben else np.empty((0, len(APK_FEATURE_NAMES)),
+                                                                                  dtype=np.float32)
 
     # Dedup identical vectors labelled differently
     both = {r.tobytes() for r in ben} & {r.tobytes() for r in mal}
@@ -206,7 +206,8 @@ def load_features(csv_path: str, max_per_class: int = 0, balance: bool = False):
 
     X = np.vstack([mal, ben])
     y = np.array([1] * len(mal) + [0] * len(ben), dtype=np.int32)
-    print(f"[+] Dataset: {len(X)} samples ({len(mal)} malicious, {len(ben)} benign, ratio 1:{len(ben) / max(len(mal), 1):.2f})")
+    print(f"[+] Dataset: {len(X)} samples ({len(mal)} malicious, {len(ben)} benign, ratio "
+          f"1:{len(ben) / max(len(mal), 1):.2f})")
     return X, y
 
 
@@ -328,19 +329,24 @@ def select_model(args, X_train, y_train, X_val, y_val):
 
 
 def parse_args():
-    parser = argparse.ArgumentParser(description=f"Train LightGBM APK {len(APK_FEATURE_NAMES)}-D Model and Export to ONNX + apk_trees.bin")
+    parser = argparse.ArgumentParser(description=f"Train LightGBM APK {len(APK_FEATURE_NAMES)}-D Model and Export to "
+                                                 "ONNX + apk_trees.bin")
     dataset_paths.add_args(parser, "android")
-    parser.add_argument("--features-csv", type=str, default="apk_features.csv", help="Output/Input CSV for APK features")
-    parser.add_argument("--reuse-csv", action="store_true", help="Retrain from existing features CSV (extracts when it is missing)")
+    parser.add_argument("--features-csv", type=str, default="apk_features.csv",
+                        help="Output/Input CSV for APK features")
+    parser.add_argument("--reuse-csv", action="store_true",
+                        help="Retrain from existing features CSV (extracts when it is missing)")
     parser.add_argument("--train-only", action="store_true", help="Train from the existing features CSV; never extract")
     parser.add_argument("--extract-only", action="store_true", help="Only write the features CSV; do not train")
     parser.add_argument("--auto-tune", action="store_true",
                         help="Try num_leaves x min_child_samples and keep the best on the validation set")
     parser.add_argument("--target-fpr", type=float, default=0.001,
-                        help="Calibrate the threshold so at most this share of validation benign is flagged (0.001 = 0.1%%)")
+                        help="Calibrate the threshold so at most this share of validation benign is flagged (0.001 = "
+                             "0.1%%)")
     parser.add_argument("--output-onnx", type=str, default="apk_model.onnx", help="Output ONNX model path")
     parser.add_argument("--output-bin", type=str, default="apk_trees.bin", help="Output 25-byte tree bundle path")
-    parser.add_argument("--max-samples-per-class", type=int, default=0, help="Max samples to scan from each class (0 = unlimited)")
+    parser.add_argument("--max-samples-per-class", type=int, default=0,
+                        help="Max samples to scan from each class (0 = unlimited)")
     parser.add_argument("--balance", action="store_true", help="Undersample both classes to 50/50")
     parser.add_argument("--no-sync", action="store_true", help="Do not copy apk_trees.bin to engine model directories")
     return parser.parse_args()
@@ -372,7 +378,8 @@ def main():
 
     print("[*] Selecting tree count" + (" and parameters" if args.auto_tune else "") + " on the validation set...")
     params, trees = select_model(args, X_train, y_train, X_val, y_val)
-    print(f"[+] Selected: num_leaves={params['num_leaves']} min_child_samples={params['min_child_samples']} trees={trees}")
+    print(f"[+] Selected: num_leaves={params['num_leaves']} min_child_samples={params['min_child_samples']} "
+          f"trees={trees}")
 
     # Refit with exactly the selected tree count, so the ONNX and .bin exports hold no extra trees.
     clf = lgb.LGBMClassifier(n_estimators=trees, **params)

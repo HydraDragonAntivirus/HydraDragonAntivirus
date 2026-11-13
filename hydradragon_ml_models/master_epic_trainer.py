@@ -21,6 +21,7 @@ import argparse
 
 MODELS = ["master", "pe", "js", "apk", "coach"]
 
+
 def get_chunk_stats():
     base_dir = os.path.dirname(os.path.abspath(__file__))
     stats = {
@@ -32,6 +33,7 @@ def get_chunk_stats():
     }
     return stats
 
+
 def print_status():
     print("=" * 65)
     print(" HydraDragon ML Dataset & Chunk Cache Status ")
@@ -40,6 +42,7 @@ def print_status():
     for m, files in stats.items():
         print(f"  [{m.upper()}] Chunks on disk: {len(files)} files")
     print("=" * 65)
+
 
 def run_model(model_name: str, phase: str):
     base_dir = os.path.dirname(os.path.abspath(__file__))
@@ -93,6 +96,7 @@ def run_model(model_name: str, phase: str):
             cmd.append("--train-only")
         subprocess.check_call(cmd, cwd=base_dir)
 
+
 def parse_args():
     parser = argparse.ArgumentParser(description="HydraDragon Master Multi-Model Epic Trainer")
     parser.add_argument("--model", type=str, choices=["all", "master", "pe", "js", "apk", "coach"], default="master",
@@ -101,6 +105,7 @@ def parse_args():
                         help="Execution phase (extract to chunks, train from chunks, or all)")
     parser.add_argument("--status", action="store_true", help="Print disk chunk cache status and exit")
     return parser.parse_args()
+
 
 def main():
     args = parse_args()
@@ -121,6 +126,7 @@ def main():
     print("\n" + "=" * 65)
     print(" [+] ALL REQUESTED ML PIPELINES COMPLETED SUCCESSFULLY! ")
     print("=" * 65)
+
 
 if __name__ == "__main__":
     main()

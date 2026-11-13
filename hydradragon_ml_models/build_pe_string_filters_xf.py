@@ -15,8 +15,6 @@ Memory-Safe Streaming Architecture:
     pool is purged before building pe_strings_malicious.xf (BinaryFuse32 --bf32).
 """
 
-import os
-import sys
 import gzip
 import json
 import shutil
@@ -38,6 +36,7 @@ DEST_DIRS = [
     REPO_ROOT / "OpenMalwareScannerPortable" / "xorfilter_rules",
 ]
 
+
 def normalize_str(s) -> str:
     if isinstance(s, bytes):
         try:
@@ -48,11 +47,13 @@ def normalize_str(s) -> str:
         s = str(s)
     return s.replace("\r", "").replace("\n", "").replace("\x00", "").strip().lower()
 
+
 def load_yargen_db_keys(filepath: Path, target_set: set, min_len: int = 4, min_count: int = 1):
     if not filepath.is_file() or filepath.stat().st_size < 50:
         return 0
     before = len(target_set)
-    print(f"  [>] Streaming {filepath.name} ({filepath.stat().st_size / (1024*1024):.1f} MB, min_count={min_count})...", flush=True)
+    print(f"  [>] Streaming {filepath.name} ({filepath.stat().st_size / (1024*1024):.1f} MB, min_count={min_count})...",
+          flush=True)
     try:
         with gzip.open(filepath, "rt", encoding="utf-8", errors="ignore") as gz:
             d = json.load(gz)
@@ -67,6 +68,7 @@ def load_yargen_db_keys(filepath: Path, target_set: set, min_len: int = 4, min_c
     added = len(target_set) - before
     print(f"      + Added {added:,} new unique strings (Total: {len(target_set):,})", flush=True)
     return added
+
 
 def main():
     if not WRITER_EXE.is_file():
@@ -93,17 +95,20 @@ def main():
 
     # 2. ALL yarGen Goodware Databases for PE & Core (good-strings-part1..9, good-exports-*, good-strings-benign_data2)
     if YARGEN_DBS.is_dir():
-        print("\n[*] Loading yarGen Benign Databases (good-strings-part1..9, good-exports-*, good-strings-benign_data2)...", flush=True)
+        print("\n[*] Loading yarGen Benign Databases (good-strings-part1..9, good-exports-*, "
+              "good-strings-benign_data2)...", flush=True)
         for p in sorted(YARGEN_DBS.glob("good-strings-part*.db")):
             load_yargen_db_keys(p, ben_set, min_len=4, min_count=1)
         for p in sorted(YARGEN_DBS.glob("good-exports-*.db")):
             load_yargen_db_keys(p, ben_set, min_len=4, min_count=1)
-        # Windows PE benign_data2 (min_count=2 filters out 1-off random binary noise while keeping all shared goodware strings)
+        # Windows PE benign_data2 (min_count=2 filters out 1-off random binary noise while keeping
+        # all shared goodware strings)
         pe_ben_db = YARGEN_DBS / "good-strings-benign_data2.db"
         if pe_ben_db.is_file():
             load_yargen_db_keys(pe_ben_db, ben_set, min_len=5, min_count=2)
 
-        print("\n[*] Loading yarGen PE Malicious Databases (mal-strings-datamaliciousorder & mal-exports)...", flush=True)
+        print("\n[*] Loading yarGen PE Malicious Databases (mal-strings-datamaliciousorder & mal-exports)...",
+              flush=True)
         for p in sorted(YARGEN_DBS.glob("mal-exports-*.db")):
             load_yargen_db_keys(p, mal_set, min_len=6, min_count=1)
         pe_mal_db = YARGEN_DBS / "mal-strings-datamaliciousorder.db"
@@ -131,7 +136,7 @@ def main():
     mal_set.difference_update(ben_set)
     dropped = before_mal - len(mal_set)
     print("\n" + "=" * 70, flush=True)
-    print(f"[+] WHITELIST PRIORITY FILTERING COMPLETE:")
+    print("[+] WHITELIST PRIORITY FILTERING COMPLETE:")
     print(f"    Total Clean Benign Strings:    {len(ben_set):,}")
     print(f"    Dropped Colliding Malicious:   {dropped:,}")
     print(f"    Final Pure Malicious Strings:  {len(mal_set):,}")
@@ -162,7 +167,7 @@ def main():
     subprocess.check_call([str(WRITER_EXE), "--bf32", str(tmp_mal), str(out_mal)])
     tmp_mal.unlink(missing_ok=True)
 
-    print(f"[+] Successfully built:")
+    print("[+] Successfully built:")
     print(f"    - {out_ben.name}: {out_ben.stat().st_size:,} bytes ({out_ben.stat().st_size / (1024*1024):.2f} MB)")
     print(f"    - {out_mal.name}: {out_mal.stat().st_size:,} bytes ({out_mal.stat().st_size / (1024*1024):.2f} MB)")
 
@@ -171,6 +176,7 @@ def main():
             shutil.copy2(out_ben, d / out_ben.name)
             shutil.copy2(out_mal, d / out_mal.name)
             print(f"  [>] Synced to {d}", flush=True)
+
 
 if __name__ == "__main__":
     main()

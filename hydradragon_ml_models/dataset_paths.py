@@ -323,7 +323,8 @@ def load_config(path: Optional[str]) -> Dict[str, List[Tuple[str, str]]]:
 def add_common_args(parser: argparse.ArgumentParser):
     """--dataset-paths, --sources, --no-dedupe (for trainers that read several platforms)."""
     g = parser.add_argument_group("dataset folders (default: dataset_paths.json, see dataset_paths.py)")
-    g.add_argument("--dataset-paths", default=None, help="dataset_paths.json to read (default: searched, see dataset_paths.py)")
+    g.add_argument("--dataset-paths", default=None,
+                   help="dataset_paths.json to read (default: searched, see dataset_paths.py)")
     g.add_argument("--sources", choices=("all", "own", "public"), default="all",
                    help="Only folders of this source from dataset_paths.json (default: all)")
     g.add_argument("--no-dedupe", action="store_true",
@@ -446,7 +447,8 @@ class HashCache:
 
 def _take(folders: Iterable[str], keep: Callable[[str], bool], max_files: int,
           cache: Optional[HashCache], skip_hidden: bool,
-          nested: Iterable[str] = (), stats: Optional[Dict[str, int]] = None) -> Tuple[List[Tuple[str, Optional[str]]], int]:
+          nested: Iterable[str] = (), stats: Optional[Dict[str, int]] = None) -> Tuple[List[Tuple[str, Optional[str]]],
+                                                                                       int]:
     """[(path, sha256 or None)] in folder order, duplicates by content and empty files
     (0 bytes: a failed copy or download, no sample) skipped."""
     out: List[Tuple[str, Optional[str]]] = []

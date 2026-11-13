@@ -25,14 +25,13 @@ Output:
 """
 
 import os
-import sys
 import re
 import math
 import glob
 import gc
 import argparse
 from collections import Counter
-from typing import List, Tuple, Set, Optional, Generator
+from typing import List, Set, Generator
 from urllib.parse import urlparse, parse_qs
 
 import numpy as np
@@ -280,7 +279,8 @@ def extract_clamav_strings(clamav_dir: str) -> Generator[str, None, None]:
         return
 
     # 1. URL specific NDB files
-    url_files = ["phish.ndb", "scam.ndb", "jurlbl.ndb", "blurl.ndb", "bofhland_phishing_URL.ndb", "bofhland_malware_URL.ndb"]
+    url_files = ["phish.ndb", "scam.ndb", "jurlbl.ndb", "blurl.ndb", "bofhland_phishing_URL.ndb",
+                 "bofhland_malware_URL.ndb"]
     for fname in url_files:
         fpath = os.path.join(clamav_dir, fname)
         if not os.path.isfile(fpath):
@@ -347,14 +347,19 @@ def extract_yara_strings(yara_dir: str) -> Generator[str, None, None]:
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Extract Multi-Modal IOC & String Features Part-by-Part")
-    parser.add_argument("--website-dir", default=r"C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\hydradragon\website")
+    parser.add_argument("--website-dir",
+                        default=r"C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\hydradragon\website")
     parser.add_argument("--clamav-dir", default=r"C:\Program Files\ClamAV\database")
-    parser.add_argument("--yara-dir", default=r"C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\hydradragon\yara-x")
+    parser.add_argument("--yara-dir",
+                        default=r"C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\hydradragon\yara-x")
     parser.add_argument("--usb-dir", default=r"C:\Users\semae\OneDrive\Belgeler\usbdosyalar")
     parser.add_argument("--mobile-dir", default=r"C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAV-Mobile\dataset")
-    parser.add_argument("--output-chunks", default=r"C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\hydradragon_ml_models\cache_chunks")
+    parser.add_argument("--output-chunks",
+                        default=r"C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus"
+                                r"\hydradragon_ml_models\cache_chunks")
     parser.add_argument("--chunk-size", type=int, default=50000, help="Number of samples per disk chunk")
-    parser.add_argument("--max-items-per-source", type=int, default=150000, help="Quota per sub-corpus to avoid imbalance")
+    parser.add_argument("--max-items-per-source", type=int, default=150000,
+                        help="Quota per sub-corpus to avoid imbalance")
     return parser.parse_args()
 
 
@@ -373,7 +378,8 @@ def main():
 
     # 1.1 Website Whitelist Domains & IPs
     if os.path.isdir(args.website_dir):
-        benign_files = ["BenignIPs.txt", "WhiteListIPv4.csv", "WhiteListDomains.csv", "WhiteListSubDomains.csv", "BenignDomains.txt"]
+        benign_files = ["BenignIPs.txt", "WhiteListIPv4.csv", "WhiteListDomains.csv", "WhiteListSubDomains.csv",
+                        "BenignDomains.txt"]
         for fname in benign_files:
             fpath = os.path.join(args.website_dir, fname)
             if not os.path.isfile(fpath):
@@ -437,7 +443,8 @@ def main():
 
     # 2.3 Website Malicious Domains & IPs
     if os.path.isdir(args.website_dir):
-        mal_files = ["PhishingDomains.csv", "AbuseDomains.csv", "MalwareDomains.csv", "IPv4PhishingActive.csv", "IPv4Malware.csv"]
+        mal_files = ["PhishingDomains.csv", "AbuseDomains.csv", "MalwareDomains.csv", "IPv4PhishingActive.csv",
+                     "IPv4Malware.csv"]
         for fname in mal_files:
             fpath = os.path.join(args.website_dir, fname)
             if not os.path.isfile(fpath):

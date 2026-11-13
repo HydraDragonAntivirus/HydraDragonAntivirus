@@ -29,7 +29,7 @@ import csv
 import argparse
 import random
 from collections import Counter
-from typing import Optional, List, Tuple, Set
+from typing import List, Tuple, Set
 from urllib.parse import urlparse, parse_qs
 
 import numpy as np
@@ -329,7 +329,8 @@ def load_full_phishingormalware_dataset(website_dir: str, max_samples: int = 0) 
                     continue
                 malicious_ips.add(ip_cand)
 
-    print(f"[+] Total unique malicious entries: {len(malicious_domains):,} Domains | {len(malicious_ips):,} IPs (filtered {skipped_fp:,} FPs)")
+    print(f"[+] Total unique malicious entries: {len(malicious_domains):,} Domains | {len(malicious_ips):,} IPs "
+          f"(filtered {skipped_fp:,} FPs)")
 
     # ---- 3. STRATIFIED SUB-GROUP SYMMETRY (Exact 50/50 Domains AND 50/50 IPs) ----
     # This prevents the fatal asymmetry where IPs are 90%+ malicious and model learns is_ip == malicious!
@@ -342,7 +343,7 @@ def load_full_phishingormalware_dataset(website_dir: str, max_samples: int = 0) 
         n_ip = min(n_ip, max_ip_half)
         n_dom = min(n_dom, max_dom_half)
 
-    print(f"[*] Enforcing Sub-Group Stratified Symmetry:")
+    print("[*] Enforcing Sub-Group Stratified Symmetry:")
     print(f"    -> Domains: {n_dom:,} Benign vs {n_dom:,} Malicious (Exact 50/50)")
     print(f"    -> IPs:     {n_ip:,} Benign vs {n_ip:,} Malicious (Exact 50/50)")
     print(f"    -> Total Balanced Dataset: {(n_dom + n_ip) * 2:,} samples")
@@ -391,11 +392,14 @@ def load_full_phishingormalware_dataset(website_dir: str, max_samples: int = 0) 
 def parse_args():
     default_website = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "hydradragon", "website"))
     parser = argparse.ArgumentParser(description="Train 50/50 Full-Dataset Domain & IP Zero-Day LightGBM Model")
-    parser.add_argument("--website-dir", type=str, default=default_website, help="Path to hydradragon/website directory")
+    parser.add_argument("--website-dir", type=str, default=default_website,
+                        help="Path to hydradragon/website directory")
     parser.add_argument("--output-onnx", type=str, default="url_model.onnx", help="Output ONNX model path")
-    parser.add_argument("--max-samples", type=int, default=0, help="Total samples to train on (0 = full dataset, exact 50/50)")
+    parser.add_argument("--max-samples", type=int, default=0,
+                        help="Total samples to train on (0 = full dataset, exact 50/50)")
     parser.add_argument("--cache-file", type=str, default="url_features_cache.joblib", help="Cache extracted features")
-    parser.add_argument("--force-rebuild", action="store_true", help="Force rebuilding features ignoring existing cache")
+    parser.add_argument("--force-rebuild", action="store_true",
+                        help="Force rebuilding features ignoring existing cache")
     return parser.parse_args()
 
 

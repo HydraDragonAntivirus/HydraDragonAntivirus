@@ -22,24 +22,17 @@ in the train/scan paths.
 
 import os
 import sys
-import math
 import glob
 import gc
-import random
 import argparse
 from typing import List, Tuple, Optional, Dict
 
 import numpy as np
 import joblib
-from sklearn.model_selection import train_test_split
-from sklearn.metrics import classification_report, confusion_matrix
-import lightgbm as lgb
-import onnxmltools
-from onnxmltools.convert.common.data_types import FloatTensorType
 
 # Add current dir to path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from train_url_lgbm import extract_url_features  # noqa: F401  (kept for legacy helpers below)
+from train_url_lgbm import extract_url_features  # noqa: E402,F401  (kept for legacy helpers below)
 
 # Master 8-vector Feature Names (matches train_all_and_master.py)
 MASTER_FEATURE_NAMES = [
@@ -47,6 +40,7 @@ MASTER_FEATURE_NAMES = [
     "expert_score_pe", "expert_score_js", "expert_score_apk", "expert_score_url",
 ]
 assert len(MASTER_FEATURE_NAMES) == 8
+
 
 def extract_master_features_from_data(data: bytes, entity_type: str = "generic") -> List[float]:
     """
@@ -63,7 +57,8 @@ def extract_master_features_from_data(data: bytes, entity_type: str = "generic")
     # 2. Next 8 Multi-Modal Specialist Features
     is_pe = 1.0 if entity_type == "pe" or (entity_type == "generic" and data.startswith(b"MZ")) else 0.0
     is_js = 1.0 if entity_type == "js" else 0.0
-    is_apk = 1.0 if entity_type == "apk" or (entity_type == "generic" and data.startswith(b"PK\x03\x04") and b"AndroidManifest.xml" in data[:4096]) else 0.0
+    is_apk = 1.0 if entity_type == "apk" or (entity_type == "generic" and data.startswith(b"PK\x03\x04")
+                                             and b"AndroidManifest.xml" in data[:4096]) else 0.0
     is_url = 1.0 if entity_type == "url" else 0.0
 
     score_pe = 0.0
@@ -83,21 +78,24 @@ def extract_master_features_from_data(data: bytes, entity_type: str = "generic")
     ext_feats = [is_pe, is_js, is_apk, is_url, score_pe, score_js, score_apk, score_url]
     return str_feats + ext_feats
 
+
 def extract_master_features_from_file(file_path: str, entity_type: str = "generic") -> Optional[List[float]]:
     if not file_path or not os.path.isfile(file_path):
         return None
     try:
         with open(file_path, "rb") as f:
-            data = f.read(10 * 1024 * 1024) # Cap at 10 MB per file
+            data = f.read(10 * 1024 * 1024)  # Cap at 10 MB per file
         if not data or len(data) == 0:
             return None
         return extract_master_features_from_data(data, entity_type)
     except Exception:
         return None
 
+
 def _worker_extract_file(item: Tuple[str, str]) -> Optional[List[float]]:
     fp, entity_type = item
     return extract_master_features_from_file(fp, entity_type)
+
 
 def extract_domain_dataset(file_list: List[str], entity_type: str, label_name: str, label_val: int,
                            cache_dir: str, workers: int = None):
@@ -107,12 +105,14 @@ def extract_domain_dataset(file_list: List[str], entity_type: str, label_name: s
 
     cache_file = os.path.join(cache_dir, f"features_{entity_type}_{label_name.lower()}.joblib")
     if os.path.exists(cache_file):
-        print(f"  [>] Cache already exists for [{entity_type.upper()}-{label_name}]: {cache_file} (skipping extraction)", flush=True)
+        print(f"  [>] Cache already exists for [{entity_type.upper()}-{label_name}]: {cache_file} (skipping "
+              "extraction)", flush=True)
         return
 
     total_files = len(file_list)
     print(f"\n{'='*65}", flush=True)
-    print(f"[*] Extracting [{entity_type.upper()}] {label_name} ({total_files:,} files) with {workers} parallel workers...", flush=True)
+    print(f"[*] Extracting [{entity_type.upper()}] {label_name} ({total_files:,} files) with {workers} parallel "
+          "workers...", flush=True)
     print(f"    Output Cache File: {cache_file}", flush=True)
     print(f"{'='*65}", flush=True)
 
@@ -127,7 +127,8 @@ def extract_domain_dataset(file_list: List[str], entity_type: str, label_name: s
             done_count += 1
             if done_count % 500 == 0 or done_count == total_files:
                 pct = (done_count / total_files) * 100.0
-                print(f"  -> Progress [{entity_type.upper()}-{label_name}]: {done_count:,}/{total_files:,} ({pct:.1f}%) | Valid Extracted: {len(feats):,}", flush=True)
+                print(f"  -> Progress [{entity_type.upper()}-{label_name}]: {done_count:,}/{total_files:,} "
+                      f"({pct:.1f}%) | Valid Extracted: {len(feats):,}", flush=True)
             res = fut.result()
             if res is not None:
                 feats.append(res)
@@ -144,6 +145,7 @@ def extract_domain_dataset(file_list: List[str], entity_type: str, label_name: s
     del feats
     gc.collect()
 
+
 def load_all_master_chunks_stratified(cache_dir: str):
     """
     Loads category-level joblib files (features_pe_benign, features_pe_malicious, etc.)
@@ -156,7 +158,8 @@ def load_all_master_chunks_stratified(cache_dir: str):
     if not joblib_files:
         raise RuntimeError(f"No feature files found in {cache_dir}")
 
-    print(f"\n[*] Found {len(joblib_files)} dataset files in {cache_dir}. Loading with category-level 50/50 symmetry...")
+    print(f"\n[*] Found {len(joblib_files)} dataset files in {cache_dir}. Loading with category-level 50/50 "
+          "symmetry...")
 
     # Group by (entity_type, label)
     pools: Dict[str, Dict[int, List[np.ndarray]]] = {}
@@ -220,20 +223,26 @@ def load_all_master_chunks_stratified(cache_dir: str):
 
     return X_final, y_final
 
+
 def parse_args():
     parser = argparse.ArgumentParser(description="Train HydraDragon Master Multi-Modal AI Model (Single ONNX Output)")
     parser.add_argument("--pe-benign", type=str, default=r"C:\Users\semae\OneDrive\Belgeler\usbdosyalar\data2")
-    parser.add_argument("--pe-malware", type=str, default=r"C:\Users\semae\OneDrive\Belgeler\usbdosyalar\datamaliciousorder")
+    parser.add_argument("--pe-malware", type=str,
+                        default=r"C:\Users\semae\OneDrive\Belgeler\usbdosyalar\datamaliciousorder")
     parser.add_argument("--js-dir", type=str, default=r"C:\Users\semae\OneDrive\Belgeler\usbdosyalar\javascript")
-    parser.add_argument("--apk-benign", type=str, default=r"C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAV-Mobile\dataset\benign")
-    parser.add_argument("--apk-malware", type=str, default=r"C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAV-Mobile\dataset\malware")
+    parser.add_argument("--apk-benign", type=str,
+                        default=r"C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAV-Mobile\dataset\benign")
+    parser.add_argument("--apk-malware", type=str,
+                        default=r"C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAV-Mobile\dataset\malware")
     parser.add_argument("--output-onnx", type=str, default="hydradragon_master.onnx")
-    parser.add_argument("--cache-dir", "--chunk-dir", dest="chunk_dir", type=str, default="cache_chunks_master", help="Directory where domain feature files (PE, JS, APK) are cached")
+    parser.add_argument("--cache-dir", "--chunk-dir", dest="chunk_dir", type=str, default="cache_chunks_master",
+                        help="Directory where domain feature files (PE, JS, APK) are cached")
     parser.add_argument("--max-samples-per-group", type=int, default=30000)
     parser.add_argument("--extract-only", action="store_true")
     parser.add_argument("--train-only", action="store_true")
     parser.add_argument("--scan", type=str, default=None, help="Scan a single file or URL with the master model")
     return parser.parse_args()
+
 
 def scan_target(target: str, model_path: str = "hydradragon_master.onnx"):
     if not os.path.isabs(model_path):
@@ -284,6 +293,7 @@ def scan_target(target: str, model_path: str = "hydradragon_master.onnx"):
     print(f" BENIGN:     {(1.0 - mal_prob) * 100:.2f}%")
     print("=" * 60 + "\n")
 
+
 def main():
     args = parse_args()
     print("=" * 68)
@@ -297,10 +307,12 @@ def main():
 
     # 0. Warm up UniversalStringMatcher in main process so cache is built ONCE:
     print("[*] Initializing Master Universal String Automata in main process...", flush=True)
+    from string_matcher import UniversalStringMatcher  # lazy: keeps module import automata-free
     UniversalStringMatcher.get_instance()
 
     import train_all_and_master
     train_all_and_master.main()
+
 
 if __name__ == "__main__":
     main()

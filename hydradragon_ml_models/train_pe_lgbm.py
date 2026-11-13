@@ -19,7 +19,7 @@ from iced_x86 import Decoder, DecoderOptions, Mnemonic
 import lightgbm as lgb
 import joblib
 from sklearn.model_selection import train_test_split
-from sklearn.metrics import classification_report, confusion_matrix
+from sklearn.metrics import confusion_matrix
 import onnxmltools
 from onnxmltools.convert.common.data_types import FloatTensorType
 
@@ -51,10 +51,12 @@ FEATURE_NAMES = [
     "cert_size", "has_rich_header"
 ]
 
+
 def ln1p(x):
     if x is None or math.isnan(x) or x <= 0:
         return 0.0
     return float(math.log1p(x))
+
 
 def shannon_entropy(data: bytes) -> float:
     if not data:
@@ -69,6 +71,7 @@ def shannon_entropy(data: bytes) -> float:
             p = c / length
             ent -= p * math.log2(p)
     return float(ent)
+
 
 def extract_pe_features_from_data(data: bytes):
     if not data or len(data) < 64 or data[:2] != b"MZ":
@@ -209,8 +212,8 @@ def extract_pe_features_from_data(data: bytes):
             is_arm64 = (coff.Machine == 0xAA64)
             is_arm32 = (coff.Machine in (0x1C0, 0x1C2, 0x1C4))
             for section in sections:
-                if section.Characteristics & 0x00000020: # IMAGE_SCN_CNT_CODE
-                    code_data = section.get_data()[:65536] # inspect first 64KB
+                if section.Characteristics & 0x00000020:  # IMAGE_SCN_CNT_CODE
+                    code_data = section.get_data()[:65536]  # inspect first 64KB
                     if is_arm64:
                         # ARM64: 4-byte fixed instructions
                         for offset in range(0, len(code_data) - 3, 4):
@@ -229,9 +232,9 @@ def extract_pe_features_from_data(data: bytes):
                             total_instructions += 1
                             if (word & 0x0C000000) == 0:
                                 op = (word >> 21) & 0xF
-                                if op == 0x4: # ADD
+                                if op == 0x4:  # ADD
                                     total_add += 1
-                                elif op == 0xD: # MOV
+                                elif op == 0xD:  # MOV
                                     total_mov += 1
                     else:
                         bitness = 64 if opt.Magic == 0x20B else 32
@@ -249,7 +252,8 @@ def extract_pe_features_from_data(data: bytes):
         likely_packed = 1.0 if (total_instructions > 0 and total_add > total_mov) else 0.0
         add_mov_ratio = min(10.0, total_add / total_mov) if total_mov > 0 else 0.0
         raw_size_of_image = float(opt.SizeOfImage)
-        instructions_per_kb = min(1000.0, total_instructions / (raw_size_of_image / 1024.0 + 1e-6)) if raw_size_of_image > 0 else 0.0
+        instructions_per_kb = (min(1000.0, total_instructions / (raw_size_of_image / 1024.0 + 1e-6))
+                               if raw_size_of_image > 0 else 0.0)
 
         vector = [
             size_of_optional_header, coff_characteristics, machine,
@@ -279,6 +283,7 @@ def extract_pe_features_from_data(data: bytes):
     except Exception:
         return None
 
+
 def extract_pe_features_from_file(filepath: str):
     if not filepath or not os.path.isfile(filepath):
         return None
@@ -289,6 +294,7 @@ def extract_pe_features_from_file(filepath: str):
         return None
     return extract_pe_features_from_data(data)
 
+
 def find_files(dir_path: str, max_files: int = 0):
     files = []
     for root, _, filenames in os.walk(dir_path):
@@ -297,6 +303,7 @@ def find_files(dir_path: str, max_files: int = 0):
             if max_files > 0 and len(files) >= max_files:
                 return files
     return files
+
 
 class StandardTree:
     def __init__(self):
@@ -308,10 +315,12 @@ class StandardTree:
             out.append(struct.pack("<IIfIIBf", i, f, t, l, r, 1 if leaf else 0, w))
         return b"".join(out)
 
+
 def convert_lightgbm_standard(dump):
     trees = []
     for info in dump["tree_info"]:
         t, nxt = StandardTree(), [0]
+
         def new_id():
             nxt[0] += 1
             return nxt[0]
@@ -330,6 +339,7 @@ def convert_lightgbm_standard(dump):
         trees.append(t)
     return trees
 
+
 def export_standard_tree_bundle(clf, out_path: str):
     dump = clf.booster_.dump_model()
     trees = convert_lightgbm_standard(dump)
@@ -338,24 +348,32 @@ def export_standard_tree_bundle(clf, out_path: str):
         f.write(raw)
     print(f"  [+] Exported standard tree bundle: {out_path} ({len(raw):,} bytes, {len(trees)} trees)", flush=True)
 
+
 def parse_args():
     parser = argparse.ArgumentParser(description="Train LightGBM PE Model and Export to ONNX")
     dataset_paths.add_args(parser, "windows")
     parser.add_argument("--output-onnx", type=str, default="pe_model.onnx", help="Output ONNX model path")
-    parser.add_argument("--output-bin", type=str, default="pe_trees.bin", help="Output binary tree bundle (openedr_static format)")
-    parser.add_argument("--max-samples-per-class", type=int, default=0, help="Max samples to train from each class (0 = unlimited)")
+    parser.add_argument("--output-bin", type=str, default="pe_trees.bin",
+                        help="Output binary tree bundle (openedr_static format)")
+    parser.add_argument("--max-samples-per-class", type=int, default=0,
+                        help="Max samples to train from each class (0 = unlimited)")
     parser.add_argument("--cache-file", type=str, default=None, help="Legacy single-file cache (joblib)")
     parser.add_argument("--chunk-dir", type=str, default="cache_chunks_pe", help="Directory to store feature chunks")
-    parser.add_argument("--chunk-size", type=int, default=5000, help="Number of files per disk chunk to avoid RAM blowup")
+    parser.add_argument("--chunk-size", type=int, default=5000,
+                        help="Number of files per disk chunk to avoid RAM blowup")
     parser.add_argument("--workers", type=int, default=os.cpu_count() or 4, help="Feature extraction threads")
     parser.add_argument("--extract-only", action="store_true", help="Only extract chunks to disk, do not train")
     parser.add_argument("--train-only", action="store_true", help="Only train from existing chunk directory")
     parser.add_argument("--retry-crashes", action="store_true",
                         help="v2: extract only the files in pe_feature_dump_crashes.txt (after an emulator fix) into "
-                             "chunk_pe_retry_*.joblib, keep every other chunk as it is, then train (or stop with --extract-only)")
-    parser.add_argument("--balance", action="store_true", help="Old behaviour: undersample both classes to 50/50 (default: use ALL samples)")
-    parser.add_argument("--max-benign-ratio", type=float, default=0.0, help="Cap benign at N x malicious (0 = no cap, e.g. 4 = at most 4 benign per malicious)")
-    parser.add_argument("--target-fpr", type=float, default=0.001, help="Pick the threshold so at most this share of held-out benign is flagged (0.001 = 0.1%%)")
+                             "chunk_pe_retry_*.joblib, keep every other chunk as it is, then train (or stop with "
+                             "--extract-only)")
+    parser.add_argument("--balance", action="store_true",
+                        help="Old behaviour: undersample both classes to 50/50 (default: use ALL samples)")
+    parser.add_argument("--max-benign-ratio", type=float, default=0.0,
+                        help="Cap benign at N x malicious (0 = no cap, e.g. 4 = at most 4 benign per malicious)")
+    parser.add_argument("--target-fpr", type=float, default=0.001,
+                        help="Pick the threshold so at most this share of held-out benign is flagged (0.001 = 0.1%%)")
     parser.add_argument("--exclude-rows", type=str, default=None,
                         help="File of row keys to leave out of training (one per line, `#` comments), "
                              "e.g. the reviewed pe_label_noise_exclude.txt of find_pe_label_noise.py")
@@ -369,7 +387,8 @@ def parse_args():
     parser.add_argument("--no-sync", action="store_true", help="Do not copy pe_trees.bin into the engine model folders")
     parser.add_argument("--features", choices=("v1", "v2"), default="v1",
                         help="v1: the 65 shell features (default). v2: unified model on the full feature "
-                             "vector (shell + inner + meta + combined + string / URL ML + file-infector traces, 186 features), from pe_feature_dump "
+                             "vector (shell + inner + meta + combined + string / URL ML + file-infector traces, 186 "
+                             "features), from pe_feature_dump "
                              "(openedr_static ml/pe_combined.rs); uses its own chunk folder")
     args = parser.parse_args()
     if args.features == "v2":
@@ -378,6 +397,7 @@ def parse_args():
     return args
 
 # ------------------------------------------------------------------ v2 (pe_feature_dump)
+
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 PE_DUMP_EXE = os.path.join(BASE_DIR, "pe_feature_dump", "target", "release", "pe_feature_dump.exe")
@@ -464,7 +484,7 @@ def retry_crashed_files(args):
         print(f"[*] --retry-crashes: {CRASH_LOG} does not exist, nothing to retry.")
         return
     with open(CRASH_LOG, encoding="utf-8") as fh:
-        listed = list(dict.fromkeys(l.strip() for l in fh if l.strip()))
+        listed = list(dict.fromkeys(line.strip() for line in fh if line.strip()))
     missing = [f for f in listed if not os.path.isfile(f)]
     retry = [f for f in listed if os.path.isfile(f)]
     print(f"[*] --retry-crashes: {len(retry)} files to retry ({len(missing)} listed files no longer exist)")
@@ -517,6 +537,7 @@ def retry_crashed_files(args):
         manifest.record(chunk_path, done)
         print(f"  [+] Saved {chunk_path}: {len(X)} rows")
 
+
 def collect_features_batch(file_batch, executor):
     features = []
     futures = [executor.submit(extract_pe_features_from_file, p) for p in file_batch]
@@ -529,6 +550,7 @@ def collect_features_batch(file_batch, executor):
             pass
     return features
 
+
 def extract_chunks_to_disk(file_list, executor, label_name, label_val, chunk_dir, chunk_size, features="v1"):
     os.makedirs(chunk_dir, exist_ok=True)
     total_files = len(file_list)
@@ -539,7 +561,7 @@ def extract_chunks_to_disk(file_list, executor, label_name, label_val, chunk_dir
 
     chunk_idx = 0
     total_valid = 0
-    
+
     # v2: a chunk also depends on the pe_feature_dump build (its emulator / extractor).
     tool = []
     if features == "v2" and os.path.isfile(PE_DUMP_EXE):
@@ -547,7 +569,7 @@ def extract_chunks_to_disk(file_list, executor, label_name, label_val, chunk_dir
         tool = [f"pe_feature_dump size={st.st_size} mtime={int(st.st_mtime)}"]
 
     for i in range(0, total_files, chunk_size):
-        chunk_files = file_list[i : i + chunk_size]
+        chunk_files = file_list[i:i + chunk_size]
         chunk_path = os.path.join(chunk_dir, f"{prefix}{chunk_idx:04d}.joblib")
         names.append(os.path.basename(chunk_path))
 
@@ -557,7 +579,7 @@ def extract_chunks_to_disk(file_list, executor, label_name, label_val, chunk_dir
             print(f"  [>] Chunk {chunk_idx:04d} already exists on disk for the same files, skipping.")
             chunk_idx += 1
             continue
-            
+
         names_v2 = paths_v2 = None
         if features == "v2":
             feats, names_v2, paths_v2 = collect_features_v2(chunk_files, chunk_dir)
@@ -574,7 +596,8 @@ def extract_chunks_to_disk(file_list, executor, label_name, label_val, chunk_dir
             joblib.dump(data, chunk_path, compress=3)
             manifest.record(chunk_path, chunk_files + tool)
             total_valid += len(feats)
-            print(f"  [+] Saved {chunk_path}: {len(feats)} valid samples (Processed {min(i + chunk_size, total_files)}/{total_files})")
+            print(f"  [+] Saved {chunk_path}: {len(feats)} valid samples (Processed "
+                  f"{min(i + chunk_size, total_files)}/{total_files})")
         else:
             print(f"  [-] Chunk {chunk_idx:04d} had 0 valid PE files.")
             names.pop()
@@ -583,10 +606,11 @@ def extract_chunks_to_disk(file_list, executor, label_name, label_val, chunk_dir
         import gc
         gc.collect()
         chunk_idx += 1
-        
+
     manifest.keep_only(prefix, names)
     print(f"[+] Total {label_name} PE samples extracted: {total_valid}")
     return total_valid
+
 
 # pe_features.rs PeMimicryMetrics::NAMES (shell_ / inner_ at the end of the v2 vector;
 # chunks dumped before they existed simply lack them).
@@ -625,7 +649,7 @@ def read_excluded_rows(path):
                  f"review it, then train again; or leave out --exclude-rows")
     print(f"[*] --exclude-rows: reading {path}")
     with open(path, encoding="utf-8") as fh:
-        return {l.split("#", 1)[0].strip() for l in fh if l.split("#", 1)[0].strip()}
+        return {line.split("#", 1)[0].strip() for line in fh if line.split("#", 1)[0].strip()}
 
 
 def drop_excluded(X, excluded):
@@ -717,7 +741,8 @@ def load_chunks(chunk_dir, balance=False, max_benign_ratio=0.0, exclude_rows=Non
     X = np.vstack([X_mal, X_ben])
     y = np.array([1] * len(X_mal) + [0] * len(X_ben), dtype=np.int32)
     fp = np.concatenate([np.zeros(len(X_mal), dtype=bool), fp_ben])
-    print(f"[+] Dataset: {len(X)} samples ({len(X_mal)} Malicious, {len(X_ben)} Benign, ratio 1:{len(X_ben) / max(len(X_mal), 1):.2f})")
+    print(f"[+] Dataset: {len(X)} samples ({len(X_mal)} Malicious, {len(X_ben)} Benign, ratio "
+          f"1:{len(X_ben) / max(len(X_mal), 1):.2f})")
     return X, y, fp
 
 
@@ -742,10 +767,10 @@ def main():
             sys.exit("--retry-crashes needs --features v2 (the crash list comes from pe_feature_dump)")
         retry_crashed_files(args)
     elif not args.train_only:
-        print(f"[*] Discovering PE files...")
+        print("[*] Discovering PE files...")
         mal_files, ben_files = dataset_paths.collect(args, "windows", max_per_class=args.max_samples_per_class)
         print(f"[+] Discovered {len(mal_files)} malicious PEs and {len(ben_files)} benign PEs.")
-        
+
         with ProcessPoolExecutor(max_workers=args.workers) as executor:
             extract_chunks_to_disk(mal_files, executor, "MALICIOUS", 1, args.chunk_dir, args.chunk_size, args.features)
             extract_chunks_to_disk(ben_files, executor, "BENIGN", 0, args.chunk_dir, args.chunk_size, args.features)
@@ -824,6 +849,7 @@ def main():
             dest = os.path.join(models_dir, "pe_trees.bin")
             shutil.copy2(args.output_bin, dest)
             print(f"[+] Successfully synced tree model to engine: {dest}")
+
 
 if __name__ == "__main__":
     main()

@@ -17,11 +17,11 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, BASE_DIR)
 sys.path.insert(0, os.path.join(os.path.dirname(BASE_DIR), "OpenEDR", "openedr_web", "tools"))
 
-from train_pe_lgbm import PE_DUMP_EXE, UNICORN_DIR, PE_STRING_ML_NAMES
-from train_js_lgbm import extract_js_features_from_file, extract_js_features_from_source
-from train_url_lgbm import extract_url_features
-from train_generic_lgbm import featurize_buffer
-from apk_train import apk_features
+from train_pe_lgbm import PE_DUMP_EXE, UNICORN_DIR, PE_STRING_ML_NAMES  # noqa: E402 (after sys.path.insert)
+from train_js_lgbm import extract_js_features_from_source  # noqa: E402 (after sys.path.insert)
+from train_url_lgbm import extract_url_features  # noqa: E402 (after sys.path.insert)
+from train_generic_lgbm import featurize_buffer  # noqa: E402 (after sys.path.insert)
+from apk_train import apk_features  # noqa: E402 (after sys.path.insert)
 
 MODELS = {
     "pe": ("pe_model.onnx", None),
@@ -290,11 +290,11 @@ def scan_file_pure_onnx(target_path, model_path=None):
     if "inner_string_ml" in r["detail"]:
         sm = r["detail"]["inner_string_ml"]
         print(
-            f" INNER STR ML: mal_hits={sm.get('mal_str_hits',0):.2f} "
-            f"ben_hits={sm.get('ben_str_hits',0):.2f} "
-            f"ratio={sm.get('mal_ben_str_ratio',0):.3f} "
-            f"decomp={sm.get('decompiler_strings',0):.2f} "
-            f"unicorn={sm.get('unicorn_trace_strings',0):.2f}"
+            f" INNER STR ML: mal_hits={sm.get('mal_str_hits', 0):.2f} "
+            f"ben_hits={sm.get('ben_str_hits', 0):.2f} "
+            f"ratio={sm.get('mal_ben_str_ratio', 0):.3f} "
+            f"decomp={sm.get('decompiler_strings', 0):.2f} "
+            f"unicorn={sm.get('unicorn_trace_strings', 0):.2f}"
         )
     print("=" * 70)
     return r

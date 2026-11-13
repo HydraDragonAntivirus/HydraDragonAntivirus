@@ -369,7 +369,8 @@ def main():
             continue
 
         min_cat = min(len(ben_files), len(mal_files))
-        print(f"[*] Category {cname} internally balanced to 50%/50%: {min_cat:,} Benign vs {min_cat:,} Malicious", flush=True)
+        print(f"[*] Category {cname} internally balanced to 50%/50%: {min_cat:,} Benign vs {min_cat:,} Malicious",
+              flush=True)
 
         random.seed(42)
         random.shuffle(ben_files)
@@ -403,7 +404,8 @@ def main():
         all_X_list.append(Xm[:m_valid])
         all_y_list.append(yb[:m_valid])
         all_y_list.append(ym[:m_valid])
-        print(f"[+] Category {cname} contributed {m_valid * 2:,} vectors ({m_valid:,} Benign + {m_valid:,} Malicious)\n", flush=True)
+        print(f"[+] Category {cname} contributed {m_valid * 2:,} vectors ({m_valid:,} Benign + {m_valid:,} "
+              "Malicious)\n", flush=True)
 
     X = np.vstack(all_X_list)
     y = np.concatenate(all_y_list)
@@ -417,10 +419,11 @@ def main():
 
     b_count = int(np.sum(y == 0))
     m_count = int(np.sum(y == 1))
-    print(f"\n=======================================================", flush=True)
+    print("\n=======================================================", flush=True)
     print(f"[+] TOTAL BALANCED MATRIX: {X.shape}", flush=True)
-    print(f"[+] Benign: {b_count:,} ({b_count/len(y)*100:.1f}%) | Malicious: {m_count:,} ({m_count/len(y)*100:.1f}%)", flush=True)
-    print(f"=======================================================\n", flush=True)
+    print(f"[+] Benign: {b_count:,} ({b_count/len(y)*100:.1f}%) | Malicious: {m_count:,} ({m_count/len(y)*100:.1f}%)",
+          flush=True)
+    print("=======================================================\n", flush=True)
 
     output_joblib = os.path.join(BASE_DIR, "generic_features.joblib")
     joblib.dump({"X": X, "y": y, "features": FEATURE_NAMES}, output_joblib, compress=3)
@@ -450,7 +453,8 @@ def main():
     print(classification_report(yte, yp, target_names=["Benign", "Malicious"], digits=4), flush=True)
     cm = confusion_matrix(yte, yp)
     tn, fp, fn, tp = cm.ravel()
-    print(f"TP={tp} FN={fn} TN={tn} FP={fp} | Recall={tp / max(1, tp + fn) * 100:.2f}% | FPR={fp / max(1, fp + tn) * 100:.2f}%\n", flush=True)
+    print(f"TP={tp} FN={fn} TN={tn} FP={fp} | Recall={tp / max(1, tp + fn) * 100:.2f}% | "
+          f"FPR={fp / max(1, fp + tn) * 100:.2f}%\n", flush=True)
 
     imp = clf.feature_importances_
     print("--- Top Feature Importance ---", flush=True)

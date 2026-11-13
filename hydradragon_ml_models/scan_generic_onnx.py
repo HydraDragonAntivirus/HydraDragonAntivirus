@@ -23,7 +23,7 @@ import onnxruntime as ort
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, BASE_DIR)
 
-from train_generic_lgbm import featurize_buffer, N_FEATS
+from train_generic_lgbm import featurize_buffer  # noqa: E402 (after sys.path.insert)
 
 MODEL = os.path.join(BASE_DIR, "generic_model.onnx")
 READ_CAP = 512 * 1024

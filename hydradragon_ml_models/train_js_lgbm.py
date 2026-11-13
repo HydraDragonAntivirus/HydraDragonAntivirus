@@ -83,6 +83,7 @@ def extract_js_features_from_source(source: str):
         except OSError:
             pass
 
+
 # JsFeatureVector::to_array order (OpenEDR/openedr_static/src/ml/features.rs).
 JS_FEATURE_NAMES = [
     "file_size", "entropy", "parse_success", "function_count", "variable_declarations",
@@ -110,8 +111,10 @@ def parse_args():
     dataset_paths.add_args(ap, "javascript")
     ap.add_argument("--features-csv", default=os.path.join(BASE_DIR, "js_features.csv"))
     ap.add_argument("--reuse-csv", action="store_true", help="Train from an existing --features-csv, no extraction")
-    ap.add_argument("--max-samples-per-class", type=int, default=0, help="0 = unlimited (default): every benign file is used")
-    ap.add_argument("--balance", action="store_true", help="Old behaviour: undersample both classes to 50/50 (default: use ALL samples)")
+    ap.add_argument("--max-samples-per-class", type=int, default=0,
+                    help="0 = unlimited (default): every benign file is used")
+    ap.add_argument("--balance", action="store_true",
+                    help="Old behaviour: undersample both classes to 50/50 (default: use ALL samples)")
     ap.add_argument("--output-bin", default=os.path.join(BASE_DIR, "js_trees.bin"))
     ap.add_argument("--no-sync", action="store_true", help="Do not copy js_trees.bin into the engine model folders")
     return ap.parse_args()
@@ -175,7 +178,8 @@ def load_features(path, max_per_class, balance=False):
         print(f"[*] --balance: undersampled to {n} each (50/50)")
     X = np.vstack([mal, ben])
     y = np.array([1] * len(mal) + [0] * len(ben), dtype=np.int32)
-    print(f"[+] Dataset: {len(X)} samples ({len(mal)} malicious, {len(ben)} benign, ratio 1:{len(ben) / max(len(mal), 1):.2f})")
+    print(f"[+] Dataset: {len(X)} samples ({len(mal)} malicious, {len(ben)} benign, ratio "
+          f"1:{len(ben) / max(len(mal), 1):.2f})")
     const = [JS_FEATURE_NAMES[i] for i in range(X.shape[1]) if np.all(X[:, i] == X[0, i])]
     print(f"[*] Constant features (the trees cannot use them): {const}")
     return X, y

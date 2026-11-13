@@ -11,7 +11,7 @@ import glob
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, BASE_DIR)
 
-from scan_pure_onnx import scan_file_pure_onnx
+from scan_pure_onnx import scan_file_pure_onnx  # noqa: E402 (after sys.path.insert)
 
 
 def main():

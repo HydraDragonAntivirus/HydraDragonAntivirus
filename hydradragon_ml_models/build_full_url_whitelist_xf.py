@@ -11,7 +11,6 @@ Features:
   - Synchronizes the updated .xf filter to all engine folders across the repo.
 """
 
-import os
 import sys
 import shutil
 import subprocess
@@ -29,17 +28,19 @@ DEST_DIRS = [
     # Not docs/ (the web demo): its wasm still reads BinaryFuse16 until it is rebuilt.
 ]
 
+
 def clean_key(raw: str) -> str:
     raw = raw.strip().lower()
     if "://" in raw:
         raw = raw.split("://", 1)[1]
     if "/" in raw:
         raw = raw.split("/", 1)[0]
-    if ":" in raw and not ("." not in raw and ":" in raw): # Strip port unless it's pure IPv6
+    if ":" in raw and not ("." not in raw and ":" in raw):  # Strip port unless it's pure IPv6
         raw = raw.split(":", 1)[0]
     if raw.endswith("."):
         raw = raw[:-1]
     return raw.strip()
+
 
 def collect_all_whitelists(website_dir: Path) -> Set[str]:
     # User instruction: ONLY CSV whitelist files
@@ -83,6 +84,7 @@ def collect_all_whitelists(website_dir: Path) -> Set[str]:
     print("=" * 65)
     return all_keys
 
+
 def main():
     if not WEBSITE_DIR.is_dir():
         print(f"[!] Error: Website directory not found at: {WEBSITE_DIR}")
@@ -109,7 +111,7 @@ def main():
 
     # 3. Build BinaryFuse32 (.xf) filter via xorfilter_writer
     out_xf = REPO_ROOT / "hydradragon_ml_models" / "url_whitelist.xf"
-    print(f"[*] Running xorfilter_writer to generate BinaryFuse32 (.xf)...")
+    print("[*] Running xorfilter_writer to generate BinaryFuse32 (.xf)...")
     cmd = [str(WRITER_EXE), str(stage_txt), str(out_xf)]
     subprocess.check_call(cmd)
 
@@ -127,7 +129,7 @@ def main():
     # 5. Clean up staging text file
     if stage_txt.exists():
         stage_txt.unlink()
-        print(f"[+] Cleaned up temporary staging file.")
+        print("[+] Cleaned up temporary staging file.")
 
     # 6. Verification check on sample items
     print("\n[*] Verifying compiled filter with round-trip checks:")
@@ -141,6 +143,7 @@ def main():
     print("\n" + "=" * 65)
     print(" [+] MASTER BINARYFUSE32 WHITELIST BUILD COMPLETE! ")
     print("=" * 65)
+
 
 if __name__ == "__main__":
     main()

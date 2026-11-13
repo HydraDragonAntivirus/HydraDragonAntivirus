@@ -9,13 +9,13 @@ import os
 import struct
 import shutil
 import joblib
-import numpy as np
 import lightgbm as lgb
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import confusion_matrix
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 REPO_ROOT = os.path.abspath(os.path.join(BASE_DIR, ".."))
+
 
 def export_bin(clf, out_path: str):
     dump = clf.booster_.dump_model()
@@ -47,6 +47,7 @@ def export_bin(clf, out_path: str):
     with open(out_path, "wb") as fh:
         fh.write(raw)
     print(f"[+] Exported bin: {out_path} ({len(raw):,} bytes)", flush=True)
+
 
 def main():
     joblib_path = os.path.join(BASE_DIR, "generic_features.joblib")
@@ -88,7 +89,8 @@ def main():
     yp = clf.predict(Xte)
     cm = confusion_matrix(yte, yp)
     tn, fp, fn, tp = cm.ravel()
-    print(f"[+] Evaluation: TP={tp} FN={fn} TN={tn} FP={fp} | Recall={tp / max(1, tp + fn) * 100:.2f}% | FPR={fp / max(1, fp + tn) * 100:.2f}%", flush=True)
+    print(f"[+] Evaluation: TP={tp} FN={fn} TN={tn} FP={fp} | Recall={tp / max(1, tp + fn) * 100:.2f}% | "
+          f"FPR={fp / max(1, fp + tn) * 100:.2f}%", flush=True)
 
     out_bin = os.path.join(BASE_DIR, "generic_trees.bin")
     export_bin(clf, out_bin)
@@ -105,6 +107,7 @@ def main():
             print(f"[+] Synced generic_trees.bin -> {dest_file}", flush=True)
 
     print("[+] Retraining and synchronization complete!", flush=True)
+
 
 if __name__ == "__main__":
     main()

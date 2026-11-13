@@ -13,13 +13,15 @@ import onnxruntime as ort
 
 # Import JS feature extractor
 sys.path.insert(0, os.path.dirname(__file__))
-from train_js_lgbm import extract_js_features_from_file
+from train_js_lgbm import extract_js_features_from_file  # noqa: E402 (after sys.path.insert)
+
 
 def scan_single_js_file(p):
     feat = extract_js_features_from_file(p)
     if feat is None:
         return None
     return (p, feat)
+
 
 def main():
     parser = argparse.ArgumentParser(description="Evaluate JS ONNX model on a directory")
@@ -70,7 +72,7 @@ def main():
         x = np.array(feats, dtype=np.float32)
         outputs = session.run(None, {input_name: x})
         probs = outputs[1]
-        
+
         if isinstance(probs, list) and isinstance(probs[0], dict):
             mal_probs = [float(p.get(1, 0.0)) for p in probs]
         elif isinstance(probs, np.ndarray):
@@ -93,7 +95,8 @@ def main():
         for future in as_completed(futures):
             processed += 1
             if processed % 5000 == 0 or processed == total_candidates:
-                print(f"  -> Evaluated: {processed}/{total_candidates} ({(processed/total_candidates)*100:.1f}%) | Detected Malicious so far: {b_high} ({b_high/max(1, scanned)*100:.2f}%)")
+                print(f"  -> Evaluated: {processed}/{total_candidates} ({(processed/total_candidates)*100:.1f}%) | "
+                      f"Detected Malicious so far: {b_high} ({b_high/max(1, scanned)*100:.2f}%)")
             res = future.result()
             if res is not None:
                 path, feat = res
@@ -115,6 +118,7 @@ def main():
     print(f"Suspicious     (30-50%): {b_susp} ({b_susp/max(1, scanned)*100:.2f}%)")
     print(f"Clean          (< 30%):  {b_safe} ({b_safe/max(1, scanned)*100:.2f}%)")
     print("=" * 50)
+
 
 if __name__ == "__main__":
     main()

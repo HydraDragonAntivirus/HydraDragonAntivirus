@@ -87,7 +87,8 @@ def main():
     ap.add_argument("--folds", type=int, default=5)
     ap.add_argument("--trees", type=int, default=300)
     ap.add_argument("--threshold", type=float, default=0.95, help="the scanner's PE cutoff (dashboard: ML thresholds)")
-    ap.add_argument("--mal-cut", type=float, default=0.10, help="malicious-labelled rows scoring below this are suspects")
+    ap.add_argument("--mal-cut", type=float, default=0.10,
+                    help="malicious-labelled rows scoring below this are suspects")
     ap.add_argument("--blame-k", type=int, default=10, help="malicious rows blamed per false positive")
     ap.add_argument("--max-blame", type=int, default=5000, help="trace at most this many false positives")
     # Next to the scripts by default, so train_pe_lgbm --exclude-rows finds it from any folder.
@@ -127,7 +128,8 @@ def main():
     fp = ben & (oof >= args.threshold)
     sus = mal & (oof < args.mal_cut)
     print(f"[+] out-of-fold at {args.threshold}: FP={int(fp.sum())} of {int(ben.sum())} benign "
-          f"({fp.sum() / max(ben.sum(), 1) * 100:.4f}%), recall={(mal & (oof >= args.threshold)).sum() / max(mal.sum(), 1) * 100:.2f}%")
+          f"({fp.sum() / max(ben.sum(), 1) * 100:.4f}%), "
+          f"recall={(mal & (oof >= args.threshold)).sum() / max(mal.sum(), 1) * 100:.2f}%")
     print(f"[+] malicious-labelled rows that look clean (oof < {args.mal_cut}): {int(sus.sum())}")
 
     # Blame: which malicious-labelled rows land in the same leaves as each false positive.
