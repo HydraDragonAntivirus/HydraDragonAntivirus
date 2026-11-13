@@ -207,6 +207,19 @@ static CONST UCHAR g_MonitoredMajorFunctions[] = {
     0xFF
 };
 
+// Reduced set used by the global dispatch scan (every driver object in
+// \Driver and \FileSystem). Covers create/read/write interception, FS
+// metadata manipulation, device-control backdoors and SCSI dispatch hooks.
+static CONST UCHAR g_KeyMajorFunctions[] = {
+    IRP_MJ_CREATE,
+    IRP_MJ_READ,
+    IRP_MJ_WRITE,
+    IRP_MJ_SET_INFORMATION,
+    IRP_MJ_DEVICE_CONTROL,
+    IRP_MJ_INTERNAL_DEVICE_CONTROL,
+    0xFF
+};
+
 // ---------------------------------------------------------------------------
 // Forward declarations
 // ---------------------------------------------------------------------------
@@ -243,9 +256,18 @@ static ULONG RkCheckDriverObjectPathIntegrity(_In_ PCWSTR Path,
                                               _In_ PVOID NtoBase,
                                               _In_ ULONG NtoSize,
                                               _In_ ULONG MaxFindings);
+static ULONG RkCheckDriverObjectIntegrityEx(_In_ PDRIVER_OBJECT DriverObject,
+                                            _In_ PCWSTR Path,
+                                            _In_opt_ PRTL_PROCESS_MODULES Modules,
+                                            _In_ PVOID NtoBase,
+                                            _In_ ULONG NtoSize,
+                                            _In_ ULONG MaxFindings,
+                                            _In_ BOOLEAN ReportKnownOwner,
+                                            _In_ BOOLEAN ExtendedMajorSet);
 static ULONG RkScanDriverObjectDirectory(_In_ PCWSTR DirectoryPath,
                                          _In_ PRTL_PROCESS_MODULES Modules,
-                                         _In_ ULONG MaxFindings);
+                                         _In_ ULONG MaxFindings,
+                                         _In_ BOOLEAN DispatchScan);
 _Success_(return != FALSE)
 static BOOLEAN RkBuildVisibleProcessBitmap(_Out_writes_bytes_(BitmapBytes) PUCHAR Bitmap,
                                            _In_ ULONG BitmapBytes);
@@ -714,7 +736,8 @@ RkCheckDriverPointerField(_In_ PCWSTR DriverPath,
                           _In_ PDRIVER_OBJECT DriverObject,
                           _In_opt_ PRTL_PROCESS_MODULES Modules,
                           _In_ PVOID NtoBase,
-                          _In_ ULONG NtoSize)
+                          _In_ ULONG NtoSize,
+                          _In_ BOOLEAN ReportKnownOwner)
 {
     WCHAR desc[MAX_FILE_NAME_LENGTH] = {0};
     WCHAR ownerName[64] = {0};
@@ -730,6 +753,14 @@ RkCheckDriverPointerField(_In_ PCWSTR DriverPath,
     }
 
     ownerModule = RkFindModuleForAddress(Modules, Pointer);
+
+    // In the global dispatch scan a pointer into another *known* loaded
+    // module is a legitimate pass-through/filter arrangement (e.g. classpnp
+    // -> storage port). Only pointers into unmapped / unknown memory are
+    // treated as hooks there. The fixed core-driver check reports both.
+    if (ownerModule && !ReportKnownOwner) {
+        return 0;
+    }
     if (ownerModule) {
         RkAnsiToUnicodeBuffer((PCSTR)(ownerModule->FullPathName + ownerModule->OffsetToFileName),
                               ownerName,
@@ -771,20 +802,24 @@ _LOGINFO_RAW("RootkitDetector: driver object hook %ws field=%ws ptr=%p\n",
 }
 
 static ULONG
-RkCheckDriverObjectPathIntegrity(_In_ PCWSTR Path,
-                                 _In_opt_ PRTL_PROCESS_MODULES Modules,
-                                 _In_ PVOID NtoBase,
-                                 _In_ ULONG NtoSize,
-                                 _In_ ULONG MaxFindings)
+RkCheckDriverObjectIntegrityEx(_In_ PDRIVER_OBJECT DriverObject,
+                               _In_ PCWSTR Path,
+                               _In_opt_ PRTL_PROCESS_MODULES Modules,
+                               _In_ PVOID NtoBase,
+                               _In_ ULONG NtoSize,
+                               _In_ ULONG MaxFindings,
+                               _In_ BOOLEAN ReportKnownOwner,
+                               _In_ BOOLEAN ExtendedMajorSet)
 {
-    PDRIVER_OBJECT drv = NULL;
     ULONG findings = 0;
+    CONST UCHAR *majorList = ExtendedMajorSet ? g_MonitoredMajorFunctions
+                                              : g_KeyMajorFunctions;
+    ULONG_PTR majorCodeBase = ExtendedMajorSet ? 0x2000 : 0x3000;
 
-    if (!Path || MaxFindings == 0) return 0;
-    if (!RkReferenceDriverObjectByPath(Path, &drv) || !drv) return 0;
+    if (!DriverObject) return 0;
 
     __try {
-        if (!drv->DriverStart || drv->DriverSize == 0) {
+        if (!DriverObject->DriverStart || DriverObject->DriverSize == 0) {
             RkEmitFinding(IRP_ROOTKIT_GENERIC, 0, Path, NULL, 0, 0x10, 0);
             findings = 1;
             __leave;
@@ -793,57 +828,62 @@ RkCheckDriverObjectPathIntegrity(_In_ PCWSTR Path,
         if (findings < MaxFindings) {
             findings += RkCheckDriverPointerField(Path,
                                                   L"DriverInit",
-                                                  (PVOID)drv->DriverInit,
+                                                  (PVOID)DriverObject->DriverInit,
                                                   0x1000,
-                                                  drv,
+                                                  DriverObject,
                                                   Modules,
                                                   NtoBase,
-                                                  NtoSize);
+                                                  NtoSize,
+                                                  ReportKnownOwner);
         }
         if (findings < MaxFindings) {
             findings += RkCheckDriverPointerField(Path,
                                                   L"DriverStartIo",
-                                                  (PVOID)drv->DriverStartIo,
+                                                  (PVOID)DriverObject->DriverStartIo,
                                                   0x1001,
-                                                  drv,
+                                                  DriverObject,
                                                   Modules,
                                                   NtoBase,
-                                                  NtoSize);
+                                                  NtoSize,
+                                                  ReportKnownOwner);
         }
         if (findings < MaxFindings) {
             findings += RkCheckDriverPointerField(Path,
                                                   L"DriverUnload",
-                                                  (PVOID)drv->DriverUnload,
+                                                  (PVOID)DriverObject->DriverUnload,
                                                   0x1002,
-                                                  drv,
+                                                  DriverObject,
                                                   Modules,
                                                   NtoBase,
-                                                  NtoSize);
+                                                  NtoSize,
+                                                  ReportKnownOwner);
         }
-        if (findings < MaxFindings && drv->DriverExtension) {
+        if (findings < MaxFindings && DriverObject->DriverExtension) {
             findings += RkCheckDriverPointerField(Path,
                                                   L"AddDevice",
-                                                  (PVOID)drv->DriverExtension->AddDevice,
+                                                  (PVOID)DriverObject->DriverExtension->AddDevice,
                                                   0x1003,
-                                                  drv,
+                                                  DriverObject,
                                                   Modules,
                                                   NtoBase,
-                                                  NtoSize);
+                                                  NtoSize,
+                                                  ReportKnownOwner);
         }
 
         for (ULONG i = 0;
-             g_MonitoredMajorFunctions[i] != 0xFF && findings < MaxFindings;
+             majorList[i] != 0xFF && findings < MaxFindings;
              ++i)
         {
-            UCHAR major = g_MonitoredMajorFunctions[i];
+            UCHAR major = majorList[i];
             findings += RkCheckDriverPointerField(Path,
                                                   RkIrpMajorToName(major),
-                                                  (PVOID)drv->MajorFunction[major],
-                                                  0x2000 + major,
-                                                  drv,
+                                                  (PVOID)DriverObject->MajorFunction[major],
+                                                  majorCodeBase + major,
+                                                  DriverObject,
                                                   Modules,
                                                   NtoBase,
-                                                  NtoSize);
+                                                  NtoSize,
+                                                  ReportKnownOwner);
         }
     }
     __except (EXCEPTION_EXECUTE_HANDLER) {
@@ -856,6 +896,31 @@ _LOGINFO_RAW("RootkitDetector: exception while checking driver object %ws (0x%X)
 
     }
 
+    return findings;
+}
+
+static ULONG
+RkCheckDriverObjectPathIntegrity(_In_ PCWSTR Path,
+                                 _In_opt_ PRTL_PROCESS_MODULES Modules,
+                                 _In_ PVOID NtoBase,
+                                 _In_ ULONG NtoSize,
+                                 _In_ ULONG MaxFindings)
+{
+    PDRIVER_OBJECT drv = NULL;
+    ULONG findings = 0;
+
+    if (!Path || MaxFindings == 0) return 0;
+    if (!RkReferenceDriverObjectByPath(Path, &drv) || !drv) return 0;
+
+    findings = RkCheckDriverObjectIntegrityEx(drv,
+                                              Path,
+                                              Modules,
+                                              NtoBase,
+                                              NtoSize,
+                                              MaxFindings,
+                                              TRUE,
+                                              TRUE);
+
     ObDereferenceObject(drv);
     return findings;
 }
@@ -863,7 +928,8 @@ _LOGINFO_RAW("RootkitDetector: exception while checking driver object %ws (0x%X)
 static ULONG
 RkScanDriverObjectDirectory(_In_ PCWSTR DirectoryPath,
                             _In_ PRTL_PROCESS_MODULES Modules,
-                            _In_ ULONG MaxFindings)
+                            _In_ ULONG MaxFindings,
+                            _In_ BOOLEAN DispatchScan)
 {
     typedef struct _OBJECT_DIR_INFO {
         UNICODE_STRING Name;
@@ -949,6 +1015,26 @@ _LOGINFO_RAW("RootkitDetector: hidden driver object %ws base=%p\n",
                                   0);
                     ++findings;
                 }
+
+                // Global dispatch-table integrity: flag MajorFunction /
+                // DriverInit pointers that land in unmapped memory on ANY
+                // driver (SCSI port dispatch, FS dispatch, device control).
+                // Known-module cross-driver pointers are ignored here.
+                if (DispatchScan &&
+                    drv->DriverStart &&
+                    drv->DriverSize != 0 &&
+                    findings < MaxFindings)
+                {
+                    findings += RkCheckDriverObjectIntegrityEx(drv,
+                                                               path,
+                                                               Modules,
+                                                               NULL,
+                                                               0,
+                                                               MaxFindings - findings,
+                                                               FALSE,
+                                                               FALSE);
+                }
+
                 ObDereferenceObject(drv);
             }
             info++;
@@ -1212,11 +1298,13 @@ RkCheckHiddenDrivers(VOID)
 
     findings += RkScanDriverObjectDirectory(L"\\Driver",
                                             mods,
-                                            ROOTKIT_MAX_FINDINGS_PER_PASS - findings);
+                                            ROOTKIT_MAX_FINDINGS_PER_PASS - findings,
+                                            TRUE);
     if (findings < ROOTKIT_MAX_FINDINGS_PER_PASS) {
         findings += RkScanDriverObjectDirectory(L"\\FileSystem",
                                                 mods,
-                                                ROOTKIT_MAX_FINDINGS_PER_PASS - findings);
+                                                ROOTKIT_MAX_FINDINGS_PER_PASS - findings,
+                                                TRUE);
     }
 
     RkFreeSystemModules(mods);
@@ -1237,6 +1325,11 @@ static CONST PCSTR g_MonitoredExports[] = {
     "NtQueryDirectoryObject", "IofCallDriver",      "IofCompleteRequest",
     "PsLookupProcessByProcessId", "PsGetProcessImageFileName",
     "ObReferenceObjectByName",
+    "MmCopyVirtualMemory", // cross-process memory read/write (cred dump)
+    "KeInsertQueueApc",    // kernel APC injection
+    "PsCreateSystemThread", // rootkit system threads
+    "IoCreateDriver",      // ghost driver registration
+    "MmMapLockedPages",    // physical page mapping abuse
     NULL
 };
 

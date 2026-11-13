@@ -20,6 +20,9 @@ Abstract:
       4. Driver object integrity - DriverInit/AddDevice/MajorFunction mismatch
       5. Kernel inline hook     - FF25 / E9 / mov-rax-jmp-rax on ntoskrnl exports
       6. Object type tampering  - unsupported file-object callbacks enabled
+      7. Global dispatch scan   - MajorFunction pointers of EVERY driver in
+                                  \Driver and \FileSystem landing in unmapped
+                                  memory (covers SCSI dispatch handler hooks)
 
     IRP opcodes (defined in SharedDefs.h):
       IRP_ROOTKIT_SSDT_HOOK       21
