@@ -12,6 +12,7 @@ pub mod extensions;
 pub mod ffi;
 pub mod firewall;
 pub mod globals;
+pub mod killchain_upload;
 pub mod logging;
 pub mod notifications;
 pub mod predictions;

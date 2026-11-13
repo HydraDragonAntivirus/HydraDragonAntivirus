@@ -570,6 +570,29 @@ fn winhttp_post(
     Err("winhttp is only available on Windows".into())
 }
 
+/// POSTs `body` to `path` (under the configured server's prefix) with the endpoint's
+/// identity headers (and the API key when one is set); blocking, for a caller that is
+/// already on its own thread. Returns (HTTP status, response body).
+pub(crate) fn post_to_server(path: &str, content_type: &str, content_encoding: Option<&str>, body: &[u8]) -> Result<(u32, Vec<u8>), String> {
+    let target = resolve_server_target();
+    let full_path = format!("{}{}", target.path_prefix, path);
+    let machine_id = get_machine_guid();
+    let mut headers = vec![
+        ("Content-Type", content_type),
+        ("User-Agent", "VirusKov-EDR-Feedback/1.0"),
+        ("X-Machine-ID", machine_id.as_str()),
+        ("X-Endpoint-ID", machine_id.as_str()),
+    ];
+    if let Some(enc) = content_encoding {
+        headers.push(("Content-Encoding", enc));
+    }
+    let api_key_opt = std::env::var("VIRUSKOV_API_KEY").ok();
+    if let Some(ref key) = api_key_opt {
+        headers.push(("X-API-Key", key.as_str()));
+    }
+    winhttp_post(&target.host, target.port, target.is_https, &full_path, &headers, body)
+}
+
 /// Dispatches threat telemetry and sample upload to VirusKov asynchronously.
 pub fn report_threat_async(report: ThreatReport, file_bytes: Option<Vec<u8>>) {
     let _ = std::thread::Builder::new()

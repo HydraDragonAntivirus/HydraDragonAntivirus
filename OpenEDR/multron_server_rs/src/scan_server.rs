@@ -44,6 +44,9 @@ const EDR_MAX_SAMPLE_BYTES: usize = 100 * 1024 * 1024;
 const EDR_MAX_BEHAVIOR_BYTES: usize = 256 * 1024;
 const EDR_MAX_FLOWS_BYTES: usize = 1024 * 1024;
 const EDR_MAX_SYSTEM_BYTES: usize = 2 * 1024 * 1024;
+/// A compressed kill chain upload (decompressed it may reach
+/// `edr_telemetry::KILLCHAIN_MAX_JSON_BYTES`).
+const EDR_MAX_KILLCHAIN_BYTES: usize = 16 * 1024 * 1024;
 /// Per-IP EDR telemetry budget: the client flushes flows every 3 s (20/min) plus
 /// rare behavior / system posts, so 30 at once refilled at one every 2 s.
 const EDR_TELEMETRY_BURST: f64 = 30.0;
@@ -518,6 +521,10 @@ impl ScanServer {
             .route(
                 "/api/v1/edr/telemetry/system",
                 post(handle_public_edr_system).route_layer(DefaultBodyLimit::max(EDR_MAX_SYSTEM_BYTES)),
+            )
+            .route(
+                "/api/v1/edr/telemetry/killchain",
+                post(handle_public_edr_killchain).route_layer(DefaultBodyLimit::max(EDR_MAX_KILLCHAIN_BYTES)),
             )
             .layer(axum::middleware::from_fn_with_state(Arc::clone(self), ban_guard))
             .layer(cors)
@@ -3164,6 +3171,45 @@ async fn handle_public_edr_flows(
     }
     let body = crate::edr_telemetry::ingest_flows(&server.edr_telemetry, &server.events, &batch);
     json_response(StatusCode::OK, body, "no-store")
+}
+
+/// POST /api/v1/edr/telemetry/killchain (public): a batch of unknown-process kill
+/// chain event shapes (brotli JSON, `Content-Encoding: br`), merged into the EDR
+/// history for the kill chain trainer.
+async fn handle_public_edr_killchain(
+    ConnectInfo(addr): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
+    State(server): State<Arc<ScanServer>>,
+    body: axum::body::Bytes,
+) -> Response {
+    let client_ip = extract_client_ip(addr, &headers);
+    if let Some(r) = edr_telemetry_refused(&server, &client_ip) {
+        return r;
+    }
+    let brotli = headers
+        .get("content-encoding")
+        .and_then(|v| v.to_str().ok())
+        .is_some_and(|v| v.eq_ignore_ascii_case("br") || v.eq_ignore_ascii_case("brotli"));
+    let error = |status: StatusCode, e: String| {
+        json_response(status, serde_json::json!({"status": "error", "error": e}), "no-store")
+    };
+    let store = Arc::clone(&server.edr_telemetry);
+    let result = tokio::task::spawn_blocking(move || {
+        let json = crate::edr_telemetry::killchain_body(&body, brotli).map_err(|e| (StatusCode::BAD_REQUEST, e))?;
+        let batch: crate::edr_telemetry::KillchainBatch =
+            serde_json::from_slice(&json).map_err(|e| (StatusCode::BAD_REQUEST, format!("bad JSON: {e}")))?;
+        store.ingest_killchain(&batch).map_err(|e| (StatusCode::SERVICE_UNAVAILABLE, e))
+    })
+    .await;
+    match result {
+        Ok(Ok((new, merged))) => json_response(
+            StatusCode::OK,
+            serde_json::json!({"status": "ok", "new": new, "merged": merged}),
+            "no-store",
+        ),
+        Ok(Err((status, e))) => error(status, e),
+        Err(e) => error(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
+    }
 }
 
 /// POST /api/v1/edr/telemetry/system (public): a system diagnostic report.

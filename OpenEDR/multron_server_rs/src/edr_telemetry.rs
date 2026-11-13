@@ -788,9 +788,201 @@ pub async fn handle_get_edr_threats(
     }))
 }
 
+// ------------------------------------------------------------------ kill chains
+// Unknown-process kill chain events from OpenEDR clients in training mode
+// (owlyshield_predict/src/killchain_upload.rs): each distinct event shape once, with
+// how often it occurred, merged across machines. Kept for good, like the rest of the
+// EDR history; the kill chain trainer reads them back with the export below.
+
+/// Decompressed size a kill chain upload may have.
+pub const KILLCHAIN_MAX_JSON_BYTES: u64 = 64 * 1024 * 1024;
+/// Records / repeat counts one upload may carry.
+const KILLCHAIN_MAX_ITEMS: usize = 20_000;
+
+#[derive(Debug, Deserialize)]
+pub struct KillchainRecord {
+    pub key: String,
+    #[serde(default)]
+    pub date: String,
+    #[serde(default)]
+    pub time: String,
+    #[serde(default)]
+    pub exe: String,
+    #[serde(default)]
+    pub event: String,
+    #[serde(default)]
+    pub details: String,
+    #[serde(default)]
+    pub raw: serde_json::Value,
+    #[serde(default = "one")]
+    pub count: u64,
+}
+
+fn one() -> u64 {
+    1
+}
+
+#[derive(Debug, Deserialize)]
+pub struct KillchainBatch {
+    #[serde(default)]
+    pub machine_id: String,
+    #[serde(default)]
+    pub records: Vec<KillchainRecord>,
+    #[serde(default)]
+    pub counts: std::collections::BTreeMap<String, u64>,
+}
+
+/// A client key: 16 lowercase hex digits.
+fn valid_killchain_key(k: &str) -> bool {
+    k.len() == 16 && k.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+}
+
+/// The request body as JSON bytes: brotli-decoded when `brotli`, never more than
+/// `KILLCHAIN_MAX_JSON_BYTES` (a decompression bomb stops there).
+pub fn killchain_body(body: &[u8], brotli: bool) -> Result<Vec<u8>, String> {
+    use std::io::Read;
+    let mut out = Vec::new();
+    let limit = KILLCHAIN_MAX_JSON_BYTES + 1;
+    let n = if brotli {
+        brotli_decompressor::Decompressor::new(body, 4096)
+            .take(limit)
+            .read_to_end(&mut out)
+            .map_err(|e| format!("brotli decompression failed: {e}"))?
+    } else {
+        body.take(limit).read_to_end(&mut out).map_err(|e| e.to_string())?
+    };
+    if n as u64 > KILLCHAIN_MAX_JSON_BYTES {
+        return Err("upload larger than 64 MB decompressed".into());
+    }
+    Ok(out)
+}
+
+impl EdrTelemetryStore {
+    /// Merges a kill chain upload into the history. Err when there is no history
+    /// database (the data is not kept in memory) or the write failed.
+    pub fn ingest_killchain(&self, batch: &KillchainBatch) -> Result<(u64, u64), String> {
+        let db = self.db.as_ref().ok_or("no EDR telemetry database")?;
+        if batch.records.len() + batch.counts.len() > KILLCHAIN_MAX_ITEMS {
+            return Err(format!("more than {KILLCHAIN_MAX_ITEMS} items in one upload"));
+        }
+        let machine = batch.machine_id.chars().take(128).collect::<String>();
+        let records: Vec<(String, u64, String)> = batch
+            .records
+            .iter()
+            .filter(|r| valid_killchain_key(&r.key))
+            .map(|r| {
+                // The stored event is an edrsvc log line, so the trainer reads exported
+                // rows exactly like its local unknown_killchain_*.jsonl files.
+                let line = serde_json::json!({
+                    "date": r.date,
+                    "time": r.time,
+                    "exe": r.exe,
+                    "event": r.event,
+                    "details": r.details,
+                    "raw": r.raw,
+                    "machine_id": machine,
+                });
+                (r.key.clone(), r.count.max(1), line.to_string())
+            })
+            .collect();
+        let counts: Vec<(String, u64)> = batch
+            .counts
+            .iter()
+            .filter(|(k, _)| valid_killchain_key(k))
+            .map(|(k, c)| (k.clone(), *c))
+            .collect();
+        db.merge_killchain(&machine, &Utc::now().to_rfc3339(), &records, &counts)
+            .map_err(|e| e.to_string())
+    }
+
+    /// (distinct event shapes, events they stand for); zeros without a database.
+    pub fn killchain_totals(&self) -> (u64, u64) {
+        self.db.as_ref().and_then(|db| db.killchain_totals().ok()).unwrap_or((0, 0))
+    }
+
+    /// Every stored kill chain event as JSON lines (see `EdrDb::export_killchain`).
+    pub fn export_killchain(&self) -> Result<(Vec<u8>, u64), String> {
+        let db = self.db.as_ref().ok_or("no EDR telemetry database")?;
+        let mut out = Vec::new();
+        let n = db.export_killchain(&mut out).map_err(|e| e.to_string())?;
+        Ok((out, n))
+    }
+}
+
+/// Handler for GET /api/v1/edr/telemetry/killchain/stats
+pub async fn handle_get_killchain_stats(State(app): State<Arc<AppState>>) -> impl IntoResponse {
+    let (shapes, events) = app.edr_telemetry.killchain_totals();
+    Json(serde_json::json!({ "shapes": shapes, "events": events }))
+}
+
+/// Handler for GET /api/v1/edr/telemetry/killchain/export: the kill chain training
+/// set as JSON lines (`train_kc_hybrid.py <file>` reads it).
+pub async fn handle_export_killchain(State(app): State<Arc<AppState>>) -> axum::response::Response {
+    let store = Arc::clone(&app.edr_telemetry);
+    let result = tokio::task::spawn_blocking(move || store.export_killchain()).await;
+    match result {
+        Ok(Ok((body, _))) => (
+            [
+                (axum::http::header::CONTENT_TYPE, "application/x-ndjson"),
+                (axum::http::header::CONTENT_DISPOSITION, "attachment; filename=\"killchain_events.jsonl\""),
+            ],
+            body,
+        )
+            .into_response(),
+        Ok(Err(e)) => (axum::http::StatusCode::SERVICE_UNAVAILABLE, e).into_response(),
+        Err(e) => (axum::http::StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn killchain_uploads_merge_by_key() {
+        let p = std::env::temp_dir().join(format!("edr_db_{}_killchain.db", std::process::id()));
+        let _ = std::fs::remove_file(&p);
+        let store = EdrTelemetryStore::open(&p);
+        let rec = |key: &str, count| KillchainRecord {
+            key: key.into(),
+            date: "20261114".into(),
+            time: "01:02:03.004".into(),
+            exe: "%systemroot%\\system32\\svchost.exe".into(),
+            event: "LLE_FILE_MAP_READ".into(),
+            details: " [File: C:\\x.dll]".into(),
+            raw: serde_json::json!({"accessMask": 2}),
+            count,
+        };
+        let first = KillchainBatch {
+            machine_id: "m1".into(),
+            records: vec![rec("00000000000000aa", 3), rec("not-a-key", 1)],
+            counts: Default::default(),
+        };
+        assert_eq!(store.ingest_killchain(&first).unwrap(), (1, 0), "invalid keys are dropped");
+        let second = KillchainBatch {
+            machine_id: "m2".into(),
+            records: vec![rec("00000000000000aa", 2), rec("00000000000000bb", 1)],
+            counts: [("00000000000000aa".to_string(), 5)].into(),
+        };
+        assert_eq!(store.ingest_killchain(&second).unwrap(), (1, 1));
+        assert_eq!(store.killchain_totals(), (2, 3 + 2 + 5 + 1));
+        let (body, n) = store.export_killchain().unwrap();
+        assert_eq!(n, 2);
+        let first_row: serde_json::Value =
+            serde_json::from_str(std::str::from_utf8(&body).unwrap().lines().next().unwrap()).unwrap();
+        assert_eq!(first_row["event"], "LLE_FILE_MAP_READ");
+        assert_eq!(first_row["raw"]["accessMask"], 2);
+        assert_eq!(first_row["machines"], 2, "seen on two machines");
+        assert_eq!(first_row["machine_id"], "m1", "the first event is kept");
+        drop(store);
+        let _ = std::fs::remove_file(&p);
+    }
+
+    #[test]
+    fn killchain_body_is_bounded() {
+        assert!(killchain_body(b"{}", false).is_ok());
+        assert!(killchain_body(b"not brotli", true).is_err());
+    }
 
     fn report(source: &str, detection: &str, risk_score: f32, indicators: &[&str]) -> BehaviorTelemetryPayload {
         BehaviorTelemetryPayload {

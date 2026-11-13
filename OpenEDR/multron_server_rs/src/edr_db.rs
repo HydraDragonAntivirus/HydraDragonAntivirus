@@ -119,7 +119,19 @@ impl EdrDb {
              CREATE TABLE IF NOT EXISTS threats (
                  id INTEGER PRIMARY KEY AUTOINCREMENT,
                  data TEXT NOT NULL
-             );",
+             );
+             CREATE TABLE IF NOT EXISTS killchain_events (
+                 key TEXT PRIMARY KEY,
+                 count INTEGER NOT NULL,
+                 first_seen TEXT NOT NULL,
+                 last_seen TEXT NOT NULL,
+                 data TEXT NOT NULL
+             );
+             CREATE TABLE IF NOT EXISTS killchain_machines (
+                 key TEXT NOT NULL,
+                 machine TEXT NOT NULL,
+                 PRIMARY KEY (key, machine)
+             ) WITHOUT ROWID;",
         )?;
         let read = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX)?;
         tune(&read, READ_CACHE_KIB)?;
@@ -153,6 +165,87 @@ impl EdrDb {
         let conn = self.write.lock().unwrap_or_else(|e| e.into_inner());
         conn.prepare_cached("INSERT INTO threats (data) VALUES (?1)")?.execute(params![to_json(t)?])?;
         Ok(conn.last_insert_rowid() as u64)
+    }
+
+    /// Merges a kill chain upload: a new key is stored with its first event (`data`, the
+    /// edrsvc log line the trainer reads); a known key only gets its count raised (the
+    /// first event is kept). `counts` raises the count of keys sent earlier.
+    /// Returns (new keys, merged keys).
+    pub fn merge_killchain(
+        &self,
+        machine_id: &str,
+        now: &str,
+        records: &[(String, u64, String)],
+        counts: &[(String, u64)],
+    ) -> Res<(u64, u64)> {
+        let mut conn = self.write.lock().unwrap_or_else(|e| e.into_inner());
+        let tx = conn.transaction()?;
+        let (mut new, mut merged) = (0u64, 0u64);
+        {
+            let mut ins = tx.prepare_cached(
+                "INSERT INTO killchain_events (key, count, first_seen, last_seen, data)
+                 VALUES (?1, ?2, ?3, ?3, ?4)
+                 ON CONFLICT(key) DO UPDATE SET
+                     count = count + excluded.count,
+                     last_seen = excluded.last_seen",
+            )?;
+            let mut exists = tx.prepare_cached("SELECT 1 FROM killchain_events WHERE key = ?1")?;
+            let mut machine = tx.prepare_cached("INSERT OR IGNORE INTO killchain_machines (key, machine) VALUES (?1, ?2)")?;
+            for (key, count, data) in records {
+                if exists.exists([key])? {
+                    merged += 1;
+                } else {
+                    new += 1;
+                }
+                ins.execute(params![key, *count as i64, now, data])?;
+                machine.execute(params![key, machine_id])?;
+            }
+            let mut bump = tx.prepare_cached(
+                "UPDATE killchain_events SET count = count + ?2, last_seen = ?3 WHERE key = ?1",
+            )?;
+            for (key, count) in counts {
+                if bump.execute(params![key, *count as i64, now])? > 0 {
+                    machine.execute(params![key, machine_id])?;
+                }
+            }
+        }
+        tx.commit()?;
+        Ok((new, merged))
+    }
+
+    /// (distinct kill chain event shapes, events they stand for).
+    pub fn killchain_totals(&self) -> Res<(u64, u64)> {
+        let conn = self.read.lock().unwrap_or_else(|e| e.into_inner());
+        conn.query_row("SELECT COUNT(*), COALESCE(SUM(count), 0) FROM killchain_events", [], |r| {
+            Ok((r.get::<_, i64>(0)? as u64, r.get::<_, i64>(1)? as u64))
+        })
+    }
+
+    /// Every stored kill chain event as JSON lines in edrsvc's log format (what
+    /// train_kc_hybrid.py reads), each with its `count`, `machines` and `key`.
+    pub fn export_killchain(&self, out: &mut Vec<u8>) -> Res<u64> {
+        let conn = self.read.lock().unwrap_or_else(|e| e.into_inner());
+        let mut st = conn.prepare(
+            "SELECT k.key, k.count, (SELECT COUNT(*) FROM killchain_machines m WHERE m.key = k.key), k.data
+             FROM killchain_events k ORDER BY k.first_seen, k.key",
+        )?;
+        let mut rows = st.query([])?;
+        let mut n = 0u64;
+        while let Some(r) = rows.next()? {
+            let key: String = r.get(0)?;
+            let data: String = r.get(3)?;
+            let Ok(serde_json::Value::Object(mut obj)) = serde_json::from_str::<serde_json::Value>(&data) else {
+                continue;
+            };
+            obj.insert("key".into(), key.into());
+            obj.insert("count".into(), r.get::<_, i64>(1)?.into());
+            obj.insert("machines".into(), r.get::<_, i64>(2)?.into());
+            if serde_json::to_writer(&mut *out, &obj).is_ok() {
+                out.push(b'\n');
+                n += 1;
+            }
+        }
+        Ok(n)
     }
 
     /// Totals over the whole history, counted the way `EdrTelemetryStore` counts them

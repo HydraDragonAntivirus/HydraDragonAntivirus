@@ -139,6 +139,9 @@ pub extern "C" fn owlyshield_dll_start() -> i32 {
         })
         .expect("[Owlyshield FFI] Failed to spawn worker thread");
 
+    // Unknown-process kill chains recorded by edrsvc (training mode) -> Multron.
+    crate::killchain_upload::start();
+
     Logging::info("[Owlyshield FFI] Engine started successfully (in-process)");
     OWLY_OK
 }
