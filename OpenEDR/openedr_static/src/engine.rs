@@ -1258,30 +1258,33 @@ impl StaticEngine {
         };
         if let Some((e, rule, threshold, kind)) = ml {
             // "Scan with engine" (this analyst view only, never the normal scan): the PE / JS / APK
-            // content model's strings are listed even when the model did not flag the
-            // file, as an informational ML entry below the threshold.
+            // model's result is listed whether or not it flagged the file. Below the
+            // threshold it is an informational entry: the probability, the features that
+            // pushed towards malware and, when there are any, the strings it read.
             let flagged = e.probability >= threshold;
-            if flagged || string_breakdown.is_some() {
-                let rule = if flagged {
-                    rule
-                } else if is_pe {
-                    "ML.PE.StringsInfo"
-                } else if is_js_content(data) {
-                    "ML.JS.StringsInfo"
-                } else {
-                    "ML.APK.StringsInfo"
-                };
-                let mut m = ml_explain(rule, &kind, threshold, &e);
-                if !flagged {
-                    m.kind = format!("{} · {:.2}% malware (below threshold, strings shown for analysis)", kind, e.probability * 100.0);
-                    m.evidence.clear();
-                }
-                if let Some(b) = &string_breakdown {
-                    let k = if is_pe { "PE" } else if is_js_content(data) { "JS" } else { "APK" };
-                    append_string_breakdown(&mut m, b, k);
-                }
-                out.push(m);
+            let rule = if flagged {
+                rule
+            } else if is_pe {
+                "ML.PE.BelowThreshold"
+            } else if is_js_content(data) {
+                "ML.JS.BelowThreshold"
+            } else {
+                "ML.APK.BelowThreshold"
+            };
+            let mut m = ml_explain(rule, &kind, threshold, &e);
+            if !flagged {
+                m.kind = format!(
+                    "{} · {:.2}% malware (below the {:.2}% threshold, not a detection)",
+                    kind,
+                    e.probability * 100.0,
+                    threshold * 100.0
+                );
             }
+            if let Some(b) = &string_breakdown {
+                let k = if is_pe { "PE" } else if is_js_content(data) { "JS" } else { "APK" };
+                append_string_breakdown(&mut m, b, k);
+            }
+            out.push(m);
         } else if is_js_content(data) {
             if let Some(b) = &string_breakdown {
                 let mut m = MatchExplain {

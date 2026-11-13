@@ -3738,7 +3738,18 @@ window.sigKey = (list) => list && list.length ? `${list[0].layer}: ${list[0].nam
       <div id="vaScanRes" style="margin-top:8px"></div>
       <h3 class="va-h">Static indicators (${ind.length})</h3>
       ${ind.length ? ind.map(i => `<div style="font-size:12.5px;padding:3px 0"><span class="tag ${i.severity === "high" ? "t-malicious" : i.severity === "medium" ? "t-suspicious" : "t-unknown"}">${esc(i.severity)}</span> ${esc(i.detail)}</div>`).join("") : '<div class="hint">None.</div>'}
+      ${urlMlHtml(d.url_ml || [])}
       </div></div>`;
+  }
+  // Every embedded URL the URL model scored, flagged or not (highest first).
+  function urlMlHtml(list) {
+    if (!list.length) return "";
+    const flagged = list.filter(u => u.flagged).length;
+    return `<h3 class="va-h">URL model (${list.length} URL${list.length === 1 ? "" : "s"}, ${flagged} over the threshold)</h3>` +
+      `<div class="hint" style="margin:0 0 4px">Malware probability of each embedded URL. Only those over the threshold are an indicator; the rest are shown for analysis.</div>` +
+      `<div class="tablewrap" style="max-height:260px"><table><thead><tr><th class="num">Score</th><th>URL</th></tr></thead><tbody>` +
+      list.map(u => `<tr><td class="num" style="white-space:nowrap">${(u.score * 100).toFixed(1)}% ${u.flagged ? '<span class="tag t-malicious">flagged</span>' : '<span class="tag t-unknown">below</span>'}</td><td class="mono" style="font-size:11.5px;word-break:break-all">${esc(u.url)}</td></tr>`).join("") +
+      `</tbody></table></div>`;
   }
   document.addEventListener("click", (e) => {
     const a = e.target.closest(".va-copy"); if (a) { e.preventDefault(); navigator.clipboard.writeText(a.dataset.copy).catch(() => {}); a.textContent = "copied"; setTimeout(() => a.textContent = "copy", 1200); }
@@ -3765,8 +3776,22 @@ window.sigKey = (list) => list && list.length ? `${list[0].layer}: ${list[0].nam
   };
 
   // Why it was detected: every matching signature, its definition and the bytes.
-  function whyHtml(list) {
+  // Model results below their threshold: listed apart, never as a detection.
+  const belowThreshold = (m) => /\.BelowThreshold$/.test(m.rule || "");
+  function whyHtml(all) {
+    const list = all.filter(m => !belowThreshold(m)), info = all.filter(belowThreshold);
+    return whyTable(list) + mlInfoHtml(info);
+  }
+  function mlInfoHtml(info) {
+    if (!info.length) return "";
+    return `<h3 class="va-h">ML model, below the threshold (${info.length})</h3><div class="hint" style="margin:0 0 4px">The model scored this file but did not flag it. Shown for analysis only; not part of the verdict.</div>` +
+      whyRows(info, () => '<span class="tag t-unknown">below threshold</span>');
+  }
+  function whyTable(list) {
     if (!list.length) return "";
+    return `<h3 class="va-h">Why it was detected (${list.length})</h3><div class="hint" style="margin:0 0 4px">Every signature that matched, strongest first. Click an offset to select the matched bytes in the hex view.</div>` + whyRows(list);
+  }
+  function whyRows(list, tagOf) {
     const hexSp = (h) => h.replace(/(..)/g, "$1 ").trim();
     const scoreTag = (sc) => sc >= 0.85 ? '<span class="tag t-malicious">malicious</span>' : sc >= 0.5 ? '<span class="tag t-suspicious">suspicious / PUA</span>' : '<span class="tag t-unknown">low</span>';
     const where = (m) => {
@@ -3781,9 +3806,9 @@ window.sigKey = (list) => list && list.length ? `${list[0].layer}: ${list[0].nam
       const ev = (m.evidence || []).length ? `<div style="font-size:11.5px;margin-top:3px">${m.engine.includes("YARA") ? "Patterns: " : m.engine === "ML" ? "Features pushing towards malware: " : "Evidence: "}${m.evidence.slice(0, 12).map(x => `<code>${esc(x)}</code>`).join(" ")}</div>` : "";
       const src = m.source ? `<div class="hint" style="margin:2px 0">${esc(m.source)}${m.line ? ":" + m.line : ""}</div>` : "";
       const def = m.definition ? `<details style="margin-top:3px"><summary style="cursor:pointer;font-size:11.5px">${m.engine === "ML" ? "Every feature: value and contribution" : "Signature"}</summary><pre style="white-space:pre-wrap;word-break:break-all;font-size:11px;max-height:240px;overflow:auto;margin:4px 0">${esc(m.definition)}</pre></details>` : "";
-      return `<tr><td>${esc(m.engine)}</td><td><b>${esc(m.rule)}</b> ${scoreTag(m.score)}<div class="hint" style="margin:2px 0">${esc(m.kind || "")}${where(m) ? " · " + where(m) : ""}</div>${src}${def}</td><td>${rng}${noRange}${ev}</td></tr>`;
+      return `<tr><td>${esc(m.engine)}</td><td><b>${esc(m.rule)}</b> ${tagOf ? tagOf(m) : scoreTag(m.score)}<div class="hint" style="margin:2px 0">${esc(m.kind || "")}${where(m) ? " · " + where(m) : ""}</div>${src}${def}</td><td>${rng}${noRange}${ev}</td></tr>`;
     }).join("");
-    return `<h3 class="va-h">Why it was detected (${list.length})</h3><div class="hint" style="margin:0 0 4px">Every signature that matched, strongest first. Click an offset to select the matched bytes in the hex view.</div><div class="tablewrap" style="max-height:420px"><table><thead><tr><th>Engine</th><th>Signature</th><th>Matched bytes</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+    return `<div class="tablewrap" style="max-height:420px"><table><thead><tr><th>Engine</th><th>Signature</th><th>Matched bytes</th></tr></thead><tbody>${rows}</tbody></table></div>`;
   }
 
   function extractedHtml(list) {
