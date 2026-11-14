@@ -47,10 +47,33 @@ const EDR_MAX_SYSTEM_BYTES: usize = 2 * 1024 * 1024;
 /// A compressed kill chain upload (decompressed it may reach
 /// `edr_telemetry::KILLCHAIN_MAX_JSON_BYTES`).
 const EDR_MAX_KILLCHAIN_BYTES: usize = 16 * 1024 * 1024;
-/// Per-IP EDR telemetry budget: the client flushes flows every 3 s (20/min) plus
-/// rare behavior / system posts, so 30 at once refilled at one every 2 s.
-const EDR_TELEMETRY_BURST: f64 = 30.0;
-const EDR_TELEMETRY_PER_SEC: f64 = 0.5;
+/// Per-IP EDR telemetry budgets, one per route. They used to be one shared bucket
+/// (30 at once, one every 2 s), but flow batches alone come every 3 s, so flows plus
+/// the kill chain uploads used it up and behavior posts got 429: the EDR Telemetry
+/// list stayed empty while the client was busy.
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+enum EdrRoute {
+    Behavior,
+    Flows,
+    System,
+    Killchain,
+}
+
+impl EdrRoute {
+    /// (burst, refill per second).
+    fn budget(self) -> (f64, f64) {
+        match self {
+            // One post per detection; bursts when a detection storm hits.
+            EdrRoute::Behavior => (60.0, 1.0),
+            // The client flushes flows every 3 s (20/min).
+            EdrRoute::Flows => (30.0, 0.5),
+            // Rare diagnostic reports.
+            EdrRoute::System => (5.0, 0.1),
+            // A round every 30 min, batches 3 s apart; a 429 only delays it.
+            EdrRoute::Killchain => (30.0, 0.5),
+        }
+    }
+}
 
 /// 3 = hash-first: the client sends `check` batches of SHA-256s and uploads only the
 /// files the server answers with `need_upload`. Version 2 clients (scan only) still work.
@@ -257,7 +280,7 @@ pub struct ScanServer {
     pub edr_telemetry: Arc<crate::edr_telemetry::EdrTelemetryStore>,
     /// Per-IP budget for the EDR telemetry posts (kept apart from `rest_limiter`:
     /// flow batches arrive every few seconds and must not eat the lookup quota).
-    edr_telemetry_buckets: StdMutex<HashMap<String, Bucket>>,
+    edr_telemetry_buckets: StdMutex<HashMap<(String, EdrRoute), Bucket>>,
 }
 
 /// One uploaded file waiting for, or inside, the engine (dashboard list).
@@ -415,13 +438,13 @@ impl ScanServer {
         })
     }
 
-    /// One EDR telemetry post from `ip` allowed? (burst EDR_TELEMETRY_BURST,
-    /// refilled at EDR_TELEMETRY_PER_SEC.)
-    fn edr_telemetry_allowed(&self, ip: &str) -> bool {
+    /// One EDR telemetry post to `route` from `ip` allowed? (that route's budget.)
+    fn edr_telemetry_allowed(&self, ip: &str, route: EdrRoute) -> bool {
+        let (burst, per_sec) = route.budget();
         let mut map = self.edr_telemetry_buckets.lock().unwrap();
-        map.entry(ip.to_string())
-            .or_insert_with(|| Bucket::full(EDR_TELEMETRY_BURST))
-            .take(1.0, EDR_TELEMETRY_BURST, EDR_TELEMETRY_PER_SEC)
+        map.entry((ip.to_string(), route))
+            .or_insert_with(|| Bucket::full(burst))
+            .take(1.0, burst, per_sec)
     }
 
     /// Seconds since the server process started.
@@ -3129,12 +3152,12 @@ async fn handle_edr_report(
     )
 }
 
-/// 429 when `ip` is over its EDR telemetry budget.
-fn edr_telemetry_refused(server: &ScanServer, ip: &str) -> Option<Response> {
-    if server.edr_telemetry_allowed(ip) {
+/// 429 when `ip` is over its EDR telemetry budget for `route`.
+fn edr_telemetry_refused(server: &ScanServer, ip: &str, route: EdrRoute) -> Option<Response> {
+    if server.edr_telemetry_allowed(ip, route) {
         return None;
     }
-    let retry = (1.0 / EDR_TELEMETRY_PER_SEC).ceil() as u64;
+    let retry = (1.0 / route.budget().1).ceil() as u64;
     Some(json_response(
         StatusCode::TOO_MANY_REQUESTS,
         serde_json::json!({"status": "error", "retry_after_seconds": retry}),
@@ -3151,7 +3174,7 @@ async fn handle_public_edr_behavior(
     axum::Json(payload): axum::Json<crate::edr_telemetry::BehaviorTelemetryPayload>,
 ) -> Response {
     let client_ip = extract_client_ip(addr, &headers);
-    if let Some(r) = edr_telemetry_refused(&server, &client_ip) {
+    if let Some(r) = edr_telemetry_refused(&server, &client_ip, EdrRoute::Behavior) {
         return r;
     }
     let body = crate::edr_telemetry::ingest_behavior(&server.edr_telemetry, &server.events, payload);
@@ -3166,7 +3189,7 @@ async fn handle_public_edr_flows(
     axum::Json(batch): axum::Json<crate::edr_telemetry::NetworkFlowBatch>,
 ) -> Response {
     let client_ip = extract_client_ip(addr, &headers);
-    if let Some(r) = edr_telemetry_refused(&server, &client_ip) {
+    if let Some(r) = edr_telemetry_refused(&server, &client_ip, EdrRoute::Flows) {
         return r;
     }
     let body = crate::edr_telemetry::ingest_flows(&server.edr_telemetry, &server.events, &batch);
@@ -3183,7 +3206,7 @@ async fn handle_public_edr_killchain(
     body: axum::body::Bytes,
 ) -> Response {
     let client_ip = extract_client_ip(addr, &headers);
-    if let Some(r) = edr_telemetry_refused(&server, &client_ip) {
+    if let Some(r) = edr_telemetry_refused(&server, &client_ip, EdrRoute::Killchain) {
         return r;
     }
     let brotli = headers
@@ -3220,7 +3243,7 @@ async fn handle_public_edr_system(
     axum::Json(payload): axum::Json<serde_json::Value>,
 ) -> Response {
     let client_ip = extract_client_ip(addr, &headers);
-    if let Some(r) = edr_telemetry_refused(&server, &client_ip) {
+    if let Some(r) = edr_telemetry_refused(&server, &client_ip, EdrRoute::System) {
         return r;
     }
     let body = crate::edr_telemetry::ingest_system_report(&server.events, &payload);

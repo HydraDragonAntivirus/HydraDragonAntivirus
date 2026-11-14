@@ -260,4 +260,46 @@ std::optional<Variant> StreamDeserializer::get()
 }
 
 } // namespace variant
-} // namespace cmd 
+
+namespace io {
+
+//
+//
+//
+std::string readConfigText(const std::filesystem::path& pathFile) noexcept
+{
+	// Same cap as a policy file could ever need; a corrupt size cannot run away.
+	constexpr size_t c_nMaxConfigText = 64 * 1024 * 1024;
+	try
+	{
+		auto pFile = createFileStreamSafe(pathFile, FileMode::Read | FileMode::ShareRead);
+		if (!pFile)
+			return {};
+		// Decrypts an "EDR!" packed file, passes a plain one through unchanged.
+		auto pStream = queryInterface<IRawReadableStream>(
+			createObject(CLSID_StreamDeserializer, Dictionary({
+				{"stream", pFile},
+			})));
+		std::string sText;
+		std::vector<char> buffer(64 * 1024);
+		for (;;)
+		{
+			const Size nRead = pStream->read(buffer.data(), buffer.size());
+			if (nRead == 0)
+				break;
+			sText.append(buffer.data(), (size_t)nRead);
+			if (sText.size() > c_nMaxConfigText)
+				return {};
+		}
+		if (sText.size() >= 3 && sText[0] == '\xEF' && sText[1] == '\xBB' && sText[2] == '\xBF')
+			sText.erase(0, 3);
+		return sText;
+	}
+	catch (...)
+	{
+		return {};
+	}
+}
+
+} // namespace io
+} // namespace cmd

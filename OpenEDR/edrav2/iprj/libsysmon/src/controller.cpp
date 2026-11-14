@@ -256,10 +256,9 @@ namespace hookmgr {
 		// 1. Load from ptm.local.src
 		for (const auto& path : ptmCandidatePaths())
 		{
-			std::ifstream ifs(path, std::ios::binary);
-			if (!ifs.is_open())
-				continue;
-			std::string content((std::istreambuf_iterator<char>(ifs)), std::istreambuf_iterator<char>());
+			// Through the config reader: the installed copy is AES-packed, and a raw
+			// read saw only ciphertext (0 targets, so no process was ever hooked).
+			std::string content = io::readConfigText(path);
 			if (content.empty())
 				continue;
 			auto specs = extractApiList(content);

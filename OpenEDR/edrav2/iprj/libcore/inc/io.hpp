@@ -367,6 +367,20 @@ ObjPtr<IReadableStream> createFileStreamSafe(const std::filesystem::path& pathFi
 	const FileMode eFlag, error::ErrorCode* pEC = nullptr);
 
 ///
+/// Reads a config / policy file (edrsvc.cfg, ptm.local.src, ...) as text, the way the
+/// config loader sees it: a file packed by `edrcon file encrypt` (the installer ships
+/// them AES-encrypted, "EDR!" header) is decrypted, a plain one is returned as is.
+/// A UTF-8 BOM is dropped.
+///
+/// Code that scans these files for a key with string search must read them through
+/// this: a raw std::ifstream sees only ciphertext on an installed system.
+///
+/// @param[in] "pathFile" - path to the file.
+/// @return The text, or an empty string when the file is missing or unreadable.
+///
+std::string readConfigText(const std::filesystem::path& pathFile) noexcept;
+
+///
 /// Creates a temporary file stream.
 ///
 /// @param[in] nMaxSize [opt] - maximal size of temp stream (default: UINTMAX_MAX).

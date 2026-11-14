@@ -31,13 +31,12 @@ pub struct ArchiveHeuristic {
 pub struct FilenameObfuscation {
     pub rlo_attack: bool,
     pub excessive_spaces: bool,
-    pub multiple_extensions: bool,
     pub details: Vec<String>,
 }
 
 impl FilenameObfuscation {
     pub fn suspicious(&self) -> bool {
-        self.rlo_attack || self.excessive_spaces || self.multiple_extensions
+        self.rlo_attack || self.excessive_spaces
     }
 
     pub fn attack_label(&self) -> String {
@@ -47,9 +46,6 @@ impl FilenameObfuscation {
         }
         if self.excessive_spaces {
             parts.push("Spaces");
-        }
-        if self.multiple_extensions {
-            parts.push("MultiExt");
         }
         if parts.is_empty() {
             "Generic".to_string()
@@ -115,26 +111,10 @@ pub fn detect_suspicious_filename(filename: &str) -> FilenameObfuscation {
         }
     }
 
-    let parts: Vec<&str> = leaf.split('.').collect();
-    // Many dots alone are normal (versioned package names such as
-    // "Microsoft.WindowsStore_12010.1001.113.0_neutral_~_8wekyb3d8bbwe.Appx.aria2"):
-    // the name must still end in a risky extension (program, script, macro
-    // document, disk image, archive), not just carry one in the middle.
-    let final_ext = extension_of(leaf).to_ascii_lowercase();
-    if parts.len() > 5 && is_known_extension(&final_ext) {
-        let known: Vec<String> = parts[1..]
-            .iter()
-            .map(|p| format!(".{}", p.to_ascii_lowercase()))
-            .filter(|e| is_known_extension(e))
-            .collect();
-        if !known.is_empty() {
-            out.multiple_extensions = true;
-            out.details.push(format!(
-                "Excessive extensions ({}): {known:?}",
-                parts.len() - 1
-            ));
-        }
-    }
+    // No multiple-extension check: many dots ending in a risky extension is the
+    // normal shape of versioned names (nested mod jars "com.foo.bar-1.2.3.jar",
+    // Appx packages), and HEUR:MultiExt.Susp.Name.ZIP.gen flagged clean
+    // Minecraft mods. RLO and padded spaces still catch the real disguises.
 
     out
 }
@@ -243,8 +223,6 @@ fn emit_filename_hits(
         ("RLO", false, "zip") => "HEUR:RLO.Susp.Name.ZIP.gen",
         ("Spaces", true, "zip") => "HEUR:Spaces.Susp.Name.Encrypted.ZIP.gen",
         ("Spaces", false, "zip") => "HEUR:Spaces.Susp.Name.ZIP.gen",
-        ("MultiExt", true, "zip") => "HEUR:MultiExt.Susp.Name.Encrypted.ZIP.gen",
-        ("MultiExt", false, "zip") => "HEUR:MultiExt.Susp.Name.ZIP.gen",
         ("RLO", true, "7z") => "HEUR:RLO.Susp.Name.Encrypted.7z.gen",
         ("RLO", false, "7z") => "HEUR:RLO.Susp.Name.7z.gen",
         ("RLO", _, "tar") => "HEUR:RLO.Susp.Name.TAR.gen",
@@ -530,15 +508,14 @@ mod tests {
     }
 
     #[test]
-    fn versioned_package_name_is_not_multi_ext() {
-        let det = detect_suspicious_filename(
+    fn many_dotted_names_are_not_suspicious() {
+        for name in [
+            "META-INF/jarjar/com.github.foo.bar-1.2.3.jar",
             "Microsoft.WindowsStore_12010.1001.113.0_neutral_~_8wekyb3d8bbwe.Appx.aria2",
-        );
-        assert!(!det.multiple_extensions);
-        let det = detect_suspicious_filename("invoice.2024.10.pdf.doc.exe");
-        assert!(det.multiple_extensions);
-        let det = detect_suspicious_filename("scan.2024.10.pdf.docx.iso");
-        assert!(det.multiple_extensions);
+            "invoice.2024.10.pdf.doc.exe",
+        ] {
+            assert!(!detect_suspicious_filename(name).suspicious(), "{name}");
+        }
     }
 
     #[test]

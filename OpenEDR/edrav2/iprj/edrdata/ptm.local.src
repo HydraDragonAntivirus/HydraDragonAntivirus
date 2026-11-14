@@ -49,6 +49,13 @@
 			"BOTH": 3
 		},
 		"configuredTrustMode": 3,
+		// The enricher inspects the acting process's loaded modules (DLL trust,
+		// .NET loader) for every event: a module snapshot plus file and signature
+		// checks per DLL. The result is reused for this many seconds per process
+		// (0 = inspect on every event); a DLL loaded meanwhile is seen at the next
+		// inspection. At most this many processes are kept.
+		"moduleInspectionCacheSeconds": 5,
+		"moduleInspectionCacheMaxEntries": 4096,
 		"driverPortEventBaseType": {
 			"MLE_DRIVER_PORT_EXPLOIT": 1000026,
 			"MLE_DRIVER_PORT_UNKNOWN_DLL_EXPLOIT": 1000027,
@@ -1705,29 +1712,135 @@
 		"credDumpEventBaseType": {
 			"MLE_CREDENTIAL_DUMP_ATTEMPT": 1000036
 		},
-		"shortcutExtensions": [
-			"*.lnk*",
-			"*.pif*",
-			"*.scr*"
-		],
-		"suspiciousShortcutDirs": [
-			"*\\temp\\*",
-			"*\\appdata\\*",
-			"*\\users\\public\\*",
-			"*\\downloads\\*",
-			"*\\desktop\\*"
-		],
+		"appInitEventBaseType": {
+			"MLE_APPINIT_DLLS_PERSISTENCE": 1000038
+		},
+		// AppInit_DLLs persistence (APPINIT_DLLS_PERSISTENCE). Everything the
+		// rule checks lives here; value-name lists are prefix matches.
+		"appInit": {
+			// The key holding the values (native and WOW64 views). Suffix match:
+			// only this key, not the many values under ...\CurrentVersion.
+			"regKeys": [
+				"*\\software\\microsoft\\windows nt\\currentversion\\windows",
+				"*\\software\\wow6432node\\microsoft\\windows nt\\currentversion\\windows"
+			],
+			// DLL list: any non-empty value loads those DLLs into user32 processes.
+			"dllListValues": [ "appinit_dlls" ],
+			// Load switch and the data that turns loading on.
+			"loadSwitchValues": [ "loadappinit_dlls" ],
+			"loadSwitchOn": "1",
+			// Signature requirement and the data that turns it off.
+			"signCheckValues": [ "requiresignedappinit_dlls" ],
+			"signCheckOff": "0"
+		},
+		// Browser shortcut hijack (SHORTCUT_HIJACK). Judged by the shortcut's
+		// content (file.shellLink.* from the enricher), never by who wrote it.
+		"browserShortcut": {
+			// Only shortcuts in these folders: desktops (user and public), Quick
+			// Launch (with the taskbar / start pins under User Pinned) and the Start
+			// Menu (with Programs, Accessories, System Tools). SendTo, Downloads and
+			// Temp are not among them.
+			"folders": [
+				"*\\desktop\\*",
+				"*\\internet explorer\\quick launch\\*",
+				"*\\start menu\\*"
+			],
+			// Restore instead of quarantine: the shortcut is rewritten to the
+			// executable of the browser's clean start command (a
+			// browserStartCommand.<browser>.keys entry whose executable matches its
+			// exes and carries no urlMarkers), read from HKLM and the loaded user
+			// hives. No clean command -> the shortcut is quarantined.
+			"restore": {
+				"startMenuInternetKey": "SOFTWARE\\Clients\\StartMenuInternet",
+				"commandSubKey": "shell\\open\\command",
+				// Where start commands are looked for, in this order: HKLM64,
+				// HKLM32 (registry views) and HKU (every loaded user hive).
+				"hives": [ "HKLM64", "HKLM32", "HKU" ],
+				"backupFolder": "%ProgramData%\\HydraDragonBackups\\Shortcuts",
+				// {time} = Unix seconds, {name} = shortcut file name.
+				"backupName": "{time}_{name}",
+				// Attributes cleared when the shortcut refuses to be overwritten
+				// (readonly, hidden, system).
+				"lockAttributes": [ "readonly", "hidden", "system" ],
+				// How the shortcut is rewritten to the clean executable.
+				"rewrite": {
+					"clearArguments": true,
+					"iconFromTarget": true,
+					"iconIndex": 0,
+					"workingDirectoryFromTarget": true
+				},
+				// Log lines; {path} shortcut, {exe} clean executable, {backup} copy.
+				"log": {
+					"prefix": "detnotif: ",
+					"restored": "restored hijacked shortcut <{path}> to <{exe}>; original backed up to <{backup}>",
+					"noCleanCommand": "no clean start command to restore <{path}>; quarantining it instead"
+				}
+			},
+			// Per browser:
+			//   shortcutNames: known-good shortcut names (fake name),
+			//   iconFiles:     its executable as an icon source (fake icon),
+			//   exeNames:      its executable named in a target / arguments
+			//                  (contains browser name),
+			//   installDirs:   where a target really is that browser (or one of its
+			//                  own programs, e.g. Firefox's private_browsing.exe).
+			"chrome": {
+				"shortcutNames": [ "*\\google chrome.lnk" ],
+				"iconFiles": [ "*\\chrome.exe*" ],
+				"exeNames": [ "*chrome.exe*" ],
+				"installDirs": [ "*\\google\\chrome\\application\\*" ]
+			},
+			"firefox": {
+				"shortcutNames": [ "*\\mozilla firefox.lnk" ],
+				"iconFiles": [ "*\\firefox.exe*" ],
+				"exeNames": [ "*firefox.exe*" ],
+				"installDirs": [ "*\\mozilla firefox\\*" ]
+			},
+			"ie": {
+				"shortcutNames": [ "*\\internet explorer.lnk" ],
+				"iconFiles": [ "*\\iexplore.exe*" ],
+				"exeNames": [ "*iexplore.exe*" ],
+				"installDirs": [ "*\\internet explorer\\*" ]
+			},
+			"opera": {
+				"shortcutNames": [ "*\\opera.lnk" ],
+				"iconFiles": [ "*\\opera.exe*", "*\\opera\\launcher.exe*" ],
+				"exeNames": [ "*opera.exe*", "*\\opera\\launcher.exe*" ],
+				"installDirs": [ "*\\opera\\*" ]
+			}
+		},
+		"shortcutHijackEventBaseType": {
+			"MLE_SHORTCUT_HIJACK": 1000039
+		},
+		// Browser start command hijack (BROWSER_START_COMMAND_HIJACK): the value of
+		// SOFTWARE\Clients\StartMenuInternet\<browser>\shell\open\command.
+		"browserStartCommand": {
+			// Any browser's start command key.
+			"anyKey": [ "*\\clients\\startmenuinternet\\*\\shell\\open\\command" ],
+			// A start command containing one of these appends a URL.
+			"urlMarkers": [ "*http:*", "*https:*", "*www.*", "*ftp:*" ],
+			// Per browser: its key, and the executables its command must start.
+			"chrome": {
+				"keys": [ "*\\clients\\startmenuinternet\\google chrome\\shell\\open\\command" ],
+				"exes": [ "*\\google\\chrome\\application\\chrome.exe*" ]
+			},
+			"firefox": {
+				"keys": [ "*\\clients\\startmenuinternet\\firefox*\\shell\\open\\command" ],
+				"exes": [ "*\\mozilla firefox\\firefox.exe*" ]
+			},
+			"ie": {
+				"keys": [ "*\\clients\\startmenuinternet\\iexplore.exe\\shell\\open\\command" ],
+				"exes": [ "*\\internet explorer\\iexplore.exe*" ]
+			},
+			"opera": {
+				"keys": [ "*\\clients\\startmenuinternet\\opera*\\shell\\open\\command" ],
+				"exes": [ "*\\opera\\launcher.exe*", "*\\opera\\opera.exe*" ]
+			}
+		},
+		"browserStartCommandEventBaseType": {
+			"MLE_BROWSER_START_COMMAND_HIJACK": 1000040
+		},
 		"hostsFileLocations": [
 			"*\\drivers\\etc\\hosts"
-		],
-		"browserHijackRegPaths": [
-			"*\\software\\policies\\google\\chrome*",
-			"*\\software\\policies\\microsoft\\edge*",
-			"*\\software\\policies\\mozilla\\firefox*",
-			"*\\software\\microsoft\\internet explorer\\main*",
-			"*\\software\\microsoft\\windows\\currentversion\\internet settings*",
-			"*\\image file execution options*",
-			"*\\currentversion\\windows*" // AppInit_DLLs / LoadAppInit_DLLs
 		],
 		"samHiveLocations": [
 			"*\\config\\sam*",
@@ -1793,6 +1906,14 @@
 			"*\\Windows\\SysWOW64\\*",
 			"*\\Windows\\WinSxS\\*",
 			"*\\Program Files\\HydraDragonAntivirus\\*",
+			// The rules match these against process.imageFile.abstractPath, which is
+			// spelled "%systemroot%\system32\..." - the "\Windows\" forms above never
+			// matched it, so every System32 binary (RuntimeBroker, svchost...) was
+			// treated as an untrusted caller.
+			"%systemroot%\\system32\\*",
+			"%systemroot%\\syswow64\\*",
+			"%systemroot%\\winsxs\\*",
+			"%programfiles%\\hydradragonantivirus\\*",
 			// VM guest agents - legitimate OS integration, suppress token theft FPs
 			"*\\VMware\\VMware Tools\\vmtoolsd.exe*",
 			"*\\VMware\\VMware Tools\\VMwareResolutionSet.exe*",
@@ -1810,7 +1931,13 @@
 			"*\\cscript.exe*",
 			"*\\mshta.exe*",
 			"*\\rundll32.exe*",
-			"*\\regsvr32.exe*"
+			"*\\regsvr32.exe*",
+			// System32 tools malware drives for persistence / downloads; they must
+			// stay untrusted now that System32 itself is trusted.
+			"*\\reg.exe*",
+			"*\\schtasks.exe*",
+			"*\\certutil.exe*",
+			"*\\bitsadmin.exe*"
 		],
 		"puaRegPaths": [
 			"*clsid\\{0a0ddbd3-6641-40b9-873f-bbdd26d6c14e}*",
@@ -5935,94 +6062,6 @@
 			}
 		], // PROCESS_HOLLOWING
 		//
-		// Shortcut infection: .lnk/.pif/.scr dropped into user-writable dirs
-		// (temp/appdata/downloads/USB-styled paths) by an untrusted or script
-		// interpreter parent. Office maldocs landing here are covered because
-		// office binaries are not in trustedSecurityCallers.
-		//
-		"SUSPICIOUS_SHORTCUT_INFECTION": [
-			{
-				"eventType": "LLE_FILE_CREATE",
-				"rule": {
-					"name": "SuspiciousShortcutDrop",
-					"condition": {
-						"$operation": "and",
-						"args": [
-							{
-								"$operation": "or",
-								"args": [
-									{
-										"$operation": "imatch",
-										"pattern": "@const.shortcutExtensions",
-										"args": [ "@event.file.path" ]
-									},
-									{
-										"$operation": "imatch",
-										"pattern": "@const.shortcutExtensions",
-										"args": [ "@event.file.rawPath" ]
-									}
-								]
-							},
-							{
-								"$operation": "or",
-								"args": [
-									{
-										"$operation": "imatch",
-										"pattern": "@const.suspiciousShortcutDirs",
-										"args": [ "@event.file.path" ]
-									},
-									{
-										"$operation": "imatch",
-										"pattern": "@const.suspiciousShortcutDirs",
-										"args": [ "@event.file.rawPath" ]
-									}
-								]
-							},
-							{
-								"$operation": "or",
-								"args": [
-									{
-										"$operation": "!imatch",
-										"pattern": "@const.trustedSecurityCallers",
-										"args": [ "@event.process.imageFile.abstractPath" ]
-									},
-									{
-										"$operation": "imatch",
-										"pattern": "@const.untrustedSecurityCallers",
-										"args": [ "@event.process.imageFile.abstractPath" ]
-									}
-								]
-							},
-							{
-								"$operation": "!equal",
-								"args": [ "@event.process.isTrusted", true ]
-							}
-						]
-					},
-					"createEvent": {
-						"eventType": "MLE_SUSPICIOUS_SHORTCUT",
-						"destination": "OUT",
-						"clone": false,
-						"data": [
-							{ "name": "baseType", "value": "@const.shortcutInfectionEventBaseType.MLE_SUSPICIOUS_SHORTCUT" },
-							{ "name": "threatName", "value": "Trojan.Win32.ShortcutInfection" },
-							{ "name": "threatType", "value": "SHORTCUT_INFECTION" },
-							{ "name": "verdict", "value": 2 },
-							{ "name": "flsVerdict", "value": 2 },
-							{ "name": "process", "value": "@event.process" },
-							{ "name": "processes", "value": "@event.processes" },
-							{ "name": "file", "value": "@event.file" },
-							{ "name": "time", "value": "@event.time" },
-							{ "name": "tickTime", "value": "@event.tickTime" },
-							{ "name": "quarantineTarget", "value": "@event.file.rawPath" },
-							{ "name": "should_trust_company_whitelist", "value": true },
-							{ "name": "should_trust_comodo_fls_cloud", "value": false }
-						]
-					}
-				}
-			}
-		], // SUSPICIOUS_SHORTCUT_INFECTION
-		//
 		// Hosts file hijack: untrusted writes to the hosts file (redirect
 		// endpoints, kill-update domains). Covers full writes and partial
 		// data changes; trusted system writers are excluded.
@@ -6162,14 +6201,17 @@
 			}
 		], // HOSTS_FILE_HIJACK
 		//
-		// Browser / network hijack persistence: untrusted writes into browser
-		// policy keys, proxy settings, IFEO debugger redirection and AppInit_DLLs.
+		// AppInit_DLLs persistence: an untrusted writer loads its DLL into every
+		// user32 process (AppInit_DLLs set non-empty, LoadAppInit_DLLs = 1, or
+		// RequireSignedAppInit_DLLs = 0). Only the bad value fires, so clearing
+		// it never does. registryRevert restores the journaled original value;
+		// no registryDeleteTarget: that key also holds the system's own values.
 		//
-		"BROWSER_HIJACK_REGISTRY": [
+		"APPINIT_DLLS_PERSISTENCE": [
 			{
 				"eventType": "LLE_REGISTRY_VALUE_SET",
 				"rule": {
-					"name": "BrowserHijackValueSet",
+					"name": "AppInitDllsValueSet",
 					"condition": {
 						"$operation": "and",
 						"args": [
@@ -6178,13 +6220,60 @@
 								"args": [
 									{
 										"$operation": "imatch",
-										"pattern": "@const.browserHijackRegPaths",
+										"pattern": "@const.appInit.regKeys",
 										"args": [ "@event.registry.abstractPath" ]
 									},
 									{
 										"$operation": "imatch",
-										"pattern": "@const.browserHijackRegPaths",
+										"pattern": "@const.appInit.regKeys",
 										"args": [ "@event.registry.rawPath" ]
+									}
+								]
+							},
+							{
+								"$operation": "or",
+								"args": [
+									{
+										"$operation": "and",
+										"args": [
+											{
+												"$operation": "imatch",
+												"pattern": "@const.appInit.dllListValues",
+												"args": [ "@event.registry.name" ]
+											},
+											{
+												"$operation": "!equal",
+												"args": [ "@event.registry.data", "" ]
+											}
+										]
+									},
+									{
+										"$operation": "and",
+										"args": [
+											{
+												"$operation": "imatch",
+												"pattern": "@const.appInit.loadSwitchValues",
+												"args": [ "@event.registry.name" ]
+											},
+											{
+												"$operation": "equal",
+												"args": [ "@event.registry.data", "@const.appInit.loadSwitchOn" ]
+											}
+										]
+									},
+									{
+										"$operation": "and",
+										"args": [
+											{
+												"$operation": "imatch",
+												"pattern": "@const.appInit.signCheckValues",
+												"args": [ "@event.registry.name" ]
+											},
+											{
+												"$operation": "equal",
+												"args": [ "@event.registry.data", "@const.appInit.signCheckOff" ]
+											}
+										]
 									}
 								]
 							},
@@ -6210,13 +6299,13 @@
 						]
 					},
 					"createEvent": {
-						"eventType": "MLE_BROWSER_HIJACK_REGISTRY",
+						"eventType": "MLE_APPINIT_DLLS_PERSISTENCE",
 						"destination": "OUT",
 						"clone": false,
 						"data": [
-							{ "name": "baseType", "value": "@const.browserHijackEventBaseType.MLE_BROWSER_HIJACK_REGISTRY" },
-							{ "name": "threatName", "value": "Trojan.Win32.BrowserHijack" },
-							{ "name": "threatType", "value": "BROWSER_HIJACK" },
+							{ "name": "baseType", "value": "@const.appInitEventBaseType.MLE_APPINIT_DLLS_PERSISTENCE" },
+							{ "name": "threatName", "value": "Trojan.Win32.AppInitPersistence" },
+							{ "name": "threatType", "value": "APPINIT_PERSISTENCE" },
 							{ "name": "verdict", "value": 2 },
 							{ "name": "flsVerdict", "value": 2 },
 							{ "name": "process", "value": "@event.process" },
@@ -6224,75 +6313,7 @@
 							{ "name": "time", "value": "@event.time" },
 							{ "name": "tickTime", "value": "@event.tickTime" },
 							{ "name": "registry", "value": "@event.registry" },
-							{ "name": "registryDeleteTarget", "value": "@event.registry.abstractPath" },
-							{ "name": "registryDeleteTargetRaw", "value": "@event.registry.rawPath" },
-							{ "name": "quarantineTarget", "value": "@event.process.imageFile.abstractPath" },
-							{ "name": "should_trust_company_whitelist", "value": true },
-							{ "name": "should_trust_comodo_fls_cloud", "value": true }
-						]
-					}
-				}
-			},
-			{
-				"eventType": "LLE_REGISTRY_KEY_CREATE",
-				"rule": {
-					"name": "BrowserHijackKeyCreate",
-					"condition": {
-						"$operation": "and",
-						"args": [
-							{
-								"$operation": "or",
-								"args": [
-									{
-										"$operation": "imatch",
-										"pattern": "@const.browserHijackRegPaths",
-										"args": [ "@event.registry.abstractPath" ]
-									},
-									{
-										"$operation": "imatch",
-										"pattern": "@const.browserHijackRegPaths",
-										"args": [ "@event.registry.rawPath" ]
-									}
-								]
-							},
-							{
-								"$operation": "or",
-								"args": [
-									{
-										"$operation": "!imatch",
-										"pattern": "@const.trustedSecurityCallers",
-										"args": [ "@event.process.imageFile.abstractPath" ]
-									},
-									{
-										"$operation": "imatch",
-										"pattern": "@const.untrustedSecurityCallers",
-										"args": [ "@event.process.imageFile.abstractPath" ]
-									}
-								]
-							},
-							{
-								"$operation": "!equal",
-								"args": [ "@event.process.isTrusted", true ]
-							}
-						]
-					},
-					"createEvent": {
-						"eventType": "MLE_BROWSER_HIJACK_REGISTRY",
-						"destination": "OUT",
-						"clone": false,
-						"data": [
-							{ "name": "baseType", "value": "@const.browserHijackEventBaseType.MLE_BROWSER_HIJACK_REGISTRY" },
-							{ "name": "threatName", "value": "Trojan.Win32.BrowserHijack" },
-							{ "name": "threatType", "value": "BROWSER_HIJACK" },
-							{ "name": "verdict", "value": 2 },
-							{ "name": "flsVerdict", "value": 2 },
-							{ "name": "process", "value": "@event.process" },
-							{ "name": "processes", "value": "@event.processes" },
-							{ "name": "time", "value": "@event.time" },
-							{ "name": "tickTime", "value": "@event.tickTime" },
-							{ "name": "registry", "value": "@event.registry" },
-							{ "name": "registryDeleteTarget", "value": "@event.registry.abstractPath" },
-							{ "name": "registryDeleteTargetRaw", "value": "@event.registry.rawPath" },
+							{ "name": "registryRevert", "value": true },
 							{ "name": "quarantineTarget", "value": "@event.process.imageFile.abstractPath" },
 							{ "name": "should_trust_company_whitelist", "value": true },
 							{ "name": "should_trust_comodo_fls_cloud", "value": true }
@@ -6300,7 +6321,677 @@
 					}
 				}
 			}
-		], // BROWSER_HIJACK_REGISTRY
+		], // APPINIT_DLLS_PERSISTENCE
+		//
+		// Browser shortcut hijack, judged by the shortcut's content once it is
+		// written (file.shellLink.* from the enricher) - never by who wrote it, so
+		// explorer / userinit creating shortcuts at first logon is never flagged:
+		// fake name (a known browser shortcut name not starting that browser), fake
+		// icon (a browser's icon on something else) or a browser executable named
+		// in the target / arguments while the target is not in its install folder.
+		// The shortcut is rewritten to the browser's clean registered start command
+		// (shellLinkRestore*, original backed up) or, without one, quarantined. Its
+		// writer is not killed (no process fields) and its path is not blacklisted
+		// (the user's clean shortcut may return).
+		//
+		"SHORTCUT_HIJACK": [
+			{
+				"eventType": "LLE_FILE_DATA_WRITE_FULL",
+				"rule": {
+					"name": "ShortcutHijackChrome",
+					"condition": {
+						"$operation": "and",
+						"args": [
+							{
+								"$operation": "equal",
+								"args": [ "@event.file.shellLink.isShellLink", true ]
+							},
+							{
+								"$operation": "or",
+								"args": [
+									{
+										"$operation": "imatch",
+										"pattern": "@const.browserShortcut.folders",
+										"args": [ "@event.file.path" ]
+									},
+									{
+										"$operation": "imatch",
+										"pattern": "@const.browserShortcut.folders",
+										"args": [ "@event.file.rawPath" ]
+									}
+								]
+							},
+							{
+								"$operation": "or",
+								"args": [
+									{
+										"$operation": "and",
+										"args": [
+											{
+												"$operation": "or",
+												"args": [
+													{
+														"$operation": "imatch",
+														"pattern": "@const.browserShortcut.chrome.shortcutNames",
+														"args": [ "@event.file.path" ]
+													},
+													{
+														"$operation": "imatch",
+														"pattern": "@const.browserShortcut.chrome.shortcutNames",
+														"args": [ "@event.file.rawPath" ]
+													}
+												]
+											},
+											{
+												"$operation": "!imatch",
+												"pattern": "@const.browserShortcut.chrome.installDirs",
+												"args": [ "@event.file.shellLink.target" ]
+											}
+										]
+									},
+									{
+										"$operation": "and",
+										"args": [
+											{
+												"$operation": "imatch",
+												"pattern": "@const.browserShortcut.chrome.iconFiles",
+												"args": [ "@event.file.shellLink.iconLocation" ]
+											},
+											{
+												"$operation": "!imatch",
+												"pattern": "@const.browserShortcut.chrome.installDirs",
+												"args": [ "@event.file.shellLink.target" ]
+											}
+										]
+									},
+									{
+										"$operation": "and",
+										"args": [
+											{
+												"$operation": "or",
+												"args": [
+													{
+														"$operation": "imatch",
+														"pattern": "@const.browserShortcut.chrome.exeNames",
+														"args": [ "@event.file.shellLink.target" ]
+													},
+													{
+														"$operation": "imatch",
+														"pattern": "@const.browserShortcut.chrome.exeNames",
+														"args": [ "@event.file.shellLink.arguments" ]
+													}
+												]
+											},
+											{
+												"$operation": "!imatch",
+												"pattern": "@const.browserShortcut.chrome.installDirs",
+												"args": [ "@event.file.shellLink.target" ]
+											}
+										]
+									}
+								]
+							}
+						]
+					},
+					"createEvent": {
+						"eventType": "MLE_SHORTCUT_HIJACK",
+						"destination": "OUT",
+						"clone": false,
+						"data": [
+							{ "name": "baseType", "value": "@const.shortcutHijackEventBaseType.MLE_SHORTCUT_HIJACK" },
+							{ "name": "threatName", "value": "Trojan.Win32.ShortcutHijack" },
+							{ "name": "threatType", "value": "SHORTCUT_HIJACK" },
+							{ "name": "verdict", "value": 2 },
+							{ "name": "flsVerdict", "value": 2 },
+							{ "name": "file", "value": "@event.file" },
+							{ "name": "time", "value": "@event.time" },
+							{ "name": "tickTime", "value": "@event.tickTime" },
+							{ "name": "quarantineTarget", "value": "@event.file.rawPath" },
+							{ "name": "blacklistTarget", "value": false },
+							{ "name": "shellLinkRestore", "value": "@const.browserShortcut.restore" },
+							{ "name": "shellLinkRestoreKeys", "value": "@const.browserStartCommand.chrome.keys" },
+							{ "name": "shellLinkRestoreExes", "value": "@const.browserStartCommand.chrome.exes" },
+							{ "name": "shellLinkRestoreUrlMarkers", "value": "@const.browserStartCommand.urlMarkers" },
+							{ "name": "should_trust_company_whitelist", "value": false },
+							{ "name": "should_trust_comodo_fls_cloud", "value": false }
+						]
+					}
+				}
+			},
+			{
+				"eventType": "LLE_FILE_DATA_WRITE_FULL",
+				"rule": {
+					"name": "ShortcutHijackFirefox",
+					"condition": {
+						"$operation": "and",
+						"args": [
+							{
+								"$operation": "equal",
+								"args": [ "@event.file.shellLink.isShellLink", true ]
+							},
+							{
+								"$operation": "or",
+								"args": [
+									{
+										"$operation": "imatch",
+										"pattern": "@const.browserShortcut.folders",
+										"args": [ "@event.file.path" ]
+									},
+									{
+										"$operation": "imatch",
+										"pattern": "@const.browserShortcut.folders",
+										"args": [ "@event.file.rawPath" ]
+									}
+								]
+							},
+							{
+								"$operation": "or",
+								"args": [
+									{
+										"$operation": "and",
+										"args": [
+											{
+												"$operation": "or",
+												"args": [
+													{
+														"$operation": "imatch",
+														"pattern": "@const.browserShortcut.firefox.shortcutNames",
+														"args": [ "@event.file.path" ]
+													},
+													{
+														"$operation": "imatch",
+														"pattern": "@const.browserShortcut.firefox.shortcutNames",
+														"args": [ "@event.file.rawPath" ]
+													}
+												]
+											},
+											{
+												"$operation": "!imatch",
+												"pattern": "@const.browserShortcut.firefox.installDirs",
+												"args": [ "@event.file.shellLink.target" ]
+											}
+										]
+									},
+									{
+										"$operation": "and",
+										"args": [
+											{
+												"$operation": "imatch",
+												"pattern": "@const.browserShortcut.firefox.iconFiles",
+												"args": [ "@event.file.shellLink.iconLocation" ]
+											},
+											{
+												"$operation": "!imatch",
+												"pattern": "@const.browserShortcut.firefox.installDirs",
+												"args": [ "@event.file.shellLink.target" ]
+											}
+										]
+									},
+									{
+										"$operation": "and",
+										"args": [
+											{
+												"$operation": "or",
+												"args": [
+													{
+														"$operation": "imatch",
+														"pattern": "@const.browserShortcut.firefox.exeNames",
+														"args": [ "@event.file.shellLink.target" ]
+													},
+													{
+														"$operation": "imatch",
+														"pattern": "@const.browserShortcut.firefox.exeNames",
+														"args": [ "@event.file.shellLink.arguments" ]
+													}
+												]
+											},
+											{
+												"$operation": "!imatch",
+												"pattern": "@const.browserShortcut.firefox.installDirs",
+												"args": [ "@event.file.shellLink.target" ]
+											}
+										]
+									}
+								]
+							}
+						]
+					},
+					"createEvent": {
+						"eventType": "MLE_SHORTCUT_HIJACK",
+						"destination": "OUT",
+						"clone": false,
+						"data": [
+							{ "name": "baseType", "value": "@const.shortcutHijackEventBaseType.MLE_SHORTCUT_HIJACK" },
+							{ "name": "threatName", "value": "Trojan.Win32.ShortcutHijack" },
+							{ "name": "threatType", "value": "SHORTCUT_HIJACK" },
+							{ "name": "verdict", "value": 2 },
+							{ "name": "flsVerdict", "value": 2 },
+							{ "name": "file", "value": "@event.file" },
+							{ "name": "time", "value": "@event.time" },
+							{ "name": "tickTime", "value": "@event.tickTime" },
+							{ "name": "quarantineTarget", "value": "@event.file.rawPath" },
+							{ "name": "blacklistTarget", "value": false },
+							{ "name": "shellLinkRestore", "value": "@const.browserShortcut.restore" },
+							{ "name": "shellLinkRestoreKeys", "value": "@const.browserStartCommand.firefox.keys" },
+							{ "name": "shellLinkRestoreExes", "value": "@const.browserStartCommand.firefox.exes" },
+							{ "name": "shellLinkRestoreUrlMarkers", "value": "@const.browserStartCommand.urlMarkers" },
+							{ "name": "should_trust_company_whitelist", "value": false },
+							{ "name": "should_trust_comodo_fls_cloud", "value": false }
+						]
+					}
+				}
+			},
+			{
+				"eventType": "LLE_FILE_DATA_WRITE_FULL",
+				"rule": {
+					"name": "ShortcutHijackInternetExplorer",
+					"condition": {
+						"$operation": "and",
+						"args": [
+							{
+								"$operation": "equal",
+								"args": [ "@event.file.shellLink.isShellLink", true ]
+							},
+							{
+								"$operation": "or",
+								"args": [
+									{
+										"$operation": "imatch",
+										"pattern": "@const.browserShortcut.folders",
+										"args": [ "@event.file.path" ]
+									},
+									{
+										"$operation": "imatch",
+										"pattern": "@const.browserShortcut.folders",
+										"args": [ "@event.file.rawPath" ]
+									}
+								]
+							},
+							{
+								"$operation": "or",
+								"args": [
+									{
+										"$operation": "and",
+										"args": [
+											{
+												"$operation": "or",
+												"args": [
+													{
+														"$operation": "imatch",
+														"pattern": "@const.browserShortcut.ie.shortcutNames",
+														"args": [ "@event.file.path" ]
+													},
+													{
+														"$operation": "imatch",
+														"pattern": "@const.browserShortcut.ie.shortcutNames",
+														"args": [ "@event.file.rawPath" ]
+													}
+												]
+											},
+											{
+												"$operation": "!imatch",
+												"pattern": "@const.browserShortcut.ie.installDirs",
+												"args": [ "@event.file.shellLink.target" ]
+											}
+										]
+									},
+									{
+										"$operation": "and",
+										"args": [
+											{
+												"$operation": "imatch",
+												"pattern": "@const.browserShortcut.ie.iconFiles",
+												"args": [ "@event.file.shellLink.iconLocation" ]
+											},
+											{
+												"$operation": "!imatch",
+												"pattern": "@const.browserShortcut.ie.installDirs",
+												"args": [ "@event.file.shellLink.target" ]
+											}
+										]
+									},
+									{
+										"$operation": "and",
+										"args": [
+											{
+												"$operation": "or",
+												"args": [
+													{
+														"$operation": "imatch",
+														"pattern": "@const.browserShortcut.ie.exeNames",
+														"args": [ "@event.file.shellLink.target" ]
+													},
+													{
+														"$operation": "imatch",
+														"pattern": "@const.browserShortcut.ie.exeNames",
+														"args": [ "@event.file.shellLink.arguments" ]
+													}
+												]
+											},
+											{
+												"$operation": "!imatch",
+												"pattern": "@const.browserShortcut.ie.installDirs",
+												"args": [ "@event.file.shellLink.target" ]
+											}
+										]
+									}
+								]
+							}
+						]
+					},
+					"createEvent": {
+						"eventType": "MLE_SHORTCUT_HIJACK",
+						"destination": "OUT",
+						"clone": false,
+						"data": [
+							{ "name": "baseType", "value": "@const.shortcutHijackEventBaseType.MLE_SHORTCUT_HIJACK" },
+							{ "name": "threatName", "value": "Trojan.Win32.ShortcutHijack" },
+							{ "name": "threatType", "value": "SHORTCUT_HIJACK" },
+							{ "name": "verdict", "value": 2 },
+							{ "name": "flsVerdict", "value": 2 },
+							{ "name": "file", "value": "@event.file" },
+							{ "name": "time", "value": "@event.time" },
+							{ "name": "tickTime", "value": "@event.tickTime" },
+							{ "name": "quarantineTarget", "value": "@event.file.rawPath" },
+							{ "name": "blacklistTarget", "value": false },
+							{ "name": "shellLinkRestore", "value": "@const.browserShortcut.restore" },
+							{ "name": "shellLinkRestoreKeys", "value": "@const.browserStartCommand.ie.keys" },
+							{ "name": "shellLinkRestoreExes", "value": "@const.browserStartCommand.ie.exes" },
+							{ "name": "shellLinkRestoreUrlMarkers", "value": "@const.browserStartCommand.urlMarkers" },
+							{ "name": "should_trust_company_whitelist", "value": false },
+							{ "name": "should_trust_comodo_fls_cloud", "value": false }
+						]
+					}
+				}
+			},
+			{
+				"eventType": "LLE_FILE_DATA_WRITE_FULL",
+				"rule": {
+					"name": "ShortcutHijackOpera",
+					"condition": {
+						"$operation": "and",
+						"args": [
+							{
+								"$operation": "equal",
+								"args": [ "@event.file.shellLink.isShellLink", true ]
+							},
+							{
+								"$operation": "or",
+								"args": [
+									{
+										"$operation": "imatch",
+										"pattern": "@const.browserShortcut.folders",
+										"args": [ "@event.file.path" ]
+									},
+									{
+										"$operation": "imatch",
+										"pattern": "@const.browserShortcut.folders",
+										"args": [ "@event.file.rawPath" ]
+									}
+								]
+							},
+							{
+								"$operation": "or",
+								"args": [
+									{
+										"$operation": "and",
+										"args": [
+											{
+												"$operation": "or",
+												"args": [
+													{
+														"$operation": "imatch",
+														"pattern": "@const.browserShortcut.opera.shortcutNames",
+														"args": [ "@event.file.path" ]
+													},
+													{
+														"$operation": "imatch",
+														"pattern": "@const.browserShortcut.opera.shortcutNames",
+														"args": [ "@event.file.rawPath" ]
+													}
+												]
+											},
+											{
+												"$operation": "!imatch",
+												"pattern": "@const.browserShortcut.opera.installDirs",
+												"args": [ "@event.file.shellLink.target" ]
+											}
+										]
+									},
+									{
+										"$operation": "and",
+										"args": [
+											{
+												"$operation": "imatch",
+												"pattern": "@const.browserShortcut.opera.iconFiles",
+												"args": [ "@event.file.shellLink.iconLocation" ]
+											},
+											{
+												"$operation": "!imatch",
+												"pattern": "@const.browserShortcut.opera.installDirs",
+												"args": [ "@event.file.shellLink.target" ]
+											}
+										]
+									},
+									{
+										"$operation": "and",
+										"args": [
+											{
+												"$operation": "or",
+												"args": [
+													{
+														"$operation": "imatch",
+														"pattern": "@const.browserShortcut.opera.exeNames",
+														"args": [ "@event.file.shellLink.target" ]
+													},
+													{
+														"$operation": "imatch",
+														"pattern": "@const.browserShortcut.opera.exeNames",
+														"args": [ "@event.file.shellLink.arguments" ]
+													}
+												]
+											},
+											{
+												"$operation": "!imatch",
+												"pattern": "@const.browserShortcut.opera.installDirs",
+												"args": [ "@event.file.shellLink.target" ]
+											}
+										]
+									}
+								]
+							}
+						]
+					},
+					"createEvent": {
+						"eventType": "MLE_SHORTCUT_HIJACK",
+						"destination": "OUT",
+						"clone": false,
+						"data": [
+							{ "name": "baseType", "value": "@const.shortcutHijackEventBaseType.MLE_SHORTCUT_HIJACK" },
+							{ "name": "threatName", "value": "Trojan.Win32.ShortcutHijack" },
+							{ "name": "threatType", "value": "SHORTCUT_HIJACK" },
+							{ "name": "verdict", "value": 2 },
+							{ "name": "flsVerdict", "value": 2 },
+							{ "name": "file", "value": "@event.file" },
+							{ "name": "time", "value": "@event.time" },
+							{ "name": "tickTime", "value": "@event.tickTime" },
+							{ "name": "quarantineTarget", "value": "@event.file.rawPath" },
+							{ "name": "blacklistTarget", "value": false },
+							{ "name": "shellLinkRestore", "value": "@const.browserShortcut.restore" },
+							{ "name": "shellLinkRestoreKeys", "value": "@const.browserStartCommand.opera.keys" },
+							{ "name": "shellLinkRestoreExes", "value": "@const.browserStartCommand.opera.exes" },
+							{ "name": "shellLinkRestoreUrlMarkers", "value": "@const.browserStartCommand.urlMarkers" },
+							{ "name": "should_trust_company_whitelist", "value": false },
+							{ "name": "should_trust_comodo_fls_cloud", "value": false }
+						]
+					}
+				}
+			}
+		], // SHORTCUT_HIJACK
+		//
+		// A browser's start command (StartMenuInternet\<browser>\shell\open\command)
+		// set to something other than that browser's executable, or with a URL
+		// appended. registryRevert restores the journaled original value.
+		//
+		"BROWSER_START_COMMAND_HIJACK": [
+			{
+				"eventType": "LLE_REGISTRY_VALUE_SET",
+				"rule": {
+					"name": "BrowserStartCommandHijack",
+					"condition": {
+						"$operation": "or",
+						"args": [
+							{
+								"$operation": "and",
+								"args": [
+									{
+										"$operation": "or",
+										"args": [
+											{
+												"$operation": "imatch",
+												"pattern": "@const.browserStartCommand.chrome.keys",
+												"args": [ "@event.registry.abstractPath" ]
+											},
+											{
+												"$operation": "imatch",
+												"pattern": "@const.browserStartCommand.chrome.keys",
+												"args": [ "@event.registry.rawPath" ]
+											}
+										]
+									},
+									{
+										"$operation": "!imatch",
+										"pattern": "@const.browserStartCommand.chrome.exes",
+										"args": [ "@event.registry.data" ]
+									}
+								]
+							},
+							{
+								"$operation": "and",
+								"args": [
+									{
+										"$operation": "or",
+										"args": [
+											{
+												"$operation": "imatch",
+												"pattern": "@const.browserStartCommand.firefox.keys",
+												"args": [ "@event.registry.abstractPath" ]
+											},
+											{
+												"$operation": "imatch",
+												"pattern": "@const.browserStartCommand.firefox.keys",
+												"args": [ "@event.registry.rawPath" ]
+											}
+										]
+									},
+									{
+										"$operation": "!imatch",
+										"pattern": "@const.browserStartCommand.firefox.exes",
+										"args": [ "@event.registry.data" ]
+									}
+								]
+							},
+							{
+								"$operation": "and",
+								"args": [
+									{
+										"$operation": "or",
+										"args": [
+											{
+												"$operation": "imatch",
+												"pattern": "@const.browserStartCommand.ie.keys",
+												"args": [ "@event.registry.abstractPath" ]
+											},
+											{
+												"$operation": "imatch",
+												"pattern": "@const.browserStartCommand.ie.keys",
+												"args": [ "@event.registry.rawPath" ]
+											}
+										]
+									},
+									{
+										"$operation": "!imatch",
+										"pattern": "@const.browserStartCommand.ie.exes",
+										"args": [ "@event.registry.data" ]
+									}
+								]
+							},
+							{
+								"$operation": "and",
+								"args": [
+									{
+										"$operation": "or",
+										"args": [
+											{
+												"$operation": "imatch",
+												"pattern": "@const.browserStartCommand.opera.keys",
+												"args": [ "@event.registry.abstractPath" ]
+											},
+											{
+												"$operation": "imatch",
+												"pattern": "@const.browserStartCommand.opera.keys",
+												"args": [ "@event.registry.rawPath" ]
+											}
+										]
+									},
+									{
+										"$operation": "!imatch",
+										"pattern": "@const.browserStartCommand.opera.exes",
+										"args": [ "@event.registry.data" ]
+									}
+								]
+							},
+							{
+								"$operation": "and",
+								"args": [
+									{
+										"$operation": "or",
+										"args": [
+											{
+												"$operation": "imatch",
+												"pattern": "@const.browserStartCommand.anyKey",
+												"args": [ "@event.registry.abstractPath" ]
+											},
+											{
+												"$operation": "imatch",
+												"pattern": "@const.browserStartCommand.anyKey",
+												"args": [ "@event.registry.rawPath" ]
+											}
+										]
+									},
+									{
+										"$operation": "imatch",
+										"pattern": "@const.browserStartCommand.urlMarkers",
+										"args": [ "@event.registry.data" ]
+									}
+								]
+							}
+						]
+					},
+					"createEvent": {
+						"eventType": "MLE_BROWSER_START_COMMAND_HIJACK",
+						"destination": "OUT",
+						"clone": false,
+						"data": [
+							{ "name": "baseType", "value": "@const.browserStartCommandEventBaseType.MLE_BROWSER_START_COMMAND_HIJACK" },
+							{ "name": "threatName", "value": "Trojan.Win32.BrowserStartCommandHijack" },
+							{ "name": "threatType", "value": "BROWSER_START_COMMAND_HIJACK" },
+							{ "name": "verdict", "value": 2 },
+							{ "name": "flsVerdict", "value": 2 },
+							{ "name": "process", "value": "@event.process" },
+							{ "name": "processes", "value": "@event.processes" },
+							{ "name": "time", "value": "@event.time" },
+							{ "name": "tickTime", "value": "@event.tickTime" },
+							{ "name": "registry", "value": "@event.registry" },
+							{ "name": "registryRevert", "value": true },
+							{ "name": "quarantineTarget", "value": "@event.process.imageFile.abstractPath" },
+							{ "name": "should_trust_company_whitelist", "value": true },
+							{ "name": "should_trust_comodo_fls_cloud", "value": true }
+						]
+					}
+				}
+			}
+		], // BROWSER_START_COMMAND_HIJACK
 		//
 		// PUM: a policy / security registry value set to its weakened state
 		// (Task Manager / regedit / UAC / Defender / firewall disabled, Winlogon

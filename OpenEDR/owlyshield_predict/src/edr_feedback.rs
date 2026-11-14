@@ -389,18 +389,7 @@ struct ServerTarget {
 }
 
 fn resolve_server_target() -> ServerTarget {
-    let mut url_str = std::env::var("VIRUSKOV_API_URL").ok();
-    if url_str.is_none() {
-        if let Ok(cur_exe) = std::env::current_exe() {
-            let dir = cur_exe.parent().unwrap_or(std::path::Path::new("."));
-            if let Ok(s) = std::fs::read_to_string(dir.join("viruskov_server.txt")) {
-                let trimmed = s.trim();
-                if !trimmed.is_empty() {
-                    url_str = Some(trimmed.to_string());
-                }
-            }
-        }
-    }
+    let url_str = std::env::var("VIRUSKOV_API_URL").ok();
 
     if let Some(ref raw) = url_str {
         if let Ok(u) = url::Url::parse(raw) {
@@ -431,6 +420,25 @@ fn resolve_server_target() -> ServerTarget {
     }
 }
 
+/// "<what> failed for host:port: WinHTTP error N (meaning)" from the thread's last error.
+#[cfg(target_os = "windows")]
+fn winhttp_error(what: &str, host: &str, port: u16) -> String {
+    let code = unsafe { windows::Win32::Foundation::GetLastError() }.0;
+    let meaning = match code {
+        12002 => "timed out",
+        12007 => "host name not resolved (DNS)",
+        12029 => "cannot connect (blocked, or nothing listening)",
+        12030 => "connection aborted",
+        12031 => "connection reset",
+        12152 => "invalid server response",
+        12157 | 12175 => "TLS / secure channel error",
+        12038 | 12044 | 12045 | 12169 => "server certificate rejected",
+        12180 => "proxy auto-detection failed",
+        _ => "see WinHTTP error codes",
+    };
+    format!("{what} failed for {host}:{port}: WinHTTP error {code} ({meaning})")
+}
+
 #[cfg(target_os = "windows")]
 fn winhttp_post(
     host: &str,
@@ -456,8 +464,9 @@ fn winhttp_post(
         let wide_host: Vec<u16> = host.encode_utf16().chain(std::iter::once(0)).collect();
         let h_connect = WinHttpConnect(h_session, PCWSTR(wide_host.as_ptr()), port, 0);
         if h_connect.is_null() {
+            let e = winhttp_error("WinHttpConnect", host, port);
             let _ = WinHttpCloseHandle(h_session);
-            return Err(format!("WinHttpConnect failed for {}:{}", host, port));
+            return Err(e);
         }
 
         let verb: Vec<u16> = "POST\0".encode_utf16().collect();
@@ -478,9 +487,10 @@ fn winhttp_post(
             open_flags,
         );
         if h_request.is_null() {
+            let e = winhttp_error("WinHttpOpenRequest", host, port);
             let _ = WinHttpCloseHandle(h_connect);
             let _ = WinHttpCloseHandle(h_session);
-            return Err("WinHttpOpenRequest failed".into());
+            return Err(e);
         }
 
         // Combine headers into RFC standard format
@@ -510,17 +520,19 @@ fn winhttp_post(
             0,
         );
         if !send_res.as_bool() {
+            let e = winhttp_error("WinHttpSendRequest", host, port);
             let _ = WinHttpCloseHandle(h_request);
             let _ = WinHttpCloseHandle(h_connect);
             let _ = WinHttpCloseHandle(h_session);
-            return Err("WinHttpSendRequest failed".into());
+            return Err(e);
         }
 
         if !WinHttpReceiveResponse(h_request, std::ptr::null_mut()).as_bool() {
+            let e = winhttp_error("WinHttpReceiveResponse", host, port);
             let _ = WinHttpCloseHandle(h_request);
             let _ = WinHttpCloseHandle(h_connect);
             let _ = WinHttpCloseHandle(h_session);
-            return Err("WinHttpReceiveResponse failed".into());
+            return Err(e);
         }
 
         let mut status_code: u32 = 0;

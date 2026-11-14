@@ -26,8 +26,12 @@
 #include <dbghelp.h>
 #include <Softpub.h>
 #include <wintrust.h>
+#include <objbase.h>
+#include <shlobj.h>
+#include <shobjidl.h>
 #pragma comment(lib, "wintrust.lib")
 #pragma comment(lib, "crypt32.lib")
+#pragma comment(lib, "ole32.lib")
 
 namespace cmd {
 
@@ -225,6 +229,80 @@ namespace {
 		}
 
 		return dosTarget;
+	}
+
+	// Shell link (.lnk) content for policy rules: file.shellLink.{isShellLink,
+	// target, arguments, iconLocation, workingDirectory}. A file counts as a shell
+	// link by its format header (MS-SHLLINK: HeaderSize 0x4C + LinkCLSID
+	// 00021401-0000-0000-C000-000000000046), whatever its name; only what the
+	// link says is reported, every judgement is left to the policy.
+	static bool ReadShellLinkFields(const std::wstring& wsPath, Dictionary& vOut)
+	{
+		static const unsigned char c_header[20] = {
+			0x4C, 0x00, 0x00, 0x00, 0x01, 0x14, 0x02, 0x00, 0x00, 0x00,
+			0x00, 0x00, 0xC0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x46 };
+		{
+			HANDLE h = ::CreateFileW(wsPath.c_str(), GENERIC_READ,
+				FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING, 0, nullptr);
+			if (h == INVALID_HANDLE_VALUE)
+				return false;
+			unsigned char head[sizeof(c_header)] = {};
+			DWORD nRead = 0;
+			const BOOL ok = ::ReadFile(h, head, sizeof(head), &nRead, nullptr);
+			::CloseHandle(h);
+			if (!ok || nRead != sizeof(head) || memcmp(head, c_header, sizeof(head)) != 0)
+				return false;
+		}
+
+		// The enricher threads are ours; COM stays initialized on each of them.
+		thread_local const HRESULT hrCom = ::CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
+		if (FAILED(hrCom) && hrCom != RPC_E_CHANGED_MODE)
+			return false;
+
+		IShellLinkW* pLink = nullptr;
+		if (FAILED(::CoCreateInstance(CLSID_ShellLink, nullptr, CLSCTX_INPROC_SERVER, IID_IShellLinkW,
+			reinterpret_cast<void**>(&pLink))))
+			return false;
+		bool ok = false;
+		IPersistFile* pFile = nullptr;
+		if (SUCCEEDED(pLink->QueryInterface(IID_IPersistFile, reinterpret_cast<void**>(&pFile))))
+		{
+			if (SUCCEEDED(pFile->Load(wsPath.c_str(), STGM_READ)))
+			{
+				auto expand = [](const wchar_t* s) {
+					wchar_t buf[MAX_PATH * 4] = {};
+					DWORD n = ::ExpandEnvironmentStringsW(s, buf, static_cast<DWORD>(std::size(buf)));
+					return (n > 0 && n <= std::size(buf)) ? std::wstring(buf) : std::wstring(s);
+				};
+				wchar_t buf[MAX_PATH * 4] = {};
+				std::wstring target;
+				if (SUCCEEDED(pLink->GetPath(buf, static_cast<int>(std::size(buf)), nullptr, SLGP_RAWPATH)) && buf[0])
+					target = expand(buf);
+				buf[0] = 0;
+				std::wstring args;
+				if (SUCCEEDED(pLink->GetArguments(buf, static_cast<int>(std::size(buf)))))
+					args = buf;
+				buf[0] = 0;
+				std::wstring icon;
+				int iconIndex = 0;
+				if (SUCCEEDED(pLink->GetIconLocation(buf, static_cast<int>(std::size(buf)), &iconIndex)) && buf[0])
+					icon = expand(buf);
+				buf[0] = 0;
+				std::wstring workDir;
+				if (SUCCEEDED(pLink->GetWorkingDirectory(buf, static_cast<int>(std::size(buf)))) && buf[0])
+					workDir = expand(buf);
+
+				vOut.put("isShellLink", true);
+				vOut.put("target", target);
+				vOut.put("arguments", args);
+				vOut.put("iconLocation", icon);
+				vOut.put("workingDirectory", workDir);
+				ok = true;
+			}
+			pFile->Release();
+		}
+		pLink->Release();
+		return ok;
 	}
 
 	static std::wstring ResolveRenameTargetPathW(const std::wstring& sourceRaw, const std::wstring& targetRaw)
@@ -812,6 +890,10 @@ namespace {
 		static std::atomic<bool> s_enableDllAttackChain{true};
 		static std::atomic<bool> s_quarantineUnknownDll{true};
 		static std::atomic<bool> s_scanAllModulesIndiscriminately{false};
+		// Per-process reuse of InspectProcessModules (ptm moduleInspectionCache*);
+		// 0 = inspect on every event, as before.
+		static std::atomic<int> s_moduleInspectionCacheSeconds{0};
+		static std::atomic<int> s_moduleInspectionCacheMaxEntries{0};
 		static std::atomic<bool> s_enableCloud{true};
 		static std::atomic<bool> s_cloudFirst{true};
 		static std::atomic<int> s_cleanVerdict{1};
@@ -1006,9 +1088,9 @@ namespace {
 			// 1. Read scanner settings from edrsvc.cfg (avoids hardcoding unknown scanning & trust options)
 			for (const auto& path : edrsvcCandidatePaths())
 			{
-				std::ifstream ifs(path, std::ios::binary);
-				if (!ifs.is_open()) continue;
-				std::string content((std::istreambuf_iterator<char>(ifs)), std::istreambuf_iterator<char>());
+				// Installed copies are AES-packed: read them decrypted (a raw read
+				// found no key and silently kept the built-in defaults).
+				std::string content = io::readConfigText(path);
 				if (content.empty()) continue;
 
 				int cfgTrust = extractIntFromPtm(content, "trustMode", 0);
@@ -1046,14 +1128,19 @@ namespace {
 			// 2. Read driver port rules & PTM trust options from ptm.local.src
 			for (const auto& path : ptmCandidatePaths())
 			{
-				std::ifstream ifs(path, std::ios::binary);
-				if (!ifs.is_open()) continue;
-				std::string content((std::istreambuf_iterator<char>(ifs)), std::istreambuf_iterator<char>());
+				// Installed copies are AES-packed: read them decrypted (a raw read
+				// found no key and silently kept the built-in defaults).
+				std::string content = io::readConfigText(path);
 				if (content.empty()) continue;
 
 				int ptmTrust = extractIntFromPtm(content, "configuredTrustMode", 0);
 				if (ptmTrust >= 1 && ptmTrust <= 3)
 					s_configuredTrustMode.store(ptmTrust, std::memory_order_relaxed);
+
+				s_moduleInspectionCacheSeconds.store(
+					(std::max)(0, extractIntFromPtm(content, "moduleInspectionCacheSeconds", 0)), std::memory_order_relaxed);
+				s_moduleInspectionCacheMaxEntries.store(
+					(std::max)(0, extractIntFromPtm(content, "moduleInspectionCacheMaxEntries", 0)), std::memory_order_relaxed);
 
 				auto vuln = extractArrayFromPtm(content, "vulnerableDriverPorts");
 				if (!vuln.empty())
@@ -1475,6 +1562,53 @@ namespace {
 				res.dllAttackChain = "[Process: " + sProcName + " (PID: " + std::to_string(nPid) + ")]";
 			}
 
+			return res;
+		}
+
+		// InspectProcessModules, reused per process for moduleInspectionCacheSeconds.
+		// It used to run on every event: a module snapshot plus, per loaded DLL, a
+		// .NET header read, an FLS cache lookup and a signature check - hundreds of
+		// file operations per event for a browser, on the single enricher thread,
+		// so under an event flood the queue (and every detection in it) fell
+		// behind. A reused PID with a different image path is inspected afresh.
+		static ModuleInspectionResult InspectProcessModulesCached(uint32_t nPid, const std::string& sProcPath)
+		{
+			const int ttl = s_moduleInspectionCacheSeconds.load(std::memory_order_relaxed);
+			if (ttl <= 0 || nPid <= 4)
+				return InspectProcessModules(nPid, sProcPath);
+
+			struct Entry
+			{
+				std::string procPath;
+				std::chrono::steady_clock::time_point at;
+				ModuleInspectionResult res;
+			};
+			static std::mutex s_mtx;
+			static std::unordered_map<uint32_t, Entry> s_cache;
+
+			const auto now = std::chrono::steady_clock::now();
+			const auto maxAge = std::chrono::seconds(ttl);
+			{
+				std::scoped_lock lock(s_mtx);
+				auto it = s_cache.find(nPid);
+				if (it != s_cache.end() && it->second.procPath == sProcPath && now - it->second.at < maxAge)
+					return it->second.res;
+			}
+
+			ModuleInspectionResult res = InspectProcessModules(nPid, sProcPath);
+
+			std::scoped_lock lock(s_mtx);
+			const size_t maxEntries = static_cast<size_t>(s_moduleInspectionCacheMaxEntries.load(std::memory_order_relaxed));
+			if (maxEntries > 0 && s_cache.size() >= maxEntries)
+			{
+				// Expired entries first; if all are fresh, start over.
+				for (auto it = s_cache.begin(); it != s_cache.end(); )
+					it = (now - it->second.at >= maxAge) ? s_cache.erase(it) : std::next(it);
+				if (s_cache.size() >= maxEntries)
+					s_cache.clear();
+			}
+			if (maxEntries > 0)
+				s_cache[nPid] = Entry{ sProcPath, now, res };
 			return res;
 		}
 
@@ -2944,11 +3078,32 @@ static void AsyncRescanAndQuarantine(std::string dos, uint32_t nPid)
 		std::this_thread::sleep_for(std::chrono::milliseconds(350));
 		if (dos.empty())
 			return;
-		// Sync path (a later Change/Close event) already handled it?
-		if (DetectionNotifier::isKnownMalware(dos, ""))
+		// Nothing on disk: already quarantined (sync path, or an earlier rescan).
+		if (::GetFileAttributesW(Widen(dos).c_str()) == INVALID_FILE_ATTRIBUTES)
 			return;
+
+		// A blacklisted path holding a file again is the malware coming back.
+		// This used to return early ("sync path already handled it"), so a
+		// re-dropped file at a known path was never quarantined again. It is
+		// now convicted unless the engines positively vouch for the new content
+		// (Clean = FLS clean / trusted signer), whatever its hash is.
+		const bool bKnownPath = DetectionNotifier::isKnownMalware(dos, "");
+		if (bKnownPath && DetectionNotifier::isProtectionPaused())
+			return; // training: keep the sample, and don't re-alert every event
 		std::string sThreat;
-		if (DetectionNotifier::scanFileWithLocalEngines(dos, sThreat) != 2)
+		const int nScan = DetectionNotifier::scanFileWithLocalEngines(dos, sThreat);
+		if (bKnownPath)
+		{
+			if (nScan == DetectionNotifier::s_cleanVerdict.load(std::memory_order_relaxed))
+			{
+				LOGLVL(Critical, FMT("enricher: [ASYNC RESCAN] blacklisted path <" << dos
+					<< "> now holds clean content (" << sThreat << "); not quarantining"));
+				return;
+			}
+			if (nScan != 2 || sThreat.empty())
+				sThreat = "Blacklist.KnownMalwarePath";
+		}
+		else if (nScan != 2)
 			return;
 		if (sThreat.empty())
 			sThreat = "Malware.LocalDetection";
@@ -2971,7 +3126,16 @@ static void AsyncRescanAndQuarantine(std::string dos, uint32_t nPid)
 						reinterpret_cast<const uint8_t*>(dos.data()),
 						static_cast<uint32_t>(dos.size()));
 					if (qRes == 0)
+					{
 						LOGLVL(Critical, FMT("enricher: [ASYNC RESCAN] quarantined <" << dos << ">"));
+						// The path is empty now; a re-drop inside the 10 s dedup
+						// window must schedule a fresh rescan, not be ignored.
+						std::string key = dos;
+						for (auto& c : key)
+							c = (char)::tolower((unsigned char)c);
+						std::scoped_lock lock(s_mtxRescanSeen);
+						s_rescanSeen.erase(key);
+					}
 					else
 						LOGLVL(Critical, FMT("enricher: [ASYNC RESCAN] quarantine failed for <" << dos << "> result=" << qRes));
 				}
@@ -3141,6 +3305,12 @@ void EventEnricher::executeUnfilteredLocalScan(Variant& vEvent, Variant& vProces
 			vProcess.put("verdict", 2);
 			vProcess.put("flsVerdict", 3);
 			handleThreatRemediation(nPid, L"", "Malware.LocalDetection");
+			// The file is back at a blacklisted path: this branch used to only
+			// stamp the event, so the re-dropped copy stayed on disk and ran.
+			// Hand it to the rescan worker (deduped, off the hot path, waits for
+			// the writer to finish) to quarantine it again.
+			if (::GetFileAttributesW(Widen(dos).c_str()) != INVALID_FILE_ATTRIBUTES)
+				AsyncRescanAndQuarantine(dos, nPid);
 			continue;
 		}
 
@@ -3252,6 +3422,10 @@ void EventEnricher::executeUnfilteredLocalScan(Variant& vEvent, Variant& vProces
 					if (qRes == 0)
 					{
 						LOGLVL(Critical, FMT("enricher: successfully quarantined detected malware <" << dos << ">"));
+						// The path is empty now, so the 30 s cooldown must not
+						// swallow the malware coming back to it.
+						std::scoped_lock lock(s_mtxAlertThrottle);
+						s_recentAlerts.erase(lowerDos);
 					}
 					else
 					{
@@ -3862,7 +4036,7 @@ void EventEnricher::put(const Variant& vEventRef)
 	else if (vProcess.has("id")) nActorPid = static_cast<uint32_t>(vProcess["id"]);
 
 	// Dual Trust & Unknown DLL Evaluation (Comodo FLS vs Microsoft/Authenticode Certificate):
-	auto modRes = DriverPortHips::InspectProcessModules(nActorPid, sProcPath);
+	auto modRes = DriverPortHips::InspectProcessModulesCached(nActorPid, sProcPath);
 	int cleanCode = DriverPortHips::s_cleanVerdict.load(std::memory_order_relaxed);
 	bool isProcFlsClean = (vProcess.has("verdict") && static_cast<int64_t>(vProcess["verdict"]) == cleanCode) ||
 	                      (vProcess.has("flsVerdict") && static_cast<int64_t>(vProcess["flsVerdict"]) == cleanCode) ||
@@ -3957,15 +4131,43 @@ void EventEnricher::put(const Variant& vEventRef)
 			int fileFlsVerdict = DetectionNotifier::getCachedFileVerdict(sFilePathCheck);
 			bool isFileFlsClean = (fileFlsVerdict == DriverPortHips::s_cleanVerdict.load(std::memory_order_relaxed));
 			bool isFileUnknown = DriverPortHips::isUnknownVerdict(fileFlsVerdict);
-			// openedr_static is the single authority for certificate trust.
-			bool isFileCertTrusted = DetectionNotifier::isFileSignatureTrusted(sFilePathCheck);
 
 			vParams.put("isTrustedAccordingToFls", isFileFlsClean);
-			vParams.put("isTrustedAccordingToCertificate", isFileCertTrusted);
 			vParams.put("isUnknownAccordingToComodo", isFileUnknown);
-			vParams.put("isUnknownAccordingToCertificate", !isFileCertTrusted);
 			vEvent.put("isUnknownAccordingToComodo", isFileUnknown);
-			vEvent.put("isUnknownAccordingToCertificate", !isFileCertTrusted);
+
+			// Certificate trust of the file (openedr_static is the single authority)
+			// only once its content is final (FileDataWriteFull). It used to run on
+			// every file event - create, mid-write change, read, delete and every
+			// handle close - and its cache is keyed on size + mtime, so a file being
+			// written missed it every time and paid a fresh WinVerifyTrust (which
+			// hashes the whole file for the catalog lookup) per event.
+			if (eEventType == Event::LLE_FILE_DATA_WRITE_FULL)
+			{
+				bool isFileCertTrusted = DetectionNotifier::isFileSignatureTrusted(sFilePathCheck);
+				vParams.put("isTrustedAccordingToCertificate", isFileCertTrusted);
+				vParams.put("isUnknownAccordingToCertificate", !isFileCertTrusted);
+				vEvent.put("isUnknownAccordingToCertificate", !isFileCertTrusted);
+			}
+		}
+
+		// Shell link content (file.shellLink.*) once the file is fully written, for
+		// the policy's shortcut rules. Not on FileClose: the driver sends that for
+		// every handle, reads included, and the shell reads shortcuts constantly to
+		// draw icons. Windows treats a file as a link by its .lnk extension, so only
+		// those are opened (no extra I/O for other files); ReadShellLinkFields then
+		// confirms the format header.
+		if (eEventType == Event::LLE_FILE_DATA_WRITE_FULL)
+		{
+			std::wstring wsLnk;
+			if (vParams.has("path")) wsLnk = vParams.get("path", L"");
+			if (wsLnk.empty() && vParams.has("rawPath")) wsLnk = vParams.get("rawPath", L"");
+			if (endsWithCaseInsensitive(wsLnk, L".lnk"))
+			{
+				Dictionary vLink;
+				if (ReadShellLinkFields(NormalizeToDosPath(wsLnk), vLink))
+					vParams.put("shellLink", vLink);
+			}
 		}
 
 		// USB Self-Replication Worm Detection:
@@ -4051,7 +4253,8 @@ void EventEnricher::put(const Variant& vEventRef)
 							vEvent.put("quarantineTarget", wsDestPath);
 
 							// Immediate quarantine & alert
-							DetectionNotifier::recordMalwareDetection(Narrow(wsDestPath), "");
+							// UTF-8, not Narrow(): a lossy path blacklists the wrong name.
+							DetectionNotifier::recordMalwareDetection(string::convertWCharToUtf8(wsDestPath), "");
 							DetectionNotifier::recordMalwareDetection(sProcPath, "");
 
 							HANDLE hPipe = ::CreateFileW(L"\\\\.\\pipe\\HydraHipEvent",

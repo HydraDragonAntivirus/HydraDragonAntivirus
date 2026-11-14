@@ -28,7 +28,14 @@
 #include <cctype>
 #include <mutex>
 #include <thread>
+#include <chrono>
+#include <cwctype>
 #include <tlhelp32.h>
+#include <objbase.h>
+#include <shlobj.h>
+#include <shobjidl.h>
+#pragma comment(lib, "ole32.lib")
+#pragma comment(lib, "shell32.lib")
 
 // Set component for logging
 #undef CMD_COMPONENT
@@ -229,6 +236,332 @@ std::string DetectionNotifier::NtPathToDosPathString(const std::string& sNt)
 	}
 	return sClean;
 }
+
+//
+// Shell link restore (policy event fields "shellLinkRestore*"): rewrites a hijacked
+// shortcut to the executable of a clean registered start command instead of
+// quarantining it. Every input comes from the rule:
+//   shellLinkRestore            the settings (ptm browserShortcut.restore):
+//       startMenuInternetKey    registry key holding the start commands,
+//       commandSubKey           command key under each entry,
+//       hives                   where to look, in order: HKLM64 / HKLM32 / HKU,
+//       backupFolder, backupName  original copied first; {time} {name} filled in,
+//       lockAttributes          cleared when the file refuses to be overwritten,
+//       rewrite                 clearArguments, iconFromTarget, iconIndex,
+//                               workingDirectoryFromTarget,
+//       log                     prefix, restored, noCleanCommand ({path} {exe} {backup});
+//   shellLinkRestoreKeys        wildcard patterns: the browser's entries (matched
+//                               on <key>\<entry>\<commandSubKey>),
+//   shellLinkRestoreExes        wildcard patterns a clean command's executable
+//                               must match,
+//   shellLinkRestoreUrlMarkers  wildcard patterns a clean command must not match.
+// Returns false (the caller then quarantines as usual) when an input is missing,
+// no clean command exists, or the shortcut cannot be backed up and rewritten.
+//
+namespace {
+
+bool wildcardMatchI(const std::wstring& pattern, const std::wstring& text)
+{
+	size_t p = 0, t = 0, star = std::wstring::npos, mark = 0;
+	while (t < text.size())
+	{
+		if (p < pattern.size() && (pattern[p] == L'?' || ::towlower(pattern[p]) == ::towlower(text[t])))
+		{
+			++p;
+			++t;
+		}
+		else if (p < pattern.size() && pattern[p] == L'*')
+		{
+			star = p++;
+			mark = t;
+		}
+		else if (star != std::wstring::npos)
+		{
+			p = star + 1;
+			t = ++mark;
+		}
+		else
+			return false;
+	}
+	while (p < pattern.size() && pattern[p] == L'*')
+		++p;
+	return p == pattern.size();
+}
+
+bool matchesAny(const std::vector<std::wstring>& patterns, const std::wstring& text)
+{
+	for (const auto& pat : patterns)
+		if (wildcardMatchI(pat, text))
+			return true;
+	return false;
+}
+
+std::vector<std::wstring> eventStrings(const Variant& vEvent, const char* key)
+{
+	std::vector<std::wstring> out;
+	if (!vEvent.has(key))
+		return out;
+	Variant v = vEvent[key];
+	if (v.isSequenceLike())
+	{
+		for (const auto& item : v)
+			out.push_back(string::convertUtf8ToWChar(std::string(item)));
+	}
+	else if (v.isString())
+		out.push_back(string::convertUtf8ToWChar(std::string(v)));
+	return out;
+}
+
+std::wstring eventString(const Variant& vEvent, const char* key)
+{
+	if (!vEvent.has(key) || !vEvent[key].isString())
+		return {};
+	return string::convertUtf8ToWChar(std::string(vEvent[key]));
+}
+
+std::wstring expandEnvW(const std::wstring& s)
+{
+	wchar_t buf[MAX_PATH * 4] = {};
+	DWORD n = ::ExpandEnvironmentStringsW(s.c_str(), buf, static_cast<DWORD>(std::size(buf)));
+	return (n > 0 && n <= std::size(buf)) ? std::wstring(buf) : s;
+}
+
+std::wstring readDefaultValue(HKEY root, const std::wstring& subKey, REGSAM view)
+{
+	HKEY h = nullptr;
+	if (::RegOpenKeyExW(root, subKey.c_str(), 0, KEY_QUERY_VALUE | view, &h) != ERROR_SUCCESS)
+		return {};
+	wchar_t buf[2048] = {};
+	DWORD cb = sizeof(buf) - sizeof(wchar_t);
+	DWORD type = 0;
+	std::wstring out;
+	if (::RegQueryValueExW(h, nullptr, nullptr, &type, reinterpret_cast<LPBYTE>(buf), &cb) == ERROR_SUCCESS
+		&& (type == REG_SZ || type == REG_EXPAND_SZ))
+		out = buf;
+	::RegCloseKey(h);
+	return out;
+}
+
+std::vector<std::wstring> enumSubKeys(HKEY root, const std::wstring& subKey, REGSAM view)
+{
+	std::vector<std::wstring> out;
+	HKEY h = nullptr;
+	if (::RegOpenKeyExW(root, subKey.c_str(), 0, KEY_ENUMERATE_SUB_KEYS | view, &h) != ERROR_SUCCESS)
+		return out;
+	for (DWORD i = 0;; ++i)
+	{
+		wchar_t name[256] = {};
+		DWORD cch = static_cast<DWORD>(std::size(name));
+		LONG r = ::RegEnumKeyExW(h, i, name, &cch, nullptr, nullptr, nullptr, nullptr);
+		if (r == ERROR_NO_MORE_ITEMS)
+			break;
+		if (r == ERROR_SUCCESS)
+			out.emplace_back(name);
+	}
+	::RegCloseKey(h);
+	return out;
+}
+
+/// The executable a command line starts (quoted, or up to ".exe").
+std::wstring commandExecutable(const std::wstring& cmd)
+{
+	size_t b = cmd.find_first_not_of(L" \t");
+	if (b == std::wstring::npos)
+		return {};
+	std::wstring exe;
+	if (cmd[b] == L'"')
+	{
+		size_t q = cmd.find(L'"', b + 1);
+		exe = cmd.substr(b + 1, q == std::wstring::npos ? std::wstring::npos : q - b - 1);
+	}
+	else
+	{
+		std::wstring l = cmd.substr(b);
+		for (auto& c : l)
+			c = static_cast<wchar_t>(::towlower(c));
+		size_t e = l.find(L".exe");
+		exe = cmd.substr(b, e == std::wstring::npos ? cmd.find(L' ', b) - b : e + 4);
+	}
+	return expandEnvW(exe);
+}
+
+/// The executable of the first clean start command the rule's patterns select,
+/// looking in the configured hives in order.
+std::wstring findCleanStartExecutable(const std::vector<std::wstring>& hives, const std::wstring& root,
+	const std::wstring& commandSubKey, const std::vector<std::wstring>& keyPatterns,
+	const std::vector<std::wstring>& exePatterns, const std::vector<std::wstring>& urlMarkers)
+{
+	auto tryRoot = [&](HKEY hive, const std::wstring& prefix, REGSAM view) -> std::wstring {
+		const std::wstring base = prefix + root;
+		for (const auto& entry : enumSubKeys(hive, base, view))
+		{
+			const std::wstring key = base + L"\\" + entry + L"\\" + commandSubKey;
+			if (!matchesAny(keyPatterns, key))
+				continue;
+			const std::wstring cmd = readDefaultValue(hive, key, view);
+			if (cmd.empty() || matchesAny(urlMarkers, cmd))
+				continue;
+			const std::wstring exe = commandExecutable(cmd);
+			if (exe.empty() || !matchesAny(exePatterns, exe)
+				|| ::GetFileAttributesW(exe.c_str()) == INVALID_FILE_ATTRIBUTES)
+				continue;
+			return exe;
+		}
+		return {};
+	};
+
+	for (const auto& hiveName : hives)
+	{
+		std::wstring exe;
+		if (_wcsicmp(hiveName.c_str(), L"HKLM64") == 0)
+			exe = tryRoot(HKEY_LOCAL_MACHINE, L"", KEY_WOW64_64KEY);
+		else if (_wcsicmp(hiveName.c_str(), L"HKLM32") == 0)
+			exe = tryRoot(HKEY_LOCAL_MACHINE, L"", KEY_WOW64_32KEY);
+		else if (_wcsicmp(hiveName.c_str(), L"HKU") == 0)
+		{
+			for (const auto& user : enumSubKeys(HKEY_USERS, L"", 0))
+			{
+				exe = tryRoot(HKEY_USERS, user + L"\\", 0);
+				if (!exe.empty())
+					break;
+			}
+		}
+		if (!exe.empty())
+			return exe;
+	}
+	return {};
+}
+
+/// Fills {placeholder}s of a configured text.
+std::wstring fillTemplate(std::wstring text, std::initializer_list<std::pair<const wchar_t*, std::wstring>> values)
+{
+	for (const auto& [key, value] : values)
+	{
+		const std::wstring k(key);
+		for (size_t pos = text.find(k); pos != std::wstring::npos; pos = text.find(k, pos + value.size()))
+			text.replace(pos, k.size(), value);
+	}
+	return text;
+}
+
+bool eventBool(const Variant& v, const char* key)
+{
+	if (!v.has(key))
+		return false;
+	try
+	{
+		const Variant b = v[key];
+		return b.getType() == variant::ValueType::Boolean && static_cast<bool>(b);
+	}
+	catch (...)
+	{
+		return false;
+	}
+}
+
+bool restoreShellLinkFromEvent(const Variant& vEvent, const std::string& sTargetPath)
+{
+	if (!vEvent.has("shellLinkRestore") || !vEvent["shellLinkRestore"].isDictionaryLike())
+		return false;
+	const Variant vR = vEvent["shellLinkRestore"];
+	const std::wstring root = eventString(vR, "startMenuInternetKey");
+	const std::wstring commandSubKey = eventString(vR, "commandSubKey");
+	const auto hives = eventStrings(vR, "hives");
+	const std::wstring backupFolder = expandEnvW(eventString(vR, "backupFolder"));
+	const std::wstring backupName = eventString(vR, "backupName");
+	const auto keyPatterns = eventStrings(vEvent, "shellLinkRestoreKeys");
+	const auto exePatterns = eventStrings(vEvent, "shellLinkRestoreExes");
+	const auto urlMarkers = eventStrings(vEvent, "shellLinkRestoreUrlMarkers");
+	if (root.empty() || commandSubKey.empty() || hives.empty() || keyPatterns.empty() || exePatterns.empty()
+		|| backupFolder.empty() || backupName.empty())
+		return false;
+
+	DWORD lockAttributes = 0;
+	for (const auto& a : eventStrings(vR, "lockAttributes"))
+	{
+		if (_wcsicmp(a.c_str(), L"readonly") == 0) lockAttributes |= FILE_ATTRIBUTE_READONLY;
+		else if (_wcsicmp(a.c_str(), L"hidden") == 0) lockAttributes |= FILE_ATTRIBUTE_HIDDEN;
+		else if (_wcsicmp(a.c_str(), L"system") == 0) lockAttributes |= FILE_ATTRIBUTE_SYSTEM;
+	}
+	const Variant vRewrite = vR.has("rewrite") ? Variant(vR["rewrite"]) : Variant(Dictionary());
+	const bool clearArguments = eventBool(vRewrite, "clearArguments");
+	const bool iconFromTarget = eventBool(vRewrite, "iconFromTarget");
+	const bool workDirFromTarget = eventBool(vRewrite, "workingDirectoryFromTarget");
+	int iconIndex = 0;
+	if (vRewrite.has("iconIndex"))
+		try { iconIndex = static_cast<int>(static_cast<int64_t>(vRewrite["iconIndex"])); } catch (...) {}
+	const Variant vLog = vR.has("log") ? Variant(vR["log"]) : Variant(Dictionary());
+	const std::wstring logPrefix = eventString(vLog, "prefix");
+
+	const std::wstring exe = findCleanStartExecutable(hives, root, commandSubKey, keyPatterns, exePatterns, urlMarkers);
+	const std::wstring lnk = string::convertUtf8ToWChar(DetectionNotifier::NtPathToDosPathString(sTargetPath));
+	if (exe.empty())
+	{
+		const std::wstring msg = eventString(vLog, "noCleanCommand");
+		if (!msg.empty())
+			LOGLVL(Critical, string::convertWCharToUtf8(logPrefix + fillTemplate(msg, { { L"{path}", lnk } })));
+		return false;
+	}
+
+	// Back up the original first.
+	const int mk = ::SHCreateDirectoryExW(nullptr, backupFolder.c_str(), nullptr);
+	if (mk != ERROR_SUCCESS && mk != ERROR_ALREADY_EXISTS && mk != ERROR_FILE_EXISTS)
+		return false;
+	const size_t slash = lnk.find_last_of(L"\\/");
+	const std::wstring backup = backupFolder + L"\\" + fillTemplate(backupName, {
+		{ L"{time}", std::to_wstring(std::chrono::duration_cast<std::chrono::seconds>(
+			std::chrono::system_clock::now().time_since_epoch()).count()) },
+		{ L"{name}", slash == std::wstring::npos ? lnk : lnk.substr(slash + 1) } });
+	if (!::CopyFileW(lnk.c_str(), backup.c_str(), FALSE))
+		return false;
+
+	thread_local const HRESULT hrCom = ::CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
+	if (FAILED(hrCom) && hrCom != RPC_E_CHANGED_MODE)
+		return false;
+	IShellLinkW* pLink = nullptr;
+	if (FAILED(::CoCreateInstance(CLSID_ShellLink, nullptr, CLSCTX_INPROC_SERVER, IID_IShellLinkW,
+		reinterpret_cast<void**>(&pLink))))
+		return false;
+	HRESULT hr = E_FAIL;
+	IPersistFile* pFile = nullptr;
+	if (SUCCEEDED(pLink->QueryInterface(IID_IPersistFile, reinterpret_cast<void**>(&pFile))))
+	{
+		if (SUCCEEDED(pFile->Load(lnk.c_str(), STGM_READ)))
+		{
+			const size_t es = exe.find_last_of(L"\\/");
+			const std::wstring exeDir = es == std::wstring::npos ? std::wstring() : exe.substr(0, es);
+			pLink->SetPath(exe.c_str());
+			if (clearArguments)
+				pLink->SetArguments(L"");
+			if (iconFromTarget)
+				pLink->SetIconLocation(exe.c_str(), iconIndex);
+			if (workDirFromTarget)
+				pLink->SetWorkingDirectory(exeDir.c_str());
+			hr = pFile->Save(lnk.c_str(), TRUE);
+			if (FAILED(hr) && lockAttributes != 0)
+			{
+				const DWORD attrs = ::GetFileAttributesW(lnk.c_str());
+				if (attrs != INVALID_FILE_ATTRIBUTES && (attrs & lockAttributes))
+				{
+					::SetFileAttributesW(lnk.c_str(), attrs & ~lockAttributes);
+					hr = pFile->Save(lnk.c_str(), TRUE);
+				}
+			}
+		}
+		pFile->Release();
+	}
+	pLink->Release();
+	if (FAILED(hr))
+		return false;
+
+	const std::wstring msg = eventString(vLog, "restored");
+	if (!msg.empty())
+		LOGLVL(Critical, string::convertWCharToUtf8(logPrefix + fillTemplate(msg,
+			{ { L"{path}", lnk }, { L"{exe}", exe }, { L"{backup}", backup } })));
+	return true;
+}
+
+} // namespace
 
 void DetectionNotifier::loadPersistentMalwareDb()
 {
@@ -481,18 +814,29 @@ void DetectionNotifier::finalConstruct(Variant vConfig)
 
 	loadPersistentMalwareDb();
 
-	// Load scanner config from edrsvc.cfg if present
-	for (const auto* p : { "edrsvc.cfg", "data\\edrsvc.cfg", "..\\data\\edrsvc.cfg", "OpenEDR\\edrav2\\iprj\\edrsvc\\data\\edrsvc.cfg" })
+	// Load scanner config from edrsvc.cfg if present. Next to edrsvc.exe first: the
+	// service runs in system32, where the relative names never resolved. Read through
+	// the config reader, since the installed copy is AES-packed.
+	std::vector<std::filesystem::path> vCfgPaths;
 	{
-		std::ifstream ifs(p, std::ios::binary);
-		if (ifs.is_open())
+		wchar_t wsExe[MAX_PATH] = {};
+		if (::GetModuleFileNameW(nullptr, wsExe, MAX_PATH) > 0)
 		{
-			std::string content((std::istreambuf_iterator<char>(ifs)), std::istreambuf_iterator<char>());
-			if (!content.empty())
-			{
-				loadScannerConfigFromCfg(content);
-				break;
-			}
+			std::filesystem::path exeDir = std::filesystem::path(wsExe).parent_path();
+			vCfgPaths.push_back(exeDir / L"edrsvc.cfg");
+			vCfgPaths.push_back(exeDir / L"data" / L"edrsvc.cfg");
+			vCfgPaths.push_back(exeDir.parent_path() / L"data" / L"edrsvc.cfg");
+		}
+	}
+	for (const auto* p : { "edrsvc.cfg", "data\\edrsvc.cfg", "..\\data\\edrsvc.cfg", "OpenEDR\\edrav2\\iprj\\edrsvc\\data\\edrsvc.cfg" })
+		vCfgPaths.emplace_back(p);
+	for (const auto& p : vCfgPaths)
+	{
+		std::string content = io::readConfigText(p);
+		if (!content.empty())
+		{
+			loadScannerConfigFromCfg(content);
+			break;
 		}
 	}
 
@@ -2356,6 +2700,12 @@ Variant DetectionNotifier::execute(Variant vCommand, Variant vParams){
 						try { nShieldPid = static_cast<int64_t>(opt.value()); } catch (...) {}
 				}
 
+				// 0b. Shell link restore (policy "shellLinkRestore*"): a hijacked
+				// shortcut rewritten to a clean registered start command needs no
+				// quarantine; without one it falls through to the quarantine below.
+				if (!sPath.empty() && vEvent.has("shellLinkRestore") && restoreShellLinkFromEvent(vEvent, sPath))
+					sPath.clear();
+
 				// 1. First: Quarantine the malicious binary and register it in the malware database
 				if (!sPath.empty())
 				{
@@ -2366,7 +2716,6 @@ Variant DetectionNotifier::execute(Variant vCommand, Variant vParams){
 					else
 					{
 						std::string sDos = NtPathToDosPathString(sPath);
-						std::string sLower = toLowerStr(sDos);
 
 						std::string sHash;
 						for (const char* hField : {
@@ -2390,12 +2739,27 @@ Variant DetectionNotifier::execute(Variant vCommand, Variant vParams){
 							}
 						}
 
-						// Persistently remember this malware across restarts & blacklist in driver
-						recordMalwareDetection(sDos, sHash);
+						// Persistently remember this malware across restarts & blacklist in driver,
+						// unless the rule says the path itself is not malicious (policy
+						// "blacklistTarget": false - e.g. a hijacked browser shortcut: the
+						// user's clean shortcut may come back to that same path).
+						bool bBlacklistTarget = true;
+						if (auto optBl = variant::getByPathSafe(vEvent, "blacklistTarget"))
+						{
+							try {
+								auto vBl = optBl.value();
+								if (vBl.getType() == variant::ValueType::Boolean)
+									bBlacklistTarget = static_cast<bool>(vBl);
+							} catch (...) {}
+						}
+						if (bBlacklistTarget)
+							recordMalwareDetection(sDos, sHash);
 
 						{
+							// s_quarantinedPaths is guarded by s_mtxMalwareDb and was
+							// already updated by recordMalwareDetection above; inserting
+							// it again here under this other lock raced isKnownMalware.
 							std::scoped_lock _lock(s_mtxQuarantineLock);
-							s_quarantinedPaths.insert(sLower);
 							if (nGid != 0) s_quarantinedPids[nGid] = sDos;
 							if (nShieldPid > 0) s_quarantinedPids[static_cast<uint64_t>(nShieldPid)] = sDos;
 							if (nRootMalwarePid > 0) s_quarantinedPids[static_cast<uint64_t>(nRootMalwarePid)] = sDos;

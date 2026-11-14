@@ -337,6 +337,55 @@ TEST_CASE("StreamDeserializer.get")
 	}
 }
 
+//
+// readConfigText: an installed (AES-packed) config file and its plain source read
+// back as the same text, so string scans of ptm.local.src / edrsvc.cfg work on both.
+//
+TEST_CASE("readConfigText.plainAndPacked", "[cmd::io]")
+{
+	const std::string sText = "// policy\n{ \"cryptoApiList\": [ \"bcrypt.dll!BCryptEncrypt\" ] }\n";
+	const auto dir = std::filesystem::temp_directory_path();
+	const auto plainPath = dir / L"ut_readconfigtext_plain.src";
+	const auto packedPath = dir / L"ut_readconfigtext_packed.src";
+	{
+		std::ofstream f(plainPath, std::ios::binary | std::ios::trunc);
+		f.write(sText.data(), (std::streamsize)sText.size());
+	}
+	{
+		auto pOut = queryInterface<io::IWritableStream>(io::createFileStream(packedPath,
+			io::FileMode::Write | io::FileMode::Truncate | io::FileMode::ShareRead));
+		auto pSer = queryInterface<io::IRawWritableStream>(createObject(CLSID_StreamSerializer, Dictionary({
+				{"stream", pOut},
+				{"encryption", "aes"}
+			})));
+		pSer->write(sText.data(), sText.size());
+		pSer->flush();
+	}
+
+	SECTION("plain")
+	{
+		REQUIRE(io::readConfigText(plainPath) == sText);
+	}
+
+	SECTION("packed")
+	{
+		std::ifstream raw(packedPath, std::ios::binary);
+		std::string sRaw((std::istreambuf_iterator<char>(raw)), std::istreambuf_iterator<char>());
+		REQUIRE(sRaw.rfind("EDR!", 0) == 0);
+		REQUIRE(sRaw.find("cryptoApiList") == std::string::npos);
+		REQUIRE(io::readConfigText(packedPath) == sText);
+	}
+
+	SECTION("missing")
+	{
+		REQUIRE(io::readConfigText(dir / L"ut_readconfigtext_missing.src").empty());
+	}
+
+	std::error_code ec;
+	std::filesystem::remove(plainPath, ec);
+	std::filesystem::remove(packedPath, ec);
+}
+
 /***
 TEST_CASE("CacheStream.readRawReadableStreamCache", "[cmd::io]")
 {
