@@ -915,6 +915,10 @@ namespace {
 		// 0 = inspect on every event, as before.
 		static std::atomic<int> s_moduleInspectionCacheSeconds{0};
 		static std::atomic<int> s_moduleInspectionCacheMaxEntries{0};
+		// Event rate log (ptm eventRate*); 0 seconds = off.
+		static std::atomic<int> s_eventRateLogSeconds{0};
+		static std::atomic<int> s_eventRateTopTypes{0};
+		static std::atomic<int> s_eventRateTopProcesses{0};
 		static std::atomic<bool> s_enableCloud{true};
 		static std::atomic<bool> s_cloudFirst{true};
 		static std::atomic<int> s_cleanVerdict{1};
@@ -1162,6 +1166,12 @@ namespace {
 					(std::max)(0, extractIntFromPtm(content, "moduleInspectionCacheSeconds", 0)), std::memory_order_relaxed);
 				s_moduleInspectionCacheMaxEntries.store(
 					(std::max)(0, extractIntFromPtm(content, "moduleInspectionCacheMaxEntries", 0)), std::memory_order_relaxed);
+				s_eventRateLogSeconds.store(
+					(std::max)(0, extractIntFromPtm(content, "eventRateLogSeconds", 0)), std::memory_order_relaxed);
+				s_eventRateTopTypes.store(
+					(std::max)(0, extractIntFromPtm(content, "eventRateTopTypes", 0)), std::memory_order_relaxed);
+				s_eventRateTopProcesses.store(
+					(std::max)(0, extractIntFromPtm(content, "eventRateTopProcesses", 0)), std::memory_order_relaxed);
 
 				auto vuln = extractArrayFromPtm(content, "vulnerableDriverPorts");
 				if (!vuln.empty())
@@ -4013,6 +4023,82 @@ std::wstring EventEnricher::getRegistryAbstractPath(std::wstring sPath)
 //
 //
 //
+namespace {
+	// Event rate diagnostics: counts every event the enricher receives by type
+	// (API hook events by hooked function) and by acting process, and logs the
+	// totals every ptm eventRateLogSeconds (0 = off), so the source of an event
+	// flood can be seen instead of guessed. Costs one map increment per event.
+	struct EventRateStats
+	{
+		std::mutex mtx;
+		std::chrono::steady_clock::time_point windowStart = std::chrono::steady_clock::now();
+		uint64_t total = 0;
+		std::unordered_map<std::string, uint64_t> byType;
+		std::unordered_map<std::string, uint64_t> byProcess;
+	};
+
+	std::string TopEntries(const std::unordered_map<std::string, uint64_t>& counts, size_t limit)
+	{
+		std::vector<std::pair<std::string, uint64_t>> v(counts.begin(), counts.end());
+		std::sort(v.begin(), v.end(), [](const auto& a, const auto& b) { return a.second > b.second; });
+		std::string out;
+		for (size_t i = 0; i < v.size() && i < limit; ++i)
+			out += (out.empty() ? "" : ", ") + v[i].first + "=" + std::to_string(v[i].second);
+		if (v.size() > limit)
+			out += ", ... (" + std::to_string(v.size() - limit) + " more)";
+		return out;
+	}
+
+	void RecordEventRate(const Variant& vEvent, const std::string& sType, const std::string& sProcPath)
+	{
+		DriverPortHips::EnsurePtmLoaded();
+		const int nSeconds = DriverPortHips::s_eventRateLogSeconds.load(std::memory_order_relaxed);
+		if (nSeconds <= 0)
+			return;
+
+		std::string sKey = sType;
+		if (auto optApi = variant::getByPathSafe(vEvent, "owlyHook.apiFunction"))
+		{
+			try { sKey += ":" + std::string(optApi.value()); } catch (...) {}
+		}
+		std::string sProc = sProcPath;
+		const size_t slash = sProc.find_last_of("\\/");
+		if (slash != std::string::npos)
+			sProc = sProc.substr(slash + 1);
+		for (auto& c : sProc)
+			c = (char)::tolower((unsigned char)c);
+		if (sProc.empty())
+			sProc = "<unknown>";
+
+		static EventRateStats s_stats;
+		uint64_t nTotal = 0;
+		std::unordered_map<std::string, uint64_t> byType, byProcess;
+		std::chrono::steady_clock::duration elapsed{};
+		{
+			std::scoped_lock lock(s_stats.mtx);
+			++s_stats.total;
+			++s_stats.byType[sKey];
+			++s_stats.byProcess[sProc];
+			const auto now = std::chrono::steady_clock::now();
+			elapsed = now - s_stats.windowStart;
+			if (elapsed < std::chrono::seconds(nSeconds))
+				return;
+			nTotal = s_stats.total;
+			byType.swap(s_stats.byType);
+			byProcess.swap(s_stats.byProcess);
+			s_stats.total = 0;
+			s_stats.windowStart = now;
+		}
+
+		const auto nTopTypes = static_cast<size_t>((std::max)(1, DriverPortHips::s_eventRateTopTypes.load(std::memory_order_relaxed)));
+		const auto nTopProcs = static_cast<size_t>((std::max)(1, DriverPortHips::s_eventRateTopProcesses.load(std::memory_order_relaxed)));
+		const double dSecs = std::chrono::duration<double>(elapsed).count();
+		LOGLVL(Critical, FMT("eventrate: " << nTotal << " events in " << static_cast<int>(dSecs) << " s ("
+			<< static_cast<uint64_t>(dSecs > 0 ? nTotal / dSecs : 0) << "/s) | by type: " << TopEntries(byType, nTopTypes)
+			<< " | by process: " << TopEntries(byProcess, nTopProcs)));
+	}
+} // namespace
+
 void EventEnricher::put(const Variant& vEventRef)
 {
 	Variant vEvent = const_cast<Variant&>(vEventRef);
@@ -4063,10 +4149,29 @@ void EventEnricher::put(const Variant& vEventRef)
 	if (vProcess.has("imagePath")) sProcPath = std::string(vProcess["imagePath"]);
 	else if (vProcess.has("path")) sProcPath = std::string(vProcess["path"]);
 	else if (vProcess.has("rawPath")) sProcPath = std::string(vProcess["rawPath"]);
+	// The process data provider keeps the image under "imageFile" (rawPath, and
+	// path / abstractPath resolved on first use) - the keys above never exist on
+	// an enriched process, so the actor's path was always empty here: no
+	// known-malware match, no signature / trust check, no module inspection and
+	// no scan of the process image. The event rate log showed it (<unknown>).
+	if (sProcPath.empty())
+	{
+		try
+		{
+			if (auto optPath = variant::getByPathSafe(vProcess, "imageFile.path"))
+				sProcPath = std::string(optPath.value());
+			if (sProcPath.empty())
+				if (auto optRaw = variant::getByPathSafe(vProcess, "imageFile.rawPath"))
+					sProcPath = DetectionNotifier::NtPathToDosPathString(std::string(optRaw.value()));
+		}
+		catch (...) {}
+	}
 
 	std::string sProcHash;
 	if (vProcess.has("imageHash")) sProcHash = std::string(vProcess["imageHash"]);
 	else if (vProcess.has("hash")) sProcHash = std::string(vProcess["hash"]);
+
+	RecordEventRate(vEvent, getEventTypeString(eEventType), sProcPath);
 
 	if (DetectionNotifier::isKnownMalware(sProcPath, sProcHash))
 	{

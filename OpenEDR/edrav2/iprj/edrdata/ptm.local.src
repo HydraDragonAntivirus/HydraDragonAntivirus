@@ -56,6 +56,12 @@
 		// inspection. At most this many processes are kept.
 		"moduleInspectionCacheSeconds": 5,
 		"moduleInspectionCacheMaxEntries": 4096,
+		// Event rate log: every this many seconds the enricher logs how many
+		// events it received, by type (API hook events by function) and by
+		// process, listing the largest ones (0 = off).
+		"eventRateLogSeconds": 60,
+		"eventRateTopTypes": 25,
+		"eventRateTopProcesses": 15,
 		"driverPortEventBaseType": {
 			"MLE_DRIVER_PORT_EXPLOIT": 1000026,
 			"MLE_DRIVER_PORT_UNKNOWN_DLL_EXPLOIT": 1000027,
