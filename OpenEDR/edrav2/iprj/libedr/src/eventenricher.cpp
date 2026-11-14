@@ -3414,8 +3414,14 @@ void EventEnricher::executeUnfilteredLocalScan(Variant& vEvent, Variant& vProces
 		// Rescan race / Deferred scans: an inline scan that comes back Unknown
 		// (0 bytes, or locked at Create) needs one re-read once the writer is done,
 		// so a locked or empty file is never left unscanned.
+		// A process image at its start too: the FLS lookup waits only up to its
+		// timeout and then answers Unknown while the query goes on in the
+		// background. A file FLS knows as malware was then never looked at again
+		// (process-create is scanned once) and ran until a manual scan found the
+		// verdict cached. The rescan reads that late answer.
 		if (r == 0 && (bDeferredFileEvent ||
-			eEventType == Event::LLE_FILE_CLOSE))
+			eEventType == Event::LLE_FILE_CLOSE ||
+			(isProc && eEventType == Event::LLE_PROCESS_CREATE)))
 		{
 			std::error_code ec;
 			uintmax_t nSize = std::filesystem::file_size(dos, ec);
