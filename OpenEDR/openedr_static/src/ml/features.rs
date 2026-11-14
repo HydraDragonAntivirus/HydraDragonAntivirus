@@ -303,7 +303,6 @@ impl PeFeatureVector {
 pub struct JsFeatureVector {
     pub file_size: f32,
     pub entropy: f32,
-    pub parse_success: f32,
     pub function_count: f32,
     pub variable_declarations: f32,
     pub call_expressions: f32,
@@ -320,12 +319,10 @@ pub struct JsFeatureVector {
     pub hex_encoded_strings: f32,
     pub unicode_encoded_strings: f32,
     pub char_code_usage: f32,
-    pub base64_usage: f32,
     pub escape_usage: f32,
     pub bracket_notation_calls: f32,
     pub obfuscation_score: f32,
     pub is_obfuscated: f32,
-    pub crypto_references: f32,
     pub network_operations: f32,
     pub file_system_operations: f32,
     pub registry_operations: f32,
@@ -336,8 +333,6 @@ pub struct JsFeatureVector {
     pub avg_string_length: f32,
     pub max_string_length: f32,
     pub long_strings_count: f32,
-    pub base64_like_strings: f32,
-    pub url_strings: f32,
     pub hex_strings: f32,
     pub total_lines: f32,
     pub code_lines: f32,
@@ -353,14 +348,11 @@ pub struct JsFeatureVector {
     pub suspicious_naming: f32,
     pub random_like_identifiers: f32,
     pub mal_str_hits: f32,
-    pub ben_str_hits: f32,
-    pub mal_ben_str_ratio: f32,
     pub mal_str_density: f32,
     pub deob_modifications: f32,
     pub deob_unpacked: f32,
-    pub unknown_str_ratio: f32,
     pub total_unique_strings_log: f32,
-    /// URL ML block (`super::url_ml_metrics::UrlMlMetrics`), indices 59..=62.
+    /// URL ML block (`super::url_ml_metrics::UrlMlMetrics`), indices 51..=54.
     pub url_unwhitelisted_count_log: f32,
     pub url_ml_max_prob: f32,
     pub url_ml_mean_prob: f32,
@@ -368,12 +360,11 @@ pub struct JsFeatureVector {
 }
 
 impl JsFeatureVector {
-    pub const LEN: usize = 63;
+    pub const LEN: usize = 55;
     /// Feature names in `to_array` order (for ML explanations).
-    pub const NAMES: [&'static str; 63] = [
+    pub const NAMES: [&'static str; 55] = [
         "file_size",
         "entropy",
-        "parse_success",
         "function_count",
         "variable_declarations",
         "call_expressions",
@@ -390,12 +381,10 @@ impl JsFeatureVector {
         "hex_encoded_strings",
         "unicode_encoded_strings",
         "char_code_usage",
-        "base64_usage",
         "escape_usage",
         "bracket_notation_calls",
         "obfuscation_score",
         "is_obfuscated",
-        "crypto_references",
         "network_operations",
         "file_system_operations",
         "registry_operations",
@@ -406,8 +395,6 @@ impl JsFeatureVector {
         "avg_string_length",
         "max_string_length",
         "long_strings_count",
-        "base64_like_strings",
-        "url_strings",
         "hex_strings",
         "total_lines",
         "code_lines",
@@ -423,12 +410,9 @@ impl JsFeatureVector {
         "suspicious_naming",
         "random_like_identifiers",
         "mal_str_hits",
-        "ben_str_hits",
-        "mal_ben_str_ratio",
         "mal_str_density",
         "deob_modifications",
         "deob_unpacked",
-        "unknown_str_ratio",
         "total_unique_strings_log",
         "url_unwhitelisted_count_log",
         "url_ml_max_prob",
@@ -436,11 +420,10 @@ impl JsFeatureVector {
         "url_ml_high_count_log",
     ];
 
-    pub fn to_array(&self) -> [f32; 63] {
+    pub fn to_array(&self) -> [f32; Self::LEN] {
         [
             self.file_size,
             self.entropy,
-            self.parse_success,
             self.function_count,
             self.variable_declarations,
             self.call_expressions,
@@ -457,12 +440,10 @@ impl JsFeatureVector {
             self.hex_encoded_strings,
             self.unicode_encoded_strings,
             self.char_code_usage,
-            self.base64_usage,
             self.escape_usage,
             self.bracket_notation_calls,
             self.obfuscation_score,
             self.is_obfuscated,
-            self.crypto_references,
             self.network_operations,
             self.file_system_operations,
             self.registry_operations,
@@ -473,8 +454,6 @@ impl JsFeatureVector {
             self.avg_string_length,
             self.max_string_length,
             self.long_strings_count,
-            self.base64_like_strings,
-            self.url_strings,
             self.hex_strings,
             self.total_lines,
             self.code_lines,
@@ -490,12 +469,9 @@ impl JsFeatureVector {
             self.suspicious_naming,
             self.random_like_identifiers,
             self.mal_str_hits,
-            self.ben_str_hits,
-            self.mal_ben_str_ratio,
             self.mal_str_density,
             self.deob_modifications,
             self.deob_unpacked,
-            self.unknown_str_ratio,
             self.total_unique_strings_log,
             self.url_unwhitelisted_count_log,
             self.url_ml_max_prob,
@@ -510,7 +486,6 @@ impl JsFeatureVector {
         [
             ("file_size", self.file_size),
             ("entropy", self.entropy),
-            ("parse_success", self.parse_success),
             ("function_count", self.function_count),
             ("variable_declarations", self.variable_declarations),
             ("call_expressions", self.call_expressions),
@@ -527,12 +502,10 @@ impl JsFeatureVector {
             ("hex_encoded_strings", self.hex_encoded_strings),
             ("unicode_encoded_strings", self.unicode_encoded_strings),
             ("char_code_usage", self.char_code_usage),
-            ("base64_usage", self.base64_usage),
             ("escape_usage", self.escape_usage),
             ("bracket_notation_calls", self.bracket_notation_calls),
             ("obfuscation_score", self.obfuscation_score),
             ("is_obfuscated", self.is_obfuscated),
-            ("crypto_references", self.crypto_references),
             ("network_operations", self.network_operations),
             ("file_system_operations", self.file_system_operations),
             ("registry_operations", self.registry_operations),
@@ -543,8 +516,6 @@ impl JsFeatureVector {
             ("avg_string_length", self.avg_string_length),
             ("max_string_length", self.max_string_length),
             ("long_strings_count", self.long_strings_count),
-            ("base64_like_strings", self.base64_like_strings),
-            ("url_strings", self.url_strings),
             ("hex_strings", self.hex_strings),
             ("total_lines", self.total_lines),
             ("code_lines", self.code_lines),
@@ -560,12 +531,9 @@ impl JsFeatureVector {
             ("suspicious_naming", self.suspicious_naming),
             ("random_like_identifiers", self.random_like_identifiers),
             ("mal_str_hits", self.mal_str_hits),
-            ("ben_str_hits", self.ben_str_hits),
-            ("mal_ben_str_ratio", self.mal_ben_str_ratio),
             ("mal_str_density", self.mal_str_density),
             ("deob_modifications", self.deob_modifications),
             ("deob_unpacked", self.deob_unpacked),
-            ("unknown_str_ratio", self.unknown_str_ratio),
             ("total_unique_strings_log", self.total_unique_strings_log),
             ("url_unwhitelisted_count_log", self.url_unwhitelisted_count_log),
             ("url_ml_max_prob", self.url_ml_max_prob),
@@ -816,7 +784,6 @@ mod tests {
         let f = JsFeatureVector {
             file_size: 1.0,
             entropy: 7.5,
-            parse_success: 1.0,
             function_count: 2.0,
             variable_declarations: 3.0,
             call_expressions: 4.0,
@@ -833,12 +800,10 @@ mod tests {
             hex_encoded_strings: 15.0,
             unicode_encoded_strings: 16.0,
             char_code_usage: 17.0,
-            base64_usage: 18.0,
             escape_usage: 19.0,
             bracket_notation_calls: 20.0,
             obfuscation_score: 21.0,
             is_obfuscated: 0.0,
-            crypto_references: 22.0,
             network_operations: 23.0,
             file_system_operations: 24.0,
             registry_operations: 25.0,
@@ -849,8 +814,6 @@ mod tests {
             avg_string_length: 30.0,
             max_string_length: 31.0,
             long_strings_count: 32.0,
-            base64_like_strings: 33.0,
-            url_strings: 34.0,
             hex_strings: 35.0,
             total_lines: 36.0,
             code_lines: 37.0,
@@ -866,12 +829,9 @@ mod tests {
             suspicious_naming: 47.0,
             random_like_identifiers: 48.0,
             mal_str_hits: 49.0,
-            ben_str_hits: 50.0,
-            mal_ben_str_ratio: 51.0,
             mal_str_density: 52.0,
             deob_modifications: 53.0,
             deob_unpacked: 54.0,
-            unknown_str_ratio: 55.0,
             total_unique_strings_log: 56.0,
             url_unwhitelisted_count_log: 57.0,
             url_ml_max_prob: 0.75,
@@ -883,11 +843,10 @@ mod tests {
         assert_eq!(map["entropy"], 7.5);
         assert_eq!(map["is_obfuscated"], 0.0);
         assert_eq!(map["suspicious_score"], 28.0);
-        assert_eq!(map["unknown_str_ratio"], 55.0);
         assert_eq!(map["total_unique_strings_log"], 56.0);
         assert_eq!(map["url_ml_max_prob"], 0.75);
         assert_eq!(map["url_ml_high_count_log"], 58.0);
-        assert_eq!(JsFeatureVector::NAMES[59], "url_unwhitelisted_count_log");
-        assert_eq!(f.to_array()[62], 58.0);
+        assert_eq!(JsFeatureVector::NAMES[51], "url_unwhitelisted_count_log");
+        assert_eq!(f.to_array()[54], 58.0);
     }
 }

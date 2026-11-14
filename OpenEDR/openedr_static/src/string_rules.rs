@@ -6,7 +6,6 @@
 //! as `FileType` conditions, enforced by the engine against the file-type
 //! tag this adapter supplies per scan.
 
-use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 use hydradragonsig::models::{
@@ -31,13 +30,28 @@ pub struct PeStringRules {
     /// built on first use: after emulation only these are evaluated again
     /// (`scan_emulated`). Reset whenever the rules change.
     emulated: std::sync::OnceLock<Option<RuleSet>>,
+    /// Whether any rule reads an ML result (`ml_*` feature); the engine runs the models
+    /// before the rules only then. Reset whenever the rules change.
+    wants_ml: std::sync::OnceLock<bool>,
 }
 
 impl PeStringRules {
+    /// Whether a loaded rule reads a host ML result (`ml_<name>`, hydradragonsig
+    /// FORMAT.md section 9), anywhere in its (possibly nested) conditions.
+    pub fn wants_ml(&self) -> bool {
+        *self.wants_ml.get_or_init(|| {
+            let needle = format!("\"{}", hydradragonsig::report::ML_FEATURE_PREFIX);
+            self.ruleset.as_ref().is_some_and(|rs| {
+                rs.rules().iter().any(|r| format!("{:?}", r.conditions).contains(&needle))
+            })
+        })
+    }
+
     /// Load a hydradragonsig `Rule` YAML document. Returns the rule count,
     /// or -1 when the document holds no usable rules.
     pub fn load_yaml(&mut self, yaml: &str) -> i32 {
         self.emulated = Default::default();
+        self.wants_ml = Default::default();
         match RuleSet::from_yaml_str(yaml) {
             Ok(rs) => {
                 // Problems that do not stop loading (unknown keys, invalid regexes...).
@@ -63,6 +77,7 @@ impl PeStringRules {
     /// Drops rules by id (`.ign2` false-positive lists next to the rule files).
     pub fn ignore(&mut self, ids: &std::collections::HashSet<String>) -> usize {
         self.emulated = Default::default();
+        self.wants_ml = Default::default();
         self.ruleset.as_mut().map_or(0, |rs| rs.remove_ids(ids))
     }
 
@@ -126,7 +141,7 @@ impl PeStringRules {
     ) -> Vec<Hit> {
         let Some(subset) = self.emulated_set() else { return Vec::new() };
         crate::memtrack::measure("scan:hydrasig_emulated", crate::memtrack::Kind::Scan, data.len(), || {
-            Self::eval(subset, data, target_name, sha256_hex, strings, is_pe, false, cap, None, Some(behavior))
+            Self::eval(subset, data, target_name, sha256_hex, strings, is_pe, false, cap, None, Some(behavior), &[])
         })
         .into_iter()
         .filter(|h| self.is_emulated_rule(&h.rule))
@@ -212,10 +227,14 @@ impl PeStringRules {
             cap,
             parent,
             None,
+            &[],
         )
     }
 
     /// Evaluate loaded rules over extracted strings and emulated behavior trace.
+    /// `ml`: ML results the engine computed for this buffer, as (`ml_<name>`, value),
+    /// readable by `feature_gte` / `feature_lte` (empty when no rule reads them).
+    #[allow(clippy::too_many_arguments)]
     pub fn scan_bytes_with_behavior(
         &self,
         data: &[u8],
@@ -227,29 +246,12 @@ impl PeStringRules {
         cap: usize,
         parent: Option<&ParentInfo>,
         behavior: Option<&hydradragonsig::models::BehaviorTrace>,
+        ml: &[(String, f64)],
     ) -> Vec<Hit> {
-        crate::memtrack::measure("scan:hydrasig", crate::memtrack::Kind::Scan, data.len(), || {
-            self.scan_bytes_with_behavior_inner(data, target_name, sha256_hex, strings, is_pe, is_apk, cap, parent, behavior)
-        })
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    fn scan_bytes_with_behavior_inner(
-        &self,
-        data: &[u8],
-        target_name: &str,
-        sha256_hex: &str,
-        strings: &[String],
-        is_pe: bool,
-        is_apk: bool,
-        cap: usize,
-        parent: Option<&ParentInfo>,
-        behavior: Option<&hydradragonsig::models::BehaviorTrace>,
-    ) -> Vec<Hit> {
-        match self.ruleset.as_ref() {
-            Some(rs) => Self::eval(rs, data, target_name, sha256_hex, strings, is_pe, is_apk, cap, parent, behavior),
+        crate::memtrack::measure("scan:hydrasig", crate::memtrack::Kind::Scan, data.len(), || match self.ruleset.as_ref() {
+            Some(rs) => Self::eval(rs, data, target_name, sha256_hex, strings, is_pe, is_apk, cap, parent, behavior, ml),
             None => Vec::new(),
-        }
+        })
     }
 
     /// `rs` (all rules, or the emulated subset) over one buffer.
@@ -265,6 +267,7 @@ impl PeStringRules {
         cap: usize,
         parent: Option<&ParentInfo>,
         behavior: Option<&hydradragonsig::models::BehaviorTrace>,
+        ml: &[(String, f64)],
     ) -> Vec<Hit> {
         if !((!data.is_empty() || !strings.is_empty() || behavior.is_some()) && cap > 0) {
             return Vec::new();
@@ -348,7 +351,8 @@ impl PeStringRules {
                 .collect(),
             decoded_strings: Vec::new(),
             env_hits: Vec::new(),
-            features: BTreeMap::new(),
+            // The engine's ML results; hydradragonsig keeps `ml_*` across its feature refresh.
+            features: ml.iter().map(|(k, v)| (k.clone(), serde_json::json!(v))).collect(),
             findings: Vec::new(),
             score: 0,
             verdict: Verdict::Clean,
@@ -719,7 +723,7 @@ rules:
         };
         let strings = vec!["xx marker-one xx".to_string()];
         let full: Vec<String> = rules
-            .scan_bytes_with_behavior(b"MZ", "f", "00", &strings, true, false, 10, None, Some(&trace))
+            .scan_bytes_with_behavior(b"MZ", "f", "00", &strings, true, false, 10, None, Some(&trace), &[])
             .into_iter()
             .filter(|h| rules.is_emulated_rule(&h.rule))
             .map(|h| h.rule)
@@ -737,5 +741,47 @@ rules:
         names: [x]
 ");
         assert!(rules.emulated_set().unwrap().rules().iter().any(|r| r.id == "EMU2"));
+    }
+
+    #[test]
+    fn engine_ml_results_reach_feature_rules() {
+        let mut rules = PeStringRules::default();
+        assert!(rules.load_yaml("rules:
+  - id: STR
+    title: t
+    severity: low
+    conditions:
+      - type: string_contains
+        value: marker
+") > 0);
+        assert!(!rules.wants_ml(), "no rule reads an ml_* result");
+        assert!(rules.load_yaml("rules:
+  - id: ML
+    title: t
+    severity: high
+    verdict: suspicious
+    logic: all
+    conditions:
+      - type: feature_gte
+        name: ml_pe_probability
+        value: 0.9
+      - type: feature_gte
+        name: ml_url_max_prob
+        value: 0.5
+") > 0);
+        assert!(rules.wants_ml(), "loading new rules recomputes it");
+        let strings = vec!["xx marker xx".to_string()];
+        let hits = |ml: &[(String, f64)]| -> Vec<String> {
+            rules
+                .scan_bytes_with_behavior(b"MZ..", "f", "00", &strings, true, false, 10, None, None, ml)
+                .into_iter()
+                .map(|h| h.rule)
+                .collect()
+        };
+        let high = [("ml_pe_probability".to_string(), 0.95), ("ml_url_max_prob".to_string(), 0.8)];
+        let low = [("ml_pe_probability".to_string(), 0.3), ("ml_url_max_prob".to_string(), 0.8)];
+        assert!(hits(&high).contains(&"ML".to_string()));
+        assert!(!hits(&low).contains(&"ML".to_string()));
+        assert!(!hits(&[]).contains(&"ML".to_string()), "no ML results: the rule cannot match");
     }
 }

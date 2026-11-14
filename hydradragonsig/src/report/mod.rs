@@ -41,8 +41,34 @@ pub fn compute_features(
     features
 }
 
-/// Recomputes `report.features` from the report's current data.
+/// Prefix of the ML results a host engine supplies (`ml_<name>`, FORMAT.md section 9).
+pub const ML_FEATURE_PREFIX: &str = "ml_";
+
+/// ML results a host engine can supply, as `ml_<name>` in `ScanReport::features`. The
+/// models are not part of this crate: OpenEDR's engine runs them and puts the results in
+/// before the rules are evaluated, so `feature_gte` / `feature_lte` can read them.
+/// `pe_probability` / `js_probability`: the PE / JavaScript tree model's malware
+/// probability (0..1, present only for that file type). `url_*`: the URL model over the
+/// file's non-whitelisted URLs (`url_ml_metrics.rs`): count (ln(1 + n)), highest and mean
+/// probability, and how many scored high (ln(1 + n)).
+pub const ML_FEATURE_NAMES: &[&str] = &[
+    "pe_probability",
+    "js_probability",
+    "url_unwhitelisted_count_log",
+    "url_max_prob",
+    "url_mean_prob",
+    "url_high_count_log",
+];
+
+/// Recomputes `report.features` from the report's current data. The host-supplied
+/// `ml_*` results are kept: nothing in the report can recompute them.
 pub fn refresh_features(report: &mut ScanReport) {
+    let ml: Vec<(String, serde_json::Value)> = report
+        .features
+        .iter()
+        .filter(|(k, _)| k.starts_with(ML_FEATURE_PREFIX))
+        .map(|(k, v)| (k.clone(), v.clone()))
+        .collect();
     report.features = compute_features(
         report.strings.len(),
         report.decoded_strings.len(),
@@ -51,6 +77,7 @@ pub fn refresh_features(report: &mut ScanReport) {
         &report.file_type,
         report.pe.as_ref(),
     );
+    report.features.extend(ml);
     if let Some(apk) = &report.apk {
         for (name, value) in &apk.features {
             report.features.insert(format!("apk_{name}"), json!(value));

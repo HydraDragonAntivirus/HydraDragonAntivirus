@@ -69,7 +69,7 @@ def extract_js_features_from_file(filepath: str):
 
 
 def extract_js_features_from_source(source: str):
-    """Extracts 63 JS features from a JS source string via js_feature_dump."""
+    """Extracts the JS features (JS_FEATURE_NAMES) from a JS source string via js_feature_dump."""
     if not source:
         return None
     with tempfile.NamedTemporaryFile("w", suffix=".js", encoding="utf-8", delete=False) as tf:
@@ -85,22 +85,27 @@ def extract_js_features_from_source(source: str):
 
 
 # JsFeatureVector::to_array order (OpenEDR/openedr_static/src/ml/features.rs).
+# No parse_success / base64_usage / crypto_references / base64_like_strings / url_strings:
+# the extractor pinned them to one value (unparseable input is rejected; base64, hashing
+# and URL counts were turned off as false-positive sources), so the trees could not use them.
 JS_FEATURE_NAMES = [
-    "file_size", "entropy", "parse_success", "function_count", "variable_declarations",
+    "file_size", "entropy", "function_count", "variable_declarations",
     "call_expressions", "member_expressions", "binary_expressions", "conditional_statements",
     "loop_statements", "try_catch_blocks", "array_literals", "object_literals", "max_nesting_depth",
     "eval_usage", "suspicious_call_count", "hex_encoded_strings", "unicode_encoded_strings",
-    "char_code_usage", "base64_usage", "escape_usage", "bracket_notation_calls", "obfuscation_score",
-    "is_obfuscated", "crypto_references", "network_operations", "file_system_operations",
+    "char_code_usage", "escape_usage", "bracket_notation_calls", "obfuscation_score",
+    "is_obfuscated", "network_operations", "file_system_operations",
     "registry_operations", "process_operations", "suspicious_api_calls", "suspicious_score",
     "total_strings", "avg_string_length", "max_string_length", "long_strings_count",
-    "base64_like_strings", "url_strings", "hex_strings", "total_lines", "code_lines", "comment_lines",
+    "hex_strings", "total_lines", "code_lines", "comment_lines",
     "blank_lines", "avg_line_length", "max_line_length", "cyclomatic_complexity", "total_identifiers",
     "short_identifiers", "long_identifiers", "avg_identifier_length", "suspicious_naming",
     "random_like_identifiers",
-    "mal_str_hits", "ben_str_hits", "mal_ben_str_ratio", "mal_str_density",
-    "deob_modifications", "deob_unpacked", "unknown_str_ratio", "total_unique_strings_log",
-    # 59..62: URL ML (url_ml_metrics.rs): whitelist-gated url_trees.bin scores of the
+    # No ben_str_hits / mal_ben_str_ratio / unknown_str_ratio: the benign string filter is
+    # built from the training corpus, so they measured "seen in training".
+    "mal_str_hits", "mal_str_density",
+    "deob_modifications", "deob_unpacked", "total_unique_strings_log",
+    # 51..54: URL ML (url_ml_metrics.rs): whitelist-gated url_trees.bin scores of the
     # script's URLs (raw source, deobfuscated code, decoded string literals).
     "url_unwhitelisted_count_log", "url_ml_max_prob", "url_ml_mean_prob", "url_ml_high_count_log",
 ]
@@ -157,10 +162,14 @@ def load_features(path, max_per_class, balance=False):
     mal, ben = [], []
     with open(path, newline="", encoding="utf-8") as fh:
         rd = csv.reader(fh)
-        if next(rd)[2:] != JS_FEATURE_NAMES:
-            sys.exit("CSV columns do not match JS_FEATURE_NAMES (js_features.rs changed?)")
+        header = next(rd)[2:]
+        missing = [n for n in JS_FEATURE_NAMES if n not in header]
+        if missing:
+            sys.exit(f"CSV lacks {missing} (js_features.rs changed? re-extract)")
+        # Columns by name: an older CSV still holding retired features trains as is.
+        cols = [2 + header.index(n) for n in JS_FEATURE_NAMES]
         for row in rd:
-            (mal if row[0] == "1" else ben).append([float(v) for v in row[2:]])
+            (mal if row[0] == "1" else ben).append([float(row[i]) for i in cols])
     mal = np.unique(np.asarray(mal, dtype=np.float32), axis=0)
     ben = np.unique(np.asarray(ben, dtype=np.float32), axis=0)
     both = {r.tobytes() for r in ben} & {r.tobytes() for r in mal}

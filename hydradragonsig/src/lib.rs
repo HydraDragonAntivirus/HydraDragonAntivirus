@@ -550,6 +550,61 @@ rules:
     }
 
     #[test]
+    fn host_ml_results_reach_feature_rules() {
+        let yaml = r#"
+rules:
+  - id: TEST-ML-PE
+    title: pe model and url model agree
+    severity: high
+    verdict: suspicious
+    logic: all
+    conditions:
+      - type: feature_gte
+        name: ml_pe_probability
+        value: 0.9
+      - type: feature_gte
+        name: ml_url_max_prob
+        value: 0.5
+      - type: feature_gte
+        name: file_entropy_bits_per_byte
+        value: 0
+"#;
+        let rules = RuleSet::from_yaml_str(yaml).expect("rules");
+        assert!(rules.warnings().is_empty(), "{:?}", rules.warnings());
+        let bytes = b"some bytes to scan".to_vec();
+        let mut report = scan(bytes.clone(), "rules: []");
+        report.features.insert("ml_pe_probability".into(), serde_json::json!(0.97));
+        report.features.insert("ml_url_max_prob".into(), serde_json::json!(0.8));
+        let options = rules::RuleEvalOptions {
+            profile_rules: false,
+            parallel_rules: false,
+            stop_on_detection: false,
+            min_string_len: 0,
+            decode_strings: true,
+        };
+        rules.evaluate_into(&mut report, &bytes, options);
+        // The other feature made the engine rebuild the feature map: the ml_* results survive it.
+        assert_eq!(report.features["ml_pe_probability"], serde_json::json!(0.97));
+        assert!(report.findings.iter().any(|f| f.rule_id == "TEST-ML-PE"), "{:?}", report.findings);
+
+        let low = RuleSet::from_yaml_str(yaml).expect("rules");
+        let mut clean = scan(bytes.clone(), "rules: []");
+        clean.features.insert("ml_pe_probability".into(), serde_json::json!(0.2));
+        clean.features.insert("ml_url_max_prob".into(), serde_json::json!(0.8));
+        low.evaluate_into(&mut clean, &bytes, options);
+        assert!(!clean.findings.iter().any(|f| f.rule_id == "TEST-ML-PE"));
+    }
+
+    #[test]
+    fn unknown_ml_feature_is_a_load_warning() {
+        let rules = RuleSet::from_yaml_str(
+            "rules:\n  - id: X\n    title: x\n    severity: low\n    conditions:\n      - type: feature_gte\n        name: ml_no_such_model\n        value: 1\n",
+        )
+        .unwrap();
+        assert!(rules.warnings().iter().any(|w| w.contains("ml_no_such_model")), "{:?}", rules.warnings());
+    }
+
+    #[test]
     fn unknown_apk_feature_is_a_load_warning() {
         let rules = RuleSet::from_yaml_str(
             "rules:\n  - id: X\n    title: x\n    severity: low\n    conditions:\n      - type: feature_gte\n        name: apk_no_such_feature\n        value: 1\n",

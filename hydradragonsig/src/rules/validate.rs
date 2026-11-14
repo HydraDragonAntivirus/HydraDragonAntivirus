@@ -188,12 +188,16 @@ pub const FEATURES: &[&str] = &[
     "pdf_uri_count",
 ];
 
-/// `FEATURES` plus the APK profile, exposed as `apk_<name>` on Android packages.
+/// `FEATURES` plus the APK profile, exposed as `apk_<name>` on Android packages, and the
+/// ML results a host engine supplies as `ml_<name>`.
 fn known_feature(name: &str) -> bool {
     FEATURES.contains(&name)
         || name
             .strip_prefix("apk_")
             .is_some_and(|n| crate::scanner::apk::APK_TREE_FEATURE_NAMES.contains(&n))
+        || name
+            .strip_prefix(crate::report::ML_FEATURE_PREFIX)
+            .is_some_and(|n| crate::report::ML_FEATURE_NAMES.contains(&n))
 }
 
 /// Features a parent summary always carries (`ParentInfo::from_bytes`).

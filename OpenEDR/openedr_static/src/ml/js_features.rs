@@ -842,8 +842,9 @@ fn extract_js_features_of(source: &str, raw_source: Option<&str>) -> Option<JsFe
         return None;
     }
 
+    // No parse_success feature: unparseable input never gets here (None above), so it
+    // was always 1.
     let parse_errors = ret.diagnostics.len();
-    let parse_success = if parse_errors == 0 { 1.0 } else { 0.0 };
 
     let mut walker = AstWalkerCounts::new();
     walker.walk_statements(&program.body);
@@ -877,7 +878,9 @@ fn extract_js_features_of(source: &str, raw_source: Option<&str>) -> Option<JsFe
     let hex_encoded = RE_HEX_ENCODED.find_iter(source).filter(|m| outside(m)).count() as f32;
     let unicode_encoded = RE_UNICODE_ENCODED.find_iter(source).filter(|m| outside(m)).count() as f32;
     let char_code = RE_CHAR_CODE.find_iter(source).count() as f32;
-    let base64 = 0.0f32; // Do not treat base64 operations as obfuscation
+    // No base64_usage / crypto_references / base64_like_strings / url_strings features:
+    // they were pinned to 0 (base64 and hashing are ordinary utility code, URLs are
+    // judged by the URL model), so the model could not use them.
     let escape = RE_ESCAPE.find_iter(source).count() as f32;
     let mut calls = ObfuscatedCalls { src: source, count: 0 };
     calls.visit_program(&program);
@@ -887,7 +890,6 @@ fn extract_js_features_of(source: &str, raw_source: Option<&str>) -> Option<JsFe
         hex_encoded + unicode_encoded + char_code + escape + bracket_notation;
     let is_obfuscated = if obfuscation_score > 10.0 { 1.0 } else { 0.0 };
 
-    let crypto_refs = 0.0f32; // Standard cryptographic hashing (sha256/md5) is a utility, not malware
     let network_ops = RE_NETWORK.find_iter(source).count() as f32;
     let file_ops = RE_FILE_OPS.find_iter(source).count() as f32;
     let registry_ops = RE_REGISTRY.find_iter(source).count() as f32;
@@ -902,15 +904,8 @@ fn extract_js_features_of(source: &str, raw_source: Option<&str>) -> Option<JsFe
         + registry_ops * 5.0
         + process_ops * 5.0;
 
-    let (
-        total_strings,
-        avg_string_len,
-        max_string_len,
-        long_strings,
-        base64_strings,
-        url_strings,
-        hex_strings_val,
-    ) = extract_string_features(source);
+    let (total_strings, avg_string_len, max_string_len, long_strings, hex_strings_val) =
+        extract_string_features(source);
 
     let (total_lines, code_lines, comment_lines, blank_lines, avg_line_len, max_line_len) =
         analyze_lines(source);
@@ -926,18 +921,16 @@ fn extract_js_features_of(source: &str, raw_source: Option<&str>) -> Option<JsFe
 
     let string_candidates = extract_js_strings_for_classification(source);
     let str_breakdown = super::pe_string_ml::classify_string_list(string_candidates);
+    // No benign-filter features (ben_str_hits, mal_ben_str_ratio, unknown_str_ratio):
+    // the filter is built from the training corpus, so they measured "seen in
+    // training" (see PeStringMlMetrics).
     let mal_str_f = str_breakdown.malicious.len() as f32;
-    let ben_str_f = str_breakdown.benign.len() as f32;
-    let unk_str_f = str_breakdown.unknown.len() as f32;
     let tot_str_f = str_breakdown.total_unique as f32;
-    let mal_ben_str_ratio = mal_str_f / (ben_str_f + 1.0);
     let mal_str_density = mal_str_f / (tot_str_f + 1.0);
-    let unknown_str_ratio = unk_str_f / (tot_str_f + 1.0);
 
     Some(JsFeatureVector {
         file_size: ln1p(source.len() as f32),
         entropy: shannon_entropy_str(source),
-        parse_success,
         function_count: ln1p(walker.function_count as f32),
         variable_declarations: ln1p(walker.variable_declarations as f32),
         call_expressions: ln1p(walker.call_expressions as f32),
@@ -954,12 +947,10 @@ fn extract_js_features_of(source: &str, raw_source: Option<&str>) -> Option<JsFe
         hex_encoded_strings: ln1p(hex_encoded),
         unicode_encoded_strings: ln1p(unicode_encoded),
         char_code_usage: char_code as f32,
-        base64_usage: base64 as f32,
         escape_usage: escape as f32,
         bracket_notation_calls: bracket_notation as f32,
         obfuscation_score: ln1p(obfuscation_score),
         is_obfuscated,
-        crypto_references: ln1p(crypto_refs),
         network_operations: ln1p(network_ops),
         file_system_operations: file_ops as f32,
         registry_operations: registry_ops as f32,
@@ -970,8 +961,6 @@ fn extract_js_features_of(source: &str, raw_source: Option<&str>) -> Option<JsFe
         avg_string_length: avg_string_len,
         max_string_length: ln1p(max_string_len),
         long_strings_count: ln1p(long_strings),
-        base64_like_strings: ln1p(base64_strings),
-        url_strings: ln1p(url_strings),
         hex_strings: ln1p(hex_strings_val),
         total_lines: ln1p(total_lines),
         code_lines: ln1p(code_lines),
@@ -987,12 +976,9 @@ fn extract_js_features_of(source: &str, raw_source: Option<&str>) -> Option<JsFe
         suspicious_naming,
         random_like_identifiers: ln1p(random_idents),
         mal_str_hits: ln1p(mal_str_f),
-        ben_str_hits: ln1p(ben_str_f),
-        mal_ben_str_ratio,
         mal_str_density,
         deob_modifications: 0.0,
         deob_unpacked: 0.0,
-        unknown_str_ratio,
         total_unique_strings_log: ln1p(tot_str_f),
         url_unwhitelisted_count_log: url_ml.url_unwhitelisted_count_log,
         url_ml_max_prob: url_ml.url_ml_max_prob,
@@ -1001,7 +987,7 @@ fn extract_js_features_of(source: &str, raw_source: Option<&str>) -> Option<JsFe
     })
 }
 
-fn extract_string_features(source: &str) -> (f32, f32, f32, f32, f32, f32, f32) {
+fn extract_string_features(source: &str) -> (f32, f32, f32, f32, f32) {
     let strings: Vec<&str> = RE_STRINGS
         .find_iter(source)
         .filter_map(|m| {
@@ -1011,7 +997,7 @@ fn extract_string_features(source: &str) -> (f32, f32, f32, f32, f32, f32, f32) 
         .collect();
 
     if strings.is_empty() {
-        return (0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
+        return (0.0, 0.0, 0.0, 0.0, 0.0);
     }
 
     let total = strings.len() as f32;
@@ -1019,17 +1005,15 @@ fn extract_string_features(source: &str) -> (f32, f32, f32, f32, f32, f32, f32) 
     let avg = lengths.iter().sum::<f32>() / total;
     let max = lengths.iter().cloned().fold(0.0f32, f32::max);
     let long = strings.iter().filter(|s| s.len() > 100).count() as f32;
-    let b64 = 0.0f32; // Innocent lookup tables and alphanumeric sequences are not malware base64
-    // URLs are judged by the URL model (embedded URL layer), not counted here: a
-    // count says nothing about whether a link is malicious and flagged test URLs in
-    // libraries (core-js url-constructor-detection.js).
-    let urls = 0.0f32;
+    // No base64-looking / URL string counts: lookup tables and alphanumeric sequences
+    // are not base64 payloads, and URLs are judged by the URL model (a count flagged
+    // test URLs in libraries such as core-js url-constructor-detection.js).
     let hex = strings
         .iter()
         .filter(|s| s.len() > 10 && RE_HEX_STR.is_match(s))
         .count() as f32;
 
-    (total, avg, max, long, b64, urls, hex)
+    (total, avg, max, long, hex)
 }
 
 fn analyze_lines(source: &str) -> (f32, f32, f32, f32, f32, f32) {

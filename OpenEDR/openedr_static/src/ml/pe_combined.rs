@@ -432,8 +432,8 @@ pub fn dotnet_kind(data: &[u8]) -> u8 {
 }
 
 /// Shell 65 + shell strings 3 + inner 65 + inner strings 3 + meta 4 + combined strings 3
-/// + shell / inner `dotnet_kind` + shell / inner `PeMimicryMetrics` + inner `PeStringMlMetrics` (6)
-/// + shell `PeStringMlMetrics` (6) + inner / shell `total_unique_strings_log`
+/// + shell / inner `dotnet_kind` + shell / inner `PeMimicryMetrics` + inner `PeStringMlMetrics` (4)
+/// + shell `PeStringMlMetrics` (4) + inner / shell `total_unique_strings_log`
 /// + inner `UrlMlMetrics` (4) + shell `UrlMlMetrics` (4)
 /// + shell `PeInfectorMetrics` (9: file-infector traces, so a virus-infected copy and
 ///   its clean original no longer share one vector)
@@ -445,6 +445,9 @@ pub fn dotnet_kind(data: &[u8]) -> u8 {
 /// training corpus itself, so it measured "not seen in training" and flagged unseen clean
 /// files (signed vendor .NET tools). The positions after it moved down by 2; models from
 /// before the removal must be retrained (train_pe_lgbm drops the column from old chunks).
+/// `ben_str_hits` and `mal_ben_str_ratio` (inner / shell) went the same way: they read
+/// the same corpus-built benign filter, so they measured the same thing from the other
+/// side. The positions after them moved down by 4 (185 -> 181); retrain again.
 /// The unified PE model (`pe_trees.bin`) reads all of it.
 pub const PE_V2_FEATURE_COUNT: usize = 65
     + 3
@@ -670,19 +673,21 @@ mod tests {
         assert_eq!(names[SHELL_STRING_ML], "shell_mal_str_hits");
         assert_eq!(names[136], "inner_source");
         assert_eq!(names[137], "inner_is_pe");
-        assert_eq!(names[164], "shell_unicorn_trace_strings");
+        assert_eq!(names[160], "shell_unicorn_trace_strings");
         assert_eq!(names[TOTAL_UNIQUE_STR_LOG], "inner_total_unique_strings_log");
-        assert_eq!(names[166], "shell_total_unique_strings_log");
-        assert!(!names.iter().any(|n| n.contains("unknown_str_ratio")), "removed: leaks the training corpus");
-        assert_eq!(PE_V2_FEATURE_COUNT, 185);
-        assert_eq!(INNER_URL_ML, 167);
+        assert_eq!(names[162], "shell_total_unique_strings_log");
+        for removed in ["unknown_str_ratio", "ben_str_hits", "mal_ben_str_ratio"] {
+            assert!(!names.iter().any(|n| n.contains(removed)), "{removed} removed: leaks the training corpus");
+        }
+        assert_eq!(PE_V2_FEATURE_COUNT, 181);
+        assert_eq!(INNER_URL_ML, 163);
         assert_eq!(names[INNER_URL_ML], "inner_url_unwhitelisted_count_log");
         assert_eq!(names[SHELL_URL_ML], "shell_url_unwhitelisted_count_log");
         assert_eq!(names[SHELL_INFECTOR - 1], "shell_url_ml_high_count_log");
-        assert_eq!(SHELL_INFECTOR, 175);
+        assert_eq!(SHELL_INFECTOR, 171);
         assert_eq!(names[SHELL_INFECTOR], "shell_inf_ep_section_position");
-        assert_eq!(names[183], "shell_inf_overlay_pe_share");
-        assert_eq!(names[184], "shell_signature_tampered");
+        assert_eq!(names[179], "shell_inf_overlay_pe_share");
+        assert_eq!(names[180], "shell_signature_tampered");
         assert_eq!(names[PE_V2_FEATURE_COUNT - 1], "shell_signature_tampered");
         assert_eq!(pe_v2_feature_names_static().len(), PE_V2_FEATURE_COUNT);
         assert!(extract_pe_features_v2(b"not a pe").is_none());

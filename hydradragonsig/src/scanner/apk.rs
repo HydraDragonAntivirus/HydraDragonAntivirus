@@ -7,10 +7,12 @@
 //! the inflated entries (native libraries, manifest capability flags, Dalvik
 //! method references, packaging anomalies, string statistics).
 //!
-//! Features 52..57 are string-classifier statistics. The classifier is not part
+//! Features 52..54 are string-classifier statistics. The classifier is not part
 //! of this crate: pass one through [`apk_tree_features_with`] (OpenEDR plugs in
-//! its string filter model). Without one every string counts as unknown, so the
-//! malicious/benign counts are 0 and `unknown_str_ratio` is `n / (n + 1)`.
+//! its string filter model). Without one no string counts as malicious.
+//! No benign-filter features (`ben_str_hits`, `mal_ben_str_ratio`,
+//! `unknown_str_ratio`): that filter is built from the training corpus, so they
+//! measured "seen in training".
 //!
 //! All parsing is bounded (entry count, per-entry and total inflation caps) and
 //! never panics.
@@ -20,7 +22,7 @@ use std::collections::BTreeMap;
 
 use super::dex::{dex_counts, parse_dex_method_signatures, parse_dex_string_table};
 
-pub const APK_TREE_FEATURE_COUNT: usize = 58;
+pub const APK_TREE_FEATURE_COUNT: usize = 55;
 
 pub const APK_TREE_FEATURE_NAMES: [&str; APK_TREE_FEATURE_COUNT] = [
     // 0..23: package structure and manifest summary
@@ -80,12 +82,9 @@ pub const APK_TREE_FEATURE_NAMES: [&str; APK_TREE_FEATURE_COUNT] = [
     "has_hidden_payload_in_assets",
     "is_protector_packed",
     "has_non_standard_dex",
-    // 52..57: string statistics
+    // 52..54: string statistics
     "mal_str_hits",
-    "ben_str_hits",
-    "mal_ben_str_ratio",
     "mal_str_density",
-    "unknown_str_ratio",
     "total_unique_strings_log",
 ];
 
@@ -883,12 +882,12 @@ pub fn apk_tree_features_with(apk: &[u8], classifier: &dyn StringClassifier) -> 
 
     let mut d = deep_pass(apk, &entries);
     let strings = std::mem::take(&mut d.strings);
-    let (mal_hits, ben_hits, mal_ben_ratio, mal_density, unk_ratio, tot_log) = if strings.is_empty() {
-        (0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
+    let (mal_hits, mal_density, tot_log) = if strings.is_empty() {
+        (0.0, 0.0, 0.0)
     } else {
         let c = classifier.classify(strings);
-        let (mal, ben, unk, tot) = (c.malicious as f32, c.benign as f32, c.unknown as f32, c.total_unique as f32);
-        (ln1p(mal), ln1p(ben), mal / (ben + 1.0), mal / (tot + 1.0), unk / (tot + 1.0), ln1p(tot))
+        let (mal, tot) = (c.malicious as f32, c.total_unique as f32);
+        (ln1p(mal), mal / (tot + 1.0), ln1p(tot))
     };
     let flag = |b: bool| b as u8 as f32;
     let api = |i: usize| ln1p(d.api[i] as f32);
@@ -947,10 +946,7 @@ pub fn apk_tree_features_with(apk: &[u8], classifier: &dyn StringClassifier) -> 
         flag(d.is_protector),
         flag(d.has_non_standard_dex),
         mal_hits,
-        ben_hits,
-        mal_ben_ratio,
         mal_density,
-        unk_ratio,
         tot_log,
     ])
 }
@@ -1035,8 +1031,8 @@ pub(crate) mod tests {
         assert_eq!(feature(&v, "is_protector_packed"), 1.0);
         assert_eq!(feature(&v, "has_non_standard_dex"), 0.0);
         assert_eq!(feature(&v, "mal_str_hits"), 0.0);
+        assert_eq!(feature(&v, "mal_str_density"), 0.0);
         // 9 distinct strings: 4 DEX table entries, 2 method refs, 3 ELF strings.
-        assert_eq!(feature(&v, "unknown_str_ratio"), 9.0 / 10.0);
         assert_eq!(feature(&v, "total_unique_strings_log"), 10f32.ln());
     }
 
@@ -1063,7 +1059,7 @@ pub(crate) mod tests {
         )
         .unwrap();
         assert!(feature(&v, "mal_str_hits") > 0.0);
-        assert_eq!(feature(&v, "unknown_str_ratio"), 0.0);
+        assert!(feature(&v, "mal_str_density") > 0.0);
     }
 
     #[test]

@@ -13,10 +13,12 @@
 use std::collections::HashSet;
 
 /// Tree-model feature count. Features 0..23 are frozen for full backward compatibility
-/// with existing 24-feature forests; features 24..57 provide deep Dalvik API invocation,
+/// with existing 24-feature forests; features 24..54 provide deep Dalvik API invocation,
 /// native ELF symbols, protector detection, and XOR filter String ML metrics; features
-/// 58..61 are the URL ML block (`crate::ml::url_ml_metrics::UrlMlMetrics`).
-pub const APK_TREE_FEATURE_COUNT: usize = 62;
+/// 55..58 are the URL ML block (`crate::ml::url_ml_metrics::UrlMlMetrics`).
+/// No benign-filter features (ben_str_hits, mal_ben_str_ratio, unknown_str_ratio): the
+/// filter is built from the training corpus, so they measured "seen in training".
+pub const APK_TREE_FEATURE_COUNT: usize = 59;
 
 pub const APK_TREE_FEATURE_NAMES: [&str; APK_TREE_FEATURE_COUNT] = [
     // 0..23: Original frozen features
@@ -81,15 +83,12 @@ pub const APK_TREE_FEATURE_NAMES: [&str; APK_TREE_FEATURE_COUNT] = [
     "is_protector_packed",
     "has_non_standard_dex",
 
-    // 52..57: String ML & Threat density metrics
+    // 52..54: String ML & Threat density metrics
     "mal_str_hits",
-    "ben_str_hits",
-    "mal_ben_str_ratio",
     "mal_str_density",
-    "unknown_str_ratio",
     "total_unique_strings_log",
 
-    // 58..61: URL ML (whitelist-gated `url_trees.bin` scores of embedded URLs)
+    // 55..58: URL ML (whitelist-gated `url_trees.bin` scores of embedded URLs)
     "url_unwhitelisted_count_log",
     "url_ml_max_prob",
     "url_ml_mean_prob",
@@ -996,10 +995,10 @@ fn profile_apk(apk: &[u8]) -> Option<ApkProfile> {
     Some(p)
 }
 
-/// Our own tree-model feature vector (62 features).
+/// Our own tree-model feature vector (59 features).
 /// Features 0..23 preserve exact parity with the original 24-feature forest;
-/// features 24..57 provide native ELF, manifest high-risk permissions, Dalvik API calls,
-/// protector signals, and pure XOR filter String ML metrics; features 58..61 score the
+/// features 24..54 provide native ELF, manifest high-risk permissions, Dalvik API calls,
+/// protector signals, and pure XOR filter String ML metrics; features 55..58 score the
 /// non-whitelisted URLs of the DEX / ELF / manifest strings with the URL model.
 pub fn apk_tree_features(apk: &[u8]) -> Option<[f32; APK_TREE_FEATURE_COUNT]> {
     let p = profile_apk(apk)?;
@@ -1121,22 +1120,13 @@ pub fn apk_tree_features(apk: &[u8]) -> Option<[f32; APK_TREE_FEATURE_COUNT]> {
     let url_ml = crate::ml::url_ml_metrics::url_ml_metrics_of_strings(all_strings.iter().map(String::as_str));
 
     // String ML filter metrics:
-    let (mal_hits, ben_hits, mal_ben_ratio, mal_density, unk_ratio, tot_log) = if !all_strings.is_empty() {
+    let (mal_hits, mal_density, tot_log) = if !all_strings.is_empty() {
         let str_breakdown = crate::ml::pe_string_ml::classify_string_list(all_strings);
         let mal_f = str_breakdown.malicious.len() as f32;
-        let ben_f = str_breakdown.benign.len() as f32;
         let tot_f = str_breakdown.total_unique as f32;
-        let unk_f = str_breakdown.unknown.len() as f32;
-        (
-            ln1p(mal_f),
-            ln1p(ben_f),
-            mal_f / (ben_f + 1.0),
-            mal_f / (tot_f + 1.0),
-            unk_f / (tot_f + 1.0),
-            ln1p(tot_f),
-        )
+        (ln1p(mal_f), mal_f / (tot_f + 1.0), ln1p(tot_f))
     } else {
-        (0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
+        (0.0, 0.0, 0.0)
     };
 
     Some([
@@ -1202,15 +1192,12 @@ pub fn apk_tree_features(apk: &[u8]) -> Option<[f32; APK_TREE_FEATURE_COUNT]> {
         is_protector,
         has_non_standard_dex,
 
-        // 52..57: String ML & Threat density metrics
+        // 52..54: String ML & Threat density metrics
         mal_hits,
-        ben_hits,
-        mal_ben_ratio,
         mal_density,
-        unk_ratio,
         tot_log,
 
-        // 58..61: URL ML
+        // 55..58: URL ML
         url_ml.url_unwhitelisted_count_log,
         url_ml.url_ml_max_prob,
         url_ml.url_ml_mean_prob,
@@ -1676,9 +1663,12 @@ pub(crate) mod test_helpers {
         assert_eq!(f[18], 1.0);
         assert_eq!(f[19], 1.0);
         // no URLs in the test APK: the URL ML block is all zeros.
-        assert_eq!(&f[58..62], &[0.0; 4]);
-        assert_eq!(APK_TREE_FEATURE_NAMES[58], "url_unwhitelisted_count_log");
-        assert_eq!(APK_TREE_FEATURE_NAMES[61], "url_ml_high_count_log");
+        assert_eq!(&f[55..59], &[0.0; 4]);
+        assert_eq!(APK_TREE_FEATURE_NAMES[55], "url_unwhitelisted_count_log");
+        assert_eq!(APK_TREE_FEATURE_NAMES[58], "url_ml_high_count_log");
+        for removed in ["ben_str_hits", "mal_ben_str_ratio", "unknown_str_ratio"] {
+            assert!(!APK_TREE_FEATURE_NAMES.contains(&removed), "{removed} removed");
+        }
         // garbage is not an APK profile.
         assert!(apk_tree_features(b"definitely not a zip").is_none());
     }

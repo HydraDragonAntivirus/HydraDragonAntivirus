@@ -1385,8 +1385,40 @@ impl StaticEngine {
             *max_score = max_score.max(score);
         }
 
+        // ML scores before HydraDragonSig: its rules can read them (`ml_*` features), and
+        // step 4 reuses them instead of running the models a second time. The emulation
+        // predict_pe runs stays cached: `scan_object` reuses it for the member's behavior
+        // rules and unpacked payload, then drops it.
+        let pe_prob = if is_pe { self.ml.predict_pe(bytes) } else { None };
+        let js_prob = if !is_pe && is_js {
+            std::str::from_utf8(bytes).ok().and_then(|s| self.ml.predict_js(s))
+        } else {
+            None
+        };
+
         // 3. HydraDragonSig (strings + PE imports/exports/sections + behavior trace)
         let strings = pe_strings::extract_strings(pe_strings::decompile_slice(bytes));
+        // ML results for the rules (hydradragonsig FORMAT.md section 9), only when a loaded
+        // rule reads one: scoring the file's URLs is not free.
+        let ml_results: Vec<(String, f64)> = if self.string_rules.wants_ml() {
+            let p = hydradragonsig::report::ML_FEATURE_PREFIX;
+            let url = crate::ml::url_ml_metrics::url_ml_metrics_of_strings(strings.iter().map(String::as_str));
+            let mut v = vec![
+                (format!("{p}url_unwhitelisted_count_log"), url.url_unwhitelisted_count_log as f64),
+                (format!("{p}url_max_prob"), url.url_ml_max_prob as f64),
+                (format!("{p}url_mean_prob"), url.url_ml_mean_prob as f64),
+                (format!("{p}url_high_count_log"), url.url_ml_high_count_log as f64),
+            ];
+            if let Some(prob) = pe_prob {
+                v.push((format!("{p}pe_probability"), prob as f64));
+            }
+            if let Some(prob) = js_prob {
+                v.push((format!("{p}js_probability"), prob as f64));
+            }
+            v
+        } else {
+            Vec::new()
+        };
         let sha256_hex = {
             let mut hasher = Sha256::new();
             hasher.update(bytes);
@@ -1402,6 +1434,7 @@ impl StaticEngine {
             10,
             parent,
             behavior,
+            &ml_results,
         ) {
             let rule_name = if hit.rule.is_empty() {
                 "HydraSig.Match".to_string()
@@ -1428,12 +1461,9 @@ impl StaticEngine {
             *max_score = max_score.max(score);
         }
 
-        // 4. ML (PE / JS)
+        // 4. ML (PE / JS), scored above
         if is_pe {
-            // The emulation stays cached: `scan_object` reuses it for the member's
-            // behavior rules and unpacked payload, then drops it.
-            let predicted = self.ml.predict_pe(bytes);
-            if let Some(prob) = predicted {
+            if let Some(prob) = pe_prob {
                 if prob >= pe_tree_threshold() {
                     let det_name = if origin_prefix.is_empty() {
                         "MalwareNet.PE.HighConfidence".to_string()
@@ -1449,24 +1479,20 @@ impl StaticEngine {
                     *max_score = max_score.max(prob);
                 }
             }
-        } else if is_js {
-            if let Ok(source) = std::str::from_utf8(bytes) {
-                if let Some(prob) = self.ml.predict_js(source) {
-                    if prob >= js_tree_threshold() {
-                        let det_name = if origin_prefix.is_empty() {
-                            "MalwareNet.JS.HighConfidence".to_string()
-                        } else {
-                            format!("{}MalwareNet.JS.HighConfidence", origin_prefix)
-                        };
-                        detections.push(DetectionItem {
-                            layer: format!("{}JS_ML", layer_prefix),
-                            name: det_name,
-                            score: Some(prob),
-                            details: Some(format!("JS malware probability: {:.2}%", prob * 100.0)),
-                        });
-                        *max_score = max_score.max(prob);
-                    }
-                }
+        } else if let Some(prob) = js_prob {
+            if prob >= js_tree_threshold() {
+                let det_name = if origin_prefix.is_empty() {
+                    "MalwareNet.JS.HighConfidence".to_string()
+                } else {
+                    format!("{}MalwareNet.JS.HighConfidence", origin_prefix)
+                };
+                detections.push(DetectionItem {
+                    layer: format!("{}JS_ML", layer_prefix),
+                    name: det_name,
+                    score: Some(prob),
+                    details: Some(format!("JS malware probability: {:.2}%", prob * 100.0)),
+                });
+                *max_score = max_score.max(prob);
             }
         }
 

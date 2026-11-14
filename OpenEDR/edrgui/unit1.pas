@@ -17,7 +17,7 @@ interface
 uses
   Classes, SysUtils, Forms, Controls, Graphics, Dialogs, ExtCtrls, Menus,
   Windows, Registry, fpjson, jsonparser,
-  USvcControl, UAlert, UGuiNotify, UHipPipe, UQuar, URep;
+  USvcControl, UAlert, UGuiNotify, UHipPipe, UQuar, URep, UUpdate;
 
 type
 
@@ -88,6 +88,17 @@ type
     FBehaviorLogs: TStringList;
     FMLPredictions: TStringList;
     FRecentAlerts: TStringList;
+    // Automatic updates (UUpdate): periodic check, and the update found last.
+    FUpdateTimer: TTimer;
+    FUpdateChecking: Boolean;
+    FUpdateManual: Boolean;
+    FUpdatePending: Boolean;
+    FPendingUpdate: TUpdateInfo;
+    procedure StartUpdateCheck(AManual: Boolean);
+    procedure UpdateTimerTick(Sender: TObject);
+    procedure OnUpdateDone(Sender: TObject; AResult: TUpdateResult;
+      const AInfo: TUpdateInfo);
+    procedure OfferUpdateInstall;
     function ReadProtectionPaused: Boolean;
     procedure WriteProtectionPaused(APaused: Boolean);
     procedure SetPauseCaption(APaused: Boolean);
@@ -218,12 +229,18 @@ begin
   PopupMenu1.Items.Insert(PopupMenu1.Items.IndexOf(MenuQuarantine) + 1,
     MenuReputation);
 
-  // Manual update check: opens the GitHub releases page in the browser.
+  // Updates: installation.msi of the latest GitHub release (UUpdate). Checked
+  // shortly after start and then periodically; this item checks now, or installs
+  // the update a check found.
   MenuCheckUpdates := TMenuItem.Create(Self);
-  MenuCheckUpdates.Caption := 'Check for updates manually';
+  MenuCheckUpdates.Caption := 'Check for updates';
   MenuCheckUpdates.OnClick := @MenuCheckUpdatesClick;
   PopupMenu1.Items.Insert(PopupMenu1.Items.IndexOf(MenuReputation) + 1,
     MenuCheckUpdates);
+  FUpdateTimer := TTimer.Create(Self);
+  FUpdateTimer.Interval := 60 * 1000;          // first check a minute after start
+  FUpdateTimer.OnTimer := @UpdateTimerTick;
+  FUpdateTimer.Enabled := True;
 
   // Adds a host to the TLS proxy bypass list (tls_proxy.bypass_hosts) through
   // the addMitmBypassHost JSON-RPC. Created last so that it sits directly
@@ -244,6 +261,10 @@ end;
 
 procedure TForm1.FormDestroy(Sender: TObject);
 begin
+  // An update check still running must not call back into this freed form.
+  if FUpdateTimer <> nil then
+    FUpdateTimer.Enabled := False;
+  DetachUpdateCallbacks;
   if FRecentAlerts <> nil then
   begin
     FRecentAlerts.Free;
@@ -1455,16 +1476,89 @@ begin
 end;
 
 procedure TForm1.MenuCheckUpdatesClick(Sender: TObject);
-const
-  ReleasesUrl = 'https://github.com/HydraDragonAntivirus/HydraDragonAntivirus/releases';
 begin
-  // There is no automatic updater: send the user to the releases page.
-  // ShellExecute returns a value greater than 32 on success.
-  if ShellExecuteW(0, PWideChar(UnicodeString('open')),
-    PWideChar(UnicodeString(ReleasesUrl)), nil, nil,
-    SW_SHOWNORMAL) <= 32 then
-    TAlertForm.ShowAlert('Check for updates',
-      'Could not open the browser. Releases page: ' + ReleasesUrl,
+  // An update a check already found and downloaded: install it. Otherwise check now.
+  if FUpdatePending then
+    OfferUpdateInstall
+  else
+    StartUpdateCheck(True);
+end;
+
+procedure TForm1.UpdateTimerTick(Sender: TObject);
+begin
+  // After the first check, every 6 hours.
+  FUpdateTimer.Interval := 6 * 60 * 60 * 1000;
+  StartUpdateCheck(False);
+end;
+
+procedure TForm1.StartUpdateCheck(AManual: Boolean);
+begin
+  if FUpdateChecking then
+  begin
+    if AManual then
+      TAlertForm.ShowAlert('Updates', 'An update check is already running.', asInfo, 3000);
+    Exit;
+  end;
+  FUpdateChecking := True;
+  FUpdateManual := AManual;
+  if AManual then
+    TAlertForm.ShowAlert('Updates', 'Checking the latest release...', asInfo, 3000);
+  TUpdateCheckThread.Create(@OnUpdateDone);
+end;
+
+procedure TForm1.OnUpdateDone(Sender: TObject; AResult: TUpdateResult;
+  const AInfo: TUpdateInfo);
+begin
+  FUpdateChecking := False;
+  case AResult of
+    urAvailable:
+      begin
+        FUpdatePending := True;
+        FPendingUpdate := AInfo;
+        MenuCheckUpdates.Caption := 'Install update (' + AInfo.Tag + ')';
+        if FUpdateManual then
+          OfferUpdateInstall
+        else
+          TAlertForm.ShowAlert('Update available',
+            AInfo.Tag + ' is downloaded and ready. Use "Install update" in the tray menu.',
+            asInfo, 10000);
+      end;
+    urUpToDate:
+      begin
+        FUpdatePending := False;
+        MenuCheckUpdates.Caption := 'Check for updates';
+        if FUpdateManual then
+          TAlertForm.ShowAlert('Updates', 'You have the latest release (' + AInfo.Tag + ').',
+            asSuccess, 4000);
+      end;
+    urFailed:
+      // A background check that fails (offline, rate limited) stays quiet and
+      // retries at the next interval.
+      if FUpdateManual then
+        TAlertForm.ShowAlert('Updates', 'Update check failed: ' + AInfo.Error,
+          asWarning, 8000);
+  end;
+end;
+
+procedure TForm1.OfferUpdateInstall;
+begin
+  if not FileExists(FPendingUpdate.MsiPath) then
+  begin
+    // The cached MSI is gone: find it again.
+    FUpdatePending := False;
+    MenuCheckUpdates.Caption := 'Check for updates';
+    StartUpdateCheck(True);
+    Exit;
+  end;
+  if MessageDlg('Install update',
+    FPendingUpdate.Tag + ' is ready to install.' + LineEnding + LineEnding +
+    'The agent is updated in place; Windows asks for administrator rights and may ' +
+    'ask to restart.' + LineEnding + LineEnding + 'Install now?',
+    mtConfirmation, [mbYes, mbNo], 0) <> mrYes then
+    Exit;
+  if not InstallUpdate(FPendingUpdate.MsiPath) then
+    TAlertForm.ShowAlert('Install update',
+      'The installer could not be started (cancelled or blocked): ' + FPendingUpdate.MsiPath,
       asWarning, 8000);
 end;
 

@@ -409,7 +409,13 @@ TRAIN_FEATURE_NAMES = list(FEATURE_NAMES)
 # them; load_chunks drops those columns, so the old chunks train a model the current
 # engine can run (no re-extraction). unknown_str_ratio: the string filters are built from
 # the training corpus, so it measured "not seen in training" and flagged unseen clean files.
-RETIRED_V2_FEATURES = {"inner_unknown_str_ratio", "shell_unknown_str_ratio"}
+# ben_str_hits / mal_ben_str_ratio read the same benign filter: the same measure from the
+# other side, retired with it.
+RETIRED_V2_FEATURES = {
+    "inner_unknown_str_ratio", "shell_unknown_str_ratio",
+    "inner_ben_str_hits", "shell_ben_str_hits",
+    "inner_mal_ben_str_ratio", "shell_mal_ben_str_ratio",
+}
 
 
 CRASH_LOG = os.path.join(BASE_DIR, "pe_feature_dump_crashes.txt")
@@ -626,9 +632,8 @@ PE_MIMICRY_NAMES = ("code_to_import_ratio", "compiler_dissonance_flag",
 # shell_ over the file itself for the shell model (chunks dumped before shell_ existed lack them).
 # Uses Multron Server dynamic string whitelist (C:\Users\semae\OneDrive\Belgeler\stringwhitelist)
 # + ALL yarGen benign/malicious DBs + Unicorn trace + Disassembler strings.
-PE_STRING_ML_NAMES = ("mal_str_hits", "ben_str_hits", "mal_ben_str_ratio",
-                      "mal_str_density", "decompiler_strings", "unicorn_trace_strings",
-                      "unknown_str_ratio", "total_unique_strings_log")
+PE_STRING_ML_NAMES = ("mal_str_hits", "mal_str_density", "decompiler_strings",
+                      "unicorn_trace_strings", "total_unique_strings_log")
 
 # url_ml_metrics.rs UrlMlMetrics::NAMES: inner_url_* (169..172) over the inner PE's bytes,
 # decompiler and Unicorn trace strings; shell_url_* (173..176) over the file itself, only when

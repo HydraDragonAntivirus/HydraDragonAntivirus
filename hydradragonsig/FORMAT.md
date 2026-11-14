@@ -1174,9 +1174,37 @@ Android packages add `apk_<name>` for each APK profile value (section 5.14):
 `apk_api_package_manager_queries`, `apk_api_anti_debug_root_calls`,
 `apk_assets_entry_count`, `apk_assets_size_log`,
 `apk_has_hidden_payload_in_assets`, `apk_is_protector_packed`,
-`apk_has_non_standard_dex`, `apk_mal_str_hits`, `apk_ben_str_hits`,
-`apk_mal_ben_str_ratio`, `apk_mal_str_density`, `apk_unknown_str_ratio`,
+`apk_has_non_standard_dex`, `apk_mal_str_hits`, `apk_mal_str_density`,
 `apk_total_unique_strings_log`.
+
+ML results, `ml_<name>`, come from the host engine (the models are not part of
+hydradragonsig): OpenEDR's engine runs its tree models on the buffer before the
+rules and passes the results in, only when a loaded rule reads one. Elsewhere
+(the standalone CLI) they are absent, so a rule needing one does not match.
+
+| Feature | Value |
+|---|---|
+| `ml_pe_probability` | PE model malware probability, 0..1 (PE files only) |
+| `ml_js_probability` | JavaScript model malware probability, 0..1 (scripts only) |
+| `ml_url_unwhitelisted_count_log` | ln(1 + URLs in the file's strings left after the URL whitelist) |
+| `ml_url_max_prob` | highest URL model probability among them, 0..1 |
+| `ml_url_mean_prob` | mean URL model probability among them, 0..1 |
+| `ml_url_high_count_log` | ln(1 + how many of them the URL model scored high) |
+
+```yaml
+  - id: HDS-ML-PE-WITH-BAD-URL
+    title: PE model unsure, but it carries a high-scoring URL
+    severity: high
+    verdict: suspicious
+    logic: all
+    conditions:
+      - type: feature_gte
+        name: ml_pe_probability
+        value: 0.6
+      - type: feature_gte
+        name: ml_url_max_prob
+        value: 0.9
+```
 
 ## 10. Writing good signatures
 

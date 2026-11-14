@@ -115,15 +115,14 @@ APK_FEATURE_NAMES = [
     "is_protector_packed",
     "has_non_standard_dex",
 
-    # 52..57: String ML & Threat density metrics
+    # 52..54: String ML & Threat density metrics (no ben_str_hits / mal_ben_str_ratio /
+    # unknown_str_ratio: the benign string filter is built from the training corpus, so
+    # they measured "seen in training")
     "mal_str_hits",
-    "ben_str_hits",
-    "mal_ben_str_ratio",
     "mal_str_density",
-    "unknown_str_ratio",
     "total_unique_strings_log",
 
-    # 58..61: URL ML (url_ml_metrics.rs)
+    # 55..58: URL ML (url_ml_metrics.rs)
     "url_unwhitelisted_count_log",
     "url_ml_max_prob",
     "url_ml_mean_prob",
@@ -171,13 +170,19 @@ def load_features(csv_path: str, max_per_class: int = 0, balance: bool = False):
     mal, ben = [], []
     with open(csv_path, newline="", encoding="utf-8") as fh:
         reader = csv.reader(fh)
-        next(reader, None)  # skip the header row
-        expected_len = 2 + len(APK_FEATURE_NAMES)
+        header = (next(reader, None) or [])[2:]
+        missing = [n for n in APK_FEATURE_NAMES if n not in header]
+        if missing:
+            sys.exit(f"CSV lacks {missing} (apk.rs changed? re-extract)")
+        # Columns by name, not position: an older CSV still holding retired features
+        # (ben_str_hits, mal_ben_str_ratio, unknown_str_ratio) trains on the right columns.
+        cols = [2 + header.index(n) for n in APK_FEATURE_NAMES]
+        expected_len = 1 + max(cols)
         for row in reader:
             if not row or len(row) < expected_len:
                 continue
             lbl = int(row[0])
-            feats = [float(x) for x in row[2:expected_len]]
+            feats = [float(row[i]) for i in cols]
             if lbl == 1:
                 mal.append(feats)
             else:

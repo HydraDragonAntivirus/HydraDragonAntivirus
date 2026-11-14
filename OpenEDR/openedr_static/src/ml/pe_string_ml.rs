@@ -275,7 +275,7 @@ impl PeStringMlEngine {
             crate::diagnostics::log(
                 "capability-disabled",
                 "PE string ML: pe_strings_benign.xf / pe_strings_malicious.xf missing or \
-                 unparseable; inner string features (mal/ben_str_hits, ratio, density) read as 0",
+                 unparseable; inner string features (mal_str_hits, density) read as 0",
             );
         }
         (ben, mal)
@@ -289,57 +289,50 @@ impl PeStringMlEngine {
     }
 }
 
-/// 8 String + Disassembler + Unicorn ML features, computed over the unpacked / content
+/// 5 String + Disassembler + Unicorn ML features, computed over the unpacked / content
 /// PE (`inner_*`) and over the file itself (`shell_*`):
-/// 1. `mal_str_hits`: `ln(1 + unique_malicious_strings)` (not in Multron WL and not in yarGen Benign)
-/// 2. `ben_str_hits`: `ln(1 + unique_benign_strings)` (in Multron Dynamic WL or yarGen Benign)
-/// 3. `mal_ben_str_ratio`: `mal_unique / (ben_unique + 1.0)`
-/// 4. `mal_str_density`: `mal_unique / (total_unique_strings + 1.0)`
-/// 5. `decompiler_Auto_strings`: `ln(1 + stack_strings + code_ref_strings + opcode_patterns)`
-/// 6. `unicorn_trace_strings`: `ln(1 + unique strings captured by Unicorn API/behavior trace)`
-/// 7. `unknown_str_ratio`: `unknown_unique / (total_unique_strings + 1.0)`
-/// 8. `total_unique_strings_log`: `ln(1 + total_unique_strings)`
+/// 1. `mal_str_hits`: `ln(1 + unique_malicious_strings)` (in the malicious filter, not benign)
+/// 2. `mal_str_density`: `mal_unique / (total_unique_strings + 1.0)`
+/// 3. `decompiler_Auto_strings`: `ln(1 + stack_strings + code_ref_strings + opcode_patterns)`
+/// 4. `unicorn_trace_strings`: `ln(1 + unique strings captured by Unicorn API/behavior trace)`
+/// 5. `total_unique_strings_log`: `ln(1 + total_unique_strings)`
+///
+/// No feature reads the benign filter: it is built from the training corpus itself, so
+/// `unknown_str_ratio` (not in it), `ben_str_hits` (in it) and `mal_ben_str_ratio`
+/// (malicious per benign) all measured "seen in training" - the inverse of one another -
+/// and flagged unseen clean files. The benign / unknown split is still reported
+/// (`PeStringBreakdown`), and keeps a string from counting as malicious.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct PeStringMlMetrics {
     pub mal_str_hits: f32,
-    pub ben_str_hits: f32,
-    pub mal_ben_str_ratio: f32,
     pub mal_str_density: f32,
     pub decompiler_strings: f32,
     pub unicorn_trace_strings: f32,
-    pub unknown_str_ratio: f32,
     pub total_unique_strings_log: f32,
 }
 
 impl PeStringMlMetrics {
-    /// Original 6 string ML slots in the v2 vector (`153..159` inner, `159..165` shell);
-    /// newer string features are appended after both blocks so earlier indices never move.
-    pub const BASE_LEN: usize = 6;
-    pub const LEN: usize = 8;
+    /// String ML slots in the v2 vector, one block inner and one shell;
+    /// `total_unique_strings_log` comes after both blocks.
+    pub const BASE_LEN: usize = 4;
+    pub const LEN: usize = 5;
     pub const BASE_NAMES: [&'static str; Self::BASE_LEN] = [
         "mal_str_hits",
-        "ben_str_hits",
-        "mal_ben_str_ratio",
         "mal_str_density",
         "decompiler_strings",
         "unicorn_trace_strings",
     ];
     pub const NAMES: [&'static str; Self::LEN] = [
         "mal_str_hits",
-        "ben_str_hits",
-        "mal_ben_str_ratio",
         "mal_str_density",
         "decompiler_strings",
         "unicorn_trace_strings",
-        "unknown_str_ratio",
         "total_unique_strings_log",
     ];
 
     pub fn base_array(&self) -> [f32; Self::BASE_LEN] {
         [
             self.mal_str_hits,
-            self.ben_str_hits,
-            self.mal_ben_str_ratio,
             self.mal_str_density,
             self.decompiler_strings,
             self.unicorn_trace_strings,
@@ -349,12 +342,9 @@ impl PeStringMlMetrics {
     pub fn to_array(&self) -> [f32; Self::LEN] {
         [
             self.mal_str_hits,
-            self.ben_str_hits,
-            self.mal_ben_str_ratio,
             self.mal_str_density,
             self.decompiler_strings,
             self.unicorn_trace_strings,
-            self.unknown_str_ratio,
             self.total_unique_strings_log,
         ]
     }
@@ -538,17 +528,12 @@ pub struct PeStringBreakdown {
 impl PeStringBreakdown {
     fn metrics(&self) -> PeStringMlMetrics {
         let mal_f = self.malicious.len() as f32;
-        let ben_f = self.benign.len() as f32;
-        let unk_f = self.unknown.len() as f32;
         let tot_f = self.total_unique as f32;
         PeStringMlMetrics {
             mal_str_hits: mal_f.ln_1p(),
-            ben_str_hits: ben_f.ln_1p(),
-            mal_ben_str_ratio: mal_f / (ben_f + 1.0),
             mal_str_density: mal_f / (tot_f + 1.0),
             decompiler_strings: (self.decompiler_strings as f32).ln_1p(),
             unicorn_trace_strings: (self.unicorn_trace_strings as f32).ln_1p(),
-            unknown_str_ratio: unk_f / (tot_f + 1.0),
             total_unique_strings_log: tot_f.ln_1p(),
         }
     }
