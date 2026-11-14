@@ -3221,16 +3221,34 @@ async fn handle_public_edr_killchain(
         let json = crate::edr_telemetry::killchain_body(&body, brotli).map_err(|e| (StatusCode::BAD_REQUEST, e))?;
         let batch: crate::edr_telemetry::KillchainBatch =
             serde_json::from_slice(&json).map_err(|e| (StatusCode::BAD_REQUEST, format!("bad JSON: {e}")))?;
-        store.ingest_killchain(&batch).map_err(|e| (StatusCode::SERVICE_UNAVAILABLE, e))
+        let (new, merged) = store.ingest_killchain(&batch).map_err(|e| (StatusCode::SERVICE_UNAVAILABLE, e))?;
+        let repeats: u64 = batch.counts.values().sum();
+        Ok::<_, (StatusCode, String)>((new, merged, batch.machine_id, batch.records.len(), repeats))
     })
     .await;
+    // Every upload shows in the live feed: the kill chain store has no list of its own,
+    // so this is where a client's uploads (or why they were refused) can be seen.
     match result {
-        Ok(Ok((new, merged))) => json_response(
-            StatusCode::OK,
-            serde_json::json!({"status": "ok", "new": new, "merged": merged}),
-            "no-store",
-        ),
-        Ok(Err((status, e))) => error(status, e),
+        Ok(Ok((new, merged, machine, records, repeats))) => {
+            server.events.add(simple_event(
+                "edr_killchain",
+                None,
+                Some(client_ip),
+                Some(format!(
+                    "Kill chain upload from {machine}: {records} event shapes ({new} new, {merged} merged), {repeats} repeats counted"
+                )),
+            ));
+            json_response(StatusCode::OK, serde_json::json!({"status": "ok", "new": new, "merged": merged}), "no-store")
+        }
+        Ok(Err((status, e))) => {
+            server.events.add(simple_event(
+                "edr_killchain",
+                None,
+                Some(client_ip),
+                Some(format!("Kill chain upload refused (HTTP {}): {e}", status.as_u16())),
+            ));
+            error(status, e)
+        }
         Err(e) => error(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
     }
 }

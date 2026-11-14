@@ -1344,6 +1344,11 @@
           <div style="font-size:11px;color:var(--muted);text-transform:uppercase;font-weight:600">Threat Reports</div>
           <div style="font-size:20px;font-weight:700" id="edrStatThreats">0</div>
         </div>
+        <div style="background:var(--panel2);border:1px solid var(--border);border-radius:8px;padding:8px 14px;flex:1;min-width:150px" title="Unknown-process kill chain events uploaded by clients in training mode, merged by event shape">
+          <div style="font-size:11px;color:var(--muted);text-transform:uppercase;font-weight:600">Kill Chain (training)</div>
+          <div style="font-size:20px;font-weight:700" id="edrStatKcShapes">0</div>
+          <div style="font-size:11px;color:var(--muted)"><span id="edrStatKcEvents">0</span> events &middot; <a href="/api/v1/edr/telemetry/killchain/export" download>export</a></div>
+        </div>
       </div>
 
       <!-- Subtab switch & Toolbar -->
@@ -4815,6 +4820,14 @@ window.sigKey = (list) => list && list.length ? `${list[0].layer}: ${list[0].nam
         if ($("edrStatClean")) $("edrStatClean").textContent = d.clean_behaviors || 0;
         if ($("edrStatFlows")) $("edrStatFlows").textContent = d.total_flows || 0;
         if ($("edrStatThreats")) $("edrStatThreats").textContent = d.total_threats || 0;
+      } catch (_) {}
+      try {
+        const kc = await fetch("/api/v1/edr/telemetry/killchain/stats", { cache: "no-store" });
+        if (kc.ok) {
+          const k = await kc.json();
+          if ($("edrStatKcShapes")) $("edrStatKcShapes").textContent = (k.shapes || 0).toLocaleString() + " shapes";
+          if ($("edrStatKcEvents")) $("edrStatKcEvents").textContent = (k.events || 0).toLocaleString();
+        }
       } catch (_) {}
     }
 
