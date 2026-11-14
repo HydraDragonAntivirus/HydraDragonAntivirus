@@ -20,6 +20,7 @@ OpenMalwareScannerPortable/models (skip with --no-sync).
 
 import argparse
 import csv
+import json
 import os
 import shutil
 import struct
@@ -120,6 +121,9 @@ def parse_args():
                     help="0 = unlimited (default): every benign file is used")
     ap.add_argument("--balance", action="store_true",
                     help="Old behaviour: undersample both classes to 50/50 (default: use ALL samples)")
+    ap.add_argument("--target-fpr", type=float, default=0.001,
+                    help="Calibrated threshold: at most this share of validation benign files above it "
+                         "(0 = above every validation benign file)")
     ap.add_argument("--output-bin", default=os.path.join(BASE_DIR, "js_trees.bin"))
     ap.add_argument("--no-sync", action="store_true", help="Do not copy js_trees.bin into the engine model folders")
     return ap.parse_args()
@@ -260,19 +264,42 @@ def main():
         dump_features(args)
     X, y = load_features(args.features_csv, args.max_samples_per_class, balance=args.balance)
 
-    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.15, random_state=42, stratify=y)
-    print(f"[*] Training LightGBM: {len(X_train)} train / {len(X_test)} test")
+    # 70 % train, 15 % validation (threshold), 15 % test (final numbers), as train_pe_lgbm.
+    X_train, X_rest, y_train, y_rest = train_test_split(X, y, test_size=0.30, random_state=42, stratify=y)
+    X_val, X_test, y_val, y_test = train_test_split(X_rest, y_rest, test_size=0.50, random_state=42,
+                                                    stratify=y_rest)
+    print(f"[*] Training LightGBM: {len(X_train)} train / {len(X_val)} validation / {len(X_test)} test")
     clf = lgb.LGBMClassifier(
         n_estimators=400, learning_rate=0.03, num_leaves=63, max_depth=8, min_child_samples=30,
         subsample=0.85, colsample_bytree=0.85, random_state=42, n_jobs=-1, verbose=-1,
     )
     clf.fit(X_train, y_train)
 
+    # Threshold from the validation benign scores: at most target-fpr of them above it.
+    val_ben = np.sort(clf.predict_proba(X_val[y_val == 0])[:, 1])
+    k = int(np.ceil(len(val_ben) * (1.0 - args.target_fpr)))
+    thr = float(val_ben[min(k, len(val_ben) - 1)]) + 1e-6 if len(val_ben) else ENGINE_THRESHOLD
+    thr = min(max(thr, 0.5), 0.9999)
+
     p = clf.predict_proba(X_test)[:, 1]
     print(classification_report(y_test, (p >= 0.5).astype(int), target_names=["Benign", "Malicious"], digits=4))
-    tn, fp, fn, tp = confusion_matrix(y_test, (p >= ENGINE_THRESHOLD).astype(int), labels=[0, 1]).ravel()
-    print(f"[+] At the engine threshold {ENGINE_THRESHOLD}: TP={tp} FN={fn} TN={tn} FP={fp} | "
-          f"recall={tp / max(1, tp + fn) * 100:.2f}% | FPR={fp / max(1, fp + tn) * 100:.3f}%")
+
+    def report(label, t):
+        tn, fp, fn, tp = confusion_matrix(y_test, (p >= t).astype(int), labels=[0, 1]).ravel()
+        print(f"[+] {label} {t:.4f}: TP={tp} FN={fn} TN={tn} FP={fp} | "
+              f"recall={tp / max(1, tp + fn) * 100:.2f}% | FPR={fp / max(1, fp + tn) * 100:.3f}%")
+
+    report("At the engine threshold", ENGINE_THRESHOLD)
+    report(f"Calibrated on validation (target FPR {args.target_fpr * 100:.3f}%)", thr)
+    if args.target_fpr == 0 and np.any(p[y_test == 0] >= thr):
+        # A test benign file still scores above every validation benign file: for a
+        # zero-FPR target, go above every held-out benign file (validation and test).
+        # The test split then no longer checks the threshold independently.
+        thr = min(max(thr, float(p[y_test == 0].max()) + 1e-6), 0.9999)
+        report("Above every held-out benign file (validation + test)", thr)
+    print(f"[!] Set the JS threshold to {thr:.4f} for this model (dashboard: ML thresholds).")
+    with open(os.path.splitext(args.output_bin)[0] + "_threshold.json", "w") as f:
+        json.dump({"js_tree_threshold": round(thr, 4), "target_fpr": args.target_fpr}, f)
 
     export_bin(clf, args.output_bin)
     n_chk = min(2000, len(X_test))
