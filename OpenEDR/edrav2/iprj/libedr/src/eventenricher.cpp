@@ -482,6 +482,27 @@ namespace {
 		return s_cached.load(std::memory_order_relaxed);
 	}
 
+	// HKLM\SOFTWARE\Owlyshield\SDK!TRAINING_SAVE_TO_FILE ("1") keeps the training
+	// events in ProgramData\edrsvc\training_data\unknown_killchain_*.jsonl (the
+	// uploader reads and uploads that file). Unset / "0": events go straight to the
+	// uploader in owlyshield_ransom.dll, nothing is written to disk per event.
+	// Re-read every 2 s like TRAINING_MODE, so regedit applies without a restart.
+	bool IsTrainingSaveToFileEnabled()
+	{
+		static std::atomic<bool> s_cached{ false };
+		static std::atomic<uint64_t> s_last{ 0 };
+
+		const uint64_t nNow = (uint64_t)std::chrono::duration_cast<
+			std::chrono::milliseconds>(std::chrono::steady_clock::now()
+				.time_since_epoch()).count();
+		if (nNow - s_last.load(std::memory_order_relaxed) >= 2000)
+		{
+			s_last.store(nNow, std::memory_order_relaxed);
+			s_cached.store(ReadSdkBool("TRAINING_SAVE_TO_FILE", false), std::memory_order_relaxed);
+		}
+		return s_cached.load(std::memory_order_relaxed);
+	}
+
 	// Read watched training directory from HKLM\SOFTWARE\Owlyshield\SDK!TRAINING_WATCH_DIR
 	// Empty / unset means NO path restriction (legacy behavior: TRAINING_MODE=1 records all).
 	std::string GetTrainingWatchDir()
@@ -1794,14 +1815,46 @@ namespace {
 	// Save unknown process behavior killchain telemetry into training dataset
 	void AppendToTrainingDataset(const std::string& sExePath, const std::string& sEventType, const std::string& sDetails, const std::string& sJson)
 	{
+		SYSTEMTIME st = {};
+		::GetLocalTime(&st);
+
+		char szTime[32] = "";
+		sprintf_s(szTime, "%02u:%02u:%02u.%03u", st.wHour, st.wMinute, st.wSecond, st.wMilliseconds);
+
+		// Formatted killchain sequence line (fields JSON-escaped: raw Windows
+		// paths contain \s \t etc. which are invalid escapes raw).
+		std::string sLine = "{\"time\":\"" + std::string(szTime) + "\",\"exe\":\"" + JsonEscapeA(sExePath)
+			+ "\",\"event\":\"" + JsonEscapeA(sEventType) + "\",\"details\":\"" + JsonEscapeA(sDetails)
+			+ "\",\"raw\":" + sJson + "}";
+
+		static std::atomic<uint64_t> s_nTrainingEvents{ 0 };
+		const uint64_t nEvents = s_nTrainingEvents.fetch_add(1, std::memory_order_relaxed) + 1;
+
+		// Straight to owlyshield's kill chain uploader, which deduplicates and
+		// uploads from memory, unless TRAINING_SAVE_TO_FILE asks for the file. One
+		// or the other, never both: the uploader also reads the file, so both
+		// would count every event twice.
+		typedef int32_t (*KillchainSubmitFn)(const uint8_t*, uint32_t);
+		static KillchainSubmitFn s_fnSubmit = []() -> KillchainSubmitFn {
+			HMODULE hDll = ::GetModuleHandleW(L"owlyshield_ransom.dll");
+			if (!hDll)
+				hDll = ::LoadLibraryW(L"owlyshield_ransom.dll");
+			return hDll ? reinterpret_cast<KillchainSubmitFn>(::GetProcAddress(hDll, "owlyshield_killchain_submit")) : nullptr;
+		}();
+		if (s_fnSubmit != nullptr && !IsTrainingSaveToFileEnabled())
+		{
+			s_fnSubmit(reinterpret_cast<const uint8_t*>(sLine.data()), static_cast<uint32_t>(sLine.size()));
+			if (nEvents == 1 || nEvents % 1000 == 0)
+				LOGINF(FMT("training: handed " << nEvents << " event(s) to the kill chain uploader"));
+			return;
+		}
+
+		// TRAINING_SAVE_TO_FILE on, or an owlyshield_ransom.dll without the export:
+		// the file, which the uploader reads and uploads.
 		char szProgramData[MAX_PATH] = "";
 		DWORD nLen = ::GetEnvironmentVariableA("PROGRAMDATA", szProgramData, MAX_PATH);
 		if (nLen == 0 || nLen >= MAX_PATH)
 			return;
-
-		SYSTEMTIME st = {};
-		::GetLocalTime(&st);
-
 		std::filesystem::path dir = std::filesystem::path(szProgramData) /
 			"edrsvc" / "training_data";
 		std::error_code ec;
@@ -1814,20 +1867,10 @@ namespace {
 		std::ofstream stream(dir / szFile, std::ios::app);
 		if (!stream)
 			return;
+		stream << sLine << "\n";
 
-		char szTime[32] = "";
-		sprintf_s(szTime, "%02u:%02u:%02u.%03u", st.wHour, st.wMinute, st.wSecond, st.wMilliseconds);
-
-		// Record formatted killchain sequence line (fields JSON-escaped:
-		// raw Windows paths contain \s \t etc. which are invalid escapes raw).
-		stream << "{\"time\":\"" << szTime << "\",\"exe\":\"" << JsonEscapeA(sExePath) << "\",\"event\":\""
-		       << JsonEscapeA(sEventType) << "\",\"details\":\"" << JsonEscapeA(sDetails) << "\",\"raw\":" << sJson << "}\n";
-
-		// Heartbeat: proves from logs that training is actually recording.
-		static std::atomic<uint64_t> s_nTrainingWrites{ 0 };
-		const uint64_t nWrites = s_nTrainingWrites.fetch_add(1, std::memory_order_relaxed) + 1;
-		if (nWrites == 1 || nWrites % 100 == 0)
-			LOGINF(FMT("training: recorded " << nWrites << " event(s) to training_data"));
+		if (nEvents == 1 || nEvents % 100 == 0)
+			LOGINF(FMT("training: recorded " << nEvents << " event(s) to training_data"));
 	}
 
 	// Append a JSON line into ProgramData\edrsvc\log\output_events\

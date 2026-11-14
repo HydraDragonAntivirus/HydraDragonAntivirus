@@ -545,25 +545,133 @@ fn training_data_dir() -> Option<PathBuf> {
     Some(PathBuf::from(pd).join("edrsvc").join("training_data"))
 }
 
+// ------------------------------------------------------------------ in-memory feed
+//
+// edrsvc hands every training event straight to `submit` (FFI
+// `owlyshield_killchain_submit`) instead of appending it to a .jsonl file: the
+// file cost one open/append/close per event (hundreds of thousands a day, ~6.6 KB
+// each) only for this uploader to read it back. Events are reduced to their
+// shape here, in memory, and uploaded every round or as soon as a batch is full.
+// A failed upload stays pending and is retried. Keys already sent are remembered
+// in memory only: after a restart a repeat is sent once more as a record, which
+// the server merges into its count.
+
+/// Pending events are capped at this multiple of a full batch; past it new events
+/// are dropped (and counted) until the next upload drains the queue.
+const LIVE_CAP_FACTOR: usize = 2;
+
+#[derive(Default)]
+struct Live {
+    pending: Pending,
+    seen: HashSet<u64>,
+    dropped: u64,
+}
+
+fn live() -> &'static (std::sync::Mutex<Live>, std::sync::Condvar) {
+    static LIVE: std::sync::OnceLock<(std::sync::Mutex<Live>, std::sync::Condvar)> = std::sync::OnceLock::new();
+    LIVE.get_or_init(|| (std::sync::Mutex::new(Live::default()), std::sync::Condvar::new()))
+}
+
+/// One training event from edrsvc: `{"time","exe","event","details","raw"}` (the
+/// line format of the old .jsonl files). Its day is the local date it arrives on,
+/// as the old file name was.
+pub fn submit(line: &str) {
+    start();
+    let date = chrono::Local::now().format("%Y%m%d").to_string();
+    let (lock, wake) = live();
+    let Ok(mut g) = lock.lock() else { return };
+    if g.pending.records.len() >= MAX_BATCH_RECORDS * LIVE_CAP_FACTOR
+        || g.pending.bytes >= MAX_BATCH_BYTES * LIVE_CAP_FACTOR
+    {
+        g.dropped += 1;
+        return;
+    }
+    let Live { pending, seen, .. } = &mut *g;
+    add_line(pending, seen, &date, line);
+    if g.pending.full() {
+        wake.notify_one();
+    }
+}
+
+/// Puts a batch that failed to upload back in front of what arrived meanwhile.
+fn requeue(failed: Pending, live: &mut Live) {
+    let newer = std::mem::replace(&mut live.pending, failed);
+    let p = &mut live.pending;
+    for rec in newer.records {
+        let key = u64::from_str_radix(&rec.key, 16).unwrap_or_default();
+        if let Some(&i) = p.index.get(&key) {
+            p.records[i].count += rec.count;
+        } else {
+            p.index.insert(key, p.records.len());
+            p.bytes += rec.raw.to_string().len();
+            p.records.push(rec);
+        }
+    }
+    for (k, c) in newer.counts {
+        *p.counts.entry(k).or_default() += c;
+    }
+}
+
+/// Uploads what `submit` collected; returns false when the upload failed.
+fn send_live() -> bool {
+    let (lock, _) = live();
+    let (batch, dropped) = {
+        let Ok(mut g) = lock.lock() else { return false };
+        (std::mem::take(&mut g.pending), std::mem::take(&mut g.dropped))
+    };
+    if dropped > 0 {
+        Logging::warning(&format!(
+            "[KillChain Upload] {dropped} training event(s) dropped: the in-memory queue was full"
+        ));
+    }
+    if batch.is_empty() {
+        return true;
+    }
+    let ok = send(&batch);
+    let Ok(mut g) = lock.lock() else { return ok };
+    if ok {
+        let room = MAX_SEEN_KEYS.saturating_sub(g.seen.len());
+        let keys: Vec<u64> = batch.index.keys().copied().take(room).collect();
+        g.seen.extend(keys);
+    } else {
+        requeue(batch, &mut g);
+    }
+    ok
+}
+
 /// Starts the background uploader (once). Set `OWLY_KILLCHAIN_UPLOAD=0` to turn it off.
 pub fn start() {
     static STARTED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
     if std::env::var("OWLY_KILLCHAIN_UPLOAD").is_ok_and(|v| v.trim() == "0") {
-        Logging::info("[KillChain Upload] disabled (OWLY_KILLCHAIN_UPLOAD=0)");
         return;
     }
     if STARTED.swap(true, std::sync::atomic::Ordering::SeqCst) {
         return;
     }
-    let Some(log_dir) = training_data_dir() else { return };
     let _ = std::thread::Builder::new().name("killchain-upload".into()).spawn(move || {
         std::thread::sleep(FIRST_ROUND_DELAY);
-        let mut state = State::load(log_dir.join("upload_state"));
+        // .jsonl files edrsvc wrote before it handed events over directly: drained
+        // once more each round until nothing new is left in them.
+        let log_dir = training_data_dir();
+        let mut state = log_dir.as_ref().map(|d| State::load(d.join("upload_state")));
         loop {
-            if log_dir.is_dir() {
-                round(&mut state, &log_dir);
+            // Several batches when a full one woke us early.
+            while send_live() {
+                let (lock, _) = live();
+                if !lock.lock().map(|g| g.pending.full()).unwrap_or(false) {
+                    break;
+                }
             }
-            std::thread::sleep(ROUND_INTERVAL);
+            if let (Some(dir), Some(st)) = (log_dir.as_ref(), state.as_mut()) {
+                if dir.is_dir() {
+                    round(st, dir);
+                }
+            }
+            // Sleep until the next round, or until a batch fills up.
+            let (lock, wake) = live();
+            if let Ok(g) = lock.lock() {
+                let _ = wake.wait_timeout_while(g, ROUND_INTERVAL, |g| !g.pending.full());
+            }
         }
     });
 }
@@ -571,6 +679,28 @@ pub fn start() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_failed_batch_is_requeued_ahead_of_newer_events() {
+        let line = |exe: &str| {
+            format!(r#"{{"time":"10:00:00.000","exe":"{exe}","event":"LLE_FILE_CREATE","details":"","raw":{{}}}}"#)
+        };
+        let seen = HashSet::new();
+        let mut failed = Pending::default();
+        add_line(&mut failed, &seen, "20261114", &line("C:\\\\a.exe"));
+        add_line(&mut failed, &seen, "20261114", &line("C:\\\\a.exe"));
+        assert_eq!(failed.records.len(), 1);
+        assert_eq!(failed.records[0].count, 2);
+
+        let mut l = Live::default();
+        add_line(&mut l.pending, &seen, "20261114", &line("C:\\\\a.exe"));
+        add_line(&mut l.pending, &seen, "20261114", &line("C:\\\\b.exe"));
+        requeue(failed, &mut l);
+        assert_eq!(l.pending.records.len(), 2, "same shape merged, new shape kept");
+        let a = l.pending.records.iter().find(|r| r.exe.ends_with("a.exe")).unwrap();
+        assert_eq!(a.count, 3);
+        assert_eq!(l.pending.index.len(), 2);
+    }
 
     #[test]
     fn features_follow_the_python_extractor() {

@@ -175,6 +175,24 @@ pub unsafe extern "C" fn owlyshield_dll_ingest(data: *const u8, len: u32) -> i32
 }
 
 /// Ingest a serialized OpenEDR enriched event (JSON) into the behavior engine.
+/// One training-mode kill chain event from `edrsvc.exe` (the JSON line it used to
+/// append to `training_data\unknown_killchain_*.jsonl`), deduplicated and uploaded
+/// from memory by `killchain_upload` - no per-event file write.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn owlyshield_killchain_submit(data: *const u8, len: u32) -> i32 {
+    if data.is_null() || len == 0 {
+        return OWLY_OK;
+    }
+    let bytes = unsafe { std::slice::from_raw_parts(data, len as usize) };
+    match std::str::from_utf8(bytes) {
+        Ok(line) => {
+            crate::killchain_upload::submit(line);
+            OWLY_OK
+        }
+        Err(_) => OWLY_DESERIALIZE_ERROR,
+    }
+}
+
 /// Called directly by `edrsvc.exe` via GetProcAddress; the old global named
 /// pipe has been removed so no other usermode process can inject events.
 #[unsafe(no_mangle)]
