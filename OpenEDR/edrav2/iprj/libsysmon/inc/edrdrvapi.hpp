@@ -134,6 +134,7 @@ enum class EventField : variant::lbvs::FieldId
 	TargetProcessPid = 24, ///< int
 	AccessMask = 25, ///< int
 	DesktopPath = 26, ///< str - desktop object path
+	FileCreationStatus = 27, ///< int - what the open did: 1 created, 2 opened, 3 truncated (overwritten)
 	OwlyEntropy = 100, ///< float
 	OwlyIsEntropyCalc = 101, ///< int
 	// Owlyshield kernel API hook event fields (ProcessProtection.cpp → LBVS path)
@@ -202,7 +203,7 @@ constexpr char c_sEventSchema[] = R"json({
 	{ "name": "target.pid" },
 	{ "name": "accessMask" },
 	{ "name": "desktop.rawPath" },
-	{ "name": "reserved27" },
+	{ "name": "file.creationStatus" },
 	{ "name": "reserved28" },
 	{ "name": "reserved29" },
 	{ "name": "reserved30" },

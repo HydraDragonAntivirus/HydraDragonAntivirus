@@ -1879,6 +1879,7 @@ struct CachedFileVerdict {
 	std::string threatName;
 	uint64_t size = 0;
 	uint64_t mtime = 0;
+	DetectionNotifier::CloudScanDetail detail; // what each cloud said
 };
 
 static std::mutex s_mtxVerdictCache;
@@ -2016,6 +2017,39 @@ int DetectionNotifier::scanBufferWithLocalEngines(const std::string& sData, cons
 
 int DetectionNotifier::scanFileWithLocalEngines(const std::string& sUtf8Path, std::string& sThreatNameOut)
 {
+	return scanFileWithLocalEngines(sUtf8Path, sThreatNameOut, nullptr);
+}
+
+static const char* FlsVerdictName(int nCv)
+{
+	switch (nCv)
+	{
+	case 0: return "Absent";
+	case 1: return "Safe";
+	case 2: return "Malicious";
+	case 3: return "Unknown";
+	case 4: return "Fail";
+	default: return "Other";
+	}
+}
+
+// staticScanVerdictName's codes (the shipped engine answers from VirusKov).
+static const char* ViruskovVerdictName(int nVerdict)
+{
+	switch (nVerdict)
+	{
+	case 1: return "Clean";
+	case 2: return "Malicious";
+	case 3: return "Suspicious";
+	case 4: return "Unknown";
+	default: return "Error";
+	}
+}
+
+int DetectionNotifier::scanFileWithLocalEngines(const std::string& sUtf8Path, std::string& sThreatNameOut,
+	CloudScanDetail* pDetail)
+{
+	CloudScanDetail detail;
 	if (sUtf8Path.empty())
 		return 0;
 
@@ -2032,6 +2066,11 @@ int DetectionNotifier::scanFileWithLocalEngines(const std::string& sUtf8Path, st
 		if (it != s_verdictCache.end() && it->second.size == size && it->second.mtime == mtime)
 		{
 			sThreatNameOut = it->second.threatName;
+			if (pDetail)
+			{
+				*pDetail = it->second.detail;
+				pDetail->fFromCache = true;
+			}
 			return it->second.verdict;
 		}
 	}
@@ -2046,11 +2085,15 @@ int DetectionNotifier::scanFileWithLocalEngines(const std::string& sUtf8Path, st
 	{
 		// Offline mode: openedr_static runs without cloud and without trusting cloud scores
 		verdict = staticScanVerdictName(sUtf8Path, sThreatNameOut);
+		detail.sViruskov = ViruskovVerdictName(verdict);
+		if (verdict == 2 || verdict == 3)
+			detail.sViruskovName = sThreatNameOut;
 	}
 	else if (preferCloud)
 	{
 		// 1. Check Comodo Cloud FLS first
 		std::string sHash = sha1HexOfFileUtf8(sUtf8Path);
+		detail.sSha1 = sHash;
 		if (!sHash.empty())
 		{
 			try
@@ -2060,6 +2103,7 @@ int DetectionNotifier::scanFileWithLocalEngines(const std::string& sUtf8Path, st
 				{
 					auto cv = pFls->getFileVerdict(sHash);
 					int nCv = static_cast<int>(cv);
+					detail.sFls = FlsVerdictName(nCv);
 					if (nCv == cleanCode)
 					{
 						verdict = cleanCode;
@@ -2079,17 +2123,24 @@ int DetectionNotifier::scanFileWithLocalEngines(const std::string& sUtf8Path, st
 		if (verdict == 0 || isUnknownVerdict(verdict))
 		{
 			verdict = staticScanVerdictName(sUtf8Path, sThreatNameOut);
+			detail.sViruskov = ViruskovVerdictName(verdict);
+			if (verdict == 2 || verdict == 3)
+				detail.sViruskovName = sThreatNameOut;
 		}
 	}
 	else
 	{
 		// Local openedr_static scan first
 		verdict = staticScanVerdictName(sUtf8Path, sThreatNameOut);
+		detail.sViruskov = ViruskovVerdictName(verdict);
+		if (verdict == 2 || verdict == 3)
+			detail.sViruskovName = sThreatNameOut;
 
 		// If local engine returned unknown verdict, consult Cloud FLS
 		if (isUnknownVerdict(verdict))
 		{
 			std::string sHash = sha1HexOfFileUtf8(sUtf8Path);
+			detail.sSha1 = sHash;
 			if (!sHash.empty())
 			{
 				try
@@ -2099,6 +2150,7 @@ int DetectionNotifier::scanFileWithLocalEngines(const std::string& sUtf8Path, st
 					{
 						auto cv = pFls->getFileVerdict(sHash);
 						int nCv = static_cast<int>(cv);
+						detail.sFls = FlsVerdictName(nCv);
 						if (nCv == cleanCode)
 						{
 							verdict = cleanCode;
@@ -2116,7 +2168,15 @@ int DetectionNotifier::scanFileWithLocalEngines(const std::string& sUtf8Path, st
 		}
 	}
 
-	if (isUnknownVerdict(verdict))
+	// 3 here is staticScanVerdictName's "Suspicious" (the FLS steps above only
+	// ever store the clean / malware codes). The cfg's unknownVerdicts list
+	// [0, 3, 4] means 3 = "unknown reputation" for event fields, and applying it
+	// here turned every cloud "Suspicious" answer into Unknown: the callers'
+	// r == 3 handling (alert, record, block list) never ran.
+	constexpr int c_nStaticSuspicious = 3;
+	if (pDetail)
+		*pDetail = detail;
+	if (verdict != c_nStaticSuspicious && isUnknownVerdict(verdict))
 	{
 		sThreatNameOut.clear();
 		return s_unknownVerdictDefault.load(std::memory_order_relaxed);
@@ -2133,7 +2193,7 @@ int DetectionNotifier::scanFileWithLocalEngines(const std::string& sUtf8Path, st
 				it = s_verdictCache.erase(it);
 			}
 		}
-		s_verdictCache[lowerPath] = CachedFileVerdict{ verdict, sThreatNameOut, size, mtime };
+		s_verdictCache[lowerPath] = CachedFileVerdict{ verdict, sThreatNameOut, size, mtime, detail };
 	}
 
 	return verdict;

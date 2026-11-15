@@ -78,6 +78,21 @@ public:
 	static int scanFileWithLocalEngines(const std::string& sUtf8Path, std::string& sThreatNameOut);
 
 	///
+	/// What each cloud said for one scan (scanFileWithLocalEngines merges them
+	/// into one verdict). Empty strings: that cloud was not asked.
+	///
+	struct CloudScanDetail
+	{
+		std::string sSha1;         // file SHA-1 (the FLS key)
+		std::string sFls;          // Comodo FLS: Absent / Safe / Malicious / Unknown / Fail
+		std::string sViruskov;     // VirusKov: Clean / Malicious / Suspicious / Unknown / Error
+		std::string sViruskovName; // VirusKov detection name, when it detected
+		bool fFromCache = false;   // answered from the size + last-write cache
+	};
+	static int scanFileWithLocalEngines(const std::string& sUtf8Path, std::string& sThreatNameOut,
+		CloudScanDetail* pDetail);
+
+	///
 	/// Scans an in-memory buffer (e.g. a process command line) with the local
 	/// openedr_static engines (ClamAV, YARA-X, ML) via openedr_static_scan_bytes.
 	/// sVirtualName gives the engines a file name for type detection.

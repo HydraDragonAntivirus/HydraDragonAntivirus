@@ -49,8 +49,9 @@ public:
 	{
 		std::wstring wsOriginal;   ///< pre-image location (restore target)
 		std::wstring wsBackup;     ///< saved pre-image under HydraDragonBackups
-		int nOp = 0;               ///< 0=overwritten, 1=deleted, 2=renamed
+		int nOp = 0;               ///< 0=overwritten, 1=deleted, 2=renamed, 3=created
 		std::wstring wsNewName;    ///< rename target (removed on rollback)
+		uint64_t nTick = 0;        ///< driver tick of the change (0 = unknown)
 	};
 
 	static void rollbackRansomBackups(int64_t nPid);

@@ -2260,6 +2260,51 @@ namespace {
 			LOGINF(FMT("training: recorded " << nEvents << " event(s) to training_data"));
 	}
 
+	// One scan's result in the kill chain stream, with what Comodo FLS and
+	// VirusKov each said. Scan results were only in the stream as the merged
+	// verdict stamped on the scanned event, and only for an inline Malicious /
+	// Suspicious; queued scans finish after their event is recorded and were
+	// never in it. Field names avoid "verdict" / "threat" / "hash": the
+	// uploader drops those from an event's shape, so different results would
+	// collapse into one record. sha1 keeps each file its own record.
+	void RecordScanResultForKillChain(const std::string& sDos, uint32_t nPid, int nResult,
+		const DetectionNotifier::CloudScanDetail& detail, const char* szTrigger)
+	{
+		if (!IsTrainingModeEnabled() || sDos.empty())
+			return;
+		// The process the scan belongs to (who opened / wrote / ran the file).
+		std::string sExe;
+		if (nPid > 4)
+		{
+			HANDLE hProc = ::OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, nPid);
+			if (hProc)
+			{
+				wchar_t szImage[MAX_PATH * 4] = {};
+				DWORD nLen = static_cast<DWORD>(std::size(szImage));
+				if (::QueryFullProcessImageNameW(hProc, 0, szImage, &nLen))
+				{
+					try { sExe = string::convertWCharToUtf8(std::wstring(szImage, nLen)); } catch (...) {}
+				}
+				::CloseHandle(hProc);
+			}
+		}
+		if (sExe.empty())
+			sExe = sDos;
+		if (!IsProcessInTrainingDir(sExe))
+			return;
+		const char* szResult = nResult == 2 ? "Malicious" : nResult == 3 ? "Suspicious" :
+			nResult == 1 ? "Clean" : "Unknown";
+		const std::string sJson = std::string("{\"type\":\"SCAN_RESULT\",\"trigger\":\"") + szTrigger +
+			"\",\"process\":{\"pid\":" + std::to_string(nPid) + "}" +
+			",\"file\":{\"path\":\"" + JsonEscapeA(sDos) + "\",\"sha1\":\"" + JsonEscapeA(detail.sSha1) + "\"}" +
+			",\"scanResult\":\"" + szResult + "\"" +
+			",\"comodoFls\":\"" + JsonEscapeA(detail.sFls.empty() ? "NotAsked" : detail.sFls) + "\"" +
+			",\"viruskov\":\"" + JsonEscapeA(detail.sViruskov.empty() ? "NotAsked" : detail.sViruskov) + "\"" +
+			",\"viruskovName\":\"" + JsonEscapeA(detail.sViruskovName) + "\"" +
+			",\"fromCache\":" + (detail.fFromCache ? "true" : "false") + "}";
+		AppendToTrainingDataset(sExe, "SCAN_RESULT", " [File: " + sDos + "]", sJson);
+	}
+
 	// Append a JSON line into ProgramData\edrsvc\log\output_events\
 	// (same stream the Owlyshield behavioral alerts use).
 	void AppendToOutputEvents(const std::string& sJsonLine)
@@ -3157,20 +3202,310 @@ namespace {
 
 		return L"";
 	}
+
+	// ------------------------------------------------------------------
+	// Process lineage for rollback scoping ("taint").
+	//
+	// Rollback used to undo every recorded change of EVERY process, so a
+	// detection rolled back unrelated software (Edge WebView's own update,
+	// system logs). Rolling back only the detected PID is no better: the
+	// threat simply works through other processes. So a detection taints
+	// its process and, transitively:
+	//  - every process it created. The creator is the driver's creator PID
+	//    when it differs from the parent (PPID spoofing sets only the parent);
+	//  - every process it opened with thread-creation / memory-write access
+	//    or hooked with a remote-write / remote-thread API, from that moment;
+	// and only changes made after a process was tainted are undone. Records
+	// of exited processes are kept (c_nDeadKeepMs) so a child that did its
+	// work and exited is still rolled back.
+	// All of this is guarded by s_mtxRansomShield.
+	// ------------------------------------------------------------------
+	namespace Lineage
+	{
+		struct Proc
+		{
+			int64_t nPid = 0;
+			int64_t nCreator = 0;
+			uint64_t nCreateTick = 0; // 0 = started before it was seen
+			uint64_t nExitTick = 0;   // 0 = alive
+			std::vector<std::pair<int64_t, uint64_t>> vInjectors; // (source pid, tick)
+		};
+
+		struct Dead
+		{
+			Proc proc;
+			std::vector<EventEnricher::ShadowBackupEntry> vBackups;
+			std::unordered_map<std::wstring, std::wstring> mReads;
+		};
+
+		std::unordered_map<int64_t, Proc> s_live;
+		std::deque<Dead> s_dead;
+		constexpr uint64_t c_nDeadKeepMs = 30ull * 60 * 1000;
+		constexpr size_t c_nMaxDead = 20000;
+		constexpr size_t c_nMaxInjectorsPerProc = 64;
+
+		Proc& liveProc(int64_t nPid)
+		{
+			Proc& p = s_live[nPid];
+			p.nPid = nPid;
+			return p;
+		}
+
+		bool aliveAt(const Proc& p, uint64_t nTick)
+		{
+			return (p.nCreateTick == 0 || p.nCreateTick <= nTick) &&
+				(p.nExitTick == 0 || p.nExitTick >= nTick);
+		}
+
+		// Moves a process' lineage and recorded changes to the exited list.
+		void retireLocked(int64_t nPid, uint64_t nTick)
+		{
+			Dead d;
+			auto it = s_live.find(nPid);
+			if (it != s_live.end())
+			{
+				d.proc = std::move(it->second);
+				s_live.erase(it);
+			}
+			d.proc.nPid = nPid;
+			d.proc.nExitTick = nTick != 0 ? nTick : 1;
+			auto itB = s_backups.find(nPid);
+			if (itB != s_backups.end())
+			{
+				d.vBackups = std::move(itB->second);
+				s_backups.erase(itB);
+			}
+			auto itR = s_readFiles.find(nPid);
+			if (itR != s_readFiles.end())
+			{
+				d.mReads = std::move(itR->second);
+				s_readFiles.erase(itR);
+			}
+			s_dead.push_back(std::move(d));
+			while (!s_dead.empty() && (s_dead.size() > c_nMaxDead ||
+				(nTick > c_nDeadKeepMs && s_dead.front().proc.nExitTick + c_nDeadKeepMs < nTick)))
+				s_dead.pop_front();
+		}
+	} // namespace Lineage
+
+	// Records creator / injection relations from the raw driver event.
+	void ObserveLineage(Event eEventType, const Variant& vEvent)
+	{
+		try
+		{
+			const uint64_t nTick = getByPath(vEvent, "tickTime", uint64_t(0));
+			auto addInjector = [nTick](int64_t nSrc, int64_t nTgt) {
+				if (nSrc <= 4 || nTgt <= 4 || nSrc == nTgt)
+					return;
+				std::scoped_lock _lock(s_mtxRansomShield);
+				auto& v = Lineage::liveProc(nTgt).vInjectors;
+				for (const auto& inj : v)
+					if (inj.first == nSrc)
+						return; // the first contact counts
+				if (v.size() < Lineage::c_nMaxInjectorsPerProc)
+					v.emplace_back(nSrc, nTick);
+			};
+
+			switch (eEventType)
+			{
+			case Event::LLE_PROCESS_CREATE:
+			{
+				const int64_t nPid = getByPath(vEvent, "process.pid", int64_t(0));
+				if (nPid <= 0)
+					return;
+				int64_t nCreator = getByPath(vEvent, "process.creatorPid", int64_t(0));
+				if (nCreator <= 0)
+					nCreator = getByPath(vEvent, "process.parent.pid", int64_t(0));
+				std::scoped_lock _lock(s_mtxRansomShield);
+				auto it = Lineage::s_live.find(nPid);
+				if (it != Lineage::s_live.end() && it->second.nCreateTick != 0)
+					Lineage::retireLocked(nPid, nTick); // stale record of an earlier process with this PID
+				Lineage::Proc& p = Lineage::liveProc(nPid);
+				p.nCreator = nCreator;
+				p.nCreateTick = nTick;
+				return;
+			}
+			case Event::LLE_PROCESS_OPEN:
+			{
+				// PROCESS_CREATE_THREAD | PROCESS_VM_OPERATION | PROCESS_VM_WRITE
+				const uint32_t nAccess = getByPath(vEvent, "accessMask", uint32_t(0));
+				if ((nAccess & (0x0002 | 0x0008 | 0x0020)) == 0)
+					return;
+				addInjector(getByPath(vEvent, "process.pid", int64_t(0)), getByPath(vEvent, "target.pid", int64_t(0)));
+				return;
+			}
+			case Event::LLE_PROCESS_MEMORY_WRITE:
+				addInjector(getByPath(vEvent, "process.pid", int64_t(0)), getByPath(vEvent, "target.pid", int64_t(0)));
+				return;
+			default:
+				break;
+			}
+
+			if (vEvent.has("owlyHook"))
+			{
+				std::wstring wsFn = string::convertToLow(getByPath(vEvent, "owlyHook.functionName", std::wstring()));
+				if (wsFn.find(L"writeprocessmemory") != std::wstring::npos ||
+					wsFn.find(L"createremotethread") != std::wstring::npos ||
+					wsFn.find(L"ntcreatethreadex") != std::wstring::npos ||
+					wsFn.find(L"virtualallocex") != std::wstring::npos)
+				{
+					addInjector(getByPath(vEvent, "owlyHook.sourcePid", int64_t(0)),
+						getByPath(vEvent, "owlyHook.targetPid", int64_t(0)));
+				}
+			}
+		}
+		catch (...)
+		{
+		}
+	}
+
+	// Takes the recorded changes of every process tainted by nRoot (see
+	// Lineage) that were made after it was tainted, oldest first, out of the
+	// records. Changes of other processes stay recorded. Lock held.
+	void CollectTaintedChangesLocked(int64_t nRoot, std::vector<EventEnricher::ShadowBackupEntry>& vOut,
+		std::unordered_map<std::wstring, std::wstring>& mReadsOut, std::vector<int64_t>& vPidsOut)
+	{
+		struct Node
+		{
+			const Lineage::Proc* p = nullptr;
+			std::vector<EventEnricher::ShadowBackupEntry>* pBackups = nullptr;
+			std::unordered_map<std::wstring, std::wstring>* pReads = nullptr;
+			uint64_t nFrom = UINT64_MAX; // tainted from this tick; MAX = not tainted
+		};
+		std::vector<Node> nodes;
+		std::deque<Lineage::Proc> tmpProcs; // live PIDs with changes but no lineage record
+
+		std::unordered_set<int64_t> livePids;
+		for (const auto& kv : Lineage::s_live)
+			livePids.insert(kv.first);
+		for (const auto& kv : s_backups)
+			livePids.insert(kv.first);
+		for (int64_t nPid : livePids)
+		{
+			Node n;
+			auto itL = Lineage::s_live.find(nPid);
+			if (itL != Lineage::s_live.end())
+				n.p = &itL->second;
+			else
+			{
+				tmpProcs.emplace_back();
+				tmpProcs.back().nPid = nPid;
+				n.p = &tmpProcs.back();
+			}
+			auto itB = s_backups.find(nPid);
+			if (itB != s_backups.end())
+				n.pBackups = &itB->second;
+			auto itR = s_readFiles.find(nPid);
+			if (itR != s_readFiles.end())
+				n.pReads = &itR->second;
+			nodes.push_back(n);
+		}
+		const size_t nLive = nodes.size();
+		for (auto& d : Lineage::s_dead)
+		{
+			Node n;
+			n.p = &d.proc;
+			n.pBackups = &d.vBackups;
+			n.pReads = &d.mReads;
+			nodes.push_back(n);
+		}
+
+		// Root: the live process with this PID, else the latest exited one.
+		size_t iRoot = SIZE_MAX;
+		for (size_t i = 0; i < nLive; ++i)
+			if (nodes[i].p->nPid == nRoot)
+				iRoot = i;
+		for (size_t i = nodes.size(); iRoot == SIZE_MAX && i > nLive; --i)
+			if (nodes[i - 1].p->nPid == nRoot)
+				iRoot = i - 1;
+		if (iRoot == SIZE_MAX)
+			return;
+		nodes[iRoot].nFrom = 0; // everything the threat's own process did
+
+		std::unordered_map<int64_t, std::vector<size_t>> byPid;
+		for (size_t i = 0; i < nodes.size(); ++i)
+			byPid[nodes[i].p->nPid].push_back(i);
+
+		for (int nPass = 0; nPass < 64; ++nPass)
+		{
+			bool fChanged = false;
+			for (size_t j = 0; j < nodes.size(); ++j)
+			{
+				const Lineage::Proc& pj = *nodes[j].p;
+				uint64_t nCand = nodes[j].nFrom;
+				if (pj.nCreator > 0)
+				{
+					auto it = byPid.find(pj.nCreator);
+					if (it != byPid.end())
+						for (size_t i : it->second)
+							if (i != j && nodes[i].nFrom != UINT64_MAX && nodes[i].nFrom <= pj.nCreateTick &&
+								Lineage::aliveAt(*nodes[i].p, pj.nCreateTick))
+								nCand = (std::min)(nCand, pj.nCreateTick);
+				}
+				for (const auto& inj : pj.vInjectors)
+				{
+					auto it = byPid.find(inj.first);
+					if (it == byPid.end())
+						continue;
+					for (size_t i : it->second)
+						if (i != j && nodes[i].nFrom != UINT64_MAX && nodes[i].nFrom <= inj.second &&
+							Lineage::aliveAt(*nodes[i].p, inj.second))
+							nCand = (std::min)(nCand, inj.second);
+				}
+				if (nCand < nodes[j].nFrom)
+				{
+					nodes[j].nFrom = nCand;
+					fChanged = true;
+				}
+			}
+			if (!fChanged)
+				break;
+		}
+
+		for (auto& n : nodes)
+		{
+			if (n.nFrom == UINT64_MAX)
+				continue;
+			vPidsOut.push_back(n.p->nPid);
+			if (n.pReads)
+				mReadsOut.insert(n.pReads->begin(), n.pReads->end());
+			if (!n.pBackups)
+				continue;
+			std::vector<EventEnricher::ShadowBackupEntry> vKeep;
+			for (auto& e : *n.pBackups)
+			{
+				if (e.nTick >= n.nFrom)
+					vOut.push_back(std::move(e));
+				else
+					vKeep.push_back(std::move(e));
+			}
+			*n.pBackups = std::move(vKeep);
+		}
+		std::stable_sort(vOut.begin(), vOut.end(),
+			[](const EventEnricher::ShadowBackupEntry& a, const EventEnricher::ShadowBackupEntry& b) { return a.nTick < b.nTick; });
+	}
 }
 
 void EventEnricher::recordShadowBackup(int64_t nPid, Event eEventType, const Variant& vEvent)
 {
 	if (nPid <= 0)
 		return;
+	uint64_t nTick = 0;
+	try
+	{
+		nTick = getByPath(vEvent, "tickTime", uint64_t(0));
+	}
+	catch (...) {}
 
 	switch (eEventType)
 	{
 	case Event::LLE_PROCESS_DELETE:
 	{
+		// Kept (with its lineage) for a while instead of dropped, so a
+		// process that made its changes and exited is still rolled back
+		// when the process that started it is convicted.
 		std::scoped_lock _lock(s_mtxRansomShield);
-		s_readFiles.erase(nPid);
-		s_backups.erase(nPid);
+		Lineage::retireLocked(nPid, nTick);
 		return;
 	}
 	default:
@@ -3238,13 +3573,29 @@ void EventEnricher::recordShadowBackup(int64_t nPid, Event eEventType, const Var
 		case Event::LLE_FILE_RENAME:
 		{
 			ZeroTrust::onProcessFileModification(static_cast<uint32_t>(nPid), string::convertWCharToUtf8(wsFilePath));
+			// FileCreate comes for every open. Only a new file (1 created) or an
+			// overwrite (3 truncated: supersede / overwrite) changes anything; a
+			// plain open does not, and rollback deleted files that had only been
+			// opened. Without the field (older driver) it counts as an open.
+			int64_t nCreationStatus = 0;
+			if (eEventType == Event::LLE_FILE_CREATE)
+			{
+				try
+				{
+					nCreationStatus = getByPath(vEvent, "file.creationStatus", int64_t(0));
+				}
+				catch (...) {}
+				if (nCreationStatus != 1 && nCreationStatus != 3)
+					break;
+			}
 			constexpr size_t c_nMaxBackupsPerProcess = 1000;
 			auto& vec = s_backups[nPid];
 			if (vec.size() < c_nMaxBackupsPerProcess)
 			{
 				ShadowBackupEntry entry;
 				entry.wsOriginal = wsFilePath;
-				entry.nOp = (eEventType == Event::LLE_FILE_CREATE) ? 3 :
+				entry.nTick = nTick;
+				entry.nOp = (eEventType == Event::LLE_FILE_CREATE) ? (nCreationStatus == 1 ? 3 : 0) :
 					(eEventType == Event::LLE_FILE_DATA_WRITE_FULL ||
 					 eEventType == Event::LLE_FILE_DATA_CHANGE ||
 					 eEventType == Event::LLE_FILE_MAP_WRITE) ? 0 :
@@ -3485,7 +3836,7 @@ static void SendThreatAlertToGuiEarly(const std::string& sThreat, const std::str
 	::CloseHandle(hPipe);
 }
 
-static int TerminateProcessesRunningImage(const std::string& sDos)
+static int TerminateProcessesRunningImage(const std::string& sDos, std::vector<uint32_t>* pKilled = nullptr)
 {
 	if (sDos.empty())
 		return 0;
@@ -3536,6 +3887,8 @@ static int TerminateProcessesRunningImage(const std::string& sDos)
 			{
 				::WaitForSingleObject(hProc, 3000);
 				++nKilled;
+				if (pKilled)
+					pKilled->push_back(pe.th32ProcessID);
 				LOGLVL(Critical, FMT("enricher: terminated PID " << pe.th32ProcessID << " running convicted image <" << sDos << ">"));
 			}
 			else
@@ -3576,8 +3929,16 @@ static const std::chrono::seconds c_retryDelays[] = {
 	std::chrono::seconds(2), std::chrono::seconds(5), std::chrono::seconds(15), std::chrono::seconds(30),
 	std::chrono::seconds(60), std::chrono::seconds(120), std::chrono::seconds(300), std::chrono::seconds(600) };
 
+// Checks of a file written through a mapped section (LLE_FILE_MAP_WRITE). The
+// event comes when the section is created, before anything is written, and
+// the data reaches the disk later through paging I/O, which raises no
+// FileDataChange. The file is looked at again after each delay and scanned
+// whenever its size or last-write time changed since the last look.
+static const std::chrono::seconds c_watchDelays[] = {
+	std::chrono::seconds(2), std::chrono::seconds(5), std::chrono::seconds(15), std::chrono::seconds(30),
+	std::chrono::seconds(60), std::chrono::seconds(120), std::chrono::seconds(300) };
+
 constexpr int c_nWorkers = 4;
-constexpr auto c_settleDelay = std::chrono::milliseconds(350); // let the writer finish
 constexpr auto c_sameContentWindow = std::chrono::seconds(60);
 constexpr size_t c_nWarnPending = 100000;
 
@@ -3588,6 +3949,9 @@ struct Item
 	uint32_t nPid = 0;
 	std::chrono::steady_clock::time_point due;
 	size_t nAttempt = 0; // 0 = first look; >0 = retry of an undecided scan
+	bool fWatch = false; // mapped-write content watch (see c_watchDelays)
+	uint64_t nSeenSize = 0;
+	uint64_t nSeenMtime = 0;
 };
 
 struct Scanned
@@ -3604,7 +3968,8 @@ struct State
 	std::deque<Item> queue;
 	std::unordered_set<std::string> pending;
 	std::unordered_map<std::string, Scanned> scanned;
-	std::multimap<std::chrono::steady_clock::time_point, Item> delayed; // retries
+	std::multimap<std::chrono::steady_clock::time_point, Item> delayed; // retries, watches
+	std::unordered_set<std::string> watching; // paths with a watch chain
 	std::condition_variable cvDelayed;
 	std::chrono::steady_clock::time_point lastWarn;
 	bool fStarted = false;
@@ -3661,7 +4026,9 @@ static bool rescanOne(const std::string& dos, uint32_t nPid)
 	if (bKnownPath && DetectionNotifier::isProtectionPaused())
 		return true; // training: keep the sample, and don't re-alert every event
 	std::string sThreat;
-	const int nScan = DetectionNotifier::scanFileWithLocalEngines(dos, sThreat);
+	DetectionNotifier::CloudScanDetail detail;
+	const int nScan = DetectionNotifier::scanFileWithLocalEngines(dos, sThreat, &detail);
+	RecordScanResultForKillChain(dos, nPid, nScan, detail, "queued");
 	const int nClean = DetectionNotifier::s_cleanVerdict.load(std::memory_order_relaxed);
 	if (bKnownPath)
 	{
@@ -3699,7 +4066,11 @@ static bool rescanOne(const std::string& dos, uint32_t nPid)
 	{
 		// Stop whatever runs this image first: a running image is locked and
 		// its quarantine fails.
-		const int nKilled = TerminateProcessesRunningImage(dos);
+		std::vector<uint32_t> vKilled;
+		const int nKilled = TerminateProcessesRunningImage(dos, &vKilled);
+		// Undo what those processes (and the ones they tainted) changed.
+		for (uint32_t nKilledPid : vKilled)
+			EventEnricher::rollbackRansomBackups(nKilledPid);
 
 		HMODULE hDll = ::GetModuleHandleW(L"owlyshield_ransom.dll");
 		if (!hDll)
@@ -3768,6 +4139,39 @@ static void retryPump()
 		}
 		Item item = std::move(st.delayed.begin()->second);
 		st.delayed.erase(st.delayed.begin());
+		if (item.fWatch)
+		{
+			// File attributes are read without the lock.
+			lock.unlock();
+			uint64_t nSize = 0, nMtime = 0;
+			const bool fHasId = fileIdentity(item.sDos, nSize, nMtime);
+			lock.lock();
+			if (!fHasId)
+			{
+				st.watching.erase(item.sKey); // gone: quarantined or deleted
+				continue;
+			}
+			if (nSize != item.nSeenSize || nMtime != item.nSeenMtime)
+			{
+				item.nSeenSize = nSize;
+				item.nSeenMtime = nMtime;
+				if (st.pending.insert(item.sKey).second)
+				{
+					Item scan{ item.sKey, item.sDos, item.nPid, std::chrono::steady_clock::now() };
+					st.queue.push_back(std::move(scan));
+					st.cv.notify_one();
+				}
+			}
+			if (item.nAttempt >= std::size(c_watchDelays))
+			{
+				st.watching.erase(item.sKey);
+				continue;
+			}
+			const auto next = std::chrono::steady_clock::now() + c_watchDelays[item.nAttempt];
+			++item.nAttempt;
+			st.delayed.emplace(next, std::move(item));
+			continue;
+		}
 		if (!st.pending.insert(item.sKey).second)
 			continue; // a new event already queued this path
 		item.due = std::chrono::steady_clock::now();
@@ -3875,7 +4279,10 @@ static void enqueue(std::string dos, uint32_t nPid)
 		if (!st.pending.insert(key).second)
 			return; // already waiting; it is scanned with its latest content
 		const auto now = std::chrono::steady_clock::now();
-		st.queue.push_back(Item{ std::move(key), std::move(dos), nPid, now + c_settleDelay });
+		// No wait before the scan: a file still being written raises
+		// FileDataChange / WriteFull again at its handle cleanup and is
+		// queued again with its final content.
+		st.queue.push_back(Item{ std::move(key), std::move(dos), nPid, now });
 		nPending = st.queue.size();
 		if (nPending >= c_nWarnPending && now - st.lastWarn > std::chrono::seconds(60))
 		{
@@ -3886,6 +4293,32 @@ static void enqueue(std::string dos, uint32_t nPid)
 	st.cv.notify_one();
 	if (fWarn)
 		LOGWRN(FMT("enricher: rescan queue is long (" << nPending << " paths waiting); files are scanned late, none are dropped"));
+}
+
+// A mapped-write target: one look now (like any deferred file event), then a
+// watch that scans it again each time its content changes. One watch per path;
+// a new mapping of a path already watched only gets the look.
+static void enqueueWatch(std::string dos, uint32_t nPid)
+{
+	if (dos.empty())
+		return;
+	enqueue(dos, nPid);
+	auto& st = state();
+	std::string key = toKey(dos);
+	uint64_t nSize = 0, nMtime = 0;
+	fileIdentity(dos, nSize, nMtime);
+	{
+		std::scoped_lock lock(st.mtx);
+		if (!st.watching.insert(key).second)
+			return;
+		Item watch{ key, std::move(dos), nPid, {} };
+		watch.fWatch = true;
+		watch.nSeenSize = nSize;
+		watch.nSeenMtime = nMtime;
+		watch.nAttempt = 1;
+		st.delayed.emplace(std::chrono::steady_clock::now() + c_watchDelays[0], std::move(watch));
+	}
+	st.cvDelayed.notify_one();
 }
 
 } // namespace RescanQueue
@@ -4178,15 +4611,18 @@ static void enqueue(uint32_t nPid)
 
 void EventEnricher::executeUnfilteredLocalScan(Variant& vEvent, Variant& vProcess, Event eEventType, const std::string& sProcPath)
 {
-	// FileCreate and FileClose are not scan triggers. The driver sends them for
-	// every open and every handle close on the system (the eventFlags mask no
-	// longer hides them). A new file is empty at create, and a handle that wrote
-	// produces FileDataChange / FileDataWriteFull at its cleanup, which are
-	// scanned. Scanning on open/close made every open and close a scan of the
-	// file and of the process image: inline that blocked the single enricher
-	// thread, async it filled the rescan slots. The events themselves still go
-	// on to the policy, the training recorder and the output.
-	if (eEventType == Event::LLE_FILE_CREATE || eEventType == Event::LLE_FILE_CLOSE)
+	// FileClose is not a scan trigger: the driver sends it for every handle
+	// close, and a handle that wrote already produces FileDataChange /
+	// FileDataWriteFull at its cleanup, which are scanned.
+	//
+	// FileCreate (every open) IS one again, for the opened file only and only
+	// through the rescan queue (never inline, never the actor's image). An open
+	// is often the first look at a file that already sits on disk: Windows
+	// opens an exe to show its UAC prompt, before any process exists, and that
+	// is where dControl.exe used to be caught. Dropping FileCreate lost that
+	// look. Files cached Clean are skipped below before queueing, and the queue
+	// keeps one entry per path and skips content it scanned in the last minute.
+	if (eEventType == Event::LLE_FILE_CLOSE)
 		return;
 
 	// No event-level "benign" gate here. isUnknownOrThreatEvent used to skip the
@@ -4322,7 +4758,9 @@ void EventEnricher::executeUnfilteredLocalScan(Variant& vEvent, Variant& vProces
 
 		// Fast path: if already cached as Clean, skip heavy static scanning completely
 		int cachedVerdict = DetectionNotifier::getCachedFileVerdict(dos);
-		if (cachedVerdict == 1)
+		// Not for a mapped write: the cached Clean is the content from before
+		// the mapping, and the new content reaches the disk later.
+		if (cachedVerdict == 1 && eEventType != Event::LLE_FILE_MAP_WRITE)
 		{
 			continue;
 		}
@@ -4334,7 +4772,11 @@ void EventEnricher::executeUnfilteredLocalScan(Variant& vEvent, Variant& vProces
 			vEvent.put("flsVerdict", 3);
 			vProcess.put("verdict", 2);
 			vProcess.put("flsVerdict", 3);
-			handleThreatRemediation(nPid, L"", "Malware.LocalDetection");
+			// Only when the path is this process' image. For a file event nPid is
+			// whoever opened or wrote the file (explorer, a browser); processes
+			// running the image are stopped and rolled back by the rescan below.
+			if (isProc)
+				handleThreatRemediation(nPid, L"", "Malware.LocalDetection");
 			// The file is back at a blacklisted path: this branch used to only
 			// stamp the event, so the re-dropped copy stayed on disk and ran.
 			// Hand it to the rescan worker (deduped, off the hot path, waits for
@@ -4357,19 +4799,33 @@ void EventEnricher::executeUnfilteredLocalScan(Variant& vEvent, Variant& vProces
 		{
 			continue;
 		}
+		// FileCreate looks at the opened file only; the actor's image was looked
+		// at when that process started.
+		if (isProc && (eEventType == Event::LLE_FILE_CREATE ||
+			eEventType == Event::LLE_FILE_MAP_READ || eEventType == Event::LLE_FILE_MAP_WRITE))
+			continue;
 
 		// A. Synchronous scan (ClamAV, YARA-X, ML, Signer, EICAR)
-		// Everything except the mid-write file events is scanned inline, before the
-		// event is emitted. A file that is being written right now has no final
-		// content yet, so those fall through to the async rescan below.
+		// Everything except the mid-write file events and opens is scanned inline,
+		// before the event is emitted. A file that is being written right now has
+		// no final content yet, and an open happens for every file the system
+		// touches (inline that would block the single enricher thread), so those
+		// go to the async rescan below.
 		const bool bDeferredFileEvent = !isProc &&
 			(eEventType == Event::LLE_FILE_DATA_WRITE_FULL ||
-			 eEventType == Event::LLE_FILE_DATA_CHANGE);
+			 eEventType == Event::LLE_FILE_DATA_CHANGE ||
+			 eEventType == Event::LLE_FILE_CREATE ||
+			 eEventType == Event::LLE_FILE_MAP_READ ||
+			 eEventType == Event::LLE_FILE_MAP_WRITE);
 
 		std::string sThreat;
 		int r = 0;
 		if (!bDeferredFileEvent)
-			r = DetectionNotifier::scanFileWithLocalEngines(dos, sThreat);
+		{
+			DetectionNotifier::CloudScanDetail detail;
+			r = DetectionNotifier::scanFileWithLocalEngines(dos, sThreat, &detail);
+			RecordScanResultForKillChain(dos, nPid, r, detail, isProc ? "process" : "inline");
+		}
 
 		// Rescan race / Deferred scans: an inline scan that comes back Unknown
 		// (0 bytes, or locked at Create) needs one re-read once the writer is done,
@@ -4384,7 +4840,9 @@ void EventEnricher::executeUnfilteredLocalScan(Variant& vEvent, Variant& vProces
 		{
 			std::error_code ec;
 			uintmax_t nSize = std::filesystem::file_size(dos, ec);
-			if (ec || nSize > 0)
+			if (eEventType == Event::LLE_FILE_MAP_WRITE)
+				RescanQueue::enqueueWatch(dos, nPid); // content arrives later
+			else if (ec || nSize > 0)
 				AsyncRescanAndQuarantine(dos, nPid);
 		}
 
@@ -4435,9 +4893,10 @@ void EventEnricher::executeUnfilteredLocalScan(Variant& vEvent, Variant& vProces
 				// Whatever runs this image is stopped first: a running image is
 				// locked and its quarantine fails (a process image convicted at
 				// its start was left running and on disk).
+				std::vector<uint32_t> vKilled;
 				if (!DetectionNotifier::isProtectionPaused() && s_fnQuarantine != nullptr)
 				{
-					const int nKilled = TerminateProcessesRunningImage(dos);
+					const int nKilled = TerminateProcessesRunningImage(dos, &vKilled);
 					int32_t qRes = -1;
 					for (int nTry = 0; nTry < (nKilled > 0 ? 5 : 1); ++nTry)
 					{
@@ -4470,7 +4929,16 @@ void EventEnricher::executeUnfilteredLocalScan(Variant& vEvent, Variant& vProces
 				// paused so training runs keep samples alive; verdicts,
 				// telemetry and training recording continue).
 				if (!DetectionNotifier::isProtectionPaused())
-					handleThreatRemediation(nPid, L"", sThreat);
+				{
+					// Roll back the threat's processes: the one running this image
+					// (isProc) and every process stopped for running it - not the
+					// actor of a file event, which is whoever opened or wrote it.
+					if (isProc)
+						handleThreatRemediation(nPid, L"", sThreat);
+					for (uint32_t nKilledPid : vKilled)
+						if (!(isProc && static_cast<int64_t>(nKilledPid) == static_cast<int64_t>(nPid)))
+							handleThreatRemediation(nKilledPid, L"", sThreat);
+				}
 
 				// Send instant alert to Pascal GUI
 				HANDLE hPipe = ::CreateFileW(L"\\\\.\\pipe\\HydraHipEvent",
@@ -4583,44 +5051,24 @@ static std::string sha256HexOfFile(const std::wstring& wsPath)
 
 	std::vector<ShadowBackupEntry> vec;
 	std::unordered_map<std::wstring, std::wstring> readMapCopy;
+	std::vector<int64_t> vTainted;
 	{
 		std::scoped_lock _lock(s_mtxRansomShield);
-		// 1. Drain primary PID backups
-		auto it = s_backups.find(nPid);
-		if (it != s_backups.end())
-		{
-			vec.insert(vec.end(), it->second.begin(), it->second.end());
-			s_backups.erase(it);
-		}
-		// 2. Drain ALL other PIDs currently tracked in s_backups (child/helper processes)
-		for (auto itOther = s_backups.begin(); itOther != s_backups.end(); )
-		{
-			vec.insert(vec.end(), itOther->second.begin(), itOther->second.end());
-			itOther = s_backups.erase(itOther);
-		}
-		// 3. Drain all read maps across all PIDs
-		for (auto itR = s_readFiles.begin(); itR != s_readFiles.end(); )
-		{
-			readMapCopy.insert(itR->second.begin(), itR->second.end());
-			itR = s_readFiles.erase(itR);
-		}
+		CollectTaintedChangesLocked(nPid, vec, readMapCopy, vTainted);
 	}
+	const std::unordered_set<int64_t> taintedSet(vTainted.begin(), vTainted.end());
+	std::string sTainted;
+	for (int64_t nT : vTainted)
+		sTainted += (sTainted.empty() ? "" : ",") + std::to_string(nT);
 
-	LOGLVL(Critical, FMT("RansomShield: rolling back " << vec.size() << " recorded victim file(s) across all active PIDs (triggered by PID=" << nPid << ")"));
+	LOGLVL(Critical, FMT("RansomShield: rolling back " << vec.size() << " file change(s) of " << vTainted.size()
+		<< " tainted process(es) (root PID " << nPid << "; pids " << sTainted << ")"));
 
 	// Roll back newest-first so chained renames unwind correctly.
 	std::unordered_set<std::wstring> restoredPaths;
 	for (auto itEntry = vec.rbegin(); itEntry != vec.rend(); ++itEntry)
 	{
 		const ShadowBackupEntry& entry = *itEntry;
-
-		if (!entry.wsNewName.empty())
-		{
-			if (::DeleteFileW(entry.wsNewName.c_str()))
-				LOGLVL(Critical, FMT("RansomShield: DELETED ransomware rename target <" << Narrow(entry.wsNewName) << ">"));
-			else
-				LOGLVL(Detailed, FMT("RansomShield: rollback rename target already gone or delete failed <" << Narrow(entry.wsNewName) << ">"));
-		}
 
 		std::wstring wsBackup = entry.wsBackup;
 		std::wstring wsRestoreTarget = entry.wsOriginal;
@@ -4634,6 +5082,35 @@ static std::string sha256HexOfFile(const std::wstring& wsPath)
 
 		if (wsBackup.empty())
 			wsBackup = findPreImageOnDisk(nPid, entry.wsOriginal);
+
+		if (!entry.wsNewName.empty())
+		{
+			if (!wsBackup.empty())
+			{
+				if (::DeleteFileW(entry.wsNewName.c_str()))
+					LOGLVL(Critical, FMT("RansomShield: DELETED ransomware rename target <" << Narrow(entry.wsNewName) << ">"));
+				else
+					LOGLVL(Detailed, FMT("RansomShield: rollback rename target already gone or delete failed <" << Narrow(entry.wsNewName) << ">"));
+			}
+			else
+			{
+				// No pre-image: the renamed file is the only copy, so it is
+				// renamed back instead of deleted.
+				if (::MoveFileExW(entry.wsNewName.c_str(), entry.wsOriginal.c_str(), MOVEFILE_REPLACE_EXISTING))
+					LOGLVL(Critical, FMT("RansomShield: renamed <" << Narrow(entry.wsNewName) << "> back to <" << Narrow(entry.wsOriginal) << ">"));
+				else
+					LOGLVL(Detailed, FMT("RansomShield: could not rename <" << Narrow(entry.wsNewName) << "> back; err=" << ::GetLastError()));
+				continue;
+			}
+		}
+
+		if (wsBackup.empty() && entry.nOp != 3)
+		{
+			// Changed but not created by the tainted process, and no pre-image:
+			// deleting it would destroy the only copy.
+			LOGLVL(Detailed, FMT("RansomShield: no pre-image for changed file <" << Narrow(entry.wsOriginal) << ">; left in place"));
+			continue;
+		}
 
 		if (wsBackup.empty())
 		{
@@ -4654,16 +5131,33 @@ static std::string sha256HexOfFile(const std::wstring& wsPath)
 			continue;
 		}
 
-		// If entry.wsOriginal ends with a ransomware extension and backup exists for stripped path, restore to stripped path
-		auto dotPos = wsRestoreTarget.find_last_of(L'.');
-		if (dotPos != std::wstring::npos)
+		// A ransomware-style extra extension (file.doc -> file.doc.locked): the
+		// file goes back under its earlier name only when the pre-image is that
+		// file's (backups are named "<id>_<original name>", reads "read_<id>_...").
+		// This used to strip the last extension whenever the PATH had a second
+		// dot anywhere - a directory such as "v1.0" or "151.0.4129.72", or a
+		// name such as "twinapi.appcore.dll" - deleting the file and restoring
+		// it under the wrong name.
 		{
-			std::wstring wsBeforeDot = wsRestoreTarget.substr(0, dotPos);
-			if (wsBeforeDot.find(L'.') != std::wstring::npos)
+			const size_t nSlash = wsRestoreTarget.find_last_of(L"\\/");
+			const std::wstring wsName = nSlash == std::wstring::npos ? wsRestoreTarget : wsRestoreTarget.substr(nSlash + 1);
+			const size_t nDot = wsName.find_last_of(L'.');
+			const size_t nBkSlash = wsBackup.find_last_of(L"\\/");
+			std::wstring wsBkName = nBkSlash == std::wstring::npos ? wsBackup : wsBackup.substr(nBkSlash + 1);
+			if (wsBkName.rfind(L"read_", 0) == 0)
+				wsBkName = wsBkName.substr(5);
+			const size_t nUs = wsBkName.find(L'_');
+			wsBkName = nUs == std::wstring::npos ? std::wstring() : wsBkName.substr(nUs + 1);
+			if (nDot != std::wstring::npos && nDot > 0 && !wsBkName.empty())
 			{
-				// Delete the encrypted file
-				::DeleteFileW(wsRestoreTarget.c_str());
-				wsRestoreTarget = wsBeforeDot;
+				const std::wstring wsStripped = wsName.substr(0, nDot);
+				if (_wcsicmp(wsBkName.c_str(), wsStripped.c_str()) == 0 &&
+					_wcsicmp(wsBkName.c_str(), wsName.c_str()) != 0)
+				{
+					// The encrypted copy goes; the original name comes back.
+					::DeleteFileW(wsRestoreTarget.c_str());
+					wsRestoreTarget.resize(wsRestoreTarget.size() - (wsName.size() - nDot));
+				}
 			}
 		}
 
@@ -4718,11 +5212,16 @@ static std::string sha256HexOfFile(const std::wstring& wsPath)
 			for (const auto& pidDir : std::filesystem::directory_iterator(rootDir))
 			{
 				if (!pidDir.is_directory()) continue;
+				// Only the tainted processes' backup folders (named by PID).
+				if (taintedSet.count(_wtoi64(pidDir.path().filename().c_str())) == 0) continue;
 				for (const auto& entry : std::filesystem::directory_iterator(pidDir.path()))
 				{
 					if (!entry.is_regular_file()) continue;
 					std::wstring bkPath = entry.path().wstring();
 					std::wstring fn = entry.path().filename().wstring();
+					// read_* are copies taken when a file was READ, not changed:
+					// restoring them would revert later legitimate edits.
+					if (fn.rfind(L"read_", 0) == 0) continue;
 
 					auto uPos = fn.find(L'_');
 					if (uPos == std::wstring::npos || uPos + 1 >= fn.size()) continue;
@@ -5030,6 +5529,7 @@ void EventEnricher::put(const Variant& vEventRef)
 		static_cast<Event>(static_cast<int>(vEvent.get("baseEventType"))) : 
 		static_cast<Event>(static_cast<int>(vEvent.get("baseType")));
 	vEvent.put("type", getEventTypeString(eEventType));
+	ObserveLineage(eEventType, vEvent);
 
 	// Calculate event "time"
 	vEvent.put("time", Time(vEvent["tickTime"]) + (getCurrentTime() - getTickCount()));

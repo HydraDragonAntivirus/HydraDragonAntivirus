@@ -798,6 +798,10 @@ NTSTATUS sendFileEvent(SysmonEvent eEvent, ULONG_PTR nProcessId, StreamHandleCon
 		if (!write(serializer, EvFld::FilePath, &usEmpty))
 			return STATUS_NO_MEMORY;
 	}
+	// FileCreate comes for every open; user mode needs to know whether this
+	// handle created the file, overwrote it or only opened it.
+	if (!serializer.write(EvFld::FileCreationStatus, (uint32_t)pStreamHandleContext->eCreationStatus))
+		return STATUS_NO_MEMORY;
 
 	auto pInstanceContext = pStreamHandleContext->pInstanceContext;
 	if (pInstanceContext != nullptr)
@@ -2629,11 +2633,41 @@ FLT_PREOP_CALLBACK_STATUS FLTAPI preAcquireForSectionSync(
 	// mapped access as a distinct mmap rule type ("mmap_read"/"mmap_write"),
 	// separate from ordinary IRP-level read/write. The original FileDataReadFull
 	// / FileDataWriteFull events remain the united (api + minifilter) rule type.
+	//
+	// FileObject->FileName is volume-relative ("\Users\a\x.exe", no device), so
+	// user mode could not tell which volume the file is on and dropped the event
+	// (no scan of a file written through a mapped section). Use the full name:
+	// first the one saved in the stream handle context at create (no file
+	// system call here), else the name cache only - a full name query from this
+	// callback could re-enter the file system while it holds section locks.
+	//
+	StreamHandleContext* pStreamHandleContext = nullptr;
+	PFLT_FILE_NAME_INFORMATION pCachedName = nullptr;
+	if (pFltObjects->Instance != nullptr && pFltObjects->FileObject != nullptr &&
+		NT_SUCCESS(FltGetStreamHandleContext(pFltObjects->Instance, pFltObjects->FileObject,
+			(PFLT_CONTEXT*)&pStreamHandleContext)) &&
+		pStreamHandleContext != nullptr && pStreamHandleContext->pNameInfo != nullptr &&
+		pStreamHandleContext->pNameInfo->Name.Length != 0)
+	{
+		pusTarget = &pStreamHandleContext->pNameInfo->Name;
+	}
+	else if (NT_SUCCESS(FltGetFileNameInformation(pData,
+		FLT_FILE_NAME_NORMALIZED | FLT_FILE_NAME_QUERY_CACHE_ONLY, &pCachedName)) &&
+		pCachedName != nullptr && pCachedName->Name.Length != 0)
+	{
+		pusTarget = &pCachedName->Name;
+	}
+
 	sendPathEvent(
 		fWriteIntent ? SysmonEvent::FileMapWrite : SysmonEvent::FileMapRead,
 		pusTarget,
 		(ULONG_PTR)FltGetRequestorProcessId(pData),
 		nPageProtection);
+
+	if (pCachedName != nullptr)
+		FltReleaseFileNameInformation(pCachedName);
+	if (pStreamHandleContext != nullptr)
+		FltReleaseContext(pStreamHandleContext);
 
 	return FLT_PREOP_SUCCESS_NO_CALLBACK;
 }
