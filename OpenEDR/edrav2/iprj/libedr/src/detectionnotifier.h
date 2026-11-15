@@ -86,12 +86,6 @@ public:
 	static int getCachedFileVerdict(const std::string& sUtf8Path);
 
 	///
-	/// Drops a cached Unknown result for a path so the next scan asks the engines
-	/// (and FLS) again. Used by the deferred rescan, which exists to read late answers.
-	///
-	static void forgetUnknownVerdict(const std::string& sUtf8Path);
-
-	///
 	/// True while protection actions are paused (HKLM\SOFTWARE\Owlyshield!PROTECTION_PAUSED).
 	/// Monitoring, telemetry and training recording keep running; only
 	/// remediation/quarantine/kill actions are suppressed.
@@ -117,7 +111,6 @@ public:
 	static std::atomic<int> s_unknownVerdictDefault;
 	static std::atomic<int> s_unknownReputationVerdict;
 	static std::atomic<int> s_staticUnknownVerdict;
-	static std::atomic<int> s_unknownVerdictCacheSeconds; ///< How long an Unknown scan result is reused (0 = never)
 	static std::vector<int> s_unknownVerdicts;
 	static std::mutex s_unknownVerdictsMtx;
 

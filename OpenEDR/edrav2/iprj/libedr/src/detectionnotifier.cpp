@@ -725,7 +725,6 @@ std::atomic<int> DetectionNotifier::s_malwareVerdict{2};
 std::atomic<int> DetectionNotifier::s_unknownVerdictDefault{0};
 std::atomic<int> DetectionNotifier::s_unknownReputationVerdict{3};
 std::atomic<int> DetectionNotifier::s_staticUnknownVerdict{4};
-std::atomic<int> DetectionNotifier::s_unknownVerdictCacheSeconds{30};
 std::vector<int> DetectionNotifier::s_unknownVerdicts{0, 3, 4};
 std::mutex DetectionNotifier::s_unknownVerdictsMtx;
 
@@ -772,7 +771,6 @@ void DetectionNotifier::loadScannerConfigFromCfg(const std::string& content)
 	s_unknownVerdictDefault.store(extractInt(content, "unknownVerdictDefault", 0), std::memory_order_relaxed);
 	s_unknownReputationVerdict.store(extractInt(content, "unknownReputationVerdict", 3), std::memory_order_relaxed);
 	s_staticUnknownVerdict.store(extractInt(content, "staticUnknownVerdict", 4), std::memory_order_relaxed);
-	s_unknownVerdictCacheSeconds.store(extractInt(content, "unknownVerdictCacheSeconds", 30), std::memory_order_relaxed);
 
 	size_t kp = content.find("\"unknownVerdicts\"");
 	if (kp != std::string::npos)
@@ -1811,19 +1809,6 @@ static std::mutex s_mtxVerdictCache;
 static std::unordered_map<std::string, CachedFileVerdict> s_verdictCache;
 static constexpr size_t kMaxVerdictCacheSize = 32768;
 
-// Unknown results, kept apart from s_verdictCache and only for
-// unknownVerdictCacheSeconds. Unknown was never cached, so every event of a
-// process whose image is unknown scanned that image again inline (FLS round
-// trip, then the full local scan) on the single enricher thread. Keyed on size +
-// mtime like s_verdictCache: new content is always scanned. Kept short so a
-// late cloud answer is picked up; the deferred rescan drops the entry first.
-struct CachedUnknownVerdict {
-	uint64_t size = 0;
-	uint64_t mtime = 0;
-	std::chrono::steady_clock::time_point at;
-};
-static std::unordered_map<std::string, CachedUnknownVerdict> s_unknownCache; // guarded by s_mtxVerdictCache
-
 static bool getFileIdentityUtf8(const std::string& sUtf8Path, uint64_t& nSizeOut, uint64_t& nMtimeOut)
 {
 	if (sUtf8Path.empty()) return false;
@@ -1913,15 +1898,6 @@ bool DetectionNotifier::isFileSignatureTrusted(const std::string& sUtf8Path, std
 	return (nFlags & 0x1u) != 0 && (nFlags & 0x2u) != 0;
 }
 
-void DetectionNotifier::forgetUnknownVerdict(const std::string& sUtf8Path)
-{
-	if (sUtf8Path.empty()) return;
-	std::string lowerPath = sUtf8Path;
-	for (auto& c : lowerPath) c = (char)::tolower((unsigned char)c);
-	std::lock_guard<std::mutex> lock(s_mtxVerdictCache);
-	s_unknownCache.erase(lowerPath);
-}
-
 int DetectionNotifier::scanFileWithLocalEngines(const std::string& sUtf8Path, std::string& sThreatNameOut)
 {
 	if (sUtf8Path.empty())
@@ -1941,14 +1917,6 @@ int DetectionNotifier::scanFileWithLocalEngines(const std::string& sUtf8Path, st
 		{
 			sThreatNameOut = it->second.threatName;
 			return it->second.verdict;
-		}
-		const int nTtl = s_unknownVerdictCacheSeconds.load(std::memory_order_relaxed);
-		auto itU = s_unknownCache.find(lowerPath);
-		if (nTtl > 0 && itU != s_unknownCache.end() && itU->second.size == size && itU->second.mtime == mtime &&
-			std::chrono::steady_clock::now() - itU->second.at < std::chrono::seconds(nTtl))
-		{
-			sThreatNameOut.clear();
-			return s_unknownVerdictDefault.load(std::memory_order_relaxed);
 		}
 	}
 
@@ -2035,25 +2003,6 @@ int DetectionNotifier::scanFileWithLocalEngines(const std::string& sUtf8Path, st
 	if (isUnknownVerdict(verdict))
 	{
 		sThreatNameOut.clear();
-		if (hasIdentity && s_unknownVerdictCacheSeconds.load(std::memory_order_relaxed) > 0)
-		{
-			std::lock_guard<std::mutex> lock(s_mtxVerdictCache);
-			const auto now = std::chrono::steady_clock::now();
-			if (s_unknownCache.size() >= kMaxVerdictCacheSize)
-			{
-				const auto ttl = std::chrono::seconds(s_unknownVerdictCacheSeconds.load(std::memory_order_relaxed));
-				for (auto itC = s_unknownCache.begin(); itC != s_unknownCache.end(); )
-				{
-					if (now - itC->second.at >= ttl)
-						itC = s_unknownCache.erase(itC);
-					else
-						++itC;
-				}
-				if (s_unknownCache.size() >= kMaxVerdictCacheSize)
-					s_unknownCache.clear();
-			}
-			s_unknownCache[lowerPath] = CachedUnknownVerdict{ size, mtime, now };
-		}
 		return s_unknownVerdictDefault.load(std::memory_order_relaxed);
 	}
 

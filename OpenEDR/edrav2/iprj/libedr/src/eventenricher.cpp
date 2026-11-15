@@ -3190,10 +3190,6 @@ static void rescanOne(const std::string& dos, uint32_t nPid)
 	if (bKnownPath && DetectionNotifier::isProtectionPaused())
 		return; // training: keep the sample, and don't re-alert every event
 	std::string sThreat;
-	// The rescan is here to read a late answer (FLS replied after its timeout,
-	// or the writer finished): a cached Unknown from the first look must not
-	// answer for it.
-	DetectionNotifier::forgetUnknownVerdict(dos);
 	const int nScan = DetectionNotifier::scanFileWithLocalEngines(dos, sThreat);
 	if (bKnownPath)
 	{
