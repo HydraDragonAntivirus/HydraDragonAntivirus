@@ -22,6 +22,7 @@
 #include <vector>
 #include <unordered_set>
 #include <deque>
+#include <map>
 #include <condition_variable>
 #include <unordered_map>
 #include <tlhelp32.h>
@@ -3466,6 +3467,87 @@ static int ScanPidWithLocalEngines(uint32_t nPid, uint64_t nMaxMb, std::string& 
 	}
 }
 
+// Terminates every running process whose image is sDos and waits briefly for
+// each to exit, so the image is no longer locked when it is quarantined. A
+// convicted file was only ever quarantined: a running image cannot be moved or
+// deleted, so the quarantine failed and the program (dControl, which also
+// relaunches itself elevated under a new PID) kept running. Matched by full
+// image path, never by name alone, and never this service or System.
+static void SendThreatAlertToGuiEarly(const std::string& sThreat, const std::string& sWhere)
+{
+	HANDLE hPipe = ::CreateFileW(L"\\\\.\\pipe\\HydraHipEvent",
+		GENERIC_WRITE, 0, NULL, OPEN_EXISTING, 0, NULL);
+	if (hPipe == INVALID_HANDLE_VALUE)
+		return;
+	std::string pipeMsg = "THREAT_ALERT:" + sThreat + "|" + sWhere + "\n";
+	DWORD written = 0;
+	::WriteFile(hPipe, pipeMsg.data(), static_cast<DWORD>(pipeMsg.size()), &written, NULL);
+	::CloseHandle(hPipe);
+}
+
+static int TerminateProcessesRunningImage(const std::string& sDos)
+{
+	if (sDos.empty())
+		return 0;
+	std::wstring wsTarget;
+	try
+	{
+		wsTarget = string::convertToLow(Widen(sDos));
+	}
+	catch (...)
+	{
+		return 0;
+	}
+	const size_t nSlash = wsTarget.find_last_of(L"\\/");
+	const std::wstring wsTargetName = nSlash == std::wstring::npos ? wsTarget : wsTarget.substr(nSlash + 1);
+
+	HANDLE hSnap = ::CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+	if (hSnap == INVALID_HANDLE_VALUE)
+		return 0;
+	int nKilled = 0;
+	const DWORD nSelf = ::GetCurrentProcessId();
+	PROCESSENTRY32W pe = {};
+	pe.dwSize = sizeof(pe);
+	for (BOOL fOk = ::Process32FirstW(hSnap, &pe); fOk; fOk = ::Process32NextW(hSnap, &pe))
+	{
+		if (pe.th32ProcessID <= 4 || pe.th32ProcessID == nSelf)
+			continue;
+		// The snapshot name is the image's file name; the full path decides.
+		if (string::convertToLow(std::wstring(pe.szExeFile)) != wsTargetName)
+			continue;
+		HANDLE hProc = ::OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_TERMINATE | SYNCHRONIZE,
+			FALSE, pe.th32ProcessID);
+		if (!hProc)
+			continue;
+		wchar_t szImage[MAX_PATH * 4] = {};
+		DWORD nLen = static_cast<DWORD>(std::size(szImage));
+		BOOL fCritical = FALSE;
+		if (::QueryFullProcessImageNameW(hProc, 0, szImage, &nLen) &&
+			string::convertToLow(std::wstring(szImage, nLen)) == wsTarget)
+		{
+			// A critical process takes the system down with it (bugcheck);
+			// a false positive on one must never become a crash.
+			typedef BOOL(WINAPI * IsProcessCriticalFn)(HANDLE, PBOOL);
+			static const auto s_fnIsCritical = reinterpret_cast<IsProcessCriticalFn>(
+				::GetProcAddress(::GetModuleHandleW(L"kernel32.dll"), "IsProcessCritical"));
+			if (s_fnIsCritical && s_fnIsCritical(hProc, &fCritical) && fCritical)
+				LOGLVL(Critical, FMT("enricher: not terminating critical PID " << pe.th32ProcessID << " running <" << sDos << ">"));
+			else if (::TerminateProcess(hProc, 1))
+			{
+				::WaitForSingleObject(hProc, 3000);
+				++nKilled;
+				LOGLVL(Critical, FMT("enricher: terminated PID " << pe.th32ProcessID << " running convicted image <" << sDos << ">"));
+			}
+			else
+				LOGLVL(Critical, FMT("enricher: could not terminate PID " << pe.th32ProcessID << " running <" << sDos
+					<< "> error=" << ::GetLastError()));
+		}
+		::CloseHandle(hProc);
+	}
+	::CloseHandle(hSnap);
+	return nKilled;
+}
+
 // Rescan OFF the hot path: the enricher worker is single-threaded, so it must
 // never sleep or scan a file that is still being written. Deferred file events
 // (FileDataChange / FileDataWriteFull / a PROCESS_CREATE whose FLS answer came
@@ -3481,8 +3563,18 @@ static int ScanPidWithLocalEngines(uint32_t nPid, uint64_t nMaxMb, std::string& 
 //  - a path waits in the queue until a worker takes it (one entry per path;
 //    it is scanned with whatever content it has by then);
 //  - a path is skipped only when it was scanned within the last minute with
-//    the same size and last-write time, i.e. the same content.
+//    the same size and last-write time, i.e. the same content;
+//  - a scan that gets no verdict (cloud timeout or unreachable, file locked)
+//    is tried again later instead of being the last look. A file the cloud
+//    was slow to answer for (FLS/VirusKov past their wait) used to get exactly
+//    one more try 350 ms later and was then never looked at again.
 namespace RescanQueue {
+
+// Delays before each further try of an undecided scan (cloud answers that
+// arrive late are cached by both clients, so a later try reads them).
+static const std::chrono::seconds c_retryDelays[] = {
+	std::chrono::seconds(2), std::chrono::seconds(5), std::chrono::seconds(15), std::chrono::seconds(30),
+	std::chrono::seconds(60), std::chrono::seconds(120), std::chrono::seconds(300), std::chrono::seconds(600) };
 
 constexpr int c_nWorkers = 4;
 constexpr auto c_settleDelay = std::chrono::milliseconds(350); // let the writer finish
@@ -3495,6 +3587,7 @@ struct Item
 	std::string sDos;
 	uint32_t nPid = 0;
 	std::chrono::steady_clock::time_point due;
+	size_t nAttempt = 0; // 0 = first look; >0 = retry of an undecided scan
 };
 
 struct Scanned
@@ -3511,6 +3604,8 @@ struct State
 	std::deque<Item> queue;
 	std::unordered_set<std::string> pending;
 	std::unordered_map<std::string, Scanned> scanned;
+	std::multimap<std::chrono::steady_clock::time_point, Item> delayed; // retries
+	std::condition_variable cvDelayed;
 	std::chrono::steady_clock::time_point lastWarn;
 	bool fStarted = false;
 };
@@ -3547,13 +3642,15 @@ static void forgetScanned(const std::string& sDos)
 	st.scanned.erase(toKey(sDos));
 }
 
-static void rescanOne(const std::string& dos, uint32_t nPid)
+// True when the scan reached a verdict (or there is nothing left to scan);
+// false when it should be tried again later.
+static bool rescanOne(const std::string& dos, uint32_t nPid)
 {
 	if (dos.empty())
-		return;
+		return true;
 	// Nothing on disk: already quarantined (sync path, or an earlier rescan).
 	if (::GetFileAttributesW(Widen(dos).c_str()) == INVALID_FILE_ATTRIBUTES)
-		return;
+		return true;
 
 	// A blacklisted path holding a file again is the malware coming back.
 	// This used to return early ("sync path already handled it"), so a
@@ -3562,22 +3659,36 @@ static void rescanOne(const std::string& dos, uint32_t nPid)
 	// (Clean = FLS clean / trusted signer), whatever its hash is.
 	const bool bKnownPath = DetectionNotifier::isKnownMalware(dos, "");
 	if (bKnownPath && DetectionNotifier::isProtectionPaused())
-		return; // training: keep the sample, and don't re-alert every event
+		return true; // training: keep the sample, and don't re-alert every event
 	std::string sThreat;
 	const int nScan = DetectionNotifier::scanFileWithLocalEngines(dos, sThreat);
+	const int nClean = DetectionNotifier::s_cleanVerdict.load(std::memory_order_relaxed);
 	if (bKnownPath)
 	{
-		if (nScan == DetectionNotifier::s_cleanVerdict.load(std::memory_order_relaxed))
+		if (nScan == nClean)
 		{
 			LOGLVL(Critical, FMT("enricher: [ASYNC RESCAN] blacklisted path <" << dos
 				<< "> now holds clean content (" << sThreat << "); not quarantining"));
-			return;
+			return true;
 		}
 		if (nScan != 2 || sThreat.empty())
 			sThreat = "Blacklist.KnownMalwarePath";
 	}
+	else if (nScan == 3)
+	{
+		// Suspicious: same as the sync path (alert + record, no quarantine).
+		// The rescan used to drop it silently.
+		if (sThreat.empty())
+			sThreat = "Static.Suspicious";
+		LOGLVL(Critical, FMT("enricher: [ASYNC RESCAN] SUSPICIOUS: <" << sThreat << "> on <" << dos
+			<< "> (PID: " << nPid << ")"));
+		DetectionNotifier::recordMalwareDetection(dos, "");
+		SendThreatAlertToGuiEarly(sThreat, dos);
+		ZeroTrust::recordThreatDetection();
+		return true;
+	}
 	else if (nScan != 2)
-		return;
+		return nScan == nClean; // anything but Clean is undecided: try again later
 	if (sThreat.empty())
 		sThreat = "Malware.LocalDetection";
 
@@ -3586,6 +3697,10 @@ static void rescanOne(const std::string& dos, uint32_t nPid)
 
 	if (!DetectionNotifier::isProtectionPaused())
 	{
+		// Stop whatever runs this image first: a running image is locked and
+		// its quarantine fails.
+		const int nKilled = TerminateProcessesRunningImage(dos);
+
 		HMODULE hDll = ::GetModuleHandleW(L"owlyshield_ransom.dll");
 		if (!hDll)
 			hDll = ::LoadLibraryW(L"owlyshield_ransom.dll");
@@ -3595,9 +3710,17 @@ static void rescanOne(const std::string& dos, uint32_t nPid)
 			auto fnQ = (QuarantineFn)::GetProcAddress(hDll, "owlyshield_dll_quarantine_file");
 			if (fnQ != nullptr)
 			{
-				int32_t qRes = fnQ(
-					reinterpret_cast<const uint8_t*>(dos.data()),
-					static_cast<uint32_t>(dos.size()));
+				int32_t qRes = -1;
+				// The image stays mapped for a moment after its last process
+				// exits; try again briefly before giving up.
+				for (int nTry = 0; nTry < (nKilled > 0 ? 5 : 1); ++nTry)
+				{
+					if (nTry > 0)
+						std::this_thread::sleep_for(std::chrono::milliseconds(400));
+					qRes = fnQ(reinterpret_cast<const uint8_t*>(dos.data()), static_cast<uint32_t>(dos.size()));
+					if (qRes == 0)
+						break;
+				}
 				if (qRes == 0)
 				{
 					LOGLVL(Critical, FMT("enricher: [ASYNC RESCAN] quarantined <" << dos << ">"));
@@ -3622,6 +3745,56 @@ static void rescanOne(const std::string& dos, uint32_t nPid)
 		::WriteFile(hPipe, pipeMsg.data(), static_cast<DWORD>(pipeMsg.size()), &written, NULL);
 		::CloseHandle(hPipe);
 	}
+	return true;
+}
+
+// Moves retries that are due back into the work queue.
+static void retryPump()
+{
+	auto& st = state();
+	std::unique_lock lock(st.mtx);
+	for (;;)
+	{
+		if (st.delayed.empty())
+		{
+			st.cvDelayed.wait(lock);
+			continue;
+		}
+		const auto due = st.delayed.begin()->first;
+		if (std::chrono::steady_clock::now() < due)
+		{
+			st.cvDelayed.wait_until(lock, due);
+			continue;
+		}
+		Item item = std::move(st.delayed.begin()->second);
+		st.delayed.erase(st.delayed.begin());
+		if (!st.pending.insert(item.sKey).second)
+			continue; // a new event already queued this path
+		item.due = std::chrono::steady_clock::now();
+		st.queue.push_back(std::move(item));
+		st.cv.notify_one();
+	}
+}
+
+static void scheduleRetry(Item item)
+{
+	if (item.nAttempt >= std::size(c_retryDelays))
+	{
+		LOGWRN(FMT("enricher: [ASYNC RESCAN] still no verdict for <" << item.sDos << "> after "
+			<< item.nAttempt << " retries; it is scanned again on its next event"));
+		return;
+	}
+	const auto delay = c_retryDelays[item.nAttempt];
+	++item.nAttempt;
+	LOGLVL(Detailed, FMT("enricher: [ASYNC RESCAN] no verdict yet for <" << item.sDos << ">; try "
+		<< item.nAttempt << " in " << delay.count() << " s"));
+	auto& st = state();
+	{
+		std::scoped_lock lock(st.mtx);
+		const auto due = std::chrono::steady_clock::now() + delay;
+		st.delayed.emplace(due, std::move(item));
+	}
+	st.cvDelayed.notify_one();
 }
 
 static void worker()
@@ -3650,8 +3823,8 @@ static void worker()
 			{
 				const auto now = std::chrono::steady_clock::now();
 				auto it = st.scanned.find(item.sKey);
-				if (it != st.scanned.end() && it->second.nSize == nSize && it->second.nMtime == nMtime &&
-					now - it->second.at < c_sameContentWindow)
+				if (item.nAttempt == 0 && it != st.scanned.end() && it->second.nSize == nSize &&
+					it->second.nMtime == nMtime && now - it->second.at < c_sameContentWindow)
 					continue; // same content, already scanned
 				if (st.scanned.size() > 50000)
 				{
@@ -3669,13 +3842,16 @@ static void worker()
 		if (!fHasId)
 			continue; // gone: quarantined already, or a temp file deleted
 
+		bool fDecided = true;
 		try
 		{
-			rescanOne(item.sDos, item.nPid);
+			fDecided = rescanOne(item.sDos, item.nPid);
 		}
 		catch (...)
 		{
 		}
+		if (!fDecided)
+			scheduleRetry(std::move(item));
 	}
 }
 
@@ -3694,6 +3870,7 @@ static void enqueue(std::string dos, uint32_t nPid)
 			st.fStarted = true;
 			for (int i = 0; i < c_nWorkers; ++i)
 				std::thread(worker).detach();
+			std::thread(retryPump).detach();
 		}
 		if (!st.pending.insert(key).second)
 			return; // already waiting; it is scanned with its latest content
@@ -4255,11 +4432,23 @@ void EventEnricher::executeUnfilteredLocalScan(Variant& vEvent, Variant& vProces
 			if (bShouldAlert)
 			{
 				// Quarantine the detected malicious file FIRST, before driver block or rollback deletes it!
+				// Whatever runs this image is stopped first: a running image is
+				// locked and its quarantine fails (a process image convicted at
+				// its start was left running and on disk).
 				if (!DetectionNotifier::isProtectionPaused() && s_fnQuarantine != nullptr)
 				{
-					int32_t qRes = s_fnQuarantine(
-						reinterpret_cast<const uint8_t*>(dos.data()),
-						static_cast<uint32_t>(dos.size()));
+					const int nKilled = TerminateProcessesRunningImage(dos);
+					int32_t qRes = -1;
+					for (int nTry = 0; nTry < (nKilled > 0 ? 5 : 1); ++nTry)
+					{
+						if (nTry > 0)
+							std::this_thread::sleep_for(std::chrono::milliseconds(400));
+						qRes = s_fnQuarantine(
+							reinterpret_cast<const uint8_t*>(dos.data()),
+							static_cast<uint32_t>(dos.size()));
+						if (qRes == 0)
+							break;
+					}
 					if (qRes == 0)
 					{
 						LOGLVL(Critical, FMT("enricher: successfully quarantined detected malware <" << dos << ">"));
