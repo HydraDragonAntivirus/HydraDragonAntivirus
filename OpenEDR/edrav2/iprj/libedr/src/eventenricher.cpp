@@ -21,6 +21,8 @@
 #include <filesystem>
 #include <vector>
 #include <unordered_set>
+#include <deque>
+#include <condition_variable>
 #include <unordered_map>
 #include <tlhelp32.h>
 #include <dbghelp.h>
@@ -2212,9 +2214,23 @@ namespace {
 	}
 
 	// Fire-and-forget PDB prefetch for a process image into the local symbol
-	// cache (see FetchModulePdb). Posted to the pool so event processing never
-	// blocks on network I/O; one fetch per image, repeats are DbgHelp cache hits.
-	static void QueuePdbPrefetch(ThreadPool& pool, const std::string& sImgPath)
+	// cache (see FetchModulePdb); one fetch per image, repeats are DbgHelp cache
+	// hits. It runs on its own thread. It used to be posted to the enricher's
+	// pool, which has exactly one thread - the one that processes every event -
+	// so each new process image put a symbol-server download in front of all the
+	// events behind it. The pool is never destroyed, so service shutdown does not
+	// wait on a download in flight.
+	static ThreadPool& PdbPrefetchPool()
+	{
+		static ThreadPool* s_pPool = []() {
+			auto* p = new ThreadPool("PdbPrefetch");
+			p->addThreads(1);
+			return p;
+		}();
+		return *s_pPool;
+	}
+
+	static void QueuePdbPrefetch(const std::string& sImgPath)
 	{
 		if (sImgPath.empty())
 			return;
@@ -2238,7 +2254,7 @@ namespace {
 			if (!s_seen.insert(string::convertToLow(wsPath)).second)
 				return; // already fetched or in flight
 		}
-		pool.run([wsPath]()
+		PdbPrefetchPool().run([wsPath]()
 		{
 			try
 			{
@@ -3076,148 +3092,282 @@ static int ScanPidWithLocalEngines(uint32_t nPid, uint64_t nMaxMb, std::string& 
 	}
 }
 
-// Fire-and-forget rescan OFF the hot path: the enricher worker is single-
-// threaded, so it must never sleep (queue backs up -> late events, overflow
-// drops -> choppy output). Sleeps on a detached thread, rescans once, and
-// convicts exactly like the sync path on Malicious.
+// Rescan OFF the hot path: the enricher worker is single-threaded, so it must
+// never sleep or scan a file that is still being written. Deferred file events
+// (FileDataChange / FileDataWriteFull / a PROCESS_CREATE whose FLS answer came
+// late) are queued here and scanned by a fixed set of workers once the writer
+// has had time to finish, then convicted exactly like the sync path.
 //
-// Bounded on purpose: Edge/Chromium emits thousands of churn files (.tmp,
-// LevelDB LOG) per minute, each Unknown. Unbounded detaches would be a
-// thread storm, so we (a) dedup by path, (b) cap concurrent rescans.
+// Nothing is dropped. This used to start a detached thread per file with at
+// most 4 at a time and simply return when all 4 were busy, and it skipped any
+// path seen in the last 10 s. Under file churn (browsers write thousands of
+// .tmp / LevelDB files a minute) the slots were always busy, so a dropped file
+// got no scan at all, and new content written to a path within 10 s of the
+// last look was never scanned. Now:
+//  - a path waits in the queue until a worker takes it (one entry per path;
+//    it is scanned with whatever content it has by then);
+//  - a path is skipped only when it was scanned within the last minute with
+//    the same size and last-write time, i.e. the same content.
+namespace RescanQueue {
+
+constexpr int c_nWorkers = 4;
+constexpr auto c_settleDelay = std::chrono::milliseconds(350); // let the writer finish
+constexpr auto c_sameContentWindow = std::chrono::seconds(60);
+constexpr size_t c_nWarnPending = 100000;
+
+struct Item
+{
+	std::string sKey;
+	std::string sDos;
+	uint32_t nPid = 0;
+	std::chrono::steady_clock::time_point due;
+};
+
+struct Scanned
+{
+	uint64_t nSize = 0;
+	uint64_t nMtime = 0;
+	std::chrono::steady_clock::time_point at;
+};
+
+struct State
+{
+	std::mutex mtx;
+	std::condition_variable cv;
+	std::deque<Item> queue;
+	std::unordered_set<std::string> pending;
+	std::unordered_map<std::string, Scanned> scanned;
+	std::chrono::steady_clock::time_point lastWarn;
+	bool fStarted = false;
+};
+
+// Never destroyed: workers are detached and may still be running at exit.
+static State& state()
+{
+	static State* s_p = new State();
+	return *s_p;
+}
+
+static std::string toKey(const std::string& sDos)
+{
+	std::string key = sDos;
+	for (auto& c : key)
+		c = (char)::tolower((unsigned char)c);
+	return key;
+}
+
+static bool fileIdentity(const std::string& sDos, uint64_t& nSize, uint64_t& nMtime)
+{
+	WIN32_FILE_ATTRIBUTE_DATA fad = {};
+	if (!::GetFileAttributesExW(Widen(sDos).c_str(), GetFileExInfoStandard, &fad))
+		return false;
+	nSize = (uint64_t(fad.nFileSizeHigh) << 32) | fad.nFileSizeLow;
+	nMtime = (uint64_t(fad.ftLastWriteTime.dwHighDateTime) << 32) | fad.ftLastWriteTime.dwLowDateTime;
+	return true;
+}
+
+static void forgetScanned(const std::string& sDos)
+{
+	auto& st = state();
+	std::scoped_lock lock(st.mtx);
+	st.scanned.erase(toKey(sDos));
+}
+
+static void rescanOne(const std::string& dos, uint32_t nPid)
+{
+	if (dos.empty())
+		return;
+	// Nothing on disk: already quarantined (sync path, or an earlier rescan).
+	if (::GetFileAttributesW(Widen(dos).c_str()) == INVALID_FILE_ATTRIBUTES)
+		return;
+
+	// A blacklisted path holding a file again is the malware coming back.
+	// This used to return early ("sync path already handled it"), so a
+	// re-dropped file at a known path was never quarantined again. It is
+	// now convicted unless the engines positively vouch for the new content
+	// (Clean = FLS clean / trusted signer), whatever its hash is.
+	const bool bKnownPath = DetectionNotifier::isKnownMalware(dos, "");
+	if (bKnownPath && DetectionNotifier::isProtectionPaused())
+		return; // training: keep the sample, and don't re-alert every event
+	std::string sThreat;
+	// The rescan is here to read a late answer (FLS replied after its timeout,
+	// or the writer finished): a cached Unknown from the first look must not
+	// answer for it.
+	DetectionNotifier::forgetUnknownVerdict(dos);
+	const int nScan = DetectionNotifier::scanFileWithLocalEngines(dos, sThreat);
+	if (bKnownPath)
+	{
+		if (nScan == DetectionNotifier::s_cleanVerdict.load(std::memory_order_relaxed))
+		{
+			LOGLVL(Critical, FMT("enricher: [ASYNC RESCAN] blacklisted path <" << dos
+				<< "> now holds clean content (" << sThreat << "); not quarantining"));
+			return;
+		}
+		if (nScan != 2 || sThreat.empty())
+			sThreat = "Blacklist.KnownMalwarePath";
+	}
+	else if (nScan != 2)
+		return;
+	if (sThreat.empty())
+		sThreat = "Malware.LocalDetection";
+
+	LOGLVL(Critical, FMT("enricher: [ASYNC RESCAN] THREAT DETECTED: <"
+		<< sThreat << "> on <" << dos << "> (PID: " << nPid << ")"));
+
+	if (!DetectionNotifier::isProtectionPaused())
+	{
+		HMODULE hDll = ::GetModuleHandleW(L"owlyshield_ransom.dll");
+		if (!hDll)
+			hDll = ::LoadLibraryW(L"owlyshield_ransom.dll");
+		if (hDll)
+		{
+			typedef int32_t (*QuarantineFn)(const uint8_t*, uint32_t);
+			auto fnQ = (QuarantineFn)::GetProcAddress(hDll, "owlyshield_dll_quarantine_file");
+			if (fnQ != nullptr)
+			{
+				int32_t qRes = fnQ(
+					reinterpret_cast<const uint8_t*>(dos.data()),
+					static_cast<uint32_t>(dos.size()));
+				if (qRes == 0)
+				{
+					LOGLVL(Critical, FMT("enricher: [ASYNC RESCAN] quarantined <" << dos << ">"));
+					// The path is empty now; a re-drop must be scanned even
+					// if it has the same size and time stamp.
+					RescanQueue::forgetScanned(dos);
+				}
+				else
+					LOGLVL(Critical, FMT("enricher: [ASYNC RESCAN] quarantine failed for <" << dos << "> result=" << qRes));
+			}
+		}
+	}
+
+	DetectionNotifier::recordMalwareDetection(dos, "");
+
+	HANDLE hPipe = ::CreateFileW(L"\\\\.\\pipe\\HydraHipEvent",
+		GENERIC_WRITE, 0, NULL, OPEN_EXISTING, 0, NULL);
+	if (hPipe != INVALID_HANDLE_VALUE)
+	{
+		std::string pipeMsg = "THREAT_ALERT:" + sThreat + "|" + dos + "\n";
+		DWORD written = 0;
+		::WriteFile(hPipe, pipeMsg.data(), static_cast<DWORD>(pipeMsg.size()), &written, NULL);
+		::CloseHandle(hPipe);
+	}
+}
+
+static void worker()
+{
+	auto& st = state();
+	for (;;)
+	{
+		Item item;
+		{
+			std::unique_lock lock(st.mtx);
+			st.cv.wait(lock, [&st] { return !st.queue.empty(); });
+			item = std::move(st.queue.front());
+			st.queue.pop_front();
+		}
+		// Items are queued in time order, so the head is always the next due.
+		std::this_thread::sleep_until(item.due);
+
+		uint64_t nSize = 0, nMtime = 0;
+		const bool fHasId = fileIdentity(item.sDos, nSize, nMtime);
+		{
+			std::scoped_lock lock(st.mtx);
+			// Released before the scan: a write that lands during the scan
+			// queues the path again instead of being folded into this look.
+			st.pending.erase(item.sKey);
+			if (fHasId)
+			{
+				const auto now = std::chrono::steady_clock::now();
+				auto it = st.scanned.find(item.sKey);
+				if (it != st.scanned.end() && it->second.nSize == nSize && it->second.nMtime == nMtime &&
+					now - it->second.at < c_sameContentWindow)
+					continue; // same content, already scanned
+				if (st.scanned.size() > 50000)
+				{
+					for (auto itC = st.scanned.begin(); itC != st.scanned.end(); )
+					{
+						if (now - itC->second.at >= c_sameContentWindow)
+							itC = st.scanned.erase(itC);
+						else
+							++itC;
+					}
+				}
+				st.scanned[item.sKey] = Scanned{ nSize, nMtime, now };
+			}
+		}
+		if (!fHasId)
+			continue; // gone: quarantined already, or a temp file deleted
+
+		try
+		{
+			rescanOne(item.sDos, item.nPid);
+		}
+		catch (...)
+		{
+		}
+	}
+}
+
+static void enqueue(std::string dos, uint32_t nPid)
+{
+	if (dos.empty())
+		return;
+	auto& st = state();
+	std::string key = toKey(dos);
+	bool fWarn = false;
+	size_t nPending = 0;
+	{
+		std::scoped_lock lock(st.mtx);
+		if (!st.fStarted)
+		{
+			st.fStarted = true;
+			for (int i = 0; i < c_nWorkers; ++i)
+				std::thread(worker).detach();
+		}
+		if (!st.pending.insert(key).second)
+			return; // already waiting; it is scanned with its latest content
+		const auto now = std::chrono::steady_clock::now();
+		st.queue.push_back(Item{ std::move(key), std::move(dos), nPid, now + c_settleDelay });
+		nPending = st.queue.size();
+		if (nPending >= c_nWarnPending && now - st.lastWarn > std::chrono::seconds(60))
+		{
+			st.lastWarn = now;
+			fWarn = true;
+		}
+	}
+	st.cv.notify_one();
+	if (fWarn)
+		LOGWRN(FMT("enricher: rescan queue is long (" << nPending << " paths waiting); files are scanned late, none are dropped"));
+}
+
+} // namespace RescanQueue
+
 static void AsyncRescanAndQuarantine(std::string dos, uint32_t nPid)
 {
-	constexpr int kMaxConcurrentRescans = 4;
-	static std::atomic<int> s_nActiveRescans{ 0 };
-
-	// Path dedup: Create/WriteFull/DataChange/Close all fire per file within
-	// milliseconds; only the first Unknown schedules work.
-	static std::mutex s_mtxRescanSeen;
-	static std::unordered_map<std::string, std::chrono::steady_clock::time_point> s_rescanSeen;
-	{
-		std::string key = dos;
-		for (auto& c : key)
-			c = (char)::tolower((unsigned char)c);
-		std::scoped_lock lock(s_mtxRescanSeen);
-		auto now = std::chrono::steady_clock::now();
-		auto it = s_rescanSeen.find(key);
-		if (it != s_rescanSeen.end() && (now - it->second) < std::chrono::seconds(10))
-			return;
-		s_rescanSeen[key] = now;
-		if (s_rescanSeen.size() > 20000)
-		{
-			for (auto itC = s_rescanSeen.begin(); itC != s_rescanSeen.end(); )
-			{
-				if ((now - itC->second) > std::chrono::seconds(60))
-					itC = s_rescanSeen.erase(itC);
-				else
-					++itC;
-			}
-		}
-	}
-
-	if (s_nActiveRescans.load(std::memory_order_relaxed) >= kMaxConcurrentRescans)
-		return;
-	if (s_nActiveRescans.fetch_add(1, std::memory_order_acq_rel) >= kMaxConcurrentRescans)
-	{
-		s_nActiveRescans.fetch_sub(1, std::memory_order_acq_rel);
-		return;
-	}
-
-	std::thread([dos = std::move(dos), nPid]() {
-		struct ActiveGuard {
-			~ActiveGuard() { s_nActiveRescans.fetch_sub(1, std::memory_order_acq_rel); }
-		} guard;
-
-		std::this_thread::sleep_for(std::chrono::milliseconds(350));
-		if (dos.empty())
-			return;
-		// Nothing on disk: already quarantined (sync path, or an earlier rescan).
-		if (::GetFileAttributesW(Widen(dos).c_str()) == INVALID_FILE_ATTRIBUTES)
-			return;
-
-		// A blacklisted path holding a file again is the malware coming back.
-		// This used to return early ("sync path already handled it"), so a
-		// re-dropped file at a known path was never quarantined again. It is
-		// now convicted unless the engines positively vouch for the new content
-		// (Clean = FLS clean / trusted signer), whatever its hash is.
-		const bool bKnownPath = DetectionNotifier::isKnownMalware(dos, "");
-		if (bKnownPath && DetectionNotifier::isProtectionPaused())
-			return; // training: keep the sample, and don't re-alert every event
-		std::string sThreat;
-		const int nScan = DetectionNotifier::scanFileWithLocalEngines(dos, sThreat);
-		if (bKnownPath)
-		{
-			if (nScan == DetectionNotifier::s_cleanVerdict.load(std::memory_order_relaxed))
-			{
-				LOGLVL(Critical, FMT("enricher: [ASYNC RESCAN] blacklisted path <" << dos
-					<< "> now holds clean content (" << sThreat << "); not quarantining"));
-				return;
-			}
-			if (nScan != 2 || sThreat.empty())
-				sThreat = "Blacklist.KnownMalwarePath";
-		}
-		else if (nScan != 2)
-			return;
-		if (sThreat.empty())
-			sThreat = "Malware.LocalDetection";
-
-		LOGLVL(Critical, FMT("enricher: [ASYNC RESCAN] THREAT DETECTED: <"
-			<< sThreat << "> on <" << dos << "> (PID: " << nPid << ")"));
-
-		if (!DetectionNotifier::isProtectionPaused())
-		{
-			HMODULE hDll = ::GetModuleHandleW(L"owlyshield_ransom.dll");
-			if (!hDll)
-				hDll = ::LoadLibraryW(L"owlyshield_ransom.dll");
-			if (hDll)
-			{
-				typedef int32_t (*QuarantineFn)(const uint8_t*, uint32_t);
-				auto fnQ = (QuarantineFn)::GetProcAddress(hDll, "owlyshield_dll_quarantine_file");
-				if (fnQ != nullptr)
-				{
-					int32_t qRes = fnQ(
-						reinterpret_cast<const uint8_t*>(dos.data()),
-						static_cast<uint32_t>(dos.size()));
-					if (qRes == 0)
-					{
-						LOGLVL(Critical, FMT("enricher: [ASYNC RESCAN] quarantined <" << dos << ">"));
-						// The path is empty now; a re-drop inside the 10 s dedup
-						// window must schedule a fresh rescan, not be ignored.
-						std::string key = dos;
-						for (auto& c : key)
-							c = (char)::tolower((unsigned char)c);
-						std::scoped_lock lock(s_mtxRescanSeen);
-						s_rescanSeen.erase(key);
-					}
-					else
-						LOGLVL(Critical, FMT("enricher: [ASYNC RESCAN] quarantine failed for <" << dos << "> result=" << qRes));
-				}
-			}
-		}
-
-		DetectionNotifier::recordMalwareDetection(dos, "");
-
-		HANDLE hPipe = ::CreateFileW(L"\\\\.\\pipe\\HydraHipEvent",
-			GENERIC_WRITE, 0, NULL, OPEN_EXISTING, 0, NULL);
-		if (hPipe != INVALID_HANDLE_VALUE)
-		{
-			std::string pipeMsg = "THREAT_ALERT:" + sThreat + "|" + dos + "\n";
-			DWORD written = 0;
-			::WriteFile(hPipe, pipeMsg.data(), static_cast<DWORD>(pipeMsg.size()), &written, NULL);
-			::CloseHandle(hPipe);
-		}
-	}).detach();
+	RescanQueue::enqueue(std::move(dos), nPid);
 }
 } // namespace
 
 void EventEnricher::executeUnfilteredLocalScan(Variant& vEvent, Variant& vProcess, Event eEventType, const std::string& sProcPath)
 {
-	// Requirement 1 & 3: Only UNKNOWN or Threat events undergo deep static scan!
-	// Benign / verified safe events bypass heavy ClamAV/YARA/ML scans completely.
-	if (!isUnknownOrThreatEvent(vEvent))
-	{
+	// FileCreate and FileClose are not scan triggers. The driver sends them for
+	// every open and every handle close on the system (the eventFlags mask no
+	// longer hides them). A new file is empty at create, and a handle that wrote
+	// produces FileDataChange / FileDataWriteFull at its cleanup, which are
+	// scanned. Scanning on open/close made every open and close a scan of the
+	// file and of the process image: inline that blocked the single enricher
+	// thread, async it filled the rescan slots. The events themselves still go
+	// on to the policy, the training recorder and the output.
+	if (eEventType == Event::LLE_FILE_CREATE || eEventType == Event::LLE_FILE_CLOSE)
 		return;
-	}
+
+	// No event-level "benign" gate here. isUnknownOrThreatEvent used to skip the
+	// whole event when the process and event.file looked clean, but it never
+	// looked at destination / source / rename targets, so a clean process
+	// copying or renaming a file left the new file unscanned. Each path below is
+	// checked on its own against the verdict cache (size + last-write time), so
+	// files that are really clean are still not scanned twice.
 	static HMODULE s_hOwlyDll = nullptr;
 	typedef int32_t (*RtEnqueueUtf8Fn)(const uint8_t*, uint32_t, uint32_t, uint32_t);
 	static RtEnqueueUtf8Fn s_fnEnqueue = nullptr;
@@ -3367,28 +3517,12 @@ void EventEnricher::executeUnfilteredLocalScan(Variant& vEvent, Variant& vProces
 			continue;
 		}
 
-		// Check if the event or file is already verified clean by FLS / Cloud (only if enableCloud is active)
-		if (DriverPortHips::s_enableCloud.load(std::memory_order_relaxed) && vEvent.has("file"))
-		{
-			Variant vF = vEvent.get("file");
-			if (vF.isDictionaryLike())
-			{
-				int64_t nv = 0;
-				if (vF.has("verdict")) { try { nv = static_cast<int64_t>(vF["verdict"]); } catch (...) {} }
-				if (nv == 1) continue; // Verified clean by cloud
-				if (vF.has("flsVerdict"))
-				{
-					int64_t nfls = 0;
-					try { nfls = static_cast<int64_t>(vF["flsVerdict"]); } catch (...) {}
-					// cloud::fls::FileVerdict: 1 = Safe, 2 = Malicious (malwareVerdict),
-					// 3 = Unknown. Only Safe may skip the scan; a Malicious verdict used to
-					// be skipped here too (read as "Trusted"), so FLS-known malware was
-					// never scanned or flagged in real time. It now falls through: the scan
-					// below asks FLS first (cloudFirst) and gets the Malicious verdict.
-					if (nfls == 1) continue;
-				}
-			}
-		}
+		// No skip on a verdict stamped on the event (file.verdict / file.flsVerdict).
+		// That stamp comes from an earlier look at the path, possibly at other
+		// content (an overwrite keeps the path), and skipping on it let new content
+		// at a once-clean path go unscanned. scanFileWithLocalEngines keys its cache
+		// on size + last-write time, and the FLS client caches by hash, so a file
+		// that really is clean costs no extra scan.
 
 		// Process executable images only need evaluation at process creation or when unknown;
 		// do not rescan the already running process image on routine sub-events!
@@ -3402,8 +3536,7 @@ void EventEnricher::executeUnfilteredLocalScan(Variant& vEvent, Variant& vProces
 		// event is emitted. A file that is being written right now has no final
 		// content yet, so those fall through to the async rescan below.
 		const bool bDeferredFileEvent = !isProc &&
-			(eEventType == Event::LLE_FILE_CREATE ||
-			 eEventType == Event::LLE_FILE_DATA_WRITE_FULL ||
+			(eEventType == Event::LLE_FILE_DATA_WRITE_FULL ||
 			 eEventType == Event::LLE_FILE_DATA_CHANGE);
 
 		std::string sThreat;
@@ -3420,7 +3553,6 @@ void EventEnricher::executeUnfilteredLocalScan(Variant& vEvent, Variant& vProces
 		// (process-create is scanned once) and ran until a manual scan found the
 		// verdict cached. The rescan reads that late answer.
 		if (r == 0 && (bDeferredFileEvent ||
-			eEventType == Event::LLE_FILE_CLOSE ||
 			(isProc && eEventType == Event::LLE_PROCESS_CREATE)))
 		{
 			std::error_code ec;
@@ -4735,7 +4867,7 @@ void EventEnricher::put(const Variant& vEventRef)
 		}
 
 		// Best-effort PDB warm-up for the offline symbol pipe; async, never blocks.
-		QueuePdbPrefetch(m_threadPool, sImgPath);
+		QueuePdbPrefetch(sImgPath);
 
 		const std::wstring cmdLine = enrichedProcessInfo["cmdLine"];
 		if (containsInterpetatorCmd(cmdLine))
@@ -4960,156 +5092,6 @@ void EventEnricher::put(const Variant& vEventRef)
 
 	return pReceiver->put(vEvent);
 	TRACE_END(FMT("Fail to parse event <" << vEvent.get("baseType", 0) << ">"))
-}
-
-//
-//
-//
-bool EventEnricher::isUnknownOrThreatEvent(const Variant& vEvent)
-{
-	// 1. Explicit threat or detection alerts have top priority
-	if (vEvent.has("threat") || vEvent.has("alert") || vEvent.has("detection") || vEvent.has("threatName"))
-		return true;
-
-	Event eEventType = vEvent.has("baseEventType") && !vEvent.get("baseEventType").isEmpty() ?
-		static_cast<Event>(static_cast<int>(vEvent.get("baseEventType"))) :
-		static_cast<Event>(static_cast<int>(vEvent.get("baseType")));
-
-	// 2. Process creation: unknown/unverified executables are classified unknown
-	if (eEventType == Event::LLE_PROCESS_CREATE || vEvent.has("childProcess"))
-	{
-		Variant vProc = vEvent.has("process") ? vEvent.get("process") :
-			(vEvent.has("childProcess") ? vEvent.get("childProcess") : Variant());
-		int64_t nClean = DriverPortHips::s_cleanVerdict.load(std::memory_order_relaxed);
-		if (vProc.isDictionaryLike())
-		{
-			int64_t v = 0;
-			if (vProc.has("verdict")) {
-				try { v = static_cast<int64_t>(vProc["verdict"]); } catch (...) {}
-			}
-			if (v == nClean) return false; // Verified clean process -> routine queue
-
-			std::string pPath = vProc.has("imagePath") ? std::string(vProc["imagePath"]) :
-				(vProc.has("path") ? std::string(vProc["path"]) :
-				(vProc.has("rawPath") ? std::string(vProc["rawPath"]) : ""));
-			if (!pPath.empty())
-			{
-				std::string dos = DetectionNotifier::NtPathToDosPathString(pPath);
-				if (DetectionNotifier::getCachedFileVerdict(dos) == nClean)
-					return false; // Cached clean -> routine queue
-			}
-		}
-		// Not verified clean -> UNKNOWN EXECUTABLE
-		return true;
-	}
-
-	// 2b. API Hooking events: prioritize cross-process injection and threat hooks,
-	// defer routine self-PID internal API calls to prevent flooding the unknown queue
-	if (vEvent.has("owlyHook"))
-	{
-		Variant vHook = vEvent.get("owlyHook");
-		uint32_t srcPid = vHook.get("sourcePid", uint32_t(0));
-		uint32_t tgtPid = vHook.get("targetPid", uint32_t(0));
-		bool isMatched = vHook.get("isJsonMatched", false);
-
-		// Cross-process injection (e.g. CreateRemoteThread, WriteProcessMemory into different PID)
-		// or explicitly matched security hook rule -> UNKNOWN/THREAT
-		if ((tgtPid != 0 && tgtPid != srcPid) || isMatched)
-		{
-			return true;
-		}
-
-		// Check if source PID is verified clean
-		if (srcPid != 0 && m_pProcProvider)
-		{
-			auto vPInfo = m_pProcProvider->getProcessInfoByPid(srcPid);
-			if (vPInfo.isDictionaryLike())
-			{
-				int64_t nClean = DriverPortHips::s_cleanVerdict.load(std::memory_order_relaxed);
-				int64_t v = 0;
-				if (vPInfo.has("verdict")) {
-					try { v = static_cast<int64_t>(vPInfo["verdict"]); } catch (...) {}
-				}
-				if (v == nClean)
-					return false;
-
-				std::string img = vPInfo.has("imagePath") ? std::string(vPInfo["imagePath"]) :
-					(vPInfo.has("path") ? std::string(vPInfo["path"]) : "");
-				if (!img.empty())
-				{
-					std::string dos = DetectionNotifier::NtPathToDosPathString(img);
-					if (DetectionNotifier::getCachedFileVerdict(dos) == nClean)
-						return false;
-				}
-			}
-		}
-
-		// Routine internal API hook: classify as benign
-		return false;
-	}
-
-	// 3. Check process verdict
-	Variant vProc;
-	if (vEvent.has("process")) vProc = vEvent.get("process");
-	else if (vEvent.has("childProcess")) vProc = vEvent.get("childProcess");
-
-	if (vProc.isDictionaryLike())
-	{
-		int64_t nClean = DriverPortHips::s_cleanVerdict.load(std::memory_order_relaxed);
-		int64_t nProcVerdict = 0;
-		if (vProc.has("verdict")) {
-			try { nProcVerdict = static_cast<int64_t>(vProc["verdict"]); } catch (...) {}
-		}
-		// Any process not verified clean is prioritized as unknown/untrusted
-		if (nProcVerdict != nClean)
-		{
-			std::string pPath;
-			if (vProc.has("imagePath")) pPath = std::string(vProc["imagePath"]);
-			else if (vProc.has("path")) pPath = std::string(vProc["path"]);
-			if (!pPath.empty())
-			{
-				std::string dos = DetectionNotifier::NtPathToDosPathString(pPath);
-				if (DetectionNotifier::getCachedFileVerdict(dos) != nClean)
-					return true;
-			}
-			else
-			{
-				return true;
-			}
-		}
-	}
-
-	// 4. Check file verdict for file events
-	if (vEvent.has("file"))
-	{
-		Variant vFile = vEvent.get("file");
-		if (vFile.isDictionaryLike())
-		{
-			int64_t nFileVerdict = 0;
-			if (vFile.has("verdict")) {
-				try { nFileVerdict = static_cast<int64_t>(vFile["verdict"]); } catch (...) {}
-			}
-			if (nFileVerdict != 1)
-			{
-				std::string fPath;
-				if (vFile.has("path")) fPath = std::string(vFile["path"]);
-				else if (vFile.has("rawPath")) fPath = std::string(vFile["rawPath"]);
-				if (!fPath.empty())
-				{
-					std::string dos = DetectionNotifier::NtPathToDosPathString(fPath);
-					if (DetectionNotifier::getCachedFileVerdict(dos) != 1)
-						return true;
-				}
-				else
-				{
-					return true;
-				}
-			}
-		}
-	}
-
-	// Both process and files are verified clean
-	return false;
 }
 
 void EventEnricher::processQueueEvent()

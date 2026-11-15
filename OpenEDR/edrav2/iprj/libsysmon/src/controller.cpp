@@ -995,11 +995,11 @@ bool SystemMonitorController::startInt()
 	startThreads();
 
 	// The driver's eventFlags always come from the configuration (edrsvc.cfg),
-	// training mode included. Training mode used to force every flag on
-	// (4294967295), which turned on FileCreate (7) and FileClose (9): an event for
-	// every file open and every handle close on the system. That flood (millions
-	// of events) backed up the enricher queue and delayed detection; the
-	// training recorder keeps the write / change / rename / process events.
+	// training mode included. The configuration enables every raw event type:
+	// masking FileCreate (7) / FileClose (9) in the driver dropped those events
+	// before the enricher, policy or training recorder could see them, so a
+	// dropped file raised no event at all. Volume is handled after the driver
+	// (the enricher never scans inline on FileClose), not by a type mask here.
 	sendConfig(m_vDefaultDriverConfig);
 
 	// update selfprotection rules
