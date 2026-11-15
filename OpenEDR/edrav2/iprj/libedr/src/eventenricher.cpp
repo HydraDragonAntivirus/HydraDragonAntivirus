@@ -90,133 +90,419 @@ namespace {
 	}
 
 	// Script hosts and script extensions come from edrsvc.cfg
-	// (scanner.scriptInterpreters / scanner.scriptExtensions). This used to be a
-	// fixed, case-sensitive list of six names ("cmd.exe" matched, "CMD.EXE" did
-	// not) and four extensions, so wscript/cscript/mshta/pwsh and .vbs/.js/.hta
-	// scripts were never looked at.
-
-	// End offset (in the lower-cased command line) of the first script host
-	// name, or npos. The host matches with or without ".exe" ("cscript //nologo",
-	// "powershell -File"), as a whole file name only, and the end skips a closing
-	// quote of a quoted host path.
-	size_t findInterpreterEnd(const std::wstring& sLowCmd)
+	// (scanner.scriptInterpreters / scanner.scriptExtensions).
+	//
+	// The host is decided by the new process' image name, not by searching the
+	// command line: argv[0] is whatever the parent wrote and need not name the
+	// image at all. Every argument after argv[0] that resolves to an existing
+	// file is scanned:
+	//  - tokens are split the way the hosts and cmd see them: quotes only
+	//    toggle (so `""C:\x.bat" "` and `/c"C:\x.bat"` both yield the path),
+	//    cmd's & | < > separate commands and ^ escapes; a quoted token that is
+	//    itself a command line (cmd /c "powershell -f x.ps1") is split again;
+	//  - switch values are looked at (-File:C:\x.ps1, /cC:\x.bat);
+	//  - %VAR% is expanded from the new process' own environment, and relative
+	//    paths are resolved against its own current directory (both read from
+	//    its process parameters; the parent's are used when it has already
+	//    exited, the service's only as a last resort);
+	//  - the file's extension does not decide whether it is scanned:
+	//    python/node/perl/ruby/php run any file and cscript runs any file with
+	//    //E:, so "python C:\x.txt" is scanned like "python C:\x.py". The
+	//    extension list only picks which file is attached as scriptContent and
+	//    which extensions to try for an extensionless name (cmd /c run).
+	namespace ScriptArgs
 	{
-		static const std::wstring c_sExe(L".exe");
-		size_t nBest = std::wstring::npos;
-		for (const auto& sHost : DetectionNotifier::getScriptInterpreters())
+		constexpr size_t c_nMaxTokens = 64;
+
+		std::wstring baseNameLow(const std::wstring& sPath)
 		{
-			std::wstring sBase = sHost;
-			if (sBase.size() > c_sExe.size() &&
-				sBase.compare(sBase.size() - c_sExe.size(), c_sExe.size(), c_sExe) == 0)
-				sBase.resize(sBase.size() - c_sExe.size());
+			const size_t nSlash = sPath.find_last_of(L"\\/");
+			return string::convertToLow(nSlash == std::wstring::npos ? sPath : sPath.substr(nSlash + 1));
+		}
+
+		std::wstring stripExe(const std::wstring& sLowName)
+		{
+			static const std::wstring c_sExe(L".exe");
+			if (sLowName.size() > c_sExe.size() &&
+				sLowName.compare(sLowName.size() - c_sExe.size(), c_sExe.size(), c_sExe) == 0)
+				return sLowName.substr(0, sLowName.size() - c_sExe.size());
+			return sLowName;
+		}
+
+		// True when the image (file name, any case, ".exe" optional on either
+		// side) is one of scanner.scriptInterpreters.
+		bool isScriptHost(const std::wstring& sImageName)
+		{
+			const std::wstring sBase = stripExe(baseNameLow(sImageName));
 			if (sBase.empty())
-				continue;
-			size_t nPos = sLowCmd.find(sBase);
-			while (nPos != std::wstring::npos)
-			{
-				size_t nEnd = nPos + sBase.size();
-				if (sLowCmd.compare(nEnd, c_sExe.size(), c_sExe) == 0)
-					nEnd += c_sExe.size();
-				const bool fStartOk = nPos == 0 || sLowCmd[nPos - 1] == L'\\' ||
-					sLowCmd[nPos - 1] == L'/' || sLowCmd[nPos - 1] == L'"' || sLowCmd[nPos - 1] == L' ';
-				const bool fEndOk = nEnd >= sLowCmd.size() || sLowCmd[nEnd] == L' ' ||
-					sLowCmd[nEnd] == L'\t' || sLowCmd[nEnd] == L'"';
-				if (fStartOk && fEndOk)
+				return false;
+			for (const auto& sHost : DetectionNotifier::getScriptInterpreters())
+				if (stripExe(sHost) == sBase)
+					return true;
+			return false;
+		}
+
+		// Command-line tokens: whitespace splits outside quotes, a quote only
+		// toggles quoting and is dropped, cmd's & | < > split outside quotes,
+		// ^ escapes the next character outside quotes.
+		std::vector<std::wstring> tokenize(const std::wstring& s)
+		{
+			std::vector<std::wstring> vOut;
+			std::wstring sCur;
+			bool fInQuote = false;
+			auto flush = [&]() {
+				const size_t b = sCur.find_first_not_of(L" \t");
+				if (b != std::wstring::npos)
 				{
-					if (nEnd < sLowCmd.size() && sLowCmd[nEnd] == L'"')
-						++nEnd;
-					if (nBest == std::wstring::npos || nEnd < nBest)
-						nBest = nEnd;
+					const size_t e = sCur.find_last_not_of(L" \t");
+					vOut.push_back(sCur.substr(b, e - b + 1));
+				}
+				sCur.clear();
+			};
+			for (size_t i = 0; i < s.size(); ++i)
+			{
+				const wchar_t c = s[i];
+				if (c == L'"')
+				{
+					fInQuote = !fInQuote;
+					continue;
+				}
+				if (!fInQuote)
+				{
+					if (c == L' ' || c == L'\t' || c == L'\r' || c == L'\n')
+					{
+						flush();
+						continue;
+					}
+					if (c == L'&' || c == L'|' || c == L'<' || c == L'>')
+					{
+						flush();
+						continue;
+					}
+					if (c == L'^' && i + 1 < s.size())
+					{
+						sCur.push_back(s[++i]);
+						continue;
+					}
+				}
+				sCur.push_back(c);
+			}
+			flush();
+			return vOut;
+		}
+
+		struct ProcContext
+		{
+			std::wstring sCwd; // with trailing separator, or empty
+			std::vector<std::pair<std::wstring, std::wstring>> vEnv; // lower-case name, value
+			bool fHaveEnv = false;
+		};
+
+		// Current directory and environment from a live process' parameters
+		// (x64 RTL_USER_PROCESS_PARAMETERS: CurrentDirectory.DosPath at 0x38,
+		// Environment at 0x80, EnvironmentSize at 0x3F0).
+		bool readProcContext(uint32_t nPid, ProcContext& ctx)
+		{
+#ifdef _WIN64
+			if (nPid <= 4)
+				return false;
+			typedef LONG(NTAPI * NtQueryInformationProcessFn)(HANDLE, ULONG, PVOID, ULONG, PULONG);
+			static const auto s_fnQuery = reinterpret_cast<NtQueryInformationProcessFn>(
+				::GetProcAddress(::GetModuleHandleW(L"ntdll.dll"), "NtQueryInformationProcess"));
+			if (!s_fnQuery)
+				return false;
+			HANDLE hProc = ::OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_VM_READ, FALSE, nPid);
+			if (!hProc)
+				return false;
+			struct Pbi
+			{
+				LONG_PTR ExitStatus;
+				ULONG_PTR PebBaseAddress;
+				ULONG_PTR AffinityMask;
+				LONG_PTR BasePriority;
+				ULONG_PTR UniqueProcessId;
+				ULONG_PTR InheritedFromUniqueProcessId;
+			} pbi = {};
+			bool fOk = false;
+			auto readMem = [hProc](ULONG_PTR nAddr, void* pBuf, size_t nSize) {
+				SIZE_T nGot = 0;
+				return nAddr != 0 && ::ReadProcessMemory(hProc, reinterpret_cast<LPCVOID>(nAddr), pBuf, nSize, &nGot) &&
+					nGot == nSize;
+			};
+			do
+			{
+				if (s_fnQuery(hProc, 0 /*ProcessBasicInformation*/, &pbi, sizeof(pbi), nullptr) < 0)
+					break;
+				ULONG_PTR nParams = 0;
+				if (!readMem(pbi.PebBaseAddress + 0x20, &nParams, sizeof(nParams)))
+					break;
+				uint8_t params[0x400] = {};
+				if (!readMem(nParams, params, 0x100))
+					break;
+				const ULONG nLength = *reinterpret_cast<const ULONG*>(params + 0x04);
+				const ULONG nFlags = *reinterpret_cast<const ULONG*>(params + 0x08);
+				if (nLength >= 0x3F8 && !readMem(nParams + 0x100, params + 0x100, 0x300))
+					break;
+				// Not yet normalized: string buffers are offsets from the block.
+				const ULONG_PTR nBias = (nFlags & 1) ? 0 : nParams;
+
+				const USHORT nCwdLen = *reinterpret_cast<const USHORT*>(params + 0x38);
+				const ULONG_PTR nCwdBuf = *reinterpret_cast<const ULONG_PTR*>(params + 0x40);
+				if (nCwdLen > 0 && nCwdLen < 0x8000 && nCwdBuf != 0)
+				{
+					std::wstring sCwd(nCwdLen / sizeof(wchar_t), L'\0');
+					if (readMem(nCwdBuf + nBias, sCwd.data(), nCwdLen))
+					{
+						if (!sCwd.empty() && sCwd.back() != L'\\' && sCwd.back() != L'/')
+							sCwd.push_back(L'\\');
+						ctx.sCwd = sCwd;
+					}
+				}
+
+				const ULONG_PTR nEnv = *reinterpret_cast<const ULONG_PTR*>(params + 0x80);
+				const ULONG_PTR nEnvSize = nLength >= 0x3F8 ? *reinterpret_cast<const ULONG_PTR*>(params + 0x3F0) : 0;
+				if (nEnv != 0 && nEnvSize >= sizeof(wchar_t) && nEnvSize <= 4 * 1024 * 1024)
+				{
+					std::wstring sBlock(nEnvSize / sizeof(wchar_t), L'\0');
+					if (readMem(nEnv, sBlock.data(), sBlock.size() * sizeof(wchar_t)))
+					{
+						size_t p = 0;
+						while (p < sBlock.size() && sBlock[p] != L'\0')
+						{
+							size_t e = sBlock.find(L'\0', p);
+							if (e == std::wstring::npos)
+								e = sBlock.size();
+							const std::wstring sVar = sBlock.substr(p, e - p);
+							// "=C:=C:\dir" entries start with '='; the name is up to the next '='.
+							const size_t nEq = sVar.find(L'=', 1);
+							if (nEq != std::wstring::npos)
+								ctx.vEnv.emplace_back(string::convertToLow(sVar.substr(0, nEq)), sVar.substr(nEq + 1));
+							p = e + 1;
+						}
+						ctx.fHaveEnv = true;
+					}
+				}
+				fOk = !ctx.sCwd.empty() || ctx.fHaveEnv;
+			} while (false);
+			::CloseHandle(hProc);
+			return fOk;
+#else
+			(void)nPid;
+			(void)ctx;
+			return false;
+#endif
+		}
+
+		// %NAME% from the process environment; names it does not have are left
+		// for the service's own environment.
+		std::wstring expandVars(const std::wstring& s, const ProcContext& ctx)
+		{
+			if (s.find(L'%') == std::wstring::npos)
+				return s;
+			std::wstring sOut;
+			size_t i = 0;
+			while (i < s.size())
+			{
+				const size_t a = s.find(L'%', i);
+				if (a == std::wstring::npos)
+				{
+					sOut.append(s, i, std::wstring::npos);
 					break;
 				}
-				nPos = sLowCmd.find(sBase, nPos + 1);
+				const size_t b = s.find(L'%', a + 1);
+				if (b == std::wstring::npos)
+				{
+					sOut.append(s, i, std::wstring::npos);
+					break;
+				}
+				sOut.append(s, i, a - i);
+				const std::wstring sName = string::convertToLow(s.substr(a + 1, b - a - 1));
+				bool fFound = false;
+				for (const auto& kv : ctx.vEnv)
+				{
+					if (kv.first == sName)
+					{
+						sOut += kv.second;
+						fFound = true;
+						break;
+					}
+				}
+				if (!fFound)
+				{
+					wchar_t buf[MAX_PATH * 4] = {};
+					const std::wstring sVar = s.substr(a, b - a + 1);
+					const DWORD n = ctx.fHaveEnv ? 0 :
+						::ExpandEnvironmentStringsW(sVar.c_str(), buf, static_cast<DWORD>(std::size(buf)));
+					sOut += (n > 0 && n <= std::size(buf)) ? std::wstring(buf) : sVar;
+				}
+				i = b + 1;
 			}
+			return sOut;
 		}
-		return nBest;
-	}
 
-	bool containsInterpetatorCmd(const std::wstring& cmdLine)
-	{
-		return findInterpreterEnd(string::convertToLow(cmdLine)) != std::wstring::npos;
-	}
+		bool isExistingFile(const std::wstring& sPath)
+		{
+			const DWORD nAttr = ::GetFileAttributesW(sPath.c_str());
+			return nAttr != INVALID_FILE_ATTRIBUTES && (nAttr & FILE_ATTRIBUTE_DIRECTORY) == 0;
+		}
 
-	// First absolute script path (drive or UNC) after the script host whose
-	// extension is in scanner.scriptExtensions; quotes and spaces end a path
-	// unless the path is quoted. Empty when there is none.
-	std::wstring getFilePath(const std::wstring& cmdLine)
-	{
-		const std::wstring sLow = string::convertToLow(cmdLine);
-		const size_t nFrom = findInterpreterEnd(sLow);
-		if (nFrom == std::wstring::npos)
-			return L"";
-		const auto vExt = DetectionNotifier::getScriptExtensions();
+		bool isDriveAbsolute(const std::wstring& s, size_t k = 0)
+		{
+			return s.size() >= k + 3 && ::iswalpha(s[k]) && s[k + 1] == L':' && (s[k + 2] == L'\\' || s[k + 2] == L'/');
+		}
 
-		auto hasScriptExt = [&vExt](const std::wstring& sLowPath) {
-			const size_t nDot = sLowPath.find_last_of(L'.');
-			if (nDot == std::wstring::npos || sLowPath.find_first_of(L"\\/", nDot) != std::wstring::npos)
+		// Absolute form of a path, or empty when it is relative and the
+		// directory it is relative to is unknown.
+		std::wstring makeAbsolute(const std::wstring& s, const ProcContext& ctx)
+		{
+			if (isDriveAbsolute(s) || (s.size() >= 2 && s[0] == L'\\' && s[1] == L'\\'))
+				return s;
+			if (ctx.sCwd.empty())
+				return L"";
+			if (!s.empty() && (s[0] == L'\\' || s[0] == L'/')) // root of the current drive
+				return isDriveAbsolute(ctx.sCwd) ? ctx.sCwd.substr(0, 2) + s : L"";
+			if (s.size() >= 2 && ::iswalpha(s[0]) && s[1] == L':') // "D:rel"
+			{
+				if (::towlower(s[0]) == ::towlower(ctx.sCwd[0]))
+					return ctx.sCwd + s.substr(2);
+				return s.substr(0, 2) + L"\\" + s.substr(2);
+			}
+			return ctx.sCwd + s;
+		}
+
+		bool hasScriptExt(const std::wstring& sPath, const std::vector<std::wstring>& vExt)
+		{
+			const std::wstring sLow = baseNameLow(sPath);
+			const size_t nDot = sLow.find_last_of(L'.');
+			if (nDot == std::wstring::npos)
 				return false;
-			const std::wstring sExt = sLowPath.substr(nDot + 1);
+			const std::wstring sExt = sLow.substr(nDot + 1);
 			for (const auto& e : vExt)
 				if (e == sExt)
 					return true;
 			return false;
-		};
+		}
 
-		size_t i = nFrom;
-		const size_t n = sLow.size();
-		while (i < n)
+		// Path forms a token can stand for: the token itself, a switch value
+		// (after ':' or '='), an absolute path embedded after a switch letter
+		// (/cC:\x.bat), each also without cmd's ( ) @ , ; decoration.
+		std::vector<std::wstring> candidates(const std::wstring& sTok)
 		{
-			// Next token: quoted, or up to whitespace.
-			while (i < n && (sLow[i] == L' ' || sLow[i] == L'\t'))
-				++i;
-			if (i >= n)
-				break;
-			size_t nStart, nEnd;
-			if (sLow[i] == L'"')
-			{
-				nStart = i + 1;
-				nEnd = sLow.find(L'"', nStart);
-				if (nEnd == std::wstring::npos)
-					nEnd = n;
-				i = nEnd + 1;
-			}
+			std::vector<std::wstring> vRaw;
+			const bool fSwitch = !sTok.empty() && (sTok[0] == L'-' || sTok[0] == L'/');
+			if (!fSwitch)
+				vRaw.push_back(sTok);
 			else
 			{
-				nStart = i;
-				nEnd = sLow.find_first_of(L" \t", nStart);
-				if (nEnd == std::wstring::npos)
-					nEnd = n;
-				i = nEnd;
+				const size_t nSep = sTok.find_first_of(L":=");
+				if (nSep != std::wstring::npos && nSep + 1 < sTok.size())
+					vRaw.push_back(sTok.substr(nSep + 1));
 			}
-			// The token may carry a switch prefix (/c, -File: etc.); take the
-			// absolute path inside it.
-			std::wstring sTokLow = sLow.substr(nStart, nEnd - nStart);
-			size_t nAbs = std::wstring::npos;
-			for (size_t k = 0; k + 1 < sTokLow.size(); ++k)
+			for (size_t k = 1; k + 1 < sTok.size(); ++k)
 			{
-				// Drive "x:\" / "x:/" (not the "e:" of "-File:") or UNC "\\".
-				if ((sTokLow[k] >= L'a' && sTokLow[k] <= L'z' && sTokLow[k + 1] == L':' &&
-					 k + 2 < sTokLow.size() && (sTokLow[k + 2] == L'\\' || sTokLow[k + 2] == L'/')) ||
-					(sTokLow[k] == L'\\' && sTokLow[k + 1] == L'\\'))
+				if (isDriveAbsolute(sTok, k) || (sTok[k] == L'\\' && sTok[k + 1] == L'\\' && sTok[k - 1] != L'\\'))
 				{
-					nAbs = k;
+					vRaw.push_back(sTok.substr(k));
 					break;
 				}
 			}
-			if (nAbs == std::wstring::npos)
-				continue;
-			if (hasScriptExt(sTokLow.substr(nAbs)))
-				return cmdLine.substr(nStart + nAbs, (nEnd - nStart) - nAbs);
+			std::vector<std::wstring> vOut;
+			for (const auto& r : vRaw)
+			{
+				vOut.push_back(r);
+				const size_t b = r.find_first_not_of(L"(@");
+				const size_t e = r.find_last_not_of(L"),;");
+				if (b != std::wstring::npos && e != std::wstring::npos && e >= b && (b != 0 || e != r.size() - 1))
+					vOut.push_back(r.substr(b, e - b + 1));
+			}
+			return vOut;
 		}
-		return L"";
-	}
+
+		// Every existing file named after argv[0], first-seen order, no
+		// duplicates. sScriptOut gets the first one with a script extension,
+		// else the first one.
+		std::vector<std::wstring> findFiles(const std::wstring& cmdLine, uint32_t nPid, uint32_t nParentPid,
+			std::wstring& sScriptOut)
+		{
+			sScriptOut.clear();
+			std::vector<std::wstring> vFiles;
+			std::vector<std::wstring> vTok = tokenize(cmdLine);
+			if (vTok.size() <= 1)
+				return vFiles;
+			vTok.erase(vTok.begin()); // argv[0]
+			// A quoted token holding a command line of its own (cmd /c "x y").
+			const size_t nTop = vTok.size();
+			for (size_t i = 0; i < nTop && vTok.size() < c_nMaxTokens * 2; ++i)
+			{
+				if (vTok[i].find_first_of(L" \t&|<>") != std::wstring::npos)
+				{
+					for (auto& t : tokenize(vTok[i]))
+						vTok.push_back(t);
+				}
+			}
+
+			ProcContext ctx;
+			if (!readProcContext(nPid, ctx) && nParentPid != 0)
+				readProcContext(nParentPid, ctx);
+
+			const auto vExt = DetectionNotifier::getScriptExtensions();
+			std::unordered_set<std::wstring> seen;
+			size_t nTokens = 0;
+			for (const auto& sTok : vTok)
+			{
+				if (++nTokens > c_nMaxTokens * 2)
+					break;
+				for (const auto& sCand : candidates(sTok))
+				{
+					const std::wstring sAbs = makeAbsolute(expandVars(sCand, ctx), ctx);
+					if (sAbs.empty())
+						continue;
+					std::wstring sHit;
+					if (isExistingFile(sAbs))
+						sHit = sAbs;
+					else if (baseNameLow(sAbs).find(L'.') == std::wstring::npos)
+					{
+						// cmd /c run -> run.cmd / run.bat ...
+						for (const auto& e : vExt)
+						{
+							if (isExistingFile(sAbs + L"." + e))
+							{
+								sHit = sAbs + L"." + e;
+								break;
+							}
+						}
+					}
+					if (sHit.empty())
+						continue;
+					if (seen.insert(string::convertToLow(sHit)).second)
+						vFiles.push_back(sHit);
+					break;
+				}
+			}
+			for (const auto& f : vFiles)
+			{
+				if (hasScriptExt(f, vExt))
+				{
+					sScriptOut = f;
+					break;
+				}
+			}
+			if (sScriptOut.empty() && !vFiles.empty())
+				sScriptOut = vFiles.front();
+			return vFiles;
+		}
+	} // namespace ScriptArgs
 
 	Variant readContent(const std::wstring& filePath)
 	{
-		std::ifstream fileStream(filePath);
+		std::ifstream fileStream(filePath, std::ios::binary);
 
 		const uintmax_t fileContentLimit = 100000;
-		const uintmax_t size = std::clamp<uintmax_t>(std::filesystem::file_size(filePath), 0, fileContentLimit);
+		std::error_code ec;
+		const uintmax_t nFileSize = std::filesystem::file_size(filePath, ec);
+		if (ec)
+			return {};
+		const uintmax_t size = std::clamp<uintmax_t>(nFileSize, 0, fileContentLimit);
 
 		if (size == 0)
 			return {};
@@ -3449,9 +3735,9 @@ static void SendThreatAlertToGui(const std::string& sThreat, const std::string& 
 // (openedr_cloud.dll) is a cloud request - inline it would put a network round
 // trip on the single enricher thread for every process start.
 //
-// The engines get a virtual file name with the script host's script extension
-// so script rules apply (powershell -> .ps1, cmd -> .cmd, wscript/cscript ->
-// .vbs, mshta -> .hta).
+// The engines get a virtual file name with the image's script extension from
+// scanner.cmdlineScanNames so script rules apply (powershell -> .ps1, cmd ->
+// .cmd, wscript/cscript -> .vbs, mshta -> .hta ...).
 // Malicious: that process is terminated. Its image is NOT quarantined or
 // blacklisted - for a command-line hit it is usually a system binary
 // (powershell.exe, mshta.exe) and the threat is the arguments. The process
@@ -3530,7 +3816,35 @@ static void worker()
 	}
 }
 
-static void enqueue(const std::wstring& wsCmd, uint32_t nPid)
+// "cmdline.<ext>" for the image's entry in scanner.cmdlineScanNames
+// ("host=ext"), "cmdline.txt" when it has none.
+static std::string virtualName(const std::wstring& wsImage, const std::wstring& wsCmd)
+{
+	std::wstring sName = wsImage;
+	if (sName.empty())
+	{
+		const auto vArgv = ScriptArgs::tokenize(wsCmd);
+		if (!vArgv.empty())
+			sName = vArgv.front();
+	}
+	const std::wstring sBase = ScriptArgs::stripExe(ScriptArgs::baseNameLow(sName));
+	for (const auto& sEntry : DetectionNotifier::getCmdlineScanNames())
+	{
+		const size_t nEq = sEntry.find(L'=');
+		if (nEq == std::wstring::npos || nEq + 1 >= sEntry.size())
+			continue;
+		if (ScriptArgs::stripExe(sEntry.substr(0, nEq)) == sBase)
+		{
+			std::string sExt;
+			for (wchar_t c : sEntry.substr(nEq + 1))
+				sExt.push_back(static_cast<char>(c));
+			return "cmdline." + sExt;
+		}
+	}
+	return "cmdline.txt";
+}
+
+static void enqueue(const std::wstring& wsCmd, uint32_t nPid, const std::wstring& wsImage)
 {
 	if (wsCmd.empty())
 		return;
@@ -3543,16 +3857,7 @@ static void enqueue(const std::wstring& wsCmd, uint32_t nPid)
 	{
 		return;
 	}
-	const std::wstring sLow = string::convertToLow(wsCmd);
-	item.sName = "cmdline.txt";
-	if (sLow.find(L"powershell") != std::wstring::npos || sLow.find(L"pwsh") != std::wstring::npos)
-		item.sName = "cmdline.ps1";
-	else if (sLow.find(L"mshta") != std::wstring::npos)
-		item.sName = "cmdline.hta";
-	else if (sLow.find(L"wscript") != std::wstring::npos || sLow.find(L"cscript") != std::wstring::npos)
-		item.sName = "cmdline.vbs";
-	else if (sLow.find(L"cmd.exe") != std::wstring::npos)
-		item.sName = "cmdline.cmd";
+	item.sName = virtualName(wsImage, wsCmd);
 	item.nPid = nPid;
 	if (nPid > 4)
 		item.hProcess = ::OpenProcess(PROCESS_TERMINATE, FALSE, nPid);
@@ -5161,26 +5466,52 @@ void EventEnricher::put(const Variant& vEventRef)
 		// The command line itself through ClamAV / YARA-X / ML (queued, see
 		// CmdScanQueue). It only ever reached the policy rules, so an encoded
 		// PowerShell or a mshta/rundll32 one-liner never met the signatures.
-		CmdScanQueue::enqueue(cmdLine, nNewPid);
-
-		if (containsInterpetatorCmd(cmdLine))
+		std::wstring wsImgPath;
+		try
 		{
-			const std::wstring scriptPath = getFilePath(cmdLine);
-			const Variant scriptContent = !scriptPath.empty() ? readContent(scriptPath) : Variant();
+			wsImgPath = string::convertUtf8ToWChar(sImgPath);
+		}
+		catch (...) {}
+		CmdScanQueue::enqueue(cmdLine, nNewPid, wsImgPath);
 
-			if (!scriptContent.isEmpty())
+		// Script host by its image (scanner.scriptInterpreters); argv[0] only
+		// when the image path is unknown.
+		bool fScriptHost = false;
+		if (!wsImgPath.empty())
+			fScriptHost = ScriptArgs::isScriptHost(wsImgPath);
+		else
+		{
+			const auto vArgv = ScriptArgs::tokenize(cmdLine);
+			fScriptHost = !vArgv.empty() && ScriptArgs::isScriptHost(vArgv.front());
+		}
+		if (fScriptHost)
+		{
+			std::wstring scriptPath;
+			std::vector<std::wstring> vFiles;
+			try
 			{
-				vEvent.put("scriptContent", scriptContent);
+				vFiles = ScriptArgs::findFiles(cmdLine, nNewPid, nParentPid, scriptPath);
 			}
+			catch (...) {}
 
-			// The script file is scanned like a dropped file (full engines,
-			// quarantined when Malicious). Its text used to be attached to the
-			// event and nothing else.
 			if (!scriptPath.empty())
 			{
 				try
 				{
-					AsyncRescanAndQuarantine(string::convertWCharToUtf8(scriptPath), nNewPid);
+					const Variant scriptContent = readContent(scriptPath);
+					if (!scriptContent.isEmpty())
+						vEvent.put("scriptContent", scriptContent);
+				}
+				catch (...) {}
+			}
+
+			// Every file the host was handed is scanned like a dropped file
+			// (full engines, quarantined when Malicious).
+			for (const auto& sFile : vFiles)
+			{
+				try
+				{
+					AsyncRescanAndQuarantine(string::convertWCharToUtf8(sFile), nNewPid);
 				}
 				catch (...) {}
 			}

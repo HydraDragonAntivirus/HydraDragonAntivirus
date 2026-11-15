@@ -737,6 +737,11 @@ static std::vector<std::wstring> s_scriptInterpreters = {
 static std::vector<std::wstring> s_scriptExtensions = {
 	L"cmd", L"bat", L"ps1", L"psm1", L"psd1", L"vbs", L"vbe", L"js", L"jse",
 	L"wsf", L"wsh", L"hta", L"sct", L"py", L"pyw", L"pl", L"rb", L"php" };
+static std::vector<std::wstring> s_cmdlineScanNames = {
+	L"cmd.exe=cmd", L"powershell.exe=ps1", L"powershell_ise.exe=ps1", L"pwsh.exe=ps1",
+	L"wscript.exe=vbs", L"cscript.exe=vbs", L"mshta.exe=hta",
+	L"python.exe=py", L"pythonw.exe=py", L"py.exe=py", L"pyw.exe=py", L"py3.exe=py",
+	L"node.exe=js", L"perl.exe=pl", L"ruby.exe=rb", L"php.exe=php" };
 
 std::vector<std::wstring> DetectionNotifier::getScriptInterpreters()
 {
@@ -748,6 +753,12 @@ std::vector<std::wstring> DetectionNotifier::getScriptExtensions()
 {
 	std::lock_guard<std::mutex> lock(s_mtxScriptLists);
 	return s_scriptExtensions;
+}
+
+std::vector<std::wstring> DetectionNotifier::getCmdlineScanNames()
+{
+	std::lock_guard<std::mutex> lock(s_mtxScriptLists);
+	return s_cmdlineScanNames;
 }
 std::vector<int> DetectionNotifier::s_unknownVerdicts{0, 3, 4};
 std::mutex DetectionNotifier::s_unknownVerdictsMtx;
@@ -826,6 +837,7 @@ void DetectionNotifier::loadScannerConfigFromCfg(const std::string& content)
 	};
 	extractStringArray("scriptInterpreters", s_scriptInterpreters);
 	extractStringArray("scriptExtensions", s_scriptExtensions);
+	extractStringArray("cmdlineScanNames", s_cmdlineScanNames);
 
 	size_t kp = content.find("\"unknownVerdicts\"");
 	if (kp != std::string::npos)

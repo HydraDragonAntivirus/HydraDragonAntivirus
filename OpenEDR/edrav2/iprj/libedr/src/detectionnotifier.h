@@ -91,6 +91,12 @@ public:
 	///
 	static std::vector<std::wstring> getScriptInterpreters();
 	static std::vector<std::wstring> getScriptExtensions();
+
+	///
+	/// scanner.cmdlineScanNames: "host=ext" entries, lower case. A process'
+	/// command line is scanned as "cmdline.<ext>" of its image's entry.
+	///
+	static std::vector<std::wstring> getCmdlineScanNames();
 	// Authenticode + signer_rules trust check via openedr_static, without a scan.
 	// pSignerOut, when given, receives the publisher name (for diagnostics).
 	static bool isFileSignatureTrusted(const std::string& sUtf8Path, std::string* pSignerOut = nullptr);
