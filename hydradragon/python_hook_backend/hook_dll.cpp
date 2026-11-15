@@ -896,11 +896,15 @@ static LONG   g_blob_attempts = 0;
 
 static bool IsValidMarshalTag(unsigned char tag) {
     switch (tag) {
-        case 'i': case 'I': case 'f': case 'g': case 'x': case 'y':
-        case 'l': case 's': case 't': case 'r': case '(': case '[':
-        case '{': case 'c': case 'u': case '?': case '<': case '>':
-        case 'N': case 'F': case 'T': case 'S': case '.': case 'a':
-        case 'A': case ')': case 'z': case 'Z':
+        // Python marshal tags + Nuitka constant stream tags
+        case 'i': case 'I': case 'f': case 'g': case 'G': case 'x': case 'y':
+        case 'l': case 'L': case 's': case 'S': case 't': case 'T': case 'r':
+        case '(': case '[': case '{': case 'c': case 'C': case 'u': case '?':
+        case '<': case '>': case 'N': case 'n': case 'F': case 'a': case 'A':
+        case ')': case 'z': case 'Z': case 'D': case 'b': case 'B': case 'v':
+        case 'q': case 'X': case 'W': case 'K': case 'Y': case 'P': case ':':
+        case ';': case 'M': case 'Q': case 'O': case 'E': case 'j': case 'J':
+        case 'w': case '.': case 'H': case 'p': case 'e':
             return true;
         default:
             return false;
@@ -929,15 +933,25 @@ static int ChooseSectionLayout(const unsigned char* end, const unsigned char* na
         return false;
     };
 
-    // Pass 1: Strict check with marshal tag signature to accurately resolve layout
+    // Pass 1: Strict check with marshal/Nuitka stream tag signature (size_only preferred over size_count)
+    const unsigned char* data_start_only = name_end + 5;
+    if (section_size > 0 && section_size <= 128 * 1024 * 1024 &&
+        data_start_only + section_size <= end) {
+        if (IsValidMarshalTag(*data_start_only) && is_valid_next(data_start_only + section_size)) {
+            *out_size = section_size;
+            *out_data_offset = 5;
+            return 1; // size_only
+        }
+    }
+
     if (name_end + 7 <= end) {
         unsigned short item_count;
         memcpy(&item_count, name_end + 5, 2);
-        const unsigned char* data_start = name_end + 7;
+        const unsigned char* data_start_count = name_end + 7;
         if (section_size > 0 && section_size <= 128 * 1024 * 1024 &&
-            data_start + section_size <= end &&
+            data_start_count + section_size <= end &&
             item_count > 0 && item_count < 65000 && section_size >= item_count) {
-            if (IsValidMarshalTag(*data_start) && is_valid_next(data_start + section_size)) {
+            if (IsValidMarshalTag(*data_start_count) && is_valid_next(data_start_count + section_size)) {
                 *out_size = section_size;
                 *out_data_offset = 7;
                 return 2; // size_count
@@ -945,38 +959,28 @@ static int ChooseSectionLayout(const unsigned char* end, const unsigned char* na
         }
     }
 
-    const unsigned char* data_start = name_end + 5;
+    // Pass 2: Structural fallback (size_only first, then size_count)
     if (section_size > 0 && section_size <= 128 * 1024 * 1024 &&
-        data_start + section_size <= end) {
-        if (IsValidMarshalTag(*data_start) && is_valid_next(data_start + section_size)) {
+        data_start_only + section_size <= end) {
+        if (is_valid_next(data_start_only + section_size)) {
             *out_size = section_size;
             *out_data_offset = 5;
             return 1; // size_only
         }
     }
 
-    // Pass 2: Fallback to structural check only (in case of new/custom marshal tags)
     if (name_end + 7 <= end) {
         unsigned short item_count;
         memcpy(&item_count, name_end + 5, 2);
-        const unsigned char* data_start = name_end + 7;
+        const unsigned char* data_start_count = name_end + 7;
         if (section_size > 0 && section_size <= 128 * 1024 * 1024 &&
-            data_start + section_size <= end &&
+            data_start_count + section_size <= end &&
             item_count > 0 && item_count < 65000 && section_size >= item_count) {
-            if (is_valid_next(data_start + section_size)) {
+            if (is_valid_next(data_start_count + section_size)) {
                 *out_size = section_size;
                 *out_data_offset = 7;
                 return 2; // size_count
             }
-        }
-    }
-
-    if (section_size > 0 && section_size <= 128 * 1024 * 1024 &&
-        data_start + section_size <= end) {
-        if (is_valid_next(data_start + section_size)) {
-            *out_size = section_size;
-            *out_data_offset = 5;
-            return 1; // size_only
         }
     }
 
@@ -1091,6 +1095,9 @@ static const char* LookupModuleName(const unsigned char* data) {
 
 static void DumpNuitkaBlob();
 
+static void* g_synth_blob_buf = nullptr;
+static void ScanProcessModulesForNuitkaBlob();
+
 static void DetectNuitkaBlob(const char* data, ptrdiff_t len) {
     if (InterlockedCompareExchange(&g_blob_found, 1, 1) == 1 || !data || len < 1) {
         return;
@@ -1098,9 +1105,16 @@ static void DetectNuitkaBlob(const char* data, ptrdiff_t len) {
 
     if (g_marshal_dump_dir[0] == '\0') return;
 
-    if (InterlockedIncrement(&g_blob_attempts) > 20) {
+    LONG attempt = InterlockedIncrement(&g_blob_attempts);
+    if (attempt > 20) {
         InterlockedExchange(&g_blob_found, 1);
         return;
+    }
+    if (attempt == 1) {
+        ScanProcessModulesForNuitkaBlob();
+        if (InterlockedCompareExchange(&g_blob_found, 1, 1) == 1) {
+            return;
+        }
     }
 
     const unsigned char* udata = (const unsigned char*)data;
@@ -1225,6 +1239,145 @@ static void DumpNuitkaBlob() {
     CloseHandle(hFile);
 
     dbgPrintf("[BLOB] Dumped Nuitka blob: %s (%zu bytes)\n", path, g_blob_size);
+}
+
+static bool ScanMemoryRangeForNuitkaBlob(const unsigned char* base, size_t len) {
+    if (!base || len < 64) return false;
+    const unsigned char* end = base + len;
+    const char anchor[] = ".bytecode";
+    const size_t anchor_len = 10; // includes trailing '\0'
+
+    for (size_t off = 0; off + anchor_len + 8 <= len; ++off) {
+        if (base[off] != '.') continue;
+        if (memcmp(base + off, anchor, anchor_len) != 0) continue;
+
+        // Case 1: Framed blob (`[crc32(4)][total_sz(4)]` immediately before `.bytecode\0` or preceded by `\0\0`).
+        for (int back = 8; back <= 24; back += 4) {
+            if (off < (size_t)back) continue;
+            const unsigned char* hdr = base + off - back;
+            uint32_t tsz = 0;
+            memcpy(&tsz, hdr + 4, 4);
+            if (tsz >= 64 && tsz <= (uint32_t)(end - (hdr + 8))) {
+                if (ValidateBlobHeader(hdr, end)) {
+                    g_blob_start = (void*)hdr;
+                    g_blob_size = (size_t)tsz + 8;
+                    InterlockedExchange(&g_blob_found, 1);
+                    dbgPrintf("[BLOB] Proactive PE scan found framed Nuitka blob @ 0x%p (%zu bytes)\n",
+                              g_blob_start, g_blob_size);
+                    ParseBlobEntries();
+                    DumpNuitkaBlob();
+                    return true;
+                }
+            }
+        }
+
+        // Case 2: Unframed `.bytecode\0` stream (synthesize `[0][stream_sz]` header for uniform downstream parsing).
+        const unsigned char* stream_start = base + off;
+        const unsigned char* ptr = stream_start;
+        int entry_count = 0;
+        const unsigned char* stream_end = stream_start;
+        while (ptr < end && entry_count < 4096) {
+            while (ptr < end && *ptr == 0) {
+                ptr++;
+            }
+            if (ptr >= end - 5) break;
+            const unsigned char* name_end = (const unsigned char*)memchr(ptr, 0, (size_t)(end - ptr));
+            if (!name_end || name_end >= end - 4) break;
+            ptrdiff_t name_len = name_end - ptr;
+            if (name_len < 1 || name_len > 250) break;
+
+            unsigned int section_size = 0;
+            unsigned int data_offset = 0;
+            int layout = ChooseSectionLayout(end, name_end, &section_size, &data_offset);
+            if (layout == 0) break;
+
+            entry_count++;
+            ptr = name_end + data_offset + section_size;
+            stream_end = ptr;
+        }
+        if (entry_count >= 3 && (size_t)(stream_end - stream_start) >= 64) {
+            size_t payload_sz = (size_t)(stream_end - stream_start);
+            size_t total_sz = payload_sz + 8;
+            unsigned char* buf = (unsigned char*)malloc(total_sz);
+            if (buf) {
+                uint32_t zero_crc = 0;
+                uint32_t sz32 = (uint32_t)payload_sz;
+                memcpy(buf, &zero_crc, 4);
+                memcpy(buf + 4, &sz32, 4);
+                memcpy(buf + 8, stream_start, payload_sz);
+                if (g_synth_blob_buf) free(g_synth_blob_buf);
+                g_synth_blob_buf = buf;
+                g_blob_start = (void*)buf;
+                g_blob_size = total_sz;
+                InterlockedExchange(&g_blob_found, 1);
+                dbgPrintf("[BLOB] Proactive PE scan framed raw Nuitka stream @ 0x%p (%zu bytes, %d chunks)\n",
+                          (const void*)stream_start, total_sz, entry_count);
+                ParseBlobEntries();
+                DumpNuitkaBlob();
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+static bool ScanPeModuleSectionsForBlob(HMODULE hMod) {
+    if (!hMod) return false;
+    __try {
+        const unsigned char* mod_base = (const unsigned char*)hMod;
+        const IMAGE_DOS_HEADER* dos = (const IMAGE_DOS_HEADER*)mod_base;
+        if (dos->e_magic != IMAGE_DOS_SIGNATURE) return false;
+        const IMAGE_NT_HEADERS* nt = (const IMAGE_NT_HEADERS*)(mod_base + dos->e_lfanew);
+        if (nt->Signature != IMAGE_NT_SIGNATURE) return false;
+
+        const IMAGE_SECTION_HEADER* sec = IMAGE_FIRST_SECTION(nt);
+        WORD num_sec = nt->FileHeader.NumberOfSections;
+        for (WORD i = 0; i < num_sec; ++i) {
+            char sec_name[9] = {0};
+            memcpy(sec_name, sec[i].Name, 8);
+            if (_stricmp(sec_name, ".rdata") == 0 ||
+                _stricmp(sec_name, ".data") == 0 ||
+                _stricmp(sec_name, ".rsrc") == 0) {
+                DWORD sz = sec[i].Misc.VirtualSize ? sec[i].Misc.VirtualSize : sec[i].SizeOfRawData;
+                if (sz >= 64) {
+                    const unsigned char* sec_ptr = mod_base + sec[i].VirtualAddress;
+                    if (ScanMemoryRangeForNuitkaBlob(sec_ptr, (size_t)sz)) {
+                        return true;
+                    }
+                }
+            }
+        }
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        return false;
+    }
+    return false;
+}
+
+static void ScanProcessModulesForNuitkaBlob() {
+    if (InterlockedCompareExchange(&g_blob_found, 1, 1) == 1) return;
+
+    // 1. Prioritize the main executable first.
+    HMODULE hMain = GetModuleHandleW(NULL);
+    if (hMain && ScanPeModuleSectionsForBlob(hMain)) {
+        return;
+    }
+
+    // 2. Walk loaded modules (DLLs / Nuitka PYDs), skipping OS system paths.
+    HANDLE hSnap = CreateToolhelp32Snapshot(TH32CS_SNAPMODULE, GetCurrentProcessId());
+    if (hSnap == INVALID_HANDLE_VALUE) return;
+
+    MODULEENTRY32W me;
+    me.dwSize = sizeof(me);
+    if (Module32FirstW(hSnap, &me)) {
+        do {
+            if (me.hModule == hMain) continue;
+            if (_wcsnicmp(me.szExePath, L"C:\\Windows\\", 11) == 0) continue;
+            if (ScanPeModuleSectionsForBlob(me.hModule)) {
+                break;
+            }
+        } while (Module32NextW(hSnap, &me));
+    }
+    CloseHandle(hSnap);
 }
 
 // The hook — called instead of PyMarshal_ReadObjectFromString.
@@ -1529,6 +1682,10 @@ static bool SetupMarshalHook(HMODULE hPyDll) {
         dbgPrintf("[HOOK] WARNING: PyEval_EvalCode/PyEval_EvalCodeEx not exported, skipping\n");
     }
 
+    if (g_marshal_dump_dir[0] != '\0') {
+        ScanProcessModulesForNuitkaBlob();
+    }
+
     return true;
 }
 
@@ -1757,6 +1914,7 @@ static bool CacheMarshalWriteFunc() {
         CreateDirectoryA(g_marshal_dump_dir, NULL);
     }
     dbgPrintf("[HOOK] Marshal dump dir: %s\n", g_marshal_dump_dir);
+    ScanProcessModulesForNuitkaBlob();
 
     // Extract magic number: import importlib.util; MAGIC_NUMBER
     void* importlib_util = g_PyImport_ImportModule("importlib.util");
@@ -2415,6 +2573,10 @@ extern "C" __declspec(dllexport) DWORD WINAPI HydraStartHook() {
   g_blob_start = nullptr;
   g_blob_size  = 0;
   g_blob_entry_count = 0;
+  if (g_synth_blob_buf) {
+    free(g_synth_blob_buf);
+    g_synth_blob_buf = nullptr;
+  }
   g_marshal_dump_dir[0] = '\0';
 
   unsigned threadId = 0;

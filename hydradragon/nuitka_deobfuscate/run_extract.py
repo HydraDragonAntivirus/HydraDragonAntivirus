@@ -486,419 +486,23 @@ from math import copysign as _copysign
 
 _NBC_END_OF_STREAM = object()
 _NBC_PARSE_ERROR = object()
-_nbc_last_unpacked = None
-_NBC_TARGET_PYTHON = _sys.version_info[:2]
-
-
-def _nbc_normalize_python_version(version):
-    if version is None:
-        return tuple(_NBC_TARGET_PYTHON[:2])
-    if isinstance(version, (list, tuple)):
-        if not version:
-            return tuple(_NBC_TARGET_PYTHON[:2])
-        return (int(version[0]), int(version[1]))
-    if isinstance(version, str):
-        m = re.match(r"^\s*(\d+)\.(\d+)", version)
-        if m:
-            return (int(m.group(1)), int(m.group(2)))
-        return tuple(_NBC_TARGET_PYTHON[:2])
-    try:
-        return (int(version[0]), int(version[1]))
-    except Exception:
-        return tuple(_NBC_TARGET_PYTHON[:2])
-
-
-def _nbc_set_target(version):
-    global _NBC_TARGET_PYTHON
-    _NBC_TARGET_PYTHON = _nbc_normalize_python_version(version)
-
-
-def _nbc_target_hex(version=None):
-    major, minor = _nbc_normalize_python_version(version)
-    return (major << 8) | (minor << 4)
-
-
-def _nbc_read_vlq(data, pos, *, max_bits=64):
-    result = 0
-    shift = 0
-    end = len(data)
-    while pos < end:
-        byte = data[pos]
-        pos += 1
-        result |= (byte & 0x7F) << shift
-        if byte < 0x80:
-            return result, pos
-        shift += 7
-        if shift >= max_bits + 7:
-            break
-    return result, pos
-
-
-def _nbc_parse_code_object_tag(data, pos, python_version=None):
-    try:
-        py_hex = _nbc_target_hex(python_version)
-        flags, pos = _nbc_read_vlq(data, pos)
-        flag_base = 1
-        func_name, pos = _nbc_unpack_single(data, pos)
-        if not isinstance(func_name, str):
-            func_name = str(func_name) if func_name else "<unknown>"
-        line_number, pos = _nbc_read_vlq(data, pos)
-        line_number += 1
-        arg_names, pos = _nbc_unpack_single(data, pos)
-        if not isinstance(arg_names, tuple):
-            arg_names = ()
-        arg_count, pos = _nbc_read_vlq(data, pos)
-        qualname = func_name
-        if py_hex >= 0x3B0:
-            if flags & flag_base:
-                qualname, pos = _nbc_unpack_single(data, pos)
-                if not isinstance(qualname, str):
-                    qualname = func_name
-            flag_base <<= 1
-        free_vars = ()
-        if flags & flag_base:
-            free_vars, pos = _nbc_unpack_single(data, pos)
-            if not isinstance(free_vars, tuple):
-                free_vars = ()
-        flag_base <<= 1
-        kw_only = 0
-        if py_hex >= 0x300:
-            if flags & flag_base:
-                kw_only, pos = _nbc_read_vlq(data, pos)
-                kw_only += 1
-            flag_base <<= 1
-        pos_only = 0
-        if py_hex >= 0x380:
-            if flags & flag_base:
-                pos_only, pos = _nbc_read_vlq(data, pos)
-                pos_only += 1
-            flag_base <<= 1
-        co_flags = 0
-        gen_bits = (flags >> (flag_base.bit_length() - 1)) & 3
-        if py_hex >= 0x360 and gen_bits == 3:
-            co_flags |= 0x200
-        elif py_hex >= 0x350 and gen_bits == 2:
-            co_flags |= 0x100
-        elif gen_bits == 1:
-            co_flags |= 0x20
-        flag_base <<= 2
-        if flags & flag_base:
-            co_flags |= 0x01
-        flag_base <<= 1
-        if flags & flag_base:
-            co_flags |= 0x02
-        flag_base <<= 1
-        if flags & flag_base:
-            co_flags |= 0x04
-        flag_base <<= 1
-        if flags & flag_base:
-            co_flags |= 0x08
-        return {
-            '_type': 'CodeObject',
-            'name': func_name,
-            'qualname': qualname,
-            'line': line_number,
-            'args': list(arg_names),
-            'argcount': arg_count,
-            'kwonly': kw_only,
-            'posonly': pos_only,
-            'freevars': list(free_vars),
-            'flags': co_flags,
-        }, pos
-    except Exception:
-        return {'_type': 'CodeObject', 'name': '<parse_error>'}, pos
-
-
-def _nbc_unpack_constant_inner(data, pos, ch, marker):
-    if ch in ('a', 'u'):
-        end = data.find(b'\x00', pos)
-        if end == -1 or end > pos + 65536:
-            return "", pos
-        return data[pos:end].decode('utf-8', errors='replace'), end + 1
-    elif ch == 'w':
-        if pos < len(data):
-            return data[pos:pos + 1].decode('utf-8', errors='replace'), pos + 1
-        return "", pos
-    elif ch == 'v':
-        size, pos = _nbc_read_vlq(data, pos)
-        if pos + size > len(data):
-            return "", pos
-        return data[pos:pos + size].decode('utf-8', errors='replace'), pos + size
-    elif ch == 's':
-        return "", pos
-    elif ch == 'c':
-        end = data.find(b'\x00', pos)
-        if end == -1 or end > pos + 65536:
-            return b'', pos
-        return data[pos:end], end + 1
-    elif ch == 'b':
-        size, pos = _nbc_read_vlq(data, pos)
-        if pos + size > len(data):
-            return b'', pos
-        return data[pos:pos + size], pos + size
-    elif ch == 'B':
-        size, pos = _nbc_read_vlq(data, pos)
-        if pos + size > len(data):
-            return bytearray(), pos
-        return bytearray(data[pos:pos + size]), pos + size
-    elif ch == 'd':
-        if pos < len(data):
-            return bytes([data[pos]]), pos + 1
-        return b'', pos
-    elif ch == 'n':
-        return None, pos
-    elif ch == 't':
-        return True, pos
-    elif ch == 'F':
-        return False, pos
-    elif ch == 'l':
-        value, pos = _nbc_read_vlq(data, pos)
-        return value, pos
-    elif ch == 'q':
-        value, pos = _nbc_read_vlq(data, pos)
-        return -value, pos
-    elif ch == 'I':
-        value, pos = _nbc_read_vlq(data, pos)
-        return -value, pos
-    elif ch == 'i':
-        value, pos = _nbc_read_vlq(data, pos)
-        return value, pos
-    elif ch in ('g', 'G'):
-        is_negative = (ch == 'G')
-        num_parts, pos = _nbc_read_vlq(data, pos)
-        result = 0
-        for _ in range(num_parts):
-            result <<= 31
-            part, pos = _nbc_read_vlq(data, pos)
-            result += part
-        return (-result if is_negative else result), pos
-    elif ch == 'f':
-        if pos + 8 <= len(data):
-            return struct.unpack('<d', data[pos:pos + 8])[0], pos + 8
-        return 0.0, pos
-    elif ch == 'Z':
-        if pos < len(data):
-            v = data[pos]
-            pos += 1
-            if v == 0:
-                return 0.0, pos
-            elif v == 1:
-                return -0.0, pos
-            elif v == 2:
-                return float('nan'), pos
-            elif v == 3:
-                return _copysign(float('nan'), -1.0), pos
-            elif v == 4:
-                return float('inf'), pos
-            elif v == 5:
-                return float('-inf'), pos
-            else:
-                return 0.0, pos
-        return 0.0, pos
-    elif ch == 'j':
-        if pos + 16 <= len(data):
-            real = struct.unpack('<d', data[pos:pos + 8])[0]
-            imag = struct.unpack('<d', data[pos + 8:pos + 16])[0]
-            return complex(real, imag), pos + 16
-        return 0j, pos
-    elif ch == 'J':
-        parts = []
-        for _ in range(2):
-            item, pos = _nbc_unpack_single(data, pos)
-            parts.append(item if item is not None else 0.0)
-        try:
-            return complex(parts[0], parts[1]), pos
-        except (TypeError, ValueError):
-            return 0j, pos
-    elif ch == 'T':
-        count, pos = _nbc_read_vlq(data, pos)
-        if count > 50000:
-            return (), pos
-        items = []
-        for _ in range(count):
-            item, pos = _nbc_unpack_single(data, pos)
-            items.append(item)
-        return tuple(items), pos
-    elif ch == 'L':
-        count, pos = _nbc_read_vlq(data, pos)
-        if count > 50000:
-            return [], pos
-        items = []
-        for _ in range(count):
-            item, pos = _nbc_unpack_single(data, pos)
-            items.append(item)
-        return items, pos
-    elif ch == 'D':
-        count, pos = _nbc_read_vlq(data, pos)
-        if count > 50000:
-            return {}, pos
-        keys = []
-        for _ in range(count):
-            k, pos = _nbc_unpack_single(data, pos)
-            keys.append(k)
-        values = []
-        for _ in range(count):
-            v, pos = _nbc_unpack_single(data, pos)
-            values.append(v)
-        d = {}
-        for k, v in zip(keys, values):
-            try:
-                d[k] = v
-            except TypeError:
-                pass
-        return d, pos
-    elif ch == 'S':
-        count, pos = _nbc_read_vlq(data, pos)
-        if count > 50000:
-            return set(), pos
-        items = []
-        for _ in range(count):
-            item, pos = _nbc_unpack_single(data, pos)
-            items.append(item)
-        try:
-            return set(items), pos
-        except TypeError:
-            return set(), pos
-    elif ch in ('P', 'R'):
-        count, pos = _nbc_read_vlq(data, pos)
-        if count > 50000:
-            return frozenset(), pos
-        items = []
-        for _ in range(count):
-            item, pos = _nbc_unpack_single(data, pos)
-            items.append(item)
-        try:
-            return frozenset(items), pos
-        except TypeError:
-            return frozenset(), pos
-    elif ch == 'X':
-        size, pos = _nbc_read_vlq(data, pos)
-        blob = data[pos:pos + size] if pos + size <= len(data) else b''
-        return blob, pos + size
-    elif ch == 'M':
-        if pos < len(data):
-            anon_values = {
-                0: '<type NoneType>',
-                1: '<type ellipsis>',
-                2: '<type NotImplementedType>',
-                3: '<type function>',
-                4: '<type generator>',
-                5: '<type builtin_function_or_method>',
-                6: '<type code>',
-                7: '<type module>',
-                8: '<type file>',
-                9: '<type classobj>',
-                10: '<type UnionType>',
-                11: '<type instancemethod>',
-            }
-            return anon_values.get(data[pos], f'<builtin_M_{data[pos]}>'), pos + 1
-        return _NBC_PARSE_ERROR, pos
-    elif ch == 'Q':
-        if pos < len(data):
-            special_values = {
-                0: Ellipsis,
-                1: NotImplemented,
-                2: '<sys.version_info>',
-            }
-            return special_values.get(data[pos], f'<builtin_Q_{data[pos]}>'), pos + 1
-        return _NBC_PARSE_ERROR, pos
-    elif ch in ('O', 'E'):
-        end = data.find(b'\x00', pos)
-        if end == -1:
-            return _NBC_PARSE_ERROR, pos
-        return data[pos:end].decode('utf-8', errors='replace'), end + 1
-    elif ch == ':':
-        items = []
-        for _ in range(3):
-            item, pos = _nbc_unpack_single(data, pos)
-            items.append(item)
-        return ('slice', items[0], items[1], items[2]), pos
-    elif ch == ';':
-        items = []
-        for _ in range(3):
-            item, pos = _nbc_unpack_single(data, pos)
-            items.append(item)
-        return ('range', items[0], items[1], items[2]), pos
-    elif ch == 'A':
-        parts = []
-        for _ in range(2):
-            item, pos = _nbc_unpack_single(data, pos)
-            parts.append(item)
-        return ('GenericAlias', parts[0], parts[1]), pos
-    elif ch == 'H':
-        args, pos = _nbc_unpack_single(data, pos)
-        return ('UnionType', args), pos
-    elif ch == 'C':
-        co_info, pos = _nbc_parse_code_object_tag(data, pos)
-        return co_info, pos
-    elif ch == '.':
-        return _NBC_END_OF_STREAM, pos
-    else:
-        return _NBC_PARSE_ERROR, pos
-
-
-def _nbc_unpack_single(data, pos):
-    global _nbc_last_unpacked
-    if pos >= len(data):
-        return _NBC_PARSE_ERROR, pos
-    marker = data[pos]
-    ch = chr(marker) if 32 <= marker < 127 else None
-    pos += 1
-    if ch == 'p':
-        return _nbc_last_unpacked, pos
-    if ch == '.':
-        return _NBC_END_OF_STREAM, pos
-    result = _nbc_unpack_constant_inner(data, pos, ch, marker)
-    if result is not None:
-        val, pos = result
-        _nbc_last_unpacked = val
-        return val, pos
-    _nbc_last_unpacked = None
-    return _NBC_PARSE_ERROR, pos
-
-
-def _nbc_decode_constants_stream(stream_data: bytes, count: int, *, python_version=None, start_pos: int = 0):
-    global _nbc_last_unpacked
-    _nbc_last_unpacked = None
-    old_target = _NBC_TARGET_PYTHON
-    _nbc_set_target(python_version or old_target)
-    constants = []
-    pos = start_pos
-    try:
-        for _ in range(count):
-            if pos >= len(stream_data):
-                break
-            val, new_pos = _nbc_unpack_single(stream_data, pos)
-            if new_pos <= pos:
-                break
-            pos = new_pos
-            if val is _NBC_END_OF_STREAM:
-                break
-            if val is _NBC_PARSE_ERROR:
-                break
-            constants.append(val)
-    finally:
-        _nbc_last_unpacked = None
-        _nbc_set_target(old_target)
-    return constants, pos
-
-
-def _nbc_parse_module_constants(chunk_data: bytes, python_version=None) -> list:
-    if len(chunk_data) < 2:
-        return []
-    try:
-        count = struct.unpack('<H', chunk_data[0:2])[0]
-    except Exception:
-        return []
-    if count == 0 or count > 50000:
-        return []
-    constants, _pos = _nbc_decode_constants_stream(
-        chunk_data,
-        count,
-        python_version=python_version,
-        start_pos=2,
-    )
-    return constants
+from .run_extract_cli import (
+    _auto_extract_blob_from_input,
+    _choose_blob_chunk_layout,
+    _is_valid_next_chunk_pos,
+    _nbc_decode_constants_stream,
+    _nbc_parse_class_code_object_tag,
+    _nbc_parse_code_object_tag,
+    _nbc_parse_generator_expression_code_object_tag,
+    _nbc_parse_module_constants,
+    _nbc_read_vlq,
+    _nbc_set_target,
+    _nbc_target_hex,
+    _nbc_normalize_python_version,
+    _nbc_unpack_constant_inner,
+    _nbc_unpack_sequence,
+    _nbc_unpack_single,
+)
 
 
 def _nbc_extract_all_strings(constants: list, *, max_depth: int = 25) -> list:
@@ -1704,9 +1308,10 @@ def process_section(
     magic_int: int | None,
     OmniDecompiler,
     generate_omni_source,
-    generate_omni_nbc,
+    generate_omni_nbc=None,
     emit_pyc: bool = True,
     omni_dir_name: str = "omni_reconstructed",
+    known_modules: set[str] | None = None,
 ) -> tuple[int, int, int, list[str]]:
     clean_section = sanitize_filename(section_name).replace("/", "_").replace(".", "_").strip("_") or "section"
     # Cap at 80 characters — safe ceiling for long binary-garbage section names
@@ -1786,38 +1391,55 @@ def process_section(
         recovered_file_paths.append(str(target_py_path))
         return True
 
-    # ── Per-item partition: classify before acting ────────────────────────────
-    # A section can be mixed: some items are marshal bytecode blobs, others are
-    # plain Nuitka constants. We classify each item individually so that bytecode
-    # items are always dumped as .pyc and constant items are always passed to OMNI.
+    # ── Per-item partition: single-pass marshal extraction + classify ─────────
+    per_item_payloads: list[tuple[list[bytes], list]] = []
     bytecode_item_indices: set[int] = set()
-
     for i, root_item in enumerate(root_items):
-        if any(True for _ in _iter_marshaled_bytecode_payloads(root_item, magic_int=magic_int)):
+        seen_payloads: set = set()
+        raw_payloads: list[bytes] = []
+        code_objects: list = []
+        for payload in _iter_marshaled_bytecode_payloads(root_item, magic_int=magic_int):
+            key = _payload_dedupe_key(payload)
+            if key in seen_payloads:
+                continue
+            seen_payloads.add(key)
+            if isinstance(payload, (bytes, bytearray)):
+                raw_payloads.append(bytes(payload))
+            elif _is_live_code_object(payload):
+                code_objects.append(payload)
+        per_item_payloads.append((raw_payloads, code_objects))
+        if raw_payloads or code_objects:
             bytecode_item_indices.add(i)
 
     omni_items = tuple(
         item for i, item in enumerate(root_items) if i not in bytecode_item_indices
     )
 
+    def _run_omni_source(items_tuple: tuple) -> str:
+        omp = OmniDecompiler()
+        omp.run_pass_1_structural_mapping(items_tuple)
+        omp.run_pass_2_ast_synthesis()
+        try:
+            return generate_omni_source(
+                omp,
+                section_name,
+                raw_constants=list(items_tuple),
+                python_version=target_ver_tuple,
+                known_modules=known_modules,
+            )
+        except TypeError:
+            return generate_omni_source(
+                omp,
+                section_name,
+                raw_constants=list(items_tuple),
+                python_version=target_ver_tuple,
+            )
+
     # ── OMNI on pure-constant items ───────────────────────────────────────────
     omni_wrote = False
     if OmniDecompiler and omni_items:
         try:
-            omp = OmniDecompiler()
-            omp.run_pass_1_structural_mapping(omni_items)
-            omp.run_pass_2_ast_synthesis()
-            source = generate_omni_source(
-                omp,
-                section_name,
-                raw_constants=list(omni_items),
-                python_version=target_ver_tuple,
-            )
-            if source.strip() and generate_omni_nbc:
-                nbc_text = generate_omni_nbc(
-                    omp, section_name, list(omni_items), python_version=target_ver_tuple
-                )
-                source += "\n\n" + '"""' + "\n" + nbc_text + "\n" + '"""'
+            source = _run_omni_source(omni_items)
             if _write_omni(source, section_name):
                 omni_count += 1
                 omni_wrote = True
@@ -1827,20 +1449,7 @@ def process_section(
     # ── Fallback: try OMNI on ALL items (incl. bytecode sections) ────────────
     if OmniDecompiler and not omni_wrote and root_items:
         try:
-            omp2 = OmniDecompiler()
-            omp2.run_pass_1_structural_mapping(root_items)
-            omp2.run_pass_2_ast_synthesis()
-            source2 = generate_omni_source(
-                omp2,
-                section_name,
-                raw_constants=list(root_items),
-                python_version=target_ver_tuple,
-            )
-            if source2.strip() and generate_omni_nbc:
-                nbc_text2 = generate_omni_nbc(
-                    omp2, section_name, list(root_items), python_version=target_ver_tuple
-                )
-                source2 += "\n\n" + '"""' + "\n" + nbc_text2 + "\n" + '"""'
+            source2 = _run_omni_source(root_items)
             if _write_omni(source2, section_name):
                 omni_count += 1
                 omni_wrote = True
@@ -1853,26 +1462,12 @@ def process_section(
             omni_count += 1
 
     # ── Per-item pyc extraction ───────────────────────────────────────────────
-    # Operates on ALL root_items (both bytecode and constant). Bytecode items
-    # are dumped as .pyc; constant items land in count_other as before.
     section_items_metadata = []
 
     for i, root_item in enumerate(root_items):
         item_id = f"{i:04d}"
         item_info = {"id": item_id, "type": type(root_item).__name__}
-        seen_payloads: set = set()
-        raw_payloads: list[bytes] = []
-        code_objects = []
-
-        for payload in _iter_marshaled_bytecode_payloads(root_item, magic_int=magic_int):
-            key = _payload_dedupe_key(payload)
-            if key in seen_payloads:
-                continue
-            seen_payloads.add(key)
-            if isinstance(payload, (bytes, bytearray)):
-                raw_payloads.append(bytes(payload))
-            elif _is_live_code_object(payload):
-                code_objects.append(payload)
+        raw_payloads, code_objects = per_item_payloads[i]
 
         actions = []
 
@@ -2009,9 +1604,15 @@ def extract_blob(
         print(f"[!] Error: blob not found: {blob_path}")
         return None
 
-    # Load raw bytes first so we can auto-detect version from content
-    raw = blob_path.read_bytes()
-    print(f"[*] Loaded {len(raw)} bytes from {blob_path}")
+    # Load raw bytes first (auto-extracting from PE/onefile binaries if MZ)
+    raw_input = blob_path.read_bytes()
+    print(f"[*] Loaded {len(raw_input)} bytes from {blob_path}")
+    raw = _auto_extract_blob_from_input(raw_input)
+    if raw_input[:2] == b"MZ":
+        if raw[:2] == b"MZ" or len(raw) == len(raw_input):
+            print("[!] Error: could not locate a Nuitka constants blob inside PE binary.")
+            return None
+        print(f"[*] Auto-extracted Nuitka blob from PE ({len(raw):,} bytes)")
 
     # Resolve target Python version
     if target_version is not None:
@@ -2050,46 +1651,7 @@ def extract_blob(
                     offset = 0
 
                     def _choose_layout(d, header_pos):
-                        """Try size_count (6 bytes) first, then size_only (4 bytes)."""
-                        if header_pos + 4 > len(d):
-                            return None
-                        section_size = struct.unpack_from('<I', d, header_pos)[0]
-
-                        def is_valid_next(next_pos):
-                            while next_pos < len(d) and d[next_pos] == 0:
-                                next_pos += 1
-                            if next_pos == len(d):
-                                return True
-                            if next_pos < len(d):
-                                b = d[next_pos]
-                                c_plain = chr(b)
-                                if c_plain.isalpha() or c_plain == '_' or c_plain == '.':
-                                    return True
-                                if _is_enc0:
-                                    try:
-                                        dec_b = _cb0.name_decode_table[b]
-                                        c_dec = chr(dec_b)
-                                        if c_dec.isalpha() or c_dec == '_' or c_dec == '.':
-                                            return True
-                                    except Exception:
-                                        pass
-                            return False
-
-                        # size_count layout: uint32 size + uint16 count
-                        if header_pos + 6 <= len(d):
-                            item_count = struct.unpack_from('<H', d, header_pos + 4)[0]
-                            data_start = header_pos + 6
-                            if (0 < section_size <= 128 * 1024 * 1024 and
-                                    data_start + section_size <= len(d) and
-                                    0 < item_count < 65000):
-                                if is_valid_next(data_start + section_size):
-                                    return data_start, section_size
-                        # size_only layout: uint32 size
-                        data_start = header_pos + 4
-                        if 0 < section_size <= 128 * 1024 * 1024 and data_start + section_size <= len(d):
-                            if is_valid_next(data_start + section_size):
-                                return data_start, section_size
-                        return None
+                        return _choose_blob_chunk_layout(d, header_pos, use_bypass=_is_enc0, cb=_cb0)
 
                     while offset < len(data) - 5:
                         while offset < len(data) and data[offset] == 0:
@@ -2191,56 +1753,35 @@ def extract_blob(
         cb = CommercialBypass()
 
         def _choose_layout(d, header_pos):
-            """Try size_count (6 bytes) first, then size_only (4 bytes)."""
-            if header_pos + 4 > len(d):
-                return None
-            section_size = struct.unpack_from('<I', d, header_pos)[0]
+            return _choose_blob_chunk_layout(d, header_pos, use_bypass=_use_bypass, cb=cb)
 
-            def is_valid_next(next_pos):
-                while next_pos < len(d) and d[next_pos] == 0:
-                    next_pos += 1
-                if next_pos == len(d):
-                    return True
-                if next_pos < len(d):
-                    b = d[next_pos]
-                    c_plain = chr(b)
-                    if c_plain.isalpha() or c_plain == '_' or c_plain == '.':
-                        return True
-                    if _use_bypass:
-                        try:
-                            dec_b = cb.name_decode_table[b]
-                            c_dec = chr(dec_b)
-                            if c_dec.isalpha() or c_dec == '_' or c_dec == '.':
-                                return True
-                        except Exception:
-                            pass
-                return False
-
-            # size_count layout: uint32 size + uint16 count
-            if header_pos + 6 <= len(d):
-                item_count = struct.unpack_from('<H', d, header_pos + 4)[0]
-                data_start = header_pos + 6
-                if (0 < section_size <= 128 * 1024 * 1024 and
-                        data_start + section_size <= len(d) and
-                        0 < item_count < 65000):
-                    if is_valid_next(data_start + section_size):
-                        return data_start, section_size
-            # size_only layout: uint32 size
-            data_start = header_pos + 4
-            if 0 < section_size <= 128 * 1024 * 1024 and data_start + section_size <= len(d):
-                if is_valid_next(data_start + section_size):
-                    return data_start, section_size
-            return None
-
+        empty_name_seen = False
         while offset < len(data) - 5:
-            while offset < len(data) and data[offset] == 0:
-                offset += 1
+            is_empty_chunk = False
+            if not empty_name_seen and data[offset] == 0 and offset + 5 <= len(data):
+                if _choose_layout(data, offset + 1) is not None:
+                    is_empty_chunk = True
+            if not is_empty_chunk:
+                while offset < len(data) and data[offset] == 0:
+                    offset += 1
             if offset >= len(data) - 5:
                 break
             name_end = data.find(b'\x00', offset, min(offset + 4096, len(data)))
             if name_end == -1:
                 break
             raw_name = data[offset:name_end]
+            if not raw_name:
+                empty_name_seen = True
+                module_name = ""
+                offset = name_end + 1
+                layout = _choose_layout(data, offset)
+                if layout is None:
+                    continue
+                data_start, chunk_size = layout
+                chunk_data = data[data_start:data_start + chunk_size]
+                offset = data_start + chunk_size
+                modules.append((module_name, chunk_data))
+                continue
             plain = None
             try:
                 plain = raw_name.decode('utf-8', errors='strict')
@@ -2266,32 +1807,33 @@ def extract_blob(
             chunk_data = data[data_start:data_start + chunk_size]
             next_offset = data_start + chunk_size
             best_offset = next_offset
-            for back in range(1, 8):
-                check_pos = next_offset - back
-                if check_pos <= data_start:
-                    break
-                if data[check_pos] == 0:
-                    cand_end = data.find(b"\x00", check_pos + 1, min(check_pos + 128, len(data)))
-                    if cand_end != -1 and cand_end > check_pos + 1:
-                        cand_raw = data[check_pos + 1:cand_end]
-                        cand_plain = None
-                        try:
-                            cand_plain = cand_raw.decode('utf-8', errors='strict')
-                            if _is_plausible_module_name(cand_plain):
-                                cand_name = cand_plain
-                            else:
-                                raise ValueError
-                        except Exception:
-                            if _use_bypass:
-                                cand_dec = cb.decode_module_name(cand_raw)
-                                cand_name = cand_dec if _is_plausible_module_name(cand_dec) else (cand_plain or cand_raw.decode('utf-8', errors='replace'))
-                            else:
-                                cand_name = cand_plain if cand_plain is not None else cand_raw.decode('utf-8', errors='replace')
-                        if cand_name and (cand_name[0].isalnum() or cand_name[0] in '._'):
-                            cand_layout = _choose_layout(data, cand_end + 1)
-                            if cand_layout is not None:
-                                best_offset = check_pos
-                                break
+            if next_offset < len(data) and not _is_valid_next_chunk_pos(data, next_offset, use_bypass=_use_bypass, cb=cb):
+                for back in range(1, 8):
+                    check_pos = next_offset - back
+                    if check_pos <= data_start:
+                        break
+                    if data[check_pos] == 0:
+                        cand_end = data.find(b"\x00", check_pos + 1, min(check_pos + 128, len(data)))
+                        if cand_end != -1 and cand_end > check_pos + 1:
+                            cand_raw = data[check_pos + 1:cand_end]
+                            cand_plain = None
+                            try:
+                                cand_plain = cand_raw.decode('utf-8', errors='strict')
+                                if _is_plausible_module_name(cand_plain):
+                                    cand_name = cand_plain
+                                else:
+                                    raise ValueError
+                            except Exception:
+                                if _use_bypass:
+                                    cand_dec = cb.decode_module_name(cand_raw)
+                                    cand_name = cand_dec if _is_plausible_module_name(cand_dec) else (cand_plain or cand_raw.decode('utf-8', errors='replace'))
+                                else:
+                                    cand_name = cand_plain if cand_plain is not None else cand_raw.decode('utf-8', errors='replace')
+                            if cand_name and (cand_name[0].isalnum() or cand_name[0] in '._'):
+                                cand_layout = _choose_layout(data, cand_end + 1)
+                                if cand_layout is not None:
+                                    best_offset = check_pos
+                                    break
             offset = best_offset
             modules.append((module_name, chunk_data))
         return modules
@@ -2378,6 +1920,7 @@ def extract_blob(
                     generate_omni_nbc,
                     emit_pyc,
                     omni_dir_name,
+                    set(sections.keys()),
                 )
                 for section_name, items in work_items
             ]
@@ -2399,7 +1942,12 @@ def extract_blob(
     dumped_constants = 0
     for mod_name, chunk_data in constants_modules:
         try:
-            constants = _nbc_parse_module_constants(chunk_data, python_version=target_ver_tuple)
+            cached = sections.get(mod_name)
+            constants = (
+                list(cached)
+                if cached is not None
+                else _nbc_parse_module_constants(chunk_data, python_version=target_ver_tuple)
+            )
             strings = _nbc_extract_all_strings(constants)
             strings = list(dict.fromkeys(strings))
 
@@ -2454,7 +2002,7 @@ def detect_nuitka_version(blob_path: str) -> str | None:
     from xdis.magics import by_version
 
     try:
-        raw = Path(blob_path).read_bytes()
+        raw = _auto_extract_blob_from_input(Path(blob_path).read_bytes())
     except OSError:
         return None
 
@@ -2472,46 +2020,7 @@ def detect_nuitka_version(blob_path: str) -> str | None:
             offset = 0
 
             def _choose_layout(d, header_pos):
-                """Try size_count (6 bytes) first, then size_only (4 bytes)."""
-                if header_pos + 4 > len(d):
-                    return None
-                section_size = _struct.unpack_from('<I', d, header_pos)[0]
-
-                def is_valid_next(next_pos):
-                    while next_pos < len(d) and d[next_pos] == 0:
-                        next_pos += 1
-                    if next_pos == len(d):
-                        return True
-                    if next_pos < len(d):
-                        b = d[next_pos]
-                        c_plain = chr(b)
-                        if c_plain.isalpha() or c_plain == '_' or c_plain == '.':
-                            return True
-                        if is_commercial:
-                            try:
-                                dec_b = cb.name_decode_table[b]
-                                c_dec = chr(dec_b)
-                                if c_dec.isalpha() or c_dec == '_' or c_dec == '.':
-                                    return True
-                            except Exception:
-                                pass
-                    return False
-
-                # size_count layout: uint32 size + uint16 count
-                if header_pos + 6 <= len(d):
-                    item_count = _struct.unpack_from('<H', d, header_pos + 4)[0]
-                    data_start = header_pos + 6
-                    if (0 < section_size <= 128 * 1024 * 1024 and
-                            data_start + section_size <= len(d) and
-                            0 < item_count < 65000):
-                        if is_valid_next(data_start + section_size):
-                            return data_start, section_size
-                # size_only layout: uint32 size
-                data_start = header_pos + 4
-                if 0 < section_size <= 128 * 1024 * 1024 and data_start + section_size <= len(d):
-                    if is_valid_next(data_start + section_size):
-                        return data_start, section_size
-                return None
+                return _choose_blob_chunk_layout(d, header_pos, use_bypass=is_commercial, cb=cb)
 
             while offset < len(data) - 5:
                 while offset < len(data) and data[offset] == 0:

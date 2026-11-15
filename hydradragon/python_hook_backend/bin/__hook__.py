@@ -6,6 +6,7 @@ import threading
 import time
 import json
 import gc
+import ast
 import types
 import hashlib
 import traceback
@@ -924,11 +925,335 @@ class ModuleReconstructor:
         self.compiled_modules = []  # Track compiled modules
         self._log = log_func or (lambda _: None)
         self.nuitka_func_metadata = nuitka_func_metadata or {}
+        self.nuitka_module_constants = {}
+        self.nuitka_known_modules = set()
+
+    @staticmethod
+    def _is_nuitka_callable_type(obj):
+        tname = type(obj).__name__
+        return tname in (
+            "compiled_function",
+            "compiled_method",
+            "compiled_generator",
+            "compiled_coroutine",
+            "compiled_async_generator",
+            "compiled_staticmethod",
+            "compiled_classmethod",
+        )
+
+    @staticmethod
+    def _runtime_annotation_to_str(ann_val):
+        if ann_val is None or ann_val is type(None):
+            return "None"
+        if isinstance(ann_val, str):
+            return ann_val
+        if isinstance(ann_val, type):
+            return getattr(ann_val, "__qualname__", None) or getattr(ann_val, "__name__", "object")
+        t_str = str(ann_val)
+        if t_str.startswith("typing.") or "|" in t_str or "[" in t_str:
+            return t_str.replace("typing.", "")
+        nm = getattr(ann_val, "__name__", None)
+        return nm if isinstance(nm, str) and nm else "Any"
+
+    @staticmethod
+    def _runtime_safe_val(val, _depth=0):
+        if _depth > 4:
+            return "..."
+        if val is None or isinstance(val, (bool, int, float, str, bytes)):
+            return val
+        if isinstance(val, tuple):
+            return tuple(ModuleReconstructor._runtime_safe_val(x, _depth + 1) for x in val[:20])
+        if isinstance(val, list):
+            return [ModuleReconstructor._runtime_safe_val(x, _depth + 1) for x in val[:20]]
+        if isinstance(val, set):
+            return {ModuleReconstructor._runtime_safe_val(x, _depth + 1) for x in list(val)[:20] if isinstance(x, (str, int, float, bool, type(None)))}
+        if isinstance(val, dict):
+            return {
+                k: ModuleReconstructor._runtime_safe_val(v, _depth + 1)
+                for k, v in list(val.items())[:30]
+                if isinstance(k, (str, int))
+            }
+        # Fallback to symbolic string representation for live objects/enums
+        try:
+            cls_nm = type(val).__name__
+            if hasattr(val, "name") and hasattr(val, "value"):
+                return f"{cls_nm}.{val.name}"
+            return f"<{cls_nm}>"
+        except Exception:
+            return None
+
+    def _harvest_live_callable(self, raw_attr, attr_name, qualname):
+        is_static = isinstance(raw_attr, staticmethod)
+        is_cls_method = isinstance(raw_attr, classmethod)
+        is_prop = isinstance(raw_attr, property)
+        if is_static or is_cls_method:
+            fn = raw_attr.__func__
+        elif is_prop:
+            fn = raw_attr.fget
+        else:
+            fn = raw_attr
+        if not fn or not callable(fn):
+            return None, None, None, None
+
+        varnames = ()
+        argcount = 0
+        posonly = 0
+        kwonly = 0
+        flags = 0
+        firstlineno = 0
+        freevars = ()
+        blob_exact = False
+
+        co = None
+        try:
+            co = getattr(fn, "__code__", None)
+        except Exception:
+            co = None
+
+        if co is not None and hasattr(co, "co_varnames"):
+            try:
+                varnames = tuple(str(x) for x in (getattr(co, "co_varnames", ()) or ()))
+                argcount = int(getattr(co, "co_argcount", 0) or 0)
+                posonly = int(getattr(co, "co_posonlyargcount", 0) or 0)
+                kwonly = int(getattr(co, "co_kwonlyargcount", 0) or 0)
+                flags = int(getattr(co, "co_flags", 0) or 0)
+                firstlineno = int(getattr(co, "co_firstlineno", 0) or 0)
+                freevars = tuple(str(x) for x in (getattr(co, "co_freevars", ()) or ()))
+                blob_exact = True
+            except Exception:
+                blob_exact = False
+
+        defaults = None
+        kwdefaults = None
+        annotations = None
+        try:
+            raw_defs = getattr(fn, "__defaults__", None)
+            if isinstance(raw_defs, tuple) and raw_defs:
+                defaults = tuple(self._runtime_safe_val(d) for d in raw_defs)
+        except Exception:
+            pass
+        try:
+            raw_kwdefs = getattr(fn, "__kwdefaults__", None)
+            if isinstance(raw_kwdefs, dict) and raw_kwdefs:
+                kwdefaults = {str(k): self._runtime_safe_val(v) for k, v in raw_kwdefs.items()}
+        except Exception:
+            pass
+        try:
+            raw_ann = getattr(fn, "__annotations__", None)
+            if isinstance(raw_ann, dict) and raw_ann:
+                annotations = {str(k): self._runtime_annotation_to_str(v) for k, v in raw_ann.items()}
+        except Exception:
+            pass
+
+        if not blob_exact:
+            try:
+                sig = inspect.signature(fn)
+                p_names = []
+                kw_names = []
+                pos_only_cnt = 0
+                pos_cnt = 0
+                vararg = None
+                varkw = None
+                sig_defs = []
+                sig_kwdefs = {}
+                for p in sig.parameters.values():
+                    if p.kind == inspect.Parameter.POSITIONAL_ONLY:
+                        p_names.append(p.name)
+                        pos_only_cnt += 1
+                        pos_cnt += 1
+                        if p.default is not inspect.Parameter.empty:
+                            sig_defs.append(self._runtime_safe_val(p.default))
+                    elif p.kind == inspect.Parameter.POSITIONAL_OR_KEYWORD:
+                        p_names.append(p.name)
+                        pos_cnt += 1
+                        if p.default is not inspect.Parameter.empty:
+                            sig_defs.append(self._runtime_safe_val(p.default))
+                    elif p.kind == inspect.Parameter.VAR_POSITIONAL:
+                        vararg = p.name
+                        flags |= 0x04
+                    elif p.kind == inspect.Parameter.KEYWORD_ONLY:
+                        kw_names.append(p.name)
+                        if p.default is not inspect.Parameter.empty:
+                            sig_kwdefs[p.name] = self._runtime_safe_val(p.default)
+                    elif p.kind == inspect.Parameter.VAR_KEYWORD:
+                        varkw = p.name
+                        flags |= 0x08
+                ordered = list(p_names) + list(kw_names)
+                if vararg:
+                    ordered.append(vararg)
+                if varkw:
+                    ordered.append(varkw)
+                varnames = tuple(ordered)
+                argcount = pos_cnt
+                posonly = pos_only_cnt
+                kwonly = len(kw_names)
+                if sig_defs and defaults is None:
+                    defaults = tuple(sig_defs)
+                if sig_kwdefs and kwdefaults is None:
+                    kwdefaults = sig_kwdefs
+                blob_exact = True
+            except Exception:
+                pass
+
+        doc = None
+        try:
+            d_raw = getattr(fn, "__doc__", None)
+            if isinstance(d_raw, str) and d_raw.strip():
+                doc = d_raw
+        except Exception:
+            pass
+
+        co_dict = {
+            "_type": "CodeObject",
+            "_source": "runtime",
+            "name": attr_name,
+            "qualname": qualname,
+            "args": list(varnames),
+            "varnames": list(varnames),
+            "argcount": argcount,
+            "posonly": posonly,
+            "kwonly": kwonly,
+            "flags": flags,
+            "line": firstlineno,
+            "freevars": list(freevars),
+            "docstring": doc,
+            "_blob_exact": blob_exact,
+        }
+        if kwdefaults:
+            co_dict["_kw_defaults"] = kwdefaults
+        return co_dict, defaults, annotations, doc
+
+    def _reconstruct_nuitka_module_smart(self, name, mod):
+        mod_consts = self.nuitka_module_constants.get(name)
+        has_compiled_attr = hasattr(mod, "__compiled__")
+        if mod_consts is None and not has_compiled_attr:
+            try:
+                if not any(self._is_nuitka_callable_type(v) for v in vars(mod).values()):
+                    return None
+            except Exception:
+                return None
+
+        try:
+            import sys as _sys
+            _hd = os.path.dirname(os.path.abspath(__file__))
+            _repo_root = os.path.normpath(os.path.join(_hd, "..", "..", ".."))
+            if _repo_root not in _sys.path:
+                _sys.path.insert(0, _repo_root)
+            from hydradragon.nuitka_deobfuscate.omni_nuitka_framework import StaticalySmartReconstructor
+        except Exception as e:
+            self._log(f"[SMART] StaticalySmartReconstructor unavailable: {e}\n")
+            return None
+
+        live_code_objects = []
+        live_defaults = {}
+        live_annotations = {}
+        live_class_bases = {}
+        live_class_attrs = {}
+        live_global_names = set()
+        live_global_values = {}
+
+        try:
+            mod_dict = dict(vars(mod))
+        except Exception:
+            mod_dict = {}
+
+        for attr_name, attr in mod_dict.items():
+            if not isinstance(attr_name, str) or attr_name.startswith("__"):
+                continue
+            try:
+                owner_mod = getattr(attr, "__module__", None)
+                if inspect.isclass(attr):
+                    if owner_mod not in (None, name):
+                        continue
+                    cls_bases = [
+                        getattr(b, "__name__", str(b))
+                        for b in getattr(attr, "__bases__", ())
+                        if b is not object
+                    ]
+                    if cls_bases:
+                        live_class_bases[attr_name] = cls_bases
+                    cls_attrs_list = []
+                    cls_dict = dict(vars(attr))
+                    for m_name, m_raw in cls_dict.items():
+                        if not isinstance(m_name, str) or (m_name.startswith("__") and m_name != "__init__"):
+                            continue
+                        if isinstance(m_raw, (staticmethod, classmethod, property)) or callable(m_raw):
+                            co_d, defs, anns, _doc = self._harvest_live_callable(
+                                m_raw, m_name, f"{attr_name}.{m_name}"
+                            )
+                            if co_d is not None:
+                                live_code_objects.append(co_d)
+                                if defs:
+                                    live_defaults[f"{attr_name}.{m_name}"] = defs
+                                if anns:
+                                    live_annotations[f"{attr_name}.{m_name}"] = anns
+                                self.compiled_modules.append((name, attr_name, m_name))
+                        elif isinstance(m_raw, (str, int, float, bool, type(None), tuple, list, dict)):
+                            sv = self._runtime_safe_val(m_raw)
+                            cls_attrs_list.append((m_name, repr(sv)))
+                    if cls_attrs_list:
+                        live_class_attrs[attr_name] = cls_attrs_list
+                elif callable(attr) or isinstance(attr, (staticmethod, classmethod, property)):
+                    if owner_mod not in (None, name):
+                        continue
+                    co_d, defs, anns, _doc = self._harvest_live_callable(
+                        attr, attr_name, attr_name
+                    )
+                    if co_d is not None:
+                        live_code_objects.append(co_d)
+                        if defs:
+                            live_defaults[attr_name] = defs
+                        if anns:
+                            live_annotations[attr_name] = anns
+                        self.compiled_modules.append((name, attr_name, None))
+                elif not isinstance(attr, types.ModuleType):
+                    if isinstance(attr, (str, int, float, bool, type(None), list, dict, tuple, set)):
+                        live_global_names.add(attr_name)
+                        live_global_values[attr_name] = self._runtime_safe_val(attr)
+            except Exception:
+                continue
+
+        if not live_code_objects and not mod_consts:
+            return None
+
+        try:
+            recon_obj = StaticalySmartReconstructor(
+                module_name=name,
+                constants=list(mod_consts or ()),
+                code_objects=live_code_objects or None,
+                module_globals=live_global_names or None,
+                module_global_values=live_global_values or None,
+                defaults=live_defaults or None,
+                known_modules=self.nuitka_known_modules or None,
+                emit_banner=True,
+            )
+            for qn, ann in live_annotations.items():
+                recon_obj._qualname_annotations.setdefault(qn, ann)
+            for cname, bases in live_class_bases.items():
+                if cname in recon_obj.classes:
+                    recon_obj.classes[cname]["bases"] = list(bases)
+            for cname, cattrs in live_class_attrs.items():
+                if cattrs and cname not in recon_obj._class_attrs:
+                    recon_obj._class_attrs[cname] = cattrs
+
+            rendered = recon_obj.render()
+            if rendered and rendered.strip():
+                ast.parse(rendered)
+                return rendered
+        except Exception as e:
+            self._log(f"[SMART] Runtime+Blob reconstruct failed for {name}: {e}\n")
+        return None
 
     def process_module(self, name, mod, is_potential_main=False):
         safe_name = name.replace(".", "_")
         output_path = self.backup_dir / "RECONSTRUCTED_SOURCE" / f"{safe_name}.py"
         self._log(f"[TRACE] process_module start: {name}\n")
+
+        smart_rendered = self._reconstruct_nuitka_module_smart(name, mod)
+        if smart_rendered:
+            output_path.write_text(smart_rendered, encoding="utf-8", errors="ignore")
+            self._log(f"[SMART] Reconstructed Nuitka module via Runtime+Blob: {name} -> {output_path.name}\n")
+            return
 
         content = [f'"""\nModule: {name}\nType: {type(mod)}\n']
 
@@ -1538,109 +1863,283 @@ def _wait_dll_blob_dump(dynamic_dir, hook_log, max_wait=5):
     return None
 
 
+def _find_blob_dynamic_fallback(backup_dir, source_dir, hook_log):
+    """Locate an already-dumped nuitka_blob.bin or extract it directly from loaded PE modules."""
+    _dynamic_blob_subdir = source_dir / "DYNAMIC_BLOB"
+    cand = _dynamic_blob_subdir / "nuitka_blob.bin"
+    if cand.is_file() and cand.stat().st_size > 0:
+        hook_log(f"[BLOB] Found blob in DYNAMIC_BLOB/: {cand}\n")
+        return str(cand)
+
+    dumped = _wait_dll_blob_dump(str(backup_dir), hook_log, max_wait=1)
+    if dumped:
+        return dumped
+
+    # Python fallback: extract Nuitka blob directly from sys.executable / non-system modules.
+    try:
+        import sys as _sys
+        _hd = os.path.dirname(os.path.abspath(__file__))
+        _repo_root = os.path.normpath(os.path.join(_hd, "..", "..", ".."))
+        if _repo_root not in _sys.path:
+            _sys.path.insert(0, _repo_root)
+        from hydradragon.nuitka_deobfuscate.run_extract_cli import CommercialBypass, _auto_extract_blob_from_input
+        cb = CommercialBypass()
+
+        probe_files = []
+        exe_path = getattr(_sys, "executable", None)
+        if exe_path and Path(exe_path).is_file():
+            probe_files.append(Path(exe_path))
+        for m in list(_sys.modules.values()):
+            mf = getattr(m, "__file__", None)
+            if isinstance(mf, str) and mf.lower().endswith((".pyd", ".dll", ".exe")) and "\\windows\\" not in mf.lower():
+                pmf = Path(mf)
+                if pmf.is_file() and pmf not in probe_files:
+                    probe_files.append(pmf)
+
+        _dynamic_blob_subdir.mkdir(parents=True, exist_ok=True)
+        for p in probe_files[:32]:
+            try:
+                blob_bytes = _auto_extract_blob_from_input(p.read_bytes())
+                if not isinstance(blob_bytes, (bytes, bytearray)) or len(blob_bytes) <= 64:
+                    continue
+                is_valid_blob = (
+                    blob_bytes.startswith(b".bytecode\x00")
+                    or b".bytecode\x00" in blob_bytes[8:64]
+                    or (not cb.is_blob_encrypted(blob_bytes) and len(blob_bytes) > 1024)
+                )
+                if is_valid_blob:
+                    cand.write_bytes(blob_bytes)
+                    hook_log(f"[BLOB] Extracted blob via PE fallback from {p.name}: {cand}\n")
+                    return str(cand)
+            except Exception:
+                continue
+    except Exception as e:
+        hook_log(f"[BLOB] PE fallback extraction skipped: {e}\n")
+    return None
+
+
 def _extract_blob_dynamic(blob_path, recon, source_dir, hook_log):
     import struct
     import random
+    import sys as _sys
     try:
-        # Initialize static name decode table for commercial obfuscated module names
-        _r = random.Random(27)
-        _fwd = list(range(1, 256))
-        _r.shuffle(_fwd)
-        _fwd.insert(0, 0)
-        _name_decode_table = [0] * 256
-        for _i, _v in enumerate(_fwd):
-            _name_decode_table[_v] = _i
-
         raw = Path(blob_path).read_bytes()
         if len(raw) < 12:
             hook_log("[BLOBD] blob too small\n")
             return
-        size_stored = struct.unpack('<I', raw[4:8])[0]
-        data = raw[8:8 + size_stored]
-        if len(data) < size_stored:
-            hook_log(f"[BLOBD] blob truncated: expected {size_stored}, got {len(data)}\n")
-            return
-        offset = 0
-        total = 0
 
-        def _choose_layout(d, header_pos):
-            """Try size_count (6 bytes) first, then size_only (4 bytes)."""
-            if header_pos + 4 > len(d):
-                return None
-            section_size = struct.unpack_from('<I', d, header_pos)[0]
+        # Reuse validated chunk layout/decoding helpers from run_extract_cli when available.
+        _hd = os.path.dirname(os.path.abspath(__file__))
+        _repo_root = os.path.normpath(os.path.join(_hd, "..", "..", ".."))
+        if _repo_root not in _sys.path:
+            _sys.path.insert(0, _repo_root)
 
-            def is_valid_next(next_pos):
-                while next_pos < len(d) and d[next_pos] == 0:
-                    next_pos += 1
+        _cli_cb = None
+        _cli_choose_layout = None
+        _cli_decode_name = None
+        _cli_is_plausible = None
+        try:
+            from hydradragon.nuitka_deobfuscate.run_extract_cli import (
+                CommercialBypass as _CommercialBypass,
+                _choose_blob_chunk_layout as _cli_choose_layout,
+                _decode_blob_module_name as _cli_decode_name,
+                _is_plausible_module_name as _cli_is_plausible,
+            )
+            _cli_cb = _CommercialBypass()
+        except Exception:
+            _cli_cb = None
+            _cli_choose_layout = None
+
+        use_bypass = bool(_cli_cb and _cli_cb.is_blob_encrypted(raw))
+
+        if raw.startswith(b".bytecode\x00"):
+            data = raw
+        else:
+            size_stored = struct.unpack('<I', raw[4:8])[0]
+            if 16 <= size_stored <= len(raw) - 8 and (raw[8:18] == b".bytecode\x00" or raw[8:9] == b"\x00" or b".bytecode\x00" in raw[8:256]):
+                data = raw[8:8 + size_stored]
+            else:
+                anc = raw.find(b".bytecode\x00")
+                if 0 <= anc < 256:
+                    data = raw[anc:]
+                elif 16 <= size_stored <= len(raw) - 8:
+                    data = raw[8:8 + size_stored]
+                elif anc >= 0:
+                    data = raw[anc:]
+                else:
+                    hook_log(f"[BLOBD] blob truncated or invalid header (len={len(raw)}, stored={size_stored})\n")
+                    return
+
+        if _cli_choose_layout is None:
+            # Standalone fallback when run_extract_cli is unavailable.
+            _r = random.Random(27)
+            _fwd = list(range(1, 256))
+            _r.shuffle(_fwd)
+            _fwd.insert(0, 0)
+            _name_decode_table = [0] * 256
+            for _i, _v in enumerate(_fwd):
+                _name_decode_table[_v] = _i
+
+            def _fb_is_valid_next(d, next_pos, _depth=0):
                 if next_pos == len(d):
                     return True
-                if next_pos < len(d):
-                    b = d[next_pos]
-                    c_plain = chr(b)
-                    if c_plain.isalpha() or c_plain == '_' or c_plain == '.':
-                        return True
-                    try:
-                        dec_b = _name_decode_table[b]
-                        c_dec = chr(dec_b)
-                        if c_dec.isalpha() or c_dec == '_' or c_dec == '.':
-                            return True
-                    except Exception:
-                        pass
-                return False
+                if next_pos > len(d):
+                    return False
 
-            # size_count layout: uint32 size + uint16 count
-            if header_pos + 6 <= len(d):
-                item_count = struct.unpack_from('<H', d, header_pos + 4)[0]
-                data_start = header_pos + 6
-                if (0 < section_size <= 128 * 1024 * 1024 and
-                        data_start + section_size <= len(d) and
-                        0 < item_count < 65000):
-                    if is_valid_next(data_start + section_size):
-                        return data_start, section_size, 'size_count'
-            # size_only layout: uint32 size
-            data_start = header_pos + 4
-            if 0 < section_size <= 128 * 1024 * 1024 and data_start + section_size <= len(d):
-                if is_valid_next(data_start + section_size):
-                    return data_start, section_size, 'size_only'
-            return None
+                def _byte_starts_name(b):
+                    c_plain = chr(b)
+                    if c_plain.isalpha() or c_plain in ("_", "."):
+                        return True
+                    if use_bypass:
+                        try:
+                            c_dec = chr(_name_decode_table[b])
+                            if c_dec.isalpha() or c_dec in ("_", "."):
+                                return True
+                        except Exception:
+                            pass
+                    return False
+
+                if d[next_pos] == 0:
+                    if _depth == 0 and next_pos + 5 <= len(d):
+                        empty_sz = struct.unpack_from("<I", d, next_pos + 1)[0]
+                        if 0 < empty_sz <= 128 * 1024 * 1024 and next_pos + 5 + empty_sz <= len(d):
+                            if _fb_is_valid_next(d, next_pos + 5 + empty_sz, _depth=1):
+                                return True
+                    scan = next_pos
+                    while scan < len(d) and d[scan] == 0:
+                        scan += 1
+                    if scan == len(d):
+                        return True
+                    return _byte_starts_name(d[scan])
+                return _byte_starts_name(d[next_pos])
+
+            def _choose_layout(d, header_pos):
+                if header_pos + 4 > len(d):
+                    return None
+                section_size = struct.unpack_from('<I', d, header_pos)[0]
+                data_start = header_pos + 4
+                if 0 < section_size <= 128 * 1024 * 1024 and data_start + section_size <= len(d):
+                    if _fb_is_valid_next(d, data_start + section_size):
+                        return data_start, section_size
+                if header_pos + 6 <= len(d):
+                    item_count = struct.unpack_from('<H', d, header_pos + 4)[0]
+                    data_start = header_pos + 6
+                    if (0 < section_size <= 128 * 1024 * 1024 and
+                            data_start + section_size <= len(d) and
+                            0 < item_count < 65000):
+                        if _fb_is_valid_next(d, data_start + section_size):
+                            return data_start, section_size
+                return None
+
+            def _decode_name(raw_name):
+                return raw_name.decode('utf-8', errors='replace')
+
+            def _is_plausible_name(name):
+                if name in ("", ".bytecode", ".files"):
+                    return True
+                return len(name) <= 4096 and all(ord(c) >= 32 and (c.isalnum() or c in "._-+/\\:") for c in name)
+        else:
+            def _choose_layout(d, header_pos):
+                return _cli_choose_layout(d, header_pos, use_bypass=use_bypass, cb=_cli_cb)
+
+            def _decode_name(raw_name):
+                return _cli_decode_name(raw_name, _cli_cb if use_bypass else None)
+
+            def _is_plausible_name(name):
+                return _cli_is_plausible(name)
+
+        offset = 0
+        total = 0
+        empty_name_seen = False
+        py_ver = (_sys.version_info.major, _sys.version_info.minor)
 
         while offset < len(data) - 5:
-            while offset < len(data) and data[offset] == 0:
-                offset += 1
-            if offset >= len(data) - 5:
-                break
-            name_end = data.find(b'\x00', offset, min(offset + 4096, len(data)))
-            if name_end == -1:
-                break
-            mod_name = data[offset:name_end].decode('utf-8', errors='replace')
-            layout = _choose_layout(data, name_end + 1)
-            if layout is None:
-                offset = name_end + 1
-                continue
-            data_start, chunk_size, layout_name = layout
-            if chunk_size > 10 * 1024 * 1024 or data_start + chunk_size > len(data):
-                offset = name_end + 1
-                continue
-            chunk_data = data[data_start:data_start + chunk_size]
-            offset = data_start + chunk_size
+            # Handle leading 0x00 carefully: an empty module name ("") starts with 0x00
+            # immediately followed by its uint32 chunk size, whereas trailing padding is all nulls.
+            if data[offset] == 0:
+                if not empty_name_seen:
+                    empty_layout = _choose_layout(data, offset + 1)
+                    if empty_layout is not None:
+                        data_start, chunk_size = empty_layout
+                        empty_name_seen = True
+                        mod_name = ""
+                        chunk_data = data[data_start:data_start + chunk_size]
+                        offset = data_start + chunk_size
+                    else:
+                        while offset < len(data) and data[offset] == 0:
+                            offset += 1
+                        continue
+                else:
+                    while offset < len(data) and data[offset] == 0:
+                        offset += 1
+                    continue
+            else:
+                name_end = data.find(b'\x00', offset, min(offset + 4096, len(data)))
+                if name_end == -1:
+                    break
+                raw_name = data[offset:name_end]
+                mod_name = _decode_name(raw_name)
+                if not _is_plausible_name(mod_name):
+                    offset = name_end + 1
+                    continue
+                layout = _choose_layout(data, name_end + 1)
+                if layout is None:
+                    offset = name_end + 1
+                    continue
+                data_start, chunk_size = layout
+                if chunk_size > 128 * 1024 * 1024 or data_start + chunk_size > len(data):
+                    offset = name_end + 1
+                    continue
+                chunk_data = data[data_start:data_start + chunk_size]
+                offset = data_start + chunk_size
 
-            out_path = source_dir / "DYNAMIC_BLOB" / f"{mod_name.replace('.', '_')}.bin"
+            raw_stem = "__global__" if mod_name == "" else mod_name
+            safe_mod_fname = "".join(c if (c.isalnum() or c in "-_") else "_" for c in raw_stem) or "__global__"
+            out_path = source_dir / "DYNAMIC_BLOB" / f"{safe_mod_fname}.bin"
             out_path.parent.mkdir(parents=True, exist_ok=True)
             out_path.write_bytes(chunk_data)
-            hook_log(f"[BLOBD] {layout_name}: {mod_name} -> {chunk_size} bytes\n")
             total += 1
+            if total <= 10 or total % 100 == 0:
+                hook_log(f"[BLOBD] section#{total}: {mod_name or '<global>'} -> {chunk_size} bytes\n")
+
+            if mod_name == ".bytecode":
+                continue
 
             try:
                 if not _nbc_decoder_available:
                     _init_nbc_decoder(hook_log)
                 if _nbc_parse_module_constants:
-                    constants = _nbc_parse_module_constants(chunk_data)
+                    try:
+                        constants = _nbc_parse_module_constants(chunk_data, python_version=py_ver)
+                    except TypeError:
+                        constants = _nbc_parse_module_constants(chunk_data)
                     if not constants:
                         continue
+                    const_list = list(constants)
+                    if not hasattr(recon, "nuitka_module_constants"):
+                        recon.nuitka_module_constants = {}
+                    if not hasattr(recon, "nuitka_known_modules"):
+                        recon.nuitka_known_modules = set()
+
+                    if mod_name == "":
+                        recon.nuitka_module_constants[""] = const_list
+                        recon.nuitka_module_constants.setdefault("__main__", const_list)
+                    else:
+                        recon.nuitka_module_constants[mod_name] = const_list
+                        recon.nuitka_known_modules.add(mod_name)
+                    if recon.nuitka_module_constants:
+                        for item in const_list:
+                            if isinstance(item, str) and item.startswith("<module ") and item.endswith(">"):
+                                embedded_name = item[8:-1].strip()
+                                if embedded_name:
+                                    recon.nuitka_module_constants.setdefault(embedded_name, const_list)
+                                    recon.nuitka_known_modules.add(embedded_name)
+                                break
+
                     code_objs = []
                     if _nbc_recursive_find:
                         from hydradragon.nuitka_deobfuscate.marshal_detector import get_magic_int
-                        mi = get_magic_int(f"{__import__('sys').version_info.major}.{__import__('sys').version_info.minor}")
+                        mi = get_magic_int(f"{py_ver[0]}.{py_ver[1]}")
                         _nbc_recursive_find(constants, code_objs, set(), mi)
                     for co in code_objs:
                         try:
@@ -1657,7 +2156,7 @@ def _extract_blob_dynamic(blob_path, recon, source_dir, hook_log):
             except Exception as e:
                 hook_log(f"[BLOBD] {mod_name} constants parse error: {e}\n")
 
-        hook_log(f"[BLOBD] Extracted {total} module sections from dynamic blob\n")
+        hook_log(f"[BLOBD] Extracted {total} module sections from dynamic blob (cached {len(getattr(recon, 'nuitka_module_constants', {}))} module constant pools)\n")
     except Exception as e:
         hook_log(f"[BLOBD] Failed: {e}\n")
 
@@ -2864,6 +3363,53 @@ def run_decompiler():
         error_count = 0
         processed_names = set()
 
+        # Nuitka dynamic blob extraction MUST run BEFORE recon.process_module()
+        # so recon.nuitka_module_constants and recon.nuitka_func_metadata can be
+        # combined with live sys.modules runtime reflection (compiled_function
+        # __code__/co_varnames/__defaults__/__annotations__/class bases).
+        try:
+            _blob_path = _find_blob_dynamic_fallback(backup_dir, source_dir, hook_log)
+            if _blob_path:
+                _extract_blob_dynamic(_blob_path, recon, source_dir, hook_log)
+
+                _blob_extracted = False
+                _hd = os.path.dirname(os.path.abspath(__file__))
+                _repo_root = os.path.normpath(os.path.join(_hd, "..", "..", ".."))
+                try:
+                    if _repo_root not in sys.path:
+                        sys.path.insert(0, _repo_root)
+                    from hydradragon.nuitka_deobfuscate.run_extract import extract_blob as _eb
+                    _omni_name = str(Path("RECONSTRUCTED_SOURCE") / "omni_reconstructed")
+                    _eb(
+                        blob_path=_blob_path,
+                        output_dir=backup_dir,
+                        use_stem=False,
+                        omni_dir_name=_omni_name,
+                        emit_pyc=False,
+                    )
+                    hook_log(f"[BLOB] Native extract_blob complete -> {backup_dir / _omni_name}\n")
+                    _blob_extracted = True
+                except Exception as _eb_err:
+                    hook_log(f"[BLOB] Native extract_blob failed ({_eb_err}), trying py -3.12 subprocess...\n")
+                    try:
+                        import subprocess as _sp
+                        _cli = os.path.join(_repo_root, "hydradragon", "nuitka_deobfuscate", "run_extract_cli.py")
+                        _cmd = ["py", "-3.12", _cli, _blob_path, "-o", str(backup_dir), "--no-emit-pyc", "--no-stem", "--omni-dir-name", "RECONSTRUCTED_SOURCE/omni_reconstructed"]
+                        hook_log(f"[BLOB] Launching subprocess: {_cmd}\n")
+                        _proc = _sp.Popen(_cmd, stdout=_sp.PIPE, stderr=_sp.PIPE)
+                        _stdout, _stderr = _proc.communicate(timeout=15)
+                        hook_log(f"[BLOB] Subprocess stdout:\n{_stdout.decode('utf-8', errors='replace')}\n")
+                        if _proc.returncode == 0:
+                            _blob_extracted = True
+                        else:
+                            hook_log(f"[BLOB] Subprocess error (code {_proc.returncode}):\n{_stderr.decode('utf-8', errors='replace')}\n")
+                    except Exception as _sp_err:
+                        hook_log(f"[BLOB] Subprocess run failed: {_sp_err}\n")
+
+        except Exception as e:
+            error_count += 1
+            hook_log(f"[BLOB ERR] dynamic blob extraction crashed: {e}\n")
+
         for idx, (name, mod) in enumerate(targets, 1):
             if idx == 1 or idx % 25 == 0 or idx == total_targets:
                 progress_text = ("phase=processing\ncurrent={idx}/{total}\nmodule={name}\nprocessed={processed}\nerrors={errors}\n").format(
@@ -2924,64 +3470,6 @@ def run_decompiler():
         except Exception as e:
             error_count += 1
             hook_log(f"[PYC ERR] pyc scan crashed: {e}\n")
-
-        # Nuitka dynamic blob extraction from DLL dump
-        # The C DLL writes nuitka_blob.bin into dump_N\DYNAMIC_BLOB\
-        # (i.e. backup_dir / "DYNAMIC_BLOB" / "nuitka_blob.bin").
-        # After successful deobfuscation via run_extract, the blob is deleted
-        # from DYNAMIC_BLOB/ so it does not persist on disk.
-        try:
-            _blob_path = None
-            _dynamic_blob_subdir = source_dir / "DYNAMIC_BLOB"
-            # Primary: DLL writes into dump_N\RECONSTRUCTED_SOURCE\DYNAMIC_BLOB\ (fixed in hook_dll.cpp)
-            if (_dynamic_blob_subdir / "nuitka_blob.bin").is_file():
-                _blob_path = str(_dynamic_blob_subdir / "nuitka_blob.bin")
-                hook_log(f"[BLOB] Found blob in DYNAMIC_BLOB/: {_blob_path}\n")
-            else:
-                # Fallback: wait for blob in legacy paths
-                _blob_path = _wait_dll_blob_dump(str(backup_dir), hook_log, max_wait=5)
-            if _blob_path:
-                # Raw chunk dump for per-module .bin files (source_dir/DYNAMIC_BLOB/)
-                _extract_blob_dynamic(_blob_path, recon, source_dir, hook_log)
-
-                _blob_extracted = False
-                try:
-                    _sys_path_bak = sys.path[:]
-                    _hd = os.path.dirname(os.path.abspath(__file__))
-                    _repo_root = os.path.normpath(os.path.join(_hd, "..", "..", ".."))
-                    if _repo_root not in sys.path:
-                        sys.path.insert(0, _repo_root)
-                    from hydradragon.nuitka_deobfuscate.run_extract import extract_blob as _eb
-                    _omni_name = str(Path("RECONSTRUCTED_SOURCE") / "omni_reconstructed")
-                    _eb(
-                        blob_path=_blob_path,
-                        output_dir=backup_dir,
-                        use_stem=False,
-                        omni_dir_name=_omni_name,
-                        emit_pyc=False,
-                    )
-                    hook_log(f"[BLOB] Native extract_blob complete -> {backup_dir / _omni_name}\n")
-                    _blob_extracted = True
-                except Exception as _eb_err:
-                    hook_log(f"[BLOB] Native extract_blob failed ({_eb_err}), trying py -3.12 subprocess...\n")
-                    try:
-                        import subprocess as _sp
-                        _cli = os.path.join(_repo_root, "hydradragon", "nuitka_deobfuscate", "run_extract_cli.py")
-                        _cmd = ["py", "-3.12", _cli, _blob_path, "-o", str(backup_dir), "--no-emit-pyc", "--no-stem", "--omni-dir-name", "RECONSTRUCTED_SOURCE/omni_reconstructed"]
-                        hook_log(f"[BLOB] Launching subprocess: {_cmd}\n")
-                        _proc = _sp.Popen(_cmd, stdout=_sp.PIPE, stderr=_sp.PIPE)
-                        _stdout, _stderr = _proc.communicate(timeout=15)
-                        hook_log(f"[BLOB] Subprocess stdout:\n{_stdout.decode('utf-8', errors='replace')}\n")
-                        if _proc.returncode == 0:
-                            _blob_extracted = True
-                        else:
-                            hook_log(f"[BLOB] Subprocess error (code {_proc.returncode}):\n{_stderr.decode('utf-8', errors='replace')}\n")
-                    except Exception as _sp_err:
-                        hook_log(f"[BLOB] Subprocess run failed: {_sp_err}\n")
-
-        except Exception as e:
-            error_count += 1
-            hook_log(f"[BLOB ERR] dynamic blob extraction crashed: {e}\n")
 
         # Generic import-lock diagnostics and requested force-unlock pass.
         # No target-name matching, no waiting, no forced imports.

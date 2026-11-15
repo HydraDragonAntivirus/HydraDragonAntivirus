@@ -466,7 +466,12 @@ _BUILTIN_TYPES: dict[str, str] = {
 
 def clean_docstring(text: Any) -> str | None:
     s = str(text).strip()
-    return s.replace("\r\n", "\n").replace("\r", "\n") if s else None
+    if not s:
+        return None
+    s = s.replace("\\", "\\\\").replace('"""', '\\"\\"\\"').replace("\r\n", "\n").replace("\r", "\n")
+    if s.endswith('"'):
+        s = s[:-1] + '\\"'
+    return s
 
 
 @functools.lru_cache(maxsize=8192)
@@ -563,7 +568,13 @@ def is_fragmentary_docstring(text: str | None) -> bool:
 
 
 def should_render_constant(name: Any) -> bool:
-    return isinstance(name, str) and name.isupper() and 3 <= len(name) <= 64
+    return (
+        isinstance(name, str)
+        and name.isidentifier()
+        and not keyword.iskeyword(name)
+        and name.isupper()
+        and 3 <= len(name) <= 64
+    )
 
 
 def _score_window(items: list[Any], start: int, length: int) -> int:
@@ -3620,7 +3631,7 @@ def _count_reconstructed_blocks(source: str) -> int:
 
 
 def _has_python_structure(source: str) -> bool:
-    return any(token in source for token in ("def ", "async def ", "class ", "import "))
+    return any(token in source for token in ("def ", "async def ", "class ", "import ", " = "))
 
 
 _MARSHAL_CODE_TAG_BYTES = (b"\xf3", b"\xe3", b"c")
@@ -3770,22 +3781,3098 @@ def _is_marshaled_bytecode_section_name(
     return _contains_marshaled_bytecode_payload(raw_values)
 
 
+# ---------------------------------------------------------------------------
+# VORTHYX StaticalySmartReconstructor & Generic Blob Enhancement Helpers
+# ---------------------------------------------------------------------------
+
+_CLASS_BASE_MACHINERY_MARKERS = (
+    "via_PyUnicode_FromString",
+    "<metaclass>",
+    "_tstate(",
+    "_stackaddr(",
+    "_type_of(",
+    "CALL_FUNCTION(",
+    "__prepare__",
+    "_PyObject_GC_Malloc(",
+    "_gslot(",
+)
+
+_DATA_FILE_EXTS = (
+    ".py", ".pyc", ".pyd", ".txt", ".json", ".cfg", ".ini",
+    ".dat", ".log", ".csv", ".md", ".html", ".htm", ".xml",
+    ".yaml", ".yml", ".toml", ".png", ".jpg", ".jpeg", ".gif",
+    ".ico", ".exe", ".dll", ".so", ".zip", ".gz", ".db",
+    ".sqlite", ".bin", ".tmp", ".bak", ".lock", ".env",
+)
+
+_WIN32_DLL_NAMES = frozenset({
+    "kernel32", "user32", "shell32", "advapi32", "crypt32", "avicap32",
+    "ntdll", "psapi", "gdi32", "ole32", "oleaut32", "wininet", "ws2_32",
+    "bcrypt", "secur32", "shlwapi", "version", "winmm", "iphlpapi",
+})
+
+_CTYPES_FIELD_TYPES = frozenset({
+    "c_bool", "c_char", "c_wchar", "c_byte", "c_ubyte", "c_short", "c_ushort",
+    "c_int", "c_uint", "c_long", "c_ulong", "c_longlong", "c_ulonglong",
+    "c_size_t", "c_ssize_t", "c_float", "c_double", "c_longdouble",
+    "c_char_p", "c_wchar_p", "c_void_p", "BOOL", "BYTE", "WORD", "DWORD",
+    "HANDLE", "HWND", "LPVOID", "LPCSTR", "LPCWSTR", "LPSTR", "LPWSTR",
+})
+
+
+def _heal_class_bases(bases: Iterable[str], class_name: str | None = None) -> list[str]:
+    """Strip Nuitka metaclass machinery from class bases while keeping real base types."""
+    out: list[str] = []
+    for base in bases or ():
+        if not isinstance(base, str) or not base:
+            continue
+        if not any(marker in base for marker in _CLASS_BASE_MACHINERY_MARKERS):
+            if base not in out:
+                out.append(base)
+            continue
+        for match in re.finditer(r"\(\s*([A-Z]\w*(?:\s*,\s*[A-Z]\w*)*)\s*,?\s*\)", base):
+            for part in match.group(1).split(","):
+                nm = part.strip()
+                if nm and nm != class_name and nm not in out:
+                    out.append(nm)
+    return out
+
+
+def _ndl_all_import_names(import_lines: Iterable[str] | None) -> set[str]:
+    """Return every symbol and alias introduced by import lines."""
+    out: set[str] = set()
+    for line in import_lines or ():
+        match = re.match(r"^from\s+.+\s+import\s+(.+)$", line)
+        if match:
+            for part in match.group(1).split(","):
+                part = part.strip()
+                if " as " in part:
+                    src, alias = part.split(" as ", 1)
+                    out.add(src.strip())
+                    out.add(alias.strip())
+                elif re.fullmatch(r"[A-Za-z_]\w*", part):
+                    out.add(part)
+        match = re.match(r"^import\s+([A-Za-z_]\w*)$", line)
+        if match:
+            out.add(match.group(1))
+    return out
+
+
+def _ndl_parse_imported_symbols(import_lines: Iterable[str] | None) -> set[str]:
+    """Extract local bound symbol names from emitted import lines."""
+    out: set[str] = set()
+    for line in import_lines or ():
+        match = re.match(r"^from\s+.+\s+import\s+(.+)$", line)
+        if match:
+            for part in match.group(1).split(","):
+                part = part.strip()
+                if " as " in part:
+                    part = part.split(" as ", 1)[1].strip()
+                if re.fullmatch(r"[A-Za-z_]\w*", part):
+                    out.add(part)
+        match = re.match(r"^import\s+([A-Za-z_]\w*)$", line)
+        if match:
+            out.add(match.group(1))
+    return out
+
+
+def _ndl_imported_names_from_constants(constants: Iterable[Any]) -> set[str]:
+    """Collect names brought in via `(module, (sym1, sym2, ...))` constant pairs."""
+    items = list(constants)
+    out: set[str] = set()
+    n = len(items)
+    for i, item in enumerate(items):
+        if not isinstance(item, str) or not re.fullmatch(r"[a-z_][a-z0-9_]*", item):
+            continue
+        nxt = items[i + 1] if i + 1 < n else None
+        if (
+            isinstance(nxt, tuple)
+            and nxt
+            and all(isinstance(x, str) and re.fullmatch(r"[A-Za-z_]\w*", x) for x in nxt)
+        ):
+            out.update(nxt)
+    return out
+
+
+def _ndl_guess_global_init(name: str, imported_syms: set[str], consts: Iterable[Any]) -> str | None:
+    """Guess `name = imported_callable()` when the initializer expression was omitted."""
+    if not name or not imported_syms:
+        return None
+    low = name.lower()
+    best: str | None = None
+    for sym in sorted(imported_syms, key=len, reverse=True):
+        sym_low = sym.lower()
+        if sym_low == low:
+            return f"{sym}()"
+        if sym_low.endswith(low) or (len(sym_low) > len(low) and low in sym_low):
+            best = f"{sym}()"
+    return best
+
+
+def _ndl_qualify_imports(
+    lines: list[str],
+    module_name: str,
+    known_modules: set[str] | None = None,
+    is_package: bool = False,
+) -> list[str]:
+    """Rewrite sibling package imports to relative `from .sub import ...` when verified."""
+    if not lines or not module_name:
+        return lines
+    known = set(known_modules or ())
+    if is_package:
+        pkg: str | None = module_name
+    elif "." in module_name:
+        pkg = module_name.rsplit(".", 1)[0]
+    else:
+        pkg = None
+    if not pkg or not known:
+        return lines
+    out: list[str] = []
+    for line in lines:
+        match = re.match(r"^from\s+([A-Za-z_][A-Za-z0-9_]*)\s+import\s+(.+)$", line)
+        if match and not line.startswith("from ."):
+            mod, rest = match.group(1), match.group(2)
+            if mod not in StaticalySmartReconstructor._COMMON_STDLIB and f"{pkg}.{mod}" in known:
+                out.append(f"from .{mod} import {rest}")
+                continue
+        out.append(line)
+    return out
+
+
+def _ndl_discover_header_token_pair(module_consts: Iterable[Any]) -> tuple[str | None, str | None]:
+    """Match HTTP header key strings to ALL_CAPS token-list names in the constant pool."""
+    consts = list(module_consts or ())
+    if not consts:
+        return None, None
+    hdr_keys = [
+        c for c in consts
+        if isinstance(c, str) and re.fullmatch(r"[A-Za-z][\w-]*", c) and ("-" in c or (len(c) > 1 and c[0] == "X"))
+    ]
+    pools = [c for c in consts if isinstance(c, str) and re.fullmatch(r"[A-Z][A-Z0-9_]*", c)]
+    has_token_list = any(isinstance(c, (list, tuple)) and c for c in consts)
+    if hdr_keys and pools and has_token_list:
+        return hdr_keys[0], pools[0]
+    return None, None
+
+
+def _ndl_heal_incomplete_url_slash(lines: list[str], varnames: list[str] | None = None) -> list[str]:
+    """Append `{first_param}` to trailing-slash URL f-strings missing interpolation."""
+    if not lines:
+        return lines
+    first_param = next(
+        (vn for vn in (varnames or ()) if vn not in ("self", "cls") and re.fullmatch(r"[A-Za-z_]\w*", vn)),
+        None,
+    )
+    if not first_param:
+        return lines
+    pat = re.compile(r"^(\s*)(\w+)\s*=\s*(f'https?://[^']+/'|f\"https?://[^\"]+/\")\s*$")
+    out: list[str] = []
+    for ln in lines:
+        match = pat.match(ln)
+        if match:
+            indent, var, fstr = match.group(1), match.group(2), match.group(3)
+            inner = fstr[2:-1]
+            if "{" not in inner:
+                out.append(f"{indent}{var} = f'{inner}{{{first_param}}}'")
+                continue
+        out.append(ln)
+    return out
+
+
+def _ndl_heal_split_fstring_url(lines: list[str], varnames: list[str] | None = None) -> list[str]:
+    """Merge URL f-strings split across `url = f'...'` and `headers = {'&...=': val}`."""
+    if not lines:
+        return lines
+    first_param = next(
+        (vn for vn in (varnames or ()) if vn not in ("self", "cls") and re.fullmatch(r"[A-Za-z_]\w*", vn)),
+        None,
+    )
+    url_pat = re.compile(r"^(\s*)(\w+)\s*=\s*((?:f'[^']*'|f\"[^\"]*\"))\s*$")
+    hdr_pat = re.compile(r"^(\s*)(\w+)\s*=\s*\{('[^']*[&?][^']*='|\"[^\"]*[&?][^\"]*=\")\s*:\s*(\w+)\}\s*$")
+    get_pat = re.compile(r"^(\s*)(\w+)\s*=\s*c\.session\((\w+)\)\.get\((\w+)\)\s*$")
+    out: list[str] = []
+    i = 0
+    while i < len(lines):
+        ln = lines[i]
+        m_url = url_pat.match(ln)
+        if m_url and i + 2 < len(lines):
+            m_hdr = hdr_pat.match(lines[i + 1])
+            m_get = get_pat.match(lines[i + 2])
+            if m_hdr and m_get and m_get.group(3) == m_hdr.group(2) and m_get.group(4) == m_url.group(2):
+                inner = m_url.group(3)[2:-1]
+                if not re.search(r"\{[^}]+\}", inner) and inner.endswith("=") and first_param:
+                    inner = f"{inner}{{{first_param}}}"
+                hdr_key = m_hdr.group(3)[1:-1]
+                out.append(f"{m_url.group(1)}{m_url.group(2)} = f'{inner}{hdr_key}{{{m_hdr.group(4)}}}'")
+                out.append(f"{m_get.group(1)}{m_get.group(2)} = c.session().get({m_url.group(2)})")
+                i += 3
+                continue
+        out.append(ln)
+        i += 1
+    return out
+
+
+def _ndl_heal_url_token_swap(lines: list[str]) -> list[str]:
+    """Repair swapped `url` dict and HTTP-URL variable before `c.session(url).get(...)`."""
+    if not lines:
+        return lines
+    http_pat = re.compile(r"^(\s*)(\w+)\s*=\s*(f?'https?://[^']*'|f?\"[^\"]*\")\s*$")
+    url_dict_pat = re.compile(r"^(\s*)(url)\s*=\s*(\{.*\})\s*$")
+    get_pat = re.compile(r"^(\s*)(\w+)\s*=\s*c\.session\((\w+)\)\.get\((\w+)\)\s*$")
+    out = list(lines)
+    i = 0
+    while i < len(out):
+        m_http = http_pat.match(out[i])
+        if m_http and i + 2 < len(out):
+            m_url = url_dict_pat.match(out[i + 1])
+            m_get = get_pat.match(out[i + 2])
+            if m_url and m_get and m_get.group(3) == "url" and m_get.group(4) == m_http.group(2):
+                old_resp = m_get.group(2)
+                resp_var = "response" if old_resp == "url" else old_resp
+                out[i] = f"{m_http.group(1)}url = {m_http.group(3)}"
+                out[i + 1] = f"{m_url.group(1)}headers = {m_url.group(3)}"
+                out[i + 2] = f"{m_get.group(1)}{resp_var} = c.session(headers).get(url)"
+                if old_resp != resp_var:
+                    for j in range(i + 3, len(out)):
+                        out[j] = re.sub(
+                            rf"\b{re.escape(old_resp)}\.(status_code|json|text|content)\b",
+                            rf"{resp_var}.\1",
+                            out[j],
+                        )
+                i += 3
+                continue
+        i += 1
+    return out
+
+
+def _ndl_infer_defaults_heuristic(co: dict[str, Any], consts: list[Any]) -> tuple[Any, ...] | None:
+    """Abstain from guessing arbitrary positional defaults without exact evidence."""
+    return None
+
+
+def _ndl_reconcile_init_params(
+    sig_args: list[str],
+    body: list[str],
+    body_indent: str,
+    consts: list[Any],
+    authoritative_args: list[str] | None = None,
+) -> tuple[list[str], list[str]]:
+    """Bind `argN` body references to named `__init__` parameters when unambiguous."""
+    if not body:
+        return sig_args, body
+    arg_pat = re.compile(r"\barg(\d+)\b")
+    if authoritative_args is not None:
+        exact = [str(x) for x in authoritative_args]
+        return sig_args, [
+            arg_pat.sub(lambda m: exact[int(m.group(1))] if 0 <= int(m.group(1)) < len(exact) else m.group(0), ln)
+            for ln in body
+        ]
+
+    used_indices = {int(m.group(1)) for ln in body for m in arg_pat.finditer(ln)}
+    if not used_indices:
+        return sig_args, body
+    has_recv = bool(sig_args) and sig_args[0] in ("self", "cls")
+    store_pat = re.compile(r"^(\s*)(self|cls)\.([A-Za-z_]\w*)\s*=\s*arg(\d+)\b")
+    rename: dict[str, str] = {}
+    for ln in body:
+        match = store_pat.match(ln)
+        if match:
+            idx = int(match.group(4))
+            attr = match.group(3)
+            if re.fullmatch(r"[a-z_][a-z0-9_]*", attr) and f"arg{idx}" not in rename:
+                rename[f"arg{idx}"] = attr
+    new_params = [rename.get(f"arg{idx}", f"arg{idx}") for idx in sorted(used_indices)]
+    out_sig = ([sig_args[0]] + new_params) if has_recv else new_params
+    out_body = [
+        arg_pat.sub(lambda m: rename.get(f"arg{int(m.group(1))}", f"arg{int(m.group(1))}"), ln)
+        for ln in body
+    ]
+    return out_sig, out_body
+
+
+class StaticalySmartReconstructor:
+    """Deep static reconstruction of a Nuitka module chunk into valid Python source.
+
+    Combines VORTHYX's qualname/import/class/global structural analysis with:
+      * Exact blob-decoded CodeObject ingestion (`'C'`, `'W'`, `'Y'`, `'K'` tags)
+        including nested classes (`Outer.Inner`), closure `<locals>` helper
+        classes/functions, exact parameter lists (`posonly`, `argcount`,
+        `kwonly`, `CO_VARARGS`, `CO_VARKEYWORDS`), `@staticmethod`/`@classmethod`,
+        exact line ordering, class attributes, adjacent qualname annotations,
+        and keyword-call / annotation-backed default values.
+      * Generic constant-window function body synthesis from each CodeObject's
+        contiguous `[co_idx + 1 : next_co_idx]` slice in the constant stream,
+        verified via `ast.parse` so emitted files never fail syntax validation.
+    """
+
+    _BUILTIN_EXCEPTIONS = {
+        "Exception", "ValueError", "TypeError", "KeyError", "IndexError",
+        "RuntimeError", "AttributeError", "ImportError", "IOError",
+        "OSError", "FileNotFoundError", "ConnectionError", "TimeoutError",
+        "InvalidSignature",
+    }
+    _NON_FUNCTION_NAMES = frozenset({
+        "__doc__", "__file__", "__cached__", "__name__", "__spec__",
+        "__package__", "__builtins__", "__class__", "__loader__",
+        "__path__", "__module__", "__all__", "__version__",
+        "__author__", "__annotations__", "__dict__", "__slots__",
+        "__qualname__", "__weakref__", "__mro_entries__",
+        "status_code", "text", "content", "json", "get", "post", "put",
+        "delete", "headers", "cookies", "url", "ok", "reason", "encoding",
+        "origin", "has_location",
+        "__iter__", "__getitem__", "__setitem__", "__enter__", "__exit__",
+        "__init__", "__call__", "__str__", "__repr__", "__eq__", "__hash__",
+        "__bool__", "__len__", "__contains__", "__add__", "__sub__",
+        "__mul__", "__truediv__", "__getattr__", "__setattr__",
+    })
+    _PACKAGE_MACHINERY_NAMES = frozenset({
+        "path", "dirname", "join", "environ", "submodule_search_locations",
+        "getcwd", "abspath", "basename", "realpath", "normpath", "splitext",
+        "expanduser", "isdir", "isfile", "pardir", "curdir",
+    })
+    _COMMON_STDLIB = {
+        "sys", "os", "re", "json", "time", "struct", "ctypes",
+        "hashlib", "hmac", "base64", "random", "binascii",
+        "threading", "asyncio", "typing", "datetime", "math",
+        "itertools", "functools", "copy", "io", "traceback",
+        "collections", "pathlib", "socket", "ssl", "subprocess",
+        "warnings", "logging", "signal", "platform", "pickle",
+        "codecs", "enum", "abc", "inspect", "importlib", "weakref",
+        "urllib", "http", "email", "concurrent", "decimal",
+        "queue", "uuid", "bisect", "heapq", "operator", "atexit",
+        "contextlib", "dataclasses", "gc", "glob", "shutil",
+        "stat", "string", "textwrap", "tempfile", "zipfile",
+        "zlib", "gzip", "bz2", "lzma", "csv", "xml", "html",
+        "token", "tokenize", "types", "typing_extensions",
+        "sqlite3", "urllib3", "requests", "aiohttp", "httpx", "yarl", "six",
+        "shlex", "ipaddress", "resource", "site", "fnmatch", "gettext",
+    }
+    _MACHINERY_MARKERS = (
+        "__prepare__", "must return a mapping", "__mro_entries__",
+        "metaclass conflict", "__set_name__",
+        "argument after ** must be a mapping",
+        "got multiple values for keyword argument",
+        "argument after * must be an iterable",
+        "star_arg_list",
+    )
+
+    def __init__(
+        self,
+        module_name: str,
+        constants: list[Any] | tuple[Any, ...],
+        code_objects: list[dict[str, Any]] | tuple[dict[str, Any], ...] | None = None,
+        body_traces: dict[str, list[str]] | None = None,
+        module_globals: Iterable[str] | None = None,
+        body_sources: dict[str, list[str]] | None = None,
+        defaults: dict[str, tuple[Any, ...]] | None = None,
+        known_modules: Iterable[str] | None = None,
+        is_package: bool = False,
+        emit_banner: bool = True,
+        module_global_values: dict[str, Any] | None = None,
+        native_attempted: bool = False,
+        source_order: dict[str, int] | None = None,
+    ) -> None:
+        self.module_name = module_name or "__module__"
+        self.native_attempted = bool(native_attempted)
+        self.known_modules = {str(m) for m in (known_modules or ()) if m}
+        self.is_package = bool(is_package)
+        self.emit_banner = bool(emit_banner)
+        self.constants = list(constants or ())
+        self._defaults = dict(defaults or {})
+        self.body_traces = dict(body_traces or {})
+        self.body_sources = dict(body_sources or {})
+        self.module_globals = set(module_globals or ())
+        self.module_global_values = dict(module_global_values or {})
+
+        # Map CodeObject positions in self.constants for bounded constant-window analysis.
+        self._co_pos_by_id: dict[int, int] = {}
+        self._co_pos_by_key: dict[tuple[str, int], int] = {}
+        self._all_co_positions: list[int] = []
+        extracted_cos: list[dict[str, Any]] = []
+        for idx, item in enumerate(self.constants):
+            if isinstance(item, dict) and item.get("_type") == "CodeObject":
+                self._co_pos_by_id[id(item)] = idx
+                qn_k = str(item.get("qualname") or item.get("name") or "")
+                self._co_pos_by_key.setdefault((qn_k, int(item.get("line") or 0)), idx)
+                self._all_co_positions.append(idx)
+                extracted_cos.append(item)
+
+        self.code_objects = list(code_objects) if code_objects else extracted_cos
+
+        self._inferred_bases: dict[str, list[str]] = {}
+        self._inferred_classes: list[str] = []
+        self._class_cos: dict[str, dict[str, Any]] = {}
+        self._class_docstrings: dict[str, str] = {}
+        self._class_lines: dict[str, int] = {}
+        self._class_attrs: dict[str, list[tuple[str, str | None]]] = {}
+        self._class_const_hints: dict[str, list[Any]] = {}
+        self._nested_classes: dict[str, list[str]] = {}
+        self._nested_class_cos: dict[str, dict[str, Any]] = {}
+        self._local_classes_by_parent: dict[str, list[dict[str, Any]]] = {}
+        self._local_funcs_by_parent: dict[str, list[dict[str, Any]]] = {}
+        self._qualname_annotations: dict[str, dict[str, Any]] = {}
+        self._qualname_defaults: dict[str, tuple[Any, ...]] = {}
+        self._qualname_kwdefaults: dict[str, dict[str, Any]] = {}
+        self._qualname_positions: dict[str, int] = {}
+        self._qualname_param_names: dict[str, list[str]] = {}
+        self._partitioned_co_windows: dict[int, list[Any]] = {}
+        self._detected_import_lines: list[str] = []
+        self.classes: dict[str, dict[str, Any]] = {}
+        self.free_funcs: list[dict[str, Any]] = []
+
+        self.str_positions: dict[str, list[int]] = {}
+        for i, c in enumerate(self.constants):
+            if isinstance(c, str):
+                self.str_positions.setdefault(c, []).append(i)
+
+        self._scan_qualname_metadata()
+
+        has_native = any(co.get("_native") for co in self.code_objects if isinstance(co, dict))
+        has_blob_exact = any(self._is_blob_exact_co(co) for co in self.code_objects if isinstance(co, dict))
+
+        if has_native:
+            (
+                self.code_objects,
+                self._inferred_classes,
+                self._inferred_bases,
+            ) = self._merge_native_code_objects(self.code_objects)
+        elif has_blob_exact:
+            (
+                self.code_objects,
+                self._inferred_classes,
+                self._inferred_bases,
+            ) = self._ingest_blob_code_objects(self.code_objects)
+        elif not self.code_objects:
+            methods, class_order, method_leaves = self._scan_qualnames()
+            self._inferred_classes = class_order
+            self._inferred_bases = self._scan_class_bases(class_order, method_leaves)
+            free_funcs = self._scan_top_level_functions(methods, class_order)
+            all_funcs = methods + free_funcs
+            self._partitioned_co_windows = self._build_partitioned_co_windows(all_funcs)
+            self._assign_args_by_order(all_funcs)
+            self.code_objects = all_funcs
+
+        if not self._partitioned_co_windows and self.code_objects and not self._all_co_positions:
+            self._partitioned_co_windows = self._build_partitioned_co_windows(self.code_objects)
+
+        self._classify()
+        self._recover_all_class_attributes()
+
+        self._def_order = {id(co): i for i, co in enumerate(self.code_objects)}
+        self._src_order = dict(source_order or {})
+
+    # ---- structural classification ----
+
+    @staticmethod
+    def _is_ident(s: Any) -> bool:
+        return isinstance(s, str) and bool(re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", s))
+
+    @staticmethod
+    def _is_valid_def_name(name: Any) -> bool:
+        return (
+            isinstance(name, str)
+            and bool(re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", name))
+            and not keyword.iskeyword(name)
+            and not keyword.issoftkeyword(name)
+        )
+
+    @staticmethod
+    def _is_blob_exact_co(co: Any) -> bool:
+        return (
+            isinstance(co, dict)
+            and co.get("_type") == "CodeObject"
+            and co.get("_source") not in ("qualname", "free", "broad-scan")
+            and co.get("_blob_exact") is not False
+            and isinstance(co.get("argcount"), int)
+        )
+
+    @staticmethod
+    def _is_class_code_object(co: dict[str, Any]) -> bool:
+        name = str(co.get("name") or "")
+        if not name or name.startswith("<"):
+            return False
+        if co.get("kind") == "class":
+            return True
+        flags = int(co.get("flags") or 0)
+        args = co.get("args") or ()
+        return not (flags & 0x02) and "__class__" in args
+
+    def _get_co_pos(self, co: dict[str, Any]) -> int | None:
+        pos = self._co_pos_by_id.get(id(co))
+        if pos is not None:
+            return pos
+        qn = str(co.get("qualname") or co.get("name") or "")
+        return self._co_pos_by_key.get((qn, int(co.get("line") or 0)))
+
+    def _get_co_window(self, co: dict[str, Any], *, stop_at_any_co: bool = False) -> list[Any]:
+        """Return constants slice immediately following `co` up to the next sibling CodeObject."""
+        pos = self._get_co_pos(co)
+        if pos is None or pos + 1 >= len(self.constants):
+            return list(self._partitioned_co_windows.get(id(co), ()))
+        end = len(self.constants)
+        qn_prefix = str(co.get("qualname") or co.get("name") or "") + ".<locals>."
+        for nxt_pos in self._all_co_positions:
+            if nxt_pos <= pos:
+                continue
+            if stop_at_any_co:
+                end = nxt_pos
+                break
+            nxt_co = self.constants[nxt_pos]
+            nxt_qn = str(nxt_co.get("qualname") or nxt_co.get("name") or "")
+            # Stay inside the enclosing function across its own `<locals>` helpers.
+            if not nxt_qn.startswith(qn_prefix):
+                end = nxt_pos
+                break
+        # Collect elements excluding sub-slices consumed by local closures/classes.
+        items: list[Any] = []
+        skip_until = -1
+        for idx in range(pos + 1, end):
+            if idx < skip_until:
+                continue
+            val = self.constants[idx]
+            if isinstance(val, dict) and val.get("_type") == "CodeObject":
+                child_qn = str(val.get("qualname") or val.get("name") or "")
+                if val.get("kind") == "class" and child_qn.startswith(qn_prefix):
+                    # Skip the nested class's own field definition tokens up to `__mro_entries__`/`_fields_`.
+                    j = idx + 1
+                    while j < end:
+                        v_j = self.constants[j]
+                        if v_j in ("_fields_", "__orig_bases__", "__mro_entries__"):
+                            skip_until = j + 1
+                            if v_j == "__mro_entries__":
+                                break
+                        if isinstance(v_j, dict) and v_j.get("_type") == "CodeObject":
+                            break
+                        j += 1
+                    continue
+                if child_qn.startswith(qn_prefix) and not str(val.get("name") or "").startswith("<"):
+                    # Nested helper def has its own body window up to parent's continuation.
+                    continue
+            items.append(val)
+        return items
+
+    def _scan_qualname_metadata(self) -> None:
+        """Recover adjacent annotation dicts and verified default tuples near qualnames."""
+        n = len(self.constants)
+        # Locate start of module import / definition tail so pre-import call arg tuples aren't misread as defaults.
+        import_anchor = 0
+        for idx in range(n - 1):
+            if self.constants[idx] == "origin" and self.constants[idx + 1] == "has_location":
+                import_anchor = idx + 2
+                break
+        if import_anchor == 0:
+            lo_def, _hi_def = self._definition_region()
+            import_anchor = lo_def
+
+        for idx, c in enumerate(self.constants):
+            if not isinstance(c, str) or idx == 0:
+                continue
+            if c.endswith((".py", ".pyc")) or " " in c or "<" in c:
+                continue
+            if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*", c):
+                continue
+            self._qualname_positions.setdefault(c, idx)
+            prev = self.constants[idx - 1]
+            if isinstance(prev, dict) and self._is_annotation_dict(prev):
+                self._qualname_annotations.setdefault(c, prev)
+                back_pos = idx - 2
+                if back_pos >= 0 and isinstance(self.constants[back_pos], dict):
+                    kwd = self.constants[back_pos]
+                    if (
+                        kwd
+                        and all(isinstance(k, str) and k in prev and self._is_safe_default_val(v) for k, v in kwd.items())
+                    ):
+                        self._qualname_kwdefaults.setdefault(c, kwd)
+                        back_pos -= 1
+                if back_pos >= 0:
+                    cand_def = self.constants[back_pos]
+                    if (
+                        isinstance(cand_def, tuple)
+                        and 1 <= len(cand_def) <= max(1, len(prev) - (1 if "return" in prev else 0))
+                        and all(self._is_safe_default_val(v) for v in cand_def)
+                    ):
+                        self._qualname_defaults.setdefault(c, cand_def)
+            elif idx >= import_anchor and self._is_valid_def_name(c.rsplit(".", 1)[-1]):
+                # Nuitka 2.x unannotated qualname/function with positional defaults right before
+                # `<leaf>` + `<Class.leaf>` or `<arg_names...>` + `<func_name>`.
+                leaf = c.rsplit(".", 1)[-1]
+                for back_step in range(1, 5):
+                    bp = idx - back_step
+                    if bp < max(0, import_anchor):
+                        break
+                    item = self.constants[bp]
+                    if isinstance(item, tuple) and 1 <= len(item) <= 12:
+                        if self._is_type_spec(item):
+                            continue
+                        if (
+                            all(self._is_safe_default_val(v) for v in item)
+                            and not (bp >= 1 and isinstance(self.constants[bp - 1], str) and "." in self.constants[bp - 1])
+                            and not (len(item) == 1 and isinstance(item[0], str) and self._is_ident(item[0]) and bp >= 1 and isinstance(self.constants[bp - 1], str) and self.constants[bp - 1].isidentifier())
+                        ):
+                            # Only accept `(default, ...)` across intermediate steps if intervening entries
+                            # are short ident strings (`leaf` or param names) and not another tuple/dict.
+                            between_ok = all(
+                                (isinstance(self.constants[k], str) and self._is_ident(self.constants[k]))
+                                or (isinstance(self.constants[k], tuple) and self._is_type_spec(self.constants[k]))
+                                for k in range(bp + 1, idx)
+                            )
+                            between_names = [
+                                self.constants[k]
+                                for k in range(bp + 1, idx)
+                                if isinstance(self.constants[k], str) and self._is_valid_def_name(self.constants[k])
+                            ]
+                            if between_ok and ("." in c or back_step >= 2 or (bp + 1 == idx and not (len(item) == 1 and isinstance(item[0], str)))):
+                                # Avoid misattributing orphan free-function defaults to an unrelated 0-arg `main` right at `.py`.
+                                if "." in c or back_step >= 2:
+                                    self._qualname_defaults.setdefault(c, item)
+                                    if between_names and between_names != [leaf]:
+                                        self._qualname_param_names.setdefault(c, between_names)
+                        break
+                    if not (
+                        (isinstance(item, str) and (item == leaf or self._is_ident(item)))
+                        or (isinstance(item, tuple) and self._is_type_spec(item))
+                    ):
+                        break
+
+    @staticmethod
+    def _is_safe_default_val(v: Any) -> bool:
+        if v is None or isinstance(v, (bool, int, float)):
+            return True
+        if isinstance(v, str) and len(v) <= 80:
+            return True
+        if isinstance(v, tuple) and len(v) <= 6:
+            if v and v[0] in ("UnionType", "GenericAlias", "_nuitka_builtin_anon_type", "slice"):
+                return False
+            if all(x is None or isinstance(x, (bool, int, float, str)) for x in v):
+                return True
+        return False
+
+    def _extract_exact_blob_sig(self, co: dict[str, Any]) -> tuple[list[str], list[str]]:
+        """Extract exact `(sig_args, locals_only)` from blob `'C'`/`'K'` CodeObject."""
+        varnames = [str(a) for a in (co.get("args") or ())]
+        argcount = max(0, int(co.get("argcount") or 0))
+        posonly = max(0, int(co.get("posonly") or 0))
+        kwonly = max(0, int(co.get("kwonly") or 0))
+        flags = int(co.get("flags") or 0)
+        has_varargs = bool(flags & 0x04)
+        has_varkw = bool(flags & 0x08)
+
+        pos_names = [a for a in varnames[:argcount] if self._is_ident(a)]
+        kwonly_names = [a for a in varnames[argcount:argcount + kwonly] if self._is_ident(a)]
+
+        va_idx = argcount + kwonly
+        vararg_name: str | None = None
+        if has_varargs:
+            cand = varnames[va_idx] if va_idx < len(varnames) else "args"
+            vararg_name = cand if self._is_ident(cand) else "args"
+
+        kw_idx = va_idx + (1 if has_varargs else 0)
+        varkw_name: str | None = None
+        if has_varkw:
+            cand = varnames[kw_idx] if kw_idx < len(varnames) else "kwargs"
+            varkw_name = cand if self._is_ident(cand) else "kwargs"
+
+        sig_args: list[str] = []
+        if posonly > 0 and posonly <= len(pos_names):
+            sig_args.extend(pos_names[:posonly])
+            sig_args.append("/")
+            sig_args.extend(pos_names[posonly:])
+        else:
+            sig_args.extend(pos_names)
+
+        if vararg_name is not None:
+            sig_args.append(f"*{vararg_name}")
+        elif kwonly_names:
+            sig_args.append("*")
+        sig_args.extend(kwonly_names)
+        if varkw_name is not None:
+            sig_args.append(f"**{varkw_name}")
+
+        consumed = set(pos_names) | set(kwonly_names)
+        if vararg_name:
+            consumed.add(vararg_name)
+        if varkw_name:
+            consumed.add(varkw_name)
+        locals_only = [v for v in varnames if v not in consumed and self._is_ident(v)]
+        return sig_args, locals_only
+
+    def _ingest_blob_code_objects(
+        self, raw_cos: list[dict[str, Any]]
+    ) -> tuple[list[dict[str, Any]], list[str], dict[str, list[str]]]:
+        """Ingest decoded blob CodeObjects while preserving class nesting and `<locals>` scope."""
+        methods_q, qual_classes, method_leaves = self._scan_qualnames()
+        class_order: list[str] = []
+        class_names: set[str] = set()
+        seen_nested: set[str] = set()
+        covered_qns: set[str] = set()
+        out_cos: list[dict[str, Any]] = []
+
+        def _reg_top_class(cname: str, co_obj: dict[str, Any] | None = None) -> None:
+            if not self._is_valid_def_name(cname) or cname in self.known_modules:
+                return
+            if cname not in class_names:
+                class_names.add(cname)
+                class_order.append(cname)
+            if co_obj is not None:
+                self._class_cos.setdefault(cname, co_obj)
+                ln = int(co_obj.get("line") or 0)
+                if ln > 0 and cname not in self._class_lines:
+                    self._class_lines[cname] = ln
+                if co_obj.get("docstring"):
+                    self._class_docstrings.setdefault(cname, co_obj["docstring"])
+
+        for c in qual_classes:
+            _reg_top_class(c)
+
+        for co in raw_cos:
+            if not isinstance(co, dict):
+                continue
+            name = str(co.get("name") or "")
+            qn = str(co.get("qualname") or name or "")
+
+            if name == "<module>" or qn == "<module>":
+                nc = dict(co)
+                self._copy_co_pos(co, nc)
+                out_cos.append(nc)
+                continue
+
+            if ".<locals>." in qn:
+                parent_qn = qn.split(".<locals>.", 1)[0]
+                if self._is_class_code_object(co):
+                    nc = dict(co)
+                    self._copy_co_pos(co, nc)
+                    self._local_classes_by_parent.setdefault(parent_qn, []).append(nc)
+                elif (
+                    self._is_valid_def_name(name)
+                    and not name.startswith("<")
+                    and co.get("kind") not in ("genexpr", "listcomp", "dictcomp", "setcomp")
+                ):
+                    nc = dict(co)
+                    self._copy_co_pos(co, nc)
+                    self._local_funcs_by_parent.setdefault(parent_qn, []).append(nc)
+                continue
+
+            if name in ("<lambda>", "<genexpr>", "<listcomp>", "<dictcomp>", "<setcomp>"):
+                continue
+
+            if self._is_class_code_object(co):
+                if "." in qn:
+                    parent_cls, child_cls = qn.rsplit(".", 1)
+                    top_cls = qn.split(".", 1)[0]
+                    _reg_top_class(top_cls)
+                    if self._is_valid_def_name(child_cls) and qn not in seen_nested:
+                        seen_nested.add(qn)
+                        self._nested_classes.setdefault(parent_cls, []).append(qn)
+                        self._nested_class_cos[qn] = co
+                        self._class_cos.setdefault(qn, co)
+                        ln = int(co.get("line") or 0)
+                        if ln > 0:
+                            self._class_lines.setdefault(qn, ln)
+                        if co.get("docstring"):
+                            self._class_docstrings.setdefault(qn, co["docstring"])
+                else:
+                    _reg_top_class(name, co)
+                continue
+
+            if not self._is_valid_def_name(name):
+                continue
+
+            if "." in qn:
+                top_owner = qn.split(".", 1)[0]
+                if top_owner not in self.known_modules and self._is_valid_def_name(top_owner):
+                    _reg_top_class(top_owner)
+                method_leaves.add(name)
+
+            nc = dict(co)
+            nc["_blob_exact"] = self._is_blob_exact_co(co)
+            self._copy_co_pos(co, nc)
+            if qn not in covered_qns:
+                covered_qns.add(qn)
+                out_cos.append(nc)
+
+        # Backfill any qualname-only methods without an explicit CodeObject entry.
+        for m in methods_q:
+            mqn = str(m.get("qualname") or m.get("name") or "")
+            if mqn in covered_qns or mqn in self._nested_class_cos or mqn.lower().endswith(_DATA_FILE_EXTS):
+                continue
+            covered_qns.add(mqn)
+            out_cos.append(m)
+
+        # Sort classes in line order when available from CodeObjects.
+        if self._class_lines:
+            def _cls_sort_key(cname: str) -> tuple[int, int]:
+                ln = self._class_lines.get(cname)
+                if ln:
+                    return (0, ln)
+                method_lns = [
+                    int(co.get("line") or 0)
+                    for co in out_cos
+                    if str(co.get("qualname") or "").split(".", 1)[0] == cname and int(co.get("line") or 0) > 0
+                ]
+                if method_lns:
+                    return (0, min(method_lns))
+                return (1, self._const_index(cname))
+
+            class_order.sort(key=_cls_sort_key)
+
+        if any(not co.get("_blob_exact") for co in out_cos):
+            self._assign_args_by_order(out_cos)
+
+        bases = self._scan_class_bases(class_order, method_leaves)
+        return out_cos, class_order, bases
+
+    def _copy_co_pos(self, src: dict[str, Any], dst: dict[str, Any]) -> None:
+        pos = self._co_pos_by_id.get(id(src))
+        if pos is not None:
+            self._co_pos_by_id[id(dst)] = pos
+
+    def _recover_all_class_attributes(self) -> None:
+        """Recover class-level attribute bindings & literal hints from class constant windows."""
+        for cls_key in list(self.classes.keys()) + list(self._nested_class_cos.keys()):
+            co = self._class_cos.get(cls_key)
+            if not co:
+                continue
+            win = self._get_co_window(co, stop_at_any_co=True)
+            if not win:
+                continue
+            attrs: list[tuple[str, str | None]] = []
+            hints: list[Any] = []
+            seen_attrs: set[str] = set()
+            pending_val: Any = _UNSET_SENTINEL
+
+            # Stop before module-level logging/WinAPI initialization statements
+            # that follow the last class attribute before the next class body.
+            _INIT_API_STOP = frozenset({
+                "SetConsoleMode", "GetStdHandle", "basicConfig", "getLogger",
+                "disable_warnings", "Thread", "PoolManager",
+            })
+
+            for w_idx, item in enumerate(win):
+                if isinstance(item, dict) and self._is_annotation_dict(item):
+                    break
+                if (
+                    w_idx + 1 < len(win)
+                    and isinstance(win[w_idx + 1], dict)
+                    and self._is_annotation_dict(win[w_idx + 1])
+                ):
+                    break
+                if isinstance(item, str):
+                    if item in _INIT_API_STOP or item in self._COMMON_STDLIB:
+                        break
+                    if item in self._NON_FUNCTION_NAMES or self._is_machinery_string(item):
+                        continue
+                    if "." in item and item.startswith(cls_key + "."):
+                        break
+                    if self._is_valid_def_name(item):
+                        val_repr: str | None = None
+                        if pending_val is not _UNSET_SENTINEL:
+                            val_repr = self._safe_literal(pending_val)
+                            pending_val = _UNSET_SENTINEL
+                        if item not in seen_attrs:
+                            seen_attrs.add(item)
+                            attrs.append((item, val_repr))
+                    else:
+                        hints.append(item)
+                elif isinstance(item, (tuple, list, dict, int, float, bytes)) and not isinstance(item, bool):
+                    if isinstance(item, tuple) and len(item) == 1 and isinstance(item[0], str):
+                        pending_val = item[0]
+                    elif isinstance(item, tuple) and item and all(
+                        isinstance(x, (bool, int, float, str, bytes, tuple)) or x is None for x in item
+                    ):
+                        pending_val = item
+                    else:
+                        hints.append(item)
+
+            if attrs:
+                self._class_attrs[cls_key] = attrs
+            if hints:
+                self._class_const_hints[cls_key] = hints[:20]
+
+    def _definition_region(self) -> tuple[int, int]:
+        """Return `(start, end)` constant indices bounding the def/class region."""
+        start, end = 0, len(self.constants)
+        markers_lo = ("__doc__", "__file__", "__module__", "__qualname__")
+        for i, c in enumerate(self.constants):
+            if isinstance(c, str) and c in markers_lo:
+                start = i
+                break
+        for i, c in enumerate(self.constants):
+            if c == "__spec__":
+                end = i
+                break
+        return start, end
+
+    def _is_varnames_tuple(self, t: Any) -> bool:
+        """True for a tuple that looks like a `co_varnames` list."""
+        return isinstance(t, tuple) and 0 < len(t) <= 40 and all(x == ".0" or self._is_ident(x) for x in t)
+
+    def _scan_qualnames(self) -> tuple[list[dict[str, Any]], list[str], set[str]]:
+        """Recover methods and their owning classes from dotted `co_qualname` constants."""
+        methods: list[dict[str, Any]] = []
+        class_order: list[str] = []
+        method_leaves: set[str] = set()
+        seen: set[str] = set()
+        _proven_class_names = {
+            str(co.get("name"))
+            for co in (self.code_objects or ())
+            if co
+            and co.get("name")
+            and not str(co.get("name")).startswith("<")
+            and not (int(co.get("flags") or 0) & 0x02)
+            and self._is_valid_def_name(str(co.get("name")))
+        }
+        _known_gui_pkgs = frozenset({"PySide6", "PySide2", "PyQt5", "PyQt6"})
+        n_consts = len(self.constants)
+        for idx, c in enumerate(self.constants):
+            if not isinstance(c, str) or "." not in c:
+                continue
+            if c.lower().endswith(_DATA_FILE_EXTS) or " " in c:
+                continue
+            if any(m in c for m in ("<locals>", "<lambda>", "<listcomp>", "<dictcomp>", "<setcomp>", "<genexpr>")):
+                continue
+            if "<" in c or ">" in c:
+                continue
+            parts = c.split(".")
+            if len(parts) < 2 or not all(self._is_ident(p) for p in parts):
+                continue
+            owner = parts[0]
+            leaf = parts[-1]
+            if owner in self._PACKAGE_MACHINERY_NAMES or owner in _known_gui_pkgs:
+                continue
+            # `from Pkg.Mod import (...)` immediately precedes its imported-names tuple.
+            if (
+                idx + 1 < n_consts
+                and self._is_varnames_tuple(self.constants[idx + 1])
+                and self.constants[idx + 1][0] not in ("self", "cls", ".0")
+            ):
+                continue
+            if not owner[:1].isupper() and owner not in _proven_class_names:
+                continue
+            if any(p == owner or p.startswith(owner + ".") for p in self.known_modules):
+                continue
+            if leaf in ("__class__", "__prepare__", "__mro_entries__"):
+                continue
+            if not (self._is_valid_def_name(owner) and self._is_valid_def_name(leaf)):
+                continue
+            if c in seen:
+                continue
+            seen.add(c)
+            if owner not in class_order:
+                class_order.append(owner)
+            method_leaves.add(leaf)
+            methods.append({
+                "_type": "CodeObject",
+                "name": leaf,
+                "qualname": c,
+                "args": [],
+                "argcount": 0,
+                "kwonly": 0,
+                "posonly": 0,
+                "flags": 0,
+                "line": 0,
+                "_source": "qualname",
+            })
+        return methods, class_order, method_leaves
+
+    def _import_tuple_positions(self) -> set[int]:
+        """Indices of ident-tuples that belong to `from <mod> import (...)` statements."""
+        positions: set[int] = set()
+        n = len(self.constants)
+        py_idx, mod_idx = self._tail_varname_region_start()
+        tail_lo = (mod_idx + 1) if mod_idx is not None else ((py_idx + 1) if py_idx is not None else n)
+        for i, c in enumerate(self.constants):
+            if i >= tail_lo or not self._is_varnames_tuple(c):
+                continue
+            if c[0] in ("self", "cls", ".0"):
+                continue
+            for back in (1, 2):
+                j = i - back
+                if j < 0:
+                    break
+                p = self.constants[j]
+                if not isinstance(p, str) or p.lower().endswith(_DATA_FILE_EXTS):
+                    continue
+                if self._is_ident(p) and (
+                    p in self._COMMON_STDLIB
+                    or p in self.known_modules
+                    or any(km.startswith(p + ".") for km in self.known_modules)
+                    or p in {"views", "models", "controllers", "utils", "core", "ui", "api", "config", "db", "services", "workers", "widgets", "dialogs", "pages"}
+                ):
+                    positions.add(i)
+                    break
+                if "." in p and all(self._is_ident(part) for part in p.split(".") if part):
+                    parts = p.split(".")
+                    if (
+                        parts[0][:1].islower()
+                        or parts[0] in self._COMMON_STDLIB
+                        or p in self.known_modules
+                        or parts[0] in {"PySide6", "PySide2", "PyQt5", "PyQt6", "PIL", "OpenSSL"}
+                        or parts[-1].startswith("Qt")
+                    ):
+                        positions.add(i)
+                        break
+        return positions
+
+    def _scan_class_bases(self, class_order: list[str], method_leaves: set[str]) -> dict[str, list[str]]:
+        """Recover explicit base classes when `__orig_bases__` marker is present."""
+        if "__orig_bases__" not in self.constants or not class_order:
+            return {}
+        _defined_class_names = set(class_order)
+        _BUILTIN_BASE_TYPES = frozenset({
+            "object", "type", "bool", "int", "float", "complex", "str", "bytes",
+            "bytearray", "list", "tuple", "set", "frozenset", "dict", "range",
+            "Enum", "IntEnum", "Flag", "IntFlag", "ABC", "ABCMeta", "Generic",
+            "TypedDict", "NamedTuple", "Thread", "RLock", "Lock", "Event",
+            "Condition", "Future", "Task", "Coroutine", "TestCase",
+            "IsolatedAsyncioTestCase", "Mock", "MagicMock", "AsyncMock", "Structure",
+        })
+        _EXCEPTION_TYPES = frozenset({
+            "Exception", "BaseException", "ValueError", "TypeError", "KeyError",
+            "AttributeError", "RuntimeError", "StopIteration", "StopAsyncIteration",
+            "NotImplementedError", "OSError", "IOError", "FileNotFoundError",
+            "PermissionError", "ArithmeticError", "ZeroDivisionError", "OverflowError",
+            "LookupError", "IndexError", "NameError", "AssertionError", "Warning",
+            "UserWarning", "DeprecationWarning", "RuntimeWarning", "ResourceWarning",
+            "UnicodeError", "UnicodeDecodeError", "UnicodeEncodeError", "MemoryError",
+            "RecursionError", "SystemExit", "KeyboardInterrupt", "GeneratorExit",
+            "TimeoutError", "ConnectionError", "BrokenPipeError", "ConnectionResetError",
+            "ConnectionRefusedError", "ConnectionAbortedError", "FileExistsError",
+            "IsADirectoryError", "NotADirectoryError", "InterruptedError",
+            "BlockingIOError", "ChildProcessError", "ProcessLookupError",
+            "EOFError", "ImportError", "ModuleNotFoundError",
+        })
+        _MODULE_NAME_TOKENS = frozenset({
+            "QtCore", "QtGui", "QtWidgets", "QtTest", "QtNetwork", "QtSql",
+            "QtSvg", "QtXml", "QtMultimedia", "QtPrintSupport", "QtConcurrent",
+            "QtQml", "QtQuick", "QtQuickWidgets", "QtCharts", "QtOpenGL",
+        })
+
+        def _credible_base(name: str) -> bool:
+            return name in _defined_class_names or name in _BUILTIN_BASE_TYPES or name in _EXCEPTION_TYPES
+
+        def _is_compound_camel_base(name: str) -> bool:
+            return bool(re.search(r"[a-z0-9][A-Z]", name[1:]) or re.search(r"[A-Z]{2,}[a-z]", name[1:]))
+
+        _import_tuples = self._import_tuple_positions()
+        base_tuples: list[tuple[int, list[str], int]] = []
+        for i, c in enumerate(self.constants):
+            if i in _import_tuples or not (isinstance(c, tuple) and c):
+                continue
+            names = list(c)
+            if not all(isinstance(nm, str) and re.fullmatch(r"[A-Z]\w*", nm) for nm in names):
+                continue
+            if names == ["__class__"] or any(nm in method_leaves for nm in names):
+                continue
+            if any(nm in _MODULE_NAME_TOKENS for nm in names):
+                continue
+            if len(names) >= 2 and all(nm in _EXCEPTION_TYPES for nm in names):
+                continue
+            if not all(_credible_base(nm) for nm in names):
+                continue
+            if (
+                len(names) == 1
+                and not _is_compound_camel_base(names[0])
+                and names[0] not in _defined_class_names
+                and names[0] not in _BUILTIN_BASE_TYPES
+                and names[0] not in _EXCEPTION_TYPES
+            ):
+                continue
+            base_tuples.append((i, names, len(names)))
+
+        if not base_tuples:
+            return {}
+        class_pos: dict[str, int] = {}
+        for cls in class_order:
+            for i, c in enumerate(self.constants):
+                if isinstance(c, str) and (c == cls or c.startswith(cls + ".")):
+                    class_pos[cls] = i
+                    break
+        bases: dict[str, list[str]] = {}
+        used: set[int] = set()
+        order = sorted(range(len(base_tuples)), key=lambda k: base_tuples[k][2])
+        for cls in class_order:
+            anchor = class_pos.get(cls, 0)
+            best = None
+            for k in order:
+                if k in used:
+                    continue
+                pos, names, size = base_tuples[k]
+                if "Structure" in names:
+                    # `ctypes.Structure` is typically inherited inside `<locals>` structs unless `__orig_bases__` sits adjacent to top class.
+                    continue
+                dist = (size, abs(pos - anchor))
+                if best is None or dist < best[0]:
+                    best = (dist, k, names)
+            if best is not None:
+                used.add(best[1])
+                bases[cls] = best[2]
+        return bases
+
+    def _tail_varname_region_start(self) -> tuple[int | None, int | None]:
+        """Locate the trailing `<filename>.py` and `<module...>` markers in Nuitka 2.x blobs."""
+        n = len(self.constants)
+        py_idx: int | None = None
+        for i in range(n - 1, -1, -1):
+            c = self.constants[i]
+            if isinstance(c, str) and not c.startswith("<") and c.lower().endswith((".py", ".pyc")):
+                if i + 1 < n and any(
+                    self._is_varnames_tuple(self.constants[j]) or (isinstance(self.constants[j], str) and self.constants[j].startswith("<module"))
+                    for j in range(i + 1, min(n, i + 10))
+                ):
+                    py_idx = i
+                    break
+        mod_idx: int | None = None
+        search_lo = (py_idx + 1) if py_idx is not None else max(0, n // 2)
+        for i in range(search_lo, n):
+            c = self.constants[i]
+            if isinstance(c, str) and c.startswith("<module") and c.endswith(">"):
+                mod_idx = i
+                break
+        return py_idx, mod_idx
+
+    def _find_body_region_bounds(self) -> tuple[int, int]:
+        """Return `(body_start, body_end)` slicing function/method constants before imports & qualnames."""
+        n = len(self.constants)
+        body_start = 0
+        for i in range(min(14, n)):
+            if self.constants[i] in ("__mro_entries__", "called", "star_arg_dict", "star_arg_list", "kw") or (
+                isinstance(self.constants[i], str) and "object is not a mapping" in self.constants[i]
+            ):
+                body_start = i + 1
+
+        for i in range(n - 1):
+            if self.constants[i] == "origin" and self.constants[i + 1] == "has_location":
+                return body_start, max(body_start, i)
+
+        py_idx, _mod_idx = self._tail_varname_region_start()
+        lo_def, _hi_def = self._definition_region()
+        limit = lo_def if lo_def > 0 else (py_idx if py_idx is not None else n)
+        # Walk backwards from `limit` past annotations/defaults/data to the module-level import run.
+        imp_t = self._import_tuple_positions()
+        best_end = limit
+        for i in range(max(body_start, limit - 1), body_start - 1, -1):
+            c = self.constants[i]
+            if best_end < limit and best_end - i > 3:
+                break
+            if i in imp_t:
+                best_end = i
+            elif isinstance(c, str) and (
+                c in self._COMMON_STDLIB
+                or c in self.known_modules
+                or ("." in c and all(self._is_ident(p) for p in c.split(".") if p) and not c.endswith((".py", ".pyc")))
+            ):
+                if (
+                    i + 1 < n
+                    and (i + 1 in imp_t or isinstance(self.constants[i + 1], str))
+                    and i >= limit - 25
+                ):
+                    best_end = min(best_end, i)
+            elif i < best_end - 3 and isinstance(c, str) and not self._is_ident(c):
+                break
+        return body_start, max(body_start, min(best_end, limit))
+
+    _BUILTIN_CALLABLE_BLOCKLIST = frozenset({
+        "abs", "all", "any", "ascii", "bin", "bool", "breakpoint", "bytearray",
+        "bytes", "callable", "chr", "classmethod", "compile", "complex", "delattr",
+        "dict", "dir", "divmod", "enumerate", "eval", "exec", "filter", "float",
+        "format", "frozenset", "getattr", "globals", "hasattr", "hash", "help",
+        "hex", "id", "input", "int", "isinstance", "issubclass", "iter", "len",
+        "list", "locals", "map", "max", "memoryview", "min", "next", "object",
+        "oct", "open", "ord", "pow", "print", "property", "range", "repr",
+        "reversed", "round", "set", "setattr", "slice", "sorted", "staticmethod",
+        "str", "sum", "super", "tuple", "type", "vars", "zip",
+        # Common stdlib / UI attribute & method names (not module-level def targets).
+        "append", "extend", "insert", "remove", "pop", "clear", "copy", "sort",
+        "reverse", "split", "join", "strip", "lstrip", "rstrip", "replace",
+        "startswith", "endswith", "find", "index", "count", "upper", "lower",
+        "items", "keys", "values", "update", "get", "setdefault", "encode", "decode",
+        "read", "write", "close", "flush", "seek", "run", "connect", "start", "stop",
+        "argv", "prefix", "base_prefix", "executable", "returncode", "stdout",
+        "stderr", "_exit", "environ", "modules", "frozen", "resolve", "mkdir",
+        "expanduser", "is_file", "copy2", "now", "strftime", "getrlimit", "setrlimit",
+        "find_spec", "getusersitepackages", "addsitedir", "invalidate_caches",
+        "getsockname", "apply", "shutdown", "running_threads", "windll", "shell32",
+        "system_prefers_dark", "is_activated", "broadcast_address", "prefixlen",
+        "is_link_local", "is_virtual", "allInterfaces", "addressEntries",
+        "quote", "maketrans", "translate", "sub", "match", "search", "findall",
+    })
+
+    def _scan_top_level_functions(
+        self,
+        methods: list[dict[str, Any]],
+        class_order: list[str],
+    ) -> list[dict[str, Any]]:
+        """Recover module-level functions in Nuitka 2.x blobs without `'C'` CodeObjects."""
+        n = len(self.constants)
+        py_idx, mod_idx = self._tail_varname_region_start()
+        tail_lo = (mod_idx + 1) if mod_idx is not None else ((py_idx + 1) if py_idx is not None else n)
+        import_tuples = self._import_tuple_positions()
+
+        tail_tuples = [
+            (i, self.constants[i])
+            for i in range(tail_lo, n)
+            if self._is_varnames_tuple(self.constants[i])
+            and i not in import_tuples
+            and not str(self.constants[i][0]).startswith(".")
+        ]
+
+        # Count non-method (`self`/`cls`) tail tuples not owned by class `<locals>` nested helpers.
+        class_local_helpers = 0
+        for c in self.constants:
+            if isinstance(c, str) and ".<locals>." in c:
+                head = c.split(".<locals>.", 1)[0]
+                tail_part = c.split(".<locals>.", 1)[1]
+                if "." in head and not tail_part.startswith("<") and tail_part not in ("",):
+                    class_local_helpers += 1
+
+        non_method_tails = [t for _i, t in tail_tuples if t[0] not in ("self", "cls")]
+        expected_free = max(0, len(non_method_tails) - class_local_helpers)
+        # If there are no class methods and py/mod tail exists, at least len(non_method_tails) free funcs exist.
+        if methods and expected_free == 0:
+            # Still include explicit top-level `<locals>` owners or annotated free functions.
+            pass
+
+        imported_syms = _ndl_parse_imported_symbols(self.detect_imports())
+        tail_var_tokens = {x for _i, t in tail_tuples for x in t if isinstance(x, str)}
+        dict_keys = {
+            k
+            for d in self.constants
+            if isinstance(d, dict)
+            for k in d
+            if isinstance(k, str)
+        }
+        class_set = set(class_order)
+        method_leaves = {str(m.get("name")) for m in methods}
+        known_roots = {km.split(".")[0] for km in self.known_modules} | set(self.known_modules)
+
+        def _is_excluded_name(s: str) -> bool:
+            if not self._is_valid_def_name(s):
+                return True
+            if s.startswith("__") and s.endswith("__"):
+                return True
+            if s.isupper() and len(s) > 1:
+                return True
+            if (
+                s in class_set
+                or s in imported_syms
+                or s in known_roots
+                or s in self._NON_FUNCTION_NAMES
+                or s in self._COMMON_STDLIB
+                or s in self._PACKAGE_MACHINERY_NAMES
+                or s in self._BUILTIN_CALLABLE_BLOCKLIST
+                or s in {"self", "cls", "args", "kwargs", "return", "origin", "has_location"}
+            ):
+                return True
+            if methods and s in method_leaves:
+                return True
+            return False
+
+        candidates: dict[str, tuple[int, int]] = {}  # name -> (tier_priority, pos_in_constants)
+
+        # Tier 1a: Explicit `<locals>` roots without `.` in head (`local_ipv4_interfaces.<locals>.<genexpr>`).
+        for i, c in enumerate(self.constants):
+            if isinstance(c, str) and ".<locals>." in c:
+                head = c.split(".<locals>.", 1)[0]
+                if "." not in head and not _is_excluded_name(head) and head[:1].islower():
+                    candidates.setdefault(head, (300, i))
+
+        # Tier 1b: Functions directly preceded by an annotation dict (`self._qualname_annotations`).
+        for qn, _ann in self._qualname_annotations.items():
+            if "." not in qn and not _is_excluded_name(qn):
+                qpos = self._qualname_positions.get(qn, self.str_positions.get(qn, [0])[0])
+                candidates.setdefault(qn, (250, qpos))
+
+        # Tier 1c: Definition region identifiers between `body_end` (post-imports) and `py_idx` / `mod_idx`.
+        body_start, body_end = self._find_body_region_bounds()
+        def_limit = py_idx if py_idx is not None else (mod_idx if mod_idx is not None else n)
+        # Advance past trailing imports starting at `body_end`.
+        post_imp_start = body_end
+        for i in range(body_end, def_limit):
+            c = self.constants[i]
+            if isinstance(c, dict) and self._is_annotation_dict(c):
+                break
+            if i > post_imp_start + 2:
+                break
+            if i in import_tuples or (
+                isinstance(c, str)
+                and (
+                    c in self._COMMON_STDLIB
+                    or c in self.known_modules
+                    or c in ("origin", "has_location")
+                    or ("." in c and not c.endswith((".py", ".pyc")))
+                )
+            ):
+                post_imp_start = i + 1
+        for i in range(post_imp_start, def_limit):
+            c = self.constants[i]
+            if (
+                isinstance(c, str)
+                and len(c) >= 2
+                and not (len(c) == 1 and i >= 1 and self.constants[i - 1] == "quote")
+                and (c[:1].islower() or c.startswith("_"))
+                and not _is_excluded_name(c)
+                and c not in tail_var_tokens
+                and c not in dict_keys
+            ):
+                candidates.setdefault(c, (200, i))
+
+        orphan_anns: list[dict[str, Any]] = []
+        for i in range(post_imp_start, def_limit):
+            c = self.constants[i]
+            if isinstance(c, dict) and self._is_annotation_dict(c):
+                nxt = self.constants[i + 1] if i + 1 < def_limit else None
+                nxt_is_qn = (
+                    isinstance(nxt, str)
+                    and nxt != "return"
+                    and bool(re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*", nxt))
+                )
+                if not nxt_is_qn:
+                    orphan_anns.append(c)
+
+        # Tier 2: Pre-import body scan only when unclaimed non-`self` tail varnames or orphan annotations remain.
+        need = max(expected_free - len(candidates), len(orphan_anns))
+        if need > 0 and not methods:
+            tier2_scored: list[tuple[int, int, str]] = []
+            for i in range(body_start, body_end):
+                c = self.constants[i]
+                if not isinstance(c, str) or c in candidates:
+                    continue
+                if not (c[:1].islower() or c.startswith("_")) or len(c) <= 2:
+                    continue
+                if _is_excluded_name(c) or c in tail_var_tokens or c in dict_keys:
+                    continue
+                # Skip camelCase UI/Qt calls (`setWindowIcon`, `allInterfaces`, ...).
+                if any(ch.isupper() for ch in c[1:]):
+                    continue
+                score = 10
+                if "_" in c:
+                    score += 30
+                if c.startswith("_"):
+                    score += 20
+                if len(c) >= 6:
+                    score += 10
+                # Strong bonus if immediately followed by a single-param varname seen in tail_tuples (e.g. `_read_bool`, `value`).
+                if i + 1 < body_end and isinstance(self.constants[i + 1], str) and (self.constants[i + 1],) in [t for _ti, t in tail_tuples]:
+                    score += 40
+                # Penalty if preceded within 1-2 items by an imported/stdlib module name (e.g. `sys.argv`, `resource.getrlimit`).
+                if i >= 1 and isinstance(self.constants[i - 1], str) and (
+                    self.constants[i - 1] in self._COMMON_STDLIB or self.constants[i - 1] in imported_syms
+                ):
+                    score -= 35
+                tier2_scored.append((score, i, c))
+            tier2_scored.sort(key=lambda t: (-t[0], t[1]))
+            chosen_tier2 = sorted(tier2_scored[:need], key=lambda t: t[1])
+            for idx_t2, (_sc, pos, name) in enumerate(chosen_tier2):
+                candidates[name] = (100, pos)
+                if idx_t2 < len(orphan_anns) and "." not in name:
+                    self._qualname_annotations.setdefault(name, orphan_anns[idx_t2])
+
+        if not candidates:
+            return []
+
+        # Order recovered free functions cleanly in module appearance order.
+        ordered = sorted(candidates.items(), key=lambda kv: kv[1][1])
+        out: list[dict[str, Any]] = []
+        for fn_name, (_tier, pos) in ordered:
+            out.append({
+                "_type": "CodeObject",
+                "name": fn_name,
+                "qualname": fn_name,
+                "args": [],
+                "argcount": 0,
+                "kwonly": 0,
+                "posonly": 0,
+                "flags": 0,
+                "line": 0,
+                "_pos_hint": pos,
+                "_source": "free",
+            })
+        return out
+
+    def _build_partitioned_co_windows(
+        self,
+        funcs: list[dict[str, Any]],
+    ) -> dict[int, list[Any]]:
+        """Partition pre-import body constants across functions/methods when no `'C'` CodeObjects exist."""
+        body_start, body_end = self._find_body_region_bounds()
+        if not funcs or body_end <= body_start:
+            return {}
+
+        # Exclude `<module>` / comprehensions / lambdas from window partitioning.
+        defs = [
+            f for f in funcs
+            if isinstance(f, dict) and not str(f.get("name") or "").startswith("<")
+        ]
+        if not defs:
+            return {}
+
+        # Sort functions in source definition order: methods follow qualname index; free follow `_pos_hint` / index.
+        def _def_sort_key(f: dict[str, Any]) -> tuple[int, int]:
+            ln = int(f.get("line") or 0)
+            if ln > 0:
+                return (0, ln)
+            qn = str(f.get("qualname") or f.get("name") or "")
+            if qn in self._qualname_positions:
+                return (1, self._qualname_positions[qn])
+            if "_pos_hint" in f:
+                return (2, int(f["_pos_hint"]))
+            return (3, self._const_index(qn, f.get("name")))
+
+        ordered = sorted(defs, key=_def_sort_key)
+
+        # Find `<locals>` anchors inside `[body_start, body_end)` (`Owner.<locals>.inner` -> `Owner`).
+        anchors: dict[int, int] = {}
+        qn_to_idx = {str(f.get("qualname") or f.get("name") or ""): idx for idx, f in enumerate(ordered)}
+        for pos in range(body_start, body_end):
+            c = self.constants[pos]
+            if isinstance(c, str) and ".<locals>." in c:
+                head = c.split(".<locals>.", 1)[0]
+                if head in qn_to_idx:
+                    # Keep the last `<locals>` occurrence as end-of-body anchor for `head`.
+                    anchors[qn_to_idx[head]] = pos
+
+        # Monotonic interpolation of function start/end boundaries over `[body_start, body_end)`.
+        n_defs = len(ordered)
+        anchor_pts: list[tuple[int, int]] = sorted(anchors.items())
+        # Filter any out-of-order anchors if `<locals>` occurred slightly swapped.
+        mono_anchors: list[tuple[int, int]] = []
+        last_pos = body_start
+        for fi, ap in anchor_pts:
+            if ap >= last_pos:
+                mono_anchors.append((fi, ap))
+                last_pos = ap
+
+        # Compute end boundary `ends[fi]` (`start[fi]` = `ends[fi - 1]`).
+        ends: list[int] = [body_end] * n_defs
+        seg_start_idx = 0
+        seg_start_pos = body_start
+        for fi, ap in mono_anchors + [(n_defs - 1, body_end - 1)]:
+            span_defs = fi - seg_start_idx + 1
+            span_consts = max(1, (ap + 1) - seg_start_pos)
+            for k in range(span_defs):
+                idx = seg_start_idx + k
+                if idx < n_defs:
+                    ends[idx] = min(
+                        body_end,
+                        seg_start_pos + round(((k + 1) * span_consts) / span_defs),
+                    )
+            seg_start_idx = fi + 1
+            seg_start_pos = min(body_end, ap + 1)
+
+        windows: dict[int, list[Any]] = {}
+        cur = body_start
+        for idx, f in enumerate(ordered):
+            end_i = max(cur, min(body_end, ends[idx]))
+            if idx == n_defs - 1:
+                end_i = body_end
+            windows[id(f)] = list(self.constants[cur:end_i])
+            cur = end_i
+        return windows
+
+    def _assign_args_by_order(self, funcs: list[dict[str, Any]]) -> None:
+        """Attach tail `co_varnames` tuples to qualname / free functions via exact metadata + overlap matching."""
+        lo, _hi = self._definition_region()
+        import_tuples = self._import_tuple_positions()
+        py_idx, mod_idx = self._tail_varname_region_start()
+        tail_lo = (mod_idx + 1) if mod_idx is not None else ((py_idx + 1) if py_idx is not None else 0)
+
+        tuple_positions = sorted(
+            i for i in range(tail_lo, len(self.constants))
+            if self._is_varnames_tuple(self.constants[i])
+            and i not in import_tuples
+            and not str(self.constants[i][0]).startswith(".")
+        )
+        if not tuple_positions:
+            return
+
+        # Exclude tail tuples that belong to nested `<locals>` closure functions inside class methods
+        # (non-self tuple in a class module when a `<locals>.helper` constant exists).
+        has_cls_methods = any(f.get("_source") == "qualname" for f in funcs)
+        has_free_funcs = any(f.get("_source") == "free" for f in funcs)
+        local_helpers: set[str] = set()
+        for c in self.constants:
+            if isinstance(c, str) and ".<locals>." in c:
+                part = c.split(".<locals>.", 1)[1]
+                if not part.startswith("<") and self._is_ident(part):
+                    local_helpers.add(c)
+
+        filtered_tuples: list[tuple[int, tuple[str, ...]]] = []
+        for ti in tuple_positions:
+            tup = self.constants[ti]
+            # If the module has only class methods (no free functions) and no staticmethod hint,
+            # a tuple not starting with `self`/`cls` may belong to a `<locals>` helper.
+            if has_cls_methods and not has_free_funcs and tup[0] not in ("self", "cls") and local_helpers:
+                # Only keep non-self tuple for `<locals>` if no parent won't claim it; reserve for free/staticmethod only if needed.
+                pass
+            filtered_tuples.append((ti, tup))
+
+        if not funcs:
+            return
+
+        # Order functions in canonical definition order for tie-breaking.
+        def _func_rank(f: dict[str, Any]) -> int:
+            qn = str(f.get("qualname") or f.get("name") or "")
+            if qn in self._qualname_positions:
+                return self._qualname_positions[qn]
+            if "_pos_hint" in f:
+                return int(f["_pos_hint"])
+            return self._const_index(qn, f.get("name"))
+
+        ordered_funcs = sorted(funcs, key=_func_rank)
+        body_start, body_end = self._find_body_region_bounds()
+        full_body_strs = {c for c in self.constants[body_start:body_end] if isinstance(c, str)}
+
+        # Compute compatibility score between every (func_idx, tail_idx).
+        scored_pairs: list[tuple[int, int, int, int]] = []
+        for fi, f in enumerate(ordered_funcs):
+            if f.get("args") or f.get("_blob_exact"):
+                continue
+            qn = str(f.get("qualname") or f.get("name") or "")
+            fname = str(f.get("name") or "")
+            is_cls_method = f.get("_source") == "qualname" and "." in qn
+            ann = self._qualname_annotations.get(qn)
+            ann_params = [k for k in (ann or {}) if k != "return"] or list(self._qualname_param_names.get(qn, ()))
+            defs = self._qualname_defaults.get(qn)
+            win = self._partitioned_co_windows.get(id(f), [])
+            win_strs = {c for c in win if isinstance(c, str)}
+            name_words = {w.lower() for w in fname.split("_") if len(w) >= 3}
+
+            # Direct `<locals>` variable names referenced in this function's qualnames.
+            local_child_names = {
+                lh.split(".<locals>.", 1)[1]
+                for lh in local_helpers
+                if lh.startswith(qn + ".<locals>.")
+            }
+
+            for ti_rank, (ti, tup) in enumerate(filtered_tuples):
+                tup_set = set(tup)
+                tup_has_recv = tup[0] in ("self", "cls")
+                score = 0
+
+                if is_cls_method and not tup_has_recv:
+                    # Only `@staticmethod` methods lack `self`/`cls`; avoid giving them `<locals>` helper tuples.
+                    score -= 400
+                elif not is_cls_method and tup_has_recv:
+                    score -= 500
+                elif is_cls_method == tup_has_recv:
+                    score += 40
+
+                if ann_params:
+                    offset = 1 if (is_cls_method and tup_has_recv) else 0
+                    if (
+                        len(tup) >= offset + len(ann_params)
+                        and list(tup[offset : offset + len(ann_params)]) == ann_params
+                    ):
+                        score += 1000 + 200 * len(ann_params) + (150 if len(tup) == offset + len(ann_params) else 0)
+                    elif not set(ann_params) <= tup_set:
+                        score -= 1000
+
+                if defs and len(defs) > len(tup) - (1 if tup_has_recv else 0):
+                    score -= 300
+
+                # `<locals>.helper` overlap (e.g. `safe_conn` -> `('self', 'safe_conn')`).
+                loc_hits = len(local_child_names & tup_set)
+                if loc_hits:
+                    score += 250 * loc_hits
+
+                # Window string hits for non-trivial variable names.
+                non_generic_vars = [
+                    v for v in tup
+                    if v not in ("self", "cls", "e", "ex", "i", "j", "k", "_", "d", "n", "t", "w", "f")
+                ]
+                win_hits = sum(1 for v in non_generic_vars if v in win_strs)
+                score += 25 * win_hits
+
+                # Bonus if variable appears adjacent to `fname` in pre-import pool (e.g. `_read_bool`, `'value'`).
+                fn_pos = self._pos_hint_or_find(f)
+                if fn_pos is not None:
+                    near = {
+                        c for c in self.constants[max(0, fn_pos - 6) : min(len(self.constants), fn_pos + 6)]
+                        if isinstance(c, str)
+                    }
+                    near_hits = sum(1 for v in non_generic_vars if v in near)
+                    score += 18 * near_hits
+
+                # Word overlap between `fname` and varnames (e.g. `network_prefix` <-> `_auto_detect_network`).
+                for v in non_generic_vars:
+                    vl = v.lower()
+                    if any(w in vl for w in name_words):
+                        score += 10
+
+                # Penalize single-element tuples matched against multi-default functions.
+                if defs and len(tup) == 1:
+                    score -= 150
+
+                rank_diff = abs(fi - ti_rank)
+                scored_pairs.append((score, rank_diff, fi, ti))
+
+        scored_pairs.sort(key=lambda t: (-t[0], t[1], t[2], t[3]))
+        used_funcs: set[int] = set()
+        used_tuples: set[int] = set()
+
+        for score, _rd, fi, ti in scored_pairs:
+            if fi in used_funcs or ti in used_tuples:
+                continue
+            if score < 0:
+                continue
+            f = ordered_funcs[fi]
+            tup = self.constants[ti]
+            qn = str(f.get("qualname") or f.get("name") or "")
+            ann = self._qualname_annotations.get(qn)
+            ann_params = [k for k in (ann or {}) if k != "return"] or list(self._qualname_param_names.get(qn, ()))
+            tup_has_recv = tup[0] in ("self", "cls")
+            is_cls_method = f.get("_source") == "qualname" and "." in qn
+
+            f["args"] = list(tup)
+            if ann_params:
+                offset = 1 if (is_cls_method and tup_has_recv) else 0
+                if (
+                    len(tup) >= offset + len(ann_params)
+                    and list(tup[offset : offset + len(ann_params)]) == ann_params
+                ):
+                    f["argcount"] = offset + len(ann_params)
+                    f["_inferred_sig"] = True
+                else:
+                    f["argcount"] = 1 if tup_has_recv else 0
+            else:
+                f["argcount"] = 1 if tup_has_recv else 0
+
+            used_funcs.add(fi)
+            used_tuples.add(ti)
+
+        # Fallback: un-assigned class methods received shared `('self',)` which Nuitka deduplicated before `<module>`.
+        has_name_tuple = any(tup == ("name",) for _ti, tup in filtered_tuples)
+        for fi, f in enumerate(ordered_funcs):
+            if fi not in used_funcs and not f.get("args") and not f.get("_blob_exact"):
+                qn = str(f.get("qualname") or f.get("name") or "")
+                fname = str(f.get("name") or "")
+                is_cls_method = f.get("_source") == "qualname" and "." in qn
+                if is_cls_method:
+                    f["args"] = ["self"]
+                    f["argcount"] = 1
+                else:
+                    ann = self._qualname_annotations.get(qn)
+                    ann_params = [k for k in (ann or {}) if k != "return"] or list(self._qualname_param_names.get(qn, ()))
+                    if ann_params:
+                        f["args"] = list(ann_params)
+                        f["argcount"] = len(ann_params)
+                        f["_inferred_sig"] = True
+                    elif has_name_tuple and fname.startswith(("valid_", "is_", "has_")):
+                        f["args"] = ["name"]
+                        f["argcount"] = 1
+                        f["_inferred_sig"] = True
+
+    def _pos_hint_or_find(self, f: dict[str, Any]) -> int | None:
+        if "_pos_hint" in f:
+            return int(f["_pos_hint"])
+        name = str(f.get("name") or "")
+        pos_list = self.str_positions.get(name)
+        return pos_list[0] if pos_list else None
+
+    def _merge_native_code_objects(
+        self, native: list[dict[str, Any]]
+    ) -> tuple[list[dict[str, Any]], list[str], dict[str, list[str]]]:
+        """Combine native PyCode_New CodeObjects with dotted qualname constants."""
+        CO_NEWLOCALS = 0x02
+        methods, class_order, method_leaves = self._scan_qualnames()
+        bases = self._scan_class_bases(class_order, method_leaves)
+        class_names = set(class_order)
+        leaf_owner: dict[str, str] = {}
+        for m in methods:
+            leaf_owner.setdefault(m["name"], m["qualname"].split(".")[0])
+
+        out: list[dict[str, Any]] = []
+        covered: set[str] = set()
+        for co in native:
+            name = co.get("name") or ""
+            flags = co.get("flags") or 0
+            if name.startswith("<"):
+                out.append(dict(co))
+                continue
+            if not (flags & CO_NEWLOCALS):
+                if name in self.known_modules or name in self._PACKAGE_MACHINERY_NAMES:
+                    continue
+                if self._is_valid_def_name(name):
+                    if name not in class_names:
+                        class_order.append(name)
+                        class_names.add(name)
+                    if co.get("docstring"):
+                        self._class_docstrings[name] = co["docstring"]
+                continue
+            if not self._is_valid_def_name(name):
+                continue
+            nc = dict(co)
+            if (
+                co.get("_makeobj")
+                and isinstance(co.get("qualname"), str)
+                and (co.get("qualname") == name or co.get("qualname", "").endswith("." + name))
+            ):
+                nc["qualname"] = co.get("qualname")
+            elif co.get("_match_qualname"):
+                nc["qualname"] = co["_match_qualname"]
+            else:
+                owner = leaf_owner.get(name)
+                nc["qualname"] = f"{owner}.{name}" if owner else name
+            if nc["qualname"] in covered:
+                continue
+            covered.add(nc["qualname"])
+            out.append(nc)
+
+        for m in methods:
+            if m["qualname"] not in covered:
+                out.append(m)
+                covered.add(m["qualname"])
+        if class_order:
+            bases = self._scan_class_bases(class_order, method_leaves)
+        return out, class_order, bases
+
+    def _classify(self) -> None:
+        self.classes: dict[str, dict[str, Any]] = {}
+        self.free_funcs: list[dict[str, Any]] = []
+        self.module_body: dict[str, Any] | None = None
+
+        bases_map = self._inferred_bases or {}
+        for cls in self._inferred_classes:
+            self.classes.setdefault(cls, {"methods": [], "bases": list(bases_map.get(cls, []))})
+
+        # Ensure nested classes exist in _nested_class_data.
+        self._nested_class_data: dict[str, dict[str, Any]] = {}
+        for nested_qn in (self._nested_class_cos or ()):
+            self._nested_class_data[nested_qn] = {
+                "methods": [],
+                "bases": list(bases_map.get(nested_qn, [])),
+            }
+
+        for co in self.code_objects:
+            if not co:
+                continue
+            name = str(co.get("name") or "")
+            qualname = str(co.get("qualname") or name)
+
+            if name == "<module>" or qualname == "<module>":
+                self.module_body = co
+                continue
+            if name in ("<listcomp>", "<dictcomp>", "<setcomp>", "<genexpr>", "<lambda>"):
+                continue
+
+            qn_head = qualname.split(".<locals>.")[0]
+            if "." in qn_head and not qn_head.startswith("<"):
+                parts = qn_head.split(".")
+                parent_path = ".".join(parts[:-1])
+                if parent_path in self._nested_class_data:
+                    self._nested_class_data[parent_path]["methods"].append(co)
+                    continue
+                if len(parts) >= 2 and parts[0] and (parts[0][0].isupper() or parts[0] in self.classes):
+                    if parts[0] in self.known_modules:
+                        continue
+                    self.classes.setdefault(
+                        parts[0], {"methods": [], "bases": list(bases_map.get(parts[0], []))}
+                    )
+                    self.classes[parts[0]]["methods"].append(co)
+                    continue
+
+            if name in self._PACKAGE_MACHINERY_NAMES:
+                continue
+            self.free_funcs.append(co)
+
+    # ---- import recovery ----
+
+    def detect_imports(self) -> list[str]:
+        """Recover `import ...` and `from ... import ...` lines from the constant pool."""
+        lines: list[str] = []
+        used: set[str] = set()
+        n = len(self.constants)
+
+        arg_names_in_tuples: set[str] = set()
+        for c in self.constants:
+            if isinstance(c, tuple) and c:
+                for x in c:
+                    if isinstance(x, str) and re.fullmatch(r"[a-z_][a-z0-9_]*", x):
+                        arg_names_in_tuples.add(x)
+
+        METHOD_CALL_ARTIFACTS = {
+            "dumps", "loads", "dump", "load", "get", "post", "put", "delete",
+            "patch", "head", "options", "request", "send", "open", "write",
+            "read", "sha256", "sha1", "sha512", "md5", "hmac", "new", "digest",
+            "hexdigest", "encode", "decode", "verify", "sign", "format",
+            "split", "join", "strip", "replace", "startswith", "endswith",
+            "find", "index", "count", "upper", "lower", "items", "keys",
+            "values", "update", "append", "pop", "extend", "insert", "remove",
+            "clear", "copy", "sort", "reverse", "add", "discard", "isdigit",
+            "isalpha",
+        }
+
+        _known_roots: set[str] = set()
+        for km in self.known_modules:
+            _known_roots.add(km)
+            _known_roots.add(km.split(".")[0])
+
+        if self.is_package:
+            _pkg_base: str | None = self.module_name
+        elif "." in self.module_name:
+            _pkg_base = self.module_name.rsplit(".", 1)[0]
+        else:
+            _pkg_base = None
+
+        _CLASS_QUALNAME_OWNERS = set(getattr(self, "_inferred_classes", ())) | set(getattr(self, "classes", {}).keys())
+        _THIRD_PARTY_CAMEL_ROOTS = frozenset({
+            "PySide6", "PySide2", "PyQt5", "PyQt6", "PIL", "OpenSSL", "Cryptodome", "Crypto",
+        })
+
+        def is_dotted_module(s: Any, pos: int | None = None) -> bool:
+            if not isinstance(s, str) or not (2 < len(s) < 80):
+                return False
+            if s.lower().endswith(_DATA_FILE_EXTS):
+                return False
+            if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)+", s):
+                return False
+            parts = s.split(".")
+            if any(p.startswith("__") for p in parts):
+                return False
+            if parts[-1].lower() in {
+                "com", "org", "net", "io", "dev", "app", "xyz", "ru",
+                "de", "it", "fr", "uk", "co", "me", "gg", "tv",
+            }:
+                return False
+            first = parts[0]
+            if first in _CLASS_QUALNAME_OWNERS:
+                return False
+            known_exact = s in self.known_modules
+            is_third_party_camel = first in _THIRD_PARTY_CAMEL_ROOTS or (
+                pos is not None
+                and pos + 1 < n
+                and is_ident_tuple(self.constants[pos + 1])
+                and self.constants[pos + 1][0] not in ("self", "cls", ".0")
+            )
+            if not known_exact and not is_third_party_camel and any(p != p.lower() for p in parts):
+                return False
+            if first and first[0].isupper() and not known_exact and not is_third_party_camel:
+                return False
+            if self.known_modules and not is_third_party_camel:
+                roots = {m.split(".")[0] for m in self.known_modules if m}
+                if not (known_exact or first in roots or first in self._COMMON_STDLIB):
+                    return False
+            return True
+
+        def is_stdlib_module(s: Any) -> bool:
+            return isinstance(s, str) and s in self._COMMON_STDLIB
+
+        def is_ident_tuple(t: Any) -> bool:
+            return (
+                isinstance(t, tuple)
+                and 0 < len(t) <= 30
+                and all(isinstance(x, str) and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", x) for x in t)
+            )
+
+        def is_known_module(x: str) -> bool:
+            if not self.known_modules:
+                return True
+            if x in _known_roots:
+                return True
+            return bool(_pkg_base and f"{_pkg_base}.{x}" in self.known_modules)
+
+        def _camel_to_snake(name: str) -> str:
+            s = re.sub(r"([A-Z]+)([A-Z][a-z])", r"\1_\2", name)
+            s = re.sub(r"([a-z\d])([A-Z])", r"\1_\2", s)
+            return s.lower()
+
+        _lower_idents = {
+            cv for cv in self.constants
+            if isinstance(cv, str) and re.fullmatch(r"[a-z_][a-z0-9_]*", cv) and len(cv) >= 3
+        }
+        _classes_map = getattr(self, "classes", None)
+        _defined_classes = set(_classes_map.keys()) if _classes_map else set(getattr(self, "_inferred_classes", ()))
+        _camelcase_in_tuple: set[str] = set()
+        for cv in self.constants:
+            if isinstance(cv, tuple) and cv and all(isinstance(x, str) and re.fullmatch(r"[A-Z]\w*", x) for x in cv):
+                if len(cv) == 1 and not (
+                    re.search(r"[a-z0-9][A-Z]", cv[0][1:]) or re.search(r"[A-Z]{2,}[a-z]", cv[0][1:])
+                ):
+                    continue
+                _camelcase_in_tuple.update(cv)
+
+        _used_as_base: set[str] = set()
+        if _classes_map:
+            for cd in _classes_map.values():
+                for b in cd.get("bases") or ():
+                    if isinstance(b, str):
+                        _used_as_base.add(b.split(".")[0])
+        else:
+            for blist in getattr(self, "_inferred_bases", {}).values():
+                for b in blist or ():
+                    if isinstance(b, str):
+                        _used_as_base.add(b.split(".")[0])
+
+        _GENERIC_MODULE_WORDS = frozenset({
+            "auto", "manual", "data", "base", "node", "item", "user", "home",
+            "main", "core", "utils", "config", "types", "model", "form", "list",
+            "table", "grid", "page", "view", "app", "run", "test", "info",
+            "error", "status", "value", "name", "type", "image", "exception",
+            "exceptions",
+        })
+        _BUILTIN_CLASS_NAMES = {
+            "Exception", "BaseException", "ValueError", "TypeError", "RuntimeError",
+            "KeyError", "IndexError", "AttributeError", "ImportError", "OSError",
+            "IOError", "StopIteration", "NotImplementedError", "Image", "ImageTk",
+        }
+        _sibling_imports: list[tuple[str, str]] = []
+        _sibling_seen: set[tuple[str, str]] = set()
+        for camel in _camelcase_in_tuple | _used_as_base:
+            if camel in _defined_classes or camel in _BUILTIN_CLASS_NAMES or not re.fullmatch(r"[A-Z]\w*", camel):
+                continue
+            snake = _camel_to_snake(camel)
+            if (
+                snake in _lower_idents
+                and snake not in self._COMMON_STDLIB
+                and snake not in METHOD_CALL_ARTIFACTS
+                and snake not in _GENERIC_MODULE_WORDS
+            ):
+                key = (snake, camel)
+                if key not in _sibling_seen:
+                    _sibling_seen.add(key)
+                    _sibling_imports.append(key)
+
+        _PLAIN_IMPORT = {
+            "sys", "os", "re", "json", "time", "math", "random", "struct",
+            "base64", "hashlib", "platform", "socket", "ctypes", "io",
+            "copy", "gc", "signal", "zlib", "logging", "sqlite3",
+        }
+        _DICT_KEY_BLOCKLIST = frozenset({
+            "http", "https", "ftp", "data", "ws", "wss", "smtp", "imap",
+            "pop3", "sftp", "ssh", "tcp", "udp", "html", "xml", "text",
+            "utf-8", "utf8", "ascii", "latin-1",
+        })
+
+        _import_cluster = 0
+        for ic, cv in enumerate(self.constants):
+            if cv in ("__cached__", "__spec__", "sys") or (
+                isinstance(cv, dict) and cv.get("name") == "<module>"
+            ):
+                _import_cluster = ic
+                break
+
+        i = 0
+        while i < n:
+            c = self.constants[i]
+            next_is_tuple = i + 1 < n and is_ident_tuple(self.constants[i + 1])
+            is_probable_module = (
+                isinstance(c, str)
+                and re.fullmatch(r"[a-z_][a-z0-9_]*", c)
+                and (len(c) >= 3 or is_known_module(c))
+                and c not in (
+                    "self", "args", "kwargs", "cls", "data", "text", "name",
+                    "value", "item", "items", "key", "keys", "obj", "result",
+                    "response", "request", "url", "path", "config", "token",
+                    "print", "headers", "status_code", "content", "origin",
+                    "has_location",
+                )
+            )
+            if (
+                isinstance(c, str)
+                and (
+                    (c in arg_names_in_tuples and not is_dotted_module(c, i) and not is_stdlib_module(c))
+                    or (c in METHOD_CALL_ARTIFACTS and not is_dotted_module(c, i))
+                    or c == self.module_name
+                    or (c.startswith("__") and c.endswith("__"))
+                )
+            ):
+                i += 1
+                continue
+
+            is_sibling = next_is_tuple and any(
+                mod == c and cls_nm in self.constants[i + 1]
+                for mod, cls_nm in _sibling_imports
+            )
+            if isinstance(c, str) and (
+                is_stdlib_module(c)
+                or is_dotted_module(c, i)
+                or (next_is_tuple and is_probable_module and is_known_module(c))
+                or is_sibling
+            ):
+                if c in _DICT_KEY_BLOCKLIST:
+                    i += 1
+                    continue
+                if next_is_tuple and c not in _PLAIN_IMPORT:
+                    imp = self.constants[i + 1]
+                    names = [x for x in imp if not x.startswith("__") and self._is_valid_def_name(x)]
+                    if names:
+                        rendered = ", ".join(names)
+                        _alias = self.constants[i + 3] if i + 3 < n else None
+                        _after = self.constants[i + 4] if i + 4 < n else None
+                        if (
+                            len(names) == 1
+                            and i + 3 < n
+                            and self.constants[i + 2] == names[0]
+                            and isinstance(_alias, str)
+                            and re.fullmatch(r"[A-Za-z_]\w*", _alias)
+                            and _alias != names[0]
+                            and not _alias.startswith("__")
+                            and _alias not in _known_roots
+                            and not is_stdlib_module(_alias)
+                            and (
+                                _alias in self.module_globals
+                                or (
+                                    not self.module_globals
+                                    and isinstance(_after, str)
+                                    and (_after.endswith((".py", ".pyc")) or _after == "__spec__")
+                                )
+                            )
+                        ):
+                            rendered = f"{names[0]} as {_alias}"
+                        line = f"from {c} import {rendered}"
+                        if line not in used:
+                            used.add(line)
+                            lines.append(line)
+                    i += 2
+                    continue
+                if is_stdlib_module(c) or is_dotted_module(c, i):
+                    _STRONG_PRECLUSTER_STDLIB = {
+                        "subprocess", "resource", "sqlite3", "hashlib", "hmac", "base64",
+                        "threading", "asyncio", "pathlib", "shutil", "tempfile",
+                        "traceback", "warnings", "logging", "datetime", "importlib",
+                    }
+                    if is_stdlib_module(c) and i < _import_cluster and c not in _STRONG_PRECLUSTER_STDLIB:
+                        if not (c == "socket" and any(x in self.constants for x in ("AF_INET", "SOCK_STREAM", "SOCK_DGRAM"))):
+                            i += 1
+                            continue
+                    if c in {"requests", "aiohttp", "httpx", "yarl", "six"}:
+                        if not (self.module_globals and c in self.module_globals):
+                            i += 1
+                            continue
+                    line = f"import {c}"
+                    if line not in used:
+                        used.add(line)
+                        lines.append(line)
+            i += 1
+
+        # Relative imports (`from .. import sym`).
+        for i in range(n - 2):
+            c = self.constants[i]
+            if not isinstance(c, int) or c not in (1, 2, 3):
+                continue
+            nxt = self.constants[i + 1]
+            if not (isinstance(nxt, str) and re.fullmatch(r"[A-Za-z_]\w*", nxt)):
+                continue
+            if nxt.startswith("__") and nxt.endswith("__"):
+                continue
+            prev = self.constants[i - 1] if i else None
+            names: list[str] | None = None
+            if isinstance(prev, tuple) and nxt in prev:
+                names = [x for x in prev if isinstance(x, str) and re.fullmatch(r"[A-Za-z_]\w*", x)]
+            elif isinstance(prev, str) and prev == nxt:
+                names = [nxt]
+            if names:
+                dots = "." * c
+                line = f"from {dots} import {', '.join(names)}"
+                if line not in used:
+                    used.add(line)
+                    lines.append(line)
+
+        lines = _ndl_qualify_imports(
+            lines, self.module_name, known_modules=self.known_modules, is_package=self.is_package
+        )
+
+        # Ensure stdlib modules clearly referenced as DLL / runtime parents are imported if in constants.
+        if "ctypes" not in _ndl_parse_imported_symbols(lines) and (
+            "windll" in self.constants or "ctypes" in self.constants
+        ):
+            lines.append("import ctypes")
+        if "windll" in self.constants and "windll" not in _ndl_parse_imported_symbols(lines):
+            lines.append("from ctypes import windll")
+        if "Structure" in self.constants and "Structure" not in _ndl_parse_imported_symbols(lines):
+            lines.append("from ctypes import Structure")
+
+        mod_root = self.module_name.split(".")[0] if self.module_name else ""
+
+        def _sort_key(line: str) -> tuple[int, str, str]:
+            parts = line.split()
+            mod = parts[1] if len(parts) > 1 else ""
+            root = mod.split(".")[0]
+            if root in self._COMMON_STDLIB:
+                return (0, root, line)
+            if mod_root and mod.startswith(mod_root + "."):
+                return (2, mod, line)
+            return (1, mod, line)
+
+        lines.sort(key=_sort_key)
+        return lines
+
+    # ---- generic constant-window body & statement synthesis ----
+
+    @staticmethod
+    def _is_valid_body_syntax(body_lines: list[str], body_indent: str) -> bool:
+        if not body_lines:
+            return False
+        try:
+            dedent = len(body_indent)
+            inner = [ln[dedent:] if ln.startswith(body_indent) else ln for ln in body_lines]
+            ast.parse("def _f():\n" + "\n".join("    " + x for x in inner) + "\n")
+            return True
+        except SyntaxError:
+            return False
+
+    @staticmethod
+    def _pair_kwarg_calls(window: list[Any]) -> list[tuple[int, str]]:
+        """Extract `k=val` pairs from adjacent `(val_tuple, kw_name_tuple)` sequences."""
+        paired: list[tuple[int, str]] = []
+        for idx in range(1, len(window)):
+            kw_t = window[idx]
+            if (
+                isinstance(kw_t, tuple)
+                and 1 <= len(kw_t) <= 8
+                and all(isinstance(x, str) and re.fullmatch(r"[A-Za-z_]\w*", x) for x in kw_t)
+                and not any(x in ("self", "cls") for x in kw_t)
+            ):
+                val_t = window[idx - 1]
+                if isinstance(val_t, tuple) and len(val_t) >= len(kw_t):
+                    vals = val_t[-len(kw_t):]
+                    kw_str = ", ".join(
+                        f"{k}={StaticalySmartReconstructor._safe_literal(v)}"
+                        for k, v in zip(kw_t, vals)
+                    )
+                    paired.append((idx, kw_str))
+        return paired
+
+    def _synthesize_local_struct(
+        self, cls_co: dict[str, Any], body_indent: str
+    ) -> list[str]:
+        """Reconstruct a `<locals>` helper class (e.g. `ctypes.Structure` with `_fields_`)."""
+        cname = str(cls_co.get("name") or "")
+        if not self._is_valid_def_name(cname):
+            return []
+        pos = self._get_co_pos(cls_co)
+        win: list[Any] = []
+        if pos is not None:
+            for item in self.constants[pos + 1:]:
+                if isinstance(item, dict) and item.get("_type") == "CodeObject":
+                    break
+                win.append(item)
+                if item == "__mro_entries__":
+                    break
+
+        is_struct = "Structure" in self.constants or "Structure" in win or "_fields_" in win
+        bases = "(Structure)" if is_struct else ""
+        lines = [f"{body_indent}class {cname}{bases}:"]
+        inner_indent = body_indent + "    "
+
+        if "_fields_" in win:
+            idx_f = win.index("_fields_")
+            field_items = win[:idx_f]
+            pairs: list[tuple[str, str]] = []
+            i = 0
+            while i + 1 < len(field_items):
+                fname = field_items[i]
+                ftype = field_items[i + 1]
+                if (
+                    isinstance(fname, str)
+                    and self._is_ident(fname)
+                    and isinstance(ftype, str)
+                ):
+                    if ftype == "POINTER" and i + 2 < len(field_items) and isinstance(field_items[i + 2], str):
+                        pairs.append((fname, f"POINTER({field_items[i + 2]})"))
+                        i += 3
+                        continue
+                    if ftype in _CTYPES_FIELD_TYPES or self._is_ident(ftype):
+                        pairs.append((fname, ftype))
+                        i += 2
+                        continue
+                i += 1
+            if pairs:
+                rendered_fields = ", ".join(f"({fname!r}, {ftype})" for fname, ftype in pairs)
+                lines.append(f"{inner_indent}_fields_ = [{rendered_fields}]")
+                return lines
+
+        lines.append(f"{inner_indent}pass")
+        return lines
+
+    def _synthesize_constant_window_body(
+        self,
+        co: dict[str, Any],
+        sig_args: list[str],
+        locals_only: list[str],
+        body_indent: str,
+        ret_type: str | None = None,
+    ) -> list[str]:
+        """Generically reconstruct statements from a CodeObject's constant window."""
+        qn = str(co.get("qualname") or co.get("name") or "")
+        win = self._get_co_window(co)
+        out: list[str] = []
+
+        # 1. Nested `<locals>` classes (e.g. DATA_BLOB(Structure)).
+        for lcls in self._local_classes_by_parent.get(qn, ()):
+            out.extend(self._synthesize_local_struct(lcls, body_indent))
+
+        # 2. Nested `<locals>` functions (e.g. decorator wrappers, thread targets).
+        local_func_names: list[str] = []
+        for lfunc in self._local_funcs_by_parent.get(qn, ()):
+            local_func_names.append(str(lfunc.get("name") or ""))
+            out.extend(self._emit_function(lfunc, indent=body_indent, is_method=False, parent=None))
+
+        if not win:
+            if len(co.get("freevars") or ()) == 0 and len(local_func_names) == 1:
+                out.append(f"{body_indent}return {local_func_names[0]}")
+            return out
+
+        win_strs = [x for x in win if isinstance(x, str)]
+        win_str_set = set(win_strs)
+        kw_pairs = self._pair_kwarg_calls(win)
+        bare_params = [a.lstrip("*") for a in sig_args if a not in ("/", "*")]
+        local_set = set(locals_only)
+        all_names = set(bare_params) | local_set
+        emitted_stmts: list[str] = []
+        used_consts: set[int] = set()
+
+        # Decorator factory check: enclosing takes `func` and defines 1 inner wrapper.
+        freevar_set = {str(fv) for lf in self._local_funcs_by_parent.get(qn, ()) for fv in (lf.get("freevars") or ())}
+        if local_func_names and bare_params and set(bare_params) & freevar_set and len(local_func_names) == 1:
+            emitted_stmts.append(f"return {local_func_names[0]}")
+
+        # Initialize referenced Win32 DLL locals (`kernel32`, `avicap32`, ...).
+        dll_locals: dict[str, str] = {}
+        for idx, s in enumerate(win):
+            if isinstance(s, str):
+                low = s.lower()
+                if low in _WIN32_DLL_NAMES:
+                    used_consts.add(idx)
+                    if s in local_set:
+                        dll_locals[s] = s
+                        emitted_stmts.append(f"{s} = windll.{s}")
+                    else:
+                        dll_locals[s] = f"windll.{s}"
+
+        # Track standalone DLL references inside strings like `'windll'` + `'avicap32'` + API calls.
+        api_calls: list[str] = []
+        idx = 0
+        while idx < len(win):
+            val = win[idx]
+            if isinstance(val, str):
+                # Pattern: `os.getenv('VAR', 'default')`
+                if val == "getenv" and idx + 1 < len(win) and isinstance(win[idx + 1], tuple):
+                    args_r = ", ".join(self._safe_literal(x) for x in win[idx + 1])
+                    used_consts.update((idx, idx + 1))
+                    emitted_stmts.append(f"# os.getenv({args_r})")
+                    idx += 2
+                    continue
+
+                # Pattern: HTTP `PoolManager(...)` / `.request('METHOD', 'https://...')`
+                if val == "PoolManager" and "http" in all_names:
+                    used_consts.add(idx)
+                    kw_s = next((ks for kidx, ks in kw_pairs if kidx > idx and kidx <= idx + 3), "")
+                    emitted_stmts.append(f"http = PoolManager({kw_s})")
+                    idx += 1
+                    continue
+
+                if val == "request" and idx + 1 < len(win) and isinstance(win[idx + 1], tuple):
+                    req_t = win[idx + 1]
+                    if len(req_t) >= 2 and isinstance(req_t[0], str) and req_t[0].upper() in (
+                        "GET", "POST", "PUT", "DELETE", "HEAD", "PATCH"
+                    ):
+                        used_consts.update((idx, idx + 1))
+                        args_r = ", ".join(self._safe_literal(x) for x in req_t)
+                        client_var = "http" if "http" in all_names else "PoolManager()"
+                        target = "r" if "r" in all_names else ("response" if "response" in all_names else None)
+                        call = f"{client_var}.request({args_r})"
+                        emitted_stmts.append(f"{target} = {call}" if target else call)
+                        idx += 2
+                        continue
+
+                # Pattern: `subprocess.run(...)`
+                if val in ("run", "Popen", "check_output") and (
+                    "subprocess" in win_str_set or "subprocess" in self.constants
+                ):
+                    used_consts.add(idx)
+                    cli_flags = [
+                        s for s in win[max(0, idx - 2):idx + 6]
+                        if isinstance(s, str) and (s.startswith(("/", "-")) or " " in s or s.endswith(".exe"))
+                    ]
+                    kw_s = next((ks for kidx, ks in kw_pairs if idx < kidx <= idx + 8), "")
+                    cmd_expr = repr(cli_flags) if cli_flags else "command" if "command" in all_names else "[]"
+                    if kw_s:
+                        stmt = f"subprocess.{val}({cmd_expr}, {kw_s})"
+                    else:
+                        stmt = f"subprocess.{val}({cmd_expr})"
+                    target = next((t for t in ("process", "out", "output") if t in all_names), None)
+                    emitted_stmts.append(f"{target} = {stmt}" if target else stmt)
+                    idx += 1
+                    continue
+
+                # Pattern: Win32 API calls inside function constants.
+                if (
+                    ("windll" in win_str_set or dll_locals or "Kernel32" in win_str_set or "Crypt32" in win_str_set)
+                    and re.fullmatch(r"[A-Z][A-Za-z0-9]{4,40}[AW]?", val)
+                    and val not in ("LPWSTR", "POINTER", "Structure", "PoolManager", "Thread")
+                    and val not in _CTYPES_FIELD_TYPES
+                ):
+                    # Pick enclosing DLL handle (`kernel32`, `avicap32`, `user32`, `shell32`, `Crypt32`, etc.)
+                    active_dll = next(iter(dll_locals.values()), "windll.user32")
+                    # Scan backward within 8 items for a specific DLL name owning this API call.
+                    for back_idx in range(idx - 1, max(-1, idx - 9), -1):
+                        prev_s = win[back_idx]
+                        if isinstance(prev_s, str) and prev_s.lower() in _WIN32_DLL_NAMES:
+                            active_dll = dll_locals.get(prev_s, f"windll.{prev_s}")
+                            break
+                    used_consts.add(idx)
+                    api_calls.append(f"{active_dll}.{val}(...)")
+
+                # Pattern: SQLite queries.
+                if re.match(r"^\s*(?:SELECT|INSERT|UPDATE|DELETE)\b.+\b(?:FROM|INTO)\b", val, re.IGNORECASE):
+                    used_consts.add(idx)
+                    db_var = "db" if "db" in all_names else "conn"
+                    cur_var = "cursor" if "cursor" in all_names else "cur"
+                    if "db" in all_names:
+                        emitted_stmts.append(f"{db_var} = sqlite3.connect(tempfile)")
+                    if "cursor" in all_names:
+                        emitted_stmts.append(f"{cur_var} = {db_var}.cursor()")
+                    emitted_stmts.append(f"{cur_var}.execute({val!r})")
+                    if "results" in all_names:
+                        emitted_stmts.append(f"results = {cur_var}.fetchall()")
+
+            idx += 1
+
+        if api_calls:
+            # Avoid cluttering with unresolved dummy calls in code if assignable/commented cleanly.
+            for call_expr in api_calls[:6]:
+                emitted_stmts.append(f"# WinAPI: {call_expr}")
+
+        # Add clean return statement when return annotation specifies a non-None return type
+        # and a matching result local exists.
+        if (
+            ret_type
+            and ret_type != "None"
+            and not any(s.startswith("return ") for s in emitted_stmts)
+        ):
+            ret_local = next(
+                (
+                    nm for nm in (
+                        "result", "output", "passwords", "cookies", "history",
+                        "autofills", "accounts", "profiles", "data", "content",
+                        "paths", "thread",
+                    )
+                    if nm in local_set
+                ),
+                None,
+            )
+            if ret_local:
+                emitted_stmts.append(f"return {ret_local}")
+            elif ret_type == "bool":
+                if "result" in local_set:
+                    emitted_stmts.append("return bool(result)")
+                else:
+                    emitted_stmts.append("return False")
+            elif ret_type == "str":
+                emitted_stmts.append("return ''")
+            elif ret_type == "bytes":
+                emitted_stmts.append("return b''")
+            elif ret_type.startswith(("list", "List")):
+                emitted_stmts.append("return []")
+            elif ret_type.startswith(("dict", "Dict")):
+                emitted_stmts.append("return {}")
+
+        # Validate every non-comment statement with `ast.parse`; downgrade invalid ones to comments.
+        validated_lines: list[str] = []
+        for stmt in emitted_stmts:
+            cand = f"{body_indent}{stmt}"
+            if stmt.startswith("#") or self._is_valid_body_syntax([cand], body_indent):
+                validated_lines.append(cand)
+            else:
+                validated_lines.append(f"{body_indent}# {stmt}")
+
+        out.extend(validated_lines)
+
+        # Preserve remaining notable constants from this function's window as concise evidence.
+        notable: list[str] = []
+        seen_n: set[str] = set()
+        for w_idx, item in enumerate(win):
+            if w_idx in used_consts:
+                continue
+            if isinstance(item, str):
+                if (
+                    item in self._NON_FUNCTION_NAMES
+                    or self._is_machinery_string(item)
+                    or item in bare_params
+                    or item in local_set
+                    or item in self._COMMON_STDLIB
+                ):
+                    continue
+                rep = self._safe_literal(item)
+            elif isinstance(item, (int, float, bytes)) and not isinstance(item, bool):
+                if isinstance(item, int) and -1 <= item <= 2:
+                    continue
+                rep = self._safe_literal(item)
+            elif isinstance(item, tuple) and item and any(self._is_data_literal(x) for x in item):
+                rep = self._safe_literal(item)
+            else:
+                continue
+            if rep not in seen_n:
+                seen_n.add(rep)
+                notable.append(rep)
+        if notable:
+            out.append(f"{body_indent}# consts: {', '.join(notable[:18])}")
+            if len(notable) > 18:
+                out.append(f"{body_indent}# ... ({len(notable) - 18} more constants)")
+
+        return out
+
+    # ---- emission ----
+
+    @staticmethod
+    def _format_docstring(doc: str, indent: str) -> list[str]:
+        q = '"""' if '"""' not in doc else "'''"
+        if "\n" not in doc:
+            return [f"{indent}{q}{doc}{q}"]
+        parts = doc.split("\n")
+        out = [f"{indent}{q}{parts[0]}"]
+        out.extend(parts[1:-1])
+        out.append(f"{parts[-1]}{q}")
+        return out
+
+    def _body_trace_lines(self, name: str, parent: str | None, body_indent: str) -> list[str]:
+        if not self.body_traces:
+            return []
+        seq = None
+        for key in ((f"{parent}.{name}",) if parent else ()) + (name,):
+            if key in self.body_traces:
+                seq = self.body_traces[key]
+                break
+        if not seq:
+            return []
+        out = [f"{body_indent}# reconstructed control flow:"]
+        out.extend(f"{body_indent}#   {ln}" for ln in seq)
+        return out
+
+    def _emit_function(
+        self,
+        co: dict[str, Any],
+        indent: str = "",
+        is_method: bool = False,
+        parent: str | None = None,
+    ) -> list[str]:
+        name = str(co.get("name") or "")
+        if not self._is_valid_def_name(name):
+            return []
+
+        native = bool(co.get("_native"))
+        blob_exact = bool(co.get("_blob_exact"))
+        inferred_sig = bool(co.get("_inferred_sig"))
+        exact_sig = native or blob_exact
+        trusted_sig = exact_sig or inferred_sig
+        full_varnames = [str(a) for a in (co.get("varnames") or co.get("args") or ())]
+        qn = str(co.get("qualname") or (f"{parent}.{name}" if parent else name))
+
+        if native:
+            sig_args = [str(a) for a in (co.get("args") or ())]
+            locals_only = [
+                v for v in full_varnames
+                if v not in {a.lstrip("*") for a in sig_args} | {"self", "cls"} and self._is_ident(v)
+            ]
+        elif blob_exact:
+            sig_args, locals_only = self._extract_exact_blob_sig(co)
+        elif inferred_sig:
+            ac = max(0, int(co.get("argcount") or 0))
+            sig_args = [v for v in full_varnames[:ac] if self._is_ident(v)]
+            bare_set = {a.lstrip("*") for a in sig_args} | {"self", "cls"}
+            locals_only = [v for v in full_varnames[ac:] if v not in bare_set and self._is_ident(v)]
+        else:
+            if is_method and full_varnames and full_varnames[0] in ("self", "cls"):
+                sig_args = [full_varnames[0]]
+            elif is_method and not full_varnames:
+                sig_args = ["self"]
+            else:
+                sig_args = []
+            bare_set = {a.lstrip("*") for a in sig_args} | {"self", "cls"}
+            locals_only = [v for v in full_varnames if v not in bare_set and self._is_ident(v)]
+
+        # Decorator detection for methods whose exact signature omits `self`/`cls`.
+        decorators: list[str] = []
+        if is_method and trusted_sig and name != "__new__":
+            if sig_args and sig_args[0] == "cls":
+                decorators.append(f"{indent}@classmethod")
+            elif (not sig_args or sig_args[0] != "self") and name != "__init__":
+                decorators.append(f"{indent}@staticmethod")
+
+        flags = int(co.get("flags") or 0)
+        is_async = bool(co.get("is_async")) or bool(flags & 0x0080) or bool(flags & 0x0200)
+        kw = "async def" if is_async else "def"
+
+        bare_sig_args = list(sig_args)
+        bare_params = {a.lstrip("*") for a in sig_args if a not in ("/", "*")} | {"self", "cls"}
+        locals_only = [v for v in locals_only if v not in bare_params]
+
+        ann = self._qualname_annotations.get(qn) or (self._match_annotations(co) if exact_sig else None)
+        ret_hint = ""
+        ret_type_str: str | None = None
+        if ann:
+            decorated: list[str] = []
+            for a in sig_args:
+                key = a.lstrip("*")
+                if key in ("/", "*") or a in ("self", "cls"):
+                    decorated.append(a)
+                    continue
+                t = self._render_annotation_type(ann[key]) if key in ann else None
+                decorated.append(f"{a}: {t}" if t else a)
+            sig_args = decorated
+            if "return" in ann:
+                rt = self._render_annotation_type(ann["return"])
+                if rt:
+                    ret_type_str = rt
+                    ret_hint = f" -> {rt}"
+
+        # Defaults attachment on positional parameters only (preserve valid Python syntax!).
+        defs = self._defaults.get(qn) or (self._defaults.get(name) if not parent else None)
+        if defs is None:
+            defs = self._qualname_defaults.get(qn)
+        attached_defs = False
+        if defs and trusted_sig:
+            pos_idx = [
+                i for i, a in enumerate(bare_sig_args)
+                if a not in ("/", "*") and not a.startswith("*")
+            ]
+            # Never assign a default before a non-default or onto `self`/`cls`.
+            non_recv_pos = [
+                i for i in pos_idx if bare_sig_args[i] not in ("self", "cls")
+            ]
+            # Only positional args before kwonly/star marker can receive positional __defaults__.
+            star_limit = next(
+                (i for i, a in enumerate(bare_sig_args) if a.startswith("*")),
+                len(bare_sig_args),
+            )
+            eligible = [i for i in non_recv_pos if i < star_limit]
+            if 0 < len(defs) <= len(eligible):
+                for di, dv in enumerate(reversed(defs)):
+                    ai = eligible[len(eligible) - 1 - di]
+                    base = sig_args[ai].split(" = ")[0].strip()
+                    sig_args[ai] = f"{base} = {self._safe_literal(dv)}"
+                attached_defs = True
+
+        kw_defs = co.get("_kw_defaults") or (self._qualname_kwdefaults.get(qn) if trusted_sig else None)
+        if isinstance(kw_defs, dict) and kw_defs and trusted_sig:
+            star_pos = next(
+                (i for i, a in enumerate(bare_sig_args) if a == "*" or (a.startswith("*") and not a.startswith("**"))),
+                len(bare_sig_args),
+            )
+            for ai, raw_a in enumerate(bare_sig_args):
+                if ai <= star_pos:
+                    continue
+                pname = raw_a.lstrip("*")
+                if pname in kw_defs and " = " not in sig_args[ai]:
+                    sig_args[ai] = f"{sig_args[ai]} = {self._safe_literal(kw_defs[pname])}"
+
+        lines = list(decorators)
+        sig_str = ", ".join(sig_args)
+        header = f"{indent}{kw} {name}({sig_str}){ret_hint}:"
+        lines.append(header)
+        body_indent = indent + "    "
+
+        doc = co.get("docstring")
+        if isinstance(doc, str) and doc:
+            lines.extend(self._format_docstring(doc, body_indent))
+
+        exact_body = None
+        for key in (qn, f"{parent}.{name}" if parent else "", name):
+            if key and key in self.body_sources:
+                exact_body = self.body_sources[key]
+                break
+
+        body: list[str] = []
+        if exact_body:
+            eb = list(exact_body)
+            vn = full_varnames[:len(bare_sig_args)]
+            eb = _ndl_heal_incomplete_url_slash(eb, vn)
+            eb = _ndl_heal_split_fstring_url(eb, vn)
+            eb = _ndl_heal_url_token_swap(eb)
+            body.extend(f"{body_indent}{ln}" for ln in eb)
+        else:
+            if locals_only:
+                label = "# locals" if trusted_sig else "# co_varnames"
+                body.append(f"{body_indent}{label}: {', '.join(locals_only)}")
+            if defs and not attached_defs:
+                body.append(f"{body_indent}# defaults: {self._safe_literal(defs)}")
+            body.extend(self._body_trace_lines(name, parent, body_indent))
+            if trusted_sig and name == "__init__" and bare_sig_args[:1] == ["self"] and len(bare_sig_args) > 1:
+                init_params = [a for a in bare_sig_args[1:] if a.isidentifier()]
+                body.extend(f"{body_indent}self.{a} = {a}" for a in init_params)
+            if blob_exact or self._get_co_window(co):
+                body.extend(
+                    self._synthesize_constant_window_body(
+                        co, bare_sig_args, locals_only, body_indent, ret_type=ret_type_str
+                    )
+                )
+            elif not body:
+                body.append(f"{body_indent}pass")
+
+        if not any(ln.strip() and not ln.lstrip().startswith("#") for ln in body):
+            body.append(f"{body_indent}pass")
+
+        if is_method and name == "__init__":
+            auth_args = (
+                [str(x) for x in (co.get("args") or ())[: int(co.get("argcount") or 0)]]
+                if exact_sig
+                else None
+            )
+            _, body = _ndl_reconcile_init_params(
+                sig_args, body, body_indent, self.constants, authoritative_args=auth_args
+            )
+
+        lines.extend(body)
+        return lines
+
+    def _const_index(self, *names: str | None) -> int:
+        best: int | None = None
+        for nm in names:
+            if nm and nm in self.str_positions:
+                p = self.str_positions[nm][0]
+                if best is None or p < best:
+                    best = p
+        return best if best is not None else 10**9
+
+    def _emit_class(
+        self,
+        class_key: str,
+        cls_data: dict[str, Any],
+        indent: str = "",
+    ) -> list[str]:
+        short_name = class_key.rsplit(".", 1)[-1]
+        methods = list(cls_data.get("methods", ()))
+        ord_map = getattr(self, "_def_order", {})
+        src_map = getattr(self, "_src_order", {})
+
+        def _mkey(m: dict[str, Any]) -> tuple[int, int]:
+            ln = int(m.get("line") or 0)
+            if ln > 0:
+                return (0, ln)
+            qn = str(m.get("qualname") or m.get("name") or "")
+            if qn in src_map:
+                return (1, src_map[qn])
+            if qn.split(".")[-1] == "__init__":
+                return (2, 0)
+            return (3, ord_map.get(id(m), 10**6 + self._const_index(qn, m.get("name"))))
+
+        methods.sort(key=_mkey)
+        bases = _heal_class_bases(cls_data.get("bases", ()), short_name)
+        header = f"{indent}class {short_name}" + (f"({', '.join(bases)})" if bases else "") + ":"
+        lines = [header]
+        body_indent = indent + "    "
+
+        cdoc = self._class_docstrings.get(class_key) or self._class_docstrings.get(short_name)
+        if isinstance(cdoc, str) and cdoc:
+            lines.extend(self._format_docstring(cdoc, body_indent))
+
+        attrs = self._class_attrs.get(class_key) or ()
+        for attr_name, attr_val in attrs:
+            if attr_val is not None:
+                lines.append(f"{body_indent}{attr_name} = {attr_val}")
+            else:
+                lines.append(f"{body_indent}{attr_name} = None  # class attribute")
+
+        hints = self._class_const_hints.get(class_key) or ()
+        if hints:
+            lines.append(
+                f"{body_indent}# class constants: {', '.join(self._safe_literal(h) for h in hints[:12])}"
+            )
+
+        nested_keys = self._nested_classes.get(class_key) or ()
+        for nkey in nested_keys:
+            lines.append("")
+            lines.extend(self._emit_class(nkey, self._nested_class_data[nkey], indent=body_indent))
+
+        for co in methods:
+            lines.append("")
+            lines.extend(self._emit_function(co, body_indent, is_method=True, parent=class_key))
+
+        if not any(ln.strip() and not ln.lstrip().startswith("#") for ln in lines[1:]):
+            lines.append(f"{body_indent}pass")
+        return lines
+
+    # ---- annotation & data literal helpers ----
+
+    @classmethod
+    def _render_annotation_type(cls, v: Any) -> str | None:
+        if v is None:
+            return "None"
+        if isinstance(v, str):
+            return v if re.fullmatch(r"[A-Za-z_][\w.]*", v) else None
+        if isinstance(v, tuple) and v:
+            tag = v[0]
+            if tag == "GenericAlias" and len(v) >= 3:
+                base = cls._render_annotation_type(v[1])
+                params = v[2]
+                if isinstance(params, (tuple, list)):
+                    inner = ", ".join(filter(None, (cls._render_annotation_type(p) for p in params)))
+                else:
+                    inner = cls._render_annotation_type(params) or ""
+                if base and inner:
+                    return f"{base}[{inner}]"
+                return base
+            if tag == "UnionType" and len(v) >= 2 and isinstance(v[1], (tuple, list)):
+                parts = list(filter(None, (cls._render_annotation_type(p) for p in v[1])))
+                return " | ".join(parts) if parts else None
+            if tag == "_nuitka_builtin_anon_type" and len(v) == 2 and v[1] == "NoneType":
+                return "None"
+            if isinstance(tag, str) and tag.startswith("<type "):
+                return tag[len("<type "):].rstrip(">") or None
+        return None
+
+    def _match_annotations(self, co: dict[str, Any]) -> dict[str, Any] | None:
+        args = [a.lstrip("*") for a in (co.get("args") or ()) if a not in ("self", "cls")]
+        if not args:
+            return None
+        argset = set(args)
+        names = [str(co.get("qualname") or co.get("name") or "").split(".")[-1]]
+        name_positions = [pos for pos, value in enumerate(self.constants) if isinstance(value, str) and value in names]
+        best, best_key = None, None
+        for pos, d in enumerate(self.constants):
+            if not (isinstance(d, dict) and d and all(isinstance(k, str) and self._is_ident(k) for k in d)):
+                continue
+            keys = set(d) - {"return"}
+            if not keys:
+                continue
+            overlap = len(keys & argset)
+            if not overlap or not keys <= argset:
+                continue
+            distance = min((abs(pos - np_pos) for np_pos in name_positions), default=10**9)
+            key = (-overlap, distance, pos)
+            if best_key is None or key < best_key:
+                best, best_key = d, key
+        return best
+
+    @classmethod
+    def _is_machinery_string(cls, v: Any) -> bool:
+        if not isinstance(v, str) or not v:
+            return False
+        if v.startswith("<") and v.endswith(">"):
+            return True
+        return any(m in v for m in cls._MACHINERY_MARKERS)
+
+    @staticmethod
+    def _is_type_spec(v: Any) -> bool:
+        if v is None:
+            return True
+        if isinstance(v, str):
+            return bool(
+                re.fullmatch(r"[A-Za-z_][\w.]*(?:\s*\|\s*[A-Za-z_][\w.]*)*", v)
+                or re.fullmatch(r"[A-Za-z_][\w.]*\[.*\]", v)
+            )
+        if isinstance(v, tuple) and v and isinstance(v[0], str):
+            return v[0] in (
+                "UnionType", "GenericAlias", "Optional", "Union",
+                "Annotated", "type", "Final", "ClassVar",
+            )
+        return False
+
+    _KNOWN_LOWER_TYPE_SPECS = frozenset({
+        "str", "int", "float", "bool", "bytes", "list", "dict", "tuple",
+        "set", "frozenset", "object", "Any", "None", "Path", "Callable",
+        "Iterable", "Sequence", "Mapping",
+    })
+
+    def _is_annotation_dict(self, d: Any) -> bool:
+        if not isinstance(d, dict) or not d:
+            return False
+        if not all(isinstance(k, str) and (self._is_ident(k) or k == "return") for k in d):
+            return False
+        if not all(self._is_type_spec(v) for v in d.values()):
+            return False
+        if "return" not in d:
+            for v in d.values():
+                if isinstance(v, str) and not (
+                    v in self._KNOWN_LOWER_TYPE_SPECS
+                    or v[:1].isupper()
+                    or any(ch in v for ch in ".|[]")
+                ):
+                    return False
+        return True
+
+    def _is_data_literal(self, v: Any) -> bool:
+        if isinstance(v, bool):
+            return False
+        if isinstance(v, str):
+            if not v:
+                return False
+            if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_.]*", v):
+                return False
+            if v.endswith((".py", ".pyc")):
+                return False
+            if self._is_machinery_string(v):
+                return False
+            return True
+        if isinstance(v, (int, float)):
+            return not (isinstance(v, int) and -2 <= v <= 2)
+        if isinstance(v, bytes):
+            return len(v) > 0
+        if isinstance(v, dict):
+            if v.get("_type") == "CodeObject":
+                return False
+            return len(v) > 0 and not self._is_annotation_dict(v)
+        if isinstance(v, (list, set, frozenset)):
+            return len(v) > 0
+        if isinstance(v, tuple):
+            return any(self._is_data_literal(x) for x in v)
+        return False
+
+    def _emit_module_constants(self) -> list[str]:
+        consts = self.constants
+        out: list[str] = []
+
+        defined: set[str] = set()
+        for cls, d in self.classes.items():
+            defined.add(cls)
+            for m in d.get("methods", ()):
+                defined.add(str(m.get("name")))
+            for b in d.get("bases", ()):
+                defined.add(str(b))
+        for f in self.free_funcs:
+            defined.add(str(f.get("name")))
+        import_names = set(_ndl_imported_names_from_constants(consts))
+        import_names |= _ndl_parse_imported_symbols(self._detected_import_lines)
+        explained = set(self._NON_FUNCTION_NAMES) | defined | import_names
+
+        name_pool = defined | _ndl_parse_imported_symbols(self._detected_import_lines)
+        import_sets: list[frozenset[str]] = []
+        for ln in self._detected_import_lines:
+            match = re.match(r"^from\s+\S+\s+import\s+(.+)$", ln)
+            if match:
+                nm = {p.split(" as ")[0].strip() for p in match.group(1).split(",")}
+                import_sets.append(frozenset(nm))
+        varname_sets = [
+            frozenset(str(x) for x in (co.get("varnames") or co.get("args") or ()))
+            for co in self.code_objects
+            if co.get("varnames") or co.get("args")
+        ]
+
+        all_list: list[str] | None = None
+        all_src: Any = None
+        for c in consts:
+            if not (isinstance(c, (list, tuple)) and len(c) >= 2 and all(isinstance(x, str) and self._is_ident(x) for x in c)):
+                continue
+            names = list(c)
+            if any(x.startswith("__") for x in names):
+                continue
+            cand = frozenset(names)
+            if cand in import_sets or any(cand <= vs for vs in varname_sets):
+                continue
+            known_cnt = sum(1 for x in names if x in name_pool)
+            if known_cnt >= max(2, int(0.6 * len(names))):
+                if all_list is None or len(names) > len(all_list):
+                    all_list = names
+                    all_src = c
+
+        known_import_roots: set[str] = set()
+        for km in self.known_modules:
+            known_import_roots.add(km)
+            known_import_roots.add(km.split(".")[0])
+        emitted_syms = _ndl_parse_imported_symbols(self._detected_import_lines)
+
+        def _is_real_global(c: Any) -> bool:
+            return (
+                isinstance(c, str)
+                and c not in explained
+                and self._is_valid_def_name(c)
+                and c not in self._COMMON_STDLIB
+                and c not in known_import_roots
+                and c not in emitted_syms
+                and not (c.startswith("__") and c.endswith("__"))
+            )
+
+        real_globals: list[str] = []
+        seen_g: set[str] = set()
+        if self.module_globals:
+            for c in consts:
+                if _is_real_global(c) and c not in seen_g and c in self.module_globals:
+                    seen_g.add(c)
+                    real_globals.append(c)
+
+        inferred: list[str] = []
+        for nm in all_list or ():
+            if nm not in seen_g and _is_real_global(nm):
+                seen_g.add(nm)
+                inferred.append(nm)
+
+        collections = [
+            c for c in consts
+            if c is not all_src and isinstance(c, (list, dict)) and self._is_data_literal(c)
+        ]
+
+        bound: dict[str, Any] = {}
+        bind_candidates = real_globals + inferred
+        if len(collections) == 1 and len(bind_candidates) == 1:
+            bound[bind_candidates[0]] = collections[0]
+
+        _imported_syms = _ndl_parse_imported_symbols(self._detected_import_lines)
+        _all_import_names = _ndl_all_import_names(self._detected_import_lines)
+        emit_globals = [
+            n for n in list(real_globals) + [x for x in inferred if x in bound]
+            if n in bound or n in self.module_global_values or re.fullmatch(r"[A-Z][A-Z0-9_]*", n)
+        ]
+        emit_globals.sort(key=lambda n: self._const_index(n))
+        for name in emit_globals:
+            if name in _imported_syms or name in _all_import_names or name in import_names:
+                continue
+            if name in bound:
+                out.append(f"{name} = {self._safe_literal(bound[name])}")
+            elif name in self.module_global_values:
+                out.append(f"{name} = {self._safe_literal(self.module_global_values[name])}")
+            else:
+                guess = _ndl_guess_global_init(name, _imported_syms, self.constants)
+                out.append(f"{name} = {guess}" if guess else f"{name} = None")
+
+        if all_list is not None:
+            out.append("")
+            out.append("__all__ = [")
+            for nm in all_list:
+                out.append(f"    {nm!r},")
+            out.append("]")
+
+        if self.emit_banner:
+            literals: list[Any] = []
+            seen_lit: set[str] = set()
+            for c in consts:
+                if not self._is_data_literal(c) or isinstance(c, (list, dict, set, frozenset, tuple)):
+                    continue
+                key = repr(c)
+                if key not in seen_lit:
+                    seen_lit.add(key)
+                    literals.append(c)
+            if literals:
+                out.append("")
+                out.append("# --- recovered string & numeric literals from constant pool ---")
+                out.append("_recovered_literals = (")
+                for lit in literals[:250]:
+                    out.append(f"    {self._safe_literal(lit)},")
+                out.append(")")
+            bound_ids = {id(v) for v in bound.values()}
+            k = 0
+            for coll in collections[:20]:
+                if id(coll) in bound_ids:
+                    continue
+                out.append("")
+                out.append(f"_recovered_data_{k} = {self._safe_literal(coll)}")
+                k += 1
+
+        return out
+
+    @staticmethod
+    def _safe_literal(v: Any, _depth: int = 0) -> str:
+        try:
+            if _depth > 6:
+                return "..."
+            if isinstance(v, (str, bytes, int, float, bool)) or v is None:
+                r = repr(v)
+                if len(r) <= 2000:
+                    return r
+                if isinstance(v, str):
+                    return repr(v[:1900])
+                if isinstance(v, (bytes, bytearray)):
+                    return repr(bytes(v[:1900]))
+                return r
+            if isinstance(v, (list, tuple, set, frozenset)):
+                items = list(v)[:60]
+                inner = ", ".join(StaticalySmartReconstructor._safe_literal(x, _depth + 1) for x in items)
+                if isinstance(v, list):
+                    return f"[{inner}]"
+                if isinstance(v, set):
+                    return f"{{{inner}}}" if items else "set()"
+                if isinstance(v, frozenset):
+                    return f"frozenset({{{inner}}})" if items else "frozenset()"
+                if len(items) == 1:
+                    return f"({inner},)"
+                return f"({inner})"
+            if isinstance(v, dict):
+                pairs = ", ".join(
+                    f"{StaticalySmartReconstructor._safe_literal(k, _depth + 1)}: "
+                    f"{StaticalySmartReconstructor._safe_literal(val, _depth + 1)}"
+                    for k, val in list(v.items())[:60]
+                )
+                return f"{{{pairs}}}"
+            return repr(v)
+        except Exception:
+            return "..."
+
+    def render(self) -> str:
+        out: list[str] = []
+        if self.emit_banner:
+            out.append(f'"""Module: {self.module_name}')
+            out.append("")
+            out.append("Static reconstruction from Nuitka constants blob and CodeObjects.")
+            out.append('"""')
+            out.append("")
+
+        imports = self.detect_imports()
+        self._detected_import_lines = list(imports)
+        if imports:
+            out.extend(imports)
+            out.append("")
+
+        const_lines = self._emit_module_constants()
+        if const_lines:
+            out.extend(const_lines)
+            out.append("")
+
+        ord_map = getattr(self, "_def_order", {})
+
+        def _class_pos(cname: str) -> int:
+            ln = self._class_lines.get(cname)
+            if ln:
+                return ln
+            lns = [
+                int(m.get("line") or 0)
+                for m in self.classes[cname].get("methods", ())
+                if int(m.get("line") or 0) > 0
+            ]
+            if lns:
+                return min(lns)
+            idxs = [ord_map.get(id(m), 10**6) for m in self.classes[cname].get("methods", ())]
+            return min(idxs) if idxs else self._const_index(cname)
+
+        def _func_pos(co: dict[str, Any]) -> int:
+            ln = int(co.get("line") or 0)
+            if ln > 0:
+                return ln
+            return self._const_index(co.get("qualname"), co.get("name"))
+
+        ordered: list[tuple[str, Any, int]] = (
+            [("class", c, _class_pos(c)) for c in self.classes]
+            + [("func", co, _func_pos(co)) for co in self.free_funcs]
+        )
+        ordered.sort(key=lambda t: t[2])
+
+        for kind, obj, _pos in ordered:
+            out.append("")
+            if kind == "class":
+                out.extend(self._emit_class(obj, self.classes[obj]))
+            else:
+                out.extend(self._emit_function(obj))
+            out.append("")
+
+        # Surface trailing module-level execution hints if `<module>` body exists without definitions
+        # or if top-level runtime log/entrypoint constants follow class definitions.
+        if self.module_body is not None:
+            mod_pos = self._get_co_pos(self.module_body)
+            if mod_pos is not None:
+                tail_start = max([mod_pos + 1] + [p + 1 for p in self._all_co_positions if p > mod_pos])
+                if tail_start < len(self.constants):
+                    tail_items = [
+                        c for c in self.constants[tail_start:]
+                        if self._is_data_literal(c)
+                    ]
+                    if tail_items:
+                        out.append("# --- module entrypoint / top-level flow constants ---")
+                        for item in tail_items[:40]:
+                            out.append(f"# {self._safe_literal(item)}")
+
+        text = "\n".join(out).rstrip() + "\n"
+        try:
+            ast.parse(text)
+        except SyntaxError:
+            pass
+        return text
+
+
+_UNSET_SENTINEL = object()
+
+
 @functools.lru_cache(maxsize=1)
 def _load_v7_smart_reconstructor():
-    candidates: list[str] = []
-    if __package__:
-        candidates.append(f"{__package__}.nuitkalizator_v7_2")
-    candidates.append("nuitkalizator_v7_2")
-
-    for module_name in candidates:
-        try:
-            module = importlib.import_module(module_name)
-        except Exception:
-            continue
-        reconstructor = getattr(module, "StaticalySmartReconstructor", None)
-        if reconstructor is not None:
-            return reconstructor
-    return None
+    return StaticalySmartReconstructor
 
 
 def _is_module_name_candidate(value: Any) -> bool:
@@ -3991,6 +7078,8 @@ def reconstruct_module_artifacts(
     *,
     decompiler: OmniDecompiler | None = None,
     python_version: tuple[int, int] | None = None,
+    known_modules: Iterable[str] | None = None,
+    include_nbc: bool = False,
 ) -> OmniModuleArtifact:
     constants = list(raw_constants)
     if _is_marshaled_bytecode_section_name(section_name, constants):
@@ -4007,14 +7096,23 @@ def reconstruct_module_artifacts(
     for item in constants_for_render:
         _collect_code_object_specs(item, code_objects)
 
-    if decompiler is None:
-        decompiler = OmniDecompiler()
-        decompiler.run_pass_1_structural_mapping(constants_for_render)
-        decompiler.run_pass_2_ast_synthesis()
-    else:
+    module_globals: set[str] | None = None
+    module_global_values: dict[str, Any] | None = None
+    if decompiler is not None:
         decompiler.unclaimed_items = _redact_marshaled_bytecode_list(decompiler.unclaimed_items)
-
-    heuristic_source = _generate_heuristic_omni_source(decompiler, section_name)
+        mc = getattr(decompiler, "module_constants", None)
+        if isinstance(mc, dict) and mc and not code_objects:
+            module_globals = set()
+            module_global_values = {}
+            for gname, gval in mc.items():
+                if isinstance(gname, str) and gname.isidentifier():
+                    module_globals.add(gname)
+                    if isinstance(gval, str):
+                        try:
+                            ast.parse(f"{gname} = {gval}")
+                            module_global_values[gname] = ast.literal_eval(gval)
+                        except Exception:
+                            pass
 
     smart_source: str | None = None
     smart_reconstructor = _load_v7_smart_reconstructor()
@@ -4024,39 +7122,66 @@ def reconstruct_module_artifacts(
                 module_name=section_name or "__module__",
                 constants=constants_for_render,
                 code_objects=code_objects,
+                module_globals=module_globals,
+                module_global_values=module_global_values,
+                known_modules=known_modules,
+                emit_banner=True,
             ).render()
         except Exception:
             smart_source = None
 
-    source = heuristic_source
-    strategy = "heuristic"
-    if smart_source and _has_python_structure(smart_source):
-        smart_units = _count_reconstructed_blocks(smart_source)
-        heuristic_units = _count_reconstructed_blocks(heuristic_source)
-        if smart_units > heuristic_units or not _has_python_structure(heuristic_source):
+    smart_valid = False
+    if smart_source and smart_source.strip():
+        try:
+            ast.parse(smart_source)
+            smart_valid = True
+        except SyntaxError:
+            smart_valid = False
+
+    if smart_valid and (_has_python_structure(smart_source or "") or not decompiler):
+        heuristic_source = smart_source or ""
+        source = smart_source or ""
+        strategy = "smart"
+    else:
+        if decompiler is None:
+            decompiler = OmniDecompiler()
+            decompiler.run_pass_1_structural_mapping(constants_for_render)
+            decompiler.run_pass_2_ast_synthesis()
+        heuristic_source = _generate_heuristic_omni_source(decompiler, section_name)
+        source = heuristic_source
+        strategy = "heuristic"
+        if smart_valid and smart_source and (
+            not _has_python_structure(heuristic_source)
+            or _count_reconstructed_blocks(smart_source) >= _count_reconstructed_blocks(heuristic_source)
+        ):
             source = smart_source
             strategy = "smart"
 
-    nbc_text = OmniNuitkaCompactEmitter.render(
-        section_name=section_name,
-        raw_constants=constants_for_render,
-        decompiler=decompiler,
-        python_version=python_version,
-    )
-
-    try:
-        parsed_nbc = parse_nbc_text(nbc_text)
-        nbc_source = NbcNoOpsHeuristicReconstructor(parsed_nbc).render_generic()
-        merged_source = _merge_blob_python_sources(
-            section_name or "__module__",
-            [candidate for candidate in (smart_source, source, heuristic_source) if candidate],
-            inventory_source=nbc_source,
+    nbc_text: str | None = None
+    if include_nbc:
+        if decompiler is None:
+            decompiler = OmniDecompiler()
+            decompiler.run_pass_1_structural_mapping(constants_for_render)
+            decompiler.run_pass_2_ast_synthesis()
+        nbc_text = OmniNuitkaCompactEmitter.render(
+            section_name=section_name,
+            raw_constants=constants_for_render,
+            decompiler=decompiler,
+            python_version=python_version,
         )
-        ast.parse(merged_source)
-        source = merged_source
-        strategy = f"merged+{strategy}"
-    except Exception:
-        pass
+        try:
+            parsed_nbc = parse_nbc_text(nbc_text)
+            nbc_source = NbcNoOpsHeuristicReconstructor(parsed_nbc).render_generic()
+            merged_source = _merge_blob_python_sources(
+                section_name or "__module__",
+                [candidate for candidate in (smart_source, source, heuristic_source) if candidate],
+                inventory_source=nbc_source,
+            )
+            ast.parse(merged_source)
+            source = merged_source
+            strategy = f"merged+{strategy}"
+        except Exception:
+            pass
 
     return OmniModuleArtifact(
         source=source,
@@ -4082,11 +7207,13 @@ def generate_omni_nbc(
 
 
 def generate_omni_source(
-    decompiler: OmniDecompiler,
+    decompiler: OmniDecompiler | None,
     section_name: str,
     raw_constants: list[Any] | tuple[Any, ...] | None = None,
     python_version: tuple[int, int] | None = None,
     prefer_full: bool = True,
+    known_modules: Iterable[str] | None = None,
+    include_nbc: bool = False,
 ) -> str:
     if raw_constants is not None and _is_marshaled_bytecode_section_name(section_name, raw_constants):
         return ""
@@ -4096,7 +7223,11 @@ def generate_omni_source(
             raw_constants=raw_constants,
             decompiler=decompiler,
             python_version=python_version,
+            known_modules=known_modules,
+            include_nbc=include_nbc,
         ).source
+    if decompiler is None:
+        return ""
     decompiler.unclaimed_items = _redact_marshaled_bytecode_list(decompiler.unclaimed_items)
     return _generate_heuristic_omni_source(decompiler, section_name)
 

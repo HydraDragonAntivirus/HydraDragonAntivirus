@@ -477,31 +477,55 @@ from math import copysign as _copysign
 
 _NBC_END_OF_STREAM = object()
 _NBC_PARSE_ERROR = object()
+import threading as _threading
+
+_nbc_tls = _threading.local()
 _nbc_last_unpacked = None
 _NBC_TARGET_PYTHON = _sys.version_info[:2]
 
 
+def _nbc_get_last_unpacked():
+    return getattr(_nbc_tls, "last_unpacked", None)
+
+
+def _nbc_set_last_unpacked(val):
+    global _nbc_last_unpacked
+    _nbc_tls.last_unpacked = val
+    _nbc_last_unpacked = val
+
+
+def _nbc_get_co_qualname_all_py() -> bool:
+    return bool(getattr(_nbc_tls, "co_qualname_all_py", False))
+
+
+def _nbc_set_co_qualname_all_py(flag: bool) -> None:
+    _nbc_tls.co_qualname_all_py = bool(flag)
+
+
 def _nbc_normalize_python_version(version):
+    target_default = getattr(_nbc_tls, "target_python", None) or _NBC_TARGET_PYTHON
     if version is None:
-        return tuple(_NBC_TARGET_PYTHON[:2])
+        return tuple(target_default[:2])
     if isinstance(version, (list, tuple)):
         if not version:
-            return tuple(_NBC_TARGET_PYTHON[:2])
+            return tuple(target_default[:2])
         return (int(version[0]), int(version[1]))
     if isinstance(version, str):
         m = re.match(r"^\s*(\d+)\.(\d+)", version)
         if m:
             return (int(m.group(1)), int(m.group(2)))
-        return tuple(_NBC_TARGET_PYTHON[:2])
+        return tuple(target_default[:2])
     try:
         return (int(version[0]), int(version[1]))
     except Exception:
-        return tuple(_NBC_TARGET_PYTHON[:2])
+        return tuple(target_default[:2])
 
 
 def _nbc_set_target(version):
     global _NBC_TARGET_PYTHON
-    _NBC_TARGET_PYTHON = _nbc_normalize_python_version(version)
+    norm = _nbc_normalize_python_version(version)
+    _nbc_tls.target_python = norm
+    _NBC_TARGET_PYTHON = norm
 
 
 def _nbc_target_hex(version=None):
@@ -526,6 +550,7 @@ def _nbc_read_vlq(data, pos, *, max_bits=64):
 
 
 def _nbc_parse_code_object_tag(data, pos, python_version=None):
+    saved_last = _nbc_get_last_unpacked()
     try:
         py_hex = _nbc_target_hex(python_version)
         flags, pos = _nbc_read_vlq(data, pos)
@@ -540,11 +565,11 @@ def _nbc_parse_code_object_tag(data, pos, python_version=None):
             arg_names = ()
         arg_count, pos = _nbc_read_vlq(data, pos)
         qualname = func_name
-        if py_hex >= 0x3B0:
+        if py_hex >= 0x3B0 or _nbc_get_co_qualname_all_py():
             if flags & flag_base:
-                qualname, pos = _nbc_unpack_single(data, pos)
-                if not isinstance(qualname, str):
-                    qualname = func_name
+                parent, pos = _nbc_unpack_single(data, pos)
+                if isinstance(parent, str) and parent:
+                    qualname = f"{parent}.{func_name}"
             flag_base <<= 1
         free_vars = ()
         if flags & flag_base:
@@ -598,6 +623,92 @@ def _nbc_parse_code_object_tag(data, pos, python_version=None):
         }, pos
     except Exception:
         return {'_type': 'CodeObject', 'name': '<parse_error>'}, pos
+    finally:
+        _nbc_set_last_unpacked(saved_last)
+
+
+def _nbc_parse_class_code_object_tag(data, pos):
+    saved_last = _nbc_get_last_unpacked()
+    try:
+        flags, pos = _nbc_read_vlq(data, pos)
+        func_name, pos = _nbc_unpack_single(data, pos)
+        if not isinstance(func_name, str):
+            func_name = str(func_name) if func_name else "<class>"
+        line_number, pos = _nbc_read_vlq(data, pos)
+        line_number += 1
+        var_names, pos = _nbc_unpack_single(data, pos)
+        if not isinstance(var_names, tuple):
+            var_names = ()
+        qualname = func_name
+        if flags & 1:
+            parent, pos = _nbc_unpack_single(data, pos)
+            if isinstance(parent, str) and parent:
+                qualname = f"{parent}.{func_name}"
+        return {
+            '_type': 'CodeObject',
+            'kind': 'class',
+            'name': func_name,
+            'qualname': qualname,
+            'line': line_number,
+            'args': list(var_names),
+            'argcount': 0,
+            'kwonly': 0,
+            'posonly': 0,
+            'freevars': [],
+            'flags': 0,
+        }, pos
+    except Exception:
+        return {'_type': 'CodeObject', 'kind': 'class', 'name': '<parse_error>'}, pos
+    finally:
+        _nbc_set_last_unpacked(saved_last)
+
+
+def _nbc_parse_generator_expression_code_object_tag(data, pos):
+    saved_last = _nbc_get_last_unpacked()
+    try:
+        flags, pos = _nbc_read_vlq(data, pos)
+        line_number, pos = _nbc_read_vlq(data, pos)
+        line_number += 1
+        arg_names, pos = _nbc_unpack_single(data, pos)
+        if not isinstance(arg_names, tuple):
+            arg_names = ()
+        qualname = "<genexpr>"
+        if flags & 1:
+            parent, pos = _nbc_unpack_single(data, pos)
+            if isinstance(parent, str) and parent:
+                qualname = f"{parent}.<genexpr>"
+        free_vars = ()
+        if flags & 2:
+            free_vars, pos = _nbc_unpack_single(data, pos)
+            if not isinstance(free_vars, tuple):
+                free_vars = ()
+        return {
+            '_type': 'CodeObject',
+            'kind': 'genexpr',
+            'name': '<genexpr>',
+            'qualname': qualname,
+            'line': line_number,
+            'args': list(arg_names),
+            'argcount': 1 if arg_names else 0,
+            'kwonly': 0,
+            'posonly': 0,
+            'freevars': list(free_vars),
+            'flags': 0x20 | 0x03,
+        }, pos
+    except Exception:
+        return {'_type': 'CodeObject', 'kind': 'genexpr', 'name': '<genexpr>'}, pos
+    finally:
+        _nbc_set_last_unpacked(saved_last)
+
+
+def _nbc_unpack_sequence(data, pos, count):
+    items = []
+    for _ in range(count):
+        item, pos = _nbc_unpack_single(data, pos)
+        if item is _NBC_PARSE_ERROR or item is _NBC_END_OF_STREAM:
+            return None, pos
+        items.append(item)
+    return items, pos
 
 
 def _nbc_unpack_constant_inner(data, pos, ch, marker):
@@ -693,44 +804,39 @@ def _nbc_unpack_constant_inner(data, pos, ch, marker):
             return complex(real, imag), pos + 16
         return 0j, pos
     elif ch == 'J':
-        parts = []
-        for _ in range(2):
-            item, pos = _nbc_unpack_single(data, pos)
-            parts.append(item if item is not None else 0.0)
+        parts, pos = _nbc_unpack_sequence(data, pos, 2)
+        if parts is None:
+            return _NBC_PARSE_ERROR, pos
         try:
-            return complex(parts[0], parts[1]), pos
+            return complex(parts[0] if parts[0] is not None else 0.0, parts[1] if parts[1] is not None else 0.0), pos
         except (TypeError, ValueError):
             return 0j, pos
-    elif ch == 'T':
+    elif ch in ('T', 'e'):
         count, pos = _nbc_read_vlq(data, pos)
-        if count > 50000:
+        if count > 500000:
             return (), pos
-        items = []
-        for _ in range(count):
-            item, pos = _nbc_unpack_single(data, pos)
-            items.append(item)
+        items, pos = _nbc_unpack_sequence(data, pos, count)
+        if items is None:
+            return _NBC_PARSE_ERROR, pos
         return tuple(items), pos
     elif ch == 'L':
         count, pos = _nbc_read_vlq(data, pos)
-        if count > 50000:
+        if count > 500000:
             return [], pos
-        items = []
-        for _ in range(count):
-            item, pos = _nbc_unpack_single(data, pos)
-            items.append(item)
+        items, pos = _nbc_unpack_sequence(data, pos, count)
+        if items is None:
+            return _NBC_PARSE_ERROR, pos
         return items, pos
     elif ch == 'D':
         count, pos = _nbc_read_vlq(data, pos)
-        if count > 50000:
+        if count > 500000:
             return {}, pos
-        keys = []
-        for _ in range(count):
-            k, pos = _nbc_unpack_single(data, pos)
-            keys.append(k)
-        values = []
-        for _ in range(count):
-            v, pos = _nbc_unpack_single(data, pos)
-            values.append(v)
+        keys, pos = _nbc_unpack_sequence(data, pos, count)
+        if keys is None:
+            return _NBC_PARSE_ERROR, pos
+        values, pos = _nbc_unpack_sequence(data, pos, count)
+        if values is None:
+            return _NBC_PARSE_ERROR, pos
         d = {}
         for k, v in zip(keys, values):
             try:
@@ -740,32 +846,31 @@ def _nbc_unpack_constant_inner(data, pos, ch, marker):
         return d, pos
     elif ch == 'S':
         count, pos = _nbc_read_vlq(data, pos)
-        if count > 50000:
+        if count > 500000:
             return set(), pos
-        items = []
-        for _ in range(count):
-            item, pos = _nbc_unpack_single(data, pos)
-            items.append(item)
+        items, pos = _nbc_unpack_sequence(data, pos, count)
+        if items is None:
+            return _NBC_PARSE_ERROR, pos
         try:
             return set(items), pos
         except TypeError:
             return set(), pos
     elif ch in ('P', 'R'):
         count, pos = _nbc_read_vlq(data, pos)
-        if count > 50000:
+        if count > 500000:
             return frozenset(), pos
-        items = []
-        for _ in range(count):
-            item, pos = _nbc_unpack_single(data, pos)
-            items.append(item)
+        items, pos = _nbc_unpack_sequence(data, pos, count)
+        if items is None:
+            return _NBC_PARSE_ERROR, pos
         try:
             return frozenset(items), pos
         except TypeError:
             return frozenset(), pos
     elif ch == 'X':
         size, pos = _nbc_read_vlq(data, pos)
-        blob = data[pos:pos + size] if pos + size <= len(data) else b''
-        return blob, pos + size
+        if pos + size > len(data):
+            return _NBC_PARSE_ERROR, pos
+        return data[pos:pos + size], pos + size
     elif ch == 'M':
         if pos < len(data):
             anon_values = {
@@ -787,28 +892,47 @@ def _nbc_unpack_constant_inner(data, pos, ch, marker):
             return _NBC_PARSE_ERROR, pos
         return data[pos:end].decode('utf-8', errors='replace'), end + 1
     elif ch == ':':
-        items = []
-        for _ in range(3):
-            item, pos = _nbc_unpack_single(data, pos)
-            items.append(item)
+        items, pos = _nbc_unpack_sequence(data, pos, 3)
+        if items is None:
+            return _NBC_PARSE_ERROR, pos
         return ('slice', items[0], items[1], items[2]), pos
     elif ch == ';':
-        items = []
-        for _ in range(3):
-            item, pos = _nbc_unpack_single(data, pos)
-            items.append(item)
+        items, pos = _nbc_unpack_sequence(data, pos, 3)
+        if items is None:
+            return _NBC_PARSE_ERROR, pos
         return ('range', items[0], items[1], items[2]), pos
     elif ch == 'A':
-        parts = []
-        for _ in range(2):
-            item, pos = _nbc_unpack_single(data, pos)
-            parts.append(item)
+        parts, pos = _nbc_unpack_sequence(data, pos, 2)
+        if parts is None:
+            return _NBC_PARSE_ERROR, pos
         return ('GenericAlias', parts[0], parts[1]), pos
     elif ch == 'H':
-        args, pos = _nbc_unpack_single(data, pos)
-        return ('UnionType', args), pos
+        parts, pos = _nbc_unpack_sequence(data, pos, 1)
+        if parts is None:
+            return _NBC_PARSE_ERROR, pos
+        return ('UnionType', parts[0]), pos
     elif ch == 'C':
         co_info, pos = _nbc_parse_code_object_tag(data, pos)
+        return co_info, pos
+    elif ch == 'K':
+        _flags, pos = _nbc_read_vlq(data, pos)
+        return {
+            '_type': 'CodeObject',
+            'name': '<module>',
+            'qualname': '<module>',
+            'line': 1,
+            'args': [],
+            'argcount': 0,
+            'kwonly': 0,
+            'posonly': 0,
+            'freevars': [],
+            'flags': 0,
+        }, pos
+    elif ch == 'W':
+        co_info, pos = _nbc_parse_class_code_object_tag(data, pos)
+        return co_info, pos
+    elif ch == 'Y':
+        co_info, pos = _nbc_parse_generator_expression_code_object_tag(data, pos)
         return co_info, pos
     elif ch == '.':
         return _NBC_END_OF_STREAM, pos
@@ -817,32 +941,42 @@ def _nbc_unpack_constant_inner(data, pos, ch, marker):
 
 
 def _nbc_unpack_single(data, pos):
-    global _nbc_last_unpacked
     if pos >= len(data):
         return _NBC_PARSE_ERROR, pos
     marker = data[pos]
     ch = chr(marker) if 32 <= marker < 127 else None
     pos += 1
     if ch == 'p':
-        return _nbc_last_unpacked, pos
+        return _nbc_get_last_unpacked(), pos
     if ch == '.':
         return _NBC_END_OF_STREAM, pos
     result = _nbc_unpack_constant_inner(data, pos, ch, marker)
     if result is not None:
         val, pos = result
-        _nbc_last_unpacked = val
+        if val is not _NBC_PARSE_ERROR and val is not _NBC_END_OF_STREAM:
+            _nbc_set_last_unpacked(val)
         return val, pos
-    _nbc_last_unpacked = None
+    _nbc_set_last_unpacked(None)
     return _NBC_PARSE_ERROR, pos
 
 
-def _nbc_decode_constants_stream(stream_data: bytes, count: int, *, python_version=None, start_pos: int = 0):
-    global _nbc_last_unpacked
-    _nbc_last_unpacked = None
-    old_target = _NBC_TARGET_PYTHON
+def _nbc_decode_constants_stream(
+    stream_data: bytes,
+    count: int,
+    *,
+    python_version=None,
+    start_pos: int = 0,
+    co_qualname_all_py: bool = False,
+):
+    old_last = _nbc_get_last_unpacked()
+    old_target = getattr(_nbc_tls, "target_python", None) or _NBC_TARGET_PYTHON
+    old_qualname_flag = _nbc_get_co_qualname_all_py()
+    _nbc_set_last_unpacked(None)
     _nbc_set_target(python_version or old_target)
+    _nbc_set_co_qualname_all_py(co_qualname_all_py)
     constants = []
     pos = start_pos
+    ended_clean = False
     try:
         for _ in range(count):
             if pos >= len(stream_data):
@@ -852,13 +986,18 @@ def _nbc_decode_constants_stream(stream_data: bytes, count: int, *, python_versi
                 break
             pos = new_pos
             if val is _NBC_END_OF_STREAM:
+                ended_clean = True
                 break
             if val is _NBC_PARSE_ERROR:
                 break
             constants.append(val)
+        if not ended_clean and pos < len(stream_data) and stream_data[pos:pos + 1] == b'.':
+            pos += 1
+            ended_clean = True
     finally:
-        _nbc_last_unpacked = None
+        _nbc_set_last_unpacked(old_last)
         _nbc_set_target(old_target)
+        _nbc_set_co_qualname_all_py(old_qualname_flag)
     return constants, pos
 
 
@@ -871,12 +1010,27 @@ def _nbc_parse_module_constants(chunk_data: bytes, python_version=None) -> list:
         return []
     if count == 0 or count > 50000:
         return []
-    constants, _pos = _nbc_decode_constants_stream(
+    constants, pos = _nbc_decode_constants_stream(
         chunk_data,
         count,
         python_version=python_version,
         start_pos=2,
+        co_qualname_all_py=False,
     )
+    reached_end = pos > 2 and (pos >= len(chunk_data) or chunk_data[pos - 1:pos] == b'.')
+    if (not reached_end or len(constants) < count) and _nbc_target_hex(python_version) < 0x3B0:
+        retry_constants, retry_pos = _nbc_decode_constants_stream(
+            chunk_data,
+            count,
+            python_version=python_version,
+            start_pos=2,
+            co_qualname_all_py=True,
+        )
+        retry_end = retry_pos > 2 and (
+            retry_pos >= len(chunk_data) or chunk_data[retry_pos - 1:retry_pos] == b'.'
+        )
+        if (retry_end and not reached_end) or len(retry_constants) > len(constants):
+            return retry_constants
     return constants
 
 
@@ -1697,9 +1851,10 @@ def process_section(
     magic_int: int | None,
     OmniDecompiler,
     generate_omni_source,
-    generate_omni_nbc,
+    generate_omni_nbc=None,
     emit_pyc: bool = True,
     omni_dir_name: str = "omni_reconstructed",
+    known_modules: set[str] | None = None,
 ) -> tuple[int, int, int]:
     clean_section = sanitize_filename(section_name).replace("/", "_").replace(".", "_").strip("_") or "section"
     # Cap at 80 characters — safe ceiling for long binary-garbage section names
@@ -1781,37 +1936,59 @@ def process_section(
         recovered_file_paths.append(str(target_py_path))
         return True
 
-    # ── Per-item partition: classify before acting ────────────────────────────
+    # ── Per-item partition: single-pass marshal extraction + classify ─────────
     # A section can be mixed: some items are marshal bytecode blobs, others are
-    # plain Nuitka constants. We classify per-item so bytecode items are always
-    # dumped as .pyc and constant items are always passed to OMNI.
+    # plain Nuitka constants. Extract marshal payloads once per item so we both
+    # partition OMNI vs bytecode items AND reuse them for .pyc emission without
+    # rescanning the constant tree.
+    per_item_payloads: list[tuple[list[bytes], list]] = []
     bytecode_item_indices: set[int] = set()
     for i, root_item in enumerate(root_items):
-        if any(True for _ in _iter_marshaled_bytecode_payloads(root_item, magic_int=magic_int)):
+        seen_payloads: set = set()
+        raw_payloads: list[bytes] = []
+        code_objects: list = []
+        for payload in _iter_marshaled_bytecode_payloads(root_item, magic_int=magic_int):
+            key = _payload_dedupe_key(payload)
+            if key in seen_payloads:
+                continue
+            seen_payloads.add(key)
+            if isinstance(payload, (bytes, bytearray)):
+                raw_payloads.append(bytes(payload))
+            elif _is_live_code_object(payload):
+                code_objects.append(payload)
+        per_item_payloads.append((raw_payloads, code_objects))
+        if raw_payloads or code_objects:
             bytecode_item_indices.add(i)
 
     omni_items = tuple(
         item for i, item in enumerate(root_items) if i not in bytecode_item_indices
     )
 
+    def _run_omni_source(items_tuple: tuple) -> str:
+        try:
+            return generate_omni_source(
+                None,
+                section_name,
+                raw_constants=list(items_tuple),
+                python_version=target_ver_tuple,
+                known_modules=known_modules,
+            )
+        except TypeError:
+            omp = OmniDecompiler()
+            omp.run_pass_1_structural_mapping(items_tuple)
+            omp.run_pass_2_ast_synthesis()
+            return generate_omni_source(
+                omp,
+                section_name,
+                raw_constants=list(items_tuple),
+                python_version=target_ver_tuple,
+            )
+
     # ── OMNI on pure-constant items ───────────────────────────────────────────
     omni_wrote = False
     if OmniDecompiler and omni_items:
         try:
-            omp = OmniDecompiler()
-            omp.run_pass_1_structural_mapping(omni_items)
-            omp.run_pass_2_ast_synthesis()
-            source = generate_omni_source(
-                omp,
-                section_name,
-                raw_constants=list(omni_items),
-                python_version=target_ver_tuple,
-            )
-            if source.strip() and generate_omni_nbc:
-                nbc_text = generate_omni_nbc(
-                    omp, section_name, list(omni_items), python_version=target_ver_tuple
-                )
-                source += "\n\n" + '"""' + "\n" + nbc_text + "\n" + '"""'
+            source = _run_omni_source(omni_items)
             if _write_omni(source, section_name):
                 omni_count += 1
                 omni_wrote = True
@@ -1819,24 +1996,9 @@ def process_section(
             print(f"[!] Warning: OMNI reconstruction failed for {section_name}: {exc}")
 
     # ── Fallback: try OMNI on ALL items (incl. bytecode sections) ────────────
-    # When pure-constant OMNI failed or there were no constant items, attempt
-    # OMNI on the full item set so bytecode-only modules still get a file.
     if OmniDecompiler and not omni_wrote and root_items:
         try:
-            omp2 = OmniDecompiler()
-            omp2.run_pass_1_structural_mapping(root_items)
-            omp2.run_pass_2_ast_synthesis()
-            source2 = generate_omni_source(
-                omp2,
-                section_name,
-                raw_constants=list(root_items),
-                python_version=target_ver_tuple,
-            )
-            if source2.strip() and generate_omni_nbc:
-                nbc_text2 = generate_omni_nbc(
-                    omp2, section_name, list(root_items), python_version=target_ver_tuple
-                )
-                source2 += "\n\n" + '"""' + "\n" + nbc_text2 + "\n" + '"""'
+            source2 = _run_omni_source(root_items)
             if _write_omni(source2, section_name):
                 omni_count += 1
                 omni_wrote = True
@@ -1854,19 +2016,7 @@ def process_section(
     for i, root_item in enumerate(root_items):
         item_id = f"{i:04d}"
         item_info = {"id": item_id, "type": type(root_item).__name__}
-        seen_payloads: set = set()
-        raw_payloads: list[bytes] = []
-        code_objects = []
-
-        for payload in _iter_marshaled_bytecode_payloads(root_item, magic_int=magic_int):
-            key = _payload_dedupe_key(payload)
-            if key in seen_payloads:
-                continue
-            seen_payloads.add(key)
-            if isinstance(payload, (bytes, bytearray)):
-                raw_payloads.append(bytes(payload))
-            elif _is_live_code_object(payload):
-                code_objects.append(payload)
+        raw_payloads, code_objects = per_item_payloads[i]
 
         actions = []
 
@@ -1976,9 +2126,392 @@ def process_section(
 # ============================================================================
 
 
+def _pe_resource_bytes(pe, type_id: int, name_id: int) -> bytes | None:
+    """Return raw resource payload bytes from a pefile.PE object if present."""
+    if not hasattr(pe, "DIRECTORY_ENTRY_RESOURCE"):
+        return None
+    for res_type in pe.DIRECTORY_ENTRY_RESOURCE.entries:
+        if res_type.id != type_id or not hasattr(res_type, "directory"):
+            continue
+        for res_id in res_type.directory.entries:
+            if res_id.id != name_id or not hasattr(res_id, "directory"):
+                continue
+            for res_lang in res_id.directory.entries:
+                ds = res_lang.data.struct
+                return pe.get_data(ds.OffsetToData, ds.Size)
+    return None
+
+
+def _zstd_decompress_bounded(payload: bytes, max_output: int = 512 * 1024 * 1024) -> bytes:
+    """Decompress one or more Zstandard frames using Python 3.14+ stdlib or zstandard."""
+    import io as _io
+    zstd_magic = b"\x28\xb5\x2f\xfd"
+    try:
+        from compression import zstd as _stdlib_zstd  # type: ignore[attr-defined]
+        if payload.startswith(zstd_magic):
+            buf = bytearray()
+            rem = payload
+            while rem.startswith(zstd_magic):
+                decomp = _stdlib_zstd.ZstdDecompressor()
+                chunk = decomp.decompress(rem, max_length=max_output + 1 - len(buf))
+                buf.extend(chunk)
+                if len(buf) > max_output:
+                    raise ValueError("onefile zstd output exceeds limit")
+                if not decomp.eof or not decomp.unused_data:
+                    break
+                rem = decomp.unused_data
+            return bytes(buf)
+        decomp = _stdlib_zstd.ZstdDecompressor()
+        out = decomp.decompress(payload, max_length=max_output + 1)
+        if len(out) > max_output:
+            raise ValueError("onefile zstd output exceeds limit")
+        return bytes(out)
+    except ImportError:
+        pass
+    import zstandard as _zstd  # type: ignore[import-not-found]
+    try:
+        return bytes(_zstd.ZstdDecompressor().decompress(payload, max_output_size=max_output))
+    except Exception:
+        stream_payload = payload
+        padding = len(stream_payload) - len(stream_payload.rstrip(b"\x00"))
+        if 0 < padding <= 7:
+            stream_payload = stream_payload[:-padding]
+        buf = bytearray()
+        with _zstd.ZstdDecompressor().stream_reader(_io.BytesIO(stream_payload), read_across_frames=False) as reader:
+            while True:
+                chunk = reader.read(min(1024 * 1024, max_output + 1 - len(buf)))
+                if not chunk:
+                    break
+                buf.extend(chunk)
+                if len(buf) > max_output:
+                    raise ValueError("onefile zstd output exceeds limit")
+        return bytes(buf)
+
+
+def _extract_pe_from_onefile_container(resource: bytes) -> bytes | None:
+    """Parse a Nuitka KA onefile container and return the embedded child PE binary."""
+    if not resource or resource[:2] != b"KA" or len(resource) < 4:
+        return None
+    comp_flag = resource[2:3]
+    if comp_flag not in (b"X", b"Y"):
+        return None
+    payload_end = len(resource)
+    if len(resource) >= 11:
+        trailer = struct.unpack_from("<Q", resource, len(resource) - 8)[0]
+        if trailer == len(resource) - 8:
+            payload_end -= 8
+    payload = resource[3:payload_end]
+    zstd_magic = b"\x28\xb5\x2f\xfd"
+    max_output = 512 * 1024 * 1024
+    if comp_flag == b"Y":
+        if payload.startswith(zstd_magic):
+            try:
+                archive = _zstd_decompress_bounded(payload, max_output)
+            except Exception:
+                return None
+        else:
+            pos = 0
+            n = len(payload)
+            while pos + 2 <= n and payload[pos:pos + 2] != b"\x00\x00":
+                pos += 2
+            pos += 2
+            if pos + 12 > n:
+                return None
+            pos += 8
+            if pos + 12 <= n and payload[pos + 8:pos + 12] == zstd_magic:
+                pos += 4
+            comp_sz = struct.unpack_from("<I", payload, pos)[0]
+            pos += 4
+            try:
+                child = _zstd_decompress_bounded(payload[pos:pos + comp_sz], max_output)
+            except Exception:
+                return None
+            return child if child[:2] == b"MZ" else None
+    else:
+        archive = payload
+    pos = 0
+    n = len(archive)
+    while pos + 2 <= n and archive[pos:pos + 2] != b"\x00\x00":
+        pos += 2
+    pos += 2
+    if pos + 8 > n:
+        return None
+    first_size = struct.unpack_from("<Q", archive, pos)[0]
+    pos += 8
+    if pos + first_size > n:
+        return None
+    child = bytes(archive[pos:pos + first_size])
+    return child if child[:2] == b"MZ" else None
+
+
+def _extract_onefile_child_pe(pe) -> bytes | None:
+    """Extract the first child PE binary from a Windows Nuitka onefile container."""
+    resource = _pe_resource_bytes(pe, 10, 27)
+    if resource is not None:
+        child = _extract_pe_from_onefile_container(resource)
+        if child is not None:
+            return child
+
+    section_order = {".rdata": 0, ".data": 1, ".text": 2}
+    ordered_sections = sorted(
+        pe.sections,
+        key=lambda s: section_order.get(s.Name.rstrip(b"\x00").decode("ascii", errors="replace"), 3),
+    )
+    containers: list[bytes] = [sec.get_data() for sec in ordered_sections]
+    ov_off = pe.get_overlay_data_start_offset()
+    raw_pe_buf = getattr(pe, "__data__", None)
+    if ov_off is not None and raw_pe_buf is not None and ov_off < len(raw_pe_buf):
+        containers.append(bytes(raw_pe_buf[ov_off:]))
+
+    kay_zstd = b"KAY\x28\xb5\x2f\xfd"
+    for buf in containers:
+        search_at = 0
+        while True:
+            idx = buf.find(kay_zstd, search_at)
+            if idx < 0:
+                break
+            child = _extract_pe_from_onefile_container(buf[idx:])
+            if child is not None:
+                return child
+            search_at = idx + 3
+        search_at = 0
+        while True:
+            idx = buf.find(b"KAX", search_at)
+            if idx < 0:
+                break
+            if idx + 5 <= len(buf) and 32 <= buf[idx + 3] < 127 and buf[idx + 4] == 0:
+                child = _extract_pe_from_onefile_container(buf[idx:])
+                if child is not None:
+                    return child
+            search_at = idx + 3
+    return None
+
+
+def _carve_headerless_bytecode_blob(buf: bytes) -> bytes | None:
+    """Locate a headerless Nuitka chunk stream starting at '.bytecode\\x00' and frame it."""
+    anchor = b".bytecode\x00"
+    n = len(buf)
+    search_at = 0
+    while True:
+        idx = buf.find(anchor, search_at)
+        if idx < 0:
+            return None
+        pos = idx
+        end = idx
+        names = []
+        confirmed_module = False
+        empty_seen = False
+        for ci in range(1_000_000):
+            if pos + 5 > n:
+                break
+            nul = buf.find(b"\x00", pos, min(pos + 4097, n))
+            if nul < 0:
+                break
+            raw_name = buf[pos:nul]
+            try:
+                mod_name = raw_name.decode("utf-8", errors="strict")
+            except UnicodeDecodeError:
+                break
+            if mod_name == "":
+                if empty_seen or ci == 0:
+                    break
+                empty_seen = True
+            elif not (_is_plausible_module_name(mod_name) or (mod_name.startswith(".") and len(mod_name) > 1)):
+                break
+            if ci == 0 and mod_name != ".bytecode":
+                break
+            size_pos = nul + 1
+            if size_pos + 4 > n:
+                break
+            csz = struct.unpack_from("<I", buf, size_pos)[0]
+            cstart = size_pos + 4
+            cend = cstart + csz
+            if csz == 0 or csz > 100 * 1024 * 1024 or cend > n:
+                break
+            names.append(mod_name)
+            if mod_name and not mod_name.startswith(".") and ci > 0:
+                confirmed_module = True
+            end = cend
+            pos = cend
+        if len(names) >= 2 and names[0] == ".bytecode" and confirmed_module:
+            payload = bytes(buf[idx:end])
+            crc = zlib.crc32(payload) & 0xFFFFFFFF
+            return struct.pack("<II", crc, len(payload)) + payload
+        search_at = idx + 1
+
+
+def _find_embedded_blob_in_sections(pe) -> bytes | None:
+    """Scan PE sections for headerless .bytecode stream, CRC32 blob, or Commercial blob."""
+    section_order = {".rdata": 0, ".data": 1, ".text": 2}
+    ordered_sections = sorted(
+        pe.sections,
+        key=lambda s: section_order.get(s.Name.rstrip(b"\x00").decode("ascii", errors="replace"), 3),
+    )
+    anchor = b".bytecode\x00"
+    for sec in ordered_sections:
+        sec_data = sec.get_data()
+        n = len(sec_data)
+        search_at = 0
+        while True:
+            idx = sec_data.find(anchor, search_at)
+            if idx < 0:
+                break
+            if idx >= 8:
+                crc, sz = struct.unpack_from("<II", sec_data, idx - 8)
+                if 1000 < sz < 50_000_000 and idx + sz <= n:
+                    if (zlib.crc32(sec_data[idx:idx + sz]) & 0xFFFFFFFF) == crc:
+                        return bytes(sec_data[idx - 8:idx + sz])
+            search_at = idx + 1
+        anchored = _carve_headerless_bytecode_blob(sec_data)
+        if anchored is not None:
+            return anchored
+
+    best_enc = None
+    for sec_idx, sec in enumerate(pe.sections):
+        sec_data = sec.get_data()
+        n = len(sec_data)
+        for off in range(0, n - 8, 4):
+            sz = struct.unpack_from("<I", sec_data, off + 4)[0]
+            if not (1000 < sz < 50_000_000):
+                continue
+            if off + 8 + sz <= n:
+                first_b = sec_data[off + 8]
+                if first_b == 46 or 65 <= first_b <= 90 or 97 <= first_b <= 122 or first_b == 95:
+                    nul = sec_data.find(b"\x00", off + 9, min(off + 136, n))
+                    if nul > off + 8 and nul + 5 <= n:
+                        first_csz = struct.unpack_from("<I", sec_data, nul + 1)[0]
+                        if 0 < first_csz <= sz:
+                            crc = struct.unpack_from("<I", sec_data, off)[0]
+                            if (zlib.crc32(sec_data[off + 8:off + 8 + sz]) & 0xFFFFFFFF) == crc:
+                                return bytes(sec_data[off:off + 8 + sz])
+            enc_tot = 8 + 16 + sz
+            if off % 16 == 0 and off + enc_tot <= n:
+                tail = sec_data[off + enc_tot:off + enc_tot + 16]
+                if not tail or all(b == 0 for b in tail):
+                    score = 5 + (1 if sz > 65536 else 0)
+                    if best_enc is None or score > best_enc[0]:
+                        best_enc = (score, sec_idx, off, sz)
+    if best_enc is not None:
+        _, sec_idx, off, sz = best_enc
+        sec_data = pe.sections[sec_idx].get_data()
+        return bytes(sec_data[off:off + 8 + 16 + sz])
+    return None
+
+
+def _auto_extract_blob_from_input(raw: bytes, *, _depth: int = 0) -> bytes:
+    """Resolve raw Nuitka constants blob directly or automatically from a PE/onefile binary."""
+    if _depth > 2:
+        return raw
+    if raw[:2] != b"MZ":
+        if raw.startswith(b".bytecode\x00"):
+            carved = _carve_headerless_bytecode_blob(raw)
+            if carved is not None:
+                return carved
+        return raw
+    try:
+        import pefile
+    except ImportError:
+        carved = _carve_headerless_bytecode_blob(raw)
+        return carved if carved is not None else raw
+
+    try:
+        pe = pefile.PE(data=raw)
+    except Exception:
+        carved = _carve_headerless_bytecode_blob(raw)
+        return carved if carved is not None else raw
+
+    file_size = len(raw)
+    for sec in pe.sections:
+        rsz = int(sec.SizeOfRawData or 0)
+        roff = int(sec.PointerToRawData or 0)
+        if rsz and roff + rsz > file_size:
+            return raw
+
+    blob = _pe_resource_bytes(pe, 10, 3)
+    if blob is None:
+        child = _extract_onefile_child_pe(pe)
+        if child is not None:
+            return _auto_extract_blob_from_input(child, _depth=_depth + 1)
+        blob = _find_embedded_blob_in_sections(pe)
+    if blob is None:
+        carved = _carve_headerless_bytecode_blob(raw)
+        return carved if carved is not None else raw
+
+    cb = CommercialBypass()
+    if cb.is_blob_encrypted(blob):
+        try:
+            mappings = cb._find_all_mapping_candidates(pe)
+            digests = cb._find_all_digest_candidates(pe, raw, mappings) if mappings else []
+            if mappings:
+                dec, _m, _d = cb.decrypt_blob_auto(blob, mappings, digests or [[0] * 8])
+                if cb._check_crc(dec):
+                    return dec
+        except Exception:
+            pass
+    return blob
+
+
+def _is_valid_next_chunk_pos(d: bytes, next_pos: int, *, use_bypass: bool = False, cb=None, _depth: int = 0) -> bool:
+    """Check whether next_pos starts another chunk header or EOF."""
+    if next_pos == len(d):
+        return True
+    if next_pos > len(d):
+        return False
+
+    def _byte_starts_name(b: int) -> bool:
+        c_plain = chr(b)
+        if c_plain.isalpha() or c_plain in ("_", "."):
+            return True
+        if use_bypass and cb is not None:
+            try:
+                c_dec = chr(cb.name_decode_table[b])
+                if c_dec.isalpha() or c_dec in ("_", "."):
+                    return True
+            except Exception:
+                pass
+        return False
+
+    if d[next_pos] == 0:
+        if _depth == 0 and next_pos + 5 <= len(d):
+            empty_sz = struct.unpack_from("<I", d, next_pos + 1)[0]
+            if 0 < empty_sz <= 128 * 1024 * 1024 and next_pos + 5 + empty_sz <= len(d):
+                if _is_valid_next_chunk_pos(d, next_pos + 5 + empty_sz, use_bypass=use_bypass, cb=cb, _depth=1):
+                    return True
+        scan = next_pos
+        while scan < len(d) and d[scan] == 0:
+            scan += 1
+        if scan == len(d):
+            return True
+        return _byte_starts_name(d[scan])
+
+    return _byte_starts_name(d[next_pos])
+
+
+def _choose_blob_chunk_layout(d: bytes, header_pos: int, *, use_bypass: bool = False, cb=None):
+    """Prefer modern size_only (uint32 size) layout before legacy size_count (uint32 + uint16)."""
+    if header_pos + 4 > len(d):
+        return None
+    section_size = struct.unpack_from("<I", d, header_pos)[0]
+    data_start = header_pos + 4
+    if 0 < section_size <= 128 * 1024 * 1024 and data_start + section_size <= len(d):
+        if _is_valid_next_chunk_pos(d, data_start + section_size, use_bypass=use_bypass, cb=cb):
+            return data_start, section_size
+    if header_pos + 6 <= len(d):
+        item_count = struct.unpack_from("<H", d, header_pos + 4)[0]
+        data_start = header_pos + 6
+        if (
+            0 < section_size <= 128 * 1024 * 1024
+            and data_start + section_size <= len(d)
+            and 0 < item_count < 65000
+        ):
+            if _is_valid_next_chunk_pos(d, data_start + section_size, use_bypass=use_bypass, cb=cb):
+                return data_start, section_size
+    return None
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description="Unified Extract & Omni Decompiler (Python 3.12 Safe, V16)")
-    parser.add_argument("blob", type=Path, help="Path to the Nuitka constants blob file")
+    parser.add_argument("blob", type=Path, help="Path to the Nuitka constants blob or PE binary (.exe/.dll)")
     parser.add_argument("-o", "--output", type=Path, default=Path(r"C:\ProgramData\HydraDragonAntivirus\hydradragon\nuitka_deobfuscate"), help=r"Output directory (default: C:\ProgramData\HydraDragonAntivirus\nuitka_deobfuscate)")
     parser.add_argument("-v", "--version", type=parse_version, default=None, metavar="VER", help="Target CPython version e.g. 3.13 (default: auto-detect)")
     parser.add_argument("--list-only", action="store_true", help="List decoded section names only, do not write files")
@@ -1993,10 +2526,16 @@ def main(argv=None) -> int:
         return 2
 
     # -------------------------------------------------------------------------
-    # Load raw bytes first so we can auto-detect version from content
+    # Load raw bytes first (auto-extracting from PE/onefile binaries if MZ)
     # -------------------------------------------------------------------------
-    raw = args.blob.read_bytes()
-    print(f"[*] Loaded {len(raw)} bytes from {args.blob}")
+    raw_input = args.blob.read_bytes()
+    print(f"[*] Loaded {len(raw_input)} bytes from {args.blob}")
+    raw = _auto_extract_blob_from_input(raw_input)
+    if raw_input[:2] == b"MZ":
+        if raw[:2] == b"MZ" or len(raw) == len(raw_input):
+            print("[!] Error: could not locate a Nuitka constants blob inside PE binary.")
+            return 2
+        print(f"[*] Auto-extracted Nuitka blob from PE ({len(raw):,} bytes)")
 
     # -------------------------------------------------------------------------
     # Resolve target Python version
@@ -2027,46 +2566,7 @@ def main(argv=None) -> int:
                     offset = 0
 
                     def _choose_layout(d, header_pos):
-                        """Try size_count (6 bytes) first, then size_only (4 bytes)."""
-                        if header_pos + 4 > len(d):
-                            return None
-                        section_size = struct.unpack_from('<I', d, header_pos)[0]
-
-                        def is_valid_next(next_pos):
-                            while next_pos < len(d) and d[next_pos] == 0:
-                                next_pos += 1
-                            if next_pos == len(d):
-                                return True
-                            if next_pos < len(d):
-                                b = d[next_pos]
-                                c_plain = chr(b)
-                                if c_plain.isalpha() or c_plain == '_' or c_plain == '.':
-                                    return True
-                                if _is_enc0:
-                                    try:
-                                        dec_b = _cb0.name_decode_table[b]
-                                        c_dec = chr(dec_b)
-                                        if c_dec.isalpha() or c_dec == '_' or c_dec == '.':
-                                            return True
-                                    except Exception:
-                                        pass
-                            return False
-
-                        # size_count layout: uint32 size + uint16 count
-                        if header_pos + 6 <= len(d):
-                            item_count = struct.unpack_from('<H', d, header_pos + 4)[0]
-                            data_start = header_pos + 6
-                            if (0 < section_size <= 128 * 1024 * 1024 and
-                                    data_start + section_size <= len(d) and
-                                    0 < item_count < 65000):
-                                if is_valid_next(data_start + section_size):
-                                    return data_start, section_size
-                        # size_only layout: uint32 size
-                        data_start = header_pos + 4
-                        if 0 < section_size <= 128 * 1024 * 1024 and data_start + section_size <= len(d):
-                            if is_valid_next(data_start + section_size):
-                                return data_start, section_size
-                        return None
+                        return _choose_blob_chunk_layout(d, header_pos, use_bypass=_is_enc0, cb=_cb0)
 
                     while offset < len(data) - 5:
                         while offset < len(data) and data[offset] == 0:
@@ -2136,12 +2636,15 @@ def main(argv=None) -> int:
     print(f"[*] Running Python        : {sys.version_info.major}.{sys.version_info.minor}")
 
     try:
-        from omni_nuitka_framework import OmniDecompiler, generate_omni_source, generate_omni_nbc
+        from .omni_nuitka_framework import OmniDecompiler, generate_omni_source, generate_omni_nbc
     except ImportError:
-        print("[!] Warning: omni_nuitka_framework.py missing. Bytecode extraction only.")
-        OmniDecompiler = None
-        generate_omni_source = None
-        generate_omni_nbc = None
+        try:
+            from omni_nuitka_framework import OmniDecompiler, generate_omni_source, generate_omni_nbc
+        except ImportError:
+            print("[!] Warning: omni_nuitka_framework.py missing. Bytecode extraction only.")
+            OmniDecompiler = None
+            generate_omni_source = None
+            generate_omni_nbc = None
 
     # -------------------------------------------------------------------------
     # Decode sections
@@ -2167,69 +2670,40 @@ def main(argv=None) -> int:
         cb = CommercialBypass()
 
         def _choose_layout(d, header_pos):
-            """Try size_count (6 bytes) first, then size_only (4 bytes)."""
-            if header_pos + 4 > len(d):
-                return None
-            section_size = struct.unpack_from('<I', d, header_pos)[0]
+            return _choose_blob_chunk_layout(d, header_pos, use_bypass=_use_bypass, cb=cb)
 
-            def is_valid_next(next_pos):
-                while next_pos < len(d) and d[next_pos] == 0:
-                    next_pos += 1
-                if next_pos == len(d):
-                    return True
-                if next_pos < len(d):
-                    b = d[next_pos]
-                    c_plain = chr(b)
-                    if c_plain.isalpha() or c_plain == '_' or c_plain == '.':
-                        return True
-                    if _use_bypass:
-                        try:
-                            dec_b = cb.name_decode_table[b]
-                            c_dec = chr(dec_b)
-                            if c_dec.isalpha() or c_dec == '_' or c_dec == '.':
-                                return True
-                        except Exception:
-                            pass
-                return False
-
-            # size_count layout: uint32 size + uint16 count
-            if header_pos + 6 <= len(d):
-                item_count = struct.unpack_from('<H', d, header_pos + 4)[0]
-                data_start = header_pos + 6
-                if (0 < section_size <= 128 * 1024 * 1024 and
-                        data_start + section_size <= len(d) and
-                        0 < item_count < 65000):
-                    if is_valid_next(data_start + section_size):
-                        return data_start, section_size
-            # size_only layout: uint32 size
-            data_start = header_pos + 4
-            if 0 < section_size <= 128 * 1024 * 1024 and data_start + section_size <= len(d):
-                if is_valid_next(data_start + section_size):
-                    return data_start, section_size
-            return None
-
+        empty_name_seen = False
         while offset < len(data) - 5:
-            while offset < len(data) and data[offset] == 0:
-                offset += 1
+            is_empty_chunk = False
+            if not empty_name_seen and data[offset] == 0 and offset + 5 <= len(data):
+                if _choose_layout(data, offset + 1) is not None:
+                    is_empty_chunk = True
+            if not is_empty_chunk:
+                while offset < len(data) and data[offset] == 0:
+                    offset += 1
             if offset >= len(data) - 5:
                 break
             name_end = data.find(b'\x00', offset, min(offset + 4096, len(data)))
             if name_end == -1:
                 break
             raw_name = data[offset:name_end]
-            plain = None
-            try:
-                plain = raw_name.decode('utf-8', errors='strict')
-                if _is_plausible_module_name(plain):
-                    module_name = plain
-                else:
-                    raise ValueError
-            except Exception:
-                if _use_bypass:
-                    decoded = cb.decode_module_name(raw_name)
-                    module_name = decoded if _is_plausible_module_name(decoded) else (plain or raw_name.decode('utf-8', errors='replace'))
-                else:
-                    module_name = plain if plain is not None else raw_name.decode('utf-8', errors='replace')
+            if not raw_name:
+                empty_name_seen = True
+                module_name = ""
+            else:
+                plain = None
+                try:
+                    plain = raw_name.decode('utf-8', errors='strict')
+                    if _is_plausible_module_name(plain):
+                        module_name = plain
+                    else:
+                        raise ValueError
+                except Exception:
+                    if _use_bypass:
+                        decoded = cb.decode_module_name(raw_name)
+                        module_name = decoded if _is_plausible_module_name(decoded) else (plain or raw_name.decode('utf-8', errors='replace'))
+                    else:
+                        module_name = plain if plain is not None else raw_name.decode('utf-8', errors='replace')
 
             layout = _choose_layout(data, name_end + 1)
             if layout is None:
@@ -2242,32 +2716,33 @@ def main(argv=None) -> int:
             chunk_data = data[data_start:data_start + chunk_size]
             next_offset = data_start + chunk_size
             best_offset = next_offset
-            for back in range(1, 8):
-                check_pos = next_offset - back
-                if check_pos <= data_start:
-                    break
-                if data[check_pos] == 0:
-                    cand_end = data.find(b"\x00", check_pos + 1, min(check_pos + 128, len(data)))
-                    if cand_end != -1 and cand_end > check_pos + 1:
-                        cand_raw = data[check_pos + 1:cand_end]
-                        cand_plain = None
-                        try:
-                            cand_plain = cand_raw.decode('utf-8', errors='strict')
-                            if _is_plausible_module_name(cand_plain):
-                                cand_name = cand_plain
-                            else:
-                                raise ValueError
-                        except Exception:
-                            if _use_bypass:
-                                cand_dec = cb.decode_module_name(cand_raw)
-                                cand_name = cand_dec if _is_plausible_module_name(cand_dec) else (cand_plain or cand_raw.decode('utf-8', errors='replace'))
-                            else:
-                                cand_name = cand_plain if cand_plain is not None else cand_raw.decode('utf-8', errors='replace')
-                        if cand_name and (cand_name[0].isalnum() or cand_name[0] in '._'):
-                            cand_layout = _choose_layout(data, cand_end + 1)
-                            if cand_layout is not None:
-                                best_offset = check_pos
-                                break
+            if next_offset < len(data) and not _is_valid_next_chunk_pos(data, next_offset, use_bypass=_use_bypass, cb=cb):
+                for back in range(1, 8):
+                    check_pos = next_offset - back
+                    if check_pos <= data_start:
+                        break
+                    if data[check_pos] == 0:
+                        cand_end = data.find(b"\x00", check_pos + 1, min(check_pos + 128, len(data)))
+                        if cand_end != -1 and cand_end > check_pos + 1:
+                            cand_raw = data[check_pos + 1:cand_end]
+                            cand_plain = None
+                            try:
+                                cand_plain = cand_raw.decode('utf-8', errors='strict')
+                                if _is_plausible_module_name(cand_plain):
+                                    cand_name = cand_plain
+                                else:
+                                    raise ValueError
+                            except Exception:
+                                if _use_bypass:
+                                    cand_dec = cb.decode_module_name(cand_raw)
+                                    cand_name = cand_dec if _is_plausible_module_name(cand_dec) else (cand_plain or cand_raw.decode('utf-8', errors='replace'))
+                                else:
+                                    cand_name = cand_plain if cand_plain is not None else cand_raw.decode('utf-8', errors='replace')
+                            if cand_name and (cand_name[0].isalnum() or cand_name[0] in '._'):
+                                cand_layout = _choose_layout(data, cand_end + 1)
+                                if cand_layout is not None:
+                                    best_offset = check_pos
+                                    break
             offset = best_offset
             modules.append((module_name, chunk_data))
         return modules
@@ -2335,6 +2810,7 @@ def main(argv=None) -> int:
     # Include ALL sections — even those with empty items — so every module gets
     # at least a fallback stub written to RECONSTRUCTED_SOURCE/DYNAMIC_BLOB_SOURCE.
     work_items = list(sections.items())
+    known_module_names = set(sections.keys())
     if work_items:
         max_workers = max(1, min(len(work_items), os.cpu_count() or 1))
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
@@ -2352,6 +2828,7 @@ def main(argv=None) -> int:
                     generate_omni_nbc,
                     emit_pyc,
                     args.omni_dir_name,
+                    known_module_names,
                 )
                 for section_name, items in work_items
             ]
@@ -2372,7 +2849,12 @@ def main(argv=None) -> int:
     dumped_constants = 0
     for mod_name, chunk_data in constants_modules:
         try:
-            constants = _nbc_parse_module_constants(chunk_data, python_version=target_ver_tuple)
+            cached = sections.get(mod_name)
+            constants = (
+                list(cached)
+                if cached is not None
+                else _nbc_parse_module_constants(chunk_data, python_version=target_ver_tuple)
+            )
             strings = _nbc_extract_all_strings(constants)
             strings = list(dict.fromkeys(strings))
 
