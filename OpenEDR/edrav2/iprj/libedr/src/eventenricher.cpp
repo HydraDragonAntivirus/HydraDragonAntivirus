@@ -89,37 +89,125 @@ namespace {
 		return cNext == '\\' || cNext == '/';
 	}
 
-	bool containsInterpetatorCmd(const std::wstring& cmdLine)
+	// Script hosts and script extensions come from edrsvc.cfg
+	// (scanner.scriptInterpreters / scanner.scriptExtensions). This used to be a
+	// fixed, case-sensitive list of six names ("cmd.exe" matched, "CMD.EXE" did
+	// not) and four extensions, so wscript/cscript/mshta/pwsh and .vbs/.js/.hta
+	// scripts were never looked at.
+
+	// End offset (in the lower-cased command line) of the first script host
+	// name, or npos. The host matches with or without ".exe" ("cscript //nologo",
+	// "powershell -File"), as a whole file name only, and the end skips a closing
+	// quote of a quoted host path.
+	size_t findInterpreterEnd(const std::wstring& sLowCmd)
 	{
-		return (cmdLine.find(L"cmd.exe") != std::string::npos)
-			|| (cmdLine.find(L"python.exe") != std::string::npos)
-			|| (cmdLine.find(L"py3.exe") != std::string::npos)
-			|| (cmdLine.find(L"py.exe") != std::string::npos)
-			|| (cmdLine.find(L"powershell.exe") != std::string::npos)
-			|| (cmdLine.find(L"powershell_ise.exe") != std::string::npos);
+		static const std::wstring c_sExe(L".exe");
+		size_t nBest = std::wstring::npos;
+		for (const auto& sHost : DetectionNotifier::getScriptInterpreters())
+		{
+			std::wstring sBase = sHost;
+			if (sBase.size() > c_sExe.size() &&
+				sBase.compare(sBase.size() - c_sExe.size(), c_sExe.size(), c_sExe) == 0)
+				sBase.resize(sBase.size() - c_sExe.size());
+			if (sBase.empty())
+				continue;
+			size_t nPos = sLowCmd.find(sBase);
+			while (nPos != std::wstring::npos)
+			{
+				size_t nEnd = nPos + sBase.size();
+				if (sLowCmd.compare(nEnd, c_sExe.size(), c_sExe) == 0)
+					nEnd += c_sExe.size();
+				const bool fStartOk = nPos == 0 || sLowCmd[nPos - 1] == L'\\' ||
+					sLowCmd[nPos - 1] == L'/' || sLowCmd[nPos - 1] == L'"' || sLowCmd[nPos - 1] == L' ';
+				const bool fEndOk = nEnd >= sLowCmd.size() || sLowCmd[nEnd] == L' ' ||
+					sLowCmd[nEnd] == L'\t' || sLowCmd[nEnd] == L'"';
+				if (fStartOk && fEndOk)
+				{
+					if (nEnd < sLowCmd.size() && sLowCmd[nEnd] == L'"')
+						++nEnd;
+					if (nBest == std::wstring::npos || nEnd < nBest)
+						nBest = nEnd;
+					break;
+				}
+				nPos = sLowCmd.find(sBase, nPos + 1);
+			}
+		}
+		return nBest;
 	}
 
-	std::wstring getFilePath(std::wstring str)
+	bool containsInterpetatorCmd(const std::wstring& cmdLine)
 	{
-		const std::wstring executableExt(L".exe");
-		auto commandEnd = str.find(executableExt);
+		return findInterpreterEnd(string::convertToLow(cmdLine)) != std::wstring::npos;
+	}
 
-		if (commandEnd == std::wstring::npos)
+	// First absolute script path (drive or UNC) after the script host whose
+	// extension is in scanner.scriptExtensions; quotes and spaces end a path
+	// unless the path is quoted. Empty when there is none.
+	std::wstring getFilePath(const std::wstring& cmdLine)
+	{
+		const std::wstring sLow = string::convertToLow(cmdLine);
+		const size_t nFrom = findInterpreterEnd(sLow);
+		if (nFrom == std::wstring::npos)
 			return L"";
+		const auto vExt = DetectionNotifier::getScriptExtensions();
 
-		str.erase(str.begin(), str.begin() + commandEnd + executableExt.length());
+		auto hasScriptExt = [&vExt](const std::wstring& sLowPath) {
+			const size_t nDot = sLowPath.find_last_of(L'.');
+			if (nDot == std::wstring::npos || sLowPath.find_first_of(L"\\/", nDot) != std::wstring::npos)
+				return false;
+			const std::wstring sExt = sLowPath.substr(nDot + 1);
+			for (const auto& e : vExt)
+				if (e == sExt)
+					return true;
+			return false;
+		};
 
-		const std::wregex filePathRegex(LR"([A-Za-z]:.*(\.cmd|\.bat|\.ps1|\.py))");
-
-		str.erase(remove_if(str.begin(), str.end(), [](const wchar_t& sym) {return sym == L'\"'; }), str.end());
-
-		std::wsmatch match;
-
-		const std::wstring& str2 = str;
-
-		if (std::regex_search(str2.begin(), str2.end(), match, filePathRegex))
-			return match[0];
-
+		size_t i = nFrom;
+		const size_t n = sLow.size();
+		while (i < n)
+		{
+			// Next token: quoted, or up to whitespace.
+			while (i < n && (sLow[i] == L' ' || sLow[i] == L'\t'))
+				++i;
+			if (i >= n)
+				break;
+			size_t nStart, nEnd;
+			if (sLow[i] == L'"')
+			{
+				nStart = i + 1;
+				nEnd = sLow.find(L'"', nStart);
+				if (nEnd == std::wstring::npos)
+					nEnd = n;
+				i = nEnd + 1;
+			}
+			else
+			{
+				nStart = i;
+				nEnd = sLow.find_first_of(L" \t", nStart);
+				if (nEnd == std::wstring::npos)
+					nEnd = n;
+				i = nEnd;
+			}
+			// The token may carry a switch prefix (/c, -File: etc.); take the
+			// absolute path inside it.
+			std::wstring sTokLow = sLow.substr(nStart, nEnd - nStart);
+			size_t nAbs = std::wstring::npos;
+			for (size_t k = 0; k + 1 < sTokLow.size(); ++k)
+			{
+				// Drive "x:\" / "x:/" (not the "e:" of "-File:") or UNC "\\".
+				if ((sTokLow[k] >= L'a' && sTokLow[k] <= L'z' && sTokLow[k + 1] == L':' &&
+					 k + 2 < sTokLow.size() && (sTokLow[k + 2] == L'\\' || sTokLow[k + 2] == L'/')) ||
+					(sTokLow[k] == L'\\' && sTokLow[k + 1] == L'\\'))
+				{
+					nAbs = k;
+					break;
+				}
+			}
+			if (nAbs == std::wstring::npos)
+				continue;
+			if (hasScriptExt(sTokLow.substr(nAbs)))
+				return cmdLine.substr(nStart + nAbs, (nEnd - nStart) - nAbs);
+		}
 		return L"";
 	}
 
@@ -3343,6 +3431,267 @@ static void AsyncRescanAndQuarantine(std::string dos, uint32_t nPid)
 {
 	RescanQueue::enqueue(std::move(dos), nPid);
 }
+
+static void SendThreatAlertToGui(const std::string& sThreat, const std::string& sWhere)
+{
+	HANDLE hPipe = ::CreateFileW(L"\\\\.\\pipe\\HydraHipEvent",
+		GENERIC_WRITE, 0, NULL, OPEN_EXISTING, 0, NULL);
+	if (hPipe == INVALID_HANDLE_VALUE)
+		return;
+	std::string pipeMsg = "THREAT_ALERT:" + sThreat + "|" + sWhere + "\n";
+	DWORD written = 0;
+	::WriteFile(hPipe, pipeMsg.data(), static_cast<DWORD>(pipeMsg.size()), &written, NULL);
+	::CloseHandle(hPipe);
+}
+
+// Command-line scans of new processes on their own workers. The scan goes
+// through openedr_static_scan_bytes, which in the shipped engine
+// (openedr_cloud.dll) is a cloud request - inline it would put a network round
+// trip on the single enricher thread for every process start.
+//
+// The engines get a virtual file name with the script host's script extension
+// so script rules apply (powershell -> .ps1, cmd -> .cmd, wscript/cscript ->
+// .vbs, mshta -> .hta).
+// Malicious: that process is terminated. Its image is NOT quarantined or
+// blacklisted - for a command-line hit it is usually a system binary
+// (powershell.exe, mshta.exe) and the threat is the arguments. The process
+// handle is opened when the scan is queued, so a late verdict can only ever
+// terminate that process, never a newer one that reused its PID.
+// Suspicious: logged and alerted only.
+namespace CmdScanQueue {
+
+constexpr int c_nWorkers = 2;
+constexpr size_t c_nWarnPending = 5000;
+
+struct Item
+{
+	std::string sCmd;
+	std::string sName;
+	uint32_t nPid = 0;
+	HANDLE hProcess = nullptr; // PROCESS_TERMINATE, or null
+};
+
+struct State
+{
+	std::mutex mtx;
+	std::condition_variable cv;
+	std::deque<Item> queue;
+	std::chrono::steady_clock::time_point lastWarn;
+	bool fStarted = false;
+};
+
+static State& state()
+{
+	static State* s_p = new State(); // never destroyed: workers are detached
+	return *s_p;
+}
+
+static void scanOne(const Item& item)
+{
+	std::string sThreat;
+	const int r = DetectionNotifier::scanBufferWithLocalEngines(item.sCmd, item.sName, sThreat);
+	if (r != 2 && r != 3)
+		return;
+	if (sThreat.empty())
+		sThreat = (r == 2) ? "Malware.CommandLine" : "Suspicious.CommandLine";
+
+	LOGLVL(Critical, FMT("enricher: [COMMAND LINE] " << (r == 2 ? "THREAT" : "SUSPICIOUS") << ": <"
+		<< sThreat << "> PID " << item.nPid << " cmd <" << item.sCmd << ">"));
+	if (r == 2 && item.hProcess != nullptr && !DetectionNotifier::isProtectionPaused())
+	{
+		if (::TerminateProcess(item.hProcess, 1))
+			LOGLVL(Critical, FMT("enricher: [COMMAND LINE] terminated PID " << item.nPid));
+	}
+	SendThreatAlertToGui(sThreat, "cmdline pid:" + std::to_string(item.nPid));
+	ZeroTrust::recordThreatDetection();
+}
+
+static void worker()
+{
+	auto& st = state();
+	for (;;)
+	{
+		Item item;
+		{
+			std::unique_lock lock(st.mtx);
+			st.cv.wait(lock, [&st] { return !st.queue.empty(); });
+			item = std::move(st.queue.front());
+			st.queue.pop_front();
+		}
+		try
+		{
+			scanOne(item);
+		}
+		catch (...)
+		{
+		}
+		if (item.hProcess != nullptr)
+			::CloseHandle(item.hProcess);
+	}
+}
+
+static void enqueue(const std::wstring& wsCmd, uint32_t nPid)
+{
+	if (wsCmd.empty())
+		return;
+	Item item;
+	try
+	{
+		item.sCmd = string::convertWCharToUtf8(wsCmd);
+	}
+	catch (...)
+	{
+		return;
+	}
+	const std::wstring sLow = string::convertToLow(wsCmd);
+	item.sName = "cmdline.txt";
+	if (sLow.find(L"powershell") != std::wstring::npos || sLow.find(L"pwsh") != std::wstring::npos)
+		item.sName = "cmdline.ps1";
+	else if (sLow.find(L"mshta") != std::wstring::npos)
+		item.sName = "cmdline.hta";
+	else if (sLow.find(L"wscript") != std::wstring::npos || sLow.find(L"cscript") != std::wstring::npos)
+		item.sName = "cmdline.vbs";
+	else if (sLow.find(L"cmd.exe") != std::wstring::npos)
+		item.sName = "cmdline.cmd";
+	item.nPid = nPid;
+	if (nPid > 4)
+		item.hProcess = ::OpenProcess(PROCESS_TERMINATE, FALSE, nPid);
+
+	auto& st = state();
+	bool fWarn = false;
+	size_t nPending = 0;
+	{
+		std::scoped_lock lock(st.mtx);
+		if (!st.fStarted)
+		{
+			st.fStarted = true;
+			for (int i = 0; i < c_nWorkers; ++i)
+				std::thread(worker).detach();
+		}
+		st.queue.push_back(std::move(item));
+		nPending = st.queue.size();
+		const auto now = std::chrono::steady_clock::now();
+		if (nPending >= c_nWarnPending && now - st.lastWarn > std::chrono::seconds(60))
+		{
+			st.lastWarn = now;
+			fWarn = true;
+		}
+	}
+	st.cv.notify_one();
+	if (fWarn)
+		LOGWRN(FMT("enricher: command-line scan queue is long (" << nPending << " waiting); scans run late, none are dropped"));
+}
+
+} // namespace CmdScanQueue
+
+// Live process-memory scans (ClamAV + YARA + PE-ML over committed readable
+// memory, openedr_static_scan_pid) on their own workers. They ran inline on
+// the single enricher thread, so a system-wide limit of one scan per 30 s was
+// added to keep events moving - with ten new processes in 30 s, nine were
+// never scanned. Now every PID is queued (once per c_pidCooldown) and scanned
+// in the background; nothing waits on it. Detection: log + GUI alert (the
+// triggering event has already gone on by then).
+namespace MemScanQueue {
+
+constexpr int c_nWorkers = 2;
+constexpr uint64_t c_nMaxMb = 128;
+constexpr auto c_pidCooldown = std::chrono::minutes(5);
+constexpr size_t c_nWarnPending = 5000;
+
+struct State
+{
+	std::mutex mtx;
+	std::condition_variable cv;
+	std::deque<uint32_t> queue;
+	std::unordered_set<uint32_t> pending;
+	std::unordered_map<uint32_t, std::chrono::steady_clock::time_point> recent;
+	std::chrono::steady_clock::time_point lastWarn;
+	bool fStarted = false;
+};
+
+static State& state()
+{
+	static State* s_p = new State(); // never destroyed: workers are detached
+	return *s_p;
+}
+
+static void worker()
+{
+	auto& st = state();
+	for (;;)
+	{
+		uint32_t nPid = 0;
+		{
+			std::unique_lock lock(st.mtx);
+			st.cv.wait(lock, [&st] { return !st.queue.empty(); });
+			nPid = st.queue.front();
+			st.queue.pop_front();
+			st.pending.erase(nPid);
+		}
+		try
+		{
+			std::string sMemThreat;
+			if (ScanPidWithLocalEngines(nPid, c_nMaxMb, sMemThreat) == 2)
+			{
+				if (sMemThreat.empty())
+					sMemThreat = "Malware.MemoryDetection";
+				LOGLVL(Critical, FMT("enricher: [MEMORY SCAN] THREAT DETECTED: <" << sMemThreat << "> in PID " << nPid));
+				SendThreatAlertToGui(sMemThreat, "pid:" + std::to_string(nPid));
+				ZeroTrust::recordThreatDetection();
+			}
+		}
+		catch (...)
+		{
+		}
+	}
+}
+
+static void enqueue(uint32_t nPid)
+{
+	if (nPid <= 4)
+		return;
+	auto& st = state();
+	bool fWarn = false;
+	size_t nPending = 0;
+	{
+		std::scoped_lock lock(st.mtx);
+		const auto now = std::chrono::steady_clock::now();
+		auto it = st.recent.find(nPid);
+		if (it != st.recent.end() && now - it->second < c_pidCooldown)
+			return;
+		if (!st.pending.insert(nPid).second)
+			return;
+		st.recent[nPid] = now;
+		if (st.recent.size() > 20000)
+		{
+			for (auto itC = st.recent.begin(); itC != st.recent.end(); )
+			{
+				if (now - itC->second >= c_pidCooldown)
+					itC = st.recent.erase(itC);
+				else
+					++itC;
+			}
+		}
+		if (!st.fStarted)
+		{
+			st.fStarted = true;
+			for (int i = 0; i < c_nWorkers; ++i)
+				std::thread(worker).detach();
+		}
+		st.queue.push_back(nPid);
+		nPending = st.queue.size();
+		if (nPending >= c_nWarnPending && now - st.lastWarn > std::chrono::seconds(60))
+		{
+			st.lastWarn = now;
+			fWarn = true;
+		}
+	}
+	st.cv.notify_one();
+	if (fWarn)
+		LOGWRN(FMT("enricher: memory scan queue is long (" << nPending << " processes waiting); scans run late, none are dropped"));
+}
+
+} // namespace MemScanQueue
 } // namespace
 
 void EventEnricher::executeUnfilteredLocalScan(Variant& vEvent, Variant& vProcess, Event eEventType, const std::string& sProcPath)
@@ -3684,74 +4033,15 @@ void EventEnricher::executeUnfilteredLocalScan(Variant& vEvent, Variant& vProces
 		}
 	}
 
-	// C. Live process-memory scan (real-time): ClamAV + YARA + PE-ML over the
-	// event PID's committed readable memory via openedr_static_scan_pid.
-	// Skipped when files already convicted this event; per-PID 5-minute
-	// cooldown bounds the cost. Detection only (verdict stamp + alert):
-	// memory has no file to quarantine or roll back.
+	// C. Live process-memory scan of the event's process, queued to the memory
+	// scan workers (see MemScanQueue). Skipped when a file already convicted
+	// this event.
 	if (nPid > 0)
 	{
 		int curVerdict = 0;
 		try { curVerdict = static_cast<int>(vEvent.get("verdict", 0)); } catch (...) {}
 		if (curVerdict != 2)
-		{
-			static std::mutex s_mtxMemScan;
-			static std::unordered_map<uint32_t, std::chrono::steady_clock::time_point> s_recentMemScan;
-			static std::chrono::steady_clock::time_point s_lastMemScan{};
-			bool bDue = false;
-			{
-				std::scoped_lock lock(s_mtxMemScan);
-				auto now = std::chrono::steady_clock::now();
-				auto it = s_recentMemScan.find(nPid);
-				if (it == s_recentMemScan.end() || (now - it->second) > std::chrono::minutes(5))
-				{
-					// Global throttle: one full 128 MB memory scan costs
-					// seconds on this single worker thread. Under process-
-					// spawn storms (Edge/WebView) back-to-back scans queue
-					// up -> output events go late + choppy. Max one scan
-					// per 30 s; residents persist and are caught later.
-					if (s_lastMemScan == std::chrono::steady_clock::time_point{} ||
-						(now - s_lastMemScan) > std::chrono::seconds(30))
-					{
-						s_lastMemScan = now;
-						s_recentMemScan[nPid] = now;
-						bDue = true;
-					}
-				}
-				if (s_recentMemScan.size() > 5000)
-				{
-					for (auto itC = s_recentMemScan.begin(); itC != s_recentMemScan.end(); )
-					{
-						if ((now - itC->second) > std::chrono::minutes(30))
-							itC = s_recentMemScan.erase(itC);
-						else
-							++itC;
-					}
-				}
-			}
-			if (bDue)
-			{
-				std::string sMemThreat;
-				if (ScanPidWithLocalEngines(nPid, 128, sMemThreat) == 2)
-				{
-					if (sMemThreat.empty())
-						sMemThreat = "Malware.MemoryDetection";
-					LOGLVL(Critical, FMT("enricher: [MEMORY SCAN] THREAT DETECTED: <" << sMemThreat << "> in PID " << nPid));
-					vEvent.put("verdict", 2);
-					vEvent.put("threatName", sMemThreat);
-					vProcess.put("verdict", 2);
-					HANDLE hPipe = ::CreateFileW(L"\\\\.\\pipe\\HydraHipEvent",
-						GENERIC_WRITE, 0, NULL, OPEN_EXISTING, 0, NULL);
-					if (hPipe != INVALID_HANDLE_VALUE)
-					{
-						std::string pipeMsg = "THREAT_ALERT:" + sMemThreat + "|pid:" + std::to_string(nPid) + "\n";
-						DWORD written = 0;
-						::WriteFile(hPipe, pipeMsg.data(), static_cast<DWORD>(pipeMsg.size()), &written, NULL);
-						::CloseHandle(hPipe);
-					}
-				}
-			}
-		}
+			MemScanQueue::enqueue(nPid);
 	}
 }
 
@@ -4866,6 +5156,13 @@ void EventEnricher::put(const Variant& vEventRef)
 		QueuePdbPrefetch(sImgPath);
 
 		const std::wstring cmdLine = enrichedProcessInfo["cmdLine"];
+		const uint32_t nNewPid = enrichedProcessInfo.has("pid") ? static_cast<uint32_t>(enrichedProcessInfo["pid"]) : 0;
+
+		// The command line itself through ClamAV / YARA-X / ML (queued, see
+		// CmdScanQueue). It only ever reached the policy rules, so an encoded
+		// PowerShell or a mshta/rundll32 one-liner never met the signatures.
+		CmdScanQueue::enqueue(cmdLine, nNewPid);
+
 		if (containsInterpetatorCmd(cmdLine))
 		{
 			const std::wstring scriptPath = getFilePath(cmdLine);
@@ -4874,6 +5171,18 @@ void EventEnricher::put(const Variant& vEventRef)
 			if (!scriptContent.isEmpty())
 			{
 				vEvent.put("scriptContent", scriptContent);
+			}
+
+			// The script file is scanned like a dropped file (full engines,
+			// quarantined when Malicious). Its text used to be attached to the
+			// event and nothing else.
+			if (!scriptPath.empty())
+			{
+				try
+				{
+					AsyncRescanAndQuarantine(string::convertWCharToUtf8(scriptPath), nNewPid);
+				}
+				catch (...) {}
 			}
 		}
 		break;

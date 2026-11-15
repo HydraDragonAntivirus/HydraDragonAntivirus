@@ -76,6 +76,21 @@ public:
 	/// Returns 2 for malicious (with threat name in sThreatNameOut), 1 for safe, 0 for clean/unknown.
 	///
 	static int scanFileWithLocalEngines(const std::string& sUtf8Path, std::string& sThreatNameOut);
+
+	///
+	/// Scans an in-memory buffer (e.g. a process command line) with the local
+	/// openedr_static engines (ClamAV, YARA-X, ML) via openedr_static_scan_bytes.
+	/// sVirtualName gives the engines a file name for type detection.
+	/// Returns 2 Malicious, 3 Suspicious, 1 Clean, 0 Unknown/unavailable.
+	///
+	static int scanBufferWithLocalEngines(const std::string& sData, const std::string& sVirtualName, std::string& sThreatNameOut);
+
+	///
+	/// Script hosts and script file extensions from edrsvc.cfg (scanner.scriptInterpreters /
+	/// scanner.scriptExtensions), lower case. Used to find the script a process runs.
+	///
+	static std::vector<std::wstring> getScriptInterpreters();
+	static std::vector<std::wstring> getScriptExtensions();
 	// Authenticode + signer_rules trust check via openedr_static, without a scan.
 	// pSignerOut, when given, receives the publisher name (for diagnostics).
 	static bool isFileSignatureTrusted(const std::string& sUtf8Path, std::string* pSignerOut = nullptr);

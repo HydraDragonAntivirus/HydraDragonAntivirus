@@ -725,6 +725,30 @@ std::atomic<int> DetectionNotifier::s_malwareVerdict{2};
 std::atomic<int> DetectionNotifier::s_unknownVerdictDefault{0};
 std::atomic<int> DetectionNotifier::s_unknownReputationVerdict{3};
 std::atomic<int> DetectionNotifier::s_staticUnknownVerdict{4};
+
+// Script hosts / script extensions (scanner.scriptInterpreters / scriptExtensions).
+// The defaults apply only when edrsvc.cfg has no list.
+static std::mutex s_mtxScriptLists;
+static std::vector<std::wstring> s_scriptInterpreters = {
+	L"cmd.exe", L"powershell.exe", L"powershell_ise.exe", L"pwsh.exe",
+	L"wscript.exe", L"cscript.exe", L"mshta.exe",
+	L"python.exe", L"pythonw.exe", L"py.exe", L"pyw.exe", L"py3.exe",
+	L"node.exe", L"perl.exe", L"ruby.exe", L"php.exe" };
+static std::vector<std::wstring> s_scriptExtensions = {
+	L"cmd", L"bat", L"ps1", L"psm1", L"psd1", L"vbs", L"vbe", L"js", L"jse",
+	L"wsf", L"wsh", L"hta", L"sct", L"py", L"pyw", L"pl", L"rb", L"php" };
+
+std::vector<std::wstring> DetectionNotifier::getScriptInterpreters()
+{
+	std::lock_guard<std::mutex> lock(s_mtxScriptLists);
+	return s_scriptInterpreters;
+}
+
+std::vector<std::wstring> DetectionNotifier::getScriptExtensions()
+{
+	std::lock_guard<std::mutex> lock(s_mtxScriptLists);
+	return s_scriptExtensions;
+}
 std::vector<int> DetectionNotifier::s_unknownVerdicts{0, 3, 4};
 std::mutex DetectionNotifier::s_unknownVerdictsMtx;
 
@@ -771,6 +795,37 @@ void DetectionNotifier::loadScannerConfigFromCfg(const std::string& content)
 	s_unknownVerdictDefault.store(extractInt(content, "unknownVerdictDefault", 0), std::memory_order_relaxed);
 	s_unknownReputationVerdict.store(extractInt(content, "unknownReputationVerdict", 3), std::memory_order_relaxed);
 	s_staticUnknownVerdict.store(extractInt(content, "staticUnknownVerdict", 4), std::memory_order_relaxed);
+
+	// String arrays: "key": [ "a", "b" ] -> lower-case wide strings.
+	auto extractStringArray = [&content](const std::string& key, std::vector<std::wstring>& out) {
+		size_t k = content.find("\"" + key + "\"");
+		if (k == std::string::npos) return;
+		size_t ob = content.find('[', k);
+		size_t cb = ob == std::string::npos ? std::string::npos : content.find(']', ob);
+		if (ob == std::string::npos || cb == std::string::npos) return;
+		std::vector<std::wstring> res;
+		size_t q = content.find('"', ob);
+		while (q != std::string::npos && q < cb)
+		{
+			size_t e = content.find('"', q + 1);
+			if (e == std::string::npos || e > cb) break;
+			std::string item = content.substr(q + 1, e - q - 1);
+			if (!item.empty())
+			{
+				std::wstring w(item.begin(), item.end());
+				for (auto& c : w) c = (wchar_t)::towlower(c);
+				res.push_back(std::move(w));
+			}
+			q = content.find('"', e + 1);
+		}
+		if (!res.empty())
+		{
+			std::lock_guard<std::mutex> lock(s_mtxScriptLists);
+			out = std::move(res);
+		}
+	};
+	extractStringArray("scriptInterpreters", s_scriptInterpreters);
+	extractStringArray("scriptExtensions", s_scriptExtensions);
 
 	size_t kp = content.find("\"unknownVerdicts\"");
 	if (kp != std::string::npos)
@@ -1212,6 +1267,7 @@ namespace {
 
 typedef char* (*OpenedrScanFileFn)(const char*);
 typedef char* (*OpenedrScanPidFn)(uint32_t, uint64_t);
+typedef char* (*OpenedrScanBytesFn)(const uint8_t*, size_t, const char*);
 typedef void (*OpenedrFreeStringFn)(char*);
 // Signature-only check (bitmask + optional signer out). Lets callers ask the
 // engine "is this trusted" without paying for a full scan. Optional: an older
@@ -1229,6 +1285,7 @@ struct OpenedrStaticBinding {
 	HMODULE hDll = nullptr;
 	OpenedrScanFileFn fnScanFile = nullptr;
 	OpenedrScanPidFn fnScanPid = nullptr;
+	OpenedrScanBytesFn fnScanBytes = nullptr; // optional (older DLLs lack it)
 	OpenedrFreeStringFn fnFreeString = nullptr;
 	OpenedrCheckSignatureFn fnCheckSignature = nullptr;
 	OpenedrIsReadyFn fnIsReady = nullptr;
@@ -1260,6 +1317,7 @@ static void InitOpenedrStatic()
 	}
 	auto fnScan = reinterpret_cast<OpenedrScanFileFn>(::GetProcAddress(hDll, "openedr_static_scan_file"));
 	auto fnScanPid = reinterpret_cast<OpenedrScanPidFn>(::GetProcAddress(hDll, "openedr_static_scan_pid"));
+	auto fnScanBytes = reinterpret_cast<OpenedrScanBytesFn>(::GetProcAddress(hDll, "openedr_static_scan_bytes"));
 	auto fnFree = reinterpret_cast<OpenedrFreeStringFn>(::GetProcAddress(hDll, "openedr_static_free_string"));
 	// Optional: absent on an older openedr_static.dll, and that must not block
 	// scanning, so it is not part of the "exports-missing" gate below.
@@ -1281,6 +1339,12 @@ static void InitOpenedrStatic()
 	s_openedr.hDll = hDll;
 	s_openedr.fnScanFile = fnScan;
 	s_openedr.fnScanPid = fnScanPid;
+	s_openedr.fnScanBytes = fnScanBytes;
+	if (!fnScanBytes)
+	{
+		openedr_static::WriteLog("export-optional-missing",
+			"openedr_static_scan_bytes not present; command lines are not scanned");
+	}
 	s_openedr.fnFreeString = fnFree;
 	s_openedr.fnCheckSignature = fnCheckSig;
 	s_openedr.fnIsReady = fnReady;
@@ -1896,6 +1960,46 @@ bool DetectionNotifier::isFileSignatureTrusted(const std::string& sUtf8Path, std
 	if (nFlags & 0x4u)
 		return false;
 	return (nFlags & 0x1u) != 0 && (nFlags & 0x2u) != 0;
+}
+
+int DetectionNotifier::scanBufferWithLocalEngines(const std::string& sData, const std::string& sVirtualName, std::string& sThreatNameOut)
+{
+	sThreatNameOut.clear();
+	if (sData.empty())
+		return 0;
+	try
+	{
+		InitOpenedrStatic();
+		if (!s_openedr.ready.load() || !s_openedr.fnScanBytes)
+			return 0;
+		const std::string sName = sVirtualName.empty() ? std::string("buffer.txt") : sVirtualName;
+		char* json = s_openedr.fnScanBytes(reinterpret_cast<const uint8_t*>(sData.data()), sData.size(), sName.c_str());
+		if (!json)
+			return 0;
+		std::string report(json);
+		s_openedr.fnFreeString(json);
+		std::string verdict;
+		if (!OpenedrReportVerdict(report, verdict))
+			return 0;
+		if (verdict == "Malicious" || verdict == "Suspicious")
+		{
+			std::string name;
+			if (OpenedrReportFirstDetection(report, name) && !name.empty())
+			{
+				if (name.size() > 512)
+					name.resize(512);
+				sThreatNameOut = name;
+			}
+			openedr_static::WriteLog("buffer-scan-result", "name=" + sName + "; verdict=" + verdict +
+				"; detection=" + sThreatNameOut);
+			return verdict == "Malicious" ? 2 : 3;
+		}
+		return verdict == "Clean" ? 1 : 0;
+	}
+	catch (...)
+	{
+		return 0;
+	}
 }
 
 int DetectionNotifier::scanFileWithLocalEngines(const std::string& sUtf8Path, std::string& sThreatNameOut)
