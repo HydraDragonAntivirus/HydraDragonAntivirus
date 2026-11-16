@@ -11,6 +11,7 @@
 /// @{
 #include "pch.h"
 #include "localeventslogfile.h"
+#include <utilities.hpp>
 
 // Set component for logging
 #undef CMD_COMPONENT
@@ -77,12 +78,44 @@ bool LocalEventsLogFile::save(const Variant& vData)
 
 	if (m_pWriteStream)
 	{
+		recordOutputLag(vData);
 		variant::serializeToJson(m_pWriteStream, vData, m_bMultiline ? variant::JsonFormat::Pretty : variant::JsonFormat::SingleLine);
 		io::write(m_pWriteStream, "\r\n");
 		return true;
 	}
 
 	return false;
+}
+
+// How late events are written (now - event "time"), logged once a minute: the
+// whole way from the driver to this file. Set against the enricher's
+// "eventlag" line, it shows whether the delay is before, in or after the
+// enricher (the scenarios between it and here).
+void LocalEventsLogFile::recordOutputLag(const Variant& vData)
+{
+	try
+	{
+		if (!vData.isDictionaryLike() || !vData.has("time"))
+			return;
+		const Time nEventTime = vData["time"];
+		const Time nNow = getCurrentTime();
+		const uint64_t nLag = nNow > nEventTime ? static_cast<uint64_t>(nNow - nEventTime) : 0;
+		std::scoped_lock lock(m_mtxLag);
+		++m_nLagCount;
+		m_nLagSum += nLag;
+		m_nLagMax = (std::max)(m_nLagMax, nLag);
+		const auto now = std::chrono::steady_clock::now();
+		if (m_lagWindowStart == std::chrono::steady_clock::time_point{})
+			m_lagWindowStart = now;
+		if (now - m_lagWindowStart < std::chrono::seconds(60))
+			return;
+		LOGLVL(Critical, "outputlag: " << m_nLagCount << " events written in "
+			<< std::chrono::duration_cast<std::chrono::seconds>(now - m_lagWindowStart).count()
+			<< " s | lag avg " << m_nLagSum / m_nLagCount << " ms, max " << m_nLagMax << " ms");
+		m_nLagCount = m_nLagSum = m_nLagMax = 0;
+		m_lagWindowStart = now;
+	}
+	catch (...) {}
 }
 
 void LocalEventsLogFile::updateFullPath()

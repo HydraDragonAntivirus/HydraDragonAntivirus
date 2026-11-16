@@ -1299,12 +1299,12 @@ namespace {
 		static std::atomic<bool> s_enableCloud{true};
 		static std::atomic<bool> s_cloudFirst{true};
 		// MegaDumper.dll process dumps (DumpQueue): untrusted processes, native or
-		// managed; one dump per process per dumpCooldownSeconds; the
-		// dumper's System folder (restored Windows module names) scanned too or
-		// not; clean dumps kept or removed after the scan.
+		// managed; one dump per process per dumpCooldownSeconds; images that are
+		// the process' genuinely loaded Windows modules scanned too or not; clean
+		// dumps kept or removed after the scan.
 		static std::atomic<bool> s_dumpUntrusted{true};
 		static std::atomic<int> s_dumpCooldownSeconds{600};
-		static std::atomic<bool> s_dumpScanSystemFolder{false};
+		static std::atomic<bool> s_dumpScanSystemModules{false};
 		static std::atomic<bool> s_dumpKeepClean{false};
 		static std::atomic<int> s_cleanVerdict{1};
 		static std::atomic<int> s_malwareVerdict{2};
@@ -1516,7 +1516,7 @@ namespace {
 				s_cloudFirst.store(extractBoolFromCfg(content, "cloudFirst", true) || extractBoolFromCfg(content, "preferCloudScan", true), std::memory_order_relaxed);
 				s_dumpUntrusted.store(extractBoolFromCfg(content, "dumpUntrusted", true), std::memory_order_relaxed);
 				s_dumpCooldownSeconds.store((std::max)(0, extractIntFromPtm(content, "dumpCooldownSeconds", 600)), std::memory_order_relaxed);
-				s_dumpScanSystemFolder.store(extractBoolFromCfg(content, "dumpScanSystemFolder", false), std::memory_order_relaxed);
+				s_dumpScanSystemModules.store(extractBoolFromCfg(content, "dumpScanSystemModules", false), std::memory_order_relaxed);
 				s_dumpKeepClean.store(extractBoolFromCfg(content, "dumpKeepClean", false), std::memory_order_relaxed);
 
 				s_cleanVerdict.store(extractIntFromPtm(content, "cleanVerdict", 1), std::memory_order_relaxed);
@@ -4790,26 +4790,93 @@ static std::filesystem::path dumpRoot()
 	return std::filesystem::path(szProgramData) / L"edrsvc" / L"dumps";
 }
 
-// Scans every file of one dump; returns how many were malicious.
+// The process' modules that are genuine loaded Windows modules: base address
+// -> path, for those loaded from the Windows system directories. Read after the
+// dump, from the module list (the loader's record, not the image's own claims).
+static std::unordered_map<uint64_t, std::wstring> loadedSystemModules(uint32_t nPid)
+{
+	std::unordered_map<uint64_t, std::wstring> out;
+	wchar_t szWin[MAX_PATH] = L"";
+	const UINT nWin = ::GetWindowsDirectoryW(szWin, MAX_PATH);
+	if (nWin == 0 || nWin >= MAX_PATH)
+		return out;
+	std::wstring sWin(szWin, nWin);
+	for (auto& c : sWin) c = static_cast<wchar_t>(::towlower(c));
+	const std::wstring dirs[] = { sWin + L"\\system32\\", sWin + L"\\syswow64\\", sWin + L"\\winsxs\\" };
+
+	HANDLE hSnap = ::CreateToolhelp32Snapshot(TH32CS_SNAPMODULE | TH32CS_SNAPMODULE32, nPid);
+	if (hSnap == INVALID_HANDLE_VALUE)
+		return out;
+	MODULEENTRY32W me = {};
+	me.dwSize = sizeof(me);
+	if (::Module32FirstW(hSnap, &me))
+	{
+		do
+		{
+			std::wstring sPath = me.szExePath;
+			for (auto& c : sPath) c = static_cast<wchar_t>(::towlower(c));
+			for (const auto& d : dirs)
+			{
+				if (sPath.rfind(d, 0) == 0)
+				{
+					out[reinterpret_cast<uint64_t>(me.modBaseAddr)] = me.szExePath;
+					break;
+				}
+			}
+		} while (::Module32NextW(hSnap, &me));
+	}
+	::CloseHandle(hSnap);
+	return out;
+}
+
+// The image base in a dump file name: vdump_<hex>.dll / .exe, rawdump_<hex>.
+static bool dumpFileAddress(const std::wstring& sName, uint64_t& nAddr)
+{
+	size_t nStart = std::wstring::npos;
+	if (_wcsnicmp(sName.c_str(), L"vdump_", 6) == 0)
+		nStart = 6;
+	else if (_wcsnicmp(sName.c_str(), L"rawdump_", 8) == 0)
+		nStart = 8;
+	if (nStart == std::wstring::npos)
+		return false;
+	wchar_t* pEnd = nullptr;
+	nAddr = ::wcstoull(sName.c_str() + nStart, &pEnd, 16);
+	return pEnd != sName.c_str() + nStart;
+}
+
+// Scans every file of one dump; returns how many were malicious or suspicious.
+// Images that are a genuine Windows module of the process - one the loader
+// mapped at that exact address from the Windows system directories - are
+// skipped unless dumpScanSystemModules: hundreds per process, each a cloud
+// upload, and their on-disk files are scanned and signature-checked anyway.
+// Everything else is scanned: a copy of a system module mapped by hand (no
+// loader record at its address), an image claiming a Microsoft name or
+// version info, raw executable regions, and modules from other directories.
+// (The dumper's own System folder sorted by the image's version info, which
+// any payload can fill in with "Microsoft Corporation".)
 static int scanDump(const std::filesystem::path& dir, const Item& item, std::string& sFirstThreat)
 {
-	const bool fSystem = DriverPortHips::s_dumpScanSystemFolder.load(std::memory_order_relaxed);
+	const bool fScanSystem = DriverPortHips::s_dumpScanSystemModules.load(std::memory_order_relaxed);
+	const auto systemModules = fScanSystem ? std::unordered_map<uint64_t, std::wstring>{} : loadedSystemModules(item.nPid);
 	int nMalicious = 0;
+	size_t nSkipped = 0;
 	std::error_code ec;
 	for (auto it = std::filesystem::recursive_directory_iterator(dir, ec);
 		!ec && it != std::filesystem::recursive_directory_iterator(); it.increment(ec))
 	{
-		if (it->is_directory(ec))
-		{
-			// The dumper's System folder: images whose restored name is a
-			// Windows module. Off by default (hundreds of relocated copies of
-			// system DLLs per process, each a cloud upload).
-			if (!fSystem && _wcsicmp(it->path().filename().c_str(), L"System") == 0)
-				it.disable_recursion_pending();
-			continue;
-		}
 		if (!it->is_regular_file(ec))
 			continue;
+		uint64_t nAddr = 0;
+		std::wstring sModule;
+		if (dumpFileAddress(it->path().filename().wstring(), nAddr))
+		{
+			auto itMod = systemModules.find(nAddr);
+			if (itMod != systemModules.end())
+			{
+				++nSkipped;
+				continue;
+			}
+		}
 		std::string sFile;
 		try { sFile = string::convertWCharToUtf8(it->path().wstring()); } catch (...) { continue; }
 		std::string sThreat;
@@ -4824,13 +4891,13 @@ static int scanDump(const std::filesystem::path& dir, const Item& item, std::str
 				<< "> in the memory of PID " << item.nPid << " <" << item.sImage << ">: " << sFile));
 			SendThreatAlertToGui(sThreat, "pid:" + std::to_string(item.nPid) + " " + item.sImage);
 			// Suspicious stops the process too, like Malicious.
-			{
-				if (sFirstThreat.empty())
-					sFirstThreat = sThreat;
-				++nMalicious;
-			}
+			if (sFirstThreat.empty())
+				sFirstThreat = sThreat;
+			++nMalicious;
 		}
 	}
+	LOGLVL(Detailed, FMT("enricher: [DUMP] PID " << item.nPid << ": " << nSkipped
+		<< " loaded Windows module(s) skipped, the rest scanned"));
 	return nMalicious;
 }
 
@@ -4849,7 +4916,10 @@ static void dumpOne(const Item& item)
 	std::filesystem::create_directories(dir, ec);
 
 	wchar_t szResult[512] = L"";
-	const int rc = b.fnDump(item.nPid, dir.c_str(), 1 /*native too*/, 1 /*restore names*/, szResult, 512);
+	// Names not restored: the files keep the image base in their name
+	// (vdump_<addr>), which is what scanDump checks against the loader's
+	// module list.
+	const int rc = b.fnDump(item.nPid, dir.c_str(), 1 /*native too*/, 0 /*keep addresses*/, szResult, 512);
 	std::string sResult;
 	try { sResult = string::convertWCharToUtf8(szResult); } catch (...) {}
 	LOGLVL(Detailed, FMT("enricher: [DUMP] PID " << item.nPid << " <" << item.sImage << "> (" << item.sReason
@@ -5817,10 +5887,85 @@ namespace {
 			<< static_cast<uint64_t>(dSecs > 0 ? nTotal / dSecs : 0) << "/s) | by type: " << TopEntries(byType, nTopTypes)
 			<< " | by process: " << TopEntries(byProcess, nTopProcs)));
 	}
+
+	// Event lag diagnostics, logged with the event rate (ptm eventRateLogSeconds):
+	// how late events reach the enricher (now - event time: the driver and the
+	// queue before it), how long the enricher spends on one, and the slowest
+	// event of the window with its type and process. Where output_events falls
+	// behind is then read off the log instead of guessed.
+	struct EnricherLagStats
+	{
+		std::mutex mtx;
+		std::chrono::steady_clock::time_point windowStart = std::chrono::steady_clock::now();
+		uint64_t n = 0;
+		uint64_t sumEntryLag = 0, maxEntryLag = 0;
+		uint64_t sumWork = 0, maxWork = 0;
+		std::string slowest;
+		std::unordered_map<std::string, uint64_t> workByType; // total ms per type
+	};
+
+	void RecordEnricherLag(uint64_t nEntryLagMs, uint64_t nWorkMs, const std::string& sType, const std::string& sProc)
+	{
+		const int nSeconds = DriverPortHips::s_eventRateLogSeconds.load(std::memory_order_relaxed);
+		if (nSeconds <= 0)
+			return;
+		static EnricherLagStats s;
+		EnricherLagStats snap;
+		std::chrono::steady_clock::duration elapsed{};
+		{
+			std::scoped_lock lock(s.mtx);
+			++s.n;
+			s.sumEntryLag += nEntryLagMs;
+			s.maxEntryLag = (std::max)(s.maxEntryLag, nEntryLagMs);
+			s.sumWork += nWorkMs;
+			s.workByType[sType] += nWorkMs;
+			if (nWorkMs > s.maxWork)
+			{
+				s.maxWork = nWorkMs;
+				s.slowest = sType + " " + sProc;
+			}
+			const auto now = std::chrono::steady_clock::now();
+			elapsed = now - s.windowStart;
+			if (elapsed < std::chrono::seconds(nSeconds))
+				return;
+			snap.n = s.n; snap.sumEntryLag = s.sumEntryLag; snap.maxEntryLag = s.maxEntryLag;
+			snap.sumWork = s.sumWork; snap.maxWork = s.maxWork; snap.slowest.swap(s.slowest);
+			snap.workByType.swap(s.workByType);
+			s.n = s.sumEntryLag = s.maxEntryLag = s.sumWork = s.maxWork = 0;
+			s.windowStart = now;
+		}
+		if (snap.n == 0)
+			return;
+		const double dSecs = std::chrono::duration<double>(elapsed).count();
+		LOGLVL(Critical, FMT("eventlag: " << snap.n << " events in " << static_cast<int>(dSecs) << " s"
+			<< " | arrival lag avg " << snap.sumEntryLag / snap.n << " ms, max " << snap.maxEntryLag << " ms"
+			<< " | enricher time total " << snap.sumWork << " ms (" << static_cast<int>(dSecs > 0 ? snap.sumWork / (dSecs * 10.0) : 0)
+			<< "% busy), avg " << snap.sumWork / snap.n << " ms, max " << snap.maxWork << " ms <" << snap.slowest << ">"
+			<< " | time by type (ms): " << TopEntries(snap.workByType, 8)));
+	}
+
+	struct EnricherLagScope
+	{
+		std::chrono::steady_clock::time_point start = std::chrono::steady_clock::now();
+		uint64_t nEntryLag = 0;
+		std::string sType;
+		std::string sProc;
+		~EnricherLagScope()
+		{
+			try
+			{
+				const auto nWork = static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::milliseconds>(
+					std::chrono::steady_clock::now() - start).count());
+				RecordEnricherLag(nEntryLag, nWork, sType, sProc);
+			}
+			catch (...) {}
+		}
+	};
 } // namespace
 
 void EventEnricher::put(const Variant& vEventRef)
 {
+	EnricherLagScope lagScope;
 	Variant vEvent = const_cast<Variant&>(vEventRef);
 
 	TRACE_BEGIN;
@@ -5836,6 +5981,12 @@ void EventEnricher::put(const Variant& vEventRef)
 
 	// Calculate event "time"
 	vEvent.put("time", Time(vEvent["tickTime"]) + (getCurrentTime() - getTickCount()));
+	{
+		const Time nEventTime = vEvent["time"];
+		const Time nNow = getCurrentTime();
+		lagScope.nEntryLag = nNow > nEventTime ? static_cast<uint64_t>(nNow - nEventTime) : 0;
+		lagScope.sType = getEventTypeString(eEventType);
+	}
 
 	// Put process info to event (prioritize the leaf actor process over parent)
 	Variant vRawProcess;
@@ -5893,6 +6044,10 @@ void EventEnricher::put(const Variant& vEventRef)
 	else if (vProcess.has("hash")) sProcHash = std::string(vProcess["hash"]);
 
 	RecordEventRate(vEvent, getEventTypeString(eEventType), sProcPath);
+	{
+		const size_t nSlash = sProcPath.find_last_of("\\/");
+		lagScope.sProc = nSlash == std::string::npos ? sProcPath : sProcPath.substr(nSlash + 1);
+	}
 
 	if (DetectionNotifier::isKnownMalware(sProcPath, sProcHash))
 	{

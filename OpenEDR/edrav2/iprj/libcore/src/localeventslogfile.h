@@ -33,6 +33,14 @@ namespace io {
 		std::string m_sLogFullPath;
 		ObjPtr<io::IWritableStream>	m_pWriteStream;
 
+		// Output lag (now - event time), logged once a minute.
+		std::mutex m_mtxLag;
+		uint64_t m_nLagCount = 0;
+		uint64_t m_nLagSum = 0;
+		uint64_t m_nLagMax = 0;
+		std::chrono::steady_clock::time_point m_lagWindowStart{};
+		void recordOutputLag(const Variant& vData);
+
 		bool save(const Variant& vData);
 		void updateFullPath();
 		bool checkFullPathValid();
