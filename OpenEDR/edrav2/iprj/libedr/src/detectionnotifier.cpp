@@ -202,39 +202,82 @@ std::string DetectionNotifier::NtPathToDosPathString(const std::string& sNt)
 			wsNt = szExp;
 	}
 
-	wchar_t sDrives[27 * 4] = {};
-	if (::GetLogicalDriveStringsW(DWORD(std::size(sDrives)), sDrives) == 0)
-		return sClean;
+	// Drive letter -> device map ("C:" -> "\Device\HarddiskVolume3"). It was
+	// rebuilt with GetLogicalDriveStrings + a QueryDosDevice per drive on every
+	// call, and this runs several times per event. Now it is read once and
+	// again only after c_driveMapMaxAge, or when a device path matches no
+	// drive (a volume mounted since), at most once per c_driveMapMinRefresh.
+	using DriveMap = std::vector<std::pair<std::wstring, std::wstring>>; // device, "X:"
+	static std::mutex s_mtxDriveMap;
+	static std::shared_ptr<const DriveMap> s_driveMap;
+	static ULONGLONG s_driveMapAt = 0;
+	constexpr ULONGLONG c_driveMapMaxAge = 60 * 1000;
+	constexpr ULONGLONG c_driveMapMinRefresh = 2 * 1000;
 
-	wchar_t* sDrv = sDrives;
-	while (sDrv[0])
-	{
-		sDrv[2] = 0;
-		wchar_t szTarget[MAX_PATH] = {};
-		if (::QueryDosDeviceW(sDrv, szTarget, MAX_PATH) > 0)
+	auto buildDriveMap = []() {
+		auto map = std::make_shared<DriveMap>();
+		wchar_t sDrives[27 * 4] = {};
+		if (::GetLogicalDriveStringsW(DWORD(std::size(sDrives)), sDrives) == 0)
+			return map;
+		for (wchar_t* sDrv = sDrives; sDrv[0]; sDrv += 4)
 		{
-			std::wstring wsDevice(szTarget);
+			sDrv[2] = 0;
+			wchar_t szTarget[MAX_PATH] = {};
+			if (::QueryDosDeviceW(sDrv, szTarget, MAX_PATH) > 0)
+				map->emplace_back(std::wstring(szTarget), std::wstring(sDrv, 2));
+		}
+		return map;
+	};
+	auto lookup = [&wsNt](const DriveMap& map, std::wstring& wsOut) {
+		for (const auto& [wsDevice, wsDrive] : map)
+		{
 			if (wsNt.compare(0, wsDevice.size(), wsDevice) == 0 &&
 				(wsNt.size() == wsDevice.size() || wsNt[wsDevice.size()] == L'\\'))
 			{
-				std::wstring sDrive(sDrv);
-				sDrive.resize(2); // "C:"
-				std::wstring wsRes = sDrive + wsNt.substr(wsDevice.size());
-
-				int cchA = ::WideCharToMultiByte(CP_UTF8, 0, wsRes.c_str(), -1, NULL, 0, NULL, NULL);
-				if (cchA > 0)
-				{
-					std::string sRes(static_cast<size_t>(cchA), 0);
-					::WideCharToMultiByte(CP_UTF8, 0, wsRes.c_str(), -1, &sRes[0], cchA, NULL, NULL);
-					if (!sRes.empty() && sRes.back() == '\0')
-						sRes.pop_back();
-					return sRes;
-				}
+				wsOut = wsDrive + wsNt.substr(wsDevice.size());
+				return true;
 			}
 		}
-		sDrv += 4;
+		return false;
+	};
+
+	std::shared_ptr<const DriveMap> map;
+	const ULONGLONG nNow = ::GetTickCount64();
+	{
+		std::lock_guard<std::mutex> lock(s_mtxDriveMap);
+		if (!s_driveMap || nNow - s_driveMapAt > c_driveMapMaxAge)
+		{
+			s_driveMap = buildDriveMap();
+			s_driveMapAt = nNow;
+		}
+		map = s_driveMap;
 	}
-	return sClean;
+
+	std::wstring wsRes;
+	bool fFound = lookup(*map, wsRes);
+	if (!fFound)
+	{
+		std::lock_guard<std::mutex> lock(s_mtxDriveMap);
+		if (nNow - s_driveMapAt > c_driveMapMinRefresh)
+		{
+			s_driveMap = buildDriveMap();
+			s_driveMapAt = nNow;
+		}
+		map = s_driveMap;
+	}
+	if (!fFound)
+		fFound = lookup(*map, wsRes);
+	if (!fFound)
+		return sClean;
+
+	int cchA = ::WideCharToMultiByte(CP_UTF8, 0, wsRes.c_str(), -1, NULL, 0, NULL, NULL);
+	if (cchA <= 0)
+		return sClean;
+	std::string sRes(static_cast<size_t>(cchA), 0);
+	::WideCharToMultiByte(CP_UTF8, 0, wsRes.c_str(), -1, &sRes[0], cchA, NULL, NULL);
+	if (!sRes.empty() && sRes.back() == '\0')
+		sRes.pop_back();
+	return sRes;
 }
 
 //

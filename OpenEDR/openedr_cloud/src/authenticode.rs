@@ -181,10 +181,14 @@ use windows::Win32::Security::WinTrust::{
 /// per candidate), and the same executable is rescanned on every minifilter
 /// event (create/write/change/close). Cache on (path, size, mtime) so a
 /// rewritten or replaced binary re-verifies automatically.
-#[derive(Clone, Debug)]
-struct AuthenticodeCacheEntry {
-    key: String,
-    result: AuthenticodeInfo,
+/// Keyed map plus insertion order. It was a Vec searched front to back under
+/// the lock on every call - and edrsvc asks for the actor's signature on
+/// every event, so each event walked up to 4096 keys.
+#[cfg(windows)]
+#[derive(Default)]
+struct AuthenticodeCache {
+    map: std::collections::HashMap<String, AuthenticodeInfo>,
+    order: std::collections::VecDeque<String>,
 }
 
 /// Bounded FIFO-ish cache: 4096 entries is far beyond the working set of
@@ -193,9 +197,9 @@ struct AuthenticodeCacheEntry {
 const AUTHENTICODE_CACHE_CAP: usize = 4096;
 
 #[cfg(windows)]
-fn authenticode_cache() -> &'static Mutex<Vec<AuthenticodeCacheEntry>> {
-    static CACHE: OnceLock<Mutex<Vec<AuthenticodeCacheEntry>>> = OnceLock::new();
-    CACHE.get_or_init(|| Mutex::new(Vec::new()))
+fn authenticode_cache() -> &'static Mutex<AuthenticodeCache> {
+    static CACHE: OnceLock<Mutex<AuthenticodeCache>> = OnceLock::new();
+    CACHE.get_or_init(|| Mutex::new(AuthenticodeCache::default()))
 }
 
 /// Identity of the on-disk content for cache invalidation: size + last write
@@ -214,8 +218,8 @@ fn authenticate_cached(
     let (size, mtime) = file_identity(path)?;
     let key = format!("{}\u{0}{size}\u{0}{mtime}", path.to_string_lossy().to_lowercase());
     if let Ok(cache) = authenticode_cache().lock() {
-        if let Some(hit) = cache.iter().find(|e| e.key == key) {
-            return Some(hit.result.clone());
+        if let Some(hit) = cache.map.get(&key) {
+            return Some(hit.clone());
         }
     }
     None
@@ -233,16 +237,21 @@ fn authenticate_store(
     let Ok(mut cache) = authenticode_cache().lock() else {
         return;
     };
-    if cache.iter().any(|e| e.key == key) {
+    if cache.map.contains_key(&key) {
         return;
     }
-    if cache.len() >= AUTHENTICODE_CACHE_CAP {
+    if cache.map.len() >= AUTHENTICODE_CACHE_CAP {
         // Drop the oldest half in one pass: cheaper and simpler than LRU and
         // keeps the cache bounded without per-insert bookkeeping.
         let half = AUTHENTICODE_CACHE_CAP / 2;
-        cache.drain(0..half);
+        for _ in 0..half {
+            if let Some(old) = cache.order.pop_front() {
+                cache.map.remove(&old);
+            }
+        }
     }
-    cache.push(AuthenticodeCacheEntry { key, result });
+    cache.order.push_back(key.clone());
+    cache.map.insert(key, result);
 }
 
 #[cfg(windows)]

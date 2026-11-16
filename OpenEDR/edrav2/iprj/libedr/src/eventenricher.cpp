@@ -2910,8 +2910,6 @@ namespace {
 	static void ForwardToOwlyshieldMlEngine(const Variant& vEvent)
 	{
 		static HMODULE s_hOwlyDll = nullptr;
-		typedef int32_t (*IngestOpenedrEventFn)(const uint8_t*, uint32_t);
-		static IngestOpenedrEventFn s_fnIngest = nullptr;
 		typedef int32_t (*RtEnqueueUtf8Fn)(const uint8_t*, uint32_t, uint32_t, uint32_t);
 		static RtEnqueueUtf8Fn s_fnEnqueue = nullptr;
 		static std::once_flag s_initFlag;
@@ -2934,7 +2932,6 @@ namespace {
 			}
 			if (s_hOwlyDll != nullptr)
 			{
-				s_fnIngest = (IngestOpenedrEventFn)::GetProcAddress(s_hOwlyDll, "owlyshield_dll_ingest_openedr_event");
 				s_fnEnqueue = (RtEnqueueUtf8Fn)::GetProcAddress(s_hOwlyDll, "owlyshield_rt_enqueue_utf8");
 			}
 		});
@@ -3002,18 +2999,10 @@ namespace {
 			catch (...) {}
 		}
 
-		if (s_fnIngest != nullptr)
-		{
-			try
-			{
-				std::string sJson = variant::serializeToJson(vEvent, variant::JsonFormat::SingleLine);
-				if (!sJson.empty())
-				{
-					s_fnIngest(reinterpret_cast<const uint8_t*>(sJson.data()), static_cast<uint32_t>(sJson.size()));
-				}
-			}
-			catch (...) {}
-		}
+		// No owlyshield_dll_ingest_openedr_event: its consumer (owlyshield
+		// worker.rs TelemetryDrain) drops OpenedrEvent lines since the ML engine
+		// was removed, and serializing every event to JSON for it (resolving all
+		// lazy fields) was paid on every event for nothing.
 
 		// Also send rich event telemetry to the Pascal GUI via HydraHipEvent named pipe
 		try
