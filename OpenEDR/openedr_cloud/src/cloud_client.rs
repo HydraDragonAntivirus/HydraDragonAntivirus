@@ -538,9 +538,13 @@ pub fn scan_file(path: &Path) -> FileScanReport {
             note: None,
             signer_info: signer_info.clone(),
         },
+        // No answer (connection error, timeout, cloud error): "Deferred", not
+        // "Unknown". The server's own "unknown" is an answer ("looked, cannot
+        // tell"); the agent retries only a deferred scan, and with both called
+        // "Unknown" it re-asked every file the server had already answered.
         Err(e) => FileScanReport {
             file_path: path_str,
-            verdict: "Unknown".to_string(),
+            verdict: "Deferred".to_string(),
             detections: Vec::new(),
             sha256: sha256_hex,
             file_size,

@@ -1043,11 +1043,11 @@ impl EngineAdapter {
         if self.whitelist_enabled && engine.is_benign(&sha_l) {
             let was_malicious_xf = res.rule.as_ref().and_then(|r| r.get("ruleset")).and_then(|rs| rs.as_str()) == Some(XORFILTER_MALICIOUS);
             if res.verdict != "malicious" || was_malicious_xf {
-                res.verdict = "clean".to_string();
-                res.threat = None;
-                res.score = 0.0;
-                res.detail = Some("Known benign file (whitelist)".to_string());
                 let name = res.rule.as_ref().and_then(|r| r["name"].as_str()).unwrap_or("Known benign file (whitelist)").to_string();
+                // mark_clean, not only `res.verdict`: the client reads the verdict
+                // from `antivirus.verdict` (`verdict` is not serialized), which
+                // otherwise kept the engine's "unknown" for a whitelisted file.
+                mark_clean(res, "Known benign file (whitelist)".to_string(), XORFILTER_BENIGN);
                 res.rule = Some(serde_json::json!({ "name": name, "verdict": "clean", "ruleset": XORFILTER_BENIGN }));
             }
             return;

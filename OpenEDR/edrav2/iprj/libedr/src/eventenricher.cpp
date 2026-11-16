@@ -4044,7 +4044,12 @@ static bool rescanOne(const std::string& dos, uint32_t nPid)
 		return true;
 	}
 	else if (nScan != 2)
-		return nScan == nClean; // anything but Clean is undecided: try again later
+		// Decided when Clean, or when VirusKov answered "unknown" (it looked and
+		// cannot tell; asking again gets the same answer). Only a scan that got
+		// no answer (deferred: connection error, timeout, locked file) is tried
+		// again - every "unknown" used to be re-asked 8 times over 19 minutes,
+		// each time rehashing the file and queueing on the one cloud lock.
+		return nScan == nClean || detail.sViruskov == "Unknown";
 	if (sThreat.empty())
 		sThreat = "Malware.LocalDetection";
 

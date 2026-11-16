@@ -1820,6 +1820,13 @@ static int staticScanVerdictName(const std::string& sUtf8Path, std::string& sNam
 				openedr_static::WriteLog("scan-result", "file=" + sUtf8Path + "; verdict=Unknown");
 				return 4;
 			}
+			// The cloud could not be asked (connection error, timeout): no
+			// verdict, so the queued scan tries again later.
+			if (verdict == "Deferred")
+			{
+				openedr_static::WriteLog("scan-result", "file=" + sUtf8Path + "; verdict=Deferred");
+				return 0;
+			}
 			if (verdict == "Error")
 			{
 				// If the file truly does not exist, do not retry!
