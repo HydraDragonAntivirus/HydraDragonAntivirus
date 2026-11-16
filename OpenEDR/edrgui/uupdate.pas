@@ -3,13 +3,13 @@ unit UUpdate;
 { ---------------------------------------------------------------------------
   UUpdate  -  automatic updates from the GitHub releases
   ---------------------------------------------------------------------------
-  The latest release of HydraDragonAntivirus/HydraDragonAntivirus carries one
-  asset, installation.msi. TUpdateCheckThread reads that release from the
+  The latest release of HydraDragonAntivirus/HydraDragonAntivirus carries the
+  update asset, update.msi. TUpdateCheckThread reads that release from the
   GitHub API, downloads the MSI once per release (cached under
   %LOCALAPPDATA%\HydraDragonAntivirus\Updates\<tag>) and decides whether it is
   newer than what is installed.
 
-  "Newer" is decided by the MSI package code: every build of installation.msi
+  "Newer" is decided by the MSI package code: every build of update.msi
   gets its own PackageCode, and Windows Installer records the code of the
   package that is installed. The product version is not usable (it is the same
   for every build), and the release tag is nowhere in the installed product.
@@ -32,7 +32,7 @@ type
 
   TUpdateInfo = record
     Tag: string;      // release tag, e.g. viruskov-openedr-6
-    MsiPath: string;  // the downloaded installation.msi
+    MsiPath: string;  // the downloaded update.msi
     Error: string;    // why the check failed (urFailed)
   end;
 
@@ -69,7 +69,7 @@ uses
 const
   ReleasesLatestUrl =
     'https://api.github.com/repos/HydraDragonAntivirus/HydraDragonAntivirus/releases/latest';
-  MsiAssetName = 'installation.msi';
+  MsiAssetName = 'update.msi';
   // installation\src\BuildInfo.wxi strproductid
   AgentProductCode = '{45CC556C-A03B-42FF-A2FE-000000000000}';
   HttpUserAgent = 'HydraDragon-EDR-GUI';
@@ -287,7 +287,7 @@ var
   F: TFileStream;
   Installed, Offered: string;
 begin
-  // 1. The latest (non-draft, non-prerelease) release and its installation.msi.
+  // 1. The latest (non-draft, non-prerelease) release and its update.msi.
   Json := TStringStream.Create('');
   try
     HttpGet(ReleasesLatestUrl, 'Accept: application/vnd.github+json'#13#10, Json);

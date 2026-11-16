@@ -229,7 +229,7 @@ begin
   PopupMenu1.Items.Insert(PopupMenu1.Items.IndexOf(MenuQuarantine) + 1,
     MenuReputation);
 
-  // Updates: installation.msi of the latest GitHub release (UUpdate). Checked
+  // Updates: update.msi of the latest GitHub release (UUpdate). Checked
   // shortly after start and then periodically; this item checks now, or installs
   // the update a check found.
   MenuCheckUpdates := TMenuItem.Create(Self);
