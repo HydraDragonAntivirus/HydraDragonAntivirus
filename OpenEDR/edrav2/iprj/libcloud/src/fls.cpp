@@ -253,6 +253,18 @@ FileVerdict VerdictProvider::getVerdict(const Hash& hash)
 
 	std::unique_lock lock(m_mtxData);
 
+	// While the server is marked unavailable sendQueryInt sends nothing, so
+	// waiting out the request timeout only delayed the same Unknown answer by
+	// 2 s per lookup (on the enricher thread and in get_fls_verdict). A cached
+	// verdict still answers.
+	if (m_fServerUnavailable)
+	{
+		auto cached = getCachedVerdict(hash);
+		if (cached.has_value())
+			return cached.value();
+		return FileVerdict::Unknown;
+	}
+
 	// Add item to the waiting queue
 	size_t nRequestCount = (m_waitQueue[hash].nRequestCount += 1);
 

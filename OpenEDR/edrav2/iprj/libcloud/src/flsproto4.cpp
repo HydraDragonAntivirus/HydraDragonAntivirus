@@ -79,12 +79,26 @@ FileVerdictMap UdpClient::getVerdict(RequestType eRequestType, const HashList& h
 	}	
 	Size nPacketSize = sizeof(Request) - 1 + hashList.size() * c_nHashSize;
 
-	// Retrieve host address
+	// Retrieve host address: resolved once (it was a DNS lookup per request)
+	// and again after a request that got no answer.
 	boost::system::error_code ec;
 	auto addr = address::from_string(m_sHost, ec);
 	if (ec)
-		// FIXME: Why do you use only first resolved address?
-		addr = address::from_string(*net::getHostByName(m_sHost).begin());
+	{
+		std::string sAddr;
+		{
+			std::scoped_lock lock(m_mtxAddr);
+			sAddr = m_sResolvedAddr;
+		}
+		if (sAddr.empty())
+		{
+			// FIXME: Why do you use only first resolved address?
+			sAddr = *net::getHostByName(m_sHost).begin();
+			std::scoped_lock lock(m_mtxAddr);
+			m_sResolvedAddr = sAddr;
+		}
+		addr = address::from_string(sAddr);
+	}
 
 	udp::endpoint remoteReceiver(addr, static_cast<unsigned short>(m_nPort));
 
@@ -92,24 +106,51 @@ FileVerdictMap UdpClient::getVerdict(RequestType eRequestType, const HashList& h
 	udp::socket socket(ioContext);
 	socket.open(udp::v4());
 
-	// set timeouts
+	// A lost UDP packet is resent, like tools/fls_lookup.py does. One send
+	// with a single 2 s wait made every lost packet an error, and an error
+	// marks the whole server unavailable (no queries for a while), so FLS
+	// "went down" every time one datagram was dropped. The attempts together
+	// take about the old single wait.
 	static constexpr Size nSendTimeoutMs = 2000;
-	static constexpr Size nReceiveTimeoutMs = 2000;
-	net::setSoketTimeout(socket, nSendTimeoutMs, nReceiveTimeoutMs);
-
-	auto nBytesSent = socket.send_to(boost::asio::buffer(packet, nPacketSize), remoteReceiver, 0);
-	if (nBytesSent != nPacketSize)
-		error::RuntimeError(SL, "Not all data was sent").throwException();
+	static constexpr Size nAttempts = 3;
+	static constexpr Size nAttemptTimeoutMs = 700;
+	net::setSoketTimeout(socket, nSendTimeoutMs, nAttemptTimeoutMs);
 
 	boost::array<uint8_t, c_nPacketMaxSize> response;
-	udp::endpoint remoteSender;
-	Size nBytesReceived = socket.receive_from(boost::asio::buffer(response), remoteSender, 0);
-	if (nBytesReceived < sizeof(Response))
-		error::NoData(SL, "Response is too small").throwException();
+	Size nBytesReceived = 0;
+	bool fAnswered = false;
+	for (Size nAttempt = 0; nAttempt < nAttempts && !fAnswered; ++nAttempt)
+	{
+		auto nBytesSent = socket.send_to(boost::asio::buffer(packet, nPacketSize), remoteReceiver, 0);
+		if (nBytesSent != nPacketSize)
+			error::RuntimeError(SL, "Not all data was sent").throwException();
+
+		const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(nAttemptTimeoutMs);
+		while (std::chrono::steady_clock::now() < deadline)
+		{
+			udp::endpoint remoteSender;
+			boost::system::error_code ecRecv;
+			nBytesReceived = socket.receive_from(boost::asio::buffer(response), remoteSender, 0, ecRecv);
+			if (ecRecv)
+				break; // receive timeout: send again
+			if (nBytesReceived < sizeof(Response))
+				continue;
+			// A late answer to an earlier send of this packet or to an
+			// earlier request carries another id: keep waiting.
+			if (((Response*)response.c_array())->nId != pRequest->nId)
+				continue;
+			fAnswered = true;
+			break;
+		}
+	}
+	if (!fAnswered)
+	{
+		std::scoped_lock lock(m_mtxAddr);
+		m_sResolvedAddr.clear();
+		error::ConnectionError(SL, FMT("No FLS answer after " << nAttempts << " attempts")).throwException();
+	}
 
 	auto pResponse = (Response*)response.c_array();
-	if (pResponse->nId != pRequest->nId)
-		error::InvalidFormat(SL, "Wrong request id in the response").throwException();
 	if (pResponse->nNumOfAnswers != pRequest->nNumOfHashes)
 		error::InvalidFormat(SL, "Number of answers doesn't match requested").throwException();
 	if (nBytesReceived < sizeof(Response) - 1 + pResponse->nNumOfAnswers * nResponseAnswerSize)

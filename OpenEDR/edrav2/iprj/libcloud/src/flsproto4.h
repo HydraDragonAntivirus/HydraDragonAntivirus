@@ -111,6 +111,11 @@ private:
 	Size m_nId = 0;
 	std::mutex m_mtxId;
 
+	// Server address, resolved once and again only after a request got no
+	// answer (it was resolved by a DNS lookup on every request).
+	std::mutex m_mtxAddr;
+	std::string m_sResolvedAddr;
+
 	Size getNextId();
 	FileVerdictMap getVerdict(RequestType eRequestType, const HashList& hashList, Size nResponseAnswerSize);
 
