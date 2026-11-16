@@ -86,6 +86,8 @@
     <Exec Command='md "$(CmdRootDir)\out\srcBinUpgrade\$(CmdOutDirName)\x64"' />
     <Exec Condition="Exists('$(CmdRootDir)\out\bin\win-$(Configuration)-x64')" Command='xcopy "$(CmdRootDir)\out\bin\win-$(Configuration)-x64" "$(CmdRootDir)\out\srcBinUpgrade\$(CmdOutDirName)\x64" /Q /E /I /Exclude:$(ProjectDir)..\..\..\installation\src\exclude.list' />
     <Exec Command='xcopy /Y /D /E /I "$(ProjectDir)..\..\..\..\firewall-rules" "$(CmdRootDir)\out\srcBinUpgrade\$(CmdOutDirName)\x64\firewall-rules\"' />
+    <!-- MegaDumper.dll process dumper (MegaDumperNative, NativeAOT: no .NET runtime), from edrgui like owlyshield_ransom.dll -->
+    <Exec Condition="Exists('$(ProjectDir)..\..\..\..\..\edrgui\MegaDumper.dll')" Command="xcopy /Y &quot;$(ProjectDir)..\..\..\..\..\edrgui\MegaDumper.dll&quot; &quot;$(CmdRootDir)\out\srcBinUpgrade\$(CmdOutDirName)\x64\&quot;" />
     <!-- openedr_cloud.dll cloud engine (viruskov.com cloud scan): staged portable DLL with fallback to target\release -->
     <Exec Condition="Exists('$(ProjectDir)..\..\..\..\..\..\OpenMalwareScannerPortable\openedr_cloud.dll')" Command="xcopy /Y /D &quot;$(ProjectDir)..\..\..\..\..\..\OpenMalwareScannerPortable\openedr_cloud.dll&quot; &quot;$(CmdRootDir)\out\srcBinUpgrade\$(CmdOutDirName)\x64\&quot;" />
     <Exec Condition="!Exists('$(ProjectDir)..\..\..\..\..\..\OpenMalwareScannerPortable\openedr_cloud.dll') and Exists('$(ProjectDir)..\..\..\..\..\openedr_cloud\target\release\openedr_cloud.dll')" Command="xcopy /Y /D &quot;$(ProjectDir)..\..\..\..\..\openedr_cloud\target\release\openedr_cloud.dll&quot; &quot;$(CmdRootDir)\out\srcBinUpgrade\$(CmdOutDirName)\x64\&quot;" />

@@ -1298,6 +1298,14 @@ namespace {
 		static std::atomic<int> s_eventRateTopProcesses{0};
 		static std::atomic<bool> s_enableCloud{true};
 		static std::atomic<bool> s_cloudFirst{true};
+		// MegaDumper.dll process dumps (DumpQueue): untrusted processes, native or
+		// managed; one dump per process per dumpCooldownSeconds; the
+		// dumper's System folder (restored Windows module names) scanned too or
+		// not; clean dumps kept or removed after the scan.
+		static std::atomic<bool> s_dumpUntrusted{true};
+		static std::atomic<int> s_dumpCooldownSeconds{600};
+		static std::atomic<bool> s_dumpScanSystemFolder{false};
+		static std::atomic<bool> s_dumpKeepClean{false};
 		static std::atomic<int> s_cleanVerdict{1};
 		static std::atomic<int> s_malwareVerdict{2};
 		static std::atomic<int> s_unknownVerdictDefault{0};
@@ -1506,6 +1514,10 @@ namespace {
 				s_scanAllModulesIndiscriminately.store(extractBoolFromCfg(content, "scanAllModulesIndiscriminately", false), std::memory_order_relaxed);
 				s_enableCloud.store(extractBoolFromCfg(content, "enableCloud", true), std::memory_order_relaxed);
 				s_cloudFirst.store(extractBoolFromCfg(content, "cloudFirst", true) || extractBoolFromCfg(content, "preferCloudScan", true), std::memory_order_relaxed);
+				s_dumpUntrusted.store(extractBoolFromCfg(content, "dumpUntrusted", true), std::memory_order_relaxed);
+				s_dumpCooldownSeconds.store((std::max)(0, extractIntFromPtm(content, "dumpCooldownSeconds", 600)), std::memory_order_relaxed);
+				s_dumpScanSystemFolder.store(extractBoolFromCfg(content, "dumpScanSystemFolder", false), std::memory_order_relaxed);
+				s_dumpKeepClean.store(extractBoolFromCfg(content, "dumpKeepClean", false), std::memory_order_relaxed);
 
 				s_cleanVerdict.store(extractIntFromPtm(content, "cleanVerdict", 1), std::memory_order_relaxed);
 				s_malwareVerdict.store(extractIntFromPtm(content, "malwareVerdict", 2), std::memory_order_relaxed);
@@ -4710,6 +4722,232 @@ static void enqueue(uint32_t nPid)
 }
 
 } // namespace MemScanQueue
+
+// Process dumps with MegaDumper.dll (MegaDumperNative: NativeAOT, no .NET
+// runtime) for processes that are not trusted, native and managed alike. A
+// packer - native or .NET - or a loader that decrypts its payload in memory
+// leaves the file on disk harmless-looking; the dump has the unpacked images
+// (native PEs and .NET assemblies found in memory), and those are scanned like
+// dropped files.
+// One background worker: a dump reads the whole process, so nothing waits on
+// it. A malicious image in the dump: alert, kill chain record, and the
+// process is stopped (unless protection is paused for training). Dumps with a
+// detection are kept under ProgramData\edrsvc\dumps as evidence; clean ones
+// are removed unless dumpKeepClean.
+namespace DumpQueue {
+
+typedef int (*MegaDumperEnablePrivFn)();
+typedef int (*MegaDumperDumpFn)(uint32_t, const wchar_t*, int, int, wchar_t*, uint32_t);
+
+struct Binding
+{
+	MegaDumperDumpFn fnDump = nullptr;
+	bool fReady = false;
+};
+
+static Binding& binding()
+{
+	static Binding s_b;
+	static std::once_flag s_once;
+	std::call_once(s_once, [] {
+		HMODULE hDll = ::LoadLibraryW(L"MegaDumper.dll");
+		if (hDll == nullptr)
+		{
+			LOGLVL(Critical, "enricher: [DUMP] MegaDumper.dll not loaded (error " << ::GetLastError() << "); process dumps are off");
+			return;
+		}
+		auto fnPriv = reinterpret_cast<MegaDumperEnablePrivFn>(::GetProcAddress(hDll, "megadumper_enable_debug_privilege"));
+		s_b.fnDump = reinterpret_cast<MegaDumperDumpFn>(::GetProcAddress(hDll, "megadumper_dump_process"));
+		if (s_b.fnDump == nullptr)
+		{
+			LOGLVL(Critical, "enricher: [DUMP] MegaDumper.dll has no megadumper_dump_process; process dumps are off");
+			return;
+		}
+		if (fnPriv != nullptr)
+			fnPriv();
+		s_b.fReady = true;
+	});
+	return s_b;
+}
+
+struct Item
+{
+	uint32_t nPid = 0;
+	std::string sImage;
+	std::string sReason;
+};
+
+struct State
+{
+	std::mutex mtx;
+	std::condition_variable cv;
+	std::deque<Item> queue;
+	std::unordered_set<uint32_t> pending;
+	std::unordered_map<uint32_t, std::chrono::steady_clock::time_point> recent;
+	bool fStarted = false;
+};
+
+static State& state()
+{
+	static State* s_p = new State(); // never destroyed: the worker is detached
+	return *s_p;
+}
+
+static std::filesystem::path dumpRoot()
+{
+	wchar_t szProgramData[MAX_PATH] = L"";
+	DWORD nLen = ::GetEnvironmentVariableW(L"ProgramData", szProgramData, MAX_PATH);
+	if (nLen == 0 || nLen >= MAX_PATH)
+		return {};
+	return std::filesystem::path(szProgramData) / L"edrsvc" / L"dumps";
+}
+
+// Scans every file of one dump; returns how many were malicious.
+static int scanDump(const std::filesystem::path& dir, const Item& item, std::string& sFirstThreat)
+{
+	const bool fSystem = DriverPortHips::s_dumpScanSystemFolder.load(std::memory_order_relaxed);
+	int nMalicious = 0;
+	std::error_code ec;
+	for (auto it = std::filesystem::recursive_directory_iterator(dir, ec);
+		!ec && it != std::filesystem::recursive_directory_iterator(); it.increment(ec))
+	{
+		if (it->is_directory(ec))
+		{
+			// The dumper's System folder: images whose restored name is a
+			// Windows module. Off by default (hundreds of relocated copies of
+			// system DLLs per process, each a cloud upload).
+			if (!fSystem && _wcsicmp(it->path().filename().c_str(), L"System") == 0)
+				it.disable_recursion_pending();
+			continue;
+		}
+		if (!it->is_regular_file(ec))
+			continue;
+		std::string sFile;
+		try { sFile = string::convertWCharToUtf8(it->path().wstring()); } catch (...) { continue; }
+		std::string sThreat;
+		DetectionNotifier::CloudScanDetail detail;
+		const int r = DetectionNotifier::scanFileWithLocalEngines(sFile, sThreat, &detail);
+		RecordScanResultForKillChain(sFile, item.nPid, r, detail, "dump");
+		if (r == 2 || r == 3)
+		{
+			if (sThreat.empty())
+				sThreat = r == 2 ? "Malware.DumpDetection" : "Suspicious.DumpDetection";
+			LOGLVL(Critical, FMT("enricher: [DUMP] " << (r == 2 ? "MALICIOUS" : "SUSPICIOUS") << " <" << sThreat
+				<< "> in the memory of PID " << item.nPid << " <" << item.sImage << ">: " << sFile));
+			SendThreatAlertToGui(sThreat, "pid:" + std::to_string(item.nPid) + " " + item.sImage);
+			if (r == 2)
+			{
+				if (sFirstThreat.empty())
+					sFirstThreat = sThreat;
+				++nMalicious;
+			}
+		}
+	}
+	return nMalicious;
+}
+
+static void dumpOne(const Item& item)
+{
+	auto& b = binding();
+	if (!b.fReady)
+		return;
+	const auto root = dumpRoot();
+	if (root.empty())
+		return;
+	const auto dir = root / (L"pid_" + std::to_wstring(item.nPid) + L"_" +
+		std::to_wstring(std::chrono::duration_cast<std::chrono::seconds>(
+			std::chrono::system_clock::now().time_since_epoch()).count()));
+	std::error_code ec;
+	std::filesystem::create_directories(dir, ec);
+
+	wchar_t szResult[512] = L"";
+	const int rc = b.fnDump(item.nPid, dir.c_str(), 1 /*native too*/, 1 /*restore names*/, szResult, 512);
+	std::string sResult;
+	try { sResult = string::convertWCharToUtf8(szResult); } catch (...) {}
+	LOGLVL(Detailed, FMT("enricher: [DUMP] PID " << item.nPid << " <" << item.sImage << "> (" << item.sReason
+		<< "): rc=" << rc << " " << sResult));
+	if (rc != 0)
+	{
+		std::filesystem::remove_all(dir, ec);
+		return;
+	}
+
+	std::string sThreat;
+	const int nMalicious = scanDump(dir, item, sThreat);
+	if (nMalicious > 0)
+	{
+		LOGLVL(Critical, FMT("enricher: [DUMP] " << nMalicious << " malicious image(s) in PID " << item.nPid
+			<< " <" << item.sImage << ">; dump kept in " << string::convertWCharToUtf8(dir.wstring())));
+		ZeroTrust::recordThreatDetection();
+		if (!DetectionNotifier::isProtectionPaused())
+		{
+			HANDLE hProc = ::OpenProcess(PROCESS_TERMINATE, FALSE, item.nPid);
+			if (hProc != nullptr)
+			{
+				const BOOL fKilled = ::TerminateProcess(hProc, 1);
+				::CloseHandle(hProc);
+				LOGLVL(Critical, FMT("enricher: [DUMP] " << (fKilled ? "terminated" : "could not terminate")
+					<< " PID " << item.nPid << " (" << sThreat << ")"));
+			}
+		}
+		return;
+	}
+	if (!DriverPortHips::s_dumpKeepClean.load(std::memory_order_relaxed))
+		std::filesystem::remove_all(dir, ec);
+}
+
+static void worker()
+{
+	auto& st = state();
+	for (;;)
+	{
+		Item item;
+		{
+			std::unique_lock lock(st.mtx);
+			st.cv.wait(lock, [&st] { return !st.queue.empty(); });
+			item = std::move(st.queue.front());
+			st.queue.pop_front();
+			st.pending.erase(item.nPid);
+		}
+		try { dumpOne(item); } catch (...) {}
+	}
+}
+
+static void enqueue(uint32_t nPid, const std::string& sImage, const char* szReason)
+{
+	if (nPid <= 4 || nPid == ::GetCurrentProcessId())
+		return;
+	std::string sLower = sImage;
+	for (auto& c : sLower) c = static_cast<char>(::tolower(static_cast<unsigned char>(c)));
+	if (IsPathUnderOwnInstallDir(sLower))
+		return;
+	auto& st = state();
+	{
+		std::scoped_lock lock(st.mtx);
+		const auto now = std::chrono::steady_clock::now();
+		const auto cooldown = std::chrono::seconds(DriverPortHips::s_dumpCooldownSeconds.load(std::memory_order_relaxed));
+		auto it = st.recent.find(nPid);
+		if (it != st.recent.end() && now - it->second < cooldown)
+			return;
+		if (!st.pending.insert(nPid).second)
+			return;
+		st.recent[nPid] = now;
+		if (st.recent.size() > 20000)
+		{
+			for (auto itC = st.recent.begin(); itC != st.recent.end(); )
+				itC = (now - itC->second >= cooldown) ? st.recent.erase(itC) : std::next(itC);
+		}
+		if (!st.fStarted)
+		{
+			st.fStarted = true;
+			std::thread(worker).detach();
+		}
+		st.queue.push_back(Item{ nPid, sImage, szReason });
+	}
+	st.cv.notify_one();
+}
+
+} // namespace DumpQueue
 } // namespace
 
 void EventEnricher::executeUnfilteredLocalScan(Variant& vEvent, Variant& vProcess, Event eEventType, const std::string& sProcPath)
@@ -5750,6 +5988,14 @@ void EventEnricher::put(const Variant& vEventRef)
 	std::string untrustedReason;
 	bool isProcessTrusted = DriverPortHips::IsProcessTrustedConfigurable(vProcess, sProcPath, nActorPid, modRes, untrustedReason);
 	vProcess.put("isTrusted", isProcessTrusted);
+
+	// An untrusted process (native or managed - MegaDumper unpacks both), or a
+	// .NET loader with an unknown DLL: dump it (MegaDumper.dll) and scan what
+	// was unpacked in memory.
+	if (modRes.isDotNetLoader && modRes.hasUnknownDll)
+		DumpQueue::enqueue(nActorPid, sProcPath, ".NET loader with an unknown DLL");
+	else if (!isProcessTrusted && DriverPortHips::s_dumpUntrusted.load(std::memory_order_relaxed))
+		DumpQueue::enqueue(nActorPid, sProcPath, modRes.isDotNet ? "untrusted managed process" : "untrusted native process");
 
 	// Alert on .NET loader with unknown DLL in attack chain
 	if (modRes.isDotNetLoader && modRes.hasUnknownDll)

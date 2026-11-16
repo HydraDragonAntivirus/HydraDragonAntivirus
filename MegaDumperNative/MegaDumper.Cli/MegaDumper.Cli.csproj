@@ -1,0 +1,32 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!--
+    MegaDumper.exe: the same dump engine as MegaDumper.dll, as a console tool
+    (NativeAOT, no .NET runtime needed). Published as HydraDragonDumper.exe.
+      dotnet publish -c Release -r win-x64
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <RootNamespace>Mega_Dumper</RootNamespace>
+    <AssemblyName>MegaDumper</AssemblyName>
+    <ApplicationIcon>..\..\MegaDumper\SND Blue Square.ico</ApplicationIcon>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <LangVersion>preview</LangVersion>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <PublishAot>true</PublishAot>
+    <IsAotCompatible>true</IsAotCompatible>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <RuntimeIdentifiers>win-x64;win-x86</RuntimeIdentifiers>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(Configuration)'=='Release'">
+    <DebugType>none</DebugType>
+    <Optimize>true</Optimize>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="..\MegaDumper.Native\Dumper.cs" Link="Dumper.cs" />
+    <Compile Include="..\MegaDumper.Native\CorPublishNative.cs" Link="CorPublishNative.cs" />
+  </ItemGroup>
+</Project>

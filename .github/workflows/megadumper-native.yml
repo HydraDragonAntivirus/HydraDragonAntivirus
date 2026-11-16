@@ -1,0 +1,49 @@
+name: MegaDumperNative
+
+# MegaDumper's dump engine without the GUI, built with NativeAOT: MegaDumper.dll
+# (native exports for OpenEDR) and MegaDumper.exe (console). Neither needs a
+# .NET runtime on the machine. The GUI MegaDumper (megadumper.yml) is separate.
+
+on:
+  push:
+    branches: ["**"]
+    paths:
+      - 'MegaDumperNative/**'
+      - '.github/workflows/megadumper-native.yml'
+  pull_request:
+    branches: ["**"]
+    paths:
+      - 'MegaDumperNative/**'
+      - '.github/workflows/megadumper-native.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-2022
+    steps:
+      - name: Enable long paths
+        run: git config --global core.longpaths true
+      - name: Checkout repository
+        uses: actions/checkout@v7
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: '8.0.x'
+      # NativeAOT links with the MSVC toolchain, which it finds through vswhere.
+      - name: Put vswhere on PATH
+        shell: pwsh
+        run: Add-Content $env:GITHUB_PATH "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer"
+      - name: Publish MegaDumper.dll
+        run: dotnet publish MegaDumperNative/MegaDumper.Native/MegaDumper.csproj -c Release -r win-x64 -o artifacts/dll
+      - name: Publish MegaDumper.exe
+        run: dotnet publish MegaDumperNative/MegaDumper.Cli/MegaDumper.Cli.csproj -c Release -r win-x64 -o artifacts/cli
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: megadumper-native
+          path: |
+            artifacts/dll/MegaDumper.dll
+            artifacts/cli/MegaDumper.exe

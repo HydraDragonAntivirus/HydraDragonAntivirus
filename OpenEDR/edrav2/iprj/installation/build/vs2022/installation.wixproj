@@ -76,6 +76,8 @@
     <!-- owlyshield_ransom.dll always from edrgui (the CI build, owlyshield-predict.yml, lands there), never a local target\release build -->
     <Exec Condition="Exists('$(ProjectDir)..\..\..\..\..\edrgui\owlyshield_ransom.dll')" Command="xcopy /Y &quot;$(ProjectDir)..\..\..\..\..\edrgui\owlyshield_ransom.dll&quot; &quot;$(CmdRootDir)\out\srcBinInstall\$(CmdOutDirName)\&quot;" />
     <Exec Command="xcopy /Y /D /E /I &quot;$(ProjectDir)..\..\..\..\firewall-rules&quot; &quot;$(CmdRootDir)\out\srcBinInstall\$(CmdOutDirName)\firewall-rules\&quot;" />
+    <!-- MegaDumper.dll process dumper (MegaDumperNative, NativeAOT: no .NET runtime), from edrgui like owlyshield_ransom.dll -->
+    <Exec Condition="Exists('$(ProjectDir)..\..\..\..\..\edrgui\MegaDumper.dll')" Command="xcopy /Y &quot;$(ProjectDir)..\..\..\..\..\edrgui\MegaDumper.dll&quot; &quot;$(CmdRootDir)\out\srcBinInstall\$(CmdOutDirName)\&quot;" />
     <!-- openedr_cloud.dll cloud engine (viruskov.com cloud scan): staged portable DLL with fallback to target\release -->
     <Exec Condition="Exists('$(ProjectDir)..\..\..\..\..\..\OpenMalwareScannerPortable\openedr_cloud.dll')" Command="xcopy /Y /D &quot;$(ProjectDir)..\..\..\..\..\..\OpenMalwareScannerPortable\openedr_cloud.dll&quot; &quot;$(CmdRootDir)\out\srcBinInstall\$(CmdOutDirName)\&quot;" />
     <Exec Condition="!Exists('$(ProjectDir)..\..\..\..\..\..\OpenMalwareScannerPortable\openedr_cloud.dll') and Exists('$(ProjectDir)..\..\..\..\..\openedr_cloud\target\release\openedr_cloud.dll')" Command="xcopy /Y /D &quot;$(ProjectDir)..\..\..\..\..\openedr_cloud\target\release\openedr_cloud.dll&quot; &quot;$(CmdRootDir)\out\srcBinInstall\$(CmdOutDirName)\&quot;" />
