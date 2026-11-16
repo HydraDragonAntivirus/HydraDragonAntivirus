@@ -378,6 +378,15 @@ impl ThreatIntelStore {
         w.send(WriterMsg::Flush(tx)).is_ok() && rx.recv_timeout(timeout).is_ok()
     }
 
+    /// Applies any queued background telemetry updates into `hot` without forcing a SQLite flush.
+    fn apply_pending(&self) {
+        let Some(w) = &self.writer else { return };
+        let (tx, rx) = mpsc::sync_channel(1);
+        if w.send(WriterMsg::ApplyPending(tx)).is_ok() {
+            let _ = rx.recv_timeout(Duration::from_secs(30));
+        }
+    }
+
     /// Before a query reads SQLite: the changes still in memory go first.
     fn flush_for_query(&self) {
         let _ = self.flush(Duration::from_secs(30));
@@ -399,8 +408,7 @@ impl ThreatIntelStore {
     }
 
     fn load(&self, sha: &Sha) -> Option<ThreatInsight> {
-        let data = self.db.get(sha).ok().flatten()?;
-        serde_json::from_slice(&data).ok()
+        load_from(&self.db, sha)
     }
 
     /// Runs `f` on the record of `sha` with `true` when it was just created: read from
@@ -413,16 +421,7 @@ impl ThreatIntelStore {
         create: Option<&dyn Fn() -> ThreatInsight>,
         f: impl FnOnce(&mut ThreatInsight, bool) -> R,
     ) -> Option<R> {
-        let loaded = if self.hot.read().unwrap().contains_key(&sha) { None } else { self.load(&sha) };
-        let mut g = self.hot.write().unwrap();
-        let (entry, is_new) = match g.entry(sha) {
-            std::collections::hash_map::Entry::Occupied(o) => (o.into_mut(), false),
-            std::collections::hash_map::Entry::Vacant(v) => match loaded {
-                Some(i) => (v.insert(i), false),
-                None => (v.insert(create?()), true),
-            },
-        };
-        Some(f(entry, is_new))
+        update_map(&self.db, &self.hot, sha, create, f)
     }
 
     /// Records a sighting with its verdict (`seen_count` + 1), or the result of an
@@ -436,123 +435,41 @@ impl ThreatIntelStore {
         file_size: Option<u64>,
         score: f64,
     ) {
-        self.record_inner(sha256_hex, verdict, threat, file_name, file_size, score, false);
+        self.enqueue_op(TelemetryOp::Record {
+            sha256_hex: sha256_hex.to_string(),
+            verdict: verdict.to_string(),
+            threat: threat.map(str::to_string),
+            file_name: file_name.map(str::to_string),
+            file_size,
+            score,
+            check: false,
+        });
     }
 
     /// A hash check of a file the server has to scan: counts the sighting with an
     /// "unknown" placeholder; the scan result of the upload is not counted again.
     pub fn record_check(&self, sha256_hex: &str, file_name: Option<&str>, file_size: Option<u64>) {
-        self.record_inner(sha256_hex, "unknown", None, file_name, file_size, 0.0, true);
+        self.enqueue_op(TelemetryOp::Record {
+            sha256_hex: sha256_hex.to_string(),
+            verdict: "unknown".to_string(),
+            threat: None,
+            file_name: file_name.map(str::to_string),
+            file_size,
+            score: 0.0,
+            check: true,
+        });
     }
 
-    #[allow(clippy::too_many_arguments)]
-    fn record_inner(
-        &self,
-        sha256_hex: &str,
-        verdict: &str,
-        threat: Option<&str>,
-        file_name: Option<&str>,
-        file_size: Option<u64>,
-        score: f64,
-        check: bool,
-    ) {
-        let Some(sha_bytes) = parse_sha(sha256_hex) else {
-            return;
+    fn enqueue_op(&self, op: TelemetryOp) {
+        let op = match &self.writer {
+            Some(w) => match w.send(WriterMsg::Op(op)) {
+                Ok(()) => return,
+                Err(mpsc::SendError(WriterMsg::Op(op))) => op,
+                Err(_) => return,
+            },
+            None => op,
         };
-
-        let now_str = Utc::now().to_rfc3339();
-        let create = || ThreatInsight {
-            sha256: sha256_hex.to_lowercase().into(),
-            first_seen: now_str.as_str().into(),
-            last_seen: now_str.as_str().into(),
-            seen_count: 0,
-            verdict: verdict.into(),
-            threat_name: threat.map(IStr::from),
-            file_names: Vec::new(),
-            file_size,
-            score,
-            folders: Vec::new(),
-            full_folders: Vec::new(),
-            sightings: Vec::new(),
-            signer: None,
-            detections: Vec::new(),
-            not_scanned_since: None,
-            pending_uploads: 0,
-            dirty: false,
-        };
-
-        let changed = self.update(sha_bytes, Some(&create), |entry, is_new| {
-            let old_verdict = (!is_new).then(|| entry.verdict.to_string());
-            let old_seen = entry.seen_count;
-
-            // One sighting = one check or one upload, not both.
-            if check {
-                entry.seen_count += 1;
-                entry.pending_uploads += 1;
-            } else if entry.pending_uploads > 0 {
-                entry.pending_uploads -= 1;
-            } else {
-                entry.seen_count += 1;
-            }
-            entry.last_seen = now_str.as_str().into();
-            // Scanned again (an upload's result, not the check before it).
-            if !check {
-                entry.not_scanned_since = None;
-            }
-
-            // The latest real verdict wins, lower ones too: once malicious stayed malicious
-            // before, so a false positive fixed in the engine (or a file now PUA /
-            // suspicious) kept counting as malicious for every hash that was not kept here
-            // to rescan. "unknown" (the `check` placeholder before the upload, scans
-            // answered by a human verdict, scans that could not decide) never replaces a
-            // real verdict, and any real verdict replaces it.
-            if verdict != "unknown" && verdict != entry.verdict {
-                entry.verdict = verdict.into();
-                entry.threat_name = threat.map(IStr::from);
-                entry.score = score;
-            } else if verdict == entry.verdict {
-                if let Some(t) = threat {
-                    entry.threat_name.get_or_insert_with(|| t.into());
-                }
-                entry.score = score.max(entry.score);
-            }
-
-            if let Some(name) = file_name {
-                let trimmed = name.trim();
-                if !trimmed.is_empty() && !entry.file_names.iter().any(|n| n.eq_ignore_ascii_case(trimmed)) {
-                    if entry.file_names.len() < 5 {
-                        entry.file_names.push(trimmed.into());
-                    }
-                }
-            }
-
-            if file_size.is_some() && entry.file_size.is_none() {
-                entry.file_size = file_size;
-            }
-            entry.dirty = true;
-
-            let mut c = self.counts.lock().unwrap();
-            match &old_verdict {
-                None => {
-                    c.hashes += 1;
-                    c.add(&entry.verdict, 1);
-                }
-                Some(old) if old.as_str() != entry.verdict.as_str() => {
-                    c.add(old, -1);
-                    c.add(&entry.verdict, 1);
-                }
-                Some(_) => {}
-            }
-            c.sightings += entry.seen_count - old_seen;
-            drop(c);
-
-            // History: a new verdict (a first "unknown" placeholder is not one).
-            let new_verdict = entry.verdict.as_str();
-            let history = old_verdict.as_deref() != Some(new_verdict) && !(old_verdict.is_none() && new_verdict == "unknown");
-            history.then(|| (old_verdict, entry.sha256.text().to_string(), entry.verdict.to_string(), entry.threat_name.as_ref().map(|t| t.to_string())))
-        });
-        let Some(Some((old_verdict, sha, new_verdict, threat_name))) = changed else { return };
-        crate::verdict_history::record(&sha, "engine", old_verdict.as_deref(), &new_verdict, threat_name.as_deref(), "scan", "");
+        apply_op(&self.db, &self.hot, &self.counts, op);
     }
 
     /// Adds a folder the file was seen in (see `ThreatInsight::folders`), its full
@@ -560,33 +477,19 @@ impl ThreatIntelStore {
     /// with that full path (`ThreatInsight::sightings`). Only for hashes already
     /// recorded; empty or unusable paths are ignored (the IP is still counted).
     pub fn add_folder(&self, sha256_hex: &str, ip: &str, folder: &str, full: &str) {
-        let folder = sanitize_folder(folder);
-        let full = clean_full_folder(full);
-        let ip: String = ip.trim().chars().filter(|c| !c.is_control()).take(64).collect();
-        let Some(sha_bytes) = parse_sha(sha256_hex) else { return };
-        self.update(sha_bytes, None, |entry, _| {
-            for (list, item) in [(&mut entry.folders, folder), (&mut entry.full_folders, full.clone())] {
-                if let Some(item) = item {
-                    if list.len() < 5 && !list.iter().any(|f| f.eq_ignore_ascii_case(&item)) {
-                        list.push(item.into());
-                    }
-                }
-            }
-            if !ip.is_empty() {
-                add_sighting(&mut entry.sightings, &ip, full.as_deref().unwrap_or(""), &Utc::now().to_rfc3339());
-            }
-            entry.dirty = true;
+        self.enqueue_op(TelemetryOp::AddFolder {
+            sha256_hex: sha256_hex.to_string(),
+            ip: ip.to_string(),
+            folder: folder.to_string(),
+            full: full.to_string(),
         });
     }
 
     /// Stores the Authenticode signer the engine saw (after a real scan or rescan).
     pub fn set_signer(&self, sha256_hex: &str, signer: &SignerSummary) {
-        let Some(sha_bytes) = parse_sha(sha256_hex) else { return };
-        self.update(sha_bytes, None, |entry, _| {
-            if entry.signer.as_deref() != Some(signer) {
-                entry.signer = Some(Box::new(signer.clone()));
-                entry.dirty = true;
-            }
+        self.enqueue_op(TelemetryOp::SetSigner {
+            sha256_hex: sha256_hex.to_string(),
+            signer: signer.clone(),
         });
     }
 
@@ -594,15 +497,11 @@ impl ThreatIntelStore {
     /// empty list clears them. Otherwise only when the scan's verdict is the stored one
     /// (a weaker later scan does not replace the rules behind the stored verdict).
     pub fn set_detections(&self, sha256_hex: &str, verdict: &str, detections: &[DetectionRef], force: bool) {
-        let Some(sha_bytes) = parse_sha(sha256_hex) else { return };
-        self.update(sha_bytes, None, |entry, _| {
-            if !force && (detections.is_empty() || entry.verdict != verdict) {
-                return;
-            }
-            if entry.detections.as_slice() != detections {
-                entry.detections = detections.to_vec();
-                entry.dirty = true;
-            }
+        self.enqueue_op(TelemetryOp::SetDetections {
+            sha256_hex: sha256_hex.to_string(),
+            verdict: verdict.to_string(),
+            detections: detections.to_vec(),
+            force,
         });
     }
 
@@ -614,6 +513,7 @@ impl ThreatIntelStore {
 
     /// `set_engine_verdict` with the source written to the verdict history.
     pub fn set_engine_verdict_from(&self, sha256_hex: &str, verdict: &str, threat: Option<&str>, score: f64, source: &str) {
+        self.apply_pending();
         let Some(sha_bytes) = parse_sha(sha256_hex) else { return };
         self.update(sha_bytes, None, |entry, _| {
             let had_extra = verdict == "unknown" && (entry.threat_name.is_some() || entry.score != 0.0 || !entry.detections.is_empty());
@@ -664,6 +564,7 @@ impl ThreatIntelStore {
 
     /// (verdict, source "human" | "engine" | "unseen", threat name) for one hash.
     pub fn effective(&self, sha256_hex: &str) -> (String, String, Option<String>) {
+        self.apply_pending();
         if let Some(r) = self.reviews.completed(sha256_hex) {
             return (r.verdict.clone().unwrap_or_default(), "human".into(), r.threat_name.clone());
         }
@@ -685,6 +586,7 @@ impl ThreatIntelStore {
     /// Marks a file as waiting for a new scan it cannot get now (no kept sample): the
     /// verdict stays the last one. Returns false for a hash that is not recorded.
     pub fn mark_not_scanned(&self, sha256_hex: &str, source: &str) -> bool {
+        self.apply_pending();
         let Some(sha) = parse_sha(sha256_hex) else { return false };
         let old = self.update(sha, None, |entry, _| {
             if entry.not_scanned_since.is_some() {
@@ -726,7 +628,9 @@ impl ThreatIntelStore {
     fn stored_state(&self, sha: &Sha) -> Option<(Option<String>, bool)> {
         let sha = *sha;
         let r = self.db.lookup(|c| {
-            let mut st = c.prepare_cached(r#"SELECT verdict, instr(data, CAST('"not_scanned_since":' AS BLOB)) > 0 FROM insights WHERE sha = ?1"#)?;
+            let mut st = c.prepare_cached(
+                r#"SELECT verdict, COALESCE(not_scanned, instr(data, CAST('"not_scanned_since":' AS BLOB)) > 0) FROM insights WHERE sha = ?1"#,
+            )?;
             let mut rows = st.query([&sha[..]])?;
             match rows.next()? {
                 Some(r) => Ok(Some((r.get::<_, Option<String>>(0)?, r.get::<_, bool>(1)?))),
@@ -835,6 +739,7 @@ impl ThreatIntelStore {
     /// lower-case hex: memory first, the rest from SQLite 500 at a time. For lists of
     /// many files, where one `get` each was one query each.
     pub fn get_many(&self, shas: &[&str]) -> HashMap<String, ThreatInsight> {
+        self.apply_pending();
         let mut out = HashMap::with_capacity(shas.len());
         let mut missing: Vec<Sha> = Vec::new();
         {
@@ -909,6 +814,7 @@ impl ThreatIntelStore {
     }
 
     pub fn get(&self, sha256_hex: &str) -> Option<ThreatInsight> {
+        self.apply_pending();
         let sha_bytes = parse_sha(sha256_hex)?;
         if let Some(i) = self.hot.read().unwrap().get(&sha_bytes) {
             return Some(i.clone());
@@ -1297,6 +1203,7 @@ impl ThreatIntelStore {
     }
 
     pub fn stats(&self) -> ThreatIntelStats {
+        self.apply_pending();
         let Counts { hashes, sightings, mut by_verdict } = self.counts.lock().unwrap().clone();
         // A completed human review overrides the engine verdict.
         let human: Vec<(Sha, String)> = self.reviews.completed_overrides().into_iter().filter_map(|(sha, v, _)| Some((sha, v?))).collect();
@@ -1474,6 +1381,7 @@ fn insight_row(sha: Sha, item: &ThreatInsight) -> Option<crate::insight_db::Insi
         first_seen: item.first_seen.to_string(),
         last_seen: item.last_seen.to_string(),
         seen_count: item.seen_count as i64,
+        not_scanned: item.not_scanned_since.is_some(),
         sightings: item
             .sightings
             .iter()
@@ -1615,9 +1523,195 @@ fn failed_rows(db: &crate::insight_db::InsightDb, rows: &[crate::insight_db::Ins
     failed
 }
 
-/// Message to the insight writer: "write everything now and tell me". Changes are
-/// marked on the records themselves (`dirty`); the writer writes them every 2 s.
+fn load_from(db: &crate::insight_db::InsightDb, sha: &Sha) -> Option<ThreatInsight> {
+    let data = db.get(sha).ok().flatten()?;
+    serde_json::from_slice(&data).ok()
+}
+
+fn update_map<R>(
+    db: &crate::insight_db::InsightDb,
+    hot: &RwLock<HashMap<Sha, ThreatInsight>>,
+    sha: Sha,
+    create: Option<&dyn Fn() -> ThreatInsight>,
+    f: impl FnOnce(&mut ThreatInsight, bool) -> R,
+) -> Option<R> {
+    let loaded = if hot.read().unwrap().contains_key(&sha) { None } else { load_from(db, &sha) };
+    let mut g = hot.write().unwrap();
+    let (entry, is_new) = match g.entry(sha) {
+        std::collections::hash_map::Entry::Occupied(o) => (o.into_mut(), false),
+        std::collections::hash_map::Entry::Vacant(v) => match loaded {
+            Some(i) => (v.insert(i), false),
+            None => (v.insert(create?()), true),
+        },
+    };
+    Some(f(entry, is_new))
+}
+
+enum TelemetryOp {
+    Record {
+        sha256_hex: String,
+        verdict: String,
+        threat: Option<String>,
+        file_name: Option<String>,
+        file_size: Option<u64>,
+        score: f64,
+        check: bool,
+    },
+    AddFolder {
+        sha256_hex: String,
+        ip: String,
+        folder: String,
+        full: String,
+    },
+    SetSigner {
+        sha256_hex: String,
+        signer: SignerSummary,
+    },
+    SetDetections {
+        sha256_hex: String,
+        verdict: String,
+        detections: Vec<DetectionRef>,
+        force: bool,
+    },
+}
+
+fn apply_op(
+    db: &crate::insight_db::InsightDb,
+    hot: &RwLock<HashMap<Sha, ThreatInsight>>,
+    counts: &Mutex<Counts>,
+    op: TelemetryOp,
+) {
+    match op {
+        TelemetryOp::Record { sha256_hex, verdict, threat, file_name, file_size, score, check } => {
+            let Some(sha_bytes) = parse_sha(&sha256_hex) else { return };
+            let now_str = Utc::now().to_rfc3339();
+            let create = || ThreatInsight {
+                sha256: sha256_hex.to_lowercase().into(),
+                first_seen: now_str.as_str().into(),
+                last_seen: now_str.as_str().into(),
+                seen_count: 0,
+                verdict: verdict.as_str().into(),
+                threat_name: threat.as_deref().map(IStr::from),
+                file_names: Vec::new(),
+                file_size,
+                score,
+                folders: Vec::new(),
+                full_folders: Vec::new(),
+                sightings: Vec::new(),
+                signer: None,
+                detections: Vec::new(),
+                not_scanned_since: None,
+                pending_uploads: 0,
+                dirty: false,
+            };
+            let changed = update_map(db, hot, sha_bytes, Some(&create), |entry, is_new| {
+                let old_verdict = (!is_new).then(|| entry.verdict.to_string());
+                let old_seen = entry.seen_count;
+                if check {
+                    entry.seen_count += 1;
+                    entry.pending_uploads += 1;
+                } else if entry.pending_uploads > 0 {
+                    entry.pending_uploads -= 1;
+                } else {
+                    entry.seen_count += 1;
+                }
+                entry.last_seen = now_str.as_str().into();
+                if !check {
+                    entry.not_scanned_since = None;
+                }
+                if verdict != "unknown" && verdict.as_str() != entry.verdict {
+                    entry.verdict = verdict.as_str().into();
+                    entry.threat_name = threat.as_deref().map(IStr::from);
+                    entry.score = score;
+                } else if verdict.as_str() == entry.verdict {
+                    if let Some(t) = threat.as_deref() {
+                        entry.threat_name.get_or_insert_with(|| t.into());
+                    }
+                    entry.score = score.max(entry.score);
+                }
+                if let Some(name) = file_name.as_deref() {
+                    let trimmed = name.trim();
+                    if !trimmed.is_empty() && !entry.file_names.iter().any(|n| n.eq_ignore_ascii_case(trimmed)) {
+                        if entry.file_names.len() < 5 {
+                            entry.file_names.push(trimmed.into());
+                        }
+                    }
+                }
+                if file_size.is_some() && entry.file_size.is_none() {
+                    entry.file_size = file_size;
+                }
+                entry.dirty = true;
+
+                let mut c = counts.lock().unwrap();
+                match &old_verdict {
+                    None => {
+                        c.hashes += 1;
+                        c.add(&entry.verdict, 1);
+                    }
+                    Some(old) if old.as_str() != entry.verdict.as_str() => {
+                        c.add(old, -1);
+                        c.add(&entry.verdict, 1);
+                    }
+                    Some(_) => {}
+                }
+                c.sightings += entry.seen_count - old_seen;
+                drop(c);
+
+                let new_verdict = entry.verdict.as_str();
+                let history = old_verdict.as_deref() != Some(new_verdict) && !(old_verdict.is_none() && new_verdict == "unknown");
+                history.then(|| (old_verdict, entry.sha256.text().to_string(), entry.verdict.to_string(), entry.threat_name.as_ref().map(|t| t.to_string())))
+            });
+            if let Some(Some((old_verdict, sha, new_verdict, threat_name))) = changed {
+                crate::verdict_history::record(&sha, "engine", old_verdict.as_deref(), &new_verdict, threat_name.as_deref(), "scan", "");
+            }
+        }
+        TelemetryOp::AddFolder { sha256_hex, ip, folder, full } => {
+            let folder = sanitize_folder(&folder);
+            let full = clean_full_folder(&full);
+            let ip: String = ip.trim().chars().filter(|c| !c.is_control()).take(64).collect();
+            let Some(sha_bytes) = parse_sha(&sha256_hex) else { return };
+            update_map(db, hot, sha_bytes, None, |entry, _| {
+                for (list, item) in [(&mut entry.folders, folder), (&mut entry.full_folders, full.clone())] {
+                    if let Some(item) = item {
+                        if list.len() < 5 && !list.iter().any(|f| f.eq_ignore_ascii_case(&item)) {
+                            list.push(item.into());
+                        }
+                    }
+                }
+                if !ip.is_empty() {
+                    add_sighting(&mut entry.sightings, &ip, full.as_deref().unwrap_or(""), &Utc::now().to_rfc3339());
+                }
+                entry.dirty = true;
+            });
+        }
+        TelemetryOp::SetSigner { sha256_hex, signer } => {
+            let Some(sha_bytes) = parse_sha(&sha256_hex) else { return };
+            update_map(db, hot, sha_bytes, None, |entry, _| {
+                if entry.signer.as_deref() != Some(&signer) {
+                    entry.signer = Some(Box::new(signer));
+                    entry.dirty = true;
+                }
+            });
+        }
+        TelemetryOp::SetDetections { sha256_hex, verdict, detections, force } => {
+            let Some(sha_bytes) = parse_sha(&sha256_hex) else { return };
+            update_map(db, hot, sha_bytes, None, |entry, _| {
+                if !force && (detections.is_empty() || entry.verdict != verdict) {
+                    return;
+                }
+                if entry.detections.as_slice() != detections.as_slice() {
+                    entry.detections = detections;
+                    entry.dirty = true;
+                }
+            });
+        }
+    }
+}
+
+/// Message to the insight writer: queued telemetry updates, apply-pending barrier, or flush.
 enum WriterMsg {
+    Op(TelemetryOp),
+    ApplyPending(mpsc::SyncSender<()>),
     Flush(mpsc::SyncSender<()>),
 }
 
@@ -1636,22 +1730,40 @@ fn start_batch_writer(
         .spawn(move || {
             // A standby fills the columns the old server left out once it has taken over.
             let mut filled = !crate::config::is_standby();
+            let mut last_flush = std::time::Instant::now();
             loop {
-                let msg = rx.recv_timeout(Duration::from_secs(2));
-                if !crate::config::is_standby() {
+                let first = match rx.recv_timeout(Duration::from_millis(500)) {
+                    Ok(m) => Some(m),
+                    Err(mpsc::RecvTimeoutError::Timeout) => None,
+                    Err(mpsc::RecvTimeoutError::Disconnected) => break,
+                };
+                let mut flush_waiters = Vec::new();
+                let mut apply_waiters = Vec::new();
+                let mut handle = |m: WriterMsg| match m {
+                    WriterMsg::Op(op) => apply_op(&db, &hot, &counts, op),
+                    WriterMsg::ApplyPending(done) => apply_waiters.push(done),
+                    WriterMsg::Flush(done) => flush_waiters.push(done),
+                };
+                if let Some(m) = first {
+                    handle(m);
+                }
+                while let Ok(m) = rx.try_recv() {
+                    handle(m);
+                }
+                for done in apply_waiters {
+                    let _ = done.send(());
+                }
+                if (!flush_waiters.is_empty() || last_flush.elapsed() >= Duration::from_secs(2)) && !crate::config::is_standby() {
                     if !filled {
                         fill_stale_columns(&db);
                         resync(&db, &hot, &counts, true);
                         filled = true;
                     }
                     flush(&db, &hot);
+                    last_flush = std::time::Instant::now();
                 }
-                match msg {
-                    Ok(WriterMsg::Flush(done)) => {
-                        let _ = done.send(());
-                    }
-                    Err(mpsc::RecvTimeoutError::Timeout) => {}
-                    Err(mpsc::RecvTimeoutError::Disconnected) => break,
+                for done in flush_waiters {
+                    let _ = done.send(());
                 }
             }
         })

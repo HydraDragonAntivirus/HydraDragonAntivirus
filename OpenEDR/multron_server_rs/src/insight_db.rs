@@ -66,6 +66,7 @@ pub struct InsightRow {
     pub first_seen: String,
     pub last_seen: String,
     pub seen_count: i64,
+    pub not_scanned: bool,
     pub sightings: Vec<SightingRow>,
 }
 
@@ -147,6 +148,7 @@ impl InsightDb {
                  first_seen TEXT,
                  last_seen  TEXT,
                  seen_count INTEGER,
+                 not_scanned INTEGER,
                  cols_seq   INTEGER
              );
              CREATE INDEX IF NOT EXISTS insights_seq ON insights(seq);
@@ -170,6 +172,7 @@ impl InsightDb {
             ("first_seen", "TEXT"),
             ("last_seen", "TEXT"),
             ("seen_count", "INTEGER"),
+            ("not_scanned", "INTEGER"),
             ("cols_seq", "INTEGER"),
         ] {
             if !has_column(&conn, "insights", col)? {
@@ -269,14 +272,14 @@ impl InsightDb {
         {
             let mut seq: i64 = tx.query_row("SELECT COALESCE(MAX(seq), 0) FROM insights", [], |r| r.get(0))?;
             let mut st = tx.prepare_cached(
-                "INSERT INTO insights(sha, seq, data, verdict, threat, first_seen, last_seen, seen_count, cols_seq)
-                 VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?2)
+                "INSERT INTO insights(sha, seq, data, verdict, threat, first_seen, last_seen, seen_count, not_scanned, cols_seq)
+                 VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?2)
                  ON CONFLICT(sha) DO UPDATE SET seq = excluded.seq, data = excluded.data,
                      verdict = excluded.verdict, threat = excluded.threat, first_seen = excluded.first_seen,
-                     last_seen = excluded.last_seen, seen_count = excluded.seen_count, cols_seq = excluded.cols_seq",
+                     last_seen = excluded.last_seen, seen_count = excluded.seen_count, not_scanned = excluded.not_scanned, cols_seq = excluded.cols_seq",
             )?;
             let mut same_columns = tx.prepare_cached(
-                "UPDATE insights SET seq = ?2, data = ?3, last_seen = ?7, seen_count = ?8, cols_seq = ?2
+                "UPDATE insights SET seq = ?2, data = ?3, last_seen = ?7, seen_count = ?8, not_scanned = ?9, cols_seq = ?2
                  WHERE sha = ?1 AND verdict IS ?4 AND threat IS ?5 AND first_seen IS ?6",
             )?;
             let mut ordered: Vec<&InsightRow> = rows.iter().collect();
@@ -291,7 +294,8 @@ impl InsightDb {
                     row.threat,
                     row.first_seen,
                     row.last_seen,
-                    row.seen_count
+                    row.seen_count,
+                    row.not_scanned as i64
                 ];
                 if same_columns.execute(values)? == 0 {
                     st.execute(values)?;
@@ -309,7 +313,7 @@ impl InsightDb {
     pub fn stale_rows(&self, after: &Sha, limit: usize) -> Res<Vec<(Sha, i64, Vec<u8>)>> {
         self.scan(|c| {
             let mut st = c.prepare(
-                "SELECT sha, seq, data FROM insights WHERE sha > ?1 AND cols_seq IS NOT seq ORDER BY sha LIMIT ?2",
+                "SELECT sha, seq, data FROM insights WHERE sha > ?1 AND (cols_seq IS NOT seq OR not_scanned IS NULL) ORDER BY sha LIMIT ?2",
             )?;
             let rows = st.query_map(params![&after[..], limit as i64], |r| {
                 let sha: Vec<u8> = r.get(0)?;
@@ -335,14 +339,14 @@ impl InsightDb {
         let tx = c.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
         {
             let mut st = tx.prepare_cached(
-                "UPDATE insights SET verdict = ?3, threat = ?4, first_seen = ?5, last_seen = ?6, seen_count = ?7, cols_seq = ?2
+                "UPDATE insights SET verdict = ?3, threat = ?4, first_seen = ?5, last_seen = ?6, seen_count = ?7, not_scanned = ?8, cols_seq = ?2
                  WHERE sha = ?1 AND seq = ?2",
             )?;
             let mut done = tx.prepare_cached("UPDATE insights SET cols_seq = ?2 WHERE sha = ?1 AND seq = ?2")?;
             for (seq, sha, row) in rows {
                 match row {
                     Some(row) => {
-                        if st.execute(params![&sha[..], seq, row.verdict, row.threat, row.first_seen, row.last_seen, row.seen_count])? > 0 {
+                        if st.execute(params![&sha[..], seq, row.verdict, row.threat, row.first_seen, row.last_seen, row.seen_count, row.not_scanned as i64])? > 0 {
                             write_sightings(&tx, row)?;
                         }
                     }
@@ -426,6 +430,7 @@ fn upgrade_layout(conn: &Connection, path: &Path) {
                  first_seen TEXT,
                  last_seen  TEXT,
                  seen_count INTEGER,
+                 not_scanned INTEGER,
                  cols_seq   INTEGER
              );
              INSERT INTO insights_new(sha, seq, data, verdict, threat, first_seen, last_seen, seen_count, cols_seq)
@@ -510,6 +515,7 @@ mod tests {
             first_seen: "2026-10-30T00:00:00+00:00".into(),
             last_seen: "2026-10-30T00:00:00+00:00".into(),
             seen_count: 1,
+            not_scanned: false,
             sightings: sightings
                 .iter()
                 .map(|(ip, path)| SightingRow { ip: ip.to_string(), path: path.to_string(), first_seen: String::new(), last_seen: String::new(), count: 1 })
