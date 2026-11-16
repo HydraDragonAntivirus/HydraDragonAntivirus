@@ -116,10 +116,6 @@ public:
 	// pSignerOut, when given, receives the publisher name (for diagnostics).
 	static bool isFileSignatureTrusted(const std::string& sUtf8Path, std::string* pSignerOut = nullptr);
 
-	// Hands owlyshield_ransom.dll's firewall the cloud verdict of an executable
-	// (scanFileWithLocalEngines: FLS, then VirusKov, with its cache).
-	static void registerOwlyshieldCloudVerdictProvider();
-
 	///
 	/// Fast query of the dynamic verdict cache (1=Clean, 2=Malicious, 3=Suspicious, 0=Unknown/Uncached).
 	///

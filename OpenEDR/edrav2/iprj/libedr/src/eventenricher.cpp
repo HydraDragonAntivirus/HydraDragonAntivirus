@@ -2305,6 +2305,65 @@ namespace {
 		AppendToTrainingDataset(sExe, "SCAN_RESULT", " [File: " + sDos + "]", sJson);
 	}
 
+	//
+	// Cloud verdict for the owlyshield firewall (owlyshield_ransom.dll runs in this
+	// process). The firewall asks it, on its own verification thread, what the
+	// clouds say about the executable behind a connection. It is the same scan
+	// and cache the enricher uses (FLS first, then VirusKov), so an app edrsvc
+	// already scanned is answered from the cache and nothing is asked twice.
+	//
+	// Returns 1 clean, 2 malicious, 3 suspicious, 0 answered but unknown, -1 no
+	// answer yet (cloud unreachable): the firewall does not keep a -1 and asks
+	// again. pViruskov receives VirusKov's own word (Clean / Malicious /
+	// Suspicious / Unknown / Error; empty when FLS settled it alone).
+	//
+	static int32_t OwlyshieldCloudVerdictProvider(const wchar_t* pPath, char* pViruskov, uint32_t nViruskovCap)
+	{
+		if (pViruskov != nullptr && nViruskovCap != 0)
+			pViruskov[0] = '\0';
+		if (pPath == nullptr || *pPath == L'\0')
+			return -1;
+		try
+		{
+			std::string sThreat;
+			DetectionNotifier::CloudScanDetail detail;
+			const std::string sPath = string::convertWCharToUtf8(pPath);
+			int nVerdict = DetectionNotifier::scanFileWithLocalEngines(sPath, sThreat, &detail);
+			// Kill chain record like the enricher's own scans. No pid: the file is
+			// the connecting app's image, which is what the training-dir check needs.
+			RecordScanResultForKillChain(sPath, 0, nVerdict, detail, "firewall");
+			if (pViruskov != nullptr && nViruskovCap != 0)
+			{
+				size_t nLen = (std::min)(detail.sViruskov.size(), size_t(nViruskovCap - 1));
+				memcpy(pViruskov, detail.sViruskov.data(), nLen);
+				pViruskov[nLen] = '\0';
+			}
+			if (nVerdict == 1 || nVerdict == 2 || nVerdict == 3)
+				return nVerdict;
+			// Unknown: an answer only if VirusKov gave one ("Error" = it did not
+			// answer; with FLS unknown too, nobody has).
+			return detail.sViruskov == "Error" ? -1 : 0;
+		}
+		catch (...)
+		{
+			return -1;
+		}
+	}
+
+	void RegisterOwlyshieldCloudVerdictProvider()
+	{
+		HMODULE hOwly = ::GetModuleHandleW(L"owlyshield_ransom.dll");
+		if (!hOwly) hOwly = ::LoadLibraryW(L"owlyshield_ransom.dll");
+		if (!hOwly)
+			return;
+		typedef int32_t (*CloudVerdictProviderFn)(const wchar_t*, char*, uint32_t);
+		typedef void (*SetCloudVerdictProviderFn)(CloudVerdictProviderFn);
+		if (auto fnSet = (SetCloudVerdictProviderFn)::GetProcAddress(hOwly, "owlyshield_set_cloud_verdict_provider"))
+			fnSet(&OwlyshieldCloudVerdictProvider);
+		else
+			LOGLVL(Critical, "owlyshield_ransom.dll has no owlyshield_set_cloud_verdict_provider: the firewall gets no cloud verdicts");
+	}
+
 	// Append a JSON line into ProgramData\edrsvc\log\output_events\
 	// (same stream the Owlyshield behavioral alerts use).
 	void AppendToOutputEvents(const std::string& sJsonLine)
@@ -5286,7 +5345,7 @@ void EventEnricher::finalConstruct(Variant vConfig)
 	}
 
 	// The firewall's cloud verdicts come from the enricher's own scan + cache.
-	DetectionNotifier::registerOwlyshieldCloudVerdictProvider();
+	RegisterOwlyshieldCloudVerdictProvider();
 
 	std::scoped_lock _lock(m_mtxQueue);
 	if (m_threadPool.getThreadsCount() == 0)
