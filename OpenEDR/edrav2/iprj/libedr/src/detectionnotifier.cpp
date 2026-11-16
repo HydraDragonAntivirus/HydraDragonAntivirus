@@ -767,6 +767,7 @@ std::atomic<int> DetectionNotifier::s_cleanVerdict{1};
 std::atomic<int> DetectionNotifier::s_malwareVerdict{2};
 std::atomic<int> DetectionNotifier::s_unknownVerdictDefault{0};
 std::atomic<int> DetectionNotifier::s_unknownAnswerCacheSeconds{0};
+std::atomic<int> DetectionNotifier::s_flsAnswerCacheSeconds{7200};
 std::atomic<int> DetectionNotifier::s_unknownReputationVerdict{3};
 std::atomic<int> DetectionNotifier::s_staticUnknownVerdict{4};
 
@@ -849,6 +850,7 @@ void DetectionNotifier::loadScannerConfigFromCfg(const std::string& content)
 	s_malwareVerdict.store(extractInt(content, "malwareVerdict", 2), std::memory_order_relaxed);
 	s_unknownVerdictDefault.store(extractInt(content, "unknownVerdictDefault", 0), std::memory_order_relaxed);
 	s_unknownAnswerCacheSeconds.store((std::max)(0, extractInt(content, "unknownAnswerCacheSeconds", 0)), std::memory_order_relaxed);
+	s_flsAnswerCacheSeconds.store((std::max)(0, extractInt(content, "flsAnswerCacheSeconds", 7200)), std::memory_order_relaxed);
 	s_unknownReputationVerdict.store(extractInt(content, "unknownReputationVerdict", 3), std::memory_order_relaxed);
 	s_staticUnknownVerdict.store(extractInt(content, "staticUnknownVerdict", 4), std::memory_order_relaxed);
 
@@ -2219,15 +2221,18 @@ int DetectionNotifier::scanFileWithLocalEngines(const std::string& sUtf8Path, st
 	{
 		sThreatNameOut.clear();
 		const int nUnknown = s_unknownVerdictDefault.load(std::memory_order_relaxed);
-		// VirusKov answered "Unknown": it looked and cannot tell, and asking
-		// again about the same content gets the same answer until the server
-		// learns more. It used to be asked again on every call - the module
-		// inspection re-hashed and re-sent every unknown DLL of every active
-		// process every few seconds, on the enricher thread. Reused for
-		// unknownAnswerCacheSeconds. No answer at all (Deferred / Error, locked
-		// file) is not cached: that one is retried.
-		const int nTtl = s_unknownAnswerCacheSeconds.load(std::memory_order_relaxed);
-		if (hasIdentity && nTtl > 0 && detail.sViruskov == "Unknown")
+		// VirusKov answered "Unknown" or Comodo FLS answered "Absent" / "Unknown"
+		// (never "Fail" or unreachable): reuse for unknownAnswerCacheSeconds /
+		// flsAnswerCacheSeconds so active DLLs are not re-hashed and re-queried
+		// every 5 s while VirusKov is deferred.
+		const int nViruskovTtl = (detail.sViruskov == "Unknown")
+			? s_unknownAnswerCacheSeconds.load(std::memory_order_relaxed)
+			: 0;
+		const int nFlsTtl = (detail.sFls == "Absent" || detail.sFls == "Unknown")
+			? s_flsAnswerCacheSeconds.load(std::memory_order_relaxed)
+			: 0;
+		const int nTtl = (nViruskovTtl > 0) ? nViruskovTtl : nFlsTtl;
+		if (hasIdentity && nTtl > 0)
 		{
 			std::lock_guard<std::mutex> lock(s_mtxVerdictCache);
 			if (s_verdictCache.size() >= kMaxVerdictCacheSize)

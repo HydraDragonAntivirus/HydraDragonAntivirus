@@ -1,6 +1,8 @@
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::path::Path;
-use std::sync::{OnceLock, RwLock};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, OnceLock, RwLock};
 use yara_x::{Compiler, MetaValue, Rules, Scanner};
 
 /// Name parts that mark a rule as potentially unwanted rather than malware (dual-use
@@ -148,8 +150,54 @@ fn note_rule_classes(rules: &Rules) {
     }
 }
 
+static NEXT_RULESET_ID: AtomicU64 = AtomicU64::new(1);
+
+struct RuleEntry {
+    id: u64,
+    rules: Arc<Rules>,
+}
+
+impl RuleEntry {
+    fn new(rules: Rules) -> Self {
+        Self {
+            id: NEXT_RULESET_ID.fetch_add(1, Ordering::Relaxed),
+            rules: Arc::new(rules),
+        }
+    }
+}
+
+struct CachedScanner {
+    // Field order matters: `scanner` borrows `_rules`, so it must be dropped first.
+    scanner: Scanner<'static>,
+    _rules: Arc<Rules>,
+}
+
+thread_local! {
+    static SCANNER_CACHE: RefCell<HashMap<u64, CachedScanner>> = RefCell::new(HashMap::new());
+}
+
+fn with_scanner<T>(entry: &RuleEntry, f: impl FnOnce(&mut Scanner<'static>) -> T) -> T {
+    SCANNER_CACHE.with(|cell| {
+        let mut cache = cell.borrow_mut();
+        if cache.len() > 32 && !cache.contains_key(&entry.id) {
+            cache.retain(|_, v| Arc::strong_count(&v._rules) > 1);
+        }
+        let cached = cache.entry(entry.id).or_insert_with(|| {
+            // SAFETY: `_rules` keeps the `Rules` allocation alive in `CachedScanner`
+            // until after `scanner` is dropped (guaranteed by field drop order).
+            let ptr: *const Rules = &*entry.rules;
+            let rules_static: &'static Rules = unsafe { &*ptr };
+            CachedScanner {
+                scanner: Scanner::new(rules_static),
+                _rules: Arc::clone(&entry.rules),
+            }
+        });
+        f(&mut cached.scanner)
+    })
+}
+
 pub struct YaraScanner {
-    rules: Vec<Rules>,
+    rules: Vec<RuleEntry>,
     /// Rule names turned off by `*.ign2` / `*.ign` false-positive lists in the rules
     /// folder (ClamAV ignore-list format). Their matches are dropped.
     ignored: std::collections::HashSet<String>,
@@ -173,7 +221,7 @@ impl YaraScanner {
                         // Compiled YARA-X rule file
                         if let Ok(bytes) = std::fs::read(&path) {
                             if let Ok(r) = Rules::deserialize(&bytes) {
-                                loaded_rules.push(r);
+                                loaded_rules.push(RuleEntry::new(r));
                             }
                         }
                     } else if ext.eq_ignore_ascii_case("yar") || ext.eq_ignore_ascii_case("yara") {
@@ -189,10 +237,10 @@ impl YaraScanner {
 
         if source_count > 0 {
             let compiled = compiler.build();
-            loaded_rules.push(compiled);
+            loaded_rules.push(RuleEntry::new(compiled));
         }
         for r in &loaded_rules {
-            note_rule_classes(r);
+            note_rule_classes(&r.rules);
         }
 
         Self { rules: loaded_rules, ignored: crate::string_rules::read_ignore_lists(rules_dir) }
@@ -205,15 +253,16 @@ impl YaraScanner {
 
         crate::memtrack::measure("scan:yara", crate::memtrack::Kind::Scan, data.len(), || {
             let mut hits = Vec::new();
-            for rules in &self.rules {
-                let mut scanner = Scanner::new(rules);
-                if let Ok(results) = scanner.scan(data) {
-                    for m in results.matching_rules() {
-                        if !self.ignored.contains(m.identifier()) {
-                            hits.push(m.identifier().to_string());
+            for entry in &self.rules {
+                with_scanner(entry, |scanner| {
+                    if let Ok(results) = scanner.scan(data) {
+                        for m in results.matching_rules() {
+                            if !self.ignored.contains(m.identifier()) {
+                                hits.push(m.identifier().to_string());
+                            }
                         }
                     }
-                }
+                });
             }
             hits
         })
@@ -227,24 +276,29 @@ impl YaraScanner {
         if data.is_empty() {
             return out;
         }
-        for rules in &self.rules {
-            let mut scanner = Scanner::new(rules);
-            let Ok(results) = scanner.scan(data) else { continue };
-            for rule in results.matching_rules() {
-                if self.ignored.contains(rule.identifier()) {
-                    continue;
-                }
-                for pattern in rule.patterns() {
-                    for m in pattern.matches() {
-                        if out.len() >= limit {
-                            return out;
-                        }
-                        let r = m.range();
-                        if r.start < r.end {
-                            out.push((rule.identifier().to_string(), r.start, r.end));
+        for entry in &self.rules {
+            let done = with_scanner(entry, |scanner| {
+                let Ok(results) = scanner.scan(data) else { return false };
+                for rule in results.matching_rules() {
+                    if self.ignored.contains(rule.identifier()) {
+                        continue;
+                    }
+                    for pattern in rule.patterns() {
+                        for m in pattern.matches() {
+                            if out.len() >= limit {
+                                return true;
+                            }
+                            let r = m.range();
+                            if r.start < r.end {
+                                out.push((rule.identifier().to_string(), r.start, r.end));
+                            }
                         }
                     }
                 }
+                false
+            });
+            if done {
+                return out;
             }
         }
         out
@@ -258,30 +312,31 @@ impl YaraScanner {
         if data.is_empty() {
             return out;
         }
-        for rules in &self.rules {
-            let mut scanner = Scanner::new(rules);
-            let Ok(results) = scanner.scan(data) else { continue };
-            for rule in results.matching_rules() {
-                if self.ignored.contains(rule.identifier()) {
-                    continue;
-                }
-                let mut ranges = Vec::new();
-                let mut patterns = Vec::new();
-                for pattern in rule.patterns() {
-                    let mut any = false;
-                    for m in pattern.matches() {
-                        any = true;
-                        let r = m.range();
-                        if r.start < r.end && ranges.len() < max_ranges {
-                            ranges.push((r.start, r.end));
+        for entry in &self.rules {
+            with_scanner(entry, |scanner| {
+                let Ok(results) = scanner.scan(data) else { return };
+                for rule in results.matching_rules() {
+                    if self.ignored.contains(rule.identifier()) {
+                        continue;
+                    }
+                    let mut ranges = Vec::new();
+                    let mut patterns = Vec::new();
+                    for pattern in rule.patterns() {
+                        let mut any = false;
+                        for m in pattern.matches() {
+                            any = true;
+                            let r = m.range();
+                            if r.start < r.end && ranges.len() < max_ranges {
+                                ranges.push((r.start, r.end));
+                            }
+                        }
+                        if any {
+                            patterns.push(pattern.identifier().to_string());
                         }
                     }
-                    if any {
-                        patterns.push(pattern.identifier().to_string());
-                    }
+                    out.push((rule.identifier().to_string(), patterns, ranges));
                 }
-                out.push((rule.identifier().to_string(), patterns, ranges));
-            }
+            });
         }
         out
     }
@@ -296,7 +351,7 @@ impl YaraScanner {
         match Rules::deserialize(data) {
             Ok(r) => {
                 note_rule_classes(&r);
-                self.rules.push(r);
+                self.rules.push(RuleEntry::new(r));
                 true
             }
             Err(_) => false,
@@ -312,7 +367,7 @@ impl YaraScanner {
         }
         let r = compiler.build();
         note_rule_classes(&r);
-        self.rules.push(r);
+        self.rules.push(RuleEntry::new(r));
         true
     }
 

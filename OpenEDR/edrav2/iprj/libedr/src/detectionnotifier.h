@@ -148,6 +148,9 @@ public:
 	// How long an "Unknown" answer (VirusKov looked and cannot tell) is reused
 	// before the file is asked about again; 0 = never reused.
 	static std::atomic<int> s_unknownAnswerCacheSeconds;
+	// How long a Comodo FLS "Absent" / "Unknown" answer is reused when VirusKov
+	// did not decide (e.g. Deferred); 0 = never reused.
+	static std::atomic<int> s_flsAnswerCacheSeconds;
 	static std::atomic<int> s_unknownReputationVerdict;
 	static std::atomic<int> s_staticUnknownVerdict;
 	static std::vector<int> s_unknownVerdicts;
