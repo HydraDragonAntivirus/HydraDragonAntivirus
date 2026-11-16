@@ -19243,3 +19243,425 @@ rule PUA_VULN_Driver_Highresolutionenterpriseswwwhighrezcouk_Inpoutxsys_Inpoutxd
 }
 
 
+// ===== removed from hydradragon/yara-x/rules\clean_rules.yar (20261116_225419) =====
+rule DebuggerCheck__PEB: AntiDebug DebuggerCheck {
+  meta:
+    weight    = 1
+    Author    = "naxonez"
+    reference = "https://github.com/naxonez/yaraRules/blob/master/AntiDebugging.yara"
+
+  strings:
+    $ = "IsDebugged"
+
+  condition:
+    any of them
+}
+
+rule select_tab__compression____8_byt_256_ {
+  strings:
+    $a0 = { 00 01 02 01 03 01 02 01 04 01 02 01 03 01 02 01 05 01 02 01 03 01 02 01 04 01 02 01 03 01 02 01 06 01 02 01 03 01 02 01 04 01 02 01 03 01 02 01 05 01 02 01 03 01 02 01 04 01 02 01 03 01 02 01 07 01 02 01 03 01 02 01 04 01 02 01 03 01 02 01 05 01 02 01 03 01 02 01 04 01 02 01 03 01 02 01 06 01 02 01 03 01 02 01 04 01 02 01 03 01 02 01 05 01 02 01 03 01 02 01 04 01 02 01 03 01 02 01 08 01 02 01 03 01 02 01 04 01 02 01 03 01 02 01 05 01 02 01 03 01 02 01 04 01 02 01 03 01 02 01 06 01 02 01 03 01 02 01 04 01 02 01 03 01 02 01 05 01 02 01 03 01 02 01 04 01 02 01 03 01 02 01 07 01 02 01 03 01 02 01 04 01 02 01 03 01 02 01 05 01 02 01 03 01 02 01 04 01 02 01 03 01 02 01 06 01 02 01 03 01 02 01 04 01 02 01 03 01 02 01 05 01 02 01 03 01 02 01 04 01 02 01 03 01 02 01 }
+
+  condition:
+    $a0
+}
+
+rule OpenSSL_dh512_p__8_byt_64_ {
+  strings:
+    $a0 = { da 58 3c 16 d9 85 22 89 d0 e4 af 75 6f 4c ca 92 dd 4b e5 33 b8 04 fb 0f ed 94 ef 9c 8a 44 03 ed 57 46 50 d3 69 99 db 29 d7 76 27 6b a2 d3 d4 12 e2 18 f4 dd 1e 08 4c f6 d8 00 3e 7c 47 74 e8 33 }
+
+  condition:
+    $a0
+}
+
+rule ASProtectv10 {
+  strings:
+    $a0 = { 60 E8 01 ?? ?? ?? 90 5D 81 ED ?? ?? ?? ?? BB ?? ?? ?? ?? 03 DD 2B 9D }
+
+  condition:
+    $a0 at (pe.entry_point)
+}
+
+rule ASProtectvxx {
+  strings:
+    $a0 = { 60 ?? ?? ?? ?? ?? 90 5D ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? 03 DD }
+
+  condition:
+    $a0 at (pe.entry_point)
+}
+
+rule _ASProtect_10__Solodovnikov_Alexey_ {
+  meta:
+    description = "ASProtect 1.0 -> Solodovnikov Alexey"
+
+  strings:
+    $0 = { 60 E8 01 00 00 00 90 5D 81 ED ?? ?? ?? 00 BB ?? ?? ?? 00 03 DD 2B 9D }
+
+  condition:
+    $0 at pe.entry_point
+}
+
+rule aspr1 {
+  meta:
+    author      = "PEiD"
+    description = "ASProtect 1.0 -> Alexey Solodovnikov"
+    group       = "106"
+    function    = "0"
+
+  strings:
+    $a0 = { 60 E8 01 ?? ?? ?? 90 5D 81 ED ?? ?? ?? ?? BB ?? ?? ?? ?? 03 DD 2B 9D }
+
+  condition:
+    $a0
+}
+
+rule AndroidResourceArsc {
+  meta:
+    description  = "Probably an Android resource file (i.e. resources.arsc)"
+    author       = "@larsborn"
+    date         = "2024-02-10"
+    reference    = "https://androguard.readthedocs.io/en/latest/api/androguard.core.bytecodes.html#androguard.core.bytecodes.axml.AXMLParser"
+    example_hash = "e81b50d46350e67d4c60e156556e2698a9acbe73b8c2008ca0f8696a3e0e391a"
+    DaysofYARA   = "22/100"
+
+  condition:
+    uint16be(0) == 0x0200 and uint32(4) == filesize
+}
+
+rule wmic {
+  meta:
+    description   = "Detection patterns for the tool 'wmic' taken from the ThreatHunting-Keywords github project"
+    author        = "@mthcht"
+    reference     = "https://github.com/mthcht/ThreatHunting-Keywords"
+    tool          = "wmic"
+    rule_category = "greyware_tool_keyword"
+
+  strings:
+    // Description: Threat Actors ran the following command to download and execute a PowerShell payload
+    // Reference: https://media.defense.gov/2023/May/24/2003229517/-1/-1/0/CSA_Living_off_the_Land.PDF
+    $string1  = /\sprocess\scall\screate\s.*cmd\.exe\s\/c\spowershell\.exe\s\-nop\s\-w\shidden\s\-c\s.*IEX\s\(\(new\-object\snet\.webclient\)\.downloadstring\(\'https:\/\// nocase ascii wide
+    // Description: The NTDS.dit file is the heart of Active Directory including user accounts If it's found in the Temp directory it could indicate that an attacker has copied the file here in an attempt to extract sensitive information.
+    // Reference: https://media.defense.gov/2023/May/24/2003229517/-1/-1/0/CSA_Living_off_the_Land.PDF
+    $string2  = /\\Temp\\.*\\ntds\.dit/ nocase ascii wide
+    // Description: Like the ntds.dit file it should not normally be found in the Temp directory.
+    // Reference: https://media.defense.gov/2023/May/24/2003229517/-1/-1/0/CSA_Living_off_the_Land.PDF
+    $string3  = /\\Temp\\.*\\ntds\.jfm/ nocase ascii wide
+    // Description: this file shouldn't be found in the Users\Public directory. Its presence could be a sign of an ongoing or past attack.
+    // Reference: https://media.defense.gov/2023/May/24/2003229517/-1/-1/0/CSA_Living_off_the_Land.PDF
+    $string4  = /\\Users\\Public\\.*ntds\.dit/ nocase ascii wide
+    // Description: Like the ntds.dit file it should not normally be found in this directory.
+    // Reference: https://media.defense.gov/2023/May/24/2003229517/-1/-1/0/CSA_Living_off_the_Land.PDF
+    $string5  = /\\Users\\Public\\.*ntds\.jfm/ nocase ascii wide
+    // Description: The actor has executed WMIC commands [T1047] to create a copy of the ntds.dit file and SYSTEM registry hive using ntdsutil.exe
+    // Reference: https://media.defense.gov/2023/May/24/2003229517/-1/-1/0/CSA_Living_off_the_Land.PDF
+    $string6  = /ac\si\sntds.*\\\\127\.0\.0\.1\\ADMIN\$\\/ nocase ascii wide
+    // Description: gather information about Windows OS version and licensing on the hosts
+    // Reference: https://thedfirreport.com/2023/05/22/icedid-macro-ends-in-nokoyawa-ransomware/
+    $string7  = /cmd\.exe\s\/C\swmic\s\/node:.*\s\/user:.*\s\/password:.*\sos\sget\scaption/ nocase ascii wide
+    // Description: Enable WinRM remotely with wmic
+    // Reference: N/A
+    $string8  = /process\scall\screate\s\"powershell\senable\-psremoting\s\-force\"/ nocase ascii wide
+    // Description: WMIC suspicious transfer 
+    // Reference: N/A
+    $string9  = /start\swmic\s\/node:\@C:\\.*\.txt\s\/user:.*\/password:.*\sprocess\scall\screate\s.*cmd\.exe\s\/c\sbitsadmin\s\/transfer\s.*\.exe\s/ nocase ascii wide
+    // Description: Lateral Movement with wmic
+    // Reference: https://github.com/RoseSecurity/Red-Teaming-TTPs/blob/main/Anti-Forensics.md
+    $string10 = /wmic\s\/.*\s\/user:administrator\sprocess\scall\screate\s.*cmd\.exe\s\/c\s/ nocase ascii wide
+    // Description: Execute file hosted over SMB on remote system with specified credential
+    // Reference: N/A
+    $string11 = /wmic\s\/node:.*\s\/user:.*\s\/password:.*\sprocess\scall\screate\s\"\\\\.*\\.*\.exe/ nocase ascii wide
+    // Description: Remotely start RDP with wmic
+    // Reference: N/A
+    $string12 = /wmic\s\/node:.*\spath\sWin32_TerminalServiceSetting\swhere\sAllowTSConnections\=\"0\"\scall\sSetAllowTSConnections\s\"1\"/ nocase ascii wide
+    // Description: get the currently logged user with wmic
+    // Reference: N/A
+    $string13 = /wmic\s\/node:.*\..*\..*\..*computersystem\sget\susername/ nocase ascii wide
+    // Description: get the currently logged user with wmic
+    // Reference: N/A
+    $string14 = /wmic\s\/node:.*localhost.*computersystem\sget\susername/ nocase ascii wide
+    // Description: get domain name with wmic
+    // Reference: N/A
+    $string15 = /wmic\scomputersystem\sget\sdomain/ nocase ascii wide
+    // Description: The actor has executed WMIC commands [T1047] to create a copy of the ntds.dit file and SYSTEM registry hive using ntdsutil.exe
+    // Reference: https://media.defense.gov/2023/May/24/2003229517/-1/-1/0/CSA_Living_off_the_Land.PDF
+    $string16 = /wmic\sprocess\scall\screate.*ntdsutil\s.*ac\si\sntds.*\sifm.*create\sfull/ nocase ascii wide
+    // Description: wmic discovery commands abused by attackers
+    // Reference: N/A
+    $string17 = /wmic\sservice\sbrief/ nocase ascii wide
+    // Description: VSS is a feature in Windows that allows for the creation of snapshots of a volume capturing its state at a specific point in time. Adversaries may abuse the wmic shadowcopy command to interact with these shadow copies for defense evasion purposes.
+    // Reference: N/A
+    $string18 = /wmic\sSHADOWCOPY\s\/nointeractive/ nocase ascii wide
+    // Description: User Enumeration
+    // Reference: https://github.com/RoseSecurity/Red-Teaming-TTPs/blob/main/Anti-Forensics.md
+    $string19 = /wmic\suseraccount\sget\s\/ALL\s\/format:csv/ nocase ascii wide
+    // Description: wmic discovery commands abused by attackers
+    // Reference: N/A
+    $string20 = /wmic\svolume\slist\sbrief/ nocase ascii wide
+    // Description: list AV products with wmic
+    // Reference: N/A
+    $string21 = /wmic.*\/Namespace:\\\\root\\SecurityCenter2\sPath\sAntiVirusProduct\sGet\sdisplayName/ nocase ascii wide
+    // Description: Execute a .EXE file stored as an Alternate Data Stream (ADS)
+    // Reference: https://github.com/RoseSecurity/Red-Teaming-TTPs/blob/main/Anti-Forensics.md
+    $string22 = /wmic\.exe\sprocess\scall\screate\s.*\.txt:.*\.exe/ nocase ascii wide
+    // Description: call cmd.exe with wmic
+    // Reference: N/A
+    $string23 = /wmic\.exe\sprocess\scall\screate\s.*cmd\s\/c\s/ nocase ascii wide
+
+  condition:
+    any of them
+}
+
+rule win_sysscan_auto {
+  meta:
+    author             = "Felix Bilstein - yara-signator at cocacoding dot com"
+    date               = "2020-10-14"
+    version            = "1"
+    description        = "autogenerated rule brought to you by yara-signator"
+    tool               = "yara-signator v0.5.0"
+    signator_config    = "callsandjumps;datarefs;binvalue"
+    malpedia_reference = "https://malpedia.caad.fkie.fraunhofer.de/details/win.sysscan"
+    malpedia_rule_date = "20201014"
+    malpedia_hash      = "a7e3bd57eaf12bf3ea29a863c041091ba3af9ac9"
+    malpedia_version   = "20201014"
+    malpedia_license   = "CC BY-SA 4.0"
+    malpedia_sharing   = "TLP:WHITE"
+  /* DISCLAIMER
+   * The strings used in this rule have been automatically selected from the
+   * disassembly of memory dumps and unpacked files, using YARA-Signator.
+   * The code and documentation is published here:
+   * https://github.com/fxb-cocacoding/yara-signator
+   * As Malpedia is used as data source, please note that for a given
+   * number of families, only single samples are documented.
+   * This likely impacts the degree of generalization these rules will offer.
+   * Take the described generation method also into consideration when you
+   * apply the rules in your use cases and assign them confidence levels.
+   */
+
+  strings:
+    $sequence_0 = { c7 45 a0 ff ff ff ff e9 ?? ?? ?? ?? 8b 55 e4 8b 7a 38 0f b6 4a 06 89 4d b8 c7 43 1c 02 8b c7 61 }
+    // n = 7, score = 100
+    //   c745a0ffffffff       | mov                 dword ptr [ebp - 0x60], 0xffffffff
+    //   e9????????           |                     
+    //   8b55e4               | mov                 edx, dword ptr [ebp - 0x1c]
+    //   8b7a38               | mov                 edi, dword ptr [edx + 0x38]
+    //   0fb64a06             | movzx               ecx, byte ptr [edx + 6]
+    //   894db8               | mov                 dword ptr [ebp - 0x48], ecx
+    //   c7431c028bc761       | mov                 dword ptr [ebx + 0x1c], 0x61c78b02
+    $sequence_1 = { e9 ?? ?? ?? ?? 8a 8d 20 ff ff ff 8b 03 3a 08 74 0e 8b 55 14 c7 02 2a 00 00 00 }
+    // n = 7, score = 100
+    //   e9????????           |                     
+    //   8a8d20ffffff         | mov                 cl, byte ptr [ebp - 0xe0]
+    //   8b03                 | mov                 eax, dword ptr [ebx]
+    //   3a08                 | cmp                 cl, byte ptr [eax]
+    //   740e                 | je                  0x10
+    //   8b5514               | mov                 edx, dword ptr [ebp + 0x14]
+    //   c7022a000000         | mov                 dword ptr [edx], 0x2a
+    $sequence_2 = { eb 10 c7 44 24 0c 04 71 c7 61 c7 44 24 08 ec d8 00 00 c7 44 24 04 56 7f c7 61 c7 04 24 0b 00 00 00 e8 ?? ?? ?? ?? b8 0b 00 00 00 }
+    // n = 7, score = 100
+    //   eb10                 | jmp                 0x12
+    //   c744240c0471c761     | mov                 dword ptr [esp + 0xc], 0x61c77104
+    //   c7442408ecd80000     | mov                 dword ptr [esp + 8], 0xd8ec
+    //   c7442404567fc761     | mov                 dword ptr [esp + 4], 0x61c77f56
+    //   c704240b000000       | mov                 dword ptr [esp], 0xb
+    //   e8????????           |                     
+    //   b80b000000           | mov                 eax, 0xb
+    $sequence_3 = { 81 c2 1c 20 00 00 89 d1 81 e1 ff 0f 00 00 89 4d c8 8b 73 04 c7 45 cc 00 00 00 00 f7 c6 00 04 00 00 }
+    // n = 7, score = 100
+    //   81c21c200000         | add                 edx, 0x201c
+    //   89d1                 | mov                 ecx, edx
+    //   81e1ff0f0000         | and                 ecx, 0xfff
+    //   894dc8               | mov                 dword ptr [ebp - 0x38], ecx
+    //   8b7304               | mov                 esi, dword ptr [ebx + 4]
+    //   c745cc00000000       | mov                 dword ptr [ebp - 0x34], 0
+    //   f7c600040000         | test                esi, 0x400
+    $sequence_4 = { c7 43 20 00 00 00 00 c7 43 0c 00 00 00 00 89 1c 24 e8 ?? ?? ?? ?? 31 c0 83 c4 14 5b }
+    // n = 7, score = 100
+    //   c7432000000000       | mov                 dword ptr [ebx + 0x20], 0
+    //   c7430c00000000       | mov                 dword ptr [ebx + 0xc], 0
+    //   891c24               | mov                 dword ptr [esp], ebx
+    //   e8????????           |                     
+    //   31c0                 | xor                 eax, eax
+    //   83c414               | add                 esp, 0x14
+    //   5b                   | pop                 ebx
+    $sequence_5 = { e2 e0 e2 e1 e2 e2 e2 e3 e2 e4 e2 e5 e2 e6 }
+    // n = 7, score = 100
+    //   e2e0                 | loop                0xffffffe2
+    //   e2e1                 | loop                0xffffffe3
+    //   e2e2                 | loop                0xffffffe4
+    //   e2e3                 | loop                0xffffffe5
+    //   e2e4                 | loop                0xffffffe6
+    //   e2e5                 | loop                0xffffffe7
+    //   e2e6                 | loop                0xffffffe8
+    $sequence_6 = { eb 13 0f b7 85 66 ff ff ff 39 45 d8 0f 9d c0 f7 d8 21 c7 eb 1a }
+    // n = 7, score = 100
+    //   eb13                 | jmp                 0x15
+    //   0fb78566ffffff       | movzx               eax, word ptr [ebp - 0x9a]
+    //   3945d8               | cmp                 dword ptr [ebp - 0x28], eax
+    //   0f9dc0               | setge               al
+    //   f7d8                 | neg                 eax
+    //   21c7                 | and                 edi, eax
+    //   eb1a                 | jmp                 0x1c
+    $sequence_7 = { eb 40 c6 45 dc 05 eb 3a c6 45 dc 03 eb 34 c6 45 dc 06 eb 2e }
+    // n = 7, score = 100
+    //   eb40                 | jmp                 0x42
+    //   c645dc05             | mov                 byte ptr [ebp - 0x24], 5
+    //   eb3a                 | jmp                 0x3c
+    //   c645dc03             | mov                 byte ptr [ebp - 0x24], 3
+    //   eb34                 | jmp                 0x36
+    //   c645dc06             | mov                 byte ptr [ebp - 0x24], 6
+    //   eb2e                 | jmp                 0x30
+    $sequence_8 = { eb 21 8b 56 28 66 89 55 e0 8d 4e 26 8d 55 b4 89 14 24 ba 01 00 00 00 }
+    // n = 7, score = 100
+    //   eb21                 | jmp                 0x23
+    //   8b5628               | mov                 edx, dword ptr [esi + 0x28]
+    //   668955e0             | mov                 word ptr [ebp - 0x20], dx
+    //   8d4e26               | lea                 ecx, [esi + 0x26]
+    //   8d55b4               | lea                 edx, [ebp - 0x4c]
+    //   891424               | mov                 dword ptr [esp], edx
+    //   ba01000000           | mov                 edx, 1
+    $sequence_9 = { ff 45 e4 8b 55 e0 39 55 e4 7c a8 8b 75 a4 89 3c 24 31 c9 }
+  // n = 7, score = 100
+  //   ff45e4               | inc                 dword ptr [ebp - 0x1c]
+  //   8b55e0               | mov                 edx, dword ptr [ebp - 0x20]
+  //   3955e4               | cmp                 dword ptr [ebp - 0x1c], edx
+  //   7ca8                 | jl                  0xffffffaa
+  //   8b75a4               | mov                 esi, dword ptr [ebp - 0x5c]
+  //   893c24               | mov                 dword ptr [esp], edi
+  //   31c9                 | xor                 ecx, ecx
+
+  condition:
+    7 of them and filesize < 10141696
+}
+
+rule Detect_IsDebuggerPresent: AntiDebug {
+  meta:
+    author    = "naxonez"
+    reference = "https://github.com/naxonez/yaraRules/blob/master/AntiDebugging.yara"
+
+  strings:
+    $ = "IsDebugged"
+
+  condition:
+    uint16(0) == 0x5A4D and filesize < 1000KB and any of them
+}
+
+rule PDF_Containing_JavaScript {
+  meta:
+    author         = "InQuest Labs"
+    description    = "This signature detects a PDF file that contains JavaScript. JavaScript can be used to customize PDFs by implementing objects, methods, and properties. While not inherently malicious, embedding JavaScript inside of a PDF is often used for malicious purposes such as malware delivery or exploitation."
+    created_date   = "2022-03-15"
+    updated_date   = "2022-03-15"
+    blog_reference = "www.sans.org/security-resources/malwarefaq/pdf-overview.php"
+    labs_reference = "N/A"
+    labs_pivot     = "N/A"
+    samples        = "c82e29dcaed3c71e05449cb9463f3efb7114ea22b6f45b16e09eae32db9f5bef"
+
+  strings:
+    $pdf_tag1 = /\x25\x50\x44\x46\x2d/
+    $js_tag1  = "/JavaScript" fullword
+    $js_tag2  = "/JS" fullword
+
+  condition:
+    $pdf_tag1 in (0..1024) and ($js_tag1 or $js_tag2)
+
+}
+
+rule BroEx {
+  meta:
+    id             = "5MNXppaMBFMS0DMQ63eCJO"
+    fingerprint    = "8eea2d3d8d4e8ca6ef89d474232d1117e2a5a5b4c714b4c82493293f31e4f2c6"
+    version        = "1.0"
+    first_imported = "2023-09-18"
+    last_modified  = "2023-09-18"
+    status         = "RELEASED"
+    sharing        = "TLP:WHITE"
+    source         = "BARTBLAZE"
+    author         = "@bartblaze"
+    description    = "Detects BroEx, a type of agressive adware."
+    category       = "MALWARE"
+    malware        = "BROEX"
+    malware_type   = "ADWARE"
+    hash           = "7f103012a143b9e358087cf94dbdd160362a57e5ebc65c560e352ac7541bd80e"
+
+  strings:
+    //PDB
+    $pdb = "I:\\Repository2\\test\\Project21\\event\\Release\\event.pdb" ascii wide
+
+    //Mutants
+    $mut1 = "Global\\A6A161D8-150E-46A1-B7EC-18E4CB58C6D2" ascii wide
+    $mut2 = "Global\\D80D9D78-BCDA-482C-98F2-C38991A8CA3" ascii wide
+    $mut3 = "Global\\8D13D07B-A758-456A-A215-0518F1268C2A" ascii wide
+
+    //Launch
+    $browser1 = "main -c rbrowser chrome" ascii wide
+    $browser2 = "main -c rbrowser msedge" ascii wide
+
+    //Service names
+    $svc1 = "WimsysUpdaterService" ascii wide
+    $svc2 = "WimsysService" ascii wide
+    $svc3 = "WimsysServiceX64" ascii wide
+
+    /*
+    pvVar1 = (void *)0x0;
+    param_1[3] = (void *)0x7;
+    param_1[2] = (void *)0x0;
+    *(undefined2 *)param_1 = 0;
+    if (*(short *)param_2 != 0) {
+    pvVar1 = (void *)0xffffffffffffffff;
+    */
+    $str_decode = { 4? 53 4? 83 ec 20 4? 33 c0 4? c7 41 18 07 00 00 00 4? 8b d9 4? 89 41 10 66 4? 89 01 66 4? 39 02 74 11 4? 83 c8 ff }
+
+  condition:
+    uint16(0) == 0x5a4d and ($pdb or 2 of ($mut*) or all of ($browser*)
+      or 2 of ($svc*) or $str_decode)
+}
+
+rule lang_swift {
+  meta:
+    description = "Identify a Swift binary regardless of targetting Apple platforms."
+    author      = "@shellcromancer"
+    version     = "1.0"
+    date        = "2023.01.14"
+    DaysofYARA  = "14/100"
+
+  strings:
+    $swift = "__swift"
+
+  condition:
+    (
+      uint32(0) == 0xfeedface or  // Mach-O MH_MAGIC
+      uint32(0) == 0xcefaedfe or  // Mach-O MH_CIGAM
+      uint32(0) == 0xfeedfacf or  // Mach-O MH_MAGIC_64
+      uint32(0) == 0xcffaedfe or  // Mach-O MH_CIGAM_64
+      uint32(0) == 0xcafebabe or  // Mach-O FAT_MAGIC
+      uint32(0) == 0xbebafeca  // Mach-O FAT_CIGAM
+    ) and
+    #swift >= 4
+}
+
+rule macho_ui_appkit {
+  meta:
+    description = "Identify *OS executable built w/ AppKit"
+    author      = "@shellcromancer"
+    version     = "0.1"
+    date        = "2023.01.28"
+    reference   = "https://blog.timac.org/2022/0818-state-of-appkit-catalyst-swiftui-mac/"
+    DaysofYARA  = "28/100"
+
+  strings:
+    $framework = "/System/Library/Frameworks/AppKit.framework/Versions/C/AppKit"
+    $symbol    = "NSApplicationMain"
+
+  condition:
+    BINARYALERT_Macho_PRIVATE and
+    any of them
+}
+
+rule HAVAL_wi2__32_big_128_ {
+  strings:
+    $a0 = { 00 00 00 05 00 00 00 0e 00 00 00 1a 00 00 00 12 00 00 00 0b 00 00 00 1c 00 00 00 07 00 00 00 10 00 00 00 00 00 00 00 17 00 00 00 14 00 00 00 16 00 00 00 01 00 00 00 0a 00 00 00 04 00 00 00 08 00 00 00 1e 00 00 00 03 00 00 00 15 00 00 00 09 00 00 00 11 00 00 00 18 00 00 00 1d 00 00 00 06 00 00 00 13 00 00 00 0c 00 00 00 0f 00 00 00 0d 00 00 00 02 00 00 00 19 00 00 00 1f 00 00 00 1b }
+
+  condition:
+    $a0
+}
+
+

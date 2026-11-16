@@ -4,8 +4,9 @@
 //! Two layers, like the other signature folders next to the executable:
 //! - `firewall_signatures/*.csv` — shipped feeds (Abuse.ch `sslblacklist.csv`),
 //!   read-only, loaded at start-up and never rewritten by the server.
-//! - `analyst_signatures/sslbl.jsonl` — what analysts add or import from the
-//!   dashboard; it overlays the shipped layer.
+//! - `firewall_signatures/sslbl.jsonl` — what analysts add or import from the
+//!   dashboard; it overlays the shipped layer (automatically migrated from
+//!   legacy `analyst_signatures/sslbl.jsonl` if present).
 
 use std::collections::HashMap;
 use std::fs::File;
@@ -83,8 +84,44 @@ pub fn sslbl_store() -> &'static SslblStore {
 }
 
 impl SslblStore {
-    fn file_path() -> PathBuf {
+    pub fn file_path() -> PathBuf {
+        firewall_signatures_dir().join(SSLBL_FILE)
+    }
+
+    fn legacy_file_path() -> PathBuf {
         crate::human_review::analyst_dir().join(SSLBL_FILE)
+    }
+
+    fn resolve_load_path() -> PathBuf {
+        let new_path = Self::file_path();
+        if !new_path.exists() {
+            let old_path = Self::legacy_file_path();
+            if old_path.exists() {
+                if let Some(parent) = new_path.parent() {
+                    let _ = std::fs::create_dir_all(parent);
+                }
+                match std::fs::rename(&old_path, &new_path) {
+                    Ok(()) => {
+                        tracing::info!(
+                            "[sslbl] Migrated legacy {:?} -> {:?}",
+                            old_path,
+                            new_path
+                        );
+                        return new_path;
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            "[sslbl] Could not move legacy {:?} to {:?} ({}); reading legacy path",
+                            old_path,
+                            new_path,
+                            e
+                        );
+                        return old_path;
+                    }
+                }
+            }
+        }
+        new_path
     }
 
     /// Loads every `*.csv` feed of `firewall_signatures/` as built-in entries.
@@ -128,7 +165,7 @@ impl SslblStore {
     pub fn load(&self) {
         // Shipped feeds first; the analyst file overlays them below.
         self.load_shipped();
-        let p = Self::file_path();
+        let p = Self::resolve_load_path();
         let Ok(file) = File::open(&p) else {
             return;
         };
@@ -140,7 +177,14 @@ impl SslblStore {
                 continue;
             }
             if let Ok(entry) = serde_json::from_str::<SslblEntry>(trimmed) {
-                map.insert(entry.sha1.to_ascii_lowercase(), entry);
+                let sha1 = entry.sha1.to_ascii_lowercase();
+                if map.get(&sha1).is_some_and(|e| e.builtin)
+                    && (entry.analyst.eq_ignore_ascii_case("Abuse.ch SSLBL")
+                        || entry.analyst.eq_ignore_ascii_case("abuse.ch_feed"))
+                {
+                    continue;
+                }
+                map.insert(sha1, entry);
             }
         }
         tracing::info!("[sslbl] Loaded {} SSL blacklist entries from {:?}", map.len(), p);
@@ -326,5 +370,15 @@ mod tests {
             .count();
         assert!(data_lines > 1000);
         assert_eq!(parse_abusech_csv(&text).len(), data_lines);
+    }
+
+    #[test]
+    fn file_path_uses_firewall_signatures_dir() {
+        let path = SslblStore::file_path();
+        assert!(
+            path.ends_with(std::path::Path::new("firewall_signatures").join("sslbl.jsonl")),
+            "unexpected sslbl path: {:?}",
+            path
+        );
     }
 }

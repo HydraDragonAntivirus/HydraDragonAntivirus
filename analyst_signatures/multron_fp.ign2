@@ -825,3 +825,71 @@ libavcodec_dcahuff_scales_codes__16_lil_1290_
 # 2026-10-26 12:03 UTC | analyst: Emirhan Uçan | sample: eba018e39dca51d174912984be7c114d4a701b45c967be5822b304bdc26aeb47 Microsoft.CSharp.ni.dll
 # reason: no detections from virustotal
 ClamAV_Emotet_String_Aggregate
+
+# 2026-10-27 18:58 UTC | analyst: Emirhan Uçan | sample: cf6cb8a9e9e8d71a2f2d7df46299672276e39a8cddca5c5ac42e6512be589b26 Zoom.msi
+# reason: OpenSSL is not malware
+OpenSSL_dh512_p__8_byt_64_
+
+# 2026-10-28 10:36 UTC | analyst: Emirhan Uçan | sample: f19c890d5a3fcaa1078b1a3e78830e09eb4aa418f83172155ab312c2f62cf06f pvmod.exe
+# reason: falsely flags file contains wmic as suspicious
+wmic
+
+# 2026-10-31 14:29 UTC | analyst: Emirhan Uçan | sample: 2b58c6e61c04057a377e061fd10bf59a267db6e918981a15f3b1040cb9278434 wsUpgrade.dll
+# reason: Nobody flagged on virustotal
+BroEx
+
+# 2026-10-31 16:00 UTC | analyst: Emirhan Uçan | sample: 4cc631fd9713c5969ade26137c2ed5a8bc7b4cedd3aad7ee8f72d49cdc879fa4 resources.arsc
+# reason: File-format rule: matches the resources.arsc table present in every APK, not a malware signature (turned off by main analyst 2026-10-31)
+AndroidResourceArsc
+
+# 2026-11-03 00:40 UTC | analyst: Emirhan Uçan | sample: 17c075d9fb0b37e6be909a0d27d6c7ae1c26f8ac44154cce2f741b4c8b1b7732 ComposeNativeTray-jvm-a7f8d1fca19e8e18ddd74fe3ba639a2d.jar
+# reason: not a malware sig
+_macho
+
+# 2026-11-03 00:40 UTC | analyst: Emirhan Uçan | sample: 17c075d9fb0b37e6be909a0d27d6c7ae1c26f8ac44154cce2f741b4c8b1b7732 ComposeNativeTray-jvm-a7f8d1fca19e8e18ddd74fe3ba639a2d.jar
+# reason: not a virus signature
+lang_swift
+
+# 2026-11-03 00:41 UTC | analyst: Emirhan Uçan | sample: 17c075d9fb0b37e6be909a0d27d6c7ae1c26f8ac44154cce2f741b4c8b1b7732 ComposeNativeTray-jvm-a7f8d1fca19e8e18ddd74fe3ba639a2d.jar
+# reason: not a virus signature
+macho_ui_appkit
+
+# 2026-11-03 00:49 UTC | analyst: Emirhan Uçan | sample: 0be5f53e607980ecf36c9f737d09e37b423f49494556ecdd922ae607a81d65c9 XceedCry.dll
+# reason: zero detections on virustotal for this 0be5f53e607980ecf36c9f737d09e37b423f49494556ecdd922ae607a81d65c9 XceedCry.dll
+HAVAL_wi2__32_big_128_
+
+# 2026-11-08 12:13 UTC | analyst: Emirhan Uçan | sample: 9b307162b53ee1f58bf3727187c8f1b5396a92b6b765f325833e8387c22f1904 libpurchase_webview_ffi_dart_native_asset.so
+# reason: not a virus signature
+select_tab__compression____8_byt_256_
+
+# 2026-11-08 15:13 UTC | analyst: Emirhan Uçan | sample: 43da43445981e564420154c66bc01932c43aef762f0bef327b730e00e664dbc7 Konstantinopol - Gradski legendi 2.pdf
+# reason: not really virus signature for pdf
+PDF_Containing_JavaScript
+
+# 2026-11-08 15:14 UTC | analyst: Emirhan Uçan | sample: 152eb4c29efb889853d7671c11466c0f833904ce445a505240287a566ff10413 TimeCalc.exe
+# reason: Protector not a virus signature
+ASProtectv10
+
+# 2026-11-08 15:14 UTC | analyst: Emirhan Uçan | sample: 152eb4c29efb889853d7671c11466c0f833904ce445a505240287a566ff10413 TimeCalc.exe
+# reason: Protector not a virus signature
+ASProtectvxx
+
+# 2026-11-08 15:14 UTC | analyst: Emirhan Uçan | sample: 152eb4c29efb889853d7671c11466c0f833904ce445a505240287a566ff10413 TimeCalc.exe
+# reason: Protector not a virus signature
+_ASProtect_10__Solodovnikov_Alexey_
+
+# 2026-11-08 15:14 UTC | analyst: Emirhan Uçan | sample: 152eb4c29efb889853d7671c11466c0f833904ce445a505240287a566ff10413 TimeCalc.exe
+# reason: Protector not a virus signature
+aspr1
+
+# 2026-11-10 12:47 UTC | analyst: Emirhan Uçan | sample: 10a03f913872686ce77c6be6b0e1383eecbe3893c6c0d3f6a9762c5dd9be3234 sqlite3.dll
+# reason: Almost zero detections on virustotal only drweb and it says unwanted
+win_sysscan_auto
+
+# 2026-11-12 15:19 UTC | analyst: Emirhan Uçan | sample: bcfc1251e935a0c31afc5f42c4a4628c2ad3a838bca5f01a32e56e988d29963a BCFC1251E935A0C31AFC5F42C4A4628C2AD3A838BCA5F01A32E56E988D29963A_modernexecserver.dll
+# reason: causes false positive
+DebuggerCheck__PEB
+
+# 2026-11-12 15:19 UTC | analyst: Emirhan Uçan | sample: bcfc1251e935a0c31afc5f42c4a4628c2ad3a838bca5f01a32e56e988d29963a BCFC1251E935A0C31AFC5F42C4A4628C2AD3A838BCA5F01A32E56E988D29963A_modernexecserver.dll
+# reason: causes false positive
+Detect_IsDebuggerPresent

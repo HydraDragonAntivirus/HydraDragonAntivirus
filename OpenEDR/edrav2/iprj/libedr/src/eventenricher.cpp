@@ -42,6 +42,33 @@ namespace cmd {
 #define CMD_COMPONENT "enricher"
 
 namespace {
+	// Steps of EventEnricher::put() timed for the "eventlag" log line. The
+	// sub-steps (indented names) are parts of a step above them, timed inside
+	// helpers through t_pStageUs, which put() points at its own counters.
+	enum EnricherStage { c_stProcInfo, c_stModules, c_stProcCert, c_stTrust, c_stLocalScan,
+		c_stShadow, c_stTraining, c_stReceiver,
+		c_stModSnapshot, c_stModDotNet, c_stModScan, c_stModCert,
+		c_stTrainPaths, c_stTrainSerialize, c_stTrainSubmit, c_stTrainGuiPipe,
+		c_stCount };
+	static const char* const c_szStageNames[c_stCount] = { "processInfo", "moduleInspection",
+		"processSignature", "trustCheck", "unfilteredScan", "shadowBackup", "trainingForward", "receiverPut",
+		"  modules.snapshot", "  modules.dotNet", "  modules.cloudScan", "  modules.signature",
+		"  training.owlyPaths", "  training.serializeJson", "  training.killchainSubmit", "  training.guiPipe" };
+	thread_local uint64_t* t_pStageUs = nullptr;
+
+	// Adds the time of its scope to a step of the current put() (no-op elsewhere).
+	struct StageTimer
+	{
+		EnricherStage st;
+		std::chrono::steady_clock::time_point t0 = std::chrono::steady_clock::now();
+		explicit StageTimer(EnricherStage s) : st(s) {}
+		~StageTimer()
+		{
+			if (t_pStageUs != nullptr)
+				t_pStageUs[st] += static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::microseconds>(
+					std::chrono::steady_clock::now() - t0).count());
+		}
+	};
 	//
 	// Lowercased directory this module was loaded from, without a trailing
 	// separator - i.e. the product install directory. Derived at runtime from this
@@ -1847,7 +1874,11 @@ namespace {
 			bool mainIsNet = MegaDumperNet::CheckFileIsDotNetCached(Widen(sProcPath));
 			if (mainIsNet) res.isDotNet = true;
 
-			HANDLE hSnap = ::CreateToolhelp32Snapshot(TH32CS_SNAPMODULE | TH32CS_SNAPMODULE32, nPid);
+			HANDLE hSnap = INVALID_HANDLE_VALUE;
+			{
+				StageTimer stSnap(c_stModSnapshot);
+				hSnap = ::CreateToolhelp32Snapshot(TH32CS_SNAPMODULE | TH32CS_SNAPMODULE32, nPid);
+			}
 			if (hSnap == INVALID_HANDLE_VALUE) return res;
 
 			MODULEENTRY32W me = {};
@@ -1882,7 +1913,11 @@ namespace {
 					}
 
 					// Check if this module is .NET (PE COM descriptor or BSJB magic)
-					bool modIsNet = MegaDumperNet::CheckFileIsDotNetCached(me.szExePath);
+					bool modIsNet = false;
+					{
+						StageTimer stNet(c_stModDotNet);
+						modIsNet = MegaDumperNet::CheckFileIsDotNetCached(me.szExePath);
+					}
 					if (modIsNet) res.isDotNet = true;
 
 					// Two separate reasons not to deep-scan, deliberately not merged:
@@ -1910,6 +1945,7 @@ namespace {
 					if (shouldDeepScan)
 					{
 						// 1. Check Comodo FLS Trust
+						StageTimer stScan(c_stModScan);
 						int flsVerdict = DetectionNotifier::getCachedFileVerdict(modPath);
 						if (isUnknownVerdict(flsVerdict))
 						{
@@ -1947,7 +1983,10 @@ namespace {
 					//    Deliberately outside the shouldDeepScan block: SignDataProvider's
 					//    check is cached and cheap, and it is the only verification that
 					//    runs for modules the deep scan skips.
-					modCertTrusted = DetectionNotifier::isFileSignatureTrusted(modPath);
+					{
+						StageTimer stCert(c_stModCert);
+						modCertTrusted = DetectionNotifier::isFileSignatureTrusted(modPath);
+					}
 					if (!modCertTrusted)
 					{
 						res.hasUnknownDllCertificate = true;
@@ -3060,6 +3099,7 @@ namespace {
 		// Real-time zero-latency file & process submission to daemon scan pool
 		if (s_fnEnqueue != nullptr)
 		{
+			StageTimer stPaths(c_stTrainPaths);
 			try
 			{
 				auto enqueueIfValid = [](RtEnqueueUtf8Fn fn, const std::string& rawPath, uint32_t isProc, uint32_t pid) {
@@ -3169,12 +3209,18 @@ namespace {
 				{
 					try
 					{
-						std::string sJson = variant::serializeToJson(vEvent, variant::JsonFormat::SingleLine);
+						std::string sJson;
+						{
+							StageTimer stSer(c_stTrainSerialize);
+							sJson = variant::serializeToJson(vEvent, variant::JsonFormat::SingleLine);
+						}
+						StageTimer stSubmit(c_stTrainSubmit);
 						AppendToTrainingDataset(sPath, sType, sDetails, sJson);
 					}
 					catch (...) {}
 				}
 
+				StageTimer stPipe(c_stTrainGuiPipe);
 				HANDLE hPipe = ::CreateFileW(L"\\\\.\\pipe\\HydraHipEvent",
 					GENERIC_WRITE, 0, NULL, OPEN_EXISTING, 0, NULL);
 				if (hPipe != INVALID_HANDLE_VALUE)
@@ -5902,9 +5948,13 @@ namespace {
 		uint64_t sumWork = 0, maxWork = 0;
 		std::string slowest;
 		std::unordered_map<std::string, uint64_t> workByType; // total ms per type
+		std::unordered_map<std::string, uint64_t> workByStage; // total ms per step of put()
 	};
 
-	void RecordEnricherLag(uint64_t nEntryLagMs, uint64_t nWorkMs, const std::string& sType, const std::string& sProc)
+	// The steps of EventEnricher::put() that are timed (EnricherLagScope::mark).
+
+	void RecordEnricherLag(uint64_t nEntryLagMs, uint64_t nWorkMs, const std::string& sType, const std::string& sProc,
+		const uint64_t (&stageUs)[c_stCount])
 	{
 		const int nSeconds = DriverPortHips::s_eventRateLogSeconds.load(std::memory_order_relaxed);
 		if (nSeconds <= 0)
@@ -5919,6 +5969,17 @@ namespace {
 			s.maxEntryLag = (std::max)(s.maxEntryLag, nEntryLagMs);
 			s.sumWork += nWorkMs;
 			s.workByType[sType] += nWorkMs;
+			uint64_t nStagedUs = 0;
+			for (int i = 0; i < c_stCount; ++i)
+			{
+				if (stageUs[i] != 0)
+					s.workByStage[c_szStageNames[i]] += stageUs[i];
+				if (i < c_stModSnapshot)
+					nStagedUs += stageUs[i];
+			}
+			const uint64_t nWorkUs = nWorkMs * 1000;
+			if (nWorkUs > nStagedUs)
+				s.workByStage["other"] += nWorkUs - nStagedUs;
 			if (nWorkMs > s.maxWork)
 			{
 				s.maxWork = nWorkMs;
@@ -5931,17 +5992,23 @@ namespace {
 			snap.n = s.n; snap.sumEntryLag = s.sumEntryLag; snap.maxEntryLag = s.maxEntryLag;
 			snap.sumWork = s.sumWork; snap.maxWork = s.maxWork; snap.slowest.swap(s.slowest);
 			snap.workByType.swap(s.workByType);
+			snap.workByStage.swap(s.workByStage);
 			s.n = s.sumEntryLag = s.maxEntryLag = s.sumWork = s.maxWork = 0;
 			s.windowStart = now;
 		}
 		if (snap.n == 0)
 			return;
 		const double dSecs = std::chrono::duration<double>(elapsed).count();
+		std::unordered_map<std::string, uint64_t> stepMs;
+		for (const auto& [k, us] : snap.workByStage)
+			stepMs[k] = us / 1000;
+		const std::string sSteps = TopEntries(stepMs, c_stCount + 1);
 		LOGLVL(Critical, FMT("eventlag: " << snap.n << " events in " << static_cast<int>(dSecs) << " s"
 			<< " | arrival lag avg " << snap.sumEntryLag / snap.n << " ms, max " << snap.maxEntryLag << " ms"
 			<< " | enricher time total " << snap.sumWork << " ms (" << static_cast<int>(dSecs > 0 ? snap.sumWork / (dSecs * 10.0) : 0)
 			<< "% busy), avg " << snap.sumWork / snap.n << " ms, max " << snap.maxWork << " ms <" << snap.slowest << ">"
-			<< " | time by type (ms): " << TopEntries(snap.workByType, 8)));
+			<< " | time by type (ms): " << TopEntries(snap.workByType, 8)
+			<< " | time by step (ms): " << sSteps));
 	}
 
 	struct EnricherLagScope
@@ -5950,13 +6017,21 @@ namespace {
 		uint64_t nEntryLag = 0;
 		std::string sType;
 		std::string sProc;
+		uint64_t stageUs[c_stCount] = {};
+		// Adds the time since t0 to a step and returns now (the next step's t0).
+		std::chrono::steady_clock::time_point mark(EnricherStage st, std::chrono::steady_clock::time_point t0)
+		{
+			const auto now = std::chrono::steady_clock::now();
+			stageUs[st] += static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::microseconds>(now - t0).count());
+			return now;
+		}
 		~EnricherLagScope()
 		{
 			try
 			{
 				const auto nWork = static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::milliseconds>(
 					std::chrono::steady_clock::now() - start).count());
-				RecordEnricherLag(nEntryLag, nWork, sType, sProc);
+				RecordEnricherLag(nEntryLag, nWork, sType, sProc, stageUs);
 			}
 			catch (...) {}
 		}
@@ -5966,6 +6041,8 @@ namespace {
 void EventEnricher::put(const Variant& vEventRef)
 {
 	EnricherLagScope lagScope;
+	t_pStageUs = lagScope.stageUs;
+	struct StageReset { ~StageReset() { t_pStageUs = nullptr; } } stageReset;
 	Variant vEvent = const_cast<Variant&>(vEventRef);
 
 	TRACE_BEGIN;
@@ -6011,7 +6088,9 @@ void EventEnricher::put(const Variant& vEventRef)
 		vRawProcess = vEvent.get("process");
 	}
 
+	auto tStc_stProcInfo = std::chrono::steady_clock::now();
 	auto vProcess = m_pProcProvider->enrichProcessInfo(vRawProcess);
+	lagScope.mark(c_stProcInfo, tStc_stProcInfo);
 	if (vProcess.isEmpty())
 	{
 		vProcess = vRawProcess;
@@ -6060,7 +6139,9 @@ void EventEnricher::put(const Variant& vEventRef)
 	else if (vProcess.has("id")) nActorPid = static_cast<uint32_t>(vProcess["id"]);
 
 	// Dual Trust & Unknown DLL Evaluation (Comodo FLS vs Microsoft/Authenticode Certificate):
+	auto tStc_stModules = std::chrono::steady_clock::now();
 	auto modRes = DriverPortHips::InspectProcessModulesCached(nActorPid, sProcPath);
+	lagScope.mark(c_stModules, tStc_stModules);
 	int cleanCode = DriverPortHips::s_cleanVerdict.load(std::memory_order_relaxed);
 	bool isProcFlsClean = (vProcess.has("verdict") && static_cast<int64_t>(vProcess["verdict"]) == cleanCode) ||
 	                      (vProcess.has("flsVerdict") && static_cast<int64_t>(vProcess["flsVerdict"]) == cleanCode) ||
@@ -6070,7 +6151,9 @@ void EventEnricher::put(const Variant& vEventRef)
 	// (so a revoked certificate passed) and classified the signer by case-insensitive
 	// substring ("microsoft", "comodo", "hydradragon") - a certificate whose subject
 	// merely contained one of those words was treated as trusted.
+	auto tStc_stProcCert = std::chrono::steady_clock::now();
 	bool isProcCertTrusted = DetectionNotifier::isFileSignatureTrusted(sProcPath);
+	lagScope.mark(c_stProcCert, tStc_stProcCert);
 
 	vProcess.put("hasUnknownDllComodo", modRes.hasUnknownDllComodo);
 	vProcess.put("hasUnknownDllCertificate", modRes.hasUnknownDllCertificate);
@@ -6101,7 +6184,9 @@ void EventEnricher::put(const Variant& vEventRef)
 	}
 
 	std::string untrustedReason;
+	auto tStc_stTrust = std::chrono::steady_clock::now();
 	bool isProcessTrusted = DriverPortHips::IsProcessTrustedConfigurable(vProcess, sProcPath, nActorPid, modRes, untrustedReason);
+	lagScope.mark(c_stTrust, tStc_stTrust);
 	vProcess.put("isTrusted", isProcessTrusted);
 
 	// An untrusted process (native or managed - MegaDumper unpacks both), or a
@@ -6132,7 +6217,9 @@ void EventEnricher::put(const Variant& vEventRef)
 	}
 
 	// UNFILTERED IMMEDIATE LOCAL FILE & PROCESS SCANNING (PASCAL-STYLE):
+	auto tStc_stLocalScan = std::chrono::steady_clock::now();
 	executeUnfilteredLocalScan(vEvent, vProcess, eEventType, sProcPath);
+	lagScope.mark(c_stLocalScan, tStc_stLocalScan);
 
 	vEvent.put("process", vProcess);
 	Variant vToken = getByPath(vProcess, "token.tokenObj", {});
@@ -6842,7 +6929,9 @@ void EventEnricher::put(const Variant& vEventRef)
 				}
 			} catch (...) {}
 		}
+		auto tStc_stShadow = std::chrono::steady_clock::now();
 		recordShadowBackup(nShieldPid, eEventType, vEvent);
+		lagScope.mark(c_stShadow, tStc_stShadow);
 
 		// If policy generated any detection/threat event, execute universal remediation (file rollback + terminate + quarantine)
 		const int64_t nBaseType = vEvent.get("baseType", int64_t(0));
@@ -6879,9 +6968,12 @@ void EventEnricher::put(const Variant& vEventRef)
 	}
 
 	// Feed all enriched events (files, processes, registry, etc.) to Owlyshield FastDetect ML engine
+	auto tStTraining = std::chrono::steady_clock::now();
 	ForwardToOwlyshieldMlEngine(vEvent);
+	auto tStReceiver = lagScope.mark(c_stTraining, tStTraining);
 
-	return pReceiver->put(vEvent);
+	pReceiver->put(vEvent);
+	lagScope.mark(c_stReceiver, tStReceiver);
 	TRACE_END(FMT("Fail to parse event <" << vEvent.get("baseType", 0) << ">"))
 }
 

@@ -56,7 +56,7 @@ pub const LOG_FILES: [&str; 5] = [
     "analyst_signatures/human_verdicts.jsonl",
 ];
 /// Folders mirrored with everything in them (the work folder is added separately).
-pub const MIRROR_DIRS: [&str; 3] = ["analyst_signatures", "tlsh_signatures", "reports"];
+pub const MIRROR_DIRS: [&str; 4] = ["analyst_signatures", "tlsh_signatures", "firewall_signatures", "reports"];
 /// Written into the target after each complete run; the archive shows it.
 pub const MIRROR_STAMP: &str = "archive_mirror.json";
 const TMP_DIR: &str = ".mirror_tmp";
@@ -876,7 +876,11 @@ pub fn spawn_reloader(server: Arc<crate::scan_server::ScanServer>) {
         let mut reviews = Tail::new(crate::human_review::analyst_dir().join("human_verdicts.jsonl"));
         let mut cache = Tail::new(root.join("multron_cache.jsonl"));
         let mut tlsh = Tail::new(root.join("tlsh_index.jsonl"));
-        let sig_paths = vec![root.join("tlsh_signatures"), crate::human_review::analyst_dir()];
+        let sig_paths = vec![
+            root.join("tlsh_signatures"),
+            crate::human_review::analyst_dir(),
+            crate::sslbl::firewall_signatures_dir(),
+        ];
         let mut sig_fp = fingerprint(&sig_paths);
         let bans_path = root.join("ip_bans.json");
         let mut bans_fp = fingerprint(std::slice::from_ref(&bans_path));
@@ -895,6 +899,7 @@ pub fn spawn_reloader(server: Arc<crate::scan_server::ScanServer>) {
                 ti.similarity.reload_known_malware();
                 ti.similarity.reload_corpus_refs();
                 ti.similarity.reload_analyst_sigs();
+                crate::sslbl::sslbl_store().load();
                 sig_fp = fp;
             }
             let fp = fingerprint(std::slice::from_ref(&bans_path));

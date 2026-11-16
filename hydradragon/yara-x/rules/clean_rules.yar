@@ -29503,19 +29503,6 @@ rule dev_3CX_Gopuram_AppleJeus_Shellcode_Hunt {
     all of them
 }
 
-rule DebuggerCheck__PEB: AntiDebug DebuggerCheck {
-  meta:
-    weight    = 1
-    Author    = "naxonez"
-    reference = "https://github.com/naxonez/yaraRules/blob/master/AntiDebugging.yara"
-
-  strings:
-    $ = "IsDebugged"
-
-  condition:
-    any of them
-}
-
 rule DebuggerCheck__DrWatson: AntiDebug DebuggerCheck {
   meta:
     weight    = 1
@@ -727789,14 +727776,6 @@ rule VC1_transform_matrix_4x4__32_lil_64_ {
 }
 
 
-rule select_tab__compression____8_byt_256_ {
-  strings:
-    $a0 = { 00 01 02 01 03 01 02 01 04 01 02 01 03 01 02 01 05 01 02 01 03 01 02 01 04 01 02 01 03 01 02 01 06 01 02 01 03 01 02 01 04 01 02 01 03 01 02 01 05 01 02 01 03 01 02 01 04 01 02 01 03 01 02 01 07 01 02 01 03 01 02 01 04 01 02 01 03 01 02 01 05 01 02 01 03 01 02 01 04 01 02 01 03 01 02 01 06 01 02 01 03 01 02 01 04 01 02 01 03 01 02 01 05 01 02 01 03 01 02 01 04 01 02 01 03 01 02 01 08 01 02 01 03 01 02 01 04 01 02 01 03 01 02 01 05 01 02 01 03 01 02 01 04 01 02 01 03 01 02 01 06 01 02 01 03 01 02 01 04 01 02 01 03 01 02 01 05 01 02 01 03 01 02 01 04 01 02 01 03 01 02 01 07 01 02 01 03 01 02 01 04 01 02 01 03 01 02 01 05 01 02 01 03 01 02 01 04 01 02 01 03 01 02 01 06 01 02 01 03 01 02 01 04 01 02 01 03 01 02 01 05 01 02 01 03 01 02 01 04 01 02 01 03 01 02 01 }
-
-  condition:
-    $a0
-}
-
 rule SDX2___2_1_Squareroot_delta_exact_compression__16_lil_512_ {
   strings:
     $a0 = { 00 80 FE 81 F8 83 EE 85 E0 87 CE 89 B8 8B 9E 8D 80 8F 5E 91 38 93 0E 95 E0 96 AE 98 78 9A 3E 9C 00 9E BE 9F 78 A1 2E A3 E0 A4 8E A6 38 A8 DE A9 80 AB 1E AD B8 AE 4E B0 E0 B1 6E B3 F8 B4 7E B6 00 B8 7E B9 F8 BA 6E BC E0 BD 4E BF B8 C0 1E C2 80 C3 DE C4 38 C6 8E C7 E0 C8 2E CA 78 CB BE CC 00 CE 3E CF 78 D0 AE D1 E0 D2 0E D4 38 D5 5E D6 80 D7 9E D8 B8 D9 CE DA E0 DB EE DC F8 DD FE DE 00 E0 FE E0 F8 E1 EE E2 E0 E3 CE E4 B8 E5 9E E6 80 E7 5E E8 38 E9 0E EA E0 EA AE EB 78 EC 3E ED 00 EE BE EE 78 EF 2E F0 E0 F0 8E F1 38 F2 DE F2 80 F3 1E F4 B8 F4 4E F5 E0 F5 6E F6 F8 F6 7E F7 00 F8 7E F8 F8 F8 6E F9 E0 F9 4E FA B8 FA 1E FB 80 FB DE FB 38 FC 8E FC E0 FC 2E FD 78 FD BE FD 00 FE 3E FE 78 FE AE FE E0 FE 0E FF 38 FF 5E FF 80 FF 9E FF B8 FF CE FF E0 FF EE FF F8 FF FE FF 00 00 02 00 08 00 12 00 20 00 32 00 48 00 62 00 80 00 A2 00 C8 00 F2 00 20 01 52 01 88 01 C2 01 00 02 42 02 88 02 D2 02 20 03 72 03 C8 03 22 04 80 04 E2 04 48 05 B2 05 20 06 92 06 08 07 82 07 00 08 82 08 08 09 92 09 20 0A B2 0A 48 0B E2 0B 80 0C 22 0D C8 0D 72 0E 20 0F D2 0F 88 10 42 11 00 12 C2 12 88 13 52 14 20 15 F2 15 C8 16 A2 17 80 18 62 19 48 1A 32 1B 20 1C 12 1D 08 1E 02 1F 00 20 02 21 08 22 12 23 20 24 32 25 48 26 62 27 80 28 A2 29 C8 2A F2 2B 20 2D 52 2E 88 2F C2 30 00 32 42 33 88 34 D2 35 20 37 72 38 C8 39 22 3B 80 3C E2 3D 48 3F B2 40 20 42 92 43 08 45 82 46 00 48 82 49 08 4B 92 4C 20 4E B2 4F 48 51 E2 52 80 54 22 56 C8 57 72 59 20 5B D2 5C 88 5E 42 60 00 62 C2 63 88 65 52 67 20 69 F2 6A C8 6C A2 6E 80 70 62 72 48 74 32 76 20 78 12 7A 08 7C 02 7E }
@@ -727816,14 +727795,6 @@ rule GSM_toast_alaw_a2s__16_lil_512_ {
 rule ICE__block_cipher__ice_smod__32_big_64_ {
   strings:
     $a0 = { 00 00 01 4d 00 00 01 39 00 00 01 f9 00 00 01 71 00 00 01 7b 00 00 01 77 00 00 01 3f 00 00 01 87 00 00 01 69 00 00 01 bd 00 00 01 c3 00 00 01 8d 00 00 01 8d 00 00 01 a9 00 00 01 8b 00 00 01 f9 }
-
-  condition:
-    $a0
-}
-
-rule OpenSSL_dh512_p__8_byt_64_ {
-  strings:
-    $a0 = { da 58 3c 16 d9 85 22 89 d0 e4 af 75 6f 4c ca 92 dd 4b e5 33 b8 04 fb 0f ed 94 ef 9c 8a 44 03 ed 57 46 50 d3 69 99 db 29 d7 76 27 6b a2 d3 d4 12 e2 18 f4 dd 1e 08 4c f6 d8 00 3e 7c 47 74 e8 33 }
 
   condition:
     $a0
@@ -744582,14 +744553,6 @@ rule HASPHLProtectionV1XAladdin {
     $a0 at (pe.entry_point) or $a1 at (pe.entry_point)
 }
 
-rule ASProtectv10 {
-  strings:
-    $a0 = { 60 E8 01 ?? ?? ?? 90 5D 81 ED ?? ?? ?? ?? BB ?? ?? ?? ?? 03 DD 2B 9D }
-
-  condition:
-    $a0 at (pe.entry_point)
-}
-
 rule ASProtectv11 {
   strings:
     $a0 = { 60 E9 ?? 04 ?? ?? E9 ?? ?? ?? ?? ?? ?? ?? EE }
@@ -744878,14 +744841,6 @@ rule Armadillov19x {
 rule Armadillov285 {
   strings:
     $a0 = { 55 8B EC 6A FF 68 68 ?? ?? ?? 68 ?? ?? ?? ?? 64 A1 ?? ?? ?? ?? 50 64 89 25 ?? ?? ?? ?? 83 EC 58 53 56 57 89 65 E8 FF 15 28 ?? ?? ?? 33 D2 8A D4 89 15 24 }
-
-  condition:
-    $a0 at (pe.entry_point)
-}
-
-rule ASProtectvxx {
-  strings:
-    $a0 = { 60 ?? ?? ?? ?? ?? 90 5D ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? 03 DD }
 
   condition:
     $a0 at (pe.entry_point)
@@ -753290,7 +753245,7 @@ rule _fat {
     $fat at 0 and uint32(4) < 0x14000000
 }
 
-rule _macho {
+private rule _macho {
   meta:
     reference  = "http://pastebin.com/2W0tyUAF"
     reference2 = "https://sentinelone.com/blogs/analysis-ios-guiinject-adware-library/"
@@ -782573,17 +782528,6 @@ rule _Immun_12_registered_EXE_ {
     $0 at pe.entry_point
 }
 
-rule _ASProtect_10__Solodovnikov_Alexey_ {
-  meta:
-    description = "ASProtect 1.0 -> Solodovnikov Alexey"
-
-  strings:
-    $0 = { 60 E8 01 00 00 00 90 5D 81 ED ?? ?? ?? 00 BB ?? ?? ?? 00 03 DD 2B 9D }
-
-  condition:
-    $0 at pe.entry_point
-}
-
 rule _EXE32Pack_v139__SteelBytes_ {
   meta:
     description = "EXE32Pack v1.39 -> SteelBytes"
@@ -807477,20 +807421,6 @@ rule sircam {
     $a0
 }
 
-rule aspr1 {
-  meta:
-    author      = "PEiD"
-    description = "ASProtect 1.0 -> Alexey Solodovnikov"
-    group       = "106"
-    function    = "0"
-
-  strings:
-    $a0 = { 60 E8 01 ?? ?? ?? 90 5D 81 ED ?? ?? ?? ?? BB ?? ?? ?? ?? 03 DD 2B 9D }
-
-  condition:
-    $a0
-}
-
 rule aspr11 {
   meta:
     author      = "PEiD"
@@ -824178,19 +824108,6 @@ rule StrelaStealer_XorKey {
     any of them
 }
 
-rule AndroidResourceArsc {
-  meta:
-    description  = "Probably an Android resource file (i.e. resources.arsc)"
-    author       = "@larsborn"
-    date         = "2024-02-10"
-    reference    = "https://androguard.readthedocs.io/en/latest/api/androguard.core.bytecodes.html#androguard.core.bytecodes.axml.AXMLParser"
-    example_hash = "e81b50d46350e67d4c60e156556e2698a9acbe73b8c2008ca0f8696a3e0e391a"
-    DaysofYARA   = "22/100"
-
-  condition:
-    uint16be(0) == 0x0200 and uint32(4) == filesize
-}
-
 rule AndroidKotlinDebugProbesKt {
   meta:
     description  = "Kotlin artifact needed to enable the builtin support for coroutines debugger in IDEA (DebugProbesKt.bin)"
@@ -832840,89 +832757,6 @@ rule winrs {
     // Description: WinRS for Lateral Movement
     // Reference: N/A
     $string1 = /winrs\s\-r:.*whoami/ nocase ascii wide
-
-  condition:
-    any of them
-}
-
-rule wmic {
-  meta:
-    description   = "Detection patterns for the tool 'wmic' taken from the ThreatHunting-Keywords github project"
-    author        = "@mthcht"
-    reference     = "https://github.com/mthcht/ThreatHunting-Keywords"
-    tool          = "wmic"
-    rule_category = "greyware_tool_keyword"
-
-  strings:
-    // Description: Threat Actors ran the following command to download and execute a PowerShell payload
-    // Reference: https://media.defense.gov/2023/May/24/2003229517/-1/-1/0/CSA_Living_off_the_Land.PDF
-    $string1  = /\sprocess\scall\screate\s.*cmd\.exe\s\/c\spowershell\.exe\s\-nop\s\-w\shidden\s\-c\s.*IEX\s\(\(new\-object\snet\.webclient\)\.downloadstring\(\'https:\/\// nocase ascii wide
-    // Description: The NTDS.dit file is the heart of Active Directory including user accounts If it's found in the Temp directory it could indicate that an attacker has copied the file here in an attempt to extract sensitive information.
-    // Reference: https://media.defense.gov/2023/May/24/2003229517/-1/-1/0/CSA_Living_off_the_Land.PDF
-    $string2  = /\\Temp\\.*\\ntds\.dit/ nocase ascii wide
-    // Description: Like the ntds.dit file it should not normally be found in the Temp directory.
-    // Reference: https://media.defense.gov/2023/May/24/2003229517/-1/-1/0/CSA_Living_off_the_Land.PDF
-    $string3  = /\\Temp\\.*\\ntds\.jfm/ nocase ascii wide
-    // Description: this file shouldn't be found in the Users\Public directory. Its presence could be a sign of an ongoing or past attack.
-    // Reference: https://media.defense.gov/2023/May/24/2003229517/-1/-1/0/CSA_Living_off_the_Land.PDF
-    $string4  = /\\Users\\Public\\.*ntds\.dit/ nocase ascii wide
-    // Description: Like the ntds.dit file it should not normally be found in this directory.
-    // Reference: https://media.defense.gov/2023/May/24/2003229517/-1/-1/0/CSA_Living_off_the_Land.PDF
-    $string5  = /\\Users\\Public\\.*ntds\.jfm/ nocase ascii wide
-    // Description: The actor has executed WMIC commands [T1047] to create a copy of the ntds.dit file and SYSTEM registry hive using ntdsutil.exe
-    // Reference: https://media.defense.gov/2023/May/24/2003229517/-1/-1/0/CSA_Living_off_the_Land.PDF
-    $string6  = /ac\si\sntds.*\\\\127\.0\.0\.1\\ADMIN\$\\/ nocase ascii wide
-    // Description: gather information about Windows OS version and licensing on the hosts
-    // Reference: https://thedfirreport.com/2023/05/22/icedid-macro-ends-in-nokoyawa-ransomware/
-    $string7  = /cmd\.exe\s\/C\swmic\s\/node:.*\s\/user:.*\s\/password:.*\sos\sget\scaption/ nocase ascii wide
-    // Description: Enable WinRM remotely with wmic
-    // Reference: N/A
-    $string8  = /process\scall\screate\s\"powershell\senable\-psremoting\s\-force\"/ nocase ascii wide
-    // Description: WMIC suspicious transfer 
-    // Reference: N/A
-    $string9  = /start\swmic\s\/node:\@C:\\.*\.txt\s\/user:.*\/password:.*\sprocess\scall\screate\s.*cmd\.exe\s\/c\sbitsadmin\s\/transfer\s.*\.exe\s/ nocase ascii wide
-    // Description: Lateral Movement with wmic
-    // Reference: https://github.com/RoseSecurity/Red-Teaming-TTPs/blob/main/Anti-Forensics.md
-    $string10 = /wmic\s\/.*\s\/user:administrator\sprocess\scall\screate\s.*cmd\.exe\s\/c\s/ nocase ascii wide
-    // Description: Execute file hosted over SMB on remote system with specified credential
-    // Reference: N/A
-    $string11 = /wmic\s\/node:.*\s\/user:.*\s\/password:.*\sprocess\scall\screate\s\"\\\\.*\\.*\.exe/ nocase ascii wide
-    // Description: Remotely start RDP with wmic
-    // Reference: N/A
-    $string12 = /wmic\s\/node:.*\spath\sWin32_TerminalServiceSetting\swhere\sAllowTSConnections\=\"0\"\scall\sSetAllowTSConnections\s\"1\"/ nocase ascii wide
-    // Description: get the currently logged user with wmic
-    // Reference: N/A
-    $string13 = /wmic\s\/node:.*\..*\..*\..*computersystem\sget\susername/ nocase ascii wide
-    // Description: get the currently logged user with wmic
-    // Reference: N/A
-    $string14 = /wmic\s\/node:.*localhost.*computersystem\sget\susername/ nocase ascii wide
-    // Description: get domain name with wmic
-    // Reference: N/A
-    $string15 = /wmic\scomputersystem\sget\sdomain/ nocase ascii wide
-    // Description: The actor has executed WMIC commands [T1047] to create a copy of the ntds.dit file and SYSTEM registry hive using ntdsutil.exe
-    // Reference: https://media.defense.gov/2023/May/24/2003229517/-1/-1/0/CSA_Living_off_the_Land.PDF
-    $string16 = /wmic\sprocess\scall\screate.*ntdsutil\s.*ac\si\sntds.*\sifm.*create\sfull/ nocase ascii wide
-    // Description: wmic discovery commands abused by attackers
-    // Reference: N/A
-    $string17 = /wmic\sservice\sbrief/ nocase ascii wide
-    // Description: VSS is a feature in Windows that allows for the creation of snapshots of a volume capturing its state at a specific point in time. Adversaries may abuse the wmic shadowcopy command to interact with these shadow copies for defense evasion purposes.
-    // Reference: N/A
-    $string18 = /wmic\sSHADOWCOPY\s\/nointeractive/ nocase ascii wide
-    // Description: User Enumeration
-    // Reference: https://github.com/RoseSecurity/Red-Teaming-TTPs/blob/main/Anti-Forensics.md
-    $string19 = /wmic\suseraccount\sget\s\/ALL\s\/format:csv/ nocase ascii wide
-    // Description: wmic discovery commands abused by attackers
-    // Reference: N/A
-    $string20 = /wmic\svolume\slist\sbrief/ nocase ascii wide
-    // Description: list AV products with wmic
-    // Reference: N/A
-    $string21 = /wmic.*\/Namespace:\\\\root\\SecurityCenter2\sPath\sAntiVirusProduct\sGet\sdisplayName/ nocase ascii wide
-    // Description: Execute a .EXE file stored as an Alternate Data Stream (ADS)
-    // Reference: https://github.com/RoseSecurity/Red-Teaming-TTPs/blob/main/Anti-Forensics.md
-    $string22 = /wmic\.exe\sprocess\scall\screate\s.*\.txt:.*\.exe/ nocase ascii wide
-    // Description: call cmd.exe with wmic
-    // Reference: N/A
-    $string23 = /wmic\.exe\sprocess\scall\screate\s.*cmd\s\/c\s/ nocase ascii wide
 
   condition:
     any of them
@@ -1017177,128 +1017011,6 @@ rule win_sysraw_stealer_auto {
 
   condition:
     7 of them and filesize < 1540096
-}
-
-rule win_sysscan_auto {
-  meta:
-    author             = "Felix Bilstein - yara-signator at cocacoding dot com"
-    date               = "2020-10-14"
-    version            = "1"
-    description        = "autogenerated rule brought to you by yara-signator"
-    tool               = "yara-signator v0.5.0"
-    signator_config    = "callsandjumps;datarefs;binvalue"
-    malpedia_reference = "https://malpedia.caad.fkie.fraunhofer.de/details/win.sysscan"
-    malpedia_rule_date = "20201014"
-    malpedia_hash      = "a7e3bd57eaf12bf3ea29a863c041091ba3af9ac9"
-    malpedia_version   = "20201014"
-    malpedia_license   = "CC BY-SA 4.0"
-    malpedia_sharing   = "TLP:WHITE"
-  /* DISCLAIMER
-   * The strings used in this rule have been automatically selected from the
-   * disassembly of memory dumps and unpacked files, using YARA-Signator.
-   * The code and documentation is published here:
-   * https://github.com/fxb-cocacoding/yara-signator
-   * As Malpedia is used as data source, please note that for a given
-   * number of families, only single samples are documented.
-   * This likely impacts the degree of generalization these rules will offer.
-   * Take the described generation method also into consideration when you
-   * apply the rules in your use cases and assign them confidence levels.
-   */
-
-  strings:
-    $sequence_0 = { c7 45 a0 ff ff ff ff e9 ?? ?? ?? ?? 8b 55 e4 8b 7a 38 0f b6 4a 06 89 4d b8 c7 43 1c 02 8b c7 61 }
-    // n = 7, score = 100
-    //   c745a0ffffffff       | mov                 dword ptr [ebp - 0x60], 0xffffffff
-    //   e9????????           |                     
-    //   8b55e4               | mov                 edx, dword ptr [ebp - 0x1c]
-    //   8b7a38               | mov                 edi, dword ptr [edx + 0x38]
-    //   0fb64a06             | movzx               ecx, byte ptr [edx + 6]
-    //   894db8               | mov                 dword ptr [ebp - 0x48], ecx
-    //   c7431c028bc761       | mov                 dword ptr [ebx + 0x1c], 0x61c78b02
-    $sequence_1 = { e9 ?? ?? ?? ?? 8a 8d 20 ff ff ff 8b 03 3a 08 74 0e 8b 55 14 c7 02 2a 00 00 00 }
-    // n = 7, score = 100
-    //   e9????????           |                     
-    //   8a8d20ffffff         | mov                 cl, byte ptr [ebp - 0xe0]
-    //   8b03                 | mov                 eax, dword ptr [ebx]
-    //   3a08                 | cmp                 cl, byte ptr [eax]
-    //   740e                 | je                  0x10
-    //   8b5514               | mov                 edx, dword ptr [ebp + 0x14]
-    //   c7022a000000         | mov                 dword ptr [edx], 0x2a
-    $sequence_2 = { eb 10 c7 44 24 0c 04 71 c7 61 c7 44 24 08 ec d8 00 00 c7 44 24 04 56 7f c7 61 c7 04 24 0b 00 00 00 e8 ?? ?? ?? ?? b8 0b 00 00 00 }
-    // n = 7, score = 100
-    //   eb10                 | jmp                 0x12
-    //   c744240c0471c761     | mov                 dword ptr [esp + 0xc], 0x61c77104
-    //   c7442408ecd80000     | mov                 dword ptr [esp + 8], 0xd8ec
-    //   c7442404567fc761     | mov                 dword ptr [esp + 4], 0x61c77f56
-    //   c704240b000000       | mov                 dword ptr [esp], 0xb
-    //   e8????????           |                     
-    //   b80b000000           | mov                 eax, 0xb
-    $sequence_3 = { 81 c2 1c 20 00 00 89 d1 81 e1 ff 0f 00 00 89 4d c8 8b 73 04 c7 45 cc 00 00 00 00 f7 c6 00 04 00 00 }
-    // n = 7, score = 100
-    //   81c21c200000         | add                 edx, 0x201c
-    //   89d1                 | mov                 ecx, edx
-    //   81e1ff0f0000         | and                 ecx, 0xfff
-    //   894dc8               | mov                 dword ptr [ebp - 0x38], ecx
-    //   8b7304               | mov                 esi, dword ptr [ebx + 4]
-    //   c745cc00000000       | mov                 dword ptr [ebp - 0x34], 0
-    //   f7c600040000         | test                esi, 0x400
-    $sequence_4 = { c7 43 20 00 00 00 00 c7 43 0c 00 00 00 00 89 1c 24 e8 ?? ?? ?? ?? 31 c0 83 c4 14 5b }
-    // n = 7, score = 100
-    //   c7432000000000       | mov                 dword ptr [ebx + 0x20], 0
-    //   c7430c00000000       | mov                 dword ptr [ebx + 0xc], 0
-    //   891c24               | mov                 dword ptr [esp], ebx
-    //   e8????????           |                     
-    //   31c0                 | xor                 eax, eax
-    //   83c414               | add                 esp, 0x14
-    //   5b                   | pop                 ebx
-    $sequence_5 = { e2 e0 e2 e1 e2 e2 e2 e3 e2 e4 e2 e5 e2 e6 }
-    // n = 7, score = 100
-    //   e2e0                 | loop                0xffffffe2
-    //   e2e1                 | loop                0xffffffe3
-    //   e2e2                 | loop                0xffffffe4
-    //   e2e3                 | loop                0xffffffe5
-    //   e2e4                 | loop                0xffffffe6
-    //   e2e5                 | loop                0xffffffe7
-    //   e2e6                 | loop                0xffffffe8
-    $sequence_6 = { eb 13 0f b7 85 66 ff ff ff 39 45 d8 0f 9d c0 f7 d8 21 c7 eb 1a }
-    // n = 7, score = 100
-    //   eb13                 | jmp                 0x15
-    //   0fb78566ffffff       | movzx               eax, word ptr [ebp - 0x9a]
-    //   3945d8               | cmp                 dword ptr [ebp - 0x28], eax
-    //   0f9dc0               | setge               al
-    //   f7d8                 | neg                 eax
-    //   21c7                 | and                 edi, eax
-    //   eb1a                 | jmp                 0x1c
-    $sequence_7 = { eb 40 c6 45 dc 05 eb 3a c6 45 dc 03 eb 34 c6 45 dc 06 eb 2e }
-    // n = 7, score = 100
-    //   eb40                 | jmp                 0x42
-    //   c645dc05             | mov                 byte ptr [ebp - 0x24], 5
-    //   eb3a                 | jmp                 0x3c
-    //   c645dc03             | mov                 byte ptr [ebp - 0x24], 3
-    //   eb34                 | jmp                 0x36
-    //   c645dc06             | mov                 byte ptr [ebp - 0x24], 6
-    //   eb2e                 | jmp                 0x30
-    $sequence_8 = { eb 21 8b 56 28 66 89 55 e0 8d 4e 26 8d 55 b4 89 14 24 ba 01 00 00 00 }
-    // n = 7, score = 100
-    //   eb21                 | jmp                 0x23
-    //   8b5628               | mov                 edx, dword ptr [esi + 0x28]
-    //   668955e0             | mov                 word ptr [ebp - 0x20], dx
-    //   8d4e26               | lea                 ecx, [esi + 0x26]
-    //   8d55b4               | lea                 edx, [ebp - 0x4c]
-    //   891424               | mov                 dword ptr [esp], edx
-    //   ba01000000           | mov                 edx, 1
-    $sequence_9 = { ff 45 e4 8b 55 e0 39 55 e4 7c a8 8b 75 a4 89 3c 24 31 c9 }
-  // n = 7, score = 100
-  //   ff45e4               | inc                 dword ptr [ebp - 0x1c]
-  //   8b55e0               | mov                 edx, dword ptr [ebp - 0x20]
-  //   3955e4               | cmp                 dword ptr [ebp - 0x1c], edx
-  //   7ca8                 | jl                  0xffffffaa
-  //   8b75a4               | mov                 esi, dword ptr [ebp - 0x5c]
-  //   893c24               | mov                 dword ptr [esp], edi
-  //   31c9                 | xor                 ecx, ecx
-
-  condition:
-    7 of them and filesize < 10141696
 }
 
 rule win_systembc_auto {
@@ -1477496,18 +1477208,6 @@ rule AntiDebugging_Interrupt {
     (uint8(8) == 0xCC or uint8(8) == 0xF1 or uint8(8) == 0xCC)
 }
 
-rule Detect_IsDebuggerPresent: AntiDebug {
-  meta:
-    author    = "naxonez"
-    reference = "https://github.com/naxonez/yaraRules/blob/master/AntiDebugging.yara"
-
-  strings:
-    $ = "IsDebugged"
-
-  condition:
-    uint16(0) == 0x5A4D and filesize < 1000KB and any of them
-}
-
 rule Al_khaser {
   meta:
     author       = "kevoreilly"
@@ -1486995,27 +1486695,6 @@ rule Office_Document_with_VBA_Project {
 
 }
 
-rule PDF_Containing_JavaScript {
-  meta:
-    author         = "InQuest Labs"
-    description    = "This signature detects a PDF file that contains JavaScript. JavaScript can be used to customize PDFs by implementing objects, methods, and properties. While not inherently malicious, embedding JavaScript inside of a PDF is often used for malicious purposes such as malware delivery or exploitation."
-    created_date   = "2022-03-15"
-    updated_date   = "2022-03-15"
-    blog_reference = "www.sans.org/security-resources/malwarefaq/pdf-overview.php"
-    labs_reference = "N/A"
-    labs_pivot     = "N/A"
-    samples        = "c82e29dcaed3c71e05449cb9463f3efb7114ea22b6f45b16e09eae32db9f5bef"
-
-  strings:
-    $pdf_tag1 = /\x25\x50\x44\x46\x2d/
-    $js_tag1  = "/JavaScript" fullword
-    $js_tag2  = "/JS" fullword
-
-  condition:
-    $pdf_tag1 in (0..1024) and ($js_tag1 or $js_tag2)
-
-}
-
 rule PDF_Launch_Action_EXE {
   meta:
     author         = "InQuest Labs"
@@ -1493322,56 +1493001,6 @@ rule BlackKingDom {
 
   condition:
     3 of them
-}
-
-rule BroEx {
-  meta:
-    id             = "5MNXppaMBFMS0DMQ63eCJO"
-    fingerprint    = "8eea2d3d8d4e8ca6ef89d474232d1117e2a5a5b4c714b4c82493293f31e4f2c6"
-    version        = "1.0"
-    first_imported = "2023-09-18"
-    last_modified  = "2023-09-18"
-    status         = "RELEASED"
-    sharing        = "TLP:WHITE"
-    source         = "BARTBLAZE"
-    author         = "@bartblaze"
-    description    = "Detects BroEx, a type of agressive adware."
-    category       = "MALWARE"
-    malware        = "BROEX"
-    malware_type   = "ADWARE"
-    hash           = "7f103012a143b9e358087cf94dbdd160362a57e5ebc65c560e352ac7541bd80e"
-
-  strings:
-    //PDB
-    $pdb = "I:\\Repository2\\test\\Project21\\event\\Release\\event.pdb" ascii wide
-
-    //Mutants
-    $mut1 = "Global\\A6A161D8-150E-46A1-B7EC-18E4CB58C6D2" ascii wide
-    $mut2 = "Global\\D80D9D78-BCDA-482C-98F2-C38991A8CA3" ascii wide
-    $mut3 = "Global\\8D13D07B-A758-456A-A215-0518F1268C2A" ascii wide
-
-    //Launch
-    $browser1 = "main -c rbrowser chrome" ascii wide
-    $browser2 = "main -c rbrowser msedge" ascii wide
-
-    //Service names
-    $svc1 = "WimsysUpdaterService" ascii wide
-    $svc2 = "WimsysService" ascii wide
-    $svc3 = "WimsysServiceX64" ascii wide
-
-    /*
-    pvVar1 = (void *)0x0;
-    param_1[3] = (void *)0x7;
-    param_1[2] = (void *)0x0;
-    *(undefined2 *)param_1 = 0;
-    if (*(short *)param_2 != 0) {
-    pvVar1 = (void *)0xffffffffffffffff;
-    */
-    $str_decode = { 4? 53 4? 83 ec 20 4? 33 c0 4? c7 41 18 07 00 00 00 4? 8b d9 4? 89 41 10 66 4? 89 01 66 4? 39 02 74 11 4? 83 c8 ff }
-
-  condition:
-    uint16(0) == 0x5a4d and ($pdb or 2 of ($mut*) or all of ($browser*)
-      or 2 of ($svc*) or $str_decode)
 }
 
 rule CrunchyRoll {
@@ -1517562,29 +1517191,6 @@ rule susp_macos_xattrs {
 }
 
 
-rule lang_swift {
-  meta:
-    description = "Identify a Swift binary regardless of targetting Apple platforms."
-    author      = "@shellcromancer"
-    version     = "1.0"
-    date        = "2023.01.14"
-    DaysofYARA  = "14/100"
-
-  strings:
-    $swift = "__swift"
-
-  condition:
-    (
-      uint32(0) == 0xfeedface or  // Mach-O MH_MAGIC
-      uint32(0) == 0xcefaedfe or  // Mach-O MH_CIGAM
-      uint32(0) == 0xfeedfacf or  // Mach-O MH_MAGIC_64
-      uint32(0) == 0xcffaedfe or  // Mach-O MH_CIGAM_64
-      uint32(0) == 0xcafebabe or  // Mach-O FAT_MAGIC
-      uint32(0) == 0xbebafeca  // Mach-O FAT_CIGAM
-    ) and
-    #swift >= 4
-}
-
 rule macho_no_pagezero_no_module {
   meta:
     description = "Identify macho executable without a __PAGEZERO segment without the module module."
@@ -1517690,24 +1517296,6 @@ rule macho_ui_swiftui {
   strings:
     $framework = "/System/Library/Frameworks/SwiftUI.framework/Versions/A/SwiftUI"
     $symbol    = "s7SwiftUI3AppPAAE4mainyyFZ"
-
-  condition:
-    BINARYALERT_Macho_PRIVATE and
-    any of them
-}
-
-rule macho_ui_appkit {
-  meta:
-    description = "Identify *OS executable built w/ AppKit"
-    author      = "@shellcromancer"
-    version     = "0.1"
-    date        = "2023.01.28"
-    reference   = "https://blog.timac.org/2022/0818-state-of-appkit-catalyst-swiftui-mac/"
-    DaysofYARA  = "28/100"
-
-  strings:
-    $framework = "/System/Library/Frameworks/AppKit.framework/Versions/C/AppKit"
-    $symbol    = "NSApplicationMain"
 
   condition:
     BINARYALERT_Macho_PRIVATE and
@@ -1538251,14 +1537839,6 @@ rule seed_SS0__32_big_1024_ {
 rule libaf_front_same_side__30_degree___flt64___64_lil_1024_ {
   strings:
     $a0 = { 56 ae 3a a5 b6 f5 70 bf 32 51 83 2c 3c b8 77 3f 70 2c 72 d3 45 30 6b 3f f7 66 c7 ae d9 32 8d 3f cb 58 01 cd 6d 04 7e 3f 12 78 1f b3 db c4 b0 bf 45 53 0b fb 6f ee a1 3f bc c8 01 e0 3b cf 8a bf f7 b8 39 21 20 1d d0 3f 44 70 5d 59 e7 ed da 3f b9 3c 5e 8e 73 e1 d5 bf a6 a1 a6 61 e6 31 cf bf 99 96 68 37 4e 18 a9 3f 25 9c bf 90 6c c2 c6 bf 50 14 33 b3 3d ed d0 3f cf fc 2e b4 fc c0 cd 3f c7 01 84 88 57 ec a0 3f ae 6d c1 fd 8c f5 dd 3f dd e7 c4 89 4f 26 e1 3f a3 f2 af cf 6b 65 88 bf 35 d9 7f 3e d7 72 d9 bf d3 d5 a0 ed bc a7 a1 bf 61 5b d8 39 ef 26 9e 3f e5 f3 c3 79 61 a5 d8 bf 34 6a e3 0a 62 f1 d4 bf 70 8e aa 9c 5c d1 c2 bf 41 e9 41 66 11 d1 b5 bf ec 16 5a ee 81 1e c3 bf 2e 91 15 90 c0 25 b8 bf 43 7e ba 54 ee 5f b9 3f b7 fd d4 f5 7e ae 86 3f 50 b2 96 58 90 e7 74 bf 14 c6 b5 b8 6d e8 b7 3f 2f ee 1a c5 a3 34 c1 3f c2 58 8d 6b 2c e6 ba 3f 0d 44 96 60 a9 b5 a5 3f 2d b5 1b ea ae ca b0 3f f8 2b 82 a1 b9 a1 9b 3f a1 f6 a8 46 d1 33 a1 bf 30 35 73 c7 a4 6e 92 bf fb 95 1c cc 31 85 a5 3f 43 4c ce 65 03 b5 a3 3f 1e f5 ea f3 b3 18 99 bf 3a c8 65 95 c7 72 a1 bf 28 d7 1a cc 84 ee 9d bf 76 73 fa 60 c7 0b a8 bf cc e9 f0 7d 90 36 b8 bf f9 15 4a 7b d1 8c c3 bf 95 b0 be d6 10 ba c3 bf 44 12 9a f1 0d 6e b6 bf 81 48 6d 17 1b 37 a1 bf c8 c8 7c 53 bf 82 7d bf 96 18 1c 4f a8 f1 80 3f ca 45 c8 63 ae e1 95 3f 9d 6d 19 9a 66 5b a6 3f 22 98 39 4d dd fb ac 3f 76 5d 0c 45 8a 58 b1 3f c5 3f e6 7b b6 c8 ac 3f 6e b6 6b 51 70 4f a2 3f 7f 21 f4 ce c3 9b 99 3f 37 f0 35 e1 84 96 8f 3f f4 d5 a0 60 95 2f 80 3f 04 7f 2c b6 fe 10 76 bf ba 63 50 03 67 9f 7c bf e9 59 47 13 1f a2 88 bf 9f 84 81 4b 71 d5 99 bf 47 4f 6a 1e c0 da 9a bf 40 df 3c ac 76 61 98 bf e2 ef 72 c2 10 a4 a0 bf ab 48 05 be a9 5c a0 bf c8 fc 29 5e c8 46 92 bf 94 bb f0 be 27 08 91 bf 9b 89 f1 73 ad 92 90 bf c9 7a 07 1b 23 e1 87 bf c9 7a 06 5c 69 fb 6c bf c2 77 d6 bf d2 f9 41 bf 17 8e fe ce 37 33 5e 3f af 84 99 58 02 d4 87 3f f4 5a 1e 4c 0b c6 92 3f 1e 65 8e 63 28 f0 94 3f 51 31 14 81 8e 6c 81 3f 9a 12 05 9b 79 c3 3e 3f 9c f4 a4 b0 15 ee 5b bf 20 66 60 3b 8a 5b 62 bf c7 10 d6 ec 29 32 4c bf 41 fb e3 4e c6 d6 70 bf be 67 71 7e 6c e6 6c bf 6f b2 7c 7d 38 be 83 bf 75 bf 83 08 a3 eb 91 bf d5 a8 f2 a6 e9 f9 8f bf 8e 24 38 0f 15 19 86 bf ba 50 24 24 2c 85 83 bf 45 04 1f 13 92 98 7e bf 19 da 31 24 6f 6f 5f bf 32 d9 6f 36 8e a1 23 bf 2b e0 cd 5e 51 6a 68 bf 2e da 52 70 4f b5 7a bf aa 0f 8e c6 a6 5b 02 3f 43 d2 eb 0f 18 ef 82 3f 90 64 3e 77 d7 44 84 3f f8 6f da 9b 5e 08 81 3f 84 08 a2 d0 73 bd 72 3f e6 d5 f5 44 c3 f8 10 bf fe 68 8a 88 a6 71 72 bf 02 30 00 18 3e 4f 71 bf 4c 3b 3c 09 69 a4 67 bf 7a 88 94 cc 89 48 7a bf 8d d1 16 de 3f 50 7d bf ea c1 1e 8d d9 1a 82 bf ca 75 dc 8c fe 86 8d bf ec e3 44 5a d0 9c 8f bf 3a a3 09 ca f9 ee 82 bf a5 34 ce 00 eb ab 61 bf 47 8e f0 65 6c 61 67 3f d6 61 b2 e2 55 69 66 3f 1c b2 ae a9 ae d5 49 bf dd 6c ab 1f 35 bf 6a bf c1 a7 8a fc 67 c9 6f bf 44 34 62 61 62 eb 6c bf c6 68 63 ba a0 90 6f bf eb 72 63 82 4b 88 53 bf 3e a0 17 d3 eb f9 60 bf 64 a7 12 02 85 6b 74 bf 8a ac 2d 0d 67 5b 71 bf 66 b0 ad 62 20 d3 68 bf 39 a5 5f e5 95 33 57 bf 7e db f2 71 f3 a7 40 bf 02 a6 a4 1d 4b 00 37 3f }
-
-  condition:
-    $a0
-}
-
-rule HAVAL_wi2__32_big_128_ {
-  strings:
-    $a0 = { 00 00 00 05 00 00 00 0e 00 00 00 1a 00 00 00 12 00 00 00 0b 00 00 00 1c 00 00 00 07 00 00 00 10 00 00 00 00 00 00 00 17 00 00 00 14 00 00 00 16 00 00 00 01 00 00 00 0a 00 00 00 04 00 00 00 08 00 00 00 1e 00 00 00 03 00 00 00 15 00 00 00 09 00 00 00 11 00 00 00 18 00 00 00 1d 00 00 00 06 00 00 00 13 00 00 00 0c 00 00 00 0f 00 00 00 0d 00 00 00 02 00 00 00 19 00 00 00 1f 00 00 00 1b }
 
   condition:
     $a0
