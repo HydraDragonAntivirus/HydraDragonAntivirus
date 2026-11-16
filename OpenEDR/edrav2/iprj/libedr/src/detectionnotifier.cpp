@@ -766,6 +766,7 @@ std::atomic<bool> DetectionNotifier::s_cloudFirst{true};
 std::atomic<int> DetectionNotifier::s_cleanVerdict{1};
 std::atomic<int> DetectionNotifier::s_malwareVerdict{2};
 std::atomic<int> DetectionNotifier::s_unknownVerdictDefault{0};
+std::atomic<int> DetectionNotifier::s_unknownAnswerCacheSeconds{0};
 std::atomic<int> DetectionNotifier::s_unknownReputationVerdict{3};
 std::atomic<int> DetectionNotifier::s_staticUnknownVerdict{4};
 
@@ -847,6 +848,7 @@ void DetectionNotifier::loadScannerConfigFromCfg(const std::string& content)
 	s_cleanVerdict.store(extractInt(content, "cleanVerdict", 1), std::memory_order_relaxed);
 	s_malwareVerdict.store(extractInt(content, "malwareVerdict", 2), std::memory_order_relaxed);
 	s_unknownVerdictDefault.store(extractInt(content, "unknownVerdictDefault", 0), std::memory_order_relaxed);
+	s_unknownAnswerCacheSeconds.store((std::max)(0, extractInt(content, "unknownAnswerCacheSeconds", 0)), std::memory_order_relaxed);
 	s_unknownReputationVerdict.store(extractInt(content, "unknownReputationVerdict", 3), std::memory_order_relaxed);
 	s_staticUnknownVerdict.store(extractInt(content, "staticUnknownVerdict", 4), std::memory_order_relaxed);
 
@@ -1918,6 +1920,10 @@ struct CachedFileVerdict {
 	uint64_t size = 0;
 	uint64_t mtime = 0;
 	DetectionNotifier::CloudScanDetail detail; // what each cloud said
+	// An "Unknown" answer (verdict holds what the scan returned for it): reused
+	// until this time, then the file is asked about again. Zero for a decided
+	// verdict, which is kept for as long as the file is unchanged.
+	std::chrono::steady_clock::time_point unknownUntil{};
 };
 
 static std::mutex s_mtxVerdictCache;
@@ -1960,6 +1966,10 @@ int DetectionNotifier::getCachedFileVerdict(const std::string& sUtf8Path)
 	auto it = s_verdictCache.find(lowerPath);
 	if (it != s_verdictCache.end() && it->second.size == size && it->second.mtime == mtime)
 	{
+		// A cached "Unknown" decides nothing: callers see 0 as before and go
+		// on to scanFileWithLocalEngines, which answers it from the cache.
+		if (it->second.unknownUntil != std::chrono::steady_clock::time_point{})
+			return 0;
 		return it->second.verdict;
 	}
 	return 0;
@@ -2089,7 +2099,10 @@ int DetectionNotifier::scanFileWithLocalEngines(const std::string& sUtf8Path, st
 	{
 		std::lock_guard<std::mutex> lock(s_mtxVerdictCache);
 		auto it = s_verdictCache.find(lowerPath);
-		if (it != s_verdictCache.end() && it->second.size == size && it->second.mtime == mtime)
+		const bool fUnknownExpired = it != s_verdictCache.end() &&
+			it->second.unknownUntil != std::chrono::steady_clock::time_point{} &&
+			std::chrono::steady_clock::now() >= it->second.unknownUntil;
+		if (it != s_verdictCache.end() && it->second.size == size && it->second.mtime == mtime && !fUnknownExpired)
 		{
 			sThreatNameOut = it->second.threatName;
 			if (pDetail)
@@ -2205,7 +2218,29 @@ int DetectionNotifier::scanFileWithLocalEngines(const std::string& sUtf8Path, st
 	if (verdict != c_nStaticSuspicious && isUnknownVerdict(verdict))
 	{
 		sThreatNameOut.clear();
-		return s_unknownVerdictDefault.load(std::memory_order_relaxed);
+		const int nUnknown = s_unknownVerdictDefault.load(std::memory_order_relaxed);
+		// VirusKov answered "Unknown": it looked and cannot tell, and asking
+		// again about the same content gets the same answer until the server
+		// learns more. It used to be asked again on every call - the module
+		// inspection re-hashed and re-sent every unknown DLL of every active
+		// process every few seconds, on the enricher thread. Reused for
+		// unknownAnswerCacheSeconds. No answer at all (Deferred / Error, locked
+		// file) is not cached: that one is retried.
+		const int nTtl = s_unknownAnswerCacheSeconds.load(std::memory_order_relaxed);
+		if (hasIdentity && nTtl > 0 && detail.sViruskov == "Unknown")
+		{
+			std::lock_guard<std::mutex> lock(s_mtxVerdictCache);
+			if (s_verdictCache.size() >= kMaxVerdictCacheSize)
+			{
+				auto it = s_verdictCache.begin();
+				for (size_t i = 0; i < kMaxVerdictCacheSize / 2 && it != s_verdictCache.end(); ++i)
+					it = s_verdictCache.erase(it);
+			}
+			CachedFileVerdict entry{ nUnknown, std::string(), size, mtime, detail };
+			entry.unknownUntil = std::chrono::steady_clock::now() + std::chrono::seconds(nTtl);
+			s_verdictCache[lowerPath] = std::move(entry);
+		}
+		return nUnknown;
 	}
 
 	if (hasIdentity && verdict > 0)
@@ -2213,8 +2248,10 @@ int DetectionNotifier::scanFileWithLocalEngines(const std::string& sUtf8Path, st
 		std::lock_guard<std::mutex> lock(s_mtxVerdictCache);
 		if (s_verdictCache.size() >= kMaxVerdictCacheSize)
 		{
+			// Half of it. (Without ++i this emptied the whole cache, and every
+			// file was hashed and asked about again.)
 			auto it = s_verdictCache.begin();
-			for (size_t i = 0; i < kMaxVerdictCacheSize / 2 && it != s_verdictCache.end(); )
+			for (size_t i = 0; i < kMaxVerdictCacheSize / 2 && it != s_verdictCache.end(); ++i)
 			{
 				it = s_verdictCache.erase(it);
 			}

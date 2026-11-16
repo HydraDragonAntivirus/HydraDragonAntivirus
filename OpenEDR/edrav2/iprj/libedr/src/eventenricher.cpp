@@ -1696,8 +1696,10 @@ namespace {
 			}
 
 			// 5. Check if file on disk is .NET (PE header CLI, BSJB magic, or mscoree import)
-			static inline bool CheckFileIsDotNet(const std::wstring& wsFilePath)
+			// fRead: the header could be read (false: no such file, locked, short).
+			static inline bool ReadFileIsDotNet(const std::wstring& wsFilePath, bool& fRead)
 			{
+				fRead = false;
 				if (wsFilePath.empty()) return false;
 				HANDLE hFile = ::CreateFileW(wsFilePath.c_str(), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
 					NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
@@ -1706,15 +1708,63 @@ namespace {
 				unsigned char buf[8192] = {};
 				DWORD bytesRead = 0;
 				bool isNet = false;
-				if (::ReadFile(hFile, buf, sizeof(buf), &bytesRead, NULL) && bytesRead >= 0x100)
+				if (::ReadFile(hFile, buf, sizeof(buf), &bytesRead, NULL))
 				{
-					if (HasCliHeader(buf, bytesRead) || HasBsjbSignature(buf, bytesRead) || HasClrImports(buf, bytesRead))
+					fRead = true;
+					if (bytesRead >= 0x100 &&
+						(HasCliHeader(buf, bytesRead) || HasBsjbSignature(buf, bytesRead) || HasClrImports(buf, bytesRead)))
 					{
 						isNet = true;
 					}
 				}
 				::CloseHandle(hFile);
 				return isNet;
+			}
+
+			static inline bool CheckFileIsDotNet(const std::wstring& wsFilePath)
+			{
+				bool fRead = false;
+				return ReadFileIsDotNet(wsFilePath, fRead);
+			}
+
+			// CheckFileIsDotNet, with the header read once per file content (path +
+			// size + last write time). The module inspection asks this for every
+			// DLL of a process each time it runs; the answer only changes when the
+			// file does. A header that could not be read is not kept.
+			static inline bool CheckFileIsDotNetCached(const std::wstring& wsFilePath)
+			{
+				WIN32_FILE_ATTRIBUTE_DATA fa = {};
+				if (wsFilePath.empty() || !::GetFileAttributesExW(wsFilePath.c_str(), GetFileExInfoStandard, &fa))
+					return CheckFileIsDotNet(wsFilePath);
+				const uint64_t nSize = (uint64_t(fa.nFileSizeHigh) << 32) | fa.nFileSizeLow;
+				const uint64_t nTime = (uint64_t(fa.ftLastWriteTime.dwHighDateTime) << 32) | fa.ftLastWriteTime.dwLowDateTime;
+				std::wstring sKey = wsFilePath;
+				for (auto& c : sKey) c = static_cast<wchar_t>(::towlower(c));
+
+				struct Entry { uint64_t nSize; uint64_t nTime; bool fNet; };
+				static std::mutex s_mtx;
+				static std::unordered_map<std::wstring, Entry> s_cache;
+				constexpr size_t c_nMaxEntries = 16384;
+				{
+					std::scoped_lock lock(s_mtx);
+					auto it = s_cache.find(sKey);
+					if (it != s_cache.end() && it->second.nSize == nSize && it->second.nTime == nTime)
+						return it->second.fNet;
+				}
+				bool fRead = false;
+				const bool fNet = ReadFileIsDotNet(wsFilePath, fRead);
+				if (fRead)
+				{
+					std::scoped_lock lock(s_mtx);
+					if (s_cache.size() >= c_nMaxEntries)
+					{
+						auto it = s_cache.begin();
+						for (size_t i = 0; i < c_nMaxEntries / 2 && it != s_cache.end(); ++i)
+							it = s_cache.erase(it);
+					}
+					s_cache[sKey] = Entry{ nSize, nTime, fNet };
+				}
+				return fNet;
 			}
 
 			// 6. Name similarity check between executable stem and DLL stem
@@ -1782,7 +1832,7 @@ namespace {
 			if (pS != std::string::npos) sProcName = sProcName.substr(pS + 1);
 
 			// Check if host process binary is .NET
-			bool mainIsNet = MegaDumperNet::CheckFileIsDotNet(Widen(sProcPath));
+			bool mainIsNet = MegaDumperNet::CheckFileIsDotNetCached(Widen(sProcPath));
 			if (mainIsNet) res.isDotNet = true;
 
 			HANDLE hSnap = ::CreateToolhelp32Snapshot(TH32CS_SNAPMODULE | TH32CS_SNAPMODULE32, nPid);
@@ -1820,7 +1870,7 @@ namespace {
 					}
 
 					// Check if this module is .NET (PE COM descriptor or BSJB magic)
-					bool modIsNet = MegaDumperNet::CheckFileIsDotNet(me.szExePath);
+					bool modIsNet = MegaDumperNet::CheckFileIsDotNetCached(me.szExePath);
 					if (modIsNet) res.isDotNet = true;
 
 					// Two separate reasons not to deep-scan, deliberately not merged:

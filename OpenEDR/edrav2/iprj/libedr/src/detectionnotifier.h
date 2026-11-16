@@ -145,6 +145,9 @@ public:
 	static std::atomic<int> s_cleanVerdict;
 	static std::atomic<int> s_malwareVerdict;
 	static std::atomic<int> s_unknownVerdictDefault;
+	// How long an "Unknown" answer (VirusKov looked and cannot tell) is reused
+	// before the file is asked about again; 0 = never reused.
+	static std::atomic<int> s_unknownAnswerCacheSeconds;
 	static std::atomic<int> s_unknownReputationVerdict;
 	static std::atomic<int> s_staticUnknownVerdict;
 	static std::vector<int> s_unknownVerdicts;
