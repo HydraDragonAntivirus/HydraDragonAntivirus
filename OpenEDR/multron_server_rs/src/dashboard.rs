@@ -350,6 +350,7 @@ pub fn dashboard_router(state: Arc<AppState>) -> Router {
         .route("/api/v1/edr/telemetry/threats", get(crate::edr_telemetry::handle_get_edr_threats))
         .route("/api/v1/edr/telemetry/killchain/stats", get(crate::edr_telemetry::handle_get_killchain_stats))
         .route("/api/v1/edr/telemetry/killchain/export", get(crate::edr_telemetry::handle_export_killchain))
+        .route("/api/v1/edr/telemetry/killchain/machines", get(crate::edr_telemetry::handle_get_killchain_machines))
         .route("/api/v1/firewall/rules", get(handle_firewall_rules_export))
         .route("/api/v1/firewall/sslbl", get(crate::sslbl::handle_get_sslbl))
         .route("/api/v1/firewall/sslbl/add", post(crate::sslbl::handle_add_sslbl))

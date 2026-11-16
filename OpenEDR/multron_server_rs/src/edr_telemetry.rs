@@ -866,7 +866,7 @@ impl EdrTelemetryStore {
             return Err(format!("more than {KILLCHAIN_MAX_ITEMS} items in one upload"));
         }
         let machine = batch.machine_id.chars().take(128).collect::<String>();
-        let records: Vec<(String, u64, String)> = batch
+        let records: Vec<crate::edr_db::KillchainRow> = batch
             .records
             .iter()
             .filter(|r| valid_killchain_key(&r.key))
@@ -882,7 +882,13 @@ impl EdrTelemetryStore {
                     "raw": r.raw,
                     "machine_id": machine,
                 });
-                (r.key.clone(), r.count.max(1), line.to_string())
+                crate::edr_db::KillchainRow {
+                    key: r.key.clone(),
+                    count: r.count.max(1),
+                    data: line.to_string(),
+                    date: r.date.chars().take(16).collect(),
+                    time: r.time.chars().take(32).collect(),
+                }
             })
             .collect();
         let counts: Vec<(String, u64)> = batch
@@ -900,13 +906,43 @@ impl EdrTelemetryStore {
         self.db.as_ref().and_then(|db| db.killchain_totals().ok()).unwrap_or((0, 0))
     }
 
-    /// Every stored kill chain event as JSON lines (see `EdrDb::export_killchain`).
-    pub fn export_killchain(&self) -> Result<(Vec<u8>, u64), String> {
+    /// Every stored kill chain event as JSON lines (see `EdrDb::export_killchain`),
+    /// or one machine's own chain when `machine` is given
+    /// (`EdrDb::export_killchain_machine`).
+    pub fn export_killchain(&self, machine: Option<&str>) -> Result<(Vec<u8>, u64), String> {
         let db = self.db.as_ref().ok_or("no EDR telemetry database")?;
         let mut out = Vec::new();
-        let n = db.export_killchain(&mut out).map_err(|e| e.to_string())?;
+        let n = match machine {
+            Some(m) => db.export_killchain_machine(m, &mut out),
+            None => db.export_killchain(&mut out),
+        }
+        .map_err(|e| e.to_string())?;
         Ok((out, n))
     }
+
+    /// Machines that uploaded kill chain events (see `EdrDb::killchain_machines`).
+    pub fn killchain_machines(&self) -> Result<Vec<serde_json::Value>, String> {
+        let db = self.db.as_ref().ok_or("no EDR telemetry database")?;
+        let rows = db.killchain_machines().map_err(|e| e.to_string())?;
+        Ok(rows
+            .into_iter()
+            .map(|(machine, shapes, events, first, last)| {
+                serde_json::json!({
+                    "machine_id": machine,
+                    "shapes": shapes,
+                    "events": events,
+                    "first_seen": first,
+                    "last_seen": last,
+                })
+            })
+            .collect())
+    }
+}
+
+#[derive(Debug, Deserialize)]
+pub struct KillchainExportQuery {
+    /// One machine's kill chain (its `machine_id`); all machines merged when absent.
+    pub machine: Option<String>,
 }
 
 /// Handler for GET /api/v1/edr/telemetry/killchain/stats
@@ -915,16 +951,40 @@ pub async fn handle_get_killchain_stats(State(app): State<Arc<AppState>>) -> imp
     Json(serde_json::json!({ "shapes": shapes, "events": events }))
 }
 
-/// Handler for GET /api/v1/edr/telemetry/killchain/export: the kill chain training
-/// set as JSON lines (`train_kc_hybrid.py <file>` reads it).
-pub async fn handle_export_killchain(State(app): State<Arc<AppState>>) -> axum::response::Response {
+/// Handler for GET /api/v1/edr/telemetry/killchain/machines: the machines that
+/// uploaded kill chain events, with their counts and upload times.
+pub async fn handle_get_killchain_machines(State(app): State<Arc<AppState>>) -> axum::response::Response {
     let store = Arc::clone(&app.edr_telemetry);
-    let result = tokio::task::spawn_blocking(move || store.export_killchain()).await;
+    match tokio::task::spawn_blocking(move || store.killchain_machines()).await {
+        Ok(Ok(rows)) => Json(serde_json::json!({ "machines": rows })).into_response(),
+        Ok(Err(e)) => (axum::http::StatusCode::SERVICE_UNAVAILABLE, e).into_response(),
+        Err(e) => (axum::http::StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
+    }
+}
+
+/// Handler for GET /api/v1/edr/telemetry/killchain/export: the kill chain training
+/// set as JSON lines (`train_kc_hybrid.py <file>` reads it). `?machine=<id>`: that
+/// machine's own kill chain, in the order it happened there.
+pub async fn handle_export_killchain(
+    State(app): State<Arc<AppState>>,
+    Query(query): Query<KillchainExportQuery>,
+) -> axum::response::Response {
+    let store = Arc::clone(&app.edr_telemetry);
+    let machine = query.machine.filter(|m| !m.is_empty());
+    // Only file-name-safe characters of the machine id go into the download name.
+    let file_name = match &machine {
+        Some(m) => {
+            let safe: String = m.chars().filter(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_').take(64).collect();
+            format!("attachment; filename=\"killchain_{safe}.jsonl\"")
+        }
+        None => "attachment; filename=\"killchain_events.jsonl\"".to_string(),
+    };
+    let result = tokio::task::spawn_blocking(move || store.export_killchain(machine.as_deref())).await;
     match result {
         Ok(Ok((body, _))) => (
             [
-                (axum::http::header::CONTENT_TYPE, "application/x-ndjson"),
-                (axum::http::header::CONTENT_DISPOSITION, "attachment; filename=\"killchain_events.jsonl\""),
+                (axum::http::header::CONTENT_TYPE, "application/x-ndjson".to_string()),
+                (axum::http::header::CONTENT_DISPOSITION, file_name),
             ],
             body,
         )
@@ -966,7 +1026,7 @@ mod tests {
         };
         assert_eq!(store.ingest_killchain(&second).unwrap(), (1, 1));
         assert_eq!(store.killchain_totals(), (2, 3 + 2 + 5 + 1));
-        let (body, n) = store.export_killchain().unwrap();
+        let (body, n) = store.export_killchain(None).unwrap();
         assert_eq!(n, 2);
         let first_row: serde_json::Value =
             serde_json::from_str(std::str::from_utf8(&body).unwrap().lines().next().unwrap()).unwrap();
@@ -974,6 +1034,20 @@ mod tests {
         assert_eq!(first_row["raw"]["accessMask"], 2);
         assert_eq!(first_row["machines"], 2, "seen on two machines");
         assert_eq!(first_row["machine_id"], "m1", "the first event is kept");
+
+        // Per machine: m2 saw "aa" 2 + 5 times and "bb" once, m1 "aa" 3 times.
+        let machines = store.killchain_machines().unwrap();
+        let m2 = machines.iter().find(|m| m["machine_id"] == "m2").unwrap();
+        assert_eq!((m2["shapes"].as_u64(), m2["events"].as_u64()), (Some(2), Some(8)));
+        let (body, n) = store.export_killchain(Some("m2")).unwrap();
+        assert_eq!(n, 2);
+        let rows: Vec<serde_json::Value> =
+            std::str::from_utf8(&body).unwrap().lines().map(|l| serde_json::from_str(l).unwrap()).collect();
+        let aa = rows.iter().find(|r| r["key"] == "00000000000000aa").unwrap();
+        assert_eq!(aa["count"], 7, "m2's own count");
+        assert_eq!(aa["count_all"], 10);
+        assert_eq!(aa["machine_id"], "m2");
+        assert_eq!(store.export_killchain(Some("nobody")).unwrap().1, 0);
         drop(store);
         let _ = std::fs::remove_file(&p);
     }

@@ -268,17 +268,11 @@ fn py_scalar(v: &serde_json::Value) -> String {
     }
 }
 
-/// The executable path with the user profile name replaced, so the same program
-/// under two accounts (or on two machines) is one key.
+/// The executable path as a key part: case and slash direction only. The user
+/// profile name is kept (it used to be replaced with `*`): the trainer reads
+/// paths as directory classes, so the name never reaches the model either way.
 pub fn normalize_exe(exe: &str) -> String {
-    let l = exe.to_lowercase().replace('/', "\\");
-    if let Some(pos) = l.find("\\users\\") {
-        let rest = &l[pos + "\\users\\".len()..];
-        if let Some(slash) = rest.find('\\') {
-            return format!("{}\\users\\*{}", &l[..pos], &rest[slash..]);
-        }
-    }
-    l
+    exe.to_lowercase().replace('/', "\\")
 }
 
 /// Dedupe key of an event: the normalized exe and the event's feature set.
@@ -770,14 +764,17 @@ mod tests {
     }
 
     #[test]
-    fn same_shape_same_key_across_users() {
+    fn ids_do_not_split_a_shape_but_the_exe_path_does() {
         let raw = serde_json::json!({"file": {"path": "C:\\Users\\a\\AppData\\x.tmp", "id": 1}});
         let raw2 = serde_json::json!({"file": {"path": "C:\\Users\\b\\AppData\\y.tmp", "id": 2}});
         let k1 = shape_key("C:\\Users\\a\\app.exe", &event_features("E", "", &raw));
+        let k1b = shape_key("c:/users/a/APP.exe", &event_features("E", "", &raw2));
+        assert_eq!(k1, k1b, "ids, file names under the same class, case and slashes do not split a shape");
+        // The exe path is kept as it is, user name included.
         let k2 = shape_key("C:\\Users\\b\\app.exe", &event_features("E", "", &raw2));
-        assert_eq!(k1, k2, "ids and user names do not split a shape");
+        assert_ne!(k1, k2);
         let k3 = shape_key("C:\\Users\\b\\other.exe", &event_features("E", "", &raw2));
-        assert_ne!(k1, k3);
+        assert_ne!(k2, k3);
     }
 
     #[test]

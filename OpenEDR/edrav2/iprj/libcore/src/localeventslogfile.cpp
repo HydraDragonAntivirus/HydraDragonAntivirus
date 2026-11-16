@@ -47,7 +47,18 @@ void LocalEventsLogFile::finalConstruct(Variant vConfig)
 		error::NotFound(SL, FMT("Data directory <" << m_sLogPath
 			<< "> doesn't exist or invalid")).throwException();
 
-	checkFullPathValid();
+	// Start the day check from now and today. checkFullPathValid() used to do
+	// this, but only when 5 minutes had passed since steady_clock's epoch -
+	// the boot. Started within 5 minutes of boot, the day stayed unset, and
+	// the first check 5 minutes later took it for a new day and reopened
+	// (then truncated) the file.
+	{
+		auto tnow = std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
+		tm tmData;
+		gmtime_s(&tmData, &tnow);
+		m_currentMonthDay = tmData.tm_mday;
+		m_lastCheckTime = std::chrono::steady_clock::now();
+	}
 	updateFullPath();
 
 	TRACE_END("Error during configuration");
@@ -83,8 +94,13 @@ void LocalEventsLogFile::updateFullPath()
 	{
 		m_sLogFullPath = (pathToFile / filename).string();
 
+		// Append to the day's file, never truncate it. The name changes per day,
+		// so truncation only ever hit today's own events: every reopen (a
+		// service restart, or the day check below firing on the same day)
+		// wiped what had been written so far.
 		m_pWriteStream = queryInterface<io::IWritableStream>(io::createFileStream(m_sLogFullPath,
-			io::FileMode::Write | io::FileMode::ShareRead | io::FileMode::ShareWrite | io::FileMode::CreatePath | io::FileMode::Truncate));
+			io::FileMode::Write | io::FileMode::ShareRead | io::FileMode::ShareWrite | io::FileMode::CreatePath));
+		m_pWriteStream->setPosition(0, io::StreamPos::End);
 	}
 }
 

@@ -1347,7 +1347,10 @@
         <div style="background:var(--panel2);border:1px solid var(--border);border-radius:8px;padding:8px 14px;flex:1;min-width:150px" title="Unknown-process kill chain events uploaded by clients in training mode, merged by event shape">
           <div style="font-size:11px;color:var(--muted);text-transform:uppercase;font-weight:600">Kill Chain (training)</div>
           <div style="font-size:20px;font-weight:700" id="edrStatKcShapes">0</div>
-          <div style="font-size:11px;color:var(--muted)"><span id="edrStatKcEvents">0</span> events &middot; <a href="/api/v1/edr/telemetry/killchain/export" download>export</a></div>
+          <div style="font-size:11px;color:var(--muted)"><span id="edrStatKcEvents">0</span> events &middot; <a id="edrKcExport" href="/api/v1/edr/telemetry/killchain/export" download>export</a></div>
+          <select id="edrKcMachine" title="Export one machine's own kill chain, in the order it happened there" style="margin-top:4px;max-width:100%;font-size:11px">
+            <option value="">All machines (merged)</option>
+          </select>
         </div>
       </div>
 
@@ -4827,6 +4830,29 @@ window.sigKey = (list) => list && list.length ? `${list[0].layer}: ${list[0].nam
           const k = await kc.json();
           if ($("edrStatKcShapes")) $("edrStatKcShapes").textContent = (k.shapes || 0).toLocaleString() + " shapes";
           if ($("edrStatKcEvents")) $("edrStatKcEvents").textContent = (k.events || 0).toLocaleString();
+        }
+      } catch (_) {}
+      try {
+        const sel = $("edrKcMachine");
+        const km = sel ? await fetch("/api/v1/edr/telemetry/killchain/machines", { cache: "no-store" }) : null;
+        if (km && km.ok) {
+          const list = (await km.json()).machines || [];
+          const keep = sel.value;
+          while (sel.options.length > 1) sel.remove(1);
+          for (const m of list) {
+            const o = document.createElement("option");
+            o.value = m.machine_id;
+            o.textContent = `${m.machine_id || "(no id)"} — ${(m.shapes || 0).toLocaleString()} shapes, ${(m.events || 0).toLocaleString()} events`;
+            sel.appendChild(o);
+          }
+          sel.value = list.some(m => m.machine_id === keep) ? keep : "";
+          if (!sel.dataset.bound) {
+            sel.dataset.bound = "1";
+            sel.addEventListener("change", () => {
+              const a = $("edrKcExport");
+              if (a) a.href = "/api/v1/edr/telemetry/killchain/export" + (sel.value ? "?machine=" + encodeURIComponent(sel.value) : "");
+            });
+          }
         }
       } catch (_) {}
     }

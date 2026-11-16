@@ -1812,7 +1812,10 @@ static int staticScanVerdictName(const std::string& sUtf8Path, std::string& sNam
 				openedr_static::WriteLog("scan-result", "file=" + sUtf8Path + "; verdict=Deferred");
 				return 0;
 			}
-			if (verdict == "Error")
+			// openedr_cloud says why: "Error(gone)", "Error(locked_or_gone)".
+			// Comparing to "Error" alone sent those to "unrecognized verdict",
+			// skipping the gone check and the locked retries below.
+			if (verdict.rfind("Error", 0) == 0)
 			{
 				// If the file truly does not exist, do not retry!
 				if (!pathExistsUtf8(sUtf8Path))

@@ -22,6 +22,17 @@ use crate::edr_telemetry::{EdrStats, StoredBehavior, StoredFlow, StoredThreat};
 
 type Res<T> = rusqlite::Result<T>;
 
+/// One kill chain event a machine uploaded in full.
+pub struct KillchainRow {
+    pub key: String,
+    pub count: u64,
+    /// The stored event (an edrsvc log line).
+    pub data: String,
+    /// The machine's date (`YYYYMMDD`) and time of day of its first occurrence.
+    pub date: String,
+    pub time: String,
+}
+
 const WRITE_CACHE_KIB: i64 = 16 * 1024;
 const READ_CACHE_KIB: i64 = 8 * 1024;
 
@@ -133,6 +144,26 @@ impl EdrDb {
                  PRIMARY KEY (key, machine)
              ) WITHOUT ROWID;",
         )?;
+        // Per machine: how often it saw the event, when it uploaded it, and the
+        // machine's own time of its first occurrence (the order of its kill
+        // chain). Added to an existing table in place; rows from before have
+        // count 0 and no times (only the merged count existed then).
+        let have: Vec<String> = conn
+            .prepare("SELECT name FROM pragma_table_info('killchain_machines')")?
+            .query_map([], |r| r.get::<_, String>(0))?
+            .collect::<Result<_, _>>()?;
+        for (col, decl) in [
+            ("count", "INTEGER NOT NULL DEFAULT 0"),
+            ("first_seen", "TEXT"),
+            ("last_seen", "TEXT"),
+            ("event_date", "TEXT"),
+            ("event_time", "TEXT"),
+        ] {
+            if !have.iter().any(|c| c == col) {
+                conn.execute_batch(&format!("ALTER TABLE killchain_machines ADD COLUMN {col} {decl}"))?;
+            }
+        }
+        conn.execute_batch("CREATE INDEX IF NOT EXISTS killchain_machines_machine ON killchain_machines(machine)")?;
         let read = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX)?;
         tune(&read, READ_CACHE_KIB)?;
         Ok(Self { write: Mutex::new(conn), read: Mutex::new(read) })
@@ -175,7 +206,7 @@ impl EdrDb {
         &self,
         machine_id: &str,
         now: &str,
-        records: &[(String, u64, String)],
+        records: &[KillchainRow],
         counts: &[(String, u64)],
     ) -> Res<(u64, u64)> {
         let mut conn = self.write.lock().unwrap_or_else(|e| e.into_inner());
@@ -190,22 +221,33 @@ impl EdrDb {
                      last_seen = excluded.last_seen",
             )?;
             let mut exists = tx.prepare_cached("SELECT 1 FROM killchain_events WHERE key = ?1")?;
-            let mut machine = tx.prepare_cached("INSERT OR IGNORE INTO killchain_machines (key, machine) VALUES (?1, ?2)")?;
-            for (key, count, data) in records {
-                if exists.exists([key])? {
+            // The machine's own first occurrence (event_date/time) is set once;
+            // a repeat only raises its count.
+            let mut machine = tx.prepare_cached(
+                "INSERT INTO killchain_machines (key, machine, count, first_seen, last_seen, event_date, event_time)
+                 VALUES (?1, ?2, ?3, ?4, ?4, ?5, ?6)
+                 ON CONFLICT(key, machine) DO UPDATE SET
+                     count = count + excluded.count,
+                     last_seen = excluded.last_seen,
+                     first_seen = COALESCE(first_seen, excluded.first_seen),
+                     event_date = COALESCE(event_date, excluded.event_date),
+                     event_time = COALESCE(event_time, excluded.event_time)",
+            )?;
+            for r in records {
+                if exists.exists([&r.key])? {
                     merged += 1;
                 } else {
                     new += 1;
                 }
-                ins.execute(params![key, *count as i64, now, data])?;
-                machine.execute(params![key, machine_id])?;
+                ins.execute(params![r.key, r.count as i64, now, r.data])?;
+                machine.execute(params![r.key, machine_id, r.count as i64, now, r.date, r.time])?;
             }
             let mut bump = tx.prepare_cached(
                 "UPDATE killchain_events SET count = count + ?2, last_seen = ?3 WHERE key = ?1",
             )?;
             for (key, count) in counts {
                 if bump.execute(params![key, *count as i64, now])? > 0 {
-                    machine.execute(params![key, machine_id])?;
+                    machine.execute(params![key, machine_id, *count as i64, now, None::<String>, None::<String>])?;
                 }
             }
         }
@@ -246,6 +288,66 @@ impl EdrDb {
             }
         }
         Ok(n)
+    }
+
+    /// One machine's kill chain as JSON lines, in the order it happened there
+    /// (the machine's own date/time of each event's first occurrence). Each
+    /// line is the stored event with `date`, `time`, `machine_id` and `count`
+    /// set to this machine's values (`count_all`: every machine together).
+    /// Events from before per-machine counting have count 0 and no date; they
+    /// come first, with the date of the machine that sent them first.
+    pub fn export_killchain_machine(&self, machine: &str, out: &mut Vec<u8>) -> Res<u64> {
+        let conn = self.read.lock().unwrap_or_else(|e| e.into_inner());
+        let mut st = conn.prepare(
+            "SELECT k.key, m.count, k.count, m.event_date, m.event_time, k.data
+             FROM killchain_machines m JOIN killchain_events k ON k.key = m.key
+             WHERE m.machine = ?1
+             ORDER BY m.event_date, m.event_time, k.first_seen, k.key",
+        )?;
+        let mut rows = st.query([machine])?;
+        let mut n = 0u64;
+        while let Some(r) = rows.next()? {
+            let key: String = r.get(0)?;
+            let data: String = r.get(5)?;
+            let Ok(serde_json::Value::Object(mut obj)) = serde_json::from_str::<serde_json::Value>(&data) else {
+                continue;
+            };
+            if let Some(d) = r.get::<_, Option<String>>(3)? {
+                obj.insert("date".into(), d.into());
+            }
+            if let Some(t) = r.get::<_, Option<String>>(4)? {
+                obj.insert("time".into(), t.into());
+            }
+            obj.insert("machine_id".into(), machine.into());
+            obj.insert("key".into(), key.into());
+            obj.insert("count".into(), r.get::<_, i64>(1)?.into());
+            obj.insert("count_all".into(), r.get::<_, i64>(2)?.into());
+            if serde_json::to_writer(&mut *out, &obj).is_ok() {
+                out.push(b'\n');
+                n += 1;
+            }
+        }
+        Ok(n)
+    }
+
+    /// Machines that uploaded kill chain events: (machine, distinct events,
+    /// events counted, first upload, last upload), most recent first.
+    pub fn killchain_machines(&self) -> Res<Vec<(String, u64, u64, Option<String>, Option<String>)>> {
+        let conn = self.read.lock().unwrap_or_else(|e| e.into_inner());
+        let mut st = conn.prepare(
+            "SELECT machine, COUNT(*), COALESCE(SUM(count), 0), MIN(first_seen), MAX(last_seen)
+             FROM killchain_machines GROUP BY machine ORDER BY MAX(last_seen) DESC, machine",
+        )?;
+        let rows = st.query_map([], |r| {
+            Ok((
+                r.get::<_, String>(0)?,
+                r.get::<_, i64>(1)? as u64,
+                r.get::<_, i64>(2)? as u64,
+                r.get::<_, Option<String>>(3)?,
+                r.get::<_, Option<String>>(4)?,
+            ))
+        })?;
+        rows.collect()
     }
 
     /// Totals over the whole history, counted the way `EdrTelemetryStore` counts them
