@@ -1324,10 +1324,6 @@ typedef char* (*OpenedrScanFileFn)(const char*);
 typedef char* (*OpenedrScanPidFn)(uint32_t, uint64_t);
 typedef char* (*OpenedrScanBytesFn)(const uint8_t*, size_t, const char*);
 typedef void (*OpenedrFreeStringFn)(char*);
-// Signature-only check (bitmask + optional signer out). Lets callers ask the
-// engine "is this trusted" without paying for a full scan. Optional: an older
-// openedr_static.dll simply leaves this null and the caller falls back.
-typedef uint32_t (*OpenedrCheckSignatureFn)(const char*, char**);
 // 1 once the engine has finished loading, 0 while it is still loading. Never
 // blocks, so a caller can skip the engine and decide for itself.
 typedef uint32_t (*OpenedrIsReadyFn)();
@@ -1342,7 +1338,6 @@ struct OpenedrStaticBinding {
 	OpenedrScanPidFn fnScanPid = nullptr;
 	OpenedrScanBytesFn fnScanBytes = nullptr; // optional (older DLLs lack it)
 	OpenedrFreeStringFn fnFreeString = nullptr;
-	OpenedrCheckSignatureFn fnCheckSignature = nullptr;
 	OpenedrIsReadyFn fnIsReady = nullptr;
 	OpenedrScanSystemEventsFn fnScanSystemEvents = nullptr;
 	std::atomic<bool> ready{ false };
@@ -1374,10 +1369,6 @@ static void InitOpenedrStatic()
 	auto fnScanPid = reinterpret_cast<OpenedrScanPidFn>(::GetProcAddress(hDll, "openedr_static_scan_pid"));
 	auto fnScanBytes = reinterpret_cast<OpenedrScanBytesFn>(::GetProcAddress(hDll, "openedr_static_scan_bytes"));
 	auto fnFree = reinterpret_cast<OpenedrFreeStringFn>(::GetProcAddress(hDll, "openedr_static_free_string"));
-	// Optional: absent on an older openedr_static.dll, and that must not block
-	// scanning, so it is not part of the "exports-missing" gate below.
-	auto fnCheckSig = reinterpret_cast<OpenedrCheckSignatureFn>(
-		::GetProcAddress(hDll, "openedr_static_check_file_signature"));
 	auto fnReady = reinterpret_cast<OpenedrIsReadyFn>(
 		::GetProcAddress(hDll, "openedr_static_is_ready"));
 	auto fnSysEvents = reinterpret_cast<OpenedrScanSystemEventsFn>(
@@ -1401,14 +1392,8 @@ static void InitOpenedrStatic()
 			"openedr_static_scan_bytes not present; command lines are not scanned");
 	}
 	s_openedr.fnFreeString = fnFree;
-	s_openedr.fnCheckSignature = fnCheckSig;
 	s_openedr.fnIsReady = fnReady;
 	s_openedr.fnScanSystemEvents = fnSysEvents;
-	if (!fnCheckSig)
-	{
-		openedr_static::WriteLog("export-optional-missing",
-			"openedr_static_check_file_signature not present; module trust falls back");
-	}
 	s_openedr.ready.store(true);
 }
 
@@ -1978,16 +1963,18 @@ int DetectionNotifier::getCachedFileVerdict(const std::string& sUtf8Path)
 }
 
 //
-// Signature-only trust check, delegated to openedr_static.
+// Signature-only trust check through the fileDataProvider (libsyswin
+// SignDataProvider): the same verification get_fls_verdict's enrichSignInfo
+// runs, so a file is verified once per content - the result sits in the file's
+// context, keyed by its hash, and is dropped when the file is modified.
 //
-// Returns true when the file carries a valid Authenticode signature AND its
-// signer is in the engine's trusted vendor list (`signer_rules/`). This is the
-// same authority the full scan uses, reached without paying for ClamAV/YARA/ML.
+// This used to call openedr_cloud.dll's Authenticode export, a second,
+// independent WinVerifyTrust of every module and image with its own cache,
+// whose catalog path was allowed to fetch certificates over the network.
 //
-// Bits: 1 = signed, 2 = trusted vendor, 4 = malicious vendor. Fails closed: if
-// the engine cannot be reached, or an older openedr_static.dll without the
-// export is loaded, the file is reported as NOT trusted rather than silently
-// defaulting to trusted.
+// Trusted = a valid Authenticode signature (embedded, catalog or UWP package),
+// the same meaning the export had. Fails closed: if the provider cannot be
+// reached or the file cannot be verified, the file is NOT trusted.
 //
 bool DetectionNotifier::isFileSignatureTrusted(const std::string& sUtf8Path, std::string* pSignerOut)
 {
@@ -1996,33 +1983,19 @@ bool DetectionNotifier::isFileSignatureTrusted(const std::string& sUtf8Path, std
 	if (sUtf8Path.empty())
 		return false;
 
-	InitOpenedrStatic();
-	if (!s_openedr.ready.load() || !s_openedr.fnCheckSignature)
-		return false;
-
-	char* pszSigner = nullptr;
-	uint32_t nFlags = 0;
 	try
 	{
-		nFlags = s_openedr.fnCheckSignature(sUtf8Path.c_str(), &pszSigner);
+		Variant vSign = execCommand(queryService("fileDataProvider"), "getSignInfo",
+			Dictionary({ {"path", string::convertUtf8ToWChar(sUtf8Path)} }));
+		if (pSignerOut && vSign.has("vendor"))
+			*pSignerOut = string::convertWCharToUtf8(std::wstring(vSign["vendor"]));
+		return static_cast<int64_t>(vSign.get("status", sys::win::SignStatus::Undefined)) ==
+			static_cast<int64_t>(sys::win::SignStatus::Valid);
 	}
 	catch (...)
 	{
-		nFlags = 0;
-	}
-
-	if (pszSigner)
-	{
-		if (pSignerOut)
-			*pSignerOut = pszSigner;
-		s_openedr.fnFreeString(pszSigner);
-	}
-
-	// A module on the malicious-vendor list is never trusted, even if it also
-	// matched a trusted rule.
-	if (nFlags & 0x4u)
 		return false;
-	return (nFlags & 0x1u) != 0 && (nFlags & 0x2u) != 0;
+	}
 }
 
 int DetectionNotifier::scanBufferWithLocalEngines(const std::string& sData, const std::string& sVirtualName, std::string& sThreatNameOut)
@@ -2247,6 +2220,62 @@ int DetectionNotifier::scanFileWithLocalEngines(const std::string& sUtf8Path, st
 	}
 
 	return verdict;
+}
+
+//
+// Cloud verdict for the owlyshield firewall (owlyshield_ransom.dll runs in this
+// process). The firewall asks it, on its own verification thread, what the
+// clouds say about the executable behind a connection. It is the same scan
+// and cache the enricher uses (FLS first, then VirusKov), so an app edrsvc
+// already scanned is answered from the cache and nothing is asked twice.
+//
+// Returns 1 clean, 2 malicious, 3 suspicious, 0 answered but unknown, -1 no
+// answer yet (cloud unreachable): the firewall does not keep a -1 and asks
+// again. pViruskov receives VirusKov's own word (Clean / Malicious /
+// Suspicious / Unknown / Error; empty when FLS settled it alone).
+//
+static int32_t OwlyshieldCloudVerdictProvider(const wchar_t* pPath, char* pViruskov, uint32_t nViruskovCap)
+{
+	if (pViruskov != nullptr && nViruskovCap != 0)
+		pViruskov[0] = '\0';
+	if (pPath == nullptr || *pPath == L'\0')
+		return -1;
+	try
+	{
+		std::string sThreat;
+		DetectionNotifier::CloudScanDetail detail;
+		int nVerdict = DetectionNotifier::scanFileWithLocalEngines(
+			string::convertWCharToUtf8(pPath), sThreat, &detail);
+		if (pViruskov != nullptr && nViruskovCap != 0)
+		{
+			size_t nLen = (std::min)(detail.sViruskov.size(), size_t(nViruskovCap - 1));
+			memcpy(pViruskov, detail.sViruskov.data(), nLen);
+			pViruskov[nLen] = '\0';
+		}
+		if (nVerdict == 1 || nVerdict == 2 || nVerdict == 3)
+			return nVerdict;
+		// Unknown: an answer only if VirusKov gave one ("Error" = it did not
+		// answer; with FLS unknown too, nobody has).
+		return detail.sViruskov == "Error" ? -1 : 0;
+	}
+	catch (...)
+	{
+		return -1;
+	}
+}
+
+void DetectionNotifier::registerOwlyshieldCloudVerdictProvider()
+{
+	HMODULE hOwly = ::GetModuleHandleW(L"owlyshield_ransom.dll");
+	if (!hOwly) hOwly = ::LoadLibraryW(L"owlyshield_ransom.dll");
+	if (!hOwly)
+		return;
+	typedef int32_t (*CloudVerdictProviderFn)(const wchar_t*, char*, uint32_t);
+	typedef void (*SetCloudVerdictProviderFn)(CloudVerdictProviderFn);
+	if (auto fnSet = (SetCloudVerdictProviderFn)::GetProcAddress(hOwly, "owlyshield_set_cloud_verdict_provider"))
+		fnSet(&OwlyshieldCloudVerdictProvider);
+	else
+		LOGLVL(Critical, "owlyshield_ransom.dll has no owlyshield_set_cloud_verdict_provider: the firewall gets no cloud verdicts");
 }
 
 bool DetectionNotifier::isProtectionPaused()

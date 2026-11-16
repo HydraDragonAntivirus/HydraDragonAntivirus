@@ -996,6 +996,25 @@ pub extern "C" fn owlyshield_stream_sigma_report(report_json: *const std::os::ra
     }
 }
 
+/// edrsvc registers its signature verifier (SignDataProvider) here before
+/// `owlyshield_dll_start`; the firewall asks it whether an app is signed.
+/// Null unregisters it (every app is then unverified).
+#[unsafe(no_mangle)]
+pub extern "C" fn owlyshield_set_signature_provider(
+    provider: Option<crate::firewall::engine::SignatureProviderFn>,
+) {
+    crate::firewall::engine::set_signature_provider(provider);
+}
+
+/// edrsvc registers its cloud verdict (FLS, then VirusKov, with the
+/// enricher's cache) here; the firewall asks it on its verification thread.
+#[unsafe(no_mangle)]
+pub extern "C" fn owlyshield_set_cloud_verdict_provider(
+    provider: Option<crate::firewall::engine::CloudVerdictProviderFn>,
+) {
+    crate::firewall::engine::set_cloud_verdict_provider(provider);
+}
+
 /// Free a string returned by any owlyshield scan API (delegated to openedr_static_free_string).
 #[unsafe(no_mangle)]
 pub extern "C" fn owlyshield_free_string(ptr: *mut std::os::raw::c_char) {

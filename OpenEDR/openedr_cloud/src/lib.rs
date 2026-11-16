@@ -1,5 +1,3 @@
-pub mod auth_timestamp;
-pub mod authenticode;
 pub mod cloud_client;
 pub mod hosts;
 pub mod memory;
@@ -207,45 +205,6 @@ pub extern "C" fn openedr_cloud_url_model_loaded() -> u32 {
 #[unsafe(no_mangle)]
 pub extern "C" fn openedr_static_url_model_loaded() -> u32 {
     openedr_cloud_url_model_loaded()
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn openedr_cloud_check_file_signature(
-    file_path: *const c_char,
-    out_signer: *mut *mut c_char,
-) -> u32 {
-    if file_path.is_null() {
-        return 0;
-    }
-    let Ok(path_str) = (unsafe { CStr::from_ptr(file_path) }).to_str() else {
-        return 0;
-    };
-
-    let mut flags = 0u32;
-    let info = authenticode::verify_authenticode(Path::new(path_str));
-
-    if info.is_signed {
-        flags |= 1;
-    }
-    if info.is_trusted {
-        flags |= 2;
-    }
-
-    if !out_signer.is_null() {
-        unsafe {
-            *out_signer = to_c_string(info.signer_name.unwrap_or_default());
-        }
-    }
-
-    flags
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn openedr_static_check_file_signature(
-    file_path: *const c_char,
-    out_signer: *mut *mut c_char,
-) -> u32 {
-    openedr_cloud_check_file_signature(file_path, out_signer)
 }
 
 #[unsafe(no_mangle)]

@@ -112,9 +112,13 @@ public:
 	/// command line is scanned as "cmdline.<ext>" of its image's entry.
 	///
 	static std::vector<std::wstring> getCmdlineScanNames();
-	// Authenticode + signer_rules trust check via openedr_static, without a scan.
+	// Authenticode trust check via the fileDataProvider (SignDataProvider), without a scan.
 	// pSignerOut, when given, receives the publisher name (for diagnostics).
 	static bool isFileSignatureTrusted(const std::string& sUtf8Path, std::string* pSignerOut = nullptr);
+
+	// Hands owlyshield_ransom.dll's firewall the cloud verdict of an executable
+	// (scanFileWithLocalEngines: FLS, then VirusKov, with its cache).
+	static void registerOwlyshieldCloudVerdictProvider();
 
 	///
 	/// Fast query of the dynamic verdict cache (1=Clean, 2=Malicious, 3=Suspicious, 0=Unknown/Uncached).

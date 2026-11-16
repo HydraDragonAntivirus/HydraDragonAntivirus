@@ -1882,7 +1882,7 @@ namespace {
 					//    case-insensitive substring - a certificate whose subject merely
 					//    contained "microsoft", "comodo" or "hydradragon" was trusted.
 					//
-					//    Deliberately outside the shouldDeepScan block: openedr_static's
+					//    Deliberately outside the shouldDeepScan block: SignDataProvider's
 					//    check is cached and cheap, and it is the only verification that
 					//    runs for modules the deep scan skips.
 					modCertTrusted = DetectionNotifier::isFileSignatureTrusted(modPath);
@@ -2045,7 +2045,7 @@ namespace {
 			                      (DetectionNotifier::getCachedFileVerdict(sProcPath) == 1);
 
 			// Check Process Executable Certificate Offline
-			// Single authority: openedr_static (Authenticode + signer_rules/ vendor lists).
+			// Single authority: SignDataProvider (Authenticode, via fileDataProvider).
 			// The vendor name is kept because it is reported in the rejection reason below.
 			std::string procVendor;
 			bool isProcCertTrusted = DetectionNotifier::isFileSignatureTrusted(sProcPath, &procVendor);
@@ -5285,7 +5285,9 @@ void EventEnricher::finalConstruct(Variant vConfig)
 			Dictionary({ {"command", pCmdReceiver} })));
 	}
 
-		
+	// The firewall's cloud verdicts come from the enricher's own scan + cache.
+	DetectionNotifier::registerOwlyshieldCloudVerdictProvider();
+
 	std::scoped_lock _lock(m_mtxQueue);
 	if (m_threadPool.getThreadsCount() == 0)
 		m_threadPool.addThreads(1);
@@ -5601,7 +5603,7 @@ void EventEnricher::put(const Variant& vEventRef)
 	bool isProcFlsClean = (vProcess.has("verdict") && static_cast<int64_t>(vProcess["verdict"]) == cleanCode) ||
 	                      (vProcess.has("flsVerdict") && static_cast<int64_t>(vProcess["flsVerdict"]) == cleanCode) ||
 	                      (DetectionNotifier::getCachedFileVerdict(sProcPath) == cleanCode);
-	// openedr_static is the single authority for certificate trust. The previous
+	// SignDataProvider is the single authority for certificate trust. The previous
 	// local WinVerifyTrust call accepted CERT_E_EXPIRED, ran with WTD_REVOKE_NONE
 	// (so a revoked certificate passed) and classified the signer by case-insensitive
 	// substring ("microsoft", "comodo", "hydradragon") - a certificate whose subject
@@ -5696,7 +5698,7 @@ void EventEnricher::put(const Variant& vEventRef)
 			vParams.put("isUnknownAccordingToComodo", isFileUnknown);
 			vEvent.put("isUnknownAccordingToComodo", isFileUnknown);
 
-			// Certificate trust of the file (openedr_static is the single authority)
+			// Certificate trust of the file (SignDataProvider is the single authority)
 			// only once its content is final (FileDataWriteFull). It used to run on
 			// every file event - create, mid-write change, read, delete and every
 			// handle close - and its cache is keyed on size + mtime, so a file being

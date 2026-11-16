@@ -32,6 +32,48 @@ static OwlyshieldDllIngestFirewallPackedDataFn g_owlyshield_dll_ingest_firewall_
 static OwlyshieldDllStopFn g_owlyshield_dll_stop = nullptr;
 
 ///
+/// Signature provider handed to owlyshield_ransom.dll (its firewall asks it
+/// whether the executable behind a connection is signed). Answers from the
+/// fileDataProvider - the SignDataProvider verification and cache the enricher
+/// uses - so the firewall no longer needs a verifier of its own.
+///
+/// Returns the SignStatus (0 valid, 1 invalid, 2 unsigned, 3 untrusted,
+/// 4 undefined = could not be verified now). pSigner receives the signer name
+/// (NUL-terminated, cut to nSignerCap), *pCatalog 1 when the file is signed
+/// through a catalog rather than an embedded signature.
+///
+static int32_t OwlyshieldSignatureProvider(const wchar_t* pPath, wchar_t* pSigner,
+	uint32_t nSignerCap, uint32_t* pCatalog)
+{
+	constexpr int32_t c_nUndefined = 4;
+	if (pSigner != nullptr && nSignerCap != 0)
+		pSigner[0] = L'\0';
+	if (pCatalog != nullptr)
+		*pCatalog = 0;
+	if (pPath == nullptr || *pPath == L'\0')
+		return c_nUndefined;
+	try
+	{
+		Variant vSign = execCommand(queryService("fileDataProvider"), "getSignInfo",
+			Dictionary({ {"path", std::wstring(pPath)} }));
+		if (pSigner != nullptr && nSignerCap != 0 && vSign.has("vendor"))
+		{
+			std::wstring sVendor = vSign["vendor"];
+			size_t nLen = (std::min)(sVendor.size(), size_t(nSignerCap - 1));
+			wmemcpy(pSigner, sVendor.data(), nLen);
+			pSigner[nLen] = L'\0';
+		}
+		if (pCatalog != nullptr && vSign.has("catFilePath"))
+			*pCatalog = 1;
+		return static_cast<int32_t>(static_cast<int64_t>(vSign.get("status", c_nUndefined)));
+	}
+	catch (...)
+	{
+		return c_nUndefined;
+	}
+}
+
+///
 /// Load owlyshield_ransom.dll and initialize function pointers
 ///
 bool InitOwlyshield()
@@ -65,6 +107,16 @@ bool InitOwlyshield()
 		g_hOwlyshieldDll = nullptr;
 		return false;
 	}
+
+	// The firewall's signature checks: registered before start so its first
+	// connection already has them.
+	typedef int32_t (*OwlyshieldSignatureProviderFn)(const wchar_t*, wchar_t*, uint32_t, uint32_t*);
+	typedef void (*OwlyshieldSetSignatureProviderFn)(OwlyshieldSignatureProviderFn);
+	if (auto fnSetSigProvider = (OwlyshieldSetSignatureProviderFn)::GetProcAddress(
+			g_hOwlyshieldDll, "owlyshield_set_signature_provider"))
+		fnSetSigProvider(&OwlyshieldSignatureProvider);
+	else
+		LOGLVL(Critical, "owlyshield_ransom.dll has no owlyshield_set_signature_provider: firewall sees every app as unverified");
 
 	// Start the Owlyshield engine. Only flip g_bOwlyshieldStarted AFTER this
 	// returns OK — until then, ingest calls must be rejected on the C++ side

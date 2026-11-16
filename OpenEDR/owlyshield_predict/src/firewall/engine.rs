@@ -1125,30 +1125,78 @@ impl AppInfoCache {
     }
 }
 
-/// Local signer verdict. Native verification lives in openedr_static.dll;
-/// this resolves verdicts through that DLL (dynamically loaded, same binary
-/// the OpenEDR C++ layer uses) instead of a Rust crate dependency.
-/// Anything unresolvable reports untrusted (fail-closed).
+/// Local signer verdict. Answered by edrsvc's SignDataProvider through the
+/// callback it registers with `owlyshield_set_signature_provider` (this DLL
+/// runs inside edrsvc): the same verification and cache the enricher uses.
+/// It used to come from a full openedr_cloud scan of the executable (hash,
+/// cloud round trip, maybe an upload) just to read the report's signer.
 #[derive(Debug, Clone, Default)]
 pub struct SigInfo {
     pub is_trusted: bool,
     pub signer_name: Option<String>,
     pub status: String,
     pub is_catalog_signed: bool,
+    /// edrsvc's cloud verdict (FLS first, then VirusKov): "safe",
+    /// "malicious", "suspicious" or "unknown"; None = no answer yet.
     pub cloud_verdict: Option<String>,
+    /// VirusKov's own word (Clean / Malicious / Suspicious / Unknown / Error),
+    /// empty when FLS settled it alone. For the log line.
+    pub viruskov: String,
+    /// Set while the signer or the cloud verdict is missing: when to ask
+    /// again (in the background; the cached entry is used meanwhile).
+    pub retry_at: Option<std::time::Instant>,
 }
 
-type OpenedrInitFn = unsafe extern "C" fn(*const std::os::raw::c_char) -> i32;
-type OpenedrScanFileFn =
-    unsafe extern "C" fn(*const std::os::raw::c_char) -> *mut std::os::raw::c_char;
-type OpenedrFreeFn = unsafe extern "C" fn(*mut std::os::raw::c_char);
+/// `(path, viruskov_buf, viruskov_cap) -> verdict`: 1 clean, 2 malicious,
+/// 3 suspicious, 0 unknown, -1 no answer yet.
+pub type CloudVerdictProviderFn = unsafe extern "C" fn(*const u16, *mut u8, u32) -> i32;
 
-struct OpenedrDll {
-    scan_fn: OpenedrScanFileFn,
-    free_fn: OpenedrFreeFn,
+static CLOUD_VERDICT_PROVIDER: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+pub fn set_cloud_verdict_provider(f: Option<CloudVerdictProviderFn>) {
+    CLOUD_VERDICT_PROVIDER.store(
+        f.map(|f| f as usize).unwrap_or(0),
+        std::sync::atomic::Ordering::Release,
+    );
 }
 
-static OPENEDR_DLL: std::sync::OnceLock<Option<OpenedrDll>> = std::sync::OnceLock::new();
+/// edrsvc's cloud verdict for the executable: the enricher's own scan and
+/// cache, so an app edrsvc already scanned costs no cloud request. Blocking
+/// (a cloud round trip on a miss): only called from the verification thread.
+fn query_cloud_verdict(app_path: &str) -> Option<(String, String)> {
+    let raw = CLOUD_VERDICT_PROVIDER.load(std::sync::atomic::Ordering::Acquire);
+    if raw == 0 {
+        return None;
+    }
+    let provider: CloudVerdictProviderFn = unsafe { std::mem::transmute(raw) };
+    let path = wide_null(app_path);
+    let mut vk = [0u8; 64];
+    let verdict = unsafe { provider(path.as_ptr(), vk.as_mut_ptr(), vk.len() as u32) };
+    let len = vk.iter().position(|&c| c == 0).unwrap_or(vk.len());
+    let viruskov = String::from_utf8_lossy(&vk[..len]).into_owned();
+    let v = match verdict {
+        1 => "safe",
+        2 => "malicious",
+        3 => "suspicious",
+        0 => "unknown",
+        _ => return None,
+    };
+    Some((v.to_string(), viruskov))
+}
+
+/// `(path, signer_buf, signer_cap, out_catalog) -> SignStatus`
+/// (0 valid, 1 invalid, 2 unsigned, 3 untrusted, 4 undefined).
+pub type SignatureProviderFn =
+    unsafe extern "C" fn(*const u16, *mut u16, u32, *mut u32) -> i32;
+
+static SIGNATURE_PROVIDER: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+pub fn set_signature_provider(f: Option<SignatureProviderFn>) {
+    SIGNATURE_PROVIDER.store(
+        f.map(|f| f as usize).unwrap_or(0),
+        std::sync::atomic::Ordering::Release,
+    );
+}
 
 fn wide_null(s: &str) -> Vec<u16> {
     use std::os::windows::ffi::OsStrExt;
@@ -1158,98 +1206,44 @@ fn wide_null(s: &str) -> Vec<u16> {
         .collect()
 }
 
-fn load_openedr_dll() -> Option<OpenedrDll> {
-    use windows::core::{PCSTR, PCWSTR};
-    use windows::Win32::System::LibraryLoader::{GetModuleHandleW, GetProcAddress, LoadLibraryW};
-
-    unsafe {
-        let mut candidates: Vec<std::path::PathBuf> = vec![
-            std::path::PathBuf::from("openedr_cloud.dll"),
-            std::path::PathBuf::from("openedr_static.dll"),
-        ];
-        if let Some(d) = crate::utils::current_module_dir() {
-            candidates.push(d.join("openedr_cloud.dll"));
-            candidates.push(d.join("openedr_static.dll"));
-        }
-        if let Ok(exe) = std::env::current_exe() {
-            if let Some(d) = exe.parent() {
-                candidates.push(d.join("openedr_cloud.dll"));
-                candidates.push(d.join("openedr_static.dll"));
-            }
-        }
-        candidates.push(std::path::PathBuf::from(
-            r"C:\Program Files\HydraDragonAntivirus\OpenEDR\openedr_cloud.dll",
-        ));
-        candidates.push(std::path::PathBuf::from(
-            r"C:\Program Files\HydraDragonAntivirus\OpenEDR\openedr_static.dll",
-        ));
-
-        for cand in candidates {
-            let w = wide_null(&cand.to_string_lossy());
-            // Already loaded in this process (e.g. by the OpenEDR C++ layer)?
-            let h = GetModuleHandleW(PCWSTR(w.as_ptr()))
-                .or_else(|_| LoadLibraryW(PCWSTR(w.as_ptr())))
-                .ok()?;
-            let init_fn: OpenedrInitFn =
-                std::mem::transmute(GetProcAddress(h, PCSTR(b"openedr_static_init\0".as_ptr()))?);
-            let scan_fn: OpenedrScanFileFn = std::mem::transmute(GetProcAddress(
-                h,
-                PCSTR(b"openedr_static_scan_file\0".as_ptr()),
-            )?);
-            let free_fn: OpenedrFreeFn = std::mem::transmute(GetProcAddress(
-                h,
-                PCSTR(b"openedr_static_free_string\0".as_ptr()),
-            )?);
-            if init_fn(std::ptr::null()) != 0 {
-                continue;
-            }
-            return Some(OpenedrDll { scan_fn, free_fn });
-        }
-        None
+/// `None` when the file could not be verified now (no provider registered
+/// yet, file locked): the caller does not cache that, so it is asked again.
+fn query_signer(app_path: &str) -> Option<SigInfo> {
+    const UNDEFINED: i32 = 4;
+    let raw = SIGNATURE_PROVIDER.load(std::sync::atomic::Ordering::Acquire);
+    if raw == 0 {
+        return None;
     }
-}
-
-fn query_openedr_signer(app_path: &str) -> Option<SigInfo> {
-    let dll = OPENEDR_DLL.get_or_init(load_openedr_dll).as_ref()?;
-    let c_path = std::ffi::CString::new(app_path).ok()?;
-    let report: String = unsafe {
-        let ptr = (dll.scan_fn)(c_path.as_ptr());
-        if ptr.is_null() {
-            return None;
-        }
-        let text = std::ffi::CStr::from_ptr(ptr).to_string_lossy().into_owned();
-        (dll.free_fn)(ptr);
-        text
+    let provider: SignatureProviderFn = unsafe { std::mem::transmute(raw) };
+    let path = wide_null(app_path);
+    let mut signer = [0u16; 512];
+    let mut catalog: u32 = 0;
+    let status = unsafe {
+        provider(
+            path.as_ptr(),
+            signer.as_mut_ptr(),
+            signer.len() as u32,
+            &mut catalog,
+        )
     };
-    let v: serde_json::Value = serde_json::from_str(&report).ok()?;
-    let cloud_verdict = v.get("verdict").and_then(|x| x.as_str()).map(|x| x.to_string());
-    let s = v.get("signer_info");
-    if s.is_none() || s.unwrap().is_null() {
-        return Some(SigInfo {
-            is_trusted: false,
-            signer_name: None,
-            status: "unsigned".to_string(),
-            is_catalog_signed: false,
-            cloud_verdict,
-        });
+    if status == UNDEFINED {
+        return None;
     }
-    let s = s.unwrap();
+    let len = signer.iter().position(|&c| c == 0).unwrap_or(signer.len());
+    let name = String::from_utf16_lossy(&signer[..len]);
     Some(SigInfo {
-        is_trusted: s.get("is_trusted").and_then(|x| x.as_bool()).unwrap_or(false),
-        signer_name: s
-            .get("signer_name")
-            .and_then(|x| x.as_str())
-            .map(|x| x.to_string()),
-        status: s
-            .get("status")
-            .and_then(|x| x.as_str())
-            .unwrap_or("unsigned")
-            .to_string(),
-        is_catalog_signed: s
-            .get("is_catalog_signed")
-            .and_then(|x| x.as_bool())
-            .unwrap_or(false),
-        cloud_verdict,
+        is_trusted: status == 0,
+        signer_name: (!name.is_empty()).then_some(name),
+        status: match status {
+            0 => "valid",
+            1 => "invalid",
+            2 => "unsigned",
+            3 => "untrusted",
+            _ => "unknown",
+        }
+        .to_string(),
+        is_catalog_signed: status == 0 && catalog != 0,
+        ..SigInfo::default()
     })
 }
 
@@ -1324,9 +1318,24 @@ impl AppManager {
                 return info.clone();
             }
         }
-        // Single authority: openedr_static.dll, loaded dynamically (same
-        // binary the OpenEDR C++ layer uses) — no Rust crate dependency.
-        let info = query_openedr_signer(app_path).unwrap_or_default();
+        self.verify_sig_now(app_path)
+    }
+
+    /// Signer + cloud verdict, stored in `sig_cache` (replacing an earlier
+    /// entry). What could not be answered now (file locked, cloud unreachable)
+    /// is marked for a retry instead of being kept as the final word.
+    fn verify_sig_now(&self, app_path: &str) -> SigInfo {
+        const RETRY_AFTER: std::time::Duration = std::time::Duration::from_secs(60);
+        let signer = query_signer(app_path);
+        let signer_answered = signer.is_some();
+        let mut info = signer.unwrap_or_default();
+        if let Some((verdict, viruskov)) = query_cloud_verdict(app_path) {
+            info.cloud_verdict = Some(verdict);
+            info.viruskov = viruskov;
+        }
+        if !signer_answered || info.cloud_verdict.is_none() {
+            info.retry_at = Some(std::time::Instant::now() + RETRY_AFTER);
+        }
         let mut cache = self.sig_cache.write().unwrap();
         cache.insert(app_path.to_string(), info.clone());
         info
@@ -1339,8 +1348,12 @@ impl AppManager {
         if app_path.is_empty() {
             return Some(SigInfo::default());
         }
-        if let Some(info) = self.sig_cache.read().unwrap().get(app_path) {
-            return Some(info.clone());
+        let cached = self.sig_cache.read().unwrap().get(app_path).cloned();
+        if let Some(info) = &cached {
+            // Complete, or not yet time to ask again: answer from the cache.
+            if info.retry_at.is_none_or(|t| std::time::Instant::now() < t) {
+                return cached;
+            }
         }
         const MAX_INFLIGHT: usize = 8;
         let mut inflight = self.sig_inflight.lock().unwrap();
@@ -1351,7 +1364,7 @@ impl AppManager {
                 .name("fw_sig_verify".to_string())
                 .spawn(move || {
                     let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                        am.get_or_verify_sig(&path);
+                        am.verify_sig_now(&path);
                     }));
                     am.sig_inflight.lock().unwrap().remove(&path);
                 });
@@ -1359,7 +1372,8 @@ impl AppManager {
                 inflight.remove(app_path);
             }
         }
-        None
+        // A retry runs in the background; the earlier answer stands meanwhile.
+        cached
     }
 
     pub fn update_port_mapping(&self, port: u16, pid: u32) {
@@ -4717,7 +4731,9 @@ impl FirewallEngine {
                             }
                         }
 
-                        // OpenEDR cloud / FLS verdict verification
+                        // OpenEDR cloud verdict (edrsvc's FLS-then-VirusKov scan and cache).
+                        // It used to come from an openedr_cloud scan whose "Clean" /
+                        // "Malicious" never matched the "safe" / "malicious" compared here.
                         let is_viruskov_safe = sig_info.cloud_verdict.as_deref() == Some("safe");
                         let is_viruskov_malicious = sig_info.cloud_verdict.as_deref() == Some("malicious");
 
@@ -4785,8 +4801,9 @@ impl FirewallEngine {
                                 // Cloud verdict unknown (not malicious). Allow traffic without cutting connection.
                                 should_forward = true;
                                 reason = Some(format!(
-                                    "Cloud Wait Mode: Cloud verdict unknown (Viruskov: {}, Comodo: {}) for {} | Monitored, connection kept alive",
-                                    sig_info.cloud_verdict.as_deref().unwrap_or("unknown"),
+                                    "Cloud Wait Mode: Cloud verdict unknown (Cloud: {}, Viruskov: {}, Comodo: {}) for {} | Monitored, connection kept alive",
+                                    sig_info.cloud_verdict.as_deref().unwrap_or("pending"),
+                                    if sig_info.viruskov.is_empty() { "-" } else { sig_info.viruskov.as_str() },
                                     am.openedr_verdicts.read().unwrap().get(&pid).cloned().unwrap_or_else(|| "unknown".to_string()),
                                     app_name
                                 ));
