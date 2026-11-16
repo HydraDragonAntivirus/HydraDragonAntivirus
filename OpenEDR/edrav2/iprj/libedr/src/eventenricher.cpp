@@ -4148,23 +4148,11 @@ static bool rescanOne(const std::string& dos, uint32_t nPid)
 				<< "> now holds clean content (" << sThreat << "); not quarantining"));
 			return true;
 		}
-		if (nScan != 2 || sThreat.empty())
+		if ((nScan != 2 && nScan != 3) || sThreat.empty())
 			sThreat = "Blacklist.KnownMalwarePath";
 	}
-	else if (nScan == 3)
-	{
-		// Suspicious: same as the sync path (alert + record, no quarantine).
-		// The rescan used to drop it silently.
-		if (sThreat.empty())
-			sThreat = "Static.Suspicious";
-		LOGLVL(Critical, FMT("enricher: [ASYNC RESCAN] SUSPICIOUS: <" << sThreat << "> on <" << dos
-			<< "> (PID: " << nPid << ")"));
-		DetectionNotifier::recordMalwareDetection(dos, "");
-		SendThreatAlertToGuiEarly(sThreat, dos);
-		ZeroTrust::recordThreatDetection();
-		return true;
-	}
-	else if (nScan != 2)
+	// Suspicious (3) goes on like Malicious, as on the sync path.
+	else if (nScan != 2 && nScan != 3)
 		// Decided when Clean, or when VirusKov answered "unknown" (it looked and
 		// cannot tell; asking again gets the same answer). Only a scan that got
 		// no answer (deferred: connection error, timeout, locked file) is tried
@@ -4468,7 +4456,7 @@ static void SendThreatAlertToGui(const std::string& sThreat, const std::string& 
 // (powershell.exe, mshta.exe) and the threat is the arguments. The process
 // handle is opened when the scan is queued, so a late verdict can only ever
 // terminate that process, never a newer one that reused its PID.
-// Suspicious: logged and alerted only.
+// Suspicious: the same.
 namespace CmdScanQueue {
 
 constexpr int c_nWorkers = 2;
@@ -4508,7 +4496,7 @@ static void scanOne(const Item& item)
 
 	LOGLVL(Critical, FMT("enricher: [COMMAND LINE] " << (r == 2 ? "THREAT" : "SUSPICIOUS") << ": <"
 		<< sThreat << "> PID " << item.nPid << " cmd <" << item.sCmd << ">"));
-	if (r == 2 && item.hProcess != nullptr && !DetectionNotifier::isProtectionPaused())
+	if ((r == 2 || r == 3) && item.hProcess != nullptr && !DetectionNotifier::isProtectionPaused())
 	{
 		if (::TerminateProcess(item.hProcess, 1))
 			LOGLVL(Critical, FMT("enricher: [COMMAND LINE] terminated PID " << item.nPid));
@@ -4730,7 +4718,7 @@ static void enqueue(uint32_t nPid)
 // (native PEs and .NET assemblies found in memory), and those are scanned like
 // dropped files.
 // One background worker: a dump reads the whole process, so nothing waits on
-// it. A malicious image in the dump: alert, kill chain record, and the
+// it. A malicious or suspicious image in the dump: alert, kill chain record, and the
 // process is stopped (unless protection is paused for training). Dumps with a
 // detection are kept under ProgramData\edrsvc\dumps as evidence; clean ones
 // are removed unless dumpKeepClean.
@@ -4835,7 +4823,7 @@ static int scanDump(const std::filesystem::path& dir, const Item& item, std::str
 			LOGLVL(Critical, FMT("enricher: [DUMP] " << (r == 2 ? "MALICIOUS" : "SUSPICIOUS") << " <" << sThreat
 				<< "> in the memory of PID " << item.nPid << " <" << item.sImage << ">: " << sFile));
 			SendThreatAlertToGui(sThreat, "pid:" + std::to_string(item.nPid) + " " + item.sImage);
-			if (r == 2)
+			// Suspicious stops the process too, like Malicious.
 			{
 				if (sFirstThreat.empty())
 					sFirstThreat = sThreat;
@@ -5106,7 +5094,7 @@ void EventEnricher::executeUnfilteredLocalScan(Variant& vEvent, Variant& vProces
 			continue;
 		}
 
-		if (cachedVerdict == 2 || DetectionNotifier::isKnownMalware(dos, ""))
+		if (cachedVerdict == 2 || cachedVerdict == 3 || DetectionNotifier::isKnownMalware(dos, ""))
 		{
 			// Already known malware: flag immediately without re-scanning
 			vEvent.put("verdict", 2);
@@ -5187,12 +5175,15 @@ void EventEnricher::executeUnfilteredLocalScan(Variant& vEvent, Variant& vProces
 				AsyncRescanAndQuarantine(dos, nPid);
 		}
 
-		if (r == 2)
+		// Suspicious is acted on like Malicious: stop, quarantine, roll back.
+		// (It used to be alert + driver block-list only, leaving the file on
+		// disk.) The name keeps saying which one it was.
+		if (r == 2 || r == 3)
 		{
 			if (sThreat.empty())
-				sThreat = "Malware.LocalDetection";
+				sThreat = r == 2 ? "Malware.LocalDetection" : "Static.Suspicious";
 
-			LOGLVL(Critical, FMT("enricher: [UNFILTERED SCAN] THREAT DETECTED: <"
+			LOGLVL(Critical, FMT("enricher: [UNFILTERED SCAN] THREAT DETECTED (" << (r == 2 ? "Malicious" : "Suspicious") << "): <"
 				<< sThreat << "> on <" << dos << "> (PID: " << nPid << ")"));
 
 			// Stamp verdicts on event & process
@@ -5296,37 +5287,6 @@ void EventEnricher::executeUnfilteredLocalScan(Variant& vEvent, Variant& vProces
 			}
 		}
 
-		if (r == 3)
-		{
-			// Suspicious (was previously collapsed to unknown and silently
-			// dropped): stamp + alert + driver block-list + DB record so
-			// medium-confidence threats can't run silent. Quarantine stays
-			// Malicious-only (manual-scan parity, FPR control).
-			if (sThreat.empty())
-				sThreat = "Static.Suspicious";
-
-			LOGLVL(Critical, FMT("enricher: [UNFILTERED SCAN] SUSPICIOUS: <"
-				<< sThreat << "> on <" << dos << "> (PID: " << nPid << ")"));
-
-			vEvent.put("threatName", sThreat);
-			vProcess.put("threatName", sThreat);
-
-			// Remember in persistent DB & driver block list (no quarantine).
-			DetectionNotifier::recordMalwareDetection(dos, "");
-
-			// Send instant alert to Pascal GUI
-			HANDLE hPipeSusp = ::CreateFileW(L"\\\\.\\pipe\\HydraHipEvent",
-				GENERIC_WRITE, 0, NULL, OPEN_EXISTING, 0, NULL);
-			if (hPipeSusp != INVALID_HANDLE_VALUE)
-			{
-				std::string pipeMsg = "THREAT_ALERT:" + sThreat + "|" + dos + "\n";
-				DWORD written = 0;
-				::WriteFile(hPipeSusp, pipeMsg.data(), static_cast<DWORD>(pipeMsg.size()), &written, NULL);
-				::CloseHandle(hPipeSusp);
-			}
-
-			ZeroTrust::recordThreatDetection();
-		}
 
 		// B. Also enqueue to daemon scanner pool (for background archive scanning / quarantine vault)
 		if (s_fnEnqueue != nullptr)
