@@ -3309,8 +3309,6 @@ Variant DetectionNotifier::execute(Variant vCommand, Variant vParams){
 			{
 				openedr_static::WriteLog("rpc", "getFileReputationBulk received " +
 					std::to_string(vPaths.getSize()) + " path(s)");
-				openedr_static::WriteLog("local-scan-skipped",
-					"getFileReputationBulk returns Unknown unless EDR has a recorded local detection");
 				for (size_t i = 0; i < vPaths.getSize() && vOut.getSize() < 200; ++i)
 				{
 					try
@@ -3358,6 +3356,16 @@ Variant DetectionNotifier::execute(Variant vCommand, Variant vParams){
 						{
 							sLocalName = "Previously recorded VirusKov detection";
 							nLocal = s_malwareVerdict.load(std::memory_order_relaxed);
+						}
+						else if (s_enableCloud.load(std::memory_order_relaxed))
+						{
+							int nScanned = DetectionNotifier::scanFileWithLocalEngines(sPath, sLocalName);
+							if (nScanned == s_cleanVerdict.load(std::memory_order_relaxed) ||
+								nScanned == s_malwareVerdict.load(std::memory_order_relaxed) ||
+								nScanned == 3)
+							{
+								nLocal = nScanned;
+							}
 						}
 					}
 					catch (...) {}

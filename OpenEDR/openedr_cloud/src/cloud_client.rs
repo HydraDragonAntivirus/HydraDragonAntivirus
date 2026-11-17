@@ -237,13 +237,32 @@ impl CloudSession {
     }
 }
 
-static CLIENT: Mutex<Option<CloudSession>> = Mutex::new(None);
+const CLIENT_POOL_SIZE: usize = 4;
+static CLIENT_POOL: [Mutex<Option<CloudSession>>; CLIENT_POOL_SIZE] = [
+    Mutex::new(None),
+    Mutex::new(None),
+    Mutex::new(None),
+    Mutex::new(None),
+];
+static NEXT_CLIENT_SLOT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 
 fn with_client<F, R>(f: F) -> R
 where
     F: FnOnce(&mut CloudSession) -> R,
 {
-    let mut guard = CLIENT.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    let start = NEXT_CLIENT_SLOT.fetch_add(1, Ordering::Relaxed) % CLIENT_POOL_SIZE;
+    for offset in 0..CLIENT_POOL_SIZE {
+        let idx = (start + offset) % CLIENT_POOL_SIZE;
+        if let Ok(mut guard) = CLIENT_POOL[idx].try_lock() {
+            if guard.is_none() {
+                *guard = Some(CloudSession::new());
+            }
+            return f(guard.as_mut().unwrap());
+        }
+    }
+    let mut guard = CLIENT_POOL[start]
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
     if guard.is_none() {
         *guard = Some(CloudSession::new());
     }
