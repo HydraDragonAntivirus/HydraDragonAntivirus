@@ -2035,8 +2035,13 @@ bool DetectionNotifier::isFileSignatureTrusted(const std::string& sUtf8Path, std
 
 	try
 	{
+		const auto tSig0 = std::chrono::steady_clock::now();
 		Variant vSign = execCommand(queryService("fileDataProvider"), "getSignInfo",
 			Dictionary({ {"path", string::convertUtf8ToWChar(sUtf8Path)} }));
+		const auto nSigMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+			std::chrono::steady_clock::now() - tSig0).count();
+		if (nSigMs >= 500)
+			LOGWRN(FMT("[SLOW-CALL] isFileSignatureTrusted took " << nSigMs << " ms on <" << sUtf8Path << ">"));
 		std::string vendor;
 		if (vSign.has("vendor"))
 			vendor = string::convertWCharToUtf8(std::wstring(vSign["vendor"]));
@@ -2172,10 +2177,14 @@ int DetectionNotifier::scanFileWithLocalEngines(const std::string& sUtf8Path, st
 	int cleanCode = s_cleanVerdict.load(std::memory_order_relaxed);
 	int malCode = s_malwareVerdict.load(std::memory_order_relaxed);
 
+	const auto tScanTotal0 = std::chrono::steady_clock::now();
 	if (!cloudEnabled)
 	{
 		// Offline mode: openedr_static runs without cloud and without trusting cloud scores
+		const auto t0 = std::chrono::steady_clock::now();
 		verdict = staticScanVerdictName(sUtf8Path, sThreatNameOut);
+		detail.nStaticUs += static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::microseconds>(
+			std::chrono::steady_clock::now() - t0).count());
 		detail.sViruskov = ViruskovVerdictName(verdict);
 		if (verdict == 2 || verdict == 3)
 			detail.sViruskovName = sThreatNameOut;
@@ -2183,7 +2192,10 @@ int DetectionNotifier::scanFileWithLocalEngines(const std::string& sUtf8Path, st
 	else if (preferCloud)
 	{
 		// 1. Check Comodo Cloud FLS first
+		const auto tHash0 = std::chrono::steady_clock::now();
 		std::string sHash = sha1HexOfFileUtf8(sUtf8Path);
+		detail.nSha1Us += static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::microseconds>(
+			std::chrono::steady_clock::now() - tHash0).count());
 		detail.sSha1 = sHash;
 		if (!sHash.empty())
 		{
@@ -2192,7 +2204,10 @@ int DetectionNotifier::scanFileWithLocalEngines(const std::string& sUtf8Path, st
 				auto pFls = queryInterface<cmd::cloud::fls::IFlsClient>(queryService("flsService"));
 				if (pFls)
 				{
+					const auto tFls0 = std::chrono::steady_clock::now();
 					auto cv = pFls->getFileVerdict(sHash);
+					detail.nFlsUs += static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::microseconds>(
+						std::chrono::steady_clock::now() - tFls0).count());
 					int nCv = static_cast<int>(cv);
 					detail.sFls = FlsVerdictName(nCv);
 					if (nCv == cleanCode)
@@ -2213,7 +2228,10 @@ int DetectionNotifier::scanFileWithLocalEngines(const std::string& sUtf8Path, st
 		// 2. If Cloud was unknown / unrated, fall back to local openedr_static
 		if (verdict == 0 || isUnknownVerdict(verdict))
 		{
+			const auto tStat0 = std::chrono::steady_clock::now();
 			verdict = staticScanVerdictName(sUtf8Path, sThreatNameOut);
+			detail.nStaticUs += static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::microseconds>(
+				std::chrono::steady_clock::now() - tStat0).count());
 			detail.sViruskov = ViruskovVerdictName(verdict);
 			if (verdict == 2 || verdict == 3)
 				detail.sViruskovName = sThreatNameOut;
@@ -2222,7 +2240,10 @@ int DetectionNotifier::scanFileWithLocalEngines(const std::string& sUtf8Path, st
 	else
 	{
 		// Local openedr_static scan first
+		const auto tStat0 = std::chrono::steady_clock::now();
 		verdict = staticScanVerdictName(sUtf8Path, sThreatNameOut);
+		detail.nStaticUs += static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::microseconds>(
+			std::chrono::steady_clock::now() - tStat0).count());
 		detail.sViruskov = ViruskovVerdictName(verdict);
 		if (verdict == 2 || verdict == 3)
 			detail.sViruskovName = sThreatNameOut;
@@ -2230,7 +2251,10 @@ int DetectionNotifier::scanFileWithLocalEngines(const std::string& sUtf8Path, st
 		// If local engine returned unknown verdict, consult Cloud FLS
 		if (isUnknownVerdict(verdict))
 		{
+			const auto tHash0 = std::chrono::steady_clock::now();
 			std::string sHash = sha1HexOfFileUtf8(sUtf8Path);
+			detail.nSha1Us += static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::microseconds>(
+				std::chrono::steady_clock::now() - tHash0).count());
 			detail.sSha1 = sHash;
 			if (!sHash.empty())
 			{
@@ -2239,7 +2263,10 @@ int DetectionNotifier::scanFileWithLocalEngines(const std::string& sUtf8Path, st
 					auto pFls = queryInterface<cmd::cloud::fls::IFlsClient>(queryService("flsService"));
 					if (pFls)
 					{
+						const auto tFls0 = std::chrono::steady_clock::now();
 						auto cv = pFls->getFileVerdict(sHash);
+						detail.nFlsUs += static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::microseconds>(
+							std::chrono::steady_clock::now() - tFls0).count());
 						int nCv = static_cast<int>(cv);
 						detail.sFls = FlsVerdictName(nCv);
 						if (nCv == cleanCode)
@@ -2258,6 +2285,12 @@ int DetectionNotifier::scanFileWithLocalEngines(const std::string& sUtf8Path, st
 			}
 		}
 	}
+	const auto nScanTotalMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+		std::chrono::steady_clock::now() - tScanTotal0).count();
+	if (nScanTotalMs >= 500)
+		LOGWRN(FMT("[SLOW-CALL] scanFileWithLocalEngines took " << nScanTotalMs << " ms on <" << sUtf8Path
+			<< "> | sha1=" << (detail.nSha1Us / 1000) << "ms fls=" << (detail.nFlsUs / 1000)
+			<< "ms static=" << (detail.nStaticUs / 1000) << "ms"));
 
 	// 3 here is staticScanVerdictName's "Suspicious" (the FLS steps above only
 	// ever store the clean / malware codes). The cfg's unknownVerdicts list

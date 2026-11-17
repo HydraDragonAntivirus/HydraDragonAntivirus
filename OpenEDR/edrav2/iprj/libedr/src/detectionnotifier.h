@@ -88,6 +88,9 @@ public:
 		std::string sViruskov;     // VirusKov: Clean / Malicious / Suspicious / Unknown / Error
 		std::string sViruskovName; // VirusKov detection name, when it detected
 		bool fFromCache = false;   // answered from the size + last-write cache
+		uint64_t nSha1Us = 0;      // time spent hashing the file for FLS
+		uint64_t nFlsUs = 0;       // time spent waiting on FLS
+		uint64_t nStaticUs = 0;    // time spent in staticScanVerdictName (openedr_static)
 	};
 	static int scanFileWithLocalEngines(const std::string& sUtf8Path, std::string& sThreatNameOut,
 		CloudScanDetail* pDetail);

@@ -178,6 +178,18 @@ pub struct CliArgs {
     #[arg(long)]
     pub no_compress_low_disk: bool,
 
+    /// Refuse Brotli (`br`) compressed uploads at start (overrides saved dashboard setting)
+    #[arg(long)]
+    pub no_brotli_upload: bool,
+
+    /// Allow LZMA (`lzma`) compressed uploads at start (off by default; overrides saved dashboard setting)
+    #[arg(long)]
+    pub lzma_upload: bool,
+
+    /// Refuse LZMA (`lzma`) compressed uploads at start (overrides saved dashboard setting)
+    #[arg(long)]
+    pub no_lzma_upload: bool,
+
     /// Free disk space in GB kept for the system: below it new files are not kept (or
     /// compressed when --compress-low-disk is on) and the automatic offload starts (default: 5)
     #[arg(long, default_value_t = 5)]
@@ -237,6 +249,16 @@ impl CliArgs {
         if self.no_compress_low_disk {
             Some(false)
         } else if self.compress_low_disk {
+            Some(true)
+        } else {
+            None
+        }
+    }
+
+    pub fn lzma_upload_flag(&self) -> Option<bool> {
+        if self.no_lzma_upload {
+            Some(false)
+        } else if self.lzma_upload {
             Some(true)
         } else {
             None
@@ -326,6 +348,11 @@ pub struct SavedSettings {
     /// a choice, so it is ignored and the default is off.
     #[serde(default)]
     pub lzma_low_disk: bool,
+    /// Accepted compressed upload encodings in hello_ok (dashboard: br on, lzma off by default).
+    #[serde(default = "default_true")]
+    pub allow_brotli_upload: bool,
+    #[serde(default)]
+    pub allow_lzma_upload: bool,
     #[serde(default = "default_low_disk_gb")]
     pub low_disk_gb: u64,
     /// Largest TLSH distance to a TLSH blacklist digest that still flags a file
@@ -365,6 +392,8 @@ impl Default for SavedSettings {
             archive: false,
             never_store_deleted: true,
             lzma_low_disk: false,
+            allow_brotli_upload: true,
+            allow_lzma_upload: false,
             low_disk_gb: 5,
             tlsh_blacklist_max_dist: default_tlsh_blacklist_dist(),
             ml_pe_threshold: None,

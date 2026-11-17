@@ -48,11 +48,13 @@ namespace {
 	enum EnricherStage { c_stProcInfo, c_stModules, c_stProcCert, c_stTrust, c_stLocalScan,
 		c_stShadow, c_stTraining, c_stReceiver,
 		c_stModSnapshot, c_stModDotNet, c_stModScan, c_stModCert,
+		c_stScanCache, c_stScanSha1, c_stScanFls, c_stScanStatic, c_stScanKillChain, c_stScanAsyncQueue,
 		c_stTrainPaths, c_stTrainSerialize, c_stTrainSubmit, c_stTrainGuiPipe,
 		c_stCount };
 	static const char* const c_szStageNames[c_stCount] = { "processInfo", "moduleInspection",
 		"processSignature", "trustCheck", "unfilteredScan", "shadowBackup", "trainingForward", "receiverPut",
 		"  modules.snapshot", "  modules.dotNet", "  modules.cloudScan", "  modules.signature",
+		"  scan.cache", "  scan.sha1", "  scan.fls", "  scan.static", "  scan.killChain", "  scan.asyncQueue",
 		"  training.owlyPaths", "  training.serializeJson", "  training.killchainSubmit", "  training.guiPipe" };
 	thread_local uint64_t* t_pStageUs = nullptr;
 
@@ -5273,7 +5275,11 @@ void EventEnricher::executeUnfilteredLocalScan(Variant& vEvent, Variant& vProces
 			continue;
 
 		// Fast path: if already cached as Clean, skip heavy static scanning completely
-		int cachedVerdict = DetectionNotifier::getCachedFileVerdict(dos);
+		int cachedVerdict = 0;
+		{
+			StageTimer _stCache(c_stScanCache);
+			cachedVerdict = DetectionNotifier::getCachedFileVerdict(dos);
+		}
 		// Not for a mapped write: the cached Clean is the content from before
 		// the mapping, and the new content reaches the disk later.
 		if (cachedVerdict == 1 && eEventType != Event::LLE_FILE_MAP_WRITE)
@@ -5281,7 +5287,12 @@ void EventEnricher::executeUnfilteredLocalScan(Variant& vEvent, Variant& vProces
 			continue;
 		}
 
-		if (cachedVerdict == 2 || cachedVerdict == 3 || DetectionNotifier::isKnownMalware(dos, ""))
+		bool bKnownBlacklisted = false;
+		{
+			StageTimer _stCache(c_stScanCache);
+			bKnownBlacklisted = (cachedVerdict == 2 || cachedVerdict == 3 || DetectionNotifier::isKnownMalware(dos, ""));
+		}
+		if (bKnownBlacklisted)
 		{
 			// Already known malware: flag immediately without re-scanning
 			vEvent.put("verdict", 2);
@@ -5342,7 +5353,16 @@ void EventEnricher::executeUnfilteredLocalScan(Variant& vEvent, Variant& vProces
 		{
 			DetectionNotifier::CloudScanDetail detail;
 			r = DetectionNotifier::scanFileWithLocalEngines(dos, sThreat, &detail);
-			RecordScanResultForKillChain(dos, nPid, r, detail, isProc ? "process" : "inline");
+			if (t_pStageUs != nullptr)
+			{
+				t_pStageUs[c_stScanSha1] += detail.nSha1Us;
+				t_pStageUs[c_stScanFls] += detail.nFlsUs;
+				t_pStageUs[c_stScanStatic] += detail.nStaticUs;
+			}
+			{
+				StageTimer _stKc(c_stScanKillChain);
+				RecordScanResultForKillChain(dos, nPid, r, detail, isProc ? "process" : "inline");
+			}
 		}
 
 		// Rescan race / Deferred scans: an inline scan that comes back Unknown
@@ -5356,6 +5376,7 @@ void EventEnricher::executeUnfilteredLocalScan(Variant& vEvent, Variant& vProces
 		if (r == 0 && (bDeferredFileEvent ||
 			(isProc && eEventType == Event::LLE_PROCESS_CREATE)))
 		{
+			StageTimer _stQ(c_stScanAsyncQueue);
 			std::error_code ec;
 			uintmax_t nSize = std::filesystem::file_size(dos, ec);
 			if (eEventType == Event::LLE_FILE_MAP_WRITE)

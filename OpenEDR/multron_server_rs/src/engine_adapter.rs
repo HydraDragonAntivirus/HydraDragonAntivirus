@@ -1252,7 +1252,10 @@ impl EngineAdapter {
                 return Err(err_msg);
             }
 
-            let mut res = build_result(&report, sha);
+            let mut res = {
+                let _t = openedr_static::memtrack::stage("server:build_result");
+                build_result(&report, sha)
+            };
             {
                 let _t = openedr_static::memtrack::stage("server:xorfilter");
                 self.apply_xorfilter(&engine, &mut res, sha, Some(data));
@@ -1260,21 +1263,24 @@ impl EngineAdapter {
             // Analyst company lists (Authenticode signer): allow -> clean, block -> malicious.
             // Matched against the publisher, the issuing CA, the countersigning
             // authority and the leaf thumbprint, not the publisher alone.
-            match report
-                .signer_info
-                .as_ref()
-                .and_then(|s| self.analyst.company_decision_for(s))
             {
-                Some(crate::analyst_engine::CompanyDecision::Block(company)) => apply_analyst_hit(
-                    &mut res,
-                    &crate::analyst_engine::AnalystHit {
-                        engine: "company_blocklist",
-                        name: format!("Riskware.Multi.BlockedSigner ({company})"),
-                        verdict: "malicious",
-                    },
-                ),
-                Some(crate::analyst_engine::CompanyDecision::Allow(company)) => apply_company_allow(&mut res, &company),
-                None => {}
+                let _t = openedr_static::memtrack::stage("server:company_list");
+                match report
+                    .signer_info
+                    .as_ref()
+                    .and_then(|s| self.analyst.company_decision_for(s))
+                {
+                    Some(crate::analyst_engine::CompanyDecision::Block(company)) => apply_analyst_hit(
+                        &mut res,
+                        &crate::analyst_engine::AnalystHit {
+                            engine: "company_blocklist",
+                            name: format!("Riskware.Multi.BlockedSigner ({company})"),
+                            verdict: "malicious",
+                        },
+                    ),
+                    Some(crate::analyst_engine::CompanyDecision::Allow(company)) => apply_company_allow(&mut res, &company),
+                    None => {}
+                }
             }
             // Analyst ClamAV / HydraDragonSig signatures can only raise the verdict, and
             // never over an allow-listed signer (see `apply_analyst_hit`).

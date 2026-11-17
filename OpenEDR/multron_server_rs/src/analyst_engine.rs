@@ -371,7 +371,10 @@ impl AnalystEngine {
         if depth >= MEMBER_MAX_DEPTH || hydradragonextractor::detect_format(data).is_none() {
             return;
         }
-        let Ok(members) = hydradragonextractor::extract_archive_from_bytes(data, false) else {
+        let Ok(members) = ({
+            let _t = openedr_static::memtrack::stage("server:analyst_extract");
+            hydradragonextractor::extract_archive_from_bytes(data, false)
+        }) else {
             return;
         };
         for m in members {
@@ -391,6 +394,7 @@ impl AnalystEngine {
     fn scan_one(&self, data: &[u8], name: &str) -> Vec<AnalystHit> {
         let mut hits = Vec::new();
         if let Some(clam) = self.clam.read().unwrap().as_ref() {
+            let _t = openedr_static::memtrack::stage("server:analyst_clamav");
             for m in clam.scan_bytes_named(data, if name.is_empty() { "file" } else { name }, ClamScanOptions::default(), &[]) {
                 // `PUA.*` signatures are potentially unwanted, not malware (same as the engine).
                 let verdict = if m.name.get(..4).is_some_and(|p| p.eq_ignore_ascii_case("PUA.")) { "suspicious" } else { "malicious" };
@@ -398,6 +402,7 @@ impl AnalystEngine {
             }
         }
         if let Some(rules) = self.sig.read().unwrap().as_ref() {
+            let _t = openedr_static::memtrack::stage("server:analyst_sig");
             let ctx = MemoryScanContext { buffer: data.to_vec(), identifier: name.to_string(), base_address: None };
             if let Ok(report) = hydradragonsig::scan_memory_owned(ctx, rules, &hydradragonsig::ScanOptions::default()) {
                 let verdict = match report.verdict {

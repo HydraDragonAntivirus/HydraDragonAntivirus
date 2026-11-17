@@ -433,6 +433,17 @@
         Never store <b>deleted</b> samples again
       </label>
       <div class="hint">On by default. A sample deleted on request is not kept again, nor its report rebuilt, when a client sends the same file later. Off: the same file is kept again like any other. Saved in multron_server.json.</div>
+      <div style="display:flex;gap:16px;flex-wrap:wrap;margin-top:10px">
+        <label style="display:flex;gap:8px;align-items:center">
+          <input type="checkbox" id="acceptBrotliUpload" style="width:auto">
+          Accept <b>Brotli (<code>br</code>)</b> uploads
+        </label>
+        <label style="display:flex;gap:8px;align-items:center">
+          <input type="checkbox" id="acceptLzmaUpload" style="width:auto">
+          Accept <b>LZMA (<code>lzma</code>)</b> uploads
+        </label>
+      </div>
+      <div class="hint">Controls which compressed upload encodings <code>hello_ok</code> advertises to new connections (Brotli on, LZMA off by default; unchecked encodings fall back to the other or raw upload). Saved in multron_server.json; <code>--no-brotli-upload</code> / <code>--lzma-upload</code> / <code>--no-lzma-upload</code> override at start.</div>
       <h2 style="margin-top:18px">Rescan kept files</h2>
       <div class="hint">Moved to <a href="#humanAnalysis" onclick="document.querySelector('#haTabs button[data-tab=Rescan]').click()" style="color:var(--accent)">Human analysis &rarr; Rescan tab</a></div>
       <h2 style="margin-top:18px">Move kept files to another disk</h2>
@@ -1637,6 +1648,8 @@ window.sigKey = (list) => list && list.length ? `${list[0].layer}: ${list[0].nam
     if (document.activeElement !== $("keepClean")) $("keepClean").checked = !!l.keepClean;
     if (document.activeElement !== $("compressLowDisk")) $("compressLowDisk").checked = !!l.compressLowDisk;
     if (document.activeElement !== $("neverStoreDeleted")) $("neverStoreDeleted").checked = l.neverStoreDeleted !== false;
+    if (document.activeElement !== $("acceptBrotliUpload")) $("acceptBrotliUpload").checked = l.allowBrotliUpload !== false;
+    if (document.activeElement !== $("acceptLzmaUpload")) $("acceptLzmaUpload").checked = !!l.allowLzmaUpload;
     if (l.lowDiskThresholdGB != null) $("lowDiskGb").textContent = l.lowDiskThresholdGB;
     $("keepCleanQuota").textContent = `${Number(l.keptCleanGB || 0).toFixed(2)} of ${l.keepCleanGB} GB used`;
     renderRescan(state.rescan || {});
@@ -2124,6 +2137,18 @@ window.sigKey = (list) => list && list.length ? `${list[0].layer}: ${list[0].nam
     try { await post("/api/never-store-deleted", { enabled: e.target.checked }); }
     catch (_) { e.target.checked = !e.target.checked; }
   };
+  const saveUploadEncodings = async (changedEl) => {
+    try {
+      await post("/api/upload-encodings", {
+        brotli: $("acceptBrotliUpload").checked,
+        lzma: $("acceptLzmaUpload").checked,
+      });
+    } catch (_) {
+      changedEl.checked = !changedEl.checked;
+    }
+  };
+  $("acceptBrotliUpload").onchange = (e) => saveUploadEncodings(e.target);
+  $("acceptLzmaUpload").onchange = (e) => saveUploadEncodings(e.target);
   $("keepClean").onchange = async (e) => {
     try { await post("/api/keep-clean", { enabled: e.target.checked }); }
     catch (_) { e.target.checked = !e.target.checked; }

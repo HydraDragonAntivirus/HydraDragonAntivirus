@@ -240,6 +240,9 @@ pub struct ScanServer {
     pub rest_limiter: RestRateLimiter,
     /// Analyst IP bans (dashboard, Sources tab).
     pub ip_bans: crate::ip_bans::BanList,
+    /// Accepted compressed upload encodings advertised in `hello_ok`.
+    pub allow_brotli_upload: std::sync::atomic::AtomicBool,
+    pub allow_lzma_upload: std::sync::atomic::AtomicBool,
 
     inflight: StdMutex<HashMap<Sha, InflightEntry>>,
     next_token: AtomicU64,
@@ -400,12 +403,17 @@ impl ScanServer {
         let limiter = RateLimiter::new(Arc::clone(&limits));
         let rest_limiter = RestRateLimiter::new();
 
+        let allow_brotli_upload = std::sync::atomic::AtomicBool::new(!cfg.no_brotli_upload);
+        let allow_lzma_upload = std::sync::atomic::AtomicBool::new(cfg.lzma_upload_flag().unwrap_or(false));
+
         Arc::new(Self {
             limiter,
             limits,
             threat_intel,
             rest_limiter,
             ip_bans: crate::ip_bans::BanList::load(),
+            allow_brotli_upload,
+            allow_lzma_upload,
             cfg,
             engine,
             scheduler,
@@ -1253,6 +1261,14 @@ async fn session_loop(
     *session.app.write().await = hello.client.chars().take(64).collect();
     let pipeline = server.limits.pipeline().max(1);
 
+    let mut encodings: Vec<&'static str> = Vec::with_capacity(2);
+    if server.allow_brotli_upload.load(Ordering::Relaxed) {
+        encodings.push("br");
+    }
+    if server.allow_lzma_upload.load(Ordering::Relaxed) {
+        encodings.push("lzma");
+    }
+
     send_json(
         out,
         &serde_json::json!({
@@ -1264,7 +1280,7 @@ async fn session_loop(
             "checksPerSec": server.limits.checks_per_sec(),
             "maxMB": server.limits.max_mb(),
             // Compressed uploads the client may use (it falls back to raw otherwise).
-            "encodings": ["br", "lzma"],
+            "encodings": encodings,
             // Seamless update in progress: scans go on; the connection is moved to the
             // new version in a few seconds (reconnect when it closes).
             "updating": server.updating(),
@@ -1715,8 +1731,20 @@ async fn handle_scan(
     // Bytes that actually cross the network: the compressed size for Brotli uploads.
     let (brotli, lzma) = match msg.encoding.as_str() {
         "" => (false, false),
-        "br" => (true, false),
-        "lzma" => (false, true),
+        "br" => {
+            if !server.allow_brotli_upload.load(Ordering::Relaxed) {
+                send_error(out, Some(id), "brotli upload encoding disabled by server");
+                return Ok(());
+            }
+            (true, false)
+        }
+        "lzma" => {
+            if !server.allow_lzma_upload.load(Ordering::Relaxed) {
+                send_error(out, Some(id), "lzma upload encoding disabled by server");
+                return Ok(());
+            }
+            (false, true)
+        }
         _ => {
             send_error(out, Some(id), "unsupported upload encoding");
             return Ok(());
@@ -1736,11 +1764,16 @@ async fn handle_scan(
         return Ok(());
     }
 
+    let req_started = std::time::Instant::now();
+    let t_slot0 = std::time::Instant::now();
     let slot = Arc::clone(slots).acquire_owned().await.map_err(|e| e.to_string())?;
     let budget = server.budget.acquire(size).await;
     let guard = InflightGuard::claim(server, sha);
+    let slot_wait_ms = t_slot0.elapsed().as_secs_f64() * 1000.0;
 
     send_json(out, &serde_json::json!({"type": "send_file", "id": id}));
+
+    let t_read0 = std::time::Instant::now();
 
     let deadline = tokio::time::Instant::now()
         + Duration::from_secs(60 + (wire / MIN_UPLOAD_BYTES_PER_SEC) as u64);
@@ -1768,6 +1801,8 @@ async fn handle_scan(
         }
     }
 
+    let ws_read_ms = t_read0.elapsed().as_secs_f64() * 1000.0;
+    let t_decomp0 = std::time::Instant::now();
     if compressed {
         // Decode with a hard cap: one byte more than announced means a lie or a bomb.
         let packed = std::mem::take(&mut data);
@@ -1794,7 +1829,10 @@ async fn handle_scan(
         server.stats.bytes_saved_compression.fetch_add(size - wire, Ordering::Relaxed);
     }
 
+    let decompress_ms = if compressed { t_decomp0.elapsed().as_secs_f64() * 1000.0 } else { 0.0 };
+    let t_sha0 = std::time::Instant::now();
     let calculated: String = Sha256::digest(&data).encode_hex_upper();
+    let sha256_ms = t_sha0.elapsed().as_secs_f64() * 1000.0;
     if calculated != sha_hex {
         server.limiter.strike(&session.address);
         reject_file(server, session, out, id, &name, size, &sha_hex,
@@ -1821,16 +1859,24 @@ async fn handle_scan(
     tokio::spawn(async move {
         // Wait for a scan slot here, not in the session loop, so the connection keeps
         // accepting uploads while this file waits for the engine.
+        let t_scan_slot0 = std::time::Instant::now();
         let scan_slot = scan_slots.acquire_owned().await.ok();
+        let scan_slot_ms = t_scan_slot0.elapsed().as_secs_f64() * 1000.0;
         let session_id = sess.id;
+        let submitted_at = std::time::Instant::now();
+        let (ttx, mut trx) = oneshot::channel::<(f64, f64)>();
         srv.scheduler.submit(
             session_id,
             Box::new(move || {
+                let sched_wait_ms = submitted_at.elapsed().as_secs_f64() * 1000.0;
                 queue_list.mark_started(queue_id);
                 let mut report = None;
+                let t_eng0 = std::time::Instant::now();
                 let r = engine.scan_blocking_with(&data, &job_name, client_path.as_deref(), &job_sha, |res| {
                     report = apply_threat_intel(&ti, &data, &job_name, res);
                 });
+                let engine_ms = t_eng0.elapsed().as_secs_f64() * 1000.0;
+                let _ = ttx.send((sched_wait_ms, engine_ms));
                 let _ = rtx.send(r);
                 // VirusKovAlyzer static report, offloaded off the scan worker so the
                 // scheduler thread is immediately free for the next scan.
@@ -1887,11 +1933,23 @@ async fn handle_scan(
 
         match res {
             Ok(mut r) => {
+                let t_rec0 = std::time::Instant::now();
                 srv.remember(sha, &r);
                 r.id = id;
                 record_result(&srv, &sess, &r, &name, size);
                 send_json(&out, &r);
+                let verdict_str = r.verdict.clone();
                 guard.complete(Outcome::Done(r));
+                let record_ms = t_rec0.elapsed().as_secs_f64() * 1000.0;
+                let total_ms = req_started.elapsed().as_secs_f64() * 1000.0;
+                if total_ms >= SLOW_TI.as_secs_f64() * 1000.0 {
+                    let (sched_wait_ms, engine_ms) = trx.try_recv().unwrap_or((0.0, 0.0));
+                    eprintln!(
+                        "[SLOW-REQ] {total_ms:.0}ms {name} ({} KB, sha256 {}) verdict={verdict_str} | slot={slot_wait_ms:.0}ms ws_read={ws_read_ms:.0}ms decomp={decompress_ms:.0}ms sha256={sha256_ms:.0}ms scan_slot={scan_slot_ms:.0}ms sched_wait={sched_wait_ms:.0}ms engine={engine_ms:.0}ms record={record_ms:.0}ms",
+                        size / 1024,
+                        sha_hex.get(..16).unwrap_or(&sha_hex),
+                    );
+                }
             }
             Err(e) => {
                 sess.scanned.fetch_add(1, Ordering::Relaxed);

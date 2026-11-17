@@ -109,6 +109,14 @@ impl AppState {
             settings.lzma_low_disk = on;
         }
         engine.compress_low_disk.store(settings.lzma_low_disk, std::sync::atomic::Ordering::Relaxed);
+        if cfg.no_brotli_upload {
+            settings.allow_brotli_upload = false;
+        }
+        if let Some(on) = cfg.lzma_upload_flag() {
+            settings.allow_lzma_upload = on;
+        }
+        scan_server.allow_brotli_upload.store(settings.allow_brotli_upload, std::sync::atomic::Ordering::Relaxed);
+        scan_server.allow_lzma_upload.store(settings.allow_lzma_upload, std::sync::atomic::Ordering::Relaxed);
         // Deleted samples stored again or not: saved dashboard choice (on by default).
         crate::sample_deletions::set_never_store_again(settings.never_store_deleted);
         settings.tlsh_blacklist_max_dist = crate::similarity::set_blacklist_max_dist(settings.tlsh_blacklist_max_dist);
@@ -249,6 +257,8 @@ impl AppState {
             s.collect_xorfilter = g.collect_xorfilter;
             s.keep_clean = g.keep_clean;
             s.lzma_low_disk = g.lzma_low_disk;
+            s.allow_brotli_upload = g.allow_brotli_upload;
+            s.allow_lzma_upload = g.allow_lzma_upload;
             s.never_store_deleted = g.never_store_deleted;
             s.tlsh_blacklist_max_dist = g.tlsh_blacklist_max_dist;
             s.ml_pe_threshold = g.ml_pe_threshold;
@@ -376,6 +386,7 @@ pub fn dashboard_router(state: Arc<AppState>) -> Router {
         .route("/api/kept/sort-by-type", post(handle_sort_kept_by_type))
         .route("/api/kept/unpack-xz", post(handle_unpack_kept_xz))
         .route("/api/compress-low-disk", post(handle_compress_low_disk))
+        .route("/api/upload-encodings", post(handle_upload_encodings))
         .route("/api/never-store-deleted", post(handle_never_store_deleted))
         .route("/api/rescan", post(handle_rescan_one))
         .route("/api/rescan/bulk", get(handle_rescan_status).post(handle_rescan_bulk))
@@ -675,6 +686,8 @@ async fn handle_state(
             "collectXorfilter": app.engine.collect_xorfilter.load(std::sync::atomic::Ordering::Relaxed),
             "dataset": app.engine.dataset.get().map(|d| d.status()),
             "compressLowDisk": app.engine.compress_low_disk.load(std::sync::atomic::Ordering::Relaxed),
+            "allowBrotliUpload": app.scan_server.allow_brotli_upload.load(std::sync::atomic::Ordering::Relaxed),
+            "allowLzmaUpload": app.scan_server.allow_lzma_upload.load(std::sync::atomic::Ordering::Relaxed),
             "neverStoreDeleted": crate::sample_deletions::never_store_again(),
             "lowDiskThresholdGB": app.engine.low_disk_threshold_bytes / (1024 * 1024 * 1024),
             "tlshBlacklistMaxDist": crate::similarity::blacklist_max_dist(),
@@ -980,6 +993,34 @@ async fn handle_compress_low_disk(State(app): State<Arc<AppState>>, Json(t): Jso
     app.save_settings().await;
     info_event(&app, format!("LZMA2 compression of kept files when space runs low: {}", if t.enabled { "on" } else { "off" }));
     Json(serde_json::json!({ "ok": true, "enabled": t.enabled }))
+}
+
+#[derive(Deserialize)]
+struct UploadEncodingsBody {
+    brotli: bool,
+    lzma: bool,
+}
+
+/// Controls which compressed upload encodings (`br`, `lzma`) `hello_ok` advertises
+/// to clients. Saved in `multron_server.json`.
+async fn handle_upload_encodings(State(app): State<Arc<AppState>>, Json(b): Json<UploadEncodingsBody>) -> impl IntoResponse {
+    app.scan_server.allow_brotli_upload.store(b.brotli, std::sync::atomic::Ordering::Relaxed);
+    app.scan_server.allow_lzma_upload.store(b.lzma, std::sync::atomic::Ordering::Relaxed);
+    {
+        let mut s = app.settings.write().await;
+        s.allow_brotli_upload = b.brotli;
+        s.allow_lzma_upload = b.lzma;
+    }
+    app.save_settings().await;
+    info_event(
+        &app,
+        format!(
+            "upload encodings advertised in hello_ok: br={}, lzma={}",
+            if b.brotli { "on" } else { "off" },
+            if b.lzma { "on" } else { "off" }
+        ),
+    );
+    Json(serde_json::json!({ "ok": true, "brotli": b.brotli, "lzma": b.lzma }))
 }
 
 #[derive(Deserialize)]
