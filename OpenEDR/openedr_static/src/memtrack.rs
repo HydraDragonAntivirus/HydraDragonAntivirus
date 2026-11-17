@@ -23,43 +23,78 @@ pub struct TrackingAlloc;
 
 const NO_LABEL: usize = usize::MAX;
 const MAX_LABELS: usize = 64;
+const LIVE_FLUSH_THRESHOLD: i64 = 64 * 1024;
+
+#[repr(align(64))]
+struct AlignedAtomicI64(AtomicI64);
+
+impl AlignedAtomicI64 {
+    const fn new(v: i64) -> Self {
+        Self(AtomicI64::new(v))
+    }
+}
 
 static INSTALLED: AtomicBool = AtomicBool::new(false);
-static LIVE: [AtomicI64; MAX_LABELS] = [const { AtomicI64::new(0) }; MAX_LABELS];
+static LIVE: [AlignedAtomicI64; MAX_LABELS] = [const { AlignedAtomicI64::new(0) }; MAX_LABELS];
 
-thread_local! {
-    static NET: Cell<i64> = const { Cell::new(0) };
+#[derive(Clone, Copy)]
+struct TlsMem {
+    net: i64,
     /// Bytes kept by `Kind::Load` scopes that ran inside other scopes: left out of the
     /// enclosing scopes' numbers (a lazy one-time load is not a spike of the scan that
     /// happened to trigger it).
-    static SKIP: Cell<i64> = const { Cell::new(0) };
-    static PEAK: Cell<i64> = const { Cell::new(0) };
-    static LABEL: Cell<usize> = const { Cell::new(NO_LABEL) };
+    skip: i64,
+    peak: i64,
+    label: usize,
+    pending_live: i64,
+}
+
+impl TlsMem {
+    const fn new() -> Self {
+        Self { net: 0, skip: 0, peak: 0, label: NO_LABEL, pending_live: 0 }
+    }
+}
+
+thread_local! {
+    static TLS: Cell<TlsMem> = const { Cell::new(TlsMem::new()) };
 }
 
 /// This thread's counted bytes (net of nested loads).
 fn level() -> i64 {
-    NET.with(Cell::get) - SKIP.with(Cell::get)
+    TLS.with(|t| {
+        let s = t.get();
+        s.net - s.skip
+    })
+}
+
+fn flush_pending_live(s: &mut TlsMem) {
+    if s.pending_live != 0 {
+        if let Some(c) = LIVE.get(s.label) {
+            c.0.fetch_add(s.pending_live, Relaxed);
+        }
+        s.pending_live = 0;
+    }
 }
 
 #[inline]
 fn note(delta: i64) {
-    let _ = NET.try_with(|n| {
-        let v = n.get() + delta;
-        n.set(v);
-        let v = v - SKIP.try_with(Cell::get).unwrap_or(0);
+    let _ = TLS.try_with(|t| {
+        let mut s = t.get();
+        s.net += delta;
         if delta > 0 {
-            let _ = PEAK.try_with(|p| {
-                if v > p.get() {
-                    p.set(v)
-                }
-            });
+            let v = s.net - s.skip;
+            if v > s.peak {
+                s.peak = v;
+            }
         }
-    });
-    let _ = LABEL.try_with(|l| {
-        if let Some(c) = LIVE.get(l.get()) {
-            c.fetch_add(delta, Relaxed);
+        if s.label < MAX_LABELS {
+            s.pending_live += delta;
+            if s.pending_live >= LIVE_FLUSH_THRESHOLD || s.pending_live <= -LIVE_FLUSH_THRESHOLD {
+                LIVE[s.label].0.fetch_add(s.pending_live, Relaxed);
+                s.pending_live = 0;
+            }
         }
+        t.set(s);
     });
 }
 
@@ -158,27 +193,43 @@ pub fn measure<T>(name: &'static str, kind: Kind, input_len: usize, f: impl FnOn
         return f();
     }
     let idx = slot(name, kind);
-    let start = level();
-    let outer_peak = PEAK.with(|p| p.replace(start));
-    let outer_label = LABEL.with(|l| l.replace(idx));
+    let (start, outer_peak, outer_label) = TLS.with(|t| {
+        let mut s = t.get();
+        flush_pending_live(&mut s);
+        let start = s.net - s.skip;
+        let outer_peak = s.peak;
+        let outer_label = s.label;
+        s.peak = start;
+        s.label = idx;
+        t.set(s);
+        (start, outer_peak, outer_label)
+    });
     let v = f();
-    let end = level();
-    let peak = PEAK.with(Cell::get);
-    LABEL.with(|l| l.set(outer_label));
+    let (end, peak) = TLS.with(|t| {
+        let mut s = t.get();
+        flush_pending_live(&mut s);
+        let end = s.net - s.skip;
+        let peak = s.peak;
+        s.label = outer_label;
+        let net = end - start;
+        if kind == Kind::Load && outer_label != NO_LABEL {
+            s.skip += net;
+            s.peak = outer_peak.max(start);
+        } else {
+            s.peak = outer_peak.max(peak);
+        }
+        t.set(s);
+        (end, peak)
+    });
     let net = end - start;
     if let Some(c) = LIVE.get(idx) {
-        c.fetch_sub(net, Relaxed);
+        c.0.fetch_sub(net, Relaxed);
     }
-    if kind == Kind::Load && outer_label != NO_LABEL {
-        // Hidden from the enclosing scope: as if it had not run there.
-        SKIP.with(|s| s.set(s.get() + net));
-        PEAK.with(|p| p.set(outer_peak.max(start)));
-    } else {
-        PEAK.with(|p| p.set(outer_peak.max(peak)));
+    if !(kind == Kind::Load && outer_label != NO_LABEL) {
         // What this scope still holds now belongs to the enclosing one (it gives it
         // back when it ends, as part of its own net).
         if let Some(c) = LIVE.get(outer_label) {
-            c.fetch_add(net, Relaxed);
+            c.0.fetch_add(net, Relaxed);
         }
     }
     let rise = (peak - start).max(0);
@@ -198,7 +249,7 @@ pub fn measure<T>(name: &'static str, kind: Kind, input_len: usize, f: impl FnOn
 pub fn snapshot() -> Vec<ComponentMem> {
     let mut out = STATS.lock().unwrap_or_else(|e| e.into_inner()).clone();
     for (i, c) in out.iter_mut().enumerate() {
-        c.live_bytes = LIVE.get(i).map_or(0, |l| l.load(Relaxed).max(0));
+        c.live_bytes = LIVE.get(i).map_or(0, |l| l.0.load(Relaxed).max(0));
     }
     out.sort_by_key(|c| std::cmp::Reverse((c.live_bytes, c.retained_bytes.max(0), c.max_peak_bytes)));
     out
@@ -391,17 +442,32 @@ mod tests {
     #[test]
     fn note_tracks_net_peak_and_live() {
         let idx = slot("unit", Kind::Scan);
-        let start = NET.with(Cell::get);
-        PEAK.with(|p| p.set(start));
-        let prev = LABEL.with(|l| l.replace(idx));
+        let (start, prev) = TLS.with(|t| {
+            let mut s = t.get();
+            flush_pending_live(&mut s);
+            let start = s.net;
+            let prev = s.label;
+            s.peak = start;
+            s.label = idx;
+            t.set(s);
+            (start, prev)
+        });
         note(1000);
         note(-400);
         note(100);
-        LABEL.with(|l| l.set(prev));
-        assert_eq!(NET.with(Cell::get) - start, 700);
-        assert_eq!(PEAK.with(Cell::get) - start, 1000);
-        assert_eq!(LIVE[idx].load(Relaxed), 700);
-        LIVE[idx].store(0, Relaxed);
-        NET.with(|n| n.set(start));
+        let (net_end, peak_end) = TLS.with(|t| {
+            let mut s = t.get();
+            flush_pending_live(&mut s);
+            let net_end = s.net;
+            let peak_end = s.peak;
+            s.label = prev;
+            s.net = start;
+            t.set(s);
+            (net_end, peak_end)
+        });
+        assert_eq!(net_end - start, 700);
+        assert_eq!(peak_end - start, 1000);
+        assert_eq!(LIVE[idx].0.load(Relaxed), 700);
+        LIVE[idx].0.store(0, Relaxed);
     }
 }
