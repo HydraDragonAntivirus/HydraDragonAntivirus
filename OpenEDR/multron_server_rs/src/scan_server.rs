@@ -1633,6 +1633,44 @@ async fn handle_scan_evtx(
     Ok(())
 }
 
+struct PostScanReportJob {
+    ti: Arc<ThreatIntelStore>,
+    data: Vec<u8>,
+    name: String,
+    sha: String,
+    report: Option<crate::analyzer::FileReport>,
+}
+
+fn enqueue_post_scan_report(job: PostScanReportJob) {
+    static TX: std::sync::OnceLock<std::sync::mpsc::SyncSender<PostScanReportJob>> = std::sync::OnceLock::new();
+    let tx = TX.get_or_init(|| {
+        let (tx, rx) = std::sync::mpsc::sync_channel::<PostScanReportJob>(64);
+        let _ = std::thread::Builder::new()
+            .name("report-builder".into())
+            .spawn(move || {
+                while let Ok(job) = rx.recv() {
+                    if crate::reports::exists(&job.sha) {
+                        continue;
+                    }
+                    let report = job.report.or_else(|| {
+                        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                            crate::analyzer::analyze(&job.data, &job.name)
+                        }))
+                        .ok()
+                    });
+                    if let Some(rep) = report.as_ref() {
+                        crate::reports::save(rep);
+                        if let Some(t) = rep.hashes.similarity_tlsh() {
+                            job.ti.similarity.add(&rep.hashes.sha256, t, rep.size);
+                        }
+                    }
+                }
+            });
+        tx
+    });
+    let _ = tx.try_send(job);
+}
+
 async fn handle_scan(
     ws_rx: &mut futures_util::stream::SplitStream<WebSocket>,
     out: &Out,
@@ -1789,28 +1827,22 @@ async fn handle_scan(
             session_id,
             Box::new(move || {
                 queue_list.mark_started(queue_id);
-                let build_report = || {
-                    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| crate::analyzer::analyze(&data, &job_name))).ok()
-                };
                 let mut report = None;
                 let r = engine.scan_blocking_with(&data, &job_name, client_path.as_deref(), &job_sha, |res| {
                     report = apply_threat_intel(&ti, &data, &job_name, res);
                 });
                 let _ = rtx.send(r);
-                // VirusKovAlyzer static report, after the verdict went out (the client is
-                // not kept waiting unless the smart whitelist needed it). Stored once per hash.
+                // VirusKovAlyzer static report, offloaded off the scan worker so the
+                // scheduler thread is immediately free for the next scan.
                 if !crate::reports::exists(&job_sha) {
-                    if report.is_none() {
-                        report = build_report();
-                    }
-                    if let Some(rep) = report.as_ref() {
-                        crate::reports::save(rep);
-                        if let Some(t) = rep.hashes.similarity_tlsh() {
-                            ti.similarity.add(&rep.hashes.sha256, t, rep.size);
-                        }
-                    }
+                    enqueue_post_scan_report(PostScanReportJob {
+                        ti,
+                        data,
+                        name: job_name,
+                        sha: job_sha,
+                        report,
+                    });
                 }
-                drop(data);
             }),
         );
         let outcome = rrx.await;

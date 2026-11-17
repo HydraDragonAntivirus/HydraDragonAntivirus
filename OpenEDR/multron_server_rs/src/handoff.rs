@@ -312,12 +312,37 @@ impl Follow {
     }
 
     /// Reads what was written since the last call. Returns the number of records and
-    /// lines.
+    /// lines. When `defer_heavy` is true (at takeover), heavy SQLite `resync_external`
+    /// and TLSH signature reloads are skipped here so the listener comes up at once
+    /// and `finish_heavy` runs them in the background.
     pub fn catch_up(&mut self, ti: &ThreatIntelStore) -> usize {
+        self.catch_up_opts(ti, false)
+    }
+
+    pub fn catch_up_fast(&mut self, ti: &ThreatIntelStore) -> usize {
+        self.catch_up_opts(ti, true)
+    }
+
+    pub fn finish_heavy(&mut self, ti: &ThreatIntelStore) {
+        let seq = ti.db().max_seq().unwrap_or(self.insights_seq);
+        if seq != self.insights_seq || !crate::config::is_standby() {
+            ti.resync_external();
+            self.insights_seq = seq;
+        }
+        let fp = crate::archive::fingerprint(&sig_paths());
+        if fp != self.sig_fp {
+            ti.similarity.reload_known_malware();
+            ti.similarity.reload_corpus_refs();
+            ti.similarity.reload_analyst_sigs();
+            self.sig_fp = fp;
+        }
+    }
+
+    fn catch_up_opts(&mut self, ti: &ThreatIntelStore, defer_heavy: bool) -> usize {
         // Same database: only the records held in memory and the counts follow.
         let seq = ti.db().max_seq().unwrap_or(self.insights_seq);
         let mut n = (seq - self.insights_seq).max(0) as usize;
-        if seq != self.insights_seq || !crate::config::is_standby() {
+        if !defer_heavy && (seq != self.insights_seq || !crate::config::is_standby()) {
             ti.resync_external();
             self.insights_seq = seq;
         }
@@ -334,12 +359,14 @@ impl Follow {
         };
         feed(&mut self.reviews, &|l, r| ti.reviews.archive_ingest(l, r));
         feed(&mut self.tlsh, &|l, r| ti.similarity.archive_ingest_index(l, r));
-        let fp = crate::archive::fingerprint(&sig_paths());
-        if fp != self.sig_fp {
-            ti.similarity.reload_known_malware();
-            ti.similarity.reload_corpus_refs();
-            ti.similarity.reload_analyst_sigs();
-            self.sig_fp = fp;
+        if !defer_heavy {
+            let fp = crate::archive::fingerprint(&sig_paths());
+            if fp != self.sig_fp {
+                ti.similarity.reload_known_malware();
+                ti.similarity.reload_corpus_refs();
+                ti.similarity.reload_analyst_sigs();
+                self.sig_fp = fp;
+            }
         }
         n
     }

@@ -201,6 +201,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
     let mut early_dashboard: Option<tokio::net::TcpListener> = None;
     let mut old_listening = false;
     let mut switch_started: Option<std::time::Instant> = None;
+    let mut takeover_follow: Option<handoff::Follow> = None;
     if let (Some(old_pid), Some(lengths)) = (handoff_from, lengths) {
         let mut follow = handoff::Follow::new(lengths);
         let mut last_beat = std::time::Instant::now();
@@ -251,8 +252,8 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         }
         // The old process has exited: everything it wrote is on disk now.
         config::set_standby(false);
-        let lines = tokio::task::block_in_place(|| follow.catch_up(&threat_intel));
-        engine.after_takeover();
+        let lines = tokio::task::block_in_place(|| follow.catch_up_fast(&threat_intel));
+        takeover_follow = Some(follow);
         uptime::start();
         if !args.archive {
             archived::start();
@@ -264,10 +265,15 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
     yara_classes::apply();
     if standby && !args.archive {
         // Upkeep the old server already did at its start: in the background, so the
-        // listener comes up at once. Analyst signatures may have changed meanwhile.
+        // listener comes up at once. Analyst signatures, TLSH, SQLite resync and
+        // dataset loading run here without delaying the takeover.
         let ti = Arc::clone(&threat_intel);
         let eng = Arc::clone(&engine);
         let _ = std::thread::Builder::new().name("handoff-upkeep".into()).spawn(move || {
+            if let Some(mut f) = takeover_follow {
+                f.finish_heavy(&ti);
+            }
+            eng.after_takeover();
             eng.analyst.reload();
             startup_upkeep(&eng, &ti);
         });
