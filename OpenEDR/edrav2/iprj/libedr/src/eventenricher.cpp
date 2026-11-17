@@ -5315,22 +5315,24 @@ void EventEnricher::executeUnfilteredLocalScan(Variant& vEvent, Variant& vProces
 		{
 			continue;
 		}
-		// FileCreate looks at the opened file only; the actor's image was looked
-		// at when that process started.
+		// FileCreate / read / map-read look at the target file only; the actor's image
+		// was looked at when that process started.
 		if (isProc && (eEventType == Event::LLE_FILE_CREATE ||
+			eEventType == Event::LLE_FILE_DATA_READ_FULL ||
 			eEventType == Event::LLE_FILE_MAP_READ || eEventType == Event::LLE_FILE_MAP_WRITE))
 			continue;
 
 		// A. Synchronous scan (ClamAV, YARA-X, ML, Signer, EICAR)
-		// Everything except the mid-write file events and opens is scanned inline,
-		// before the event is emitted. A file that is being written right now has
-		// no final content yet, and an open happens for every file the system
+		// Everything except the mid-write file events, opens, and full reads is scanned
+		// inline, before the event is emitted. A file that is being written right now has
+		// no final content yet, and opens/reads happen for every file the system
 		// touches (inline that would block the single enricher thread), so those
 		// go to the async rescan below.
 		const bool bDeferredFileEvent = !isProc &&
 			(eEventType == Event::LLE_FILE_DATA_WRITE_FULL ||
 			 eEventType == Event::LLE_FILE_DATA_CHANGE ||
 			 eEventType == Event::LLE_FILE_CREATE ||
+			 eEventType == Event::LLE_FILE_DATA_READ_FULL ||
 			 eEventType == Event::LLE_FILE_MAP_READ ||
 			 eEventType == Event::LLE_FILE_MAP_WRITE);
 

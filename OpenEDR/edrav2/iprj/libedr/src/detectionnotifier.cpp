@@ -2006,14 +2006,56 @@ bool DetectionNotifier::isFileSignatureTrusted(const std::string& sUtf8Path, std
 	if (sUtf8Path.empty())
 		return false;
 
+	struct CachedSigTrust {
+		bool trusted = false;
+		std::string vendor;
+		uint64_t size = 0;
+		uint64_t mtime = 0;
+	};
+	static std::mutex s_mtxSigCache;
+	static std::unordered_map<std::string, CachedSigTrust> s_sigCache;
+	static constexpr size_t kMaxSigCacheSize = 32768;
+
+	std::string lowerPath = sUtf8Path;
+	for (auto& c : lowerPath) c = (char)::tolower((unsigned char)c);
+
+	uint64_t size = 0, mtime = 0;
+	const bool hasIdentity = getFileIdentityUtf8(sUtf8Path, size, mtime);
+	if (hasIdentity)
+	{
+		std::lock_guard<std::mutex> lock(s_mtxSigCache);
+		auto it = s_sigCache.find(lowerPath);
+		if (it != s_sigCache.end() && it->second.size == size && it->second.mtime == mtime)
+		{
+			if (pSignerOut)
+				*pSignerOut = it->second.vendor;
+			return it->second.trusted;
+		}
+	}
+
 	try
 	{
 		Variant vSign = execCommand(queryService("fileDataProvider"), "getSignInfo",
 			Dictionary({ {"path", string::convertUtf8ToWChar(sUtf8Path)} }));
-		if (pSignerOut && vSign.has("vendor"))
-			*pSignerOut = string::convertWCharToUtf8(std::wstring(vSign["vendor"]));
-		return static_cast<int64_t>(vSign.get("status", sys::win::SignStatus::Undefined)) ==
+		std::string vendor;
+		if (vSign.has("vendor"))
+			vendor = string::convertWCharToUtf8(std::wstring(vSign["vendor"]));
+		const bool trusted = static_cast<int64_t>(vSign.get("status", sys::win::SignStatus::Undefined)) ==
 			static_cast<int64_t>(sys::win::SignStatus::Valid);
+		if (hasIdentity)
+		{
+			std::lock_guard<std::mutex> lock(s_mtxSigCache);
+			if (s_sigCache.size() >= kMaxSigCacheSize)
+			{
+				auto it = s_sigCache.begin();
+				for (size_t i = 0; i < kMaxSigCacheSize / 2 && it != s_sigCache.end(); ++i)
+					it = s_sigCache.erase(it);
+			}
+			s_sigCache[lowerPath] = CachedSigTrust{ trusted, vendor, size, mtime };
+		}
+		if (pSignerOut)
+			*pSignerOut = std::move(vendor);
+		return trusted;
 	}
 	catch (...)
 	{
