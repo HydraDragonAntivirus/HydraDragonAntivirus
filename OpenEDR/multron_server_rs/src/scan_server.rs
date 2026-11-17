@@ -2096,7 +2096,7 @@ pub fn apply_analyst_tlsh(
     if !matches!(res.verdict.as_str(), "unknown" | "possible_clean" | "suspicious") || !ti.similarity.has_analyst_sigs() {
         return;
     }
-    if ti.reviews.completed(&res.sha256).and_then(|r| r.verdict).as_deref() == Some("clean") {
+    if trace.step("server:ti_review_check", |_| ti.reviews.is_completed_clean(&res.sha256)) {
         return;
     }
     let Some(q) = tlsh_query(data, query, trace) else { return };
@@ -2137,7 +2137,7 @@ pub fn apply_tlsh_blacklist(
     if !matches!(res.verdict.as_str(), "unknown" | "possible_clean" | "suspicious") || !ti.similarity.has_named_malware() {
         return;
     }
-    if ti.reviews.completed(&res.sha256).and_then(|r| r.verdict).as_deref() == Some("clean") {
+    if trace.step("server:ti_review_check", |_| ti.reviews.is_completed_clean(&res.sha256)) {
         return;
     }
     let Some(q) = tlsh_query(data, query, trace) else { return };
@@ -2168,7 +2168,7 @@ pub fn apply_imphash_sigs(ti: &crate::threat_intel::ThreatIntelStore, data: &[u8
     if !matches!(res.verdict.as_str(), "unknown" | "possible_clean" | "suspicious") {
         return;
     }
-    if ti.reviews.completed(&res.sha256).and_then(|r| r.verdict).as_deref() == Some("clean") {
+    if trace.step("server:ti_review_check", |_| ti.reviews.is_completed_clean(&res.sha256)) {
         return;
     }
     let found = trace.step("server:ti_imphash", |d| {

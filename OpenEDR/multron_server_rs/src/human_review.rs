@@ -260,6 +260,9 @@ fn parse_time(s: &str) -> Option<DateTime<Utc>> {
 
 pub struct HumanReviewStore {
     map: RwLock<HashMap<Sha, HumanReview>>,
+    /// Completed "clean" verdicts only, kept apart from `map` so scan-path
+    /// `is_completed_clean` checks never contend with `enqueue` / `stats`.
+    completed_clean: RwLock<std::collections::HashSet<Sha>>,
     /// Hashes an analyst removed from the queue (or whose review was deleted): the
     /// queue sync does not bring them back. A new real scan can still queue them.
     removed: RwLock<std::collections::HashSet<Sha>>,
@@ -285,20 +288,32 @@ impl HumanReviewStore {
                 }
             }
         }
+        let completed_clean: std::collections::HashSet<Sha> = map
+            .iter()
+            .filter(|(_, r)| r.is_completed() && r.verdict.as_deref() == Some("clean"))
+            .map(|(sha, _)| *sha)
+            .collect();
         let file = if crate::config::is_archive() { None } else { OpenOptions::new().create(true).append(true).open(path).ok() };
         if file.is_none() && !crate::config::is_archive() {
             eprintln!("[review] cannot open {} for writing; reviews will not persist", path.display());
         }
-        Self { map: RwLock::new(map), removed: RwLock::new(removed), file: Mutex::new(file) }
+        Self {
+            map: RwLock::new(map),
+            completed_clean: RwLock::new(completed_clean),
+            removed: RwLock::new(removed),
+            file: Mutex::new(file),
+        }
     }
 
     /// Archive mode: lines the main server added to `human_verdicts.jsonl`;
     /// `reset` = the file was rewritten.
     pub fn archive_ingest(&self, lines: &[String], reset: bool) {
         let mut map = self.map.write().unwrap();
+        let mut completed_clean = self.completed_clean.write().unwrap();
         let mut removed = self.removed.write().unwrap();
         if reset {
             map.clear();
+            completed_clean.clear();
             removed.clear();
         }
         for line in lines {
@@ -306,9 +321,15 @@ impl HumanReviewStore {
                 if let Some(sha) = parse_sha(&r.sha256) {
                     if r.deleted {
                         map.remove(&sha);
+                        completed_clean.remove(&sha);
                         removed.insert(sha);
                     } else {
                         removed.remove(&sha);
+                        if r.is_completed() && r.verdict.as_deref() == Some("clean") {
+                            completed_clean.insert(sha);
+                        } else {
+                            completed_clean.remove(&sha);
+                        }
                         map.insert(sha, r);
                     }
                 }
@@ -338,6 +359,11 @@ impl HumanReviewStore {
     /// Completed review for this hash, if any (overrides the engine).
     pub fn completed(&self, sha_hex: &str) -> Option<HumanReview> {
         self.get(sha_hex).filter(|r| r.is_completed())
+    }
+
+    /// Fast scan-path check: true only when an analyst completed a "clean" review.
+    pub fn is_completed_clean(&self, sha_hex: &str) -> bool {
+        parse_sha(sha_hex).is_some_and(|sha| self.completed_clean.read().unwrap().contains(&sha))
     }
 
     /// Completed (verdict, threat name) by raw hash (statistics by malware type).
@@ -510,6 +536,14 @@ impl HumanReviewStore {
             let previous = r.is_completed().then(|| r.verdict.clone()).flatten();
             crate::verdict_history::record(&r.sha256, "human", previous.as_deref(), &verdict, threat_name.as_deref(), "analyst", analyst.trim());
             r.status = ReviewStatus::Completed;
+            {
+                let mut cc = self.completed_clean.write().unwrap();
+                if verdict == "clean" {
+                    cc.insert(sha);
+                } else {
+                    cc.remove(&sha);
+                }
+            }
             r.verdict = Some(verdict);
             r.threat_name = threat_name;
             r.note = note.trim().chars().take(4000).collect();
@@ -604,6 +638,7 @@ impl HumanReviewStore {
     pub fn remove(&self, sha_hex: &str) -> bool {
         let Some(sha) = parse_sha(sha_hex) else { return false };
         let removed = self.map.write().unwrap().remove(&sha);
+        self.completed_clean.write().unwrap().remove(&sha);
         self.removed.write().unwrap().insert(sha);
         if let Some(mut r) = removed {
             if let Some(v) = r.verdict.as_deref().filter(|_| r.is_completed()) {
