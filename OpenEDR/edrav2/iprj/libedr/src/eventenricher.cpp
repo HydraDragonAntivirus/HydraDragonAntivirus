@@ -4152,9 +4152,9 @@ namespace RescanQueue {
 
 // Delays before each further try of an undecided scan (cloud answers that
 // arrive late are cached by both clients, so a later try reads them).
-static const std::chrono::seconds c_retryDelays[] = {
-	std::chrono::seconds(2), std::chrono::seconds(5), std::chrono::seconds(15), std::chrono::seconds(30),
-	std::chrono::seconds(60), std::chrono::seconds(120), std::chrono::seconds(300), std::chrono::seconds(600) };
+static const std::chrono::milliseconds c_retryDelays[] = {
+	std::chrono::milliseconds(500), std::chrono::milliseconds(1000), std::chrono::milliseconds(2000),
+	std::chrono::milliseconds(3000), std::chrono::milliseconds(5000), std::chrono::milliseconds(10000) };
 
 // Checks of a file written through a mapped section (LLE_FILE_MAP_WRITE). The
 // event comes when the section is created, before anything is written, and
@@ -4411,7 +4411,7 @@ static void scheduleRetry(Item item)
 	const auto delay = c_retryDelays[item.nAttempt];
 	++item.nAttempt;
 	LOGLVL(Detailed, FMT("enricher: [ASYNC RESCAN] no verdict yet for <" << item.sDos << ">; try "
-		<< item.nAttempt << " in " << delay.count() << " s"));
+		<< item.nAttempt << " in " << delay.count() << " ms"));
 	auto& st = state();
 	{
 		std::scoped_lock lock(st.mtx);
