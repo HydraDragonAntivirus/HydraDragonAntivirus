@@ -5274,6 +5274,27 @@ void EventEnricher::executeUnfilteredLocalScan(Variant& vEvent, Variant& vProces
 		if (IsPathUnderOwnInstallDir(lowerDos))
 			continue;
 
+		// Skip non-executable OS log/index/locale/PNF/perf-counter files on file I/O events
+		// so AsyncRescan is not flooded with System.evtx, *.PNF, *.NLS, perfc*.dat, etc.
+		if (!isProc)
+		{
+			auto endsWith = [&lowerDos](const char* sfx) {
+				const size_t n = std::strlen(sfx);
+				return lowerDos.size() >= n && lowerDos.compare(lowerDos.size() - n, n, sfx) == 0;
+			};
+			const bool isPerfDat = endsWith(".dat") &&
+				(lowerDos.find("\\windows\\system32\\perfc") != std::string::npos ||
+				 lowerDos.find("\\windows\\system32\\perfh") != std::string::npos);
+			if (isPerfDat ||
+				endsWith(".evtx") || endsWith(".pnf") || endsWith(".nls") ||
+				endsWith(".inf_loc") || endsWith(".ebd") || endsWith(".jfm") ||
+				endsWith(".chk") || endsWith(".blf") || endsWith(".regtrans-ms") ||
+				endsWith(".lex"))
+			{
+				continue;
+			}
+		}
+
 		// Fast path: if already cached as Clean, skip heavy static scanning completely
 		int cachedVerdict = 0;
 		{
