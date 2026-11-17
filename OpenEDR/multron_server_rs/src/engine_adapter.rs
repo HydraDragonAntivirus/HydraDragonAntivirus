@@ -118,7 +118,8 @@ pub struct EngineAdapter {
     pub kept_files: AtomicI64,
     /// SHA-256 (upper case) -> path of every kept file, built on first use, so a file
     /// that is already kept is not stored a second time under another name.
-    kept_index: std::sync::Mutex<Option<std::collections::HashMap<String, PathBuf>>>,
+    kept_index: RwLock<Option<std::collections::HashMap<String, PathBuf>>>,
+    kept_index_build: std::sync::Mutex<()>,
     /// Analyst ClamAV / HydraDragonSig signatures (analyst_signatures/), run after the main scan.
     pub analyst: crate::analyst_engine::AnalystEngine,
     /// Rules folder the engine was loaded from; reused by `reload_all`.
@@ -181,7 +182,8 @@ impl EngineAdapter {
             reloading: AtomicBool::new(false),
             reload_msg: RwLock::new(String::new()),
             kept_files: AtomicI64::new(kept.1),
-            kept_index: std::sync::Mutex::new(None),
+            kept_index: RwLock::new(None),
+            kept_index_build: std::sync::Mutex::new(()),
             analyst: Default::default(),
         })
     }
@@ -213,6 +215,10 @@ impl EngineAdapter {
                         adapter.load_analyst_yara();
                         adapter.analyst.reload();
                         eprintln!("[engine] ready in {} ms", elapsed);
+                        let warm = Arc::clone(&adapter);
+                        let _ = std::thread::Builder::new()
+                            .name("kept-index-warm".into())
+                            .spawn(move || warm.ensure_kept_index());
                     }
                     Err(_) => {
                         *adapter.error_msg.write().unwrap() = "engine failed to load (panic in init)".into();
@@ -352,30 +358,45 @@ impl EngineAdapter {
         self.kept_path_of(sha).is_some()
     }
 
+    fn ensure_kept_index(&self) {
+        if self.kept_index.read().unwrap().is_some() {
+            return;
+        }
+        let _build = self.kept_index_build.lock().unwrap();
+        if self.kept_index.read().unwrap().is_some() {
+            return;
+        }
+        let mut m = std::collections::HashMap::new();
+        for k in self.list_kept() {
+            m.entry(k.sha256).or_insert(k.path);
+        }
+        let mut g = self.kept_index.write().unwrap();
+        if g.is_none() {
+            *g = Some(m);
+        }
+    }
+
     fn kept_path_of(&self, sha: &str) -> Option<PathBuf> {
         let sha = sha.to_ascii_uppercase();
-        let mut g = self.kept_index.lock().unwrap();
-        let idx = g.get_or_insert_with(|| {
-            let mut m = std::collections::HashMap::new();
-            for k in self.list_kept() {
-                m.entry(k.sha256.clone()).or_insert(k.path);
-            }
-            m
-        });
-        let p = idx.get(&sha)?.clone();
+        self.ensure_kept_index();
+        let p = {
+            let g = self.kept_index.read().unwrap();
+            g.as_ref()?.get(&sha).cloned()
+        }?;
         if p.exists() {
             return Some(p);
         }
         // Moved (offload, another build) or deleted: look again once.
-        idx.remove(&sha);
-        drop(g);
+        if let Some(idx) = self.kept_index.write().unwrap().as_mut() {
+            idx.remove(&sha);
+        }
         let k = self.find_kept_walk(&sha)?;
         self.kept_index_set(&sha, &k.path);
         Some(k.path)
     }
 
     pub(crate) fn kept_index_set(&self, sha: &str, path: &Path) {
-        if let Some(idx) = self.kept_index.lock().unwrap().as_mut() {
+        if let Some(idx) = self.kept_index.write().unwrap().as_mut() {
             idx.insert(sha.to_ascii_uppercase(), path.to_path_buf());
         }
     }
@@ -390,7 +411,12 @@ impl EngineAdapter {
             by_sha.entry(k.sha256.clone()).or_default().push(k);
         }
         let (mut removed, mut bytes) = (0u64, 0u64);
-        for (sha, copies) in by_sha.into_iter().filter(|(_, v)| v.len() > 1) {
+        let mut updated = std::collections::HashMap::with_capacity(by_sha.len());
+        for (sha, copies) in by_sha {
+            if copies.len() == 1 {
+                updated.insert(sha, copies.into_iter().next().unwrap().path);
+                continue;
+            }
             let want = verdict_of(&sha).map(|v| KeptFile::category_for(&v));
             let mtime = |k: &KeptFile| std::fs::metadata(&k.path).and_then(|m| m.modified()).ok();
             let Some(keep) = copies
@@ -406,8 +432,9 @@ impl EngineAdapter {
                     bytes += n;
                 }
             }
+            updated.insert(sha, keep);
         }
-        *self.kept_index.lock().unwrap() = None;
+        *self.kept_index.write().unwrap() = Some(updated);
         (removed, bytes)
     }
 
