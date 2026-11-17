@@ -381,21 +381,9 @@ void VerdictProvider::sendQueryInt(bool fIgnoreUnavailableServer)
 	CMD_PREPARE_CATCH
 	catch (const error::ConnectionError& ex)
 	{
-		// Detect no internet connection.
-		// if (no internet), schedules delayed sendQuery
-		// else logs error and just returns
-
-		// For the present 
-		// any error is recognized as no internet connection
-		// and any error is logged
-
-		// Schedules delayed sendQuery
-		if (!m_fServerUnavailable)
-		{
-			LOGINF("FLS server is unavailable (" << ex.what() << ")");
-			m_fServerUnavailable = true;
-			m_pCheckServerTimer->reschedule(m_nUnavailableServerTimeout);
-		}
+		// Do not disable FLS globally on a single UDP timeout/error; let subsequent
+		// queries keep trying normally.
+		LOGLVL(Detailed, "FLS query failed (" << ex.what() << ")");
 		return;
 	}
 	catch (error::Exception& ex)
