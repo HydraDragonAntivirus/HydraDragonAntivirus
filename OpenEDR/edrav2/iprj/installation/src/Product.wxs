@@ -131,8 +131,6 @@
 			<Files Include="$(var.SourceBinDir)**">
 				<Exclude Files="$(var.SourceBinDir)**\*.pdb" />
 				<Exclude Files="$(var.SourceBinDir)*.pdb" />
-				<Exclude Files="$(var.SourceBinDir)models\**" />
-				<Exclude Files="$(var.SourceBinDir)database\**" />
 				<Exclude Files="$(var.SourceBinDir)*.xf" />
 				<Exclude Files="$(var.SourceBinDir)CIDR*.txt" />
 				<Exclude Files="$(var.SourceBinDir)Sanctum\sanctum.sys" />

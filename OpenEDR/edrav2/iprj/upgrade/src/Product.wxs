@@ -124,8 +124,6 @@
                      (staged to $(var.SourceBinDir64)signer_rules\ by the wixproj and
                      installed via the wildcard below) — no edrdata duplicate. -->
                 <Files Include="$(var.SourceBinDir64)**">
-                    <Exclude Files="$(var.SourceBinDir64)models\**" />
-                    <Exclude Files="$(var.SourceBinDir64)database\**" />
                     <Exclude Files="$(var.SourceBinDir64)*.xf" />
                     <Exclude Files="$(var.SourceBinDir64)CIDR*.txt" />
                     <Exclude Files="$(var.SourceBinDir64)Sanctum\sanctum.sys" />
