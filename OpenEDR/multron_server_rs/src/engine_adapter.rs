@@ -376,6 +376,23 @@ impl EngineAdapter {
         }
     }
 
+    /// Fast non-blocking lookup: checks `kept_index` only if already warm,
+    /// so live scans right after `engine ready` never block on `list_kept()`.
+    fn kept_path_of_if_ready(&self, sha: &str) -> Option<PathBuf> {
+        let sha = sha.to_ascii_uppercase();
+        let p = {
+            let g = self.kept_index.read().unwrap();
+            g.as_ref()?.get(&sha).cloned()
+        }?;
+        if p.exists() {
+            return Some(p);
+        }
+        if let Some(idx) = self.kept_index.write().unwrap().as_mut() {
+            idx.remove(&sha);
+        }
+        None
+    }
+
     fn kept_path_of(&self, sha: &str) -> Option<PathBuf> {
         let sha = sha.to_ascii_uppercase();
         self.ensure_kept_index();
@@ -1336,7 +1353,7 @@ impl EngineAdapter {
             .and_then(|d| get_available_disk_space_bytes(d))
             .map_or(true, |free| free > self.low_disk_threshold_bytes.saturating_add(size));
         let should_keep = wanted && disk_room;
-        if wanted && !should_keep && self.kept_path_of(sha).is_none() {
+        if wanted && !should_keep && self.kept_path_of_if_ready(sha).is_none() {
             // Used to be dropped silently: say so, and remember why the file is missing.
             let detail = format!("{category}, {} KB, free disk space under {} GB", size / 1024, self.low_disk_threshold_bytes / (1024 * 1024 * 1024));
             eprintln!("[kept] not kept, disk low: {sha} {name} ({detail})");
@@ -1346,7 +1363,7 @@ impl EngineAdapter {
         if should_keep {
             // Already kept (under another name or in another category): keep that copy,
             // moved to the folder of this verdict, instead of storing a second one.
-            if let Some(existing) = self.kept_path_of(sha) {
+            if let Some(existing) = self.kept_path_of_if_ready(sha) {
                 if let Some(k) = KeptFile::parse(existing.clone(), category_dir_of(&existing)) {
                     // A file waiting for xorfilter verification stays there until an
                     // analyst decides (an engine rescan does not move it out).
