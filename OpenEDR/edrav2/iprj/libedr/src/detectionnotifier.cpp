@@ -1954,8 +1954,9 @@ static bool getFileIdentityUtf8(const std::string& sUtf8Path, uint64_t& nSizeOut
 	return true;
 }
 
-int DetectionNotifier::getCachedFileVerdict(const std::string& sUtf8Path)
+static int getCachedFileVerdictWithName(const std::string& sUtf8Path, std::string& sNameOut)
 {
+	sNameOut.clear();
 	if (sUtf8Path.empty()) return 0;
 	std::string lowerPath = sUtf8Path;
 	for (auto& c : lowerPath) c = (char)::tolower((unsigned char)c);
@@ -1972,9 +1973,16 @@ int DetectionNotifier::getCachedFileVerdict(const std::string& sUtf8Path)
 		// on to scanFileWithLocalEngines, which answers it from the cache.
 		if (it->second.unknownUntil != std::chrono::steady_clock::time_point{})
 			return 0;
+		sNameOut = it->second.threatName;
 		return it->second.verdict;
 	}
 	return 0;
+}
+
+int DetectionNotifier::getCachedFileVerdict(const std::string& sUtf8Path)
+{
+	std::string sUnused;
+	return getCachedFileVerdictWithName(sUtf8Path, sUnused);
 }
 
 //
@@ -3341,7 +3349,12 @@ Variant DetectionNotifier::execute(Variant vCommand, Variant vParams){
 					std::string sLocalName;
 					try
 					{
-						if (DetectionNotifier::isKnownMalware(sPath, sLocalHash))
+						int nCached = getCachedFileVerdictWithName(sPath, sLocalName);
+						if (nCached > 0)
+						{
+							nLocal = nCached;
+						}
+						else if (DetectionNotifier::isKnownMalware(sPath, sLocalHash))
 						{
 							sLocalName = "Previously recorded VirusKov detection";
 							nLocal = s_malwareVerdict.load(std::memory_order_relaxed);

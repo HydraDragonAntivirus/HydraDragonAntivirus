@@ -3202,34 +3202,105 @@ namespace {
 				else if (auto optN = variant::getByPathSafe(vEvent, "network.destinationAddress"))
 					sDetails = " [Net: " + std::string(optN.value()) + "]";
 
-				// Save telemetry to persistent training dataset for offline Dynamic ML model training.
-				// TRAINING_MODE=1 records everything by default; TRAINING_WATCH_DIR /
-				// TRAINING_WATCH_DLL_DIR only narrow it down when explicitly set.
-				if (IsTrainingModeEnabled() && IsProcessInTrainingDir(sPath) && IsApiDllInTrainingWatchDir(vEvent))
+				// Offload training serialization/submission and GUI pipe I/O to a
+				// background thread so they never stall the enricher queue.
+				struct TrainingPipeItem
 				{
-					try
-					{
-						std::string sJson;
-						{
-							StageTimer stSer(c_stTrainSerialize);
-							sJson = variant::serializeToJson(vEvent, variant::JsonFormat::SingleLine);
-						}
-						StageTimer stSubmit(c_stTrainSubmit);
-						AppendToTrainingDataset(sPath, sType, sDetails, sJson);
-					}
-					catch (...) {}
-				}
+					bool fDoTraining = false;
+					Variant vEvent;
+					std::string sPath;
+					std::string sType;
+					std::string sDetails;
+				};
+				struct TrainingPipeWorker
+				{
+					std::mutex mtx;
+					std::condition_variable cv;
+					std::deque<TrainingPipeItem> queue;
+					bool fStop = false;
+					std::thread thr;
 
-				StageTimer stPipe(c_stTrainGuiPipe);
-				HANDLE hPipe = ::CreateFileW(L"\\\\.\\pipe\\HydraHipEvent",
-					GENERIC_WRITE, 0, NULL, OPEN_EXISTING, 0, NULL);
-				if (hPipe != INVALID_HANDLE_VALUE)
-				{
-					std::string pipeMsg = "BEHAVIOR_EVENT:" + sPath + "|" + sType + sDetails + "\n";
-					DWORD written = 0;
-					::WriteFile(hPipe, pipeMsg.data(), static_cast<DWORD>(pipeMsg.size()), &written, NULL);
-					::CloseHandle(hPipe);
-				}
+					TrainingPipeWorker()
+					{
+						thr = std::thread([this]() { run(); });
+					}
+
+					~TrainingPipeWorker()
+					{
+						{
+							std::lock_guard<std::mutex> lk(mtx);
+							fStop = true;
+						}
+						cv.notify_all();
+						if (thr.joinable())
+							thr.join();
+					}
+
+					void push(TrainingPipeItem&& item)
+					{
+						std::lock_guard<std::mutex> lk(mtx);
+						if (queue.size() >= 16384)
+							queue.pop_front();
+						queue.push_back(std::move(item));
+						cv.notify_one();
+					}
+
+					void run()
+					{
+						HANDLE hPipe = INVALID_HANDLE_VALUE;
+						while (true)
+						{
+							TrainingPipeItem item;
+							{
+								std::unique_lock<std::mutex> lk(mtx);
+								cv.wait(lk, [this]() { return fStop || !queue.empty(); });
+								if (fStop && queue.empty())
+									break;
+								item = std::move(queue.front());
+								queue.pop_front();
+							}
+
+							if (item.fDoTraining)
+							{
+								try
+								{
+									std::string sJson = variant::serializeToJson(item.vEvent, variant::JsonFormat::SingleLine);
+									AppendToTrainingDataset(item.sPath, item.sType, item.sDetails, sJson);
+								}
+								catch (...) {}
+							}
+
+							if (hPipe == INVALID_HANDLE_VALUE)
+							{
+								hPipe = ::CreateFileW(L"\\\\.\\pipe\\HydraHipEvent",
+									GENERIC_WRITE, 0, NULL, OPEN_EXISTING, 0, NULL);
+							}
+							if (hPipe != INVALID_HANDLE_VALUE)
+							{
+								std::string pipeMsg = "BEHAVIOR_EVENT:" + item.sPath + "|" + item.sType + item.sDetails + "\n";
+								DWORD written = 0;
+								if (!::WriteFile(hPipe, pipeMsg.data(), static_cast<DWORD>(pipeMsg.size()), &written, NULL))
+								{
+									::CloseHandle(hPipe);
+									hPipe = INVALID_HANDLE_VALUE;
+								}
+							}
+						}
+						if (hPipe != INVALID_HANDLE_VALUE)
+							::CloseHandle(hPipe);
+					}
+				};
+				static TrainingPipeWorker s_worker;
+
+				const bool fDoTraining = IsTrainingModeEnabled() && IsProcessInTrainingDir(sPath) && IsApiDllInTrainingWatchDir(vEvent);
+				TrainingPipeItem item;
+				item.fDoTraining = fDoTraining;
+				if (fDoTraining)
+					item.vEvent = vEvent.clone();
+				item.sPath = std::move(sPath);
+				item.sType = std::move(sType);
+				item.sDetails = std::move(sDetails);
+				s_worker.push(std::move(item));
 			}
 		}
 		catch (...) {}
