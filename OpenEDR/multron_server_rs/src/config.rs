@@ -50,7 +50,7 @@ pub struct CliArgs {
     pub max_conns: usize,
 
     /// Maximum simultaneous connections from one IP address (0 = no limit)
-    #[arg(long, default_value_t = 8)]
+    #[arg(long, default_value_t = 0)]
     pub max_per_ip: usize,
 
     /// Shared secret the client must send in hello (empty = no token)
