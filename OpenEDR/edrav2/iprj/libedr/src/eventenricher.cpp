@@ -5314,7 +5314,8 @@ void EventEnricher::executeUnfilteredLocalScan(Variant& vEvent, Variant& vProces
 				endsWith(".srd") || endsWith(".srd-wal") || endsWith(".srd-shm") ||
 				endsWith(".pri") || endsWith(".pckgdep") ||
 				endsWith(".cur") || endsWith(".ani") || endsWith(".sst") ||
-				endsWith(".cdpresource"))
+				endsWith(".cdpresource") || endsWith(".mkd") || endsWith(".pf") ||
+				endsWith(".sdb") || endsWith(".mun"))
 			{
 				continue;
 			}
@@ -5366,12 +5367,6 @@ void EventEnricher::executeUnfilteredLocalScan(Variant& vEvent, Variant& vProces
 		// on size + last-write time, and the FLS client caches by hash, so a file
 		// that really is clean costs no extra scan.
 
-		// Process executable images only need evaluation at process creation or when unknown;
-		// do not rescan the already running process image on routine sub-events!
-		if (isProc && eEventType != Event::LLE_PROCESS_CREATE && cachedVerdict != 0)
-		{
-			continue;
-		}
 		// FileCreate / read / map-read look at the target file only; the actor's image
 		// was looked at when that process started.
 		if (isProc && (eEventType == Event::LLE_FILE_CREATE ||
@@ -5379,29 +5374,51 @@ void EventEnricher::executeUnfilteredLocalScan(Variant& vEvent, Variant& vProces
 			eEventType == Event::LLE_FILE_MAP_READ || eEventType == Event::LLE_FILE_MAP_WRITE))
 			continue;
 
-		// Passive reads of Windows system paths (wmiprvse/svchost reading
-		// System32/SysWOW64/WinSxS/.NET at startup) must not flood AsyncRescan.
-		if (!isProc && (eEventType == Event::LLE_FILE_MAP_READ || eEventType == Event::LLE_FILE_DATA_READ_FULL))
+		// Process executable images only need evaluation at process creation; on
+		// routine sub-events (registry, thread/desktop open, etc.), never run a
+		// blocking synchronous scan on the single enricher thread -- queue one
+		// deduplicated background scan if the verdict is still Unknown (0).
+		if (isProc && eEventType != Event::LLE_PROCESS_CREATE)
+		{
+			if (cachedVerdict == 0)
+			{
+				StageTimer _stQ(c_stScanAsyncQueue);
+				AsyncRescanAndQuarantine(dos, nPid, true);
+			}
+			continue;
+		}
+
+		// Passive opens/reads/closes of Windows system paths (wmiprvse/svchost
+		// touching System32/SysWOW64/WinSxS/.NET/SystemApps/Servicing) must not
+		// block the enricher thread or flood AsyncRescan; real writes emit
+		// WriteFull/DataChange/MapWrite and are still scanned.
+		if (!isProc && (eEventType == Event::LLE_FILE_MAP_READ ||
+			eEventType == Event::LLE_FILE_DATA_READ_FULL ||
+			eEventType == Event::LLE_FILE_CREATE ||
+			eEventType == Event::LLE_FILE_CLOSE))
 		{
 			const bool isWinSysPath =
 				lowerDos.find("c:\\windows\\system32\\") != std::string::npos ||
 				lowerDos.find("c:\\windows\\syswow64\\") != std::string::npos ||
 				lowerDos.find("c:\\windows\\winsxs\\") != std::string::npos ||
-				lowerDos.find("c:\\windows\\microsoft.net\\") != std::string::npos;
+				lowerDos.find("c:\\windows\\microsoft.net\\") != std::string::npos ||
+				lowerDos.find("c:\\windows\\systemapps\\") != std::string::npos ||
+				lowerDos.find("c:\\windows\\servicing\\") != std::string::npos;
 			if (isWinSysPath)
 				continue;
 		}
 
 		// A. Synchronous scan (ClamAV, YARA-X, ML, Signer, EICAR)
-		// Everything except the mid-write file events, opens, and full reads is scanned
+		// Everything except the mid-write file events, opens, closes, and full reads is scanned
 		// inline, before the event is emitted. A file that is being written right now has
-		// no final content yet, and opens/reads happen for every file the system
+		// no final content yet, and opens/reads/closes happen for every file the system
 		// touches (inline that would block the single enricher thread), so those
 		// go to the async rescan below.
 		const bool bDeferredFileEvent = !isProc &&
 			(eEventType == Event::LLE_FILE_DATA_WRITE_FULL ||
 			 eEventType == Event::LLE_FILE_DATA_CHANGE ||
 			 eEventType == Event::LLE_FILE_CREATE ||
+			 eEventType == Event::LLE_FILE_CLOSE ||
 			 eEventType == Event::LLE_FILE_DATA_READ_FULL ||
 			 eEventType == Event::LLE_FILE_MAP_READ ||
 			 eEventType == Event::LLE_FILE_MAP_WRITE);
@@ -5443,7 +5460,8 @@ void EventEnricher::executeUnfilteredLocalScan(Variant& vEvent, Variant& vProces
 			else if (ec || nSize > 0)
 			{
 				const bool bHighPriority = isProc ||
-					(eEventType != Event::LLE_FILE_MAP_READ && eEventType != Event::LLE_FILE_DATA_READ_FULL);
+					eEventType == Event::LLE_FILE_DATA_WRITE_FULL ||
+					eEventType == Event::LLE_FILE_DATA_CHANGE;
 				AsyncRescanAndQuarantine(dos, nPid, bHighPriority);
 			}
 		}
@@ -6295,6 +6313,13 @@ void EventEnricher::put(const Variant& vEventRef)
 	if (vProcess.has("pid")) nActorPid = static_cast<uint32_t>(vProcess["pid"]);
 	else if (vProcess.has("id")) nActorPid = static_cast<uint32_t>(vProcess["id"]);
 
+	// UNFILTERED IMMEDIATE LOCAL FILE & PROCESS SCANNING (PASCAL-STYLE):
+	// Run before InspectProcessModulesCached / IsProcessTrustedConfigurable so
+	// LLE_PROCESS_CREATE caches the process image verdict & VirusKov detail first.
+	auto tStc_stLocalScan = std::chrono::steady_clock::now();
+	executeUnfilteredLocalScan(vEvent, vProcess, eEventType, sProcPath);
+	lagScope.mark(c_stLocalScan, tStc_stLocalScan);
+
 	// Dual Trust & Unknown DLL Evaluation (Comodo FLS vs VirusKov Cloud):
 	auto tStc_stModules = std::chrono::steady_clock::now();
 	auto modRes = DriverPortHips::InspectProcessModulesCached(nActorPid, sProcPath);
@@ -6346,10 +6371,12 @@ void EventEnricher::put(const Variant& vEventRef)
 
 	// An untrusted process (native or managed - MegaDumper unpacks both), or a
 	// .NET loader with an unknown DLL: dump it (MegaDumper.dll) and scan what
-	// was unpacked in memory.
+	// was unpacked in memory. Wait until sProcPath has an evaluated verdict
+	// (procCached != 0) so pre-existing boot processes aren't dumped before scan.
 	if (modRes.isDotNetLoader && modRes.hasUnknownDll)
 		DumpQueue::enqueue(nActorPid, sProcPath, ".NET loader with an unknown DLL");
-	else if (!isProcessTrusted && DriverPortHips::s_dumpUntrusted.load(std::memory_order_relaxed))
+	else if (!isProcessTrusted && DriverPortHips::s_dumpUntrusted.load(std::memory_order_relaxed) &&
+		procCached != 0)
 		DumpQueue::enqueue(nActorPid, sProcPath, modRes.isDotNet ? "untrusted managed process" : "untrusted native process");
 
 	// Alert on .NET loader with unknown DLL in attack chain
@@ -6370,11 +6397,6 @@ void EventEnricher::put(const Variant& vEventRef)
 			::CloseHandle(hPipeAlert);
 		}
 	}
-
-	// UNFILTERED IMMEDIATE LOCAL FILE & PROCESS SCANNING (PASCAL-STYLE):
-	auto tStc_stLocalScan = std::chrono::steady_clock::now();
-	executeUnfilteredLocalScan(vEvent, vProcess, eEventType, sProcPath);
-	lagScope.mark(c_stLocalScan, tStc_stLocalScan);
 
 	vEvent.put("process", vProcess);
 	Variant vToken = getByPath(vProcess, "token.tokenObj", {});
