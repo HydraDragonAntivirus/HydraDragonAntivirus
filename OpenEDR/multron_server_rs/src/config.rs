@@ -224,8 +224,8 @@ pub struct CliArgs {
     pub handoff: bool,
 
     /// Seamless update: seconds the old server may take to finish the scans in progress
-    /// before it hands over (default 30).
-    #[arg(long, default_value_t = 30)]
+    /// before it hands over (default 120).
+    #[arg(long, default_value_t = 120)]
     pub handoff_drain_secs: u64,
 }
 

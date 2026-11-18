@@ -74,12 +74,21 @@ pub struct EngineStatus {
     pub reload_msg: String,
 }
 
+struct KeepJob {
+    temp: Option<PathBuf>,
+    data: Vec<u8>,
+    res: ResultMessage,
+    sha: String,
+    name: String,
+}
+
 pub struct EngineAdapter {
     engine: OnceLock<Arc<RwLock<StaticEngine>>>,
     error_msg: RwLock<String>,
     load_ms: AtomicI64,
     work_dir: Option<PathBuf>,
     file_seq: AtomicI64,
+    keep_tx: OnceLock<std::sync::mpsc::SyncSender<KeepJob>>,
     malicious_sha256_xf: RwLock<Option<BinaryFuse32Filter>>,
     malicious_sha1_xf: RwLock<Option<BinaryFuse32Filter>>,
     malicious_md5_xf: RwLock<Option<BinaryFuse32Filter>>,
@@ -154,12 +163,13 @@ impl EngineAdapter {
             }
         }
 
-        Arc::new(Self {
+        let adapter = Arc::new(Self {
             engine: OnceLock::new(),
             error_msg: RwLock::new(String::new()),
             load_ms: AtomicI64::new(0),
             work_dir,
             file_seq: AtomicI64::new(0),
+            keep_tx: OnceLock::new(),
             malicious_sha256_xf: RwLock::new(None),
             malicious_sha1_xf: RwLock::new(None),
             malicious_md5_xf: RwLock::new(None),
@@ -185,7 +195,20 @@ impl EngineAdapter {
             kept_index: RwLock::new(None),
             kept_index_build: std::sync::Mutex::new(()),
             analyst: Default::default(),
-        })
+        });
+        let (tx, rx) = std::sync::mpsc::sync_channel::<KeepJob>(512);
+        let _ = adapter.keep_tx.set(tx);
+        let weak = Arc::downgrade(&adapter);
+        let _ = std::thread::Builder::new().name("keep-writer".into()).spawn(move || {
+            while let Ok(job) = rx.recv() {
+                if let Some(a) = weak.upgrade() {
+                    a.keep_or_remove(job.temp.as_deref(), &job.data, &job.res, &job.sha, &job.name);
+                } else if let Some(p) = job.temp {
+                    let _ = std::fs::remove_file(p);
+                }
+            }
+        });
+        adapter
     }
 
     pub fn start_loading(self: &Arc<Self>, custom_rules_dir: Option<PathBuf>) {
@@ -205,15 +228,15 @@ impl EngineAdapter {
                 *adapter.xvirus_plain_md5.write().unwrap() = load_plain_xvirus_md5(&rules_dir);
 
                 match std::panic::catch_unwind(|| StaticEngine::init(&rules_dir)) {
-                    Ok(engine) => {
+                    Ok(mut engine) => {
+                        load_analyst_yara_into(&mut engine);
+                        adapter.analyst.reload();
                         let elapsed = started.elapsed().as_millis() as i64;
                         adapter.load_ms.store(elapsed, Ordering::Relaxed);
                         if adapter.whitelist_enabled && !engine.benign_whitelist_loaded() {
                             eprintln!("[engine] benign_sha256.xf not found in xorfilter_rules, hash whitelist is off");
                         }
                         let _ = adapter.engine.set(Arc::new(RwLock::new(engine)));
-                        adapter.load_analyst_yara();
-                        adapter.analyst.reload();
                         eprintln!("[engine] ready in {} ms", elapsed);
                         let warm = Arc::clone(&adapter);
                         let _ = std::thread::Builder::new()
@@ -723,29 +746,9 @@ impl EngineAdapter {
     /// Adds the analyst-written YARA rules (`analyst_signatures/yara/*.yar`, kept apart
     /// from the shipped rule folders) to the live engine. Returns (loaded, failed files).
     pub fn load_analyst_yara(&self) -> (usize, Vec<String>) {
-        let mut failed = Vec::new();
-        let Some(engine) = self.engine.get() else { return (0, failed) };
-        let dir = crate::human_review::analyst_dir().join("yara");
-        let Ok(rd) = std::fs::read_dir(&dir) else { return (0, failed) };
-        let mut files: Vec<PathBuf> = rd
-            .flatten()
-            .map(|e| e.path())
-            .filter(|p| p.extension().is_some_and(|e| e == "yar" || e == "yara"))
-            .collect();
-        files.sort();
-        let Ok(mut g) = engine.write() else { return (0, failed) };
-        let mut ok = 0;
-        for p in files {
-            let name = p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-            match std::fs::read_to_string(&p) {
-                Ok(src) if g.add_yara_source(&src) => ok += 1,
-                _ => failed.push(name),
-            }
-        }
-        if ok > 0 || !failed.is_empty() {
-            eprintln!("[engine] analyst YARA rules: {ok} loaded, {} failed {:?}", failed.len(), failed);
-        }
-        (ok, failed)
+        let Some(engine) = self.engine.get() else { return (0, Vec::new()) };
+        let Ok(mut g) = engine.write() else { return (0, Vec::new()) };
+        load_analyst_yara_into(&mut g)
     }
 
     /// Hot reload of the whole engine (compiled `.yrc`, ML models, XOR filters, YAML
@@ -1299,7 +1302,7 @@ impl EngineAdapter {
 
             let _t = openedr_static::memtrack::stage("server:keep_file");
             if keep {
-                self.keep_or_remove(temp_path.as_deref(), data, &res, sha, &safe_filename);
+                self.enqueue_keep_or_remove(temp_path, data, &res, sha, &safe_filename);
             } else if let Some(p) = temp_path {
                 let _ = std::fs::remove_file(p);
             }
@@ -1318,6 +1321,63 @@ impl EngineAdapter {
         out
     }
 
+    fn keep_category_and_wanted(&self, data: &[u8], res: &ResultMessage, name: &str) -> (&'static str, bool, bool) {
+        let is_threat = res.verdict == "malicious" || res.verdict == "suspicious";
+        let is_unknown = res.verdict == "unknown";
+        let is_clean = res.verdict == "clean";
+        let is_possible_clean = res.verdict == "possible_clean";
+        let category = KeptFile::category_for_result(res);
+        let is_xorfilter = category.starts_with("xorfilter_");
+        let wanted = !data.is_empty()
+            && (self.keep_all_unique.load(Ordering::Relaxed)
+                || (is_xorfilter && self.collect_xorfilter.load(Ordering::Relaxed))
+                || (self.keep_threats && is_threat)
+                || (self.keep_unknown && is_unknown)
+                || (is_clean && self.keep_clean.load(Ordering::Relaxed) && is_pe_or_apk(data, name))
+                || (self.keep_possible_clean.load(Ordering::Relaxed) && is_possible_clean));
+        (category, is_xorfilter, wanted)
+    }
+
+    /// Offloads sample keeping to the background `keep-writer` thread so scan workers
+    /// never block on `file_type_folder` classification or disk I/O after returning a verdict.
+    fn enqueue_keep_or_remove(&self, temp: Option<PathBuf>, data: &[u8], res: &ResultMessage, sha: &str, name: &str) {
+        let (category, is_xorfilter, wanted) = self.keep_category_and_wanted(data, res, name);
+        if !wanted || crate::archived::is_archived(sha, category) || crate::sample_deletions::blocks_storing(sha) {
+            if let Some(p) = temp {
+                let _ = std::fs::remove_file(p);
+            }
+            return;
+        }
+        if let Some(existing) = self.kept_path_of_if_ready(sha) {
+            if let Some(k) = KeptFile::parse(existing.clone(), category_dir_of(&existing)) {
+                if k.category == category || (k.category.starts_with("xorfilter_") && !is_xorfilter) {
+                    if let Some(p) = temp {
+                        let _ = std::fs::remove_file(p);
+                    }
+                    return;
+                }
+            }
+        }
+        if let Some(tx) = self.keep_tx.get() {
+            let job = KeepJob {
+                temp,
+                data: data.to_vec(),
+                res: res.clone(),
+                sha: sha.to_string(),
+                name: name.to_string(),
+            };
+            match tx.try_send(job) {
+                Ok(()) => return,
+                Err(std::sync::mpsc::TrySendError::Full(job))
+                | Err(std::sync::mpsc::TrySendError::Disconnected(job)) => {
+                    self.keep_or_remove(job.temp.as_deref(), &job.data, &job.res, &job.sha, &job.name);
+                    return;
+                }
+            }
+        }
+        self.keep_or_remove(temp.as_deref(), data, res, sha, name);
+    }
+
     /// Unknown, possible-clean (TLSH smart whitelist), suspicious and malicious (for
     /// false positive inspection) and, if enabled, clean PE / APK files are kept in the
     /// work folder (multron_incoming) by category: `unknown/`, `possible_clean/`,
@@ -1326,12 +1386,7 @@ impl EngineAdapter {
     /// When disk space is low, incoming files are automatically compressed using LZMA2 maximum preset (.xz).
     fn keep_or_remove(&self, temp: Option<&Path>, data: &[u8], res: &ResultMessage, sha: &str, name: &str) {
         let size = data.len() as u64;
-        let is_threat = res.verdict == "malicious" || res.verdict == "suspicious";
-        let is_unknown = res.verdict == "unknown";
-        let is_clean = res.verdict == "clean";
-        let is_possible_clean = res.verdict == "possible_clean";
-        let category = KeptFile::category_for_result(res);
-        let is_xorfilter = category.starts_with("xorfilter_");
+        let (category, is_xorfilter, wanted) = self.keep_category_and_wanted(data, res, name);
         // Moved by hand to an archive folder under this category (archived_dirs.json):
         // remembered there, never stored here again. Deleted on request: not again
         // either, unless the dashboard turned "never store deleted samples again" off.
@@ -1343,13 +1398,6 @@ impl EngineAdapter {
         }
 
         let used = if category == "clean" { &self.kept_clean_bytes } else { &self.kept_bytes };
-        let wanted = !data.is_empty()
-            && (self.keep_all_unique.load(Ordering::Relaxed)
-                || (is_xorfilter && self.collect_xorfilter.load(Ordering::Relaxed))
-                || (self.keep_threats && is_threat)
-                || (self.keep_unknown && is_unknown)
-                || (is_clean && self.keep_clean.load(Ordering::Relaxed) && is_pe_or_apk(data, name))
-                || (self.keep_possible_clean.load(Ordering::Relaxed) && is_possible_clean));
         // No quota: the samples are the dataset, a counter must not throw them away.
         // Dropped only when the disk itself is down to the low-disk threshold (kept when
         // the free space cannot be read). `used` / `limit` are only shown in the dashboard.
@@ -2309,6 +2357,30 @@ fn temp_name(safe: &str, data: &[u8]) -> String {
         }
     }
     name
+}
+
+fn load_analyst_yara_into(engine: &mut StaticEngine) -> (usize, Vec<String>) {
+    let mut failed = Vec::new();
+    let dir = crate::human_review::analyst_dir().join("yara");
+    let Ok(rd) = std::fs::read_dir(&dir) else { return (0, failed) };
+    let mut files: Vec<PathBuf> = rd
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| p.extension().is_some_and(|e| e == "yar" || e == "yara"))
+        .collect();
+    files.sort();
+    let mut ok = 0;
+    for p in files {
+        let name = p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+        match std::fs::read_to_string(&p) {
+            Ok(src) if engine.add_yara_source(&src) => ok += 1,
+            _ => failed.push(name),
+        }
+    }
+    if ok > 0 || !failed.is_empty() {
+        eprintln!("[engine] analyst YARA rules: {ok} loaded, {} failed {:?}", failed.len(), failed);
+    }
+    (ok, failed)
 }
 
 fn contains_bytes(haystack: &[u8], needle: &[u8]) -> bool {

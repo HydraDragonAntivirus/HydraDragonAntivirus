@@ -37,7 +37,7 @@ use crate::scan_server::ScanServer;
 use crate::threat_intel::ThreatIntelStore;
 
 /// The old server leaves "getting updated" when the standby has not called for this long.
-pub const BEAT_TIMEOUT: Duration = Duration::from_secs(45);
+pub const BEAT_TIMEOUT: Duration = Duration::from_secs(180);
 /// How often the standby calls the old server.
 pub const BEAT_EVERY: Duration = Duration::from_secs(5);
 /// Exit code of a standby whose running server does not support the handoff.
@@ -180,7 +180,7 @@ pub enum Begin {
 
 pub async fn begin(ui: SocketAddr) -> Begin {
     let body = serde_json::json!({ "pid": std::process::id() });
-    match call(local_addr(ui), "POST", "/api/handoff/begin", Some(&body), Duration::from_secs(5)).await {
+    match call(local_addr(ui), "POST", "/api/handoff/begin", Some(&body), Duration::from_secs(15)).await {
         Ok((200, v)) => Begin::Accepted { pid: v["pid"].as_u64().unwrap_or(0) as u32 },
         Ok(_) => Begin::Unsupported,
         Err(_) => Begin::NoServer,
@@ -273,10 +273,15 @@ pub struct Lengths {
     insights_seq: i64,
     reviews: u64,
     tlsh: u64,
+    cache: u64,
 }
 
-fn files() -> (PathBuf, PathBuf) {
-    (crate::human_review::analyst_dir().join("human_verdicts.jsonl"), app_dir().join("tlsh_index.jsonl"))
+fn files() -> (PathBuf, PathBuf, PathBuf) {
+    (
+        crate::human_review::analyst_dir().join("human_verdicts.jsonl"),
+        app_dir().join("tlsh_index.jsonl"),
+        app_dir().join("multron_cache.jsonl"),
+    )
 }
 
 fn sig_paths() -> Vec<PathBuf> {
@@ -285,11 +290,11 @@ fn sig_paths() -> Vec<PathBuf> {
 
 pub fn lengths() -> Lengths {
     let len = |p: &PathBuf| std::fs::metadata(p).map(|m| m.len()).unwrap_or(0);
-    let (b, c) = files();
+    let (b, c, d) = files();
     let insights_seq = crate::insight_db::InsightDb::open_readonly(&app_dir().join("threat_insights.db"))
         .and_then(|db| db.max_seq())
         .unwrap_or(0);
-    Lengths { insights_seq, reviews: len(&b), tlsh: len(&c) }
+    Lengths { insights_seq, reviews: len(&b), tlsh: len(&c), cache: len(&d) }
 }
 
 /// Standby: follows what the running server appends after the standby loaded the files.
@@ -297,30 +302,45 @@ pub struct Follow {
     insights_seq: i64,
     reviews: Tail,
     tlsh: Tail,
+    cache: Tail,
     sig_fp: Vec<(PathBuf, u64, u128)>,
 }
 
 impl Follow {
     pub fn new(l: Lengths) -> Self {
-        let (b, c) = files();
+        let (b, c, d) = files();
         Follow {
             insights_seq: l.insights_seq,
             reviews: Tail::after(b, l.reviews),
             tlsh: Tail::after(c, l.tlsh),
+            cache: Tail::after(d, l.cache),
             sig_fp: crate::archive::fingerprint(&sig_paths()),
         }
     }
 
-    /// Reads what was written since the last call. Returns the number of records and
-    /// lines. When `defer_heavy` is true (at takeover), heavy SQLite `resync_external`
-    /// and TLSH signature reloads are skipped here so the listener comes up at once
-    /// and `finish_heavy` runs them in the background.
-    pub fn catch_up(&mut self, ti: &ThreatIntelStore) -> usize {
-        self.catch_up_opts(ti, false)
-    }
-
-    pub fn catch_up_fast(&mut self, ti: &ThreatIntelStore) -> usize {
-        self.catch_up_opts(ti, true)
+    /// Reads the lines appended since `lengths()` without heavy SQLite `resync_external`
+    /// or TLSH reloads (`finish_heavy` runs those once in the background after takeover).
+    pub fn catch_up_fast(&mut self, ti: &ThreatIntelStore, cache: Option<&crate::cache::VerdictCache>) -> usize {
+        // Same database: only the records held in memory and the counts follow.
+        let seq = ti.db().max_seq().unwrap_or(self.insights_seq);
+        let mut n = (seq - self.insights_seq).max(0) as usize;
+        let mut feed = |t: &mut Tail, f: &dyn Fn(&[String], bool)| match t.read() {
+            TailRead::Same => {}
+            TailRead::New(l) => {
+                n += l.len();
+                f(&l, false)
+            }
+            TailRead::Reset(l) => {
+                n += l.len();
+                f(&l, true)
+            }
+        };
+        feed(&mut self.reviews, &|l, r| ti.reviews.archive_ingest(l, r));
+        feed(&mut self.tlsh, &|l, r| ti.similarity.archive_ingest_index(l, r));
+        if let Some(c) = cache {
+            feed(&mut self.cache, &|l, r| c.archive_ingest(l, r));
+        }
+        n
     }
 
     pub fn finish_heavy(&mut self, ti: &ThreatIntelStore) {
@@ -336,39 +356,6 @@ impl Follow {
             ti.similarity.reload_analyst_sigs();
             self.sig_fp = fp;
         }
-    }
-
-    fn catch_up_opts(&mut self, ti: &ThreatIntelStore, defer_heavy: bool) -> usize {
-        // Same database: only the records held in memory and the counts follow.
-        let seq = ti.db().max_seq().unwrap_or(self.insights_seq);
-        let mut n = (seq - self.insights_seq).max(0) as usize;
-        if !defer_heavy && (seq != self.insights_seq || !crate::config::is_standby()) {
-            ti.resync_external();
-            self.insights_seq = seq;
-        }
-        let mut feed = |t: &mut Tail, f: &dyn Fn(&[String], bool)| match t.read() {
-            TailRead::Same => {}
-            TailRead::New(l) => {
-                n += l.len();
-                f(&l, false)
-            }
-            TailRead::Reset(l) => {
-                n += l.len();
-                f(&l, true)
-            }
-        };
-        feed(&mut self.reviews, &|l, r| ti.reviews.archive_ingest(l, r));
-        feed(&mut self.tlsh, &|l, r| ti.similarity.archive_ingest_index(l, r));
-        if !defer_heavy {
-            let fp = crate::archive::fingerprint(&sig_paths());
-            if fp != self.sig_fp {
-                ti.similarity.reload_known_malware();
-                ti.similarity.reload_corpus_refs();
-                ti.similarity.reload_analyst_sigs();
-                self.sig_fp = fp;
-            }
-        }
-        n
     }
 }
 

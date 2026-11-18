@@ -195,6 +195,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         threat_intel::ThreatIntelStore::new(None)
     });
     verdict_history::start();
+    let preloaded_cache = ScanServer::load_cache(&args);
 
     // Standby: wait for the engine (calling the running server every few seconds and
     // following what it writes), then ask it to hand over and take its ports.
@@ -219,7 +220,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
                 if let handoff::Begin::NoServer = handoff::begin(ui_addr).await {
                     eprintln!("[handoff] the running server is gone; taking over when the engine is ready");
                 }
-                tokio::task::block_in_place(|| follow.catch_up(&threat_intel));
+                tokio::task::block_in_place(|| follow.catch_up_fast(&threat_intel, Some(&preloaded_cache)));
             }
         }
         if let Some(b) = beater.take() {
@@ -228,6 +229,8 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         eprintln!("[handoff] ready after {} s; asking pid {old_pid} to hand over", waited.elapsed().as_secs());
         let switch = std::time::Instant::now();
         switch_started = Some(switch);
+        // Re-announce right before release in case BEAT_TIMEOUT elapsed during a stall.
+        let _ = handoff::begin(ui_addr).await;
         match handoff::release(ui_addr, args.handoff_drain_secs).await {
             Ok(r) => old_listening = r.listening,
             Err(e) if e.starts_with("release refused") => {
@@ -252,7 +255,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         }
         // The old process has exited: everything it wrote is on disk now.
         config::set_standby(false);
-        let lines = tokio::task::block_in_place(|| follow.catch_up_fast(&threat_intel));
+        let lines = tokio::task::block_in_place(|| follow.catch_up_fast(&threat_intel, Some(&preloaded_cache)));
         takeover_follow = Some(follow);
         uptime::start();
         if !args.archive {
@@ -289,6 +292,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         Arc::clone(&engine),
         Arc::clone(&events),
         Arc::clone(&threat_intel),
+        Some(preloaded_cache),
     );
     memwatch::spawn(Arc::clone(&scan_server));
     if args.archive {

@@ -81,9 +81,9 @@ impl VerdictCache {
                 return c;
             }
             let lines = c.load(&path);
-            // Rewrite the file when it is mostly stale or duplicate lines.
+            // Rewrite the file when it is mostly stale or duplicate lines (standby waits until takeover).
             let live = c.len();
-            if lines > live * 2 + 10_000 {
+            if !crate::config::is_standby() && lines > live * 2 + 10_000 {
                 c.compact(&path);
             }
             c.writer = start_writer(path);

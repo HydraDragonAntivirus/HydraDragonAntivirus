@@ -381,14 +381,7 @@ pub struct SessionHandle {
 }
 
 impl ScanServer {
-    pub fn new(
-        cfg: CliArgs,
-        engine: Arc<EngineAdapter>,
-        events: Arc<EventLog>,
-        threat_intel: Arc<ThreatIntelStore>,
-    ) -> Arc<Self> {
-        let scheduler = FairScheduler::new(cfg.workers, cfg.worker_stack_mb);
-        let budget = ByteBudget::new(cfg.max_inflight_mb * 1024 * 1024);
+    pub fn load_cache(cfg: &CliArgs) -> VerdictCache {
         let cache_file: Option<PathBuf> = if cfg.cache() && !cfg.no_cache_file {
             Some(app_dir().join("multron_cache.jsonl"))
         } else {
@@ -398,6 +391,19 @@ impl ScanServer {
         if cache.len() > 0 {
             eprintln!("[cache] {} verdicts loaded", cache.len());
         }
+        cache
+    }
+
+    pub fn new(
+        cfg: CliArgs,
+        engine: Arc<EngineAdapter>,
+        events: Arc<EventLog>,
+        threat_intel: Arc<ThreatIntelStore>,
+        preloaded_cache: Option<VerdictCache>,
+    ) -> Arc<Self> {
+        let scheduler = FairScheduler::new(cfg.workers, cfg.worker_stack_mb);
+        let budget = ByteBudget::new(cfg.max_inflight_mb * 1024 * 1024);
+        let cache = preloaded_cache.unwrap_or_else(|| Self::load_cache(&cfg));
 
         let limits = Arc::new(LiveLimits::new(LimitSettings::from_args(&cfg)));
         let limiter = RateLimiter::new(Arc::clone(&limits));

@@ -59,14 +59,6 @@ thread_local! {
     static TLS: Cell<TlsMem> = const { Cell::new(TlsMem::new()) };
 }
 
-/// This thread's counted bytes (net of nested loads).
-fn level() -> i64 {
-    TLS.with(|t| {
-        let s = t.get();
-        s.net - s.skip
-    })
-}
-
 fn flush_pending_live(s: &mut TlsMem) {
     if s.pending_live != 0 {
         if let Some(c) = LIVE.get(s.label) {
