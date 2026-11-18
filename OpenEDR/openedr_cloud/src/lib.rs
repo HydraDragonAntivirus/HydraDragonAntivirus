@@ -1,6 +1,5 @@
 pub mod cloud_client;
 pub mod hosts;
-pub mod memory;
 
 use std::ffi::{CStr, CString};
 use std::os::raw::c_char;
@@ -70,20 +69,6 @@ pub extern "C" fn openedr_cloud_scan_file_ecs(file_path: *const c_char) -> *mut 
 #[unsafe(no_mangle)]
 pub extern "C" fn openedr_static_scan_file_ecs(file_path: *const c_char) -> *mut c_char {
     openedr_cloud_scan_file_ecs(file_path)
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn openedr_cloud_scan_pid(pid: u32, max_mb: u64) -> *mut c_char {
-    let report = memory::scan_pid_memory(pid, max_mb);
-    match serde_json::to_string_pretty(&report) {
-        Ok(json) => to_c_string(json),
-        Err(e) => error_json(&format!("JSON serialization error: {}", e)),
-    }
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn openedr_static_scan_pid(pid: u32, max_mb: u64) -> *mut c_char {
-    openedr_cloud_scan_pid(pid, max_mb)
 }
 
 #[unsafe(no_mangle)]

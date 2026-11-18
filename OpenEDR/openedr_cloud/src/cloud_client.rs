@@ -30,18 +30,6 @@ pub struct FileScanReport {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct MemoryScanReport {
-    pub pid: u32,
-    pub verdict: String, // "Clean" | "Malicious" | "Suspicious" | "Unknown"
-    pub detections: Vec<DetectionItem>,
-    pub sha256: String,
-    pub bytes_scanned: usize,
-    pub scanned_at: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub note: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UrlScanReport {
     pub target_url: String,
     pub verdict: String, // "Clean" | "Malicious"
@@ -238,6 +226,8 @@ impl CloudSession {
 }
 
 const CLIENT_POOL_SIZE: usize = 8;
+const MAX_CLOUD_UPLOAD_BYTES: u64 = 64 * 1024 * 1024;
+const LARGE_UPLOAD_BUFFER_RESET_BYTES: u64 = 4 * 1024 * 1024;
 static CLIENT_POOL: [Mutex<Option<CloudSession>>; CLIENT_POOL_SIZE] = [
     Mutex::new(None),
     Mutex::new(None),
@@ -479,6 +469,7 @@ pub fn scan_file(path: &Path) -> FileScanReport {
         // multi-megabyte transfers are not cut off at 12 s).
         let start = Instant::now();
         let mut timeout = Duration::from_secs(12);
+        let mut sent_large_upload = false;
         loop {
             if start.elapsed() > timeout {
                 session.abandon_request();
@@ -505,9 +496,15 @@ pub fn scan_file(path: &Path) -> FileScanReport {
 
                     if msg_id == req_id {
                         if msg_type == "result" {
+                            if sent_large_upload {
+                                session.abandon_request();
+                            }
                             let (verdict, detections) = parse_result_verdict(&val);
                             return Ok((verdict, detections));
                         } else if msg_type == "need_upload" {
+                            if file_size > MAX_CLOUD_UPLOAD_BYTES {
+                                return Ok(("Unknown".to_string(), Vec::new()));
+                            }
                             timeout = Duration::from_secs(60);
                             // Upload file
                             // `path`: the full local path, so the server scans the
@@ -526,18 +523,29 @@ pub fn scan_file(path: &Path) -> FileScanReport {
                                 return Err(format!("Upload request error: {}", e));
                             }
                         } else if msg_type == "send_file" {
+                            if file_size > MAX_CLOUD_UPLOAD_BYTES {
+                                session.abandon_request();
+                                return Ok(("Unknown".to_string(), Vec::new()));
+                            }
                             timeout = Duration::from_secs(60);
                             let file_bytes = match std::fs::read(path) {
                                 Ok(b) => b,
                                 Err(e) => return Err(format!("Failed reading file for upload: {}", e)),
                             };
+                            if file_bytes.len() as u64 > LARGE_UPLOAD_BUFFER_RESET_BYTES {
+                                sent_large_upload = true;
+                            }
                             if let Err(e) = socket.send(Message::Binary(file_bytes.into())) {
                                 session.drop_connection();
                                 return Err(format!("File upload binary error: {}", e));
                             }
                         } else if msg_type == "error" {
+                            if sent_large_upload {
+                                session.abandon_request();
+                            }
                             let err_msg = val.get("message").and_then(|m| m.as_str()).unwrap_or("cloud error");
-                            if err_msg.to_ascii_lowercase().contains("file too large") {
+                            let err_lower = err_msg.to_ascii_lowercase();
+                            if err_lower.contains("file too large") || err_lower.contains("upload limit") {
                                 return Ok(("Unknown".to_string(), Vec::new()));
                             }
                             return Err(err_msg.to_string());
@@ -613,8 +621,10 @@ pub fn scan_bytes(data: &[u8], name: &str) -> (String, Vec<DetectionItem>, Strin
         }
 
         let start = Instant::now();
+        let mut timeout = Duration::from_secs(12);
+        let mut sent_large_upload = false;
         loop {
-            if start.elapsed() > Duration::from_secs(12) {
+            if start.elapsed() > timeout {
                 session.abandon_request();
                 return Err("Cloud query timed out".to_string());
             }
@@ -639,9 +649,16 @@ pub fn scan_bytes(data: &[u8], name: &str) -> (String, Vec<DetectionItem>, Strin
 
                     if msg_id == req_id {
                         if msg_type == "result" {
+                            if sent_large_upload {
+                                session.abandon_request();
+                            }
                             let (verdict, detections) = parse_result_verdict(&val);
                             return Ok((verdict, detections));
                         } else if msg_type == "need_upload" {
+                            if size > MAX_CLOUD_UPLOAD_BYTES {
+                                return Ok(("Unknown".to_string(), Vec::new()));
+                            }
+                            timeout = Duration::from_secs(60);
                             let scan_req = serde_json::json!({
                                 "type": "scan",
                                 "id": req_id,
@@ -654,12 +671,27 @@ pub fn scan_bytes(data: &[u8], name: &str) -> (String, Vec<DetectionItem>, Strin
                                 return Err(format!("Upload request error: {}", e));
                             }
                         } else if msg_type == "send_file" {
+                            if size > MAX_CLOUD_UPLOAD_BYTES {
+                                session.abandon_request();
+                                return Ok(("Unknown".to_string(), Vec::new()));
+                            }
+                            timeout = Duration::from_secs(60);
+                            if size > LARGE_UPLOAD_BUFFER_RESET_BYTES {
+                                sent_large_upload = true;
+                            }
                             if let Err(e) = socket.send(Message::Binary(data.to_vec().into())) {
                                 session.drop_connection();
                                 return Err(format!("Binary upload error: {}", e));
                             }
                         } else if msg_type == "error" {
+                            if sent_large_upload {
+                                session.abandon_request();
+                            }
                             let err_msg = val.get("message").and_then(|m| m.as_str()).unwrap_or("cloud error");
+                            let err_lower = err_msg.to_ascii_lowercase();
+                            if err_lower.contains("file too large") || err_lower.contains("upload limit") {
+                                return Ok(("Unknown".to_string(), Vec::new()));
+                            }
                             return Err(err_msg.to_string());
                         }
                     }

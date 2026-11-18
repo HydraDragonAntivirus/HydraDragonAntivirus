@@ -1325,7 +1325,6 @@ static bool bulkHashOverBudget(const std::string& sUtf8Path)
 namespace {
 
 typedef char* (*OpenedrScanFileFn)(const char*);
-typedef char* (*OpenedrScanPidFn)(uint32_t, uint64_t);
 typedef char* (*OpenedrScanBytesFn)(const uint8_t*, size_t, const char*);
 typedef void (*OpenedrFreeStringFn)(char*);
 // 1 once the engine has finished loading, 0 while it is still loading. Never
@@ -1339,7 +1338,6 @@ typedef char* (*OpenedrScanSystemEventsFn)();
 struct OpenedrStaticBinding {
 	HMODULE hDll = nullptr;
 	OpenedrScanFileFn fnScanFile = nullptr;
-	OpenedrScanPidFn fnScanPid = nullptr;
 	OpenedrScanBytesFn fnScanBytes = nullptr; // optional (older DLLs lack it)
 	OpenedrFreeStringFn fnFreeString = nullptr;
 	OpenedrIsReadyFn fnIsReady = nullptr;
@@ -1370,7 +1368,6 @@ static void InitOpenedrStatic()
 		return;
 	}
 	auto fnScan = reinterpret_cast<OpenedrScanFileFn>(::GetProcAddress(hDll, "openedr_static_scan_file"));
-	auto fnScanPid = reinterpret_cast<OpenedrScanPidFn>(::GetProcAddress(hDll, "openedr_static_scan_pid"));
 	auto fnScanBytes = reinterpret_cast<OpenedrScanBytesFn>(::GetProcAddress(hDll, "openedr_static_scan_bytes"));
 	auto fnFree = reinterpret_cast<OpenedrFreeStringFn>(::GetProcAddress(hDll, "openedr_static_free_string"));
 	auto fnReady = reinterpret_cast<OpenedrIsReadyFn>(
@@ -1388,7 +1385,6 @@ static void InitOpenedrStatic()
 	}
 	s_openedr.hDll = hDll;
 	s_openedr.fnScanFile = fnScan;
-	s_openedr.fnScanPid = fnScanPid;
 	s_openedr.fnScanBytes = fnScanBytes;
 	if (!fnScanBytes)
 	{
@@ -1855,71 +1851,6 @@ static int staticScanVerdictName(const std::string& sUtf8Path, std::string& sNam
 	catch (...)
 	{
 		openedr_static::WriteLog("scan-exception", "file-scan threw while scanning: " + sUtf8Path);
-		return 0;
-	}
-}
-
-static int scanPidMemoryVerdict(uint32_t nPid, uint64_t nMaxMb, std::string& sNameOut)
-{
-	sNameOut.clear();
-	if (nPid == 0)
-		return 0;
-	try
-	{
-		InitOpenedrStatic();
-		if (!s_openedr.ready.load() || !s_openedr.fnScanPid)
-			return 0;
-		openedr_static::WriteLog("pid-scan-start", "pid=" + std::to_string(nPid) + "; max-mb=" + std::to_string(nMaxMb));
-		char* json = s_openedr.fnScanPid(nPid, nMaxMb);
-		if (!json)
-		{
-			openedr_static::WriteLog("pid-scan-failed", "scan_pid returned null; pid=" + std::to_string(nPid));
-			return 0;
-		}
-		std::string report(json);
-		s_openedr.fnFreeString(json);
-		std::string verdict;
-		if (!OpenedrReportVerdict(report, verdict))
-		{
-			openedr_static::WriteLog("pid-report-invalid", "missing/invalid verdict; pid=" + std::to_string(nPid));
-			return 0;
-		}
-		if (verdict == "Malicious")
-		{
-			std::string name;
-			if (OpenedrReportFirstDetection(report, name) && !name.empty())
-			{
-				if (name.size() > 512)
-					name.resize(512);
-				sNameOut = "Memory:" + name;
-			}
-			else
-			{
-				sNameOut = "Memory.Threat";
-			}
-			openedr_static::WriteLog("pid-scan-result", "pid=" + std::to_string(nPid) + "; verdict=Malicious; det=" + sNameOut);
-			return 2;
-		}
-		if (verdict == "Clean" || verdict == "Safe")
-		{
-			openedr_static::WriteLog("pid-scan-result", "pid=" + std::to_string(nPid) + "; verdict=Clean");
-			return 1;
-		}
-		if (verdict == "Suspicious")
-		{
-			std::string name;
-			if (OpenedrReportFirstDetection(report, name) && !name.empty())
-				sNameOut = "Memory:" + name;
-			else
-				sNameOut = "Memory.Suspicious";
-			openedr_static::WriteLog("pid-scan-result", "pid=" + std::to_string(nPid) + "; verdict=Suspicious; det=" + sNameOut);
-			return 3;
-		}
-		return 4;
-	}
-	catch (...)
-	{
-		openedr_static::WriteLog("pid-scan-exception", "pid=" + std::to_string(nPid));
 		return 0;
 	}
 }
@@ -3587,21 +3518,25 @@ Variant DetectionNotifier::execute(Variant vCommand, Variant vParams){
 
 					if (nLocal != 2)
 					{
-						std::string sMemName;
-						int nMemVerdict = scanPidMemoryVerdict(pe.th32ProcessID, 64, sMemName);
-						if (nMemVerdict == 2)
+						DetectionNotifier::CloudScanDetail detail;
+						const int nCached = DetectionNotifier::getCachedFileVerdict(sPath, &detail);
+						if (nCached == 2)
 						{
 							nLocal = 2;
-							sLocalName = sMemName;
+							sLocalName = !detail.sViruskovName.empty()
+								? detail.sViruskovName
+								: "Previously recorded VirusKov detection";
 						}
-						else if (nMemVerdict == 1 && nLocal == 4)
+						else if (nCached == 1 && nLocal == 4)
 						{
 							nLocal = 1;
 						}
-						else if (nMemVerdict == 3 && nLocal == 4)
+						else if (nCached == 3 && nLocal == 4)
 						{
 							nLocal = 3;
-							sLocalName = sMemName;
+							sLocalName = !detail.sViruskovName.empty()
+								? detail.sViruskovName
+								: "Suspicious";
 						}
 					}
 

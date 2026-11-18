@@ -3918,142 +3918,7 @@ void EventEnricher::handleThreatRemediation(int64_t nPid, const std::wstring& /*
 	}
 }
 
-// openedr_static.dll scan_pid binding shares the file scanner's loader and init.
-// Report JSON: {pid, regions_scanned, bytes_scanned, verdict,
-// max_threat_score, detections:[{name...}]}. libedr links no JSON library,
-// so verdict/name are extracted with the same tolerant key scan used there.
 namespace {
-
-typedef char* (*OpenedrScanPidFn)(uint32_t, uint64_t);
-typedef void (*OpenedrPidFreeFn)(char*);
-
-struct OpenedrPidBinding {
-	HMODULE hDll = nullptr;
-	OpenedrScanPidFn fnScanPid = nullptr;
-	OpenedrPidFreeFn fnFree = nullptr;
-	bool ready = false;
-};
-
-static OpenedrPidBinding s_pidEng;
-static std::once_flag s_pidInitFlag;
-
-static void InitOpenedrPid()
-{
-	std::call_once(s_pidInitFlag, []() {
-		DWORD loadError = ERROR_SUCCESS;
-		HMODULE hDll = openedr_static::EnsureInitialized("pid-scan", &loadError);
-		if (!hDll)
-		{
-			openedr_static::WriteLog("pid-scan-unavailable", "engine init failed; win32=" + std::to_string(loadError));
-			return;
-		}
-		auto fnScan = reinterpret_cast<OpenedrScanPidFn>(::GetProcAddress(hDll, "openedr_static_scan_pid"));
-		auto fnFree = reinterpret_cast<OpenedrPidFreeFn>(::GetProcAddress(hDll, "openedr_static_free_string"));
-		if (!fnScan || !fnFree)
-		{
-			std::string missing;
-			if (!fnScan) missing += " openedr_static_scan_pid";
-			if (!fnFree) missing += " openedr_static_free_string";
-			openedr_static::WriteLog("pid-exports-missing", missing);
-			return;
-		}
-		s_pidEng.hDll = hDll;
-		s_pidEng.fnScanPid = fnScan;
-		s_pidEng.fnFree = fnFree;
-		s_pidEng.ready = true;
-	});
-}
-
-// Read a JSON string value for "key" starting the search at startPos.
-// Tolerates whitespace; skips \" escapes inside other strings.
-static bool MemReadKeyString(const std::string& json, const char* key, size_t startPos, std::string& out)
-{
-	const char* end = json.data() + json.size();
-	std::string pat = std::string("\"") + key + "\"";
-	size_t at = json.find(pat, startPos);
-	if (at == std::string::npos)
-		return false;
-	const char* p = json.data() + at + pat.size();
-	while (p < end && (*p == ' ' || *p == '\t' || *p == '\n' || *p == '\r')) ++p;
-	if (p >= end || *p != ':')
-		return false;
-	++p;
-	while (p < end && (*p == ' ' || *p == '\t' || *p == '\n' || *p == '\r')) ++p;
-	if (p >= end || *p != '"')
-		return false;
-	++p;
-	out.clear();
-	while (p < end)
-	{
-		char c = *p++;
-		if (c == '"')
-			return true;
-		if (c == '\\' && p < end)
-		{
-			out.push_back(*p++);
-			continue;
-		}
-		out.push_back(c);
-	}
-	return false;
-}
-
-// Memory-scan verdict with first detection name. 2 malicious, else 0.
-// Engine missing/unreadable -> 0 (unknown), never an error verdict.
-static int ScanPidWithLocalEngines(uint32_t nPid, uint64_t nMaxMb, std::string& sThreatOut)
-{
-	sThreatOut.clear();
-	if (nPid == 0)
-		return 0;
-	try
-	{
-		InitOpenedrPid();
-		if (!s_pidEng.ready)
-			return 0;
-		openedr_static::WriteLog("pid-scan-start", "pid=" + std::to_string(nPid) +
-			"; max-mb=" + std::to_string(nMaxMb));
-		char* raw = s_pidEng.fnScanPid(nPid, nMaxMb);
-		if (!raw)
-		{
-			openedr_static::WriteLog("pid-scan-failed", "scan_pid returned null; pid=" + std::to_string(nPid));
-			return 0;
-		}
-		std::string report(raw);
-		s_pidEng.fnFree(raw);
-		std::string verdict;
-		if (!MemReadKeyString(report, "verdict", 0, verdict))
-		{
-			openedr_static::WriteLog("pid-report-invalid", "missing verdict; pid=" + std::to_string(nPid));
-			return 0;
-		}
-		if (verdict != "Malicious")
-		{
-			openedr_static::WriteLog("pid-scan-result", "pid=" + std::to_string(nPid) +
-				"; verdict=" + verdict);
-			return 0;
-		}
-		size_t detAt = report.find("\"detections\"");
-		if (detAt != std::string::npos)
-		{
-			std::string first;
-			size_t arr = report.find('[', detAt);
-			if (arr != std::string::npos && MemReadKeyString(report, "name", arr, first) && !first.empty())
-			{
-				if (first.size() > 512)
-					first.resize(512);
-				sThreatOut = "Memory:" + first;
-			}
-		}
-		openedr_static::WriteLog("pid-scan-result", "pid=" + std::to_string(nPid) +
-			"; verdict=Malicious; detection=" + sThreatOut);
-		return 2;
-	}
-	catch (...)
-	{
-		openedr_static::WriteLog("pid-scan-exception", "pid=" + std::to_string(nPid));
-		return 0;
-	}
-}
 
 // Terminates every running process whose image is sDos and waits briefly for
 // each to exit, so the image is no longer locked when it is quarantined. A
@@ -4757,115 +4622,6 @@ static void enqueue(const std::wstring& wsCmd, uint32_t nPid, const std::wstring
 
 } // namespace CmdScanQueue
 
-// Live process-memory scans (ClamAV + YARA + PE-ML over committed readable
-// memory, openedr_static_scan_pid) on their own workers. They ran inline on
-// the single enricher thread, so a system-wide limit of one scan per 30 s was
-// added to keep events moving - with ten new processes in 30 s, nine were
-// never scanned. Now every PID is queued (once per c_pidCooldown) and scanned
-// in the background; nothing waits on it. Detection: log + GUI alert (the
-// triggering event has already gone on by then).
-namespace MemScanQueue {
-
-constexpr int c_nWorkers = 2;
-constexpr uint64_t c_nMaxMb = 128;
-constexpr auto c_pidCooldown = std::chrono::minutes(5);
-constexpr size_t c_nWarnPending = 5000;
-
-struct State
-{
-	std::mutex mtx;
-	std::condition_variable cv;
-	std::deque<uint32_t> queue;
-	std::unordered_set<uint32_t> pending;
-	std::unordered_map<uint32_t, std::chrono::steady_clock::time_point> recent;
-	std::chrono::steady_clock::time_point lastWarn;
-	bool fStarted = false;
-};
-
-static State& state()
-{
-	static State* s_p = new State(); // never destroyed: workers are detached
-	return *s_p;
-}
-
-static void worker()
-{
-	auto& st = state();
-	for (;;)
-	{
-		uint32_t nPid = 0;
-		{
-			std::unique_lock lock(st.mtx);
-			st.cv.wait(lock, [&st] { return !st.queue.empty(); });
-			nPid = st.queue.front();
-			st.queue.pop_front();
-			st.pending.erase(nPid);
-		}
-		try
-		{
-			std::string sMemThreat;
-			if (ScanPidWithLocalEngines(nPid, c_nMaxMb, sMemThreat) == 2)
-			{
-				if (sMemThreat.empty())
-					sMemThreat = "Malware.MemoryDetection";
-				LOGLVL(Critical, FMT("enricher: [MEMORY SCAN] THREAT DETECTED: <" << sMemThreat << "> in PID " << nPid));
-				SendThreatAlertToGui(sMemThreat, "pid:" + std::to_string(nPid));
-				ZeroTrust::recordThreatDetection();
-			}
-		}
-		catch (...)
-		{
-		}
-	}
-}
-
-static void enqueue(uint32_t nPid)
-{
-	if (nPid <= 4)
-		return;
-	auto& st = state();
-	bool fWarn = false;
-	size_t nPending = 0;
-	{
-		std::scoped_lock lock(st.mtx);
-		const auto now = std::chrono::steady_clock::now();
-		auto it = st.recent.find(nPid);
-		if (it != st.recent.end() && now - it->second < c_pidCooldown)
-			return;
-		if (!st.pending.insert(nPid).second)
-			return;
-		st.recent[nPid] = now;
-		if (st.recent.size() > 20000)
-		{
-			for (auto itC = st.recent.begin(); itC != st.recent.end(); )
-			{
-				if (now - itC->second >= c_pidCooldown)
-					itC = st.recent.erase(itC);
-				else
-					++itC;
-			}
-		}
-		if (!st.fStarted)
-		{
-			st.fStarted = true;
-			for (int i = 0; i < c_nWorkers; ++i)
-				std::thread(worker).detach();
-		}
-		st.queue.push_back(nPid);
-		nPending = st.queue.size();
-		if (nPending >= c_nWarnPending && now - st.lastWarn > std::chrono::seconds(60))
-		{
-			st.lastWarn = now;
-			fWarn = true;
-		}
-	}
-	st.cv.notify_one();
-	if (fWarn)
-		LOGWRN(FMT("enricher: memory scan queue is long (" << nPending << " processes waiting); scans run late, none are dropped"));
-}
-
-} // namespace MemScanQueue
-
 // Process dumps with MegaDumper.dll (MegaDumperNative: NativeAOT, no .NET
 // runtime) for processes that are not trusted, native and managed alike. A
 // packer - native or .NET - or a loader that decrypts its payload in memory
@@ -4986,6 +4742,27 @@ static std::unordered_map<uint64_t, std::wstring> loadedSystemModules(uint32_t n
 					isSysMod = IsWindowsOsComponentPath(string::convertWCharToUtf8(sPath));
 				}
 				catch (...) {}
+			}
+			// Skip disk-backed modules under Program Files / Program Files (x86) whose on-disk
+			// file exists; InspectProcessModules scans those exact files from disk with intact
+			// Authenticode/hashes, whereas dumping relocated in-RAM pages breaks hashes/signatures.
+			if (!isSysMod && sWin.size() >= 2)
+			{
+				const std::wstring sDrive = sWin.substr(0, 2);
+				const std::wstring pfDirs[] = {
+					sDrive + L"\\program files\\",
+					sDrive + L"\\program files (x86)\\"
+				};
+				for (const auto& d : pfDirs)
+				{
+					if (sPath.rfind(d, 0) == 0)
+					{
+						const DWORD dwAttr = ::GetFileAttributesW(me.szExePath);
+						if (dwAttr != INVALID_FILE_ATTRIBUTES && (dwAttr & FILE_ATTRIBUTE_DIRECTORY) == 0)
+							isSysMod = true;
+						break;
+					}
+				}
 			}
 			if (isSysMod)
 				out[reinterpret_cast<uint64_t>(me.modBaseAddr)] = me.szExePath;
@@ -5658,17 +5435,6 @@ void EventEnricher::executeUnfilteredLocalScan(Variant& vEvent, Variant& vProces
 			s_fnEnqueue(reinterpret_cast<const uint8_t*>(dos.data()),
 				static_cast<uint32_t>(dos.size()), isProc ? 1 : 0, nPid);
 		}
-	}
-
-	// C. Live process-memory scan of the event's process, queued to the memory
-	// scan workers (see MemScanQueue). Skipped when a file already convicted
-	// this event.
-	if (nPid > 0)
-	{
-		int curVerdict = 0;
-		try { curVerdict = static_cast<int>(vEvent.get("verdict", 0)); } catch (...) {}
-		if (curVerdict != 2)
-			MemScanQueue::enqueue(nPid);
 	}
 }
 
