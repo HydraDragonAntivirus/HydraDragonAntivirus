@@ -12,7 +12,7 @@ use once_cell::sync::Lazy;
 use regex::Regex;
 use std::collections::HashMap;
 use std::path::Path;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, RwLock};
 use std::time::Instant;
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -725,25 +725,28 @@ impl ScanView {
     }
 }
 
-static REGEX_CACHE: Lazy<Mutex<HashMap<String, Arc<Regex>>>> =
-    Lazy::new(|| Mutex::new(HashMap::new()));
-static BYTE_PATTERN_CACHE: Lazy<Mutex<HashMap<String, Arc<CompiledBytePattern>>>> =
-    Lazy::new(|| Mutex::new(HashMap::new()));
-static STRING_SET_CACHE: Lazy<Mutex<HashMap<String, Arc<DoubleArrayAhoCorasick<u32>>>>> =
-    Lazy::new(|| Mutex::new(HashMap::new()));
+// Compiled-pattern caches, read on every rule evaluation by every scanning thread
+// and written only the first time a pattern is seen: a read lock lets the engine
+// workers look up at the same time (a Mutex serialized them all).
+static REGEX_CACHE: Lazy<RwLock<HashMap<String, Arc<Regex>>>> =
+    Lazy::new(|| RwLock::new(HashMap::new()));
+static BYTE_PATTERN_CACHE: Lazy<RwLock<HashMap<String, Arc<CompiledBytePattern>>>> =
+    Lazy::new(|| RwLock::new(HashMap::new()));
+static STRING_SET_CACHE: Lazy<RwLock<HashMap<String, Arc<DoubleArrayAhoCorasick<u32>>>>> =
+    Lazy::new(|| RwLock::new(HashMap::new()));
 /// Cache for XOR text atoms: key = "<atom_cache_key>" → daachorse automaton with all key variants pre-built.
 /// Patterns are stored as raw bytes (Vec<u8>), value = pattern index → (xor_key, variant_label_index).
 /// Patterns are stored as raw bytes (Vec<u8>), indexed so PatternID → (xor_key, variant_label_index).
-static XOR_TEXT_AC_CACHE: Lazy<Mutex<HashMap<String, Arc<XorTextAc>>>> =
-    Lazy::new(|| Mutex::new(HashMap::new()));
+static XOR_TEXT_AC_CACHE: Lazy<RwLock<HashMap<String, Arc<XorTextAc>>>> =
+    Lazy::new(|| RwLock::new(HashMap::new()));
 
 pub(super) fn cached_regex(pattern: &str) -> Option<Arc<Regex>> {
-    if let Some(found) = REGEX_CACHE.lock().ok()?.get(pattern).cloned() {
+    if let Some(found) = REGEX_CACHE.read().ok()?.get(pattern).cloned() {
         return Some(found);
     }
     let compiled = Arc::new(Regex::new(pattern).ok()?);
     REGEX_CACHE
-        .lock()
+        .write()
         .ok()?
         .insert(pattern.to_string(), compiled.clone());
     Some(compiled)
@@ -772,7 +775,7 @@ fn build_xor_text_ac(atom: &SignatureAtom) -> Option<Arc<XorTextAc>> {
     let wide = atom.wide;
     let key = xor_text_ac_cache_key(&atom.value, wide, lo, hi);
 
-    if let Some(found) = XOR_TEXT_AC_CACHE.lock().ok()?.get(&key).cloned() {
+    if let Some(found) = XOR_TEXT_AC_CACHE.read().ok()?.get(&key).cloned() {
         return Some(found);
     }
 
@@ -807,17 +810,17 @@ fn build_xor_text_ac(atom: &SignatureAtom) -> Option<Arc<XorTextAc>> {
     let ac = DoubleArrayAhoCorasick::<u32>::with_values(patvals).ok()?;
 
     let built = Arc::new(XorTextAc { ac, meta });
-    XOR_TEXT_AC_CACHE.lock().ok()?.insert(key, built.clone());
+    XOR_TEXT_AC_CACHE.write().ok()?.insert(key, built.clone());
     Some(built)
 }
 
 pub(super) fn cached_byte_pattern(pattern: &str) -> Option<Arc<CompiledBytePattern>> {
-    if let Some(found) = BYTE_PATTERN_CACHE.lock().ok()?.get(pattern).cloned() {
+    if let Some(found) = BYTE_PATTERN_CACHE.read().ok()?.get(pattern).cloned() {
         return Some(found);
     }
     let compiled = Arc::new(compile_byte_pattern(pattern)?);
     BYTE_PATTERN_CACHE
-        .lock()
+        .write()
         .ok()?
         .insert(pattern.to_string(), compiled.clone());
     Some(compiled)
@@ -828,7 +831,7 @@ fn cached_literal_set(values: &[String], nocase: bool) -> Option<Arc<DoubleArray
         return None;
     }
     let key = literal_set_cache_key(values, nocase);
-    if let Some(found) = STRING_SET_CACHE.lock().ok()?.get(&key).cloned() {
+    if let Some(found) = STRING_SET_CACHE.read().ok()?.get(&key).cloned() {
         return Some(found);
     }
     let patterns: Vec<String> = if nocase {
@@ -852,7 +855,7 @@ fn cached_literal_set(values: &[String], nocase: bool) -> Option<Arc<DoubleArray
         return None;
     }
     let compiled = Arc::new(DoubleArrayAhoCorasick::<u32>::with_values(patvals).ok()?);
-    STRING_SET_CACHE.lock().ok()?.insert(key, compiled.clone());
+    STRING_SET_CACHE.write().ok()?.insert(key, compiled.clone());
     Some(compiled)
 }
 
@@ -3992,17 +3995,17 @@ fn evaluate_native_signature(
 /// original evaluator understands it (it then keeps evaluating it) or it does
 /// not parse either.
 fn level5_expression(expression: &str, atoms: &[SignatureAtom]) -> Option<Arc<super::expr::Node>> {
-    static CACHE: Lazy<Mutex<HashMap<String, Option<Arc<super::expr::Node>>>>> = Lazy::new(|| Mutex::new(HashMap::new()));
+    static CACHE: Lazy<RwLock<HashMap<String, Option<Arc<super::expr::Node>>>>> = Lazy::new(|| RwLock::new(HashMap::new()));
     let ids: Vec<String> = atoms.iter().map(|a| a.id.clone()).collect();
     let key = format!("{expression}\u{0}{}", ids.join(","));
-    if let Some(found) = CACHE.lock().unwrap_or_else(|e| e.into_inner()).get(&key) {
+    if let Some(found) = CACHE.read().unwrap_or_else(|e| e.into_inner()).get(&key) {
         return found.clone();
     }
     let parsed = match validate_legacy_expression(expression, atoms) {
         Ok(()) => None,
         Err(_) => super::expr::parse(expression, &ids).ok().map(Arc::new),
     };
-    CACHE.lock().unwrap_or_else(|e| e.into_inner()).insert(key, parsed.clone());
+    CACHE.write().unwrap_or_else(|e| e.into_inner()).insert(key, parsed.clone());
     parsed
 }
 

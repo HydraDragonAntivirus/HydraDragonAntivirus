@@ -37,10 +37,10 @@ const BATCH_SPACING: Duration = Duration::from_secs(3);
 const MAX_READ_PER_ROUND: u64 = 64 * 1024 * 1024;
 /// A batch is sent once it holds this many new records or this much record JSON.
 const MAX_BATCH_RECORDS: usize = 2000;
-const MAX_BATCH_BYTES: usize = 8 * 1024 * 1024;
+const MAX_BATCH_BYTES: usize = 2 * 1024 * 1024;
 /// Keys remembered as sent. Past this, new keys are still sent but no longer
 /// remembered (the server merges a repeated key into its count).
-const MAX_SEEN_KEYS: usize = 4_000_000;
+const MAX_SEEN_KEYS: usize = 250_000;
 
 // ------------------------------------------------------------------ features
 // Port of train_kc_hybrid.py's extract_features (dt_prev not given: "dt_prev~none").

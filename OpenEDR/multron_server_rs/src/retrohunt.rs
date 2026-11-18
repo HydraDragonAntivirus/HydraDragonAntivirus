@@ -314,6 +314,8 @@ fn run(srv: &Arc<ScanServer>, job: &Job) {
     std::thread::scope(|scope| {
         for _ in 0..threads {
             scope.spawn(|| {
+                // Counted against the CPU budget like an engine worker.
+                let _slot = hydradragonclamav::cpu_budget::worker();
                 // YARA-X scanners are per thread; the compiled rules are shared.
                 let mut yara = match &matcher {
                     Matcher::Yara(rules) => {

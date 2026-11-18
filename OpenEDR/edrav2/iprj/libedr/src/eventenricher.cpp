@@ -1830,7 +1830,7 @@ namespace {
 				};
 				static std::mutex s_mtx;
 				static std::unordered_map<std::wstring, Entry> s_cache;
-				constexpr size_t c_nMaxEntries = 16384;
+				constexpr size_t c_nMaxEntries = 4096;
 				const auto now = std::chrono::steady_clock::now();
 				{
 					std::scoped_lock lock(s_mtx);
@@ -3210,7 +3210,7 @@ namespace {
 					void push(TrainingPipeItem&& item)
 					{
 						std::lock_guard<std::mutex> lk(mtx);
-						if (queue.size() >= 16384)
+						if (queue.size() >= 512)
 							queue.pop_front();
 						queue.push_back(std::move(item));
 						cv.notify_one();
@@ -3438,8 +3438,8 @@ namespace {
 
 		std::unordered_map<int64_t, Proc> s_live;
 		std::deque<Dead> s_dead;
-		constexpr uint64_t c_nDeadKeepMs = 30ull * 60 * 1000;
-		constexpr size_t c_nMaxDead = 20000;
+		constexpr uint64_t c_nDeadKeepMs = 5ull * 60 * 1000;
+		constexpr size_t c_nMaxDead = 1024;
 		constexpr size_t c_nMaxInjectorsPerProc = 64;
 
 		Proc& liveProc(int64_t nPid)
@@ -3787,8 +3787,17 @@ static void recordShadowBackupImpl(int64_t nPid, Event eEventType, const Variant
 			if (!wsBkInEvent.empty())
 				wsBk = NormalizeToDosPath(wsBkInEvent);
 			if (!wsBk.empty())
+			{
+				if (s_allPreImages.size() >= 4096)
+				{
+					auto it = s_allPreImages.begin();
+					for (size_t i = 0; i < 2048 && it != s_allPreImages.end(); ++i)
+						it = s_allPreImages.erase(it);
+				}
 				s_allPreImages[wsFilePath] = wsBk;
-			readMap[wsFilePath] = std::move(wsBk);
+			}
+			if (readMap.size() < 512 || readMap.count(wsFilePath))
+				readMap[wsFilePath] = std::move(wsBk);
 			return;
 		}
 
@@ -3803,7 +3812,7 @@ static void recordShadowBackupImpl(int64_t nPid, Event eEventType, const Variant
 			if (eEventType == Event::LLE_FILE_CREATE && nCreationStatus != 1 && nCreationStatus != 3)
 				break;
 			ZeroTrust::onProcessFileModification(static_cast<uint32_t>(nPid), string::convertWCharToUtf8(wsFilePath));
-			constexpr size_t c_nMaxBackupsPerProcess = 1000;
+			constexpr size_t c_nMaxBackupsPerProcess = 256;
 			auto& vec = s_backups[nPid];
 			if (vec.size() < c_nMaxBackupsPerProcess)
 			{
@@ -6905,6 +6914,24 @@ void EventEnricher::put(const Variant& vEventRef)
 	case Event::LLE_INJECTION_ACTIVITY:
 	{
 		vProcess.put("hasInjection", true);
+		if (DriverPortHips::s_dumpUntrusted.load(std::memory_order_relaxed))
+		{
+			uint32_t targetPid = 0;
+			if (vEvent.has("target"))
+			{
+				try
+				{
+					auto vTarget = vEvent.get("target");
+					if (vTarget.has("pid")) targetPid = static_cast<uint32_t>(vTarget["pid"]);
+					else if (vTarget.has("id")) targetPid = static_cast<uint32_t>(vTarget["id"]);
+				}
+				catch (...) {}
+			}
+			if (targetPid > 4)
+				DumpQueue::enqueue(targetPid, "", "injection target");
+			else if (nActorPid > 4)
+				DumpQueue::enqueue(nActorPid, sProcPath, "injection activity");
+		}
 		break;
 	}
 	case Event::LLE_USER_LOGON:
@@ -6964,8 +6991,17 @@ void EventEnricher::put(const Variant& vEventRef)
 			{
 				if (nPos != std::wstring::npos)
 				{
+					std::wstring wsApiFunc = sName.substr(nPos + 1);
 					vHook.put("apiModule", sName.substr(0, nPos));
-					vHook.put("apiFunction", sName.substr(nPos + 1));
+					vHook.put("apiFunction", wsApiFunc);
+					if (DriverPortHips::s_dumpUntrusted.load(std::memory_order_relaxed) && srcPid > 4 &&
+						(_wcsicmp(wsApiFunc.c_str(), L"VirtualAllocEx") == 0 ||
+						 _wcsicmp(wsApiFunc.c_str(), L"WriteProcessMemory") == 0 ||
+						 _wcsicmp(wsApiFunc.c_str(), L"CreateRemoteThread") == 0 ||
+						 _wcsicmp(wsApiFunc.c_str(), L"NtCreateThreadEx") == 0))
+					{
+						DumpQueue::enqueue(srcPid, sProcPath, "injection API hook");
+					}
 				}
 				else
 				{

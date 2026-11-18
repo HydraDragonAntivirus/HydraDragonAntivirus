@@ -47,8 +47,13 @@ pub fn string_ml_options() -> ExtractOptions {
     }
 }
 
-/// Buffers kept: a scan asks for the file and then its unpacked image.
-const KEEP: usize = 4;
+/// Buffers kept: a scan asks for the file and then its unpacked image, and every
+/// scan running at once shares this cache. A fixed 4 was evicted by the other engine
+/// workers between the two requests of one scan (one miss = the whole disassembly
+/// again), so two per core, at least 4.
+fn keep() -> usize {
+    (2 * hydradragonclamav::cpu_budget::cores()).max(4)
+}
 
 type Key = (usize, u64);
 
@@ -113,7 +118,7 @@ fn both(data: &[u8], key: Key) -> Arc<Decompiled> {
     let value = Arc::new(Decompiled { hydrasig: both.next().unwrap_or_default(), string_ml: both.next().unwrap_or_default() });
     if let Ok(mut cache) = CACHE.lock() {
         if !cache.iter().any(|(k, _)| *k == key) {
-            if cache.len() >= KEEP {
+            if cache.len() >= keep() {
                 cache.pop_front();
             }
             cache.push_back((key, value.clone()));

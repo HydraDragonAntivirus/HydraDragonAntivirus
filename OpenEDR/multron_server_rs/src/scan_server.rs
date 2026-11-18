@@ -401,6 +401,7 @@ impl ScanServer {
         threat_intel: Arc<ThreatIntelStore>,
         preloaded_cache: Option<VerdictCache>,
     ) -> Arc<Self> {
+        hydradragonclamav::cpu_budget::set_limit(cfg.cpu_budget);
         let scheduler = FairScheduler::new(cfg.workers, cfg.worker_stack_mb);
         let budget = ByteBudget::new(cfg.max_inflight_mb * 1024 * 1024);
         let cache = preloaded_cache.unwrap_or_else(|| Self::load_cache(&cfg));

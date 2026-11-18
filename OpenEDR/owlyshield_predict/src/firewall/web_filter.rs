@@ -28,7 +28,7 @@ impl Default for WebFilter {
 impl WebFilter {
     pub fn new() -> Self {
         let cloud_verdicts: Cache<String, bool> = Cache::builder()
-            .max_capacity(65536)
+            .max_capacity(8192)
             .time_to_live(Duration::from_secs(300))
             .build();
         let cloud_inflight: Cache<String, ()> = Cache::builder()
@@ -64,7 +64,7 @@ impl WebFilter {
             cloud_inflight,
             cloud_tx,
             clean_flow_cache: Cache::builder()
-                .max_capacity(65536)
+                .max_capacity(8192)
                 .time_to_live(Duration::from_secs(300))
                 .build(),
             ssl_blacklist: Arc::new(RwLock::new(std::collections::HashSet::new())),

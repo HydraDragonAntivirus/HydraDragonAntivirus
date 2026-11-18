@@ -1147,7 +1147,6 @@ impl Engine {
         };
 
         let _slow = SlowAlert::with_ctx("scan_context", &label, 200);
-        let _active = crate::atomscan::ActiveScan::enter();
 
         // Phase 0 (calling thread): one atom sweep builds per-slot hit counts
         // for this buffer; both phases then promote slots that reached their
@@ -1566,7 +1565,9 @@ impl Engine {
             }
             return;
         }
-        let threads = crate::atomscan::worker_count().min(items.len()).max(1);
+        // The calling thread only waits for the shards, so its own slot is one of them.
+        let helpers = crate::cpu_budget::helpers(crate::atomscan::MAX_SCAN_THREADS.min(items.len()) - 1);
+        let threads = 1 + helpers.count();
         if threads <= 1 {
             for &si in items {
                 eval(si, matches);
@@ -1579,7 +1580,7 @@ impl Engine {
         std::thread::scope(|s| {
             let mut handles = Vec::with_capacity(threads);
             for _ in 0..threads {
-                handles.push(s.spawn(|| {
+                handles.push(s.spawn(|| helpers.run(|| {
                     let mut local: Vec<(usize, Vec<ScanMatch>)> = Vec::new();
                     loop {
                         let c = next.fetch_add(1, Ordering::Relaxed);
@@ -1595,7 +1596,7 @@ impl Engine {
                         local.push((c, out));
                     }
                     local
-                }));
+                })));
             }
             let mut parts: Vec<(usize, Vec<ScanMatch>)> = Vec::new();
             for h in handles {
@@ -2730,7 +2731,7 @@ mod tests {
         };
         let atomfilter_db = crate::atomfilter_build::AtomFilterBuilder::build(&database);
         let engine = Engine { database, atomfilter_db, yara: Vec::new() };
-        let found = engine.scan_bytes(b"xxABCyy", ScanOptions::default());
+        let found = engine.scan_bytes(b"xxABCyyyyyyyyyy", ScanOptions::default());
         assert_eq!(found.len(), 1);
         assert_eq!(found[0].name, "Test.Signature");
         assert_eq!(found[0].source, source);
@@ -2758,7 +2759,7 @@ mod tests {
         };
         let atomfilter_db = crate::atomfilter_build::AtomFilterBuilder::build(&database);
         let engine = Engine { database, atomfilter_db, yara: Vec::new() };
-        let data = b"xxABCyyABCz";
+        let data = b"xxABCyyABCzzzzz";
         let found = engine.scan_bytes(data, ScanOptions::default());
         assert_eq!(found.len(), 1);
         assert_eq!(engine.match_ranges(data, &found[0], 64), vec![(2, 5), (7, 10)]);
@@ -2796,12 +2797,12 @@ mod tests {
         let engine = Engine { database, atomfilter_db, yara: Vec::new() };
 
         // Atom present → detected.
-        let hit = engine.scan_bytes(b"xxABCyy", ScanOptions::default());
+        let hit = engine.scan_bytes(b"xxABCyyyyyyyyyy", ScanOptions::default());
         assert_eq!(hit.len(), 1);
         assert_eq!(hit[0].name, "Test.Signature");
 
         // Atom absent → correctly skipped, no match.
-        let miss = engine.scan_bytes(b"xxxyyyzzz", ScanOptions::default());
+        let miss = engine.scan_bytes(b"xxxyyyzzzxxxyyyzzz", ScanOptions::default());
         assert!(miss.is_empty());
     }
 
@@ -2830,7 +2831,7 @@ mod tests {
         };
         let atomfilter_db = crate::atomfilter_build::AtomFilterBuilder::build(&database);
         let engine = Engine { database, atomfilter_db, yara: Vec::new() };
-        let found = engine.scan_bytes_named(b"MALWARE", "root#archive[0]", ScanOptions::default(), &[]);
+        let found = engine.scan_bytes_named(b"..MALWARE......", "root#archive[0]", ScanOptions::default(), &[]);
         assert!(found.iter().any(|hit| {
             hit.name == "Test.Zip.Child"
                 && hit.object_path == "root#archive[0]"
@@ -2857,8 +2858,8 @@ mod tests {
         let atomfilter_db = crate::atomfilter_build::AtomFilterBuilder::build(&database);
         let engine = Engine { database, atomfilter_db, yara: Vec::new() };
         let hit = |d: &[u8]| engine.scan_bytes(d, ScanOptions::default()).iter().any(|m| m.name == "Test.PcreBytes");
-        assert!(hit(b"AAA \xe9\x80\xff"));
-        assert!(!hit("AAA \u{e9}\u{ff}".as_bytes()));
+        assert!(hit(b"AAA \xe9\x80\xff ......"));
+        assert!(!hit("AAA \u{e9}\u{ff} ......".as_bytes()));
     }
 
     #[test]
@@ -2925,7 +2926,7 @@ mod tests {
             container_size: NumSpec::Any,
             filename: Some(regex::Regex::new("child\\.bin$").unwrap()),
             size_in_container: NumSpec::Any,
-            size_real: NumSpec::Exact(7),
+            size_real: NumSpec::Exact(15),
             encrypted: None,
             file_pos: NumSpec::Exact(1),
             source: SourceLocation {
@@ -2943,10 +2944,10 @@ mod tests {
         // Drive the extraction-layer path directly via scan_object.
         let mut state = ScanState { matches: Vec::new() };
         engine.scan_object(
-            b"MALWARE",
+            b"MALWARE-PAYLOAD",
             "root#archive[0]",
             Some("zip"),
-            Some(7),
+            Some(15),
             Some(1),
             Some("child.bin".into()),
             1,
@@ -3229,10 +3230,10 @@ mod tests {
         // Range-sensitive negatives: an out-of-range occurrence must NOT match,
         // identically for threaded and full scan (catches range-bypass bugs).
         // "WWWW" only away from offset 0 → E.AbsZero must not fire.
-        let no_abs = assert_threading_equiv(diverse_database, b"....WWWW....");
+        let no_abs = assert_threading_equiv(diverse_database, b"....WWWW........");
         assert!(!no_abs.iter().any(|k| k.starts_with("E.AbsZero@")));
         // "WWWW" at offset 0 → E.AbsZero fires.
-        let abs = assert_threading_equiv(diverse_database, b"WWWW........");
+        let abs = assert_threading_equiv(diverse_database, b"WWWW............");
         assert!(abs.iter().any(|k| k.starts_with("E.AbsZero@")));
 
         // "YYYY" only at the start → outside the EOF-8 tail window → no match.
@@ -3333,7 +3334,7 @@ mod tests {
         let (engine, w) = engine_with_logical("Test.Cmp;Target:0;(0=2)|1;4142;5859");
         assert!(w.is_empty());
         // subsig 0 ("AB") twice, subsig 1 ("XY") absent → `0=2` true → must match.
-        let found = engine.scan_bytes(b"AB__AB__", ScanOptions::default());
+        let found = engine.scan_bytes(b"AB__AB__________", ScanOptions::default());
         assert!(
             found.iter().any(|m| m.name == "Test.Cmp"),
             "false negative: (0=2) match dropped by prefilter gate selection"
@@ -3349,7 +3350,7 @@ mod tests {
             engine_with_logical("Test.Lt;Target:0;(0|1)&(2<3);4142;5859;4344");
         assert!(w.is_empty());
         // subsig 1 ("XY") present, subsig 0 absent, subsig 2 ("CD") twice (<3) → match.
-        let found = engine.scan_bytes(b"XY__CD__CD", ScanOptions::default());
+        let found = engine.scan_bytes(b"XY__CD__CD______", ScanOptions::default());
         assert!(
             found.iter().any(|m| m.name == "Test.Lt"),
             "false negative: (2<3) match dropped by prefilter gate selection"
@@ -3364,7 +3365,7 @@ mod tests {
         assert!(w.is_empty());
         // Top-level "MALWARE" (no parent container) → must NOT fire.
         assert!(engine
-            .scan_bytes(b"xxMALWAREyy", ScanOptions::default())
+            .scan_bytes(b"xxMALWAREyyyyyy", ScanOptions::default())
             .is_empty());
         // Container extraction is done by `collect_buffers` before reaching
         // the engine; it tags each extracted child with its parent's
@@ -3373,7 +3374,7 @@ mod tests {
         // confirm the `Container:CL_TYPE_ZIP` TDB gate lets the body match fire.
         let mut state = ScanState { matches: Vec::new() };
         engine.scan_object(
-            b"xxMALWAREyy",
+            b"xxMALWAREyyyyyy",
             "root#archive[0]",
             Some("zip"),
             None,
@@ -3409,11 +3410,11 @@ mod tests {
     fn tdb_engine_flevel_gates_loading() {
         // Engine:1-5 excludes our ENGINE_FLEVEL (240) → signature never fires.
         let (engine, _) = engine_with_logical("Test.OldEngine;Engine:1-5,Target:0;0;4142");
-        assert!(engine.scan_bytes(b"xxAByy", ScanOptions::default()).is_empty());
+        assert!(engine.scan_bytes(b"xxAByy__________", ScanOptions::default()).is_empty());
         // Engine:51-255 includes 240 → fires normally.
         let (engine2, _) = engine_with_logical("Test.NewEngine;Engine:51-255,Target:0;0;4142");
         assert!(engine2
-            .scan_bytes(b"xxAByy", ScanOptions::default())
+            .scan_bytes(b"xxAByy__________", ScanOptions::default())
             .iter()
             .any(|m| m.name == "Test.NewEngine"));
     }
@@ -3421,12 +3422,14 @@ mod tests {
     #[test]
     fn tdb_filesize_gates_match() {
         let (engine, _) =
-            engine_with_logical("Test.Size;Engine:1-255,FileSize:5-10,Target:0;0;4142");
-        // len 3, below FileSize:5-10 → no match.
-        assert!(engine.scan_bytes(b"xAB", ScanOptions::default()).is_empty());
-        // len 7, within range → match.
+            engine_with_logical("Test.Size;Engine:1-255,FileSize:15-20,Target:0;0;4142");
+        // Sizes stay above the engine's 12-byte minimum (smaller buffers are not
+        // scanned at all), so the FileSize gate is what decides here.
+        // len 13, below FileSize:15-20 → no match.
+        assert!(engine.scan_bytes(b"xxxxxABxxxxxx", ScanOptions::default()).is_empty());
+        // len 17, within range → match.
         assert!(engine
-            .scan_bytes(b"xxABxxy", ScanOptions::default())
+            .scan_bytes(b"xxxxxxABxxxxxxxxy", ScanOptions::default())
             .iter()
             .any(|m| m.name == "Test.Size"));
     }
@@ -3441,7 +3444,7 @@ mod tests {
             warnings.is_empty(),
             "IconGroup parsed normally; no unsupported-TDB warning"
         );
-        assert!(engine.scan_bytes(b"xxAByy", ScanOptions::default()).is_empty());
+        assert!(engine.scan_bytes(b"xxAByy__________", ScanOptions::default()).is_empty());
     }
 
     #[test]
@@ -3489,7 +3492,7 @@ mod tests {
         let engine = Engine { database, atomfilter_db, yara: Vec::new() };
 
         let opts = ScanOptions { scan_archives: false, ..ScanOptions::default() };
-        let found = engine.scan_bytes(b"xxABCyy", opts);
+        let found = engine.scan_bytes(b"xxABCyyyyyyyyyy", opts);
         assert_eq!(found.len(), 1, "scan_archives=false must still scan raw bytes");
     }
 
@@ -3516,12 +3519,12 @@ mod tests {
         let engine = Engine { database, atomfilter_db, yara: Vec::new() };
 
         // All these should match "abc" (case-insensitively)
-        assert!(engine.scan_bytes(b"ABC!", ScanOptions::default()).iter().any(|m| m.name == "Test.NocaseExt"));
-        assert!(engine.scan_bytes(b"abc!", ScanOptions::default()).iter().any(|m| m.name == "Test.NocaseExt"));
-        assert!(engine.scan_bytes(b"AbC!", ScanOptions::default()).iter().any(|m| m.name == "Test.NocaseExt"));
+        assert!(engine.scan_bytes(b"ABC!............", ScanOptions::default()).iter().any(|m| m.name == "Test.NocaseExt"));
+        assert!(engine.scan_bytes(b"abc!............", ScanOptions::default()).iter().any(|m| m.name == "Test.NocaseExt"));
+        assert!(engine.scan_bytes(b"AbC!............", ScanOptions::default()).iter().any(|m| m.name == "Test.NocaseExt"));
 
         // Should not match when completely absent
-        assert!(engine.scan_bytes(b"xyz!", ScanOptions::default()).is_empty());
+        assert!(engine.scan_bytes(b"xyz!............", ScanOptions::default()).is_empty());
     }
 
     #[test]
@@ -3561,7 +3564,7 @@ mod tests {
         let atomfilter_db = crate::atomfilter_build::AtomFilterBuilder::build(&database);
         let engine = Engine { database, atomfilter_db, yara: Vec::new() };
 
-        let found = engine.scan_bytes(b"AAABBBCCC", ScanOptions::default());
+        let found = engine.scan_bytes(b"AAABBBCCC_______", ScanOptions::default());
         assert_eq!(found.len(), 3);
         assert!(found.iter().any(|m| m.name == "Sig.Alpha"));
         assert!(found.iter().any(|m| m.name == "Sig.Beta"));

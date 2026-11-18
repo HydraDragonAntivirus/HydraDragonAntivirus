@@ -37,6 +37,13 @@ pub struct CliArgs {
     #[arg(long, default_value_t = default_workers())]
     pub workers: usize,
 
+    /// Threads that may do scan work at once, engine threads and the helper threads
+    /// one scan starts (archive members, ClamAV sweeps, static report) together
+    /// (0 = the logical processor count). Helpers only take slots the engine threads
+    /// leave free, so threads never queue for a core.
+    #[arg(long, default_value_t = 0)]
+    pub cpu_budget: usize,
+
     /// Stack size of one engine thread in MB (deep archives / emulation need a big stack)
     #[arg(long, default_value_t = 32)]
     pub worker_stack_mb: usize,

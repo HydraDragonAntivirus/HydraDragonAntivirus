@@ -265,8 +265,15 @@ thread_local! {
     static SCAN: std::cell::RefCell<Option<Arc<ScanTimes>>> = const { std::cell::RefCell::new(None) };
 }
 
-#[cfg(target_os = "windows")]
+/// CPU time of this thread plus that of the helper threads it handed work to
+/// (`hydradragonclamav::cpu_budget`): a stage whose work ran on helpers was busy, not
+/// waiting.
 fn thread_cpu_ns() -> u64 {
+    own_thread_cpu_ns().saturating_add(hydradragonclamav::cpu_budget::offloaded_cpu_ns())
+}
+
+#[cfg(target_os = "windows")]
+fn own_thread_cpu_ns() -> u64 {
     use windows::Win32::Foundation::FILETIME;
     use windows::Win32::System::Threading::{GetCurrentThread, GetThreadTimes};
     let mut creation = FILETIME::default();
@@ -286,7 +293,7 @@ fn thread_cpu_ns() -> u64 {
 }
 
 #[cfg(not(target_os = "windows"))]
-fn thread_cpu_ns() -> u64 {
+fn own_thread_cpu_ns() -> u64 {
     0
 }
 

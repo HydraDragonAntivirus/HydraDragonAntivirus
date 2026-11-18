@@ -269,24 +269,56 @@ pub const STRING_RULES: &[(&str, &str, &str, &[&str])] = &[
 pub fn analyze(data: &[u8], file_name: &str) -> FileReport {
     // The PE, the strings and the whole-file hashes do not depend on each other: on
     // their own threads a 50 MB file takes about as long as its PE alone (~3 s → ~1 s).
+    // Threads come from the process-wide budget (`cpu_budget`), heaviest part first:
+    // on a server whose engine workers already keep every core busy, extra threads
+    // only queue for a core, so the parts then run here one after the other.
     // A panic in one is passed on as it was (VirusKovAlyzer catches it).
     fn join<T>(h: std::thread::ScopedJoinHandle<'_, T>) -> T {
         h.join().unwrap_or_else(|e| std::panic::resume_unwind(e))
     }
+    /// Started on a helper thread while helpers are left, else run now.
+    enum Part<'s, T> {
+        Spawned(std::thread::ScopedJoinHandle<'s, T>),
+        Done(T),
+    }
+    impl<T> Part<'_, T> {
+        fn get(self) -> T {
+            match self {
+                Part::Spawned(h) => join(h),
+                Part::Done(v) => v,
+            }
+        }
+    }
+    fn part<'s, 'e, T: Send + 's>(
+        s: &'s std::thread::Scope<'s, 'e>,
+        helpers: &'s hydradragonclamav::cpu_budget::Helpers,
+        left: &mut usize,
+        f: impl FnOnce() -> T + Send + 's,
+    ) -> Part<'s, T> {
+        if *left > 0 {
+            *left -= 1;
+            Part::Spawned(s.spawn(move || helpers.run(f)))
+        } else {
+            Part::Done(f())
+        }
+    }
+    let helpers = hydradragonclamav::cpu_budget::helpers(5);
     let ((pe, mut indicators), strings, md5_hex, sha1_hex, tlsh, crc, sha256_hex, entropy) = std::thread::scope(|s| {
-        let pe = s.spawn(|| {
+        let mut left = helpers.count();
+        let pe = part(s, &helpers, &mut left, || {
             let mut ind = Vec::new();
             (parse_pe(data, &mut ind, true), ind)
         });
-        let strings = s.spawn(|| extract_strings(data));
-        let md5_hex = s.spawn(|| hex::encode(md5(data)));
-        let sha1_hex = s.spawn(|| hex::encode(sha1(data)));
-        let tlsh = s.spawn(|| tlsh_digest(data));
+        let strings = part(s, &helpers, &mut left, || extract_strings(data));
+        let tlsh = part(s, &helpers, &mut left, || tlsh_digest(data));
+        let sha1_hex = part(s, &helpers, &mut left, || hex::encode(sha1(data)));
+        let md5_hex = part(s, &helpers, &mut left, || hex::encode(md5(data)));
         let crc = format!("{:08X}", crc32(data));
         let sha256_hex = hex::encode(Sha256::digest(data));
         let entropy = round2(shannon(data));
-        (join(pe), join(strings), join(md5_hex), join(sha1_hex), join(tlsh), crc, sha256_hex, entropy)
+        (pe.get(), strings.get(), md5_hex.get(), sha1_hex.get(), tlsh.get(), crc, sha256_hex, entropy)
     });
+    drop(helpers);
     let (file_type, mime) = detect_type(data, file_name);
     let imphash = pe.as_ref().and_then(|p| imphash(&p.imports));
 

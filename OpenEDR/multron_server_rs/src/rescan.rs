@@ -558,6 +558,8 @@ fn spawn_bulk(server: &Arc<ScanServer>, mut files: Vec<String>, cats: Vec<String
                                 break;
                             }
                             let Some(sha) = files.get(next.fetch_add(1, Ordering::Relaxed)) else { break };
+                            // Counted against the CPU budget like an engine worker.
+                            let _slot = hydradragonclamav::cpu_budget::worker();
                             match rescan_logged(srv, sha, source, run) {
                                 Ok(c) => {
                                     if c.old_verdict != c.new_verdict {

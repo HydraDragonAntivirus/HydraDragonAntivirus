@@ -1874,7 +1874,7 @@ struct CachedFileVerdict {
 
 static std::mutex s_mtxVerdictCache;
 static std::unordered_map<std::string, CachedFileVerdict> s_verdictCache;
-static constexpr size_t kMaxVerdictCacheSize = 32768;
+static constexpr size_t kMaxVerdictCacheSize = 8192;
 
 static bool getFileIdentityUtf8(const std::string& sUtf8Path, uint64_t& nSizeOut, uint64_t& nMtimeOut)
 {
@@ -1984,7 +1984,7 @@ bool DetectionNotifier::isFileSignatureTrusted(const std::string& sUtf8Path, std
 	};
 	static std::mutex s_mtxSigCache;
 	static std::unordered_map<std::string, CachedSigTrust> s_sigCache;
-	static constexpr size_t kMaxSigCacheSize = 32768;
+	static constexpr size_t kMaxSigCacheSize = 8192;
 
 	std::string lowerPath = sUtf8Path;
 	for (auto& c : lowerPath) c = (char)::tolower((unsigned char)c);

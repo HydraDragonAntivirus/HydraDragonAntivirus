@@ -3,6 +3,7 @@ pub mod atomfilter_build;
 pub mod atomscan;
 pub mod bytecode;
 pub mod bytecode_vm;
+pub mod cpu_budget;
 pub mod cert;
 pub mod database;
 pub mod filtering;

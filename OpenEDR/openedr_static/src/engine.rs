@@ -1502,10 +1502,12 @@ impl StaticEngine {
     /// Runs all detection engines (ClamAV, YARA-X, HydraDragonSig, ML and PE heuristics)
     /// on the in-memory bytes and returns an isolated `ExtractedObject`.
     fn scan_parallel<T: Send>(&self, count: usize, work: impl Fn(usize) -> T + Sync) -> Vec<T> {
-        let threads = std::thread::available_parallelism()
-            .map_or(1, |n| n.get())
-            .min(MAX_OBJECT_THREADS)
-            .min(count);
+        // Helpers come from the process-wide budget: with every core already busy
+        // (the other engine workers) the objects are scanned on this thread; extra
+        // threads would only queue for a core. The calling thread only waits, so its
+        // own slot is one of the threads.
+        let helpers = hydradragonclamav::cpu_budget::helpers(MAX_OBJECT_THREADS.min(count).saturating_sub(1));
+        let threads = 1 + helpers.count();
         if threads <= 1 {
             return (0..count).map(&work).collect();
         }

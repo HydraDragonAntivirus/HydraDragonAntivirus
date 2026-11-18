@@ -48,8 +48,13 @@ impl FairScheduler {
         loop {
             let job = self.next_job();
             self.busy.fetch_add(1, Ordering::Relaxed);
+            // This thread holds a CPU slot while it scans, so the helper threads the
+            // scan starts (object scans, ClamAV sweeps, the static report) only take
+            // cores the other workers leave idle (`cpu_budget`).
+            let slot = hydradragonclamav::cpu_budget::worker();
             // A panicking scan drops its result sender; the waiting side reports it as an error.
             let _ = catch_unwind(AssertUnwindSafe(job));
+            drop(slot);
             self.busy.fetch_sub(1, Ordering::Relaxed);
         }
     }

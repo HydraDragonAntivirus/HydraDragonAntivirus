@@ -154,8 +154,13 @@ namespace Mega_Dumper
 
         // Memory state constants
         public const uint MEM_COMMIT = 0x1000;
+        public const uint MEM_PRIVATE = 0x20000;
         public const uint PAGE_NOACCESS = 0x01;
         public const uint PAGE_GUARD = 0x100;
+        public const uint PAGE_EXECUTE = 0x10;
+        public const uint PAGE_EXECUTE_READ = 0x20;
+        public const uint PAGE_EXECUTE_READWRITE = 0x40;
+        public const uint PAGE_EXECUTE_WRITECOPY = 0x80;
 
         //inner enum used only internally
         [Flags]
@@ -1009,6 +1014,7 @@ namespace Mega_Dumper
 
                 // --- 64-bit compatible iteration ---
                 ulong currentAddress = minaddress;
+                ulong totalShellcodeBytes = 0;
                 MEMORY_BASIC_INFORMATION mbi;
                 uint mbiSize = (uint)Marshal.SizeOf<MEMORY_BASIC_INFORMATION>();
 
@@ -1029,6 +1035,7 @@ namespace Mega_Dumper
 
                     if (isMemoryReadable)
                     {
+                        bool regionHadPe = false;
                         ulong regionBase = PtrToULong(mbi.BaseAddress);
                         ulong regionSize = PtrToULong(mbi.RegionSize);
                         ulong regionEnd = regionBase + regionSize;
@@ -1436,6 +1443,7 @@ byte[] rawdump = new byte[totalrawsize];
                                                                     {
                                                                         File.WriteAllBytes(filename, rawdump);
                                                                         sessionDumpedFiles.Add(filename);
+                                                                        regionHadPe = true;
                                                                         Console.WriteLine($"[SUCCESS] Raw dumped: {Path.GetFileName(filename)}");
 
                                                                         // --- OVERLAY FIX ---
@@ -1625,6 +1633,7 @@ byte[] rawdump = new byte[totalrawsize];
                                                                 fout.Write(virtualdump, 0, Math.Min(rightrawsize, virtualdump.Length));
                                                             }
                                                             sessionDumpedFiles.Add(filename);
+                                                            regionHadPe = true;
                                                             string netStatus = isNetAssembly ? "[.NET]" : "[Native]";
                                                             Console.WriteLine($"[SUCCESS] Virtual dumped {netStatus}: {Path.GetFileName(filename)}");
                                                         }
@@ -1637,6 +1646,56 @@ byte[] rawdump = new byte[totalrawsize];
                                                 }
                                             }
                                         }
+                                    }
+                                }
+                            }
+                        }
+
+                        // Capture unbacked executable regions (MEM_PRIVATE + PAGE_EXECUTE*)
+                        // that contained no PE/BSJB header so headerless shellcode / beacons
+                        // are still extracted and scanned without dumping PAGE_READWRITE heaps.
+                        const ulong MaxShellcodeRegionBytes = 4 * 1024 * 1024;
+                        const ulong MaxShellcodeTotalBytes = 16 * 1024 * 1024;
+                        const uint ExecProtectMask = PAGE_EXECUTE | PAGE_EXECUTE_READ | PAGE_EXECUTE_READWRITE | PAGE_EXECUTE_WRITECOPY;
+                        bool isUnbackedExec = !regionHadPe &&
+                                              (mbi.Type == MEM_PRIVATE) &&
+                                              ((mbi.Protect & ExecProtectMask) != 0) &&
+                                              regionSize >= 64 &&
+                                              regionSize <= MaxShellcodeRegionBytes &&
+                                              (totalShellcodeBytes + regionSize) <= MaxShellcodeTotalBytes;
+                        if (isUnbackedExec)
+                        {
+                            byte[] scBuf = new byte[(int)regionSize];
+                            uint scRead = 0;
+                            if (ReadProcessMemoryW(hProcess, regionBase, scBuf, (UIntPtr)regionSize, out scRead) && scRead >= 64)
+                            {
+                                int nonPad = 0;
+                                int sampleCap = Math.Min((int)scRead, 4096);
+                                for (int s = 0; s < sampleCap; s++)
+                                {
+                                    byte b = scBuf[s];
+                                    if (b != 0x00 && b != 0xCC)
+                                    {
+                                        nonPad++;
+                                        if (nonPad >= 16)
+                                            break;
+                                    }
+                                }
+                                if (nonPad >= 16)
+                                {
+                                    string scPath = Path.Combine(ddirs.dumps, "shellcode_" + regionBase.ToString("X") + ".bin");
+                                    if (!File.Exists(scPath))
+                                    {
+                                        try
+                                        {
+                                            using (var fs = new FileStream(scPath, FileMode.Create, FileAccess.Write, FileShare.None))
+                                            {
+                                                fs.Write(scBuf, 0, (int)scRead);
+                                            }
+                                            sessionDumpedFiles.Add(scPath);
+                                            totalShellcodeBytes += scRead;
+                                        }
+                                        catch { }
                                     }
                                 }
                             }

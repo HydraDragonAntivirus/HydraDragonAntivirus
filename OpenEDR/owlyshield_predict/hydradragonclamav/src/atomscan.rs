@@ -27,25 +27,14 @@ fn core_count() -> usize {
     n
 }
 
-static ACTIVE_SCANS: AtomicUsize = AtomicUsize::new(0);
+/// Most threads one sweep uses: the sweep is memory-bandwidth bound, more threads
+/// pile onto the same bus.
+pub(crate) const MAX_SCAN_THREADS: usize = 4;
 
-pub(crate) struct ActiveScan;
-
-impl ActiveScan {
-    pub(crate) fn enter() -> Self {
-        ACTIVE_SCANS.fetch_add(1, Ordering::Relaxed);
-        ActiveScan
-    }
-}
-
-impl Drop for ActiveScan {
-    fn drop(&mut self) {
-        ACTIVE_SCANS.fetch_sub(1, Ordering::Relaxed);
-    }
-}
-
-pub(crate) fn worker_count() -> usize {
-    (core_count() / ACTIVE_SCANS.load(Ordering::Relaxed).max(1)).clamp(1, 4)
+/// Helper threads for one sweep over `len` bytes (none below 256 KB, where spawning
+/// costs more than it saves), from the process-wide budget (`cpu_budget`).
+fn sweep_helpers(len: usize) -> crate::cpu_budget::Helpers {
+    crate::cpu_budget::helpers(if len >= 256 * 1024 { MAX_SCAN_THREADS - 1 } else { 0 })
 }
 
 const LITERAL_HIT_LIMIT: u32 = 256;
@@ -432,6 +421,7 @@ impl AtomScratch {
         pt: &PerTarget,
         exact: bool,
         n_threads: usize,
+        helpers: &crate::cpu_budget::Helpers,
         hay: &[u8],
         file_type_target: u32,
         saturated: &mut [u64],
@@ -464,7 +454,7 @@ impl AtomScratch {
             for (i, (worker, st)) in workers.iter_mut().zip(worker_stats.iter_mut()).enumerate() {
                 let (start, end) = chunk_at(i + 1);
                 let chunk = &hay[start..end];
-                s.spawn(move || {
+                s.spawn(move || helpers.run(|| {
                     worker.prepare(db, pt);
                     let AtomScratch { saturated, value_remaining, counts, verify, touched, .. } = worker;
                     let verify: &mut [bool] = if has_verify { verify } else { &mut [] };
@@ -485,7 +475,7 @@ impl AtomScratch {
                         data_offset + start,
                         touched,
                     );
-                });
+                }));
             }
             let (start, end) = chunk_at(0);
             Self::run_dense_chunk(
@@ -605,13 +595,15 @@ impl AtomScratch {
         // match-candidate prefilter (enabled by default) and skips dead
         // regions internally. An extra outer window would add nothing.
         if pt.exact.is_some() && !data.is_empty() {
-            let n_threads = worker_count();
-            if n_threads > 1 && data.len() >= 256 * 1024 {
+            let helpers = sweep_helpers(data.len());
+            let n_threads = 1 + helpers.count();
+            if n_threads > 1 {
                 Self::run_dense_parallel(
                     db,
                     pt,
                     true,
                     n_threads,
+                    &helpers,
                     data,
                     file_type_target,
                     &mut self.saturated,
@@ -659,13 +651,15 @@ impl AtomScratch {
             for (i, &b) in data.iter().enumerate() {
                 lowered[i] = b.to_ascii_lowercase();
             }
-            let n_threads = worker_count();
-            if n_threads > 1 && data.len() >= 256 * 1024 {
+            let helpers = sweep_helpers(data.len());
+            let n_threads = 1 + helpers.count();
+            if n_threads > 1 {
                 Self::run_dense_parallel(
                     db,
                     pt,
                     false,
                     n_threads,
+                    &helpers,
                     &lowered[..data.len()],
                     file_type_target,
                     &mut self.saturated,
