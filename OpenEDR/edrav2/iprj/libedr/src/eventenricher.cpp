@@ -1307,11 +1307,13 @@ namespace {
 		}
 	}
 
+	static void AsyncRescanAndQuarantine(std::string dos, uint32_t nPid, bool fHighPriority = false);
+
 	namespace DriverPortHips
 	{
 		static std::mutex s_portMutex;
 		static std::atomic<bool> s_loadedFromPtm{false};
-		static std::atomic<int> s_configuredTrustMode{3}; // 1: COMODO_FLS, 2: MICROSOFT_CERT, 3: BOTH
+		static std::atomic<int> s_configuredTrustMode{3}; // 1: COMODO_FLS, 2: VIRUSKOV_CLOUD, 3: BOTH
 		static std::atomic<bool> s_scanUnknownModules{true};
 		static std::atomic<bool> s_enableDotNetLoaderDetection{true};
 		static std::atomic<bool> s_enableDllAttackChain{true};
@@ -1931,72 +1933,51 @@ namespace {
 					//                 self-detection and re-enters the self-scan loop.
 					bool isSystemDll = (modLower.find("c:\\windows\\system32") != std::string::npos ||
 					                    modLower.find("c:\\windows\\syswow64") != std::string::npos ||
-					                    modLower.find("c:\\windows\\winsxs") != std::string::npos);
+					                    modLower.find("c:\\windows\\winsxs") != std::string::npos ||
+					                    modLower.find("c:\\windows\\microsoft.net\\") != std::string::npos);
 					bool isOwnModule = IsPathUnderOwnInstallDir(modLower);
 
 					bool modFlsClean = true;
-					bool modCertTrusted = true;
+					bool modViruskovClean = true;
 
 					bool forceScanAll = s_scanAllModulesIndiscriminately.load(std::memory_order_relaxed);
 					bool shouldDeepScan = forceScanAll || (!isSystemDll && !isOwnModule);
 
-					// 1. ClamAV/YARA/ML scan - only for modules that are not already known-good
-					//    by location. Scanning every system DLL on every process is prohibitive, so
-					//    c:\windows\{system32,syswow64,winsxs} is skipped unless
-					//    scanAllModulesIndiscriminately is turned on (defaults to off).
 					if (shouldDeepScan)
 					{
-						// 1. Check Comodo FLS Trust
 						StageTimer stScan(c_stModScan);
-						int flsVerdict = DetectionNotifier::getCachedFileVerdict(modPath);
-						if (isUnknownVerdict(flsVerdict))
+						DetectionNotifier::CloudScanDetail modDetail;
+						int cachedVerdict = DetectionNotifier::getCachedFileVerdict(modPath, &modDetail);
+						if (isUnknownVerdict(cachedVerdict))
 						{
-							std::string threat;
-							flsVerdict = DetectionNotifier::scanFileWithLocalEngines(modPath, threat);
+							AsyncRescanAndQuarantine(modPath, nPid, true);
+							modFlsClean = false;
+							modViruskovClean = false;
 						}
-						modFlsClean = (flsVerdict == s_cleanVerdict.load(std::memory_order_relaxed));
+						else
+						{
+							const int cleanVal = s_cleanVerdict.load(std::memory_order_relaxed);
+							modFlsClean = (modDetail.sFls == "Safe") || (modDetail.sFls.empty() && cachedVerdict == cleanVal);
+							modViruskovClean = (modDetail.sViruskov == "Clean") || (modDetail.sViruskov.empty() && cachedVerdict == cleanVal);
+						}
 						if (!modFlsClean)
 						{
 							res.hasUnknownDllComodo = true;
 							if (res.firstUnknownDllComodo.empty())
 								res.firstUnknownDllComodo = modPath;
 						}
-
+						if (!modViruskovClean)
+						{
+							res.hasUnknownDllCertificate = true;
+							if (res.firstUnknownDllCert.empty())
+								res.firstUnknownDllCert = modPath;
+						}
 					}
 
-					// 2. Authenticode certificate trust - ALWAYS, including for modules under
-					//    c:\windows\{system32,syswow64,winsxs}.
-					//
-					//    This used to sit inside the shouldDeepScan block above, so a DLL
-					//    dropped into system32 was never signature-checked at all: both
-					//    modFlsClean and modCertTrusted kept their `true` initialisers and
-					//    the module was reported as "Trusted" purely because of where it
-					//    lived. Being in the Windows tree is not a trust signal - anything
-					//    able to write there can plant an unsigned DLL.
-					//
-					//    The check is delegated to openedr_static, which is the single
-					//    authority for trust (Authenticode + signer_rules/ vendor lists).
-					//    The former local WinVerifyTrust helper is gone: it accepted
-					//    CERT_E_EXPIRED, ran with WTD_REVOKE_NONE (so a revoked
-					//    certificate passed), and classified the signer by
-					//    case-insensitive substring - a certificate whose subject merely
-					//    contained "microsoft", "comodo" or "hydradragon" was trusted.
-					//
-					//    Deliberately outside the shouldDeepScan block: SignDataProvider's
-					//    check is cached and cheap, and it is the only verification that
-					//    runs for modules the deep scan skips.
-					{
-						StageTimer stCert(c_stModCert);
-						modCertTrusted = DetectionNotifier::isFileSignatureTrusted(modPath);
-					}
-					if (!modCertTrusted)
-					{
-						res.hasUnknownDllCertificate = true;
-						if (res.firstUnknownDllCert.empty())
-							res.firstUnknownDllCert = modPath;
-					}
-
-					bool isModTrusted = (modFlsClean && modCertTrusted);
+					int trustMode = s_configuredTrustMode.load(std::memory_order_relaxed);
+					bool isModTrusted = (trustMode == 1) ? modFlsClean
+					                  : (trustMode == 2) ? modViruskovClean
+					                  : (modFlsClean && modViruskovClean);
 					std::string startFunc = modIsNet ? "_CorDllMain" : "DllMain";
 
 					if (moduleEntries.size() < 12)
@@ -2125,8 +2106,8 @@ namespace {
 
 		// Checks whether process is trusted based on configurable mode:
 		// Mode 1: Comodo FLS Only
-		// Mode 2: Microsoft / Certificate List Only (Comodosuz)
-		// Mode 3: Both (Must pass Comodo FLS AND Microsoft Certificate verification)
+		// Mode 2: VirusKov Cloud Only
+		// Mode 3: Both (Must pass Comodo FLS AND VirusKov Cloud verification)
 		static bool IsProcessTrustedConfigurable(
 			const Variant& vProcess,
 			const std::string& sProcPath,
@@ -2142,16 +2123,13 @@ namespace {
 				return false;
 			}
 
-			// Check Process Executable Comodo FLS Clean
-			bool isProcFlsClean = (vProcess.has("verdict") && static_cast<int64_t>(vProcess["verdict"]) == 1) ||
-			                      (vProcess.has("flsVerdict") && static_cast<int64_t>(vProcess["flsVerdict"]) == 1) ||
-			                      (DetectionNotifier::getCachedFileVerdict(sProcPath) == 1);
-
-			// Check Process Executable Certificate Offline
-			// Single authority: SignDataProvider (Authenticode, via fileDataProvider).
-			// The vendor name is kept because it is reported in the rejection reason below.
-			std::string procVendor;
-			bool isProcCertTrusted = DetectionNotifier::isFileSignatureTrusted(sProcPath, &procVendor);
+			DetectionNotifier::CloudScanDetail procDetail;
+			int procCached = DetectionNotifier::getCachedFileVerdict(sProcPath, &procDetail);
+			const int cleanVal = s_cleanVerdict.load(std::memory_order_relaxed);
+			bool isProcFlsClean = (procDetail.sFls == "Safe") ||
+			                      (vProcess.has("flsVerdict") && static_cast<int64_t>(vProcess["flsVerdict"]) == cleanVal);
+			bool isProcViruskovClean = (procDetail.sViruskov == "Clean") ||
+			                           (procDetail.sFls.empty() && procCached == cleanVal);
 
 			EnsurePtmLoaded();
 			int mode = s_configuredTrustMode.load(std::memory_order_relaxed);
@@ -2172,31 +2150,31 @@ namespace {
 				return true;
 			}
 
-			// Mode 2: Microsoft / Certificate List Only (Comodosuz)
+			// Mode 2: VirusKov Cloud Only
 			if (mode == 2)
 			{
-				if (!isProcCertTrusted)
+				if (!isProcViruskovClean)
 				{
-					outUntrustedReason = "Process is not verified in Microsoft/Trusted certificate list (vendor: " + procVendor + ")";
+					outUntrustedReason = "Process is not Clean according to VirusKov Cloud";
 					return false;
 				}
 				if (modRes.hasUnknownDllCertificate)
 				{
-					outUntrustedReason = "Process contains unverified DLL according to Microsoft Certificate list: " + modRes.firstUnknownDllCert;
+					outUntrustedReason = "Process contains unknown DLL according to VirusKov Cloud: " + modRes.firstUnknownDllCert;
 					return false;
 				}
 				return true;
 			}
 
-			// Mode 3: BOTH (Must pass both Comodo FLS AND Microsoft Certificate verification)
+			// Mode 3: BOTH (Must pass both Comodo FLS AND VirusKov Cloud verification)
 			if (!isProcFlsClean)
 			{
 				outUntrustedReason = "Process is not Clean according to Comodo FLS";
 				return false;
 			}
-			if (!isProcCertTrusted)
+			if (!isProcViruskovClean)
 			{
-				outUntrustedReason = "Process is not verified in Microsoft/Trusted certificate list (vendor: " + procVendor + ")";
+				outUntrustedReason = "Process is not Clean according to VirusKov Cloud";
 				return false;
 			}
 			if (modRes.hasUnknownDllComodo)
@@ -2206,7 +2184,7 @@ namespace {
 			}
 			if (modRes.hasUnknownDllCertificate)
 			{
-				outUntrustedReason = "Process contains unverified DLL according to Microsoft Certificate list: " + modRes.firstUnknownDllCert;
+				outUntrustedReason = "Process contains unknown DLL according to VirusKov Cloud: " + modRes.firstUnknownDllCert;
 				return false;
 			}
 
@@ -4272,12 +4250,16 @@ static bool rescanOne(const std::string& dos, uint32_t nPid)
 	}
 	// Suspicious (3) goes on like Malicious, as on the sync path.
 	else if (nScan != 2 && nScan != 3)
+	{
+		if (DriverPortHips::s_configuredTrustMode.load(std::memory_order_relaxed) != 1 && detail.sViruskov == "Deferred")
+			return false;
 		// Decided when Clean, or when VirusKov answered "unknown" (it looked and
 		// cannot tell; asking again gets the same answer). Only a scan that got
 		// no answer (deferred: connection error, timeout, locked file) is tried
 		// again - every "unknown" used to be re-asked 8 times over 19 minutes,
 		// each time rehashing the file and queueing on the one cloud lock.
 		return nScan == nClean || detail.sViruskov == "Unknown";
+	}
 	if (sThreat.empty())
 		sThreat = "Malware.LocalDetection";
 
@@ -4481,7 +4463,7 @@ static void worker()
 	}
 }
 
-static void enqueue(std::string dos, uint32_t nPid)
+static void enqueue(std::string dos, uint32_t nPid, bool fHighPriority = false)
 {
 	if (dos.empty())
 		return;
@@ -4499,12 +4481,36 @@ static void enqueue(std::string dos, uint32_t nPid)
 			std::thread(retryPump).detach();
 		}
 		if (!st.pending.insert(key).second)
+		{
+			if (fHighPriority)
+			{
+				for (auto it = st.queue.begin(); it != st.queue.end(); ++it)
+				{
+					if (it->sKey == key)
+					{
+						if (it != st.queue.begin())
+						{
+							Item promoted = std::move(*it);
+							st.queue.erase(it);
+							promoted.due = std::chrono::steady_clock::now();
+							st.queue.push_front(std::move(promoted));
+							st.cv.notify_one();
+						}
+						break;
+					}
+				}
+			}
 			return; // already waiting; it is scanned with its latest content
+		}
 		const auto now = std::chrono::steady_clock::now();
 		// No wait before the scan: a file still being written raises
 		// FileDataChange / WriteFull again at its handle cleanup and is
 		// queued again with its final content.
-		st.queue.push_back(Item{ std::move(key), std::move(dos), nPid, now });
+		Item item{ std::move(key), std::move(dos), nPid, now };
+		if (fHighPriority)
+			st.queue.push_front(std::move(item));
+		else
+			st.queue.push_back(std::move(item));
 		nPending = st.queue.size();
 		if (nPending >= c_nWarnPending && now - st.lastWarn > std::chrono::seconds(60))
 		{
@@ -4545,9 +4551,9 @@ static void enqueueWatch(std::string dos, uint32_t nPid)
 
 } // namespace RescanQueue
 
-static void AsyncRescanAndQuarantine(std::string dos, uint32_t nPid)
+static void AsyncRescanAndQuarantine(std::string dos, uint32_t nPid, bool fHighPriority)
 {
-	RescanQueue::enqueue(std::move(dos), nPid);
+	RescanQueue::enqueue(std::move(dos), nPid, fHighPriority);
 }
 
 static void SendThreatAlertToGui(const std::string& sThreat, const std::string& sWhere)
@@ -5292,11 +5298,18 @@ void EventEnricher::executeUnfilteredLocalScan(Variant& vEvent, Variant& vProces
 			const bool isOsMetaFile =
 				endsWith("\\desktop.ini") || endsWith("\\appxblockmap.xml") ||
 				endsWith(".dat.log1") || endsWith(".dat.log2");
-			if (isPerfDat || isOsMetaFile ||
+			const bool isOsCachePath =
+				lowerDos.find("\\cryptneturlcache\\") != std::string::npos ||
+				lowerDos.find("\\ebwebview\\") != std::string::npos ||
+				lowerDos.find("\\crashpad\\") != std::string::npos;
+			if (isPerfDat || isOsMetaFile || isOsCachePath ||
 				endsWith(".evtx") || endsWith(".pnf") || endsWith(".nls") ||
 				endsWith(".inf_loc") || endsWith(".ebd") || endsWith(".jfm") ||
 				endsWith(".chk") || endsWith(".blf") || endsWith(".regtrans-ms") ||
 				endsWith(".lex") ||
+				endsWith(".mui") || endsWith(".clb") || endsWith(".etl") ||
+				endsWith("\\edb.log") || endsWith("\\edb00001.log") ||
+				endsWith("\\edb00002.log") || endsWith("\\edbtmp.log") ||
 				endsWith(".db") || endsWith(".db-wal") || endsWith(".db-shm") ||
 				endsWith(".srd") || endsWith(".srd-wal") || endsWith(".srd-shm") ||
 				endsWith(".pri") || endsWith(".pckgdep") ||
@@ -5342,7 +5355,7 @@ void EventEnricher::executeUnfilteredLocalScan(Variant& vEvent, Variant& vProces
 			// Hand it to the rescan worker (deduped, off the hot path, waits for
 			// the writer to finish) to quarantine it again.
 			if (::GetFileAttributesW(Widen(dos).c_str()) != INVALID_FILE_ATTRIBUTES)
-				AsyncRescanAndQuarantine(dos, nPid);
+				AsyncRescanAndQuarantine(dos, nPid, true);
 			continue;
 		}
 
@@ -5365,6 +5378,19 @@ void EventEnricher::executeUnfilteredLocalScan(Variant& vEvent, Variant& vProces
 			eEventType == Event::LLE_FILE_DATA_READ_FULL ||
 			eEventType == Event::LLE_FILE_MAP_READ || eEventType == Event::LLE_FILE_MAP_WRITE))
 			continue;
+
+		// Passive reads of Windows system paths (wmiprvse/svchost reading
+		// System32/SysWOW64/WinSxS/.NET at startup) must not flood AsyncRescan.
+		if (!isProc && (eEventType == Event::LLE_FILE_MAP_READ || eEventType == Event::LLE_FILE_DATA_READ_FULL))
+		{
+			const bool isWinSysPath =
+				lowerDos.find("c:\\windows\\system32\\") != std::string::npos ||
+				lowerDos.find("c:\\windows\\syswow64\\") != std::string::npos ||
+				lowerDos.find("c:\\windows\\winsxs\\") != std::string::npos ||
+				lowerDos.find("c:\\windows\\microsoft.net\\") != std::string::npos;
+			if (isWinSysPath)
+				continue;
+		}
 
 		// A. Synchronous scan (ClamAV, YARA-X, ML, Signer, EICAR)
 		// Everything except the mid-write file events, opens, and full reads is scanned
@@ -5415,7 +5441,11 @@ void EventEnricher::executeUnfilteredLocalScan(Variant& vEvent, Variant& vProces
 			if (eEventType == Event::LLE_FILE_MAP_WRITE)
 				RescanQueue::enqueueWatch(dos, nPid); // content arrives later
 			else if (ec || nSize > 0)
-				AsyncRescanAndQuarantine(dos, nPid);
+			{
+				const bool bHighPriority = isProc ||
+					(eEventType != Event::LLE_FILE_MAP_READ && eEventType != Event::LLE_FILE_DATA_READ_FULL);
+				AsyncRescanAndQuarantine(dos, nPid, bHighPriority);
+			}
 		}
 
 		// Suspicious is acted on like Malicious: stop, quarantine, roll back.
@@ -6265,21 +6295,18 @@ void EventEnricher::put(const Variant& vEventRef)
 	if (vProcess.has("pid")) nActorPid = static_cast<uint32_t>(vProcess["pid"]);
 	else if (vProcess.has("id")) nActorPid = static_cast<uint32_t>(vProcess["id"]);
 
-	// Dual Trust & Unknown DLL Evaluation (Comodo FLS vs Microsoft/Authenticode Certificate):
+	// Dual Trust & Unknown DLL Evaluation (Comodo FLS vs VirusKov Cloud):
 	auto tStc_stModules = std::chrono::steady_clock::now();
 	auto modRes = DriverPortHips::InspectProcessModulesCached(nActorPid, sProcPath);
 	lagScope.mark(c_stModules, tStc_stModules);
 	int cleanCode = DriverPortHips::s_cleanVerdict.load(std::memory_order_relaxed);
-	bool isProcFlsClean = (vProcess.has("verdict") && static_cast<int64_t>(vProcess["verdict"]) == cleanCode) ||
-	                      (vProcess.has("flsVerdict") && static_cast<int64_t>(vProcess["flsVerdict"]) == cleanCode) ||
-	                      (DetectionNotifier::getCachedFileVerdict(sProcPath) == cleanCode);
-	// SignDataProvider is the single authority for certificate trust. The previous
-	// local WinVerifyTrust call accepted CERT_E_EXPIRED, ran with WTD_REVOKE_NONE
-	// (so a revoked certificate passed) and classified the signer by case-insensitive
-	// substring ("microsoft", "comodo", "hydradragon") - a certificate whose subject
-	// merely contained one of those words was treated as trusted.
 	auto tStc_stProcCert = std::chrono::steady_clock::now();
-	bool isProcCertTrusted = DetectionNotifier::isFileSignatureTrusted(sProcPath);
+	DetectionNotifier::CloudScanDetail procDetail;
+	int procCached = DetectionNotifier::getCachedFileVerdict(sProcPath, &procDetail);
+	bool isProcFlsClean = (procDetail.sFls == "Safe") ||
+	                      (vProcess.has("flsVerdict") && static_cast<int64_t>(vProcess["flsVerdict"]) == cleanCode);
+	bool isProcViruskovClean = (procDetail.sViruskov == "Clean") ||
+	                           (procDetail.sFls.empty() && procCached == cleanCode);
 	lagScope.mark(c_stProcCert, tStc_stProcCert);
 
 	vProcess.put("hasUnknownDllComodo", modRes.hasUnknownDllComodo);
@@ -6288,7 +6315,8 @@ void EventEnricher::put(const Variant& vEventRef)
 	std::string primaryUnknownDll = !modRes.firstUnknownDllComodo.empty() ? modRes.firstUnknownDllComodo : modRes.firstUnknownDllCert;
 	vProcess.put("unknownDllPath", primaryUnknownDll);
 	vProcess.put("isTrustedAccordingToFls", isProcFlsClean && !modRes.hasUnknownDllComodo);
-	vProcess.put("isTrustedAccordingToCertificate", isProcCertTrusted && !modRes.hasUnknownDllCertificate);
+	vProcess.put("isTrustedAccordingToViruskov", isProcViruskovClean && !modRes.hasUnknownDllCertificate);
+	vProcess.put("isTrustedAccordingToCertificate", isProcViruskovClean && !modRes.hasUnknownDllCertificate);
 
 	vProcess.put("isDotNet", modRes.isDotNet);
 	vProcess.put("isDotNetLoader", modRes.isDotNetLoader);
@@ -6582,7 +6610,7 @@ void EventEnricher::put(const Variant& vEventRef)
 					std::string askMsg = "HIPS_ASK:" + reqId + "|" + std::to_string(nActorPid) + "|" +
 						appName + "|" + sProcPath + "|" + targetDesc + "|" +
 						(isKnownVulnerable ? "malicious" : "suspicious") + "|" +
-						(isProcCertTrusted ? "valid" : "unsigned") + "|" +
+						(isProcViruskovClean ? "valid" : "unsigned") + "|" +
 						threatReason + "|" +
 						modRes.dllAttackChain + "\n";
 					DWORD written = 0;

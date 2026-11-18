@@ -1964,7 +1964,8 @@ static bool getFileIdentityUtf8(const std::string& sUtf8Path, uint64_t& nSizeOut
 	return true;
 }
 
-static int getCachedFileVerdictWithName(const std::string& sUtf8Path, std::string& sNameOut)
+static int getCachedFileVerdictWithName(const std::string& sUtf8Path, std::string& sNameOut,
+	DetectionNotifier::CloudScanDetail* pDetailOut = nullptr)
 {
 	sNameOut.clear();
 	if (sUtf8Path.empty()) return 0;
@@ -1984,15 +1985,20 @@ static int getCachedFileVerdictWithName(const std::string& sUtf8Path, std::strin
 		if (it->second.unknownUntil != std::chrono::steady_clock::time_point{})
 			return 0;
 		sNameOut = it->second.threatName;
+		if (pDetailOut)
+		{
+			*pDetailOut = it->second.detail;
+			pDetailOut->fFromCache = true;
+		}
 		return it->second.verdict;
 	}
 	return 0;
 }
 
-int DetectionNotifier::getCachedFileVerdict(const std::string& sUtf8Path)
+int DetectionNotifier::getCachedFileVerdict(const std::string& sUtf8Path, CloudScanDetail* pDetailOut)
 {
 	std::string sUnused;
-	return getCachedFileVerdictWithName(sUtf8Path, sUnused);
+	return getCachedFileVerdictWithName(sUtf8Path, sUnused, pDetailOut);
 }
 
 //
@@ -2141,6 +2147,7 @@ static const char* ViruskovVerdictName(int nVerdict)
 {
 	switch (nVerdict)
 	{
+	case 0: return "Deferred";
 	case 1: return "Clean";
 	case 2: return "Malicious";
 	case 3: return "Suspicious";
@@ -2235,21 +2242,36 @@ int DetectionNotifier::scanFileWithLocalEngines(const std::string& sUtf8Path, st
 			catch (...) {}
 		}
 
-		// 2. If Cloud was unknown / unrated, fall back to local openedr_static
-		if (verdict == 0 || isUnknownVerdict(verdict))
+		// 2. Also query VirusKov Cloud unless FLS already convicted as Malware,
+		//    so VIRUSKOV_CLOUD (mode 2) and BOTH (mode 3) always have VirusKov status.
+		if (verdict != malCode)
 		{
 			const auto tStat0 = std::chrono::steady_clock::now();
-			verdict = staticScanVerdictName(sUtf8Path, sThreatNameOut);
+			std::string sVkThreat;
+			const int vVk = staticScanVerdictName(sUtf8Path, sVkThreat);
 			detail.nStaticUs += static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::microseconds>(
 				std::chrono::steady_clock::now() - tStat0).count());
-			detail.sViruskov = ViruskovVerdictName(verdict);
-			if (verdict == 2 || verdict == 3)
-				detail.sViruskovName = sThreatNameOut;
+			detail.sViruskov = ViruskovVerdictName(vVk);
+			if (vVk == 2 || vVk == 3)
+			{
+				verdict = vVk;
+				sThreatNameOut = sVkThreat;
+				detail.sViruskovName = sVkThreat;
+			}
+			else if (vVk == cleanCode && verdict == 0)
+			{
+				verdict = cleanCode;
+				sThreatNameOut = sVkThreat.empty() ? "Static.Clean" : sVkThreat;
+			}
+			else if (verdict == 0)
+			{
+				verdict = vVk;
+			}
 		}
 	}
 	else
 	{
-		// Local openedr_static scan first
+		// Local openedr_static / VirusKov Cloud scan first
 		const auto tStat0 = std::chrono::steady_clock::now();
 		verdict = staticScanVerdictName(sUtf8Path, sThreatNameOut);
 		detail.nStaticUs += static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::microseconds>(
@@ -2258,8 +2280,8 @@ int DetectionNotifier::scanFileWithLocalEngines(const std::string& sUtf8Path, st
 		if (verdict == 2 || verdict == 3)
 			detail.sViruskovName = sThreatNameOut;
 
-		// If local engine returned unknown verdict, consult Cloud FLS
-		if (isUnknownVerdict(verdict))
+		// Also consult Comodo Cloud FLS unless VirusKov already convicted Malware/Suspicious
+		if (verdict != 2 && verdict != 3)
 		{
 			const auto tHash0 = std::chrono::steady_clock::now();
 			std::string sHash = sha1HexOfFileUtf8(sUtf8Path);
@@ -2279,15 +2301,15 @@ int DetectionNotifier::scanFileWithLocalEngines(const std::string& sUtf8Path, st
 							std::chrono::steady_clock::now() - tFls0).count());
 						int nCv = static_cast<int>(cv);
 						detail.sFls = FlsVerdictName(nCv);
-						if (nCv == cleanCode)
-						{
-							verdict = cleanCode;
-							sThreatNameOut = "Cloud.FLS.Clean";
-						}
-						else if (nCv == malCode)
+						if (nCv == malCode)
 						{
 							verdict = malCode;
 							sThreatNameOut = "Cloud.FLS.Malware";
+						}
+						else if (nCv == cleanCode && (verdict == 0 || isUnknownVerdict(verdict)))
+						{
+							verdict = cleanCode;
+							sThreatNameOut = "Cloud.FLS.Clean";
 						}
 					}
 				}
@@ -2324,7 +2346,9 @@ int DetectionNotifier::scanFileWithLocalEngines(const std::string& sUtf8Path, st
 		const int nFlsTtl = (detail.sFls == "Absent" || detail.sFls == "Unknown")
 			? s_flsAnswerCacheSeconds.load(std::memory_order_relaxed)
 			: 0;
-		const int nTtl = (nViruskovTtl > 0) ? nViruskovTtl : nFlsTtl;
+		const int nTtl = (detail.sViruskov == "Deferred" || detail.sViruskov == "Error")
+			? 0
+			: ((nViruskovTtl > 0) ? nViruskovTtl : nFlsTtl);
 		if (hasIdentity && nTtl > 0)
 		{
 			std::lock_guard<std::mutex> lock(s_mtxVerdictCache);
@@ -2341,7 +2365,7 @@ int DetectionNotifier::scanFileWithLocalEngines(const std::string& sUtf8Path, st
 		return nUnknown;
 	}
 
-	if (hasIdentity && verdict > 0)
+	if (hasIdentity && verdict > 0 && detail.sViruskov != "Deferred" && detail.sViruskov != "Error")
 	{
 		std::lock_guard<std::mutex> lock(s_mtxVerdictCache);
 		if (s_verdictCache.size() >= kMaxVerdictCacheSize)
@@ -2412,7 +2436,7 @@ Variant DetectionNotifier::execute(Variant vCommand, Variant vParams){
 				vEvent.put("verdict", int64_t(2));
 				vEvent.put("flsVerdict", int64_t(2));
 				vEvent.put("registryRevert", true);
-				vEvent.put("should_trust_company_whitelist", true);
+				vEvent.put("should_trust_viruskov_cloud", true);
 				vEvent.put("should_trust_comodo_fls_cloud", true);
 			}
 		}
@@ -2740,14 +2764,22 @@ Variant DetectionNotifier::execute(Variant vCommand, Variant vParams){
 				}
 			}
 
-			// Check trust flags: should_trust_company_whitelist & should_trust_comodo_fls_cloud
-			bool bShouldTrustCompanyWhitelist = true;
-			if (auto optTrustCompany = variant::getByPathSafe(vEvent, "should_trust_company_whitelist"))
+			// Check trust flags: should_trust_viruskov_cloud & should_trust_comodo_fls_cloud
+			bool bShouldTrustViruskovCloud = true;
+			if (auto optTrustVk = variant::getByPathSafe(vEvent, "should_trust_viruskov_cloud"))
+			{
+				try {
+					auto vTrust = optTrustVk.value();
+					if (vTrust.getType() == variant::ValueType::Boolean)
+						bShouldTrustViruskovCloud = static_cast<bool>(vTrust);
+				} catch (...) {}
+			}
+			else if (auto optTrustCompany = variant::getByPathSafe(vEvent, "should_trust_company_whitelist"))
 			{
 				try {
 					auto vTrust = optTrustCompany.value();
 					if (vTrust.getType() == variant::ValueType::Boolean)
-						bShouldTrustCompanyWhitelist = static_cast<bool>(vTrust);
+						bShouldTrustViruskovCloud = static_cast<bool>(vTrust);
 				} catch (...) {}
 			}
 
@@ -2763,64 +2795,46 @@ Variant DetectionNotifier::execute(Variant vCommand, Variant vParams){
 
 			if (!sPath.empty())
 			{
-				bool bIsTrustedByCompanyWhitelist = false;
+				bool bIsTrustedByViruskovCloud = false;
 				bool bIsMaliciousVendor = false;
 
-				HMODULE hOwly = ::GetModuleHandleW(L"owlyshield_ransom.dll");
-				if (!hOwly) hOwly = ::LoadLibraryW(L"owlyshield_ransom.dll");
-				if (hOwly)
+				std::string sDosCheck = NtPathToDosPathString(sPath);
+				const std::string& sPathForSig = sDosCheck.empty() ? sPath : sDosCheck;
+
+				CloudScanDetail sigDetail;
+				int nSigScan = getCachedFileVerdict(sPathForSig, &sigDetail);
+				if (nSigScan == 0)
 				{
-					std::string sDosCheck = NtPathToDosPathString(sPath);
-					const std::string& sPathForSig = sDosCheck.empty() ? sPath : sDosCheck;
-					std::wstring wsPath;
-					int nWideLen = ::MultiByteToWideChar(CP_UTF8, 0, sPathForSig.c_str(), static_cast<int>(sPathForSig.length()), nullptr, 0);
-					if (nWideLen > 0)
-					{
-						wsPath.resize(nWideLen);
-						::MultiByteToWideChar(CP_UTF8, 0, sPathForSig.c_str(), static_cast<int>(sPathForSig.length()), &wsPath[0], nWideLen);
-					}
-					else
-					{
-						wsPath.assign(sPathForSig.begin(), sPathForSig.end());
-					}
-
-					// 1. Check if the signer belongs to known malicious or PUA or Malware vendors
-					typedef int32_t (*IsMaliciousSignerFn)(const wchar_t*, uint32_t);
-					auto fnCheckMalicious = (IsMaliciousSignerFn)::GetProcAddress(hOwly, "owlyshield_is_malicious_company_signer");
-					if (fnCheckMalicious && fnCheckMalicious(wsPath.c_str(), static_cast<uint32_t>(wsPath.length())) == 1)
-					{
-						bIsMaliciousVendor = true;
-						nVerdict = 2; // Strict malware verdict
-						LOGLVL(Critical, FMT("detnotif: MALICIOUS/PUA VENDOR SIGNATURE DETECTED for <" << sPath << ">. Strict enforcement active."));
-					}
-
-					// 2. Check if the signer is in trusted company whitelist (only if not malicious and rule permits)
-					if (bShouldTrustCompanyWhitelist && !bIsMaliciousVendor)
-					{
-						typedef int32_t (*IsTrustedSignerFn)(const wchar_t*, uint32_t);
-						auto fnCheckTrusted = (IsTrustedSignerFn)::GetProcAddress(hOwly, "owlyshield_is_trusted_company_signer");
-						if (fnCheckTrusted && fnCheckTrusted(wsPath.c_str(), static_cast<uint32_t>(wsPath.length())) == 1)
-						{
-							bIsTrustedByCompanyWhitelist = true;
-						}
-					}
+					std::string sThreatTmp;
+					nSigScan = scanFileWithLocalEngines(sPathForSig, sThreatTmp, &sigDetail);
 				}
 
-				bool bIsTrustedByFlsCloud = (bShouldTrustFlsCloud && nVerdict == 1 && !bIsMaliciousVendor);
+				if (sigDetail.sViruskov == "Malicious" || sigDetail.sViruskov == "Suspicious" || nSigScan == 2 || nSigScan == 3)
+				{
+					bIsMaliciousVendor = true;
+					nVerdict = 2; // Strict malware verdict
+					LOGLVL(Critical, FMT("detnotif: VIRUSKOV CLOUD MALICIOUS/SUSPICIOUS VERDICT DETECTED for <" << sPath << ">. Strict enforcement active."));
+				}
+				else if (bShouldTrustViruskovCloud && sigDetail.sViruskov == "Clean")
+				{
+					bIsTrustedByViruskovCloud = true;
+				}
 
-				if (bIsTrustedByCompanyWhitelist || bIsTrustedByFlsCloud)
+				bool bIsTrustedByFlsCloud = (bShouldTrustFlsCloud && (nVerdict == 1 || sigDetail.sFls == "Safe") && !bIsMaliciousVendor);
+
+				if (bIsTrustedByViruskovCloud || bIsTrustedByFlsCloud)
 				{
 					// Do not kill or quarantine the SAFE process! Look for an untrusted ancestor process instead.
 					if (!sRootMalwarePath.empty())
 					{
-						LOGLVL(Critical, FMT("detnotif: Trust check ACTIVE (CompanyWhitelist=" << bIsTrustedByCompanyWhitelist << ", FlsCloud=" << bIsTrustedByFlsCloud << "). Bypassing SAFE target <" 
+						LOGLVL(Critical, FMT("detnotif: Trust check ACTIVE (ViruskovCloud=" << bIsTrustedByViruskovCloud << ", FlsCloud=" << bIsTrustedByFlsCloud << "). Bypassing SAFE target <" 
 							<< sPath << "> and redirecting quarantine to untrusted ancestor <" << sRootMalwarePath << ">"));
 						sPath = sRootMalwarePath;
 						nVerdict = nRootMalwareVerdict;
 					}
 					else
 					{
-						LOGLVL(Critical, FMT("detnotif: Trust check ACTIVE (CompanyWhitelist=" << bIsTrustedByCompanyWhitelist << ", FlsCloud=" << bIsTrustedByFlsCloud << "). Suppressing quarantine/kill for SAFE process <" << sPath << ">"));
+						LOGLVL(Critical, FMT("detnotif: Trust check ACTIVE (ViruskovCloud=" << bIsTrustedByViruskovCloud << ", FlsCloud=" << bIsTrustedByFlsCloud << "). Suppressing quarantine/kill for SAFE process <" << sPath << ">"));
 						sPath.clear();
 						nGid = 0;
 					}

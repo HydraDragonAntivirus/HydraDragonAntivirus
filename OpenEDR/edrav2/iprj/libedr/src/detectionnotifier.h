@@ -122,7 +122,7 @@ public:
 	///
 	/// Fast query of the dynamic verdict cache (1=Clean, 2=Malicious, 3=Suspicious, 0=Unknown/Uncached).
 	///
-	static int getCachedFileVerdict(const std::string& sUtf8Path);
+	static int getCachedFileVerdict(const std::string& sUtf8Path, CloudScanDetail* pDetailOut = nullptr);
 
 	///
 	/// True while protection actions are paused (HKLM\SOFTWARE\Owlyshield!PROTECTION_PAUSED).

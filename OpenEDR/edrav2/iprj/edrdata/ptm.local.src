@@ -45,7 +45,7 @@
 		],
 		"trustMode": {
 			"COMODO_FLS": 1,
-			"MICROSOFT_CERT": 2,
+			"VIRUSKOV_CLOUD": 2,
 			"BOTH": 3
 		},
 		"configuredTrustMode": 3,
@@ -4432,7 +4432,7 @@
 							{ "name": "time", "value": "@event.time" },
 							{ "name": "tickTime", "value": "@event.tickTime" },
 							{ "name": "quarantineTarget", "value": "@event.childProcess.imagePath" },
-							{ "name": "should_trust_company_whitelist", "value": false },
+							{ "name": "should_trust_viruskov_cloud", "value": false },
 							{ "name": "should_trust_comodo_fls_cloud", "value": false }
 						]
 					}
@@ -4499,7 +4499,7 @@
 								"value": "@event.tickTime"
 							},
 							{ "name": "quarantineTarget", "value": "@event.process.imageFile.abstractPath" },
-							{ "name": "should_trust_company_whitelist", "value": false },
+							{ "name": "should_trust_viruskov_cloud", "value": false },
 							{ "name": "should_trust_comodo_fls_cloud", "value": false }
 						]
 					}
@@ -4687,7 +4687,7 @@
 							{ "name": "time", "value": "@event.time" },
 							{ "name": "tickTime", "value": "@event.tickTime" },
 							{ "name": "quarantineTarget", "value": "@event.process.imageFile.abstractPath" },
-							{ "name": "should_trust_company_whitelist", "value": false },
+							{ "name": "should_trust_viruskov_cloud", "value": false },
 							{ "name": "should_trust_comodo_fls_cloud", "value": false }
 						]
 					}
@@ -4717,7 +4717,7 @@
 							{ "name": "time", "value": "@event.time" },
 							{ "name": "tickTime", "value": "@event.tickTime" },
 							{ "name": "quarantineTarget", "value": "@event.process.imageFile.rawPath" },
-							{ "name": "should_trust_company_whitelist", "value": false },
+							{ "name": "should_trust_viruskov_cloud", "value": false },
 							{ "name": "should_trust_comodo_fls_cloud", "value": false }
 						]
 					}
@@ -4770,7 +4770,7 @@
 							{ "name": "time", "value": "@event.time" },
 							{ "name": "tickTime", "value": "@event.tickTime" },
 							{ "name": "quarantineTarget", "value": "@event.childProcess.imageFile.abstractPath" },
-							{ "name": "should_trust_company_whitelist", "value": false },
+							{ "name": "should_trust_viruskov_cloud", "value": false },
 							{ "name": "should_trust_comodo_fls_cloud", "value": false }
 						]
 					}
@@ -4805,7 +4805,7 @@
 							{ "name": "time", "value": "@event.time" },
 							{ "name": "tickTime", "value": "@event.tickTime" },
 							{ "name": "quarantineTarget", "value": "@event.childProcess.imageFile.rawPath" },
-							{ "name": "should_trust_company_whitelist", "value": false },
+							{ "name": "should_trust_viruskov_cloud", "value": false },
 							{ "name": "should_trust_comodo_fls_cloud", "value": false }
 						]
 					}
@@ -5376,7 +5376,7 @@
 							{ "name": "time", "value": "@event.time" },
 							{ "name": "tickTime", "value": "@event.tickTime" },
 							{ "name": "quarantineTarget", "value": "@event.process.imageFile.rawPath" },
-							{ "name": "should_trust_company_whitelist", "value": true },
+							{ "name": "should_trust_viruskov_cloud", "value": true },
 							{ "name": "should_trust_comodo_fls_cloud", "value": true }
 						]
 					}
@@ -5430,7 +5430,7 @@
 							{ "name": "time", "value": "@event.time" },
 							{ "name": "tickTime", "value": "@event.tickTime" },
 							{ "name": "quarantineTarget", "value": "@event.file.abstractPath" },
-							{ "name": "should_trust_company_whitelist", "value": false },
+							{ "name": "should_trust_viruskov_cloud", "value": false },
 							{ "name": "should_trust_comodo_fls_cloud", "value": false }
 						]
 					}
@@ -5467,7 +5467,7 @@
 							{ "name": "time", "value": "@event.time" },
 							{ "name": "tickTime", "value": "@event.tickTime" },
 							{ "name": "quarantineTarget", "value": "@event.file.rawPath" },
-							{ "name": "should_trust_company_whitelist", "value": false },
+							{ "name": "should_trust_viruskov_cloud", "value": false },
 							{ "name": "should_trust_comodo_fls_cloud", "value": false }
 						]
 					}
@@ -5504,7 +5504,7 @@
 							{ "name": "time", "value": "@event.time" },
 							{ "name": "tickTime", "value": "@event.tickTime" },
 							{ "name": "quarantineTarget", "value": "@event.process.imageFile.abstractPath" },
-							{ "name": "should_trust_company_whitelist", "value": false },
+							{ "name": "should_trust_viruskov_cloud", "value": false },
 							{ "name": "should_trust_comodo_fls_cloud", "value": false }
 						]
 					}
@@ -5541,7 +5541,7 @@
 							{ "name": "time", "value": "@event.time" },
 							{ "name": "tickTime", "value": "@event.tickTime" },
 							{ "name": "quarantineTarget", "value": "@event.process.imageFile.rawPath" },
-							{ "name": "should_trust_company_whitelist", "value": false },
+							{ "name": "should_trust_viruskov_cloud", "value": false },
 							{ "name": "should_trust_comodo_fls_cloud", "value": false }
 						]
 					}
@@ -5593,7 +5593,7 @@
 							{ "name": "time", "value": "@event.time" },
 							{ "name": "tickTime", "value": "@event.tickTime" },
 							{ "name": "quarantineTarget", "value": "@event.file.abstractPath" },
-							{ "name": "should_trust_company_whitelist", "value": false },
+							{ "name": "should_trust_viruskov_cloud", "value": false },
 							{ "name": "should_trust_comodo_fls_cloud", "value": false }
 						]
 					}
@@ -5639,7 +5639,7 @@
 							{ "name": "time", "value": "@event.time" },
 							{ "name": "tickTime", "value": "@event.tickTime" },
 							{ "name": "quarantineTarget", "value": "@event.file.abstractPath" },
-							{ "name": "should_trust_company_whitelist", "value": false },
+							{ "name": "should_trust_viruskov_cloud", "value": false },
 							{ "name": "should_trust_comodo_fls_cloud", "value": false }
 						]
 					}
@@ -5677,7 +5677,7 @@
 							{ "name": "time", "value": "@event.time" },
 							{ "name": "tickTime", "value": "@event.tickTime" },
 							{ "name": "quarantineTarget", "value": "@event.process.imageFile.abstractPath" },
-							{ "name": "should_trust_company_whitelist", "value": false },
+							{ "name": "should_trust_viruskov_cloud", "value": false },
 							{ "name": "should_trust_comodo_fls_cloud", "value": false }
 						]
 					}
@@ -5715,7 +5715,7 @@
 							{ "name": "time", "value": "@event.time" },
 							{ "name": "tickTime", "value": "@event.tickTime" },
 							{ "name": "quarantineTarget", "value": "@event.childProcess.imageFile.abstractPath" },
-							{ "name": "should_trust_company_whitelist", "value": false },
+							{ "name": "should_trust_viruskov_cloud", "value": false },
 							{ "name": "should_trust_comodo_fls_cloud", "value": false }
 						]
 					}
@@ -5787,7 +5787,7 @@
 							{ "name": "time", "value": "@event.time" },
 							{ "name": "tickTime", "value": "@event.tickTime" },
 							{ "name": "quarantineTarget", "value": "@event.process.imageFile.abstractPath" },
-							{ "name": "should_trust_company_whitelist", "value": true },
+							{ "name": "should_trust_viruskov_cloud", "value": true },
 							{ "name": "should_trust_comodo_fls_cloud", "value": false }
 						]
 					}
@@ -5848,7 +5848,7 @@
 							{ "name": "time", "value": "@event.time" },
 							{ "name": "tickTime", "value": "@event.tickTime" },
 							{ "name": "quarantineTarget", "value": "@event.process.imageFile.rawPath" },
-							{ "name": "should_trust_company_whitelist", "value": true },
+							{ "name": "should_trust_viruskov_cloud", "value": true },
 							{ "name": "should_trust_comodo_fls_cloud", "value": false }
 						]
 					}
@@ -5888,7 +5888,7 @@
 							{ "name": "time", "value": "@event.time" },
 							{ "name": "tickTime", "value": "@event.tickTime" },
 							{ "name": "quarantineTarget", "value": "@event.process.imageFile.abstractPath" },
-							{ "name": "should_trust_company_whitelist", "value": true },
+							{ "name": "should_trust_viruskov_cloud", "value": true },
 							{ "name": "should_trust_comodo_fls_cloud", "value": false }
 						]
 					}
@@ -5928,7 +5928,7 @@
 							{ "name": "time", "value": "@event.time" },
 							{ "name": "tickTime", "value": "@event.tickTime" },
 							{ "name": "quarantineTarget", "value": "@event.process.imageFile.rawPath" },
-							{ "name": "should_trust_company_whitelist", "value": true },
+							{ "name": "should_trust_viruskov_cloud", "value": true },
 							{ "name": "should_trust_comodo_fls_cloud", "value": false }
 						]
 					}
@@ -6050,7 +6050,7 @@
 							{ "name": "hollowedProcessPath", "value": "@event.target.imageFile.abstractPath" },
 							{ "name": "hollowedProcessPathRaw", "value": "@event.target.imageFile.rawPath" },
 							{ "name": "quarantineTarget", "value": "@event.process.imageFile.abstractPath" },
-							{ "name": "should_trust_company_whitelist", "value": true },
+							{ "name": "should_trust_viruskov_cloud", "value": true },
 							{ "name": "should_trust_comodo_fls_cloud", "value": false }
 						]
 					}
@@ -6133,7 +6133,7 @@
 							{ "name": "time", "value": "@event.time" },
 							{ "name": "tickTime", "value": "@event.tickTime" },
 							{ "name": "quarantineTarget", "value": "@event.process.imageFile.abstractPath" },
-							{ "name": "should_trust_company_whitelist", "value": true },
+							{ "name": "should_trust_viruskov_cloud", "value": true },
 							{ "name": "should_trust_comodo_fls_cloud", "value": false }
 						]
 					}
@@ -6199,7 +6199,7 @@
 							{ "name": "time", "value": "@event.time" },
 							{ "name": "tickTime", "value": "@event.tickTime" },
 							{ "name": "quarantineTarget", "value": "@event.process.imageFile.abstractPath" },
-							{ "name": "should_trust_company_whitelist", "value": true },
+							{ "name": "should_trust_viruskov_cloud", "value": true },
 							{ "name": "should_trust_comodo_fls_cloud", "value": false }
 						]
 					}
@@ -6321,7 +6321,7 @@
 							{ "name": "registry", "value": "@event.registry" },
 							{ "name": "registryRevert", "value": true },
 							{ "name": "quarantineTarget", "value": "@event.process.imageFile.abstractPath" },
-							{ "name": "should_trust_company_whitelist", "value": true },
+							{ "name": "should_trust_viruskov_cloud", "value": true },
 							{ "name": "should_trust_comodo_fls_cloud", "value": true }
 						]
 					}
@@ -6458,7 +6458,7 @@
 							{ "name": "shellLinkRestoreKeys", "value": "@const.browserStartCommand.chrome.keys" },
 							{ "name": "shellLinkRestoreExes", "value": "@const.browserStartCommand.chrome.exes" },
 							{ "name": "shellLinkRestoreUrlMarkers", "value": "@const.browserStartCommand.urlMarkers" },
-							{ "name": "should_trust_company_whitelist", "value": false },
+							{ "name": "should_trust_viruskov_cloud", "value": false },
 							{ "name": "should_trust_comodo_fls_cloud", "value": false }
 						]
 					}
@@ -6581,7 +6581,7 @@
 							{ "name": "shellLinkRestoreKeys", "value": "@const.browserStartCommand.firefox.keys" },
 							{ "name": "shellLinkRestoreExes", "value": "@const.browserStartCommand.firefox.exes" },
 							{ "name": "shellLinkRestoreUrlMarkers", "value": "@const.browserStartCommand.urlMarkers" },
-							{ "name": "should_trust_company_whitelist", "value": false },
+							{ "name": "should_trust_viruskov_cloud", "value": false },
 							{ "name": "should_trust_comodo_fls_cloud", "value": false }
 						]
 					}
@@ -6704,7 +6704,7 @@
 							{ "name": "shellLinkRestoreKeys", "value": "@const.browserStartCommand.ie.keys" },
 							{ "name": "shellLinkRestoreExes", "value": "@const.browserStartCommand.ie.exes" },
 							{ "name": "shellLinkRestoreUrlMarkers", "value": "@const.browserStartCommand.urlMarkers" },
-							{ "name": "should_trust_company_whitelist", "value": false },
+							{ "name": "should_trust_viruskov_cloud", "value": false },
 							{ "name": "should_trust_comodo_fls_cloud", "value": false }
 						]
 					}
@@ -6827,7 +6827,7 @@
 							{ "name": "shellLinkRestoreKeys", "value": "@const.browserStartCommand.opera.keys" },
 							{ "name": "shellLinkRestoreExes", "value": "@const.browserStartCommand.opera.exes" },
 							{ "name": "shellLinkRestoreUrlMarkers", "value": "@const.browserStartCommand.urlMarkers" },
-							{ "name": "should_trust_company_whitelist", "value": false },
+							{ "name": "should_trust_viruskov_cloud", "value": false },
 							{ "name": "should_trust_comodo_fls_cloud", "value": false }
 						]
 					}
@@ -6991,7 +6991,7 @@
 							{ "name": "registry", "value": "@event.registry" },
 							{ "name": "registryRevert", "value": true },
 							{ "name": "quarantineTarget", "value": "@event.process.imageFile.abstractPath" },
-							{ "name": "should_trust_company_whitelist", "value": true },
+							{ "name": "should_trust_viruskov_cloud", "value": true },
 							{ "name": "should_trust_comodo_fls_cloud", "value": true }
 						]
 					}
@@ -7165,7 +7165,7 @@
 							{ "name": "targetProcessPath", "value": "@event.target.imageFile.abstractPath" },
 							{ "name": "targetProcessPathRaw", "value": "@event.target.imageFile.rawPath" },
 							{ "name": "quarantineTarget", "value": "@event.process.imageFile.abstractPath" },
-							{ "name": "should_trust_company_whitelist", "value": true },
+							{ "name": "should_trust_viruskov_cloud", "value": true },
 							{ "name": "should_trust_comodo_fls_cloud", "value": false }
 						]
 					}
@@ -7256,7 +7256,7 @@
 							{ "name": "targetProcessPath", "value": "@event.target.imageFile.abstractPath" },
 							{ "name": "targetProcessPathRaw", "value": "@event.target.imageFile.rawPath" },
 							{ "name": "quarantineTarget", "value": "@event.process.imageFile.abstractPath" },
-							{ "name": "should_trust_company_whitelist", "value": true },
+							{ "name": "should_trust_viruskov_cloud", "value": true },
 							{ "name": "should_trust_comodo_fls_cloud", "value": false }
 						]
 					}
@@ -7340,7 +7340,7 @@
 							{ "name": "targetProcessId", "value": "@event.target.id" },
 							{ "name": "targetProcessPath", "value": "@event.target.imageFile.abstractPath" },
 							{ "name": "quarantineTarget", "value": "@event.process.imageFile.abstractPath" },
-							{ "name": "should_trust_company_whitelist", "value": true },
+							{ "name": "should_trust_viruskov_cloud", "value": true },
 							{ "name": "should_trust_comodo_fls_cloud", "value": false }
 						]
 					}
@@ -7411,7 +7411,7 @@
 							{ "name": "targetProcessId", "value": "@event.target.id" },
 							{ "name": "targetProcessPath", "value": "@event.target.imageFile.rawPath" },
 							{ "name": "quarantineTarget", "value": "@event.process.imageFile.rawPath" },
-							{ "name": "should_trust_company_whitelist", "value": true },
+							{ "name": "should_trust_viruskov_cloud", "value": true },
 							{ "name": "should_trust_comodo_fls_cloud", "value": false }
 						]
 					}
@@ -7476,7 +7476,7 @@
 							{ "name": "time", "value": "@event.time" },
 							{ "name": "tickTime", "value": "@event.tickTime" },
 							{ "name": "quarantineTarget", "value": "@event.process.imageFile.abstractPath" },
-							{ "name": "should_trust_company_whitelist", "value": true },
+							{ "name": "should_trust_viruskov_cloud", "value": true },
 							{ "name": "should_trust_comodo_fls_cloud", "value": false }
 						]
 					}
@@ -7522,7 +7522,7 @@
 						{ "name": "registryDeleteTargetRaw", "value": "@event.registry.rawPath" },
 						{ "name": "registry", "value": "@event.registry" },
 						{ "name": "quarantineTarget", "value": "@event.process.imageFile.abstractPath" },
-						{ "name": "should_trust_company_whitelist", "value": true },
+						{ "name": "should_trust_viruskov_cloud", "value": true },
 						{ "name": "should_trust_comodo_fls_cloud", "value": true }
 					]
 				}
@@ -7560,7 +7560,7 @@
 						{ "name": "registryDeleteTargetRaw", "value": "@event.registry.rawPath" },
 						{ "name": "registry", "value": "@event.registry" },
 						{ "name": "quarantineTarget", "value": "@event.process.imageFile.abstractPath" },
-						{ "name": "should_trust_company_whitelist", "value": true },
+						{ "name": "should_trust_viruskov_cloud", "value": true },
 						{ "name": "should_trust_comodo_fls_cloud", "value": true }
 					]
 				}
@@ -7601,7 +7601,7 @@
 						{ "name": "time", "value": "@event.time" },
 						{ "name": "tickTime", "value": "@event.tickTime" },
 						{ "name": "quarantineTarget", "value": "@event.childProcess.imagePath" },
-						{ "name": "should_trust_company_whitelist", "value": false },
+						{ "name": "should_trust_viruskov_cloud", "value": false },
 						{ "name": "should_trust_comodo_fls_cloud", "value": false }
 					]
 				}
@@ -7656,7 +7656,7 @@
 						{ "name": "time", "value": "@event.time" },
 						{ "name": "tickTime", "value": "@event.tickTime" },
 						{ "name": "quarantineTarget", "value": "@event.childProcess.imagePath" },
-						{ "name": "should_trust_company_whitelist", "value": false },
+						{ "name": "should_trust_viruskov_cloud", "value": false },
 						{ "name": "should_trust_comodo_fls_cloud", "value": false }
 					]
 				}
@@ -7711,7 +7711,7 @@
 						{ "name": "time", "value": "@event.time" },
 						{ "name": "tickTime", "value": "@event.tickTime" },
 						{ "name": "quarantineTarget", "value": "@event.childProcess.imagePath" },
-						{ "name": "should_trust_company_whitelist", "value": false },
+						{ "name": "should_trust_viruskov_cloud", "value": false },
 						{ "name": "should_trust_comodo_fls_cloud", "value": false }
 					]
 				}
@@ -7736,7 +7736,7 @@
 						{ "name": "time", "value": "@event.time" },
 						{ "name": "tickTime", "value": "@event.tickTime" },
 						{ "name": "quarantineTarget", "value": "@event.childProcess.imagePath" },
-						{ "name": "should_trust_company_whitelist", "value": false },
+						{ "name": "should_trust_viruskov_cloud", "value": false },
 						{ "name": "should_trust_comodo_fls_cloud", "value": false }
 					]
 				}
@@ -7780,7 +7780,7 @@
 						{ "name": "time", "value": "@event.time" },
 						{ "name": "tickTime", "value": "@event.tickTime" },
 						{ "name": "quarantineTarget", "value": "@event.process.imageFile.abstractPath" },
-						{ "name": "should_trust_company_whitelist", "value": false },
+						{ "name": "should_trust_viruskov_cloud", "value": false },
 						{ "name": "should_trust_comodo_fls_cloud", "value": false }
 					]
 				}
@@ -7824,7 +7824,7 @@
 						{ "name": "time", "value": "@event.time" },
 						{ "name": "tickTime", "value": "@event.tickTime" },
 						{ "name": "quarantineTarget", "value": "@event.process.imageFile.abstractPath" },
-						{ "name": "should_trust_company_whitelist", "value": false },
+						{ "name": "should_trust_viruskov_cloud", "value": false },
 						{ "name": "should_trust_comodo_fls_cloud", "value": false }
 					]
 				}
@@ -7868,7 +7868,7 @@
 						{ "name": "time", "value": "@event.time" },
 						{ "name": "tickTime", "value": "@event.tickTime" },
 						{ "name": "quarantineTarget", "value": "@event.process.imageFile.abstractPath" },
-						{ "name": "should_trust_company_whitelist", "value": false },
+						{ "name": "should_trust_viruskov_cloud", "value": false },
 						{ "name": "should_trust_comodo_fls_cloud", "value": false }
 					]
 				}
@@ -7913,7 +7913,7 @@
 						{ "name": "time", "value": "@event.time" },
 						{ "name": "tickTime", "value": "@event.tickTime" },
 						{ "name": "quarantineTarget", "value": "@event.process.imageFile.abstractPath" },
-						{ "name": "should_trust_company_whitelist", "value": false },
+						{ "name": "should_trust_viruskov_cloud", "value": false },
 						{ "name": "should_trust_comodo_fls_cloud", "value": false }
 					]
 				}
@@ -7958,7 +7958,7 @@
 						{ "name": "time", "value": "@event.time" },
 						{ "name": "tickTime", "value": "@event.tickTime" },
 						{ "name": "quarantineTarget", "value": "@event.process.imageFile.abstractPath" },
-						{ "name": "should_trust_company_whitelist", "value": false },
+						{ "name": "should_trust_viruskov_cloud", "value": false },
 						{ "name": "should_trust_comodo_fls_cloud", "value": false }
 					]
 				}
@@ -8033,7 +8033,7 @@
 						{ "name": "targetMsr", "value": "@event.owlyHv.context" },
 						{ "name": "time", "value": "@event.time" },
 						{ "name": "tickTime", "value": "@event.tickTime" },
-						{ "name": "should_trust_company_whitelist", "value": false },
+						{ "name": "should_trust_viruskov_cloud", "value": false },
 						{ "name": "should_trust_comodo_fls_cloud", "value": false }
 					]
 				}
@@ -8066,7 +8066,7 @@
 						{ "name": "time", "value": "@event.time" },
 						{ "name": "tickTime", "value": "@event.tickTime" },
 						{ "name": "quarantineTarget", "value": "@event.file.abstractPath" },
-						{ "name": "should_trust_company_whitelist", "value": false },
+						{ "name": "should_trust_viruskov_cloud", "value": false },
 						{ "name": "should_trust_comodo_fls_cloud", "value": false }
 					]
 				}
@@ -8091,7 +8091,7 @@
 						{ "name": "time", "value": "@event.time" },
 						{ "name": "tickTime", "value": "@event.tickTime" },
 						{ "name": "quarantineTarget", "value": "@event.file.abstractPath" },
-						{ "name": "should_trust_company_whitelist", "value": false },
+						{ "name": "should_trust_viruskov_cloud", "value": false },
 						{ "name": "should_trust_comodo_fls_cloud", "value": false }
 					]
 				}
@@ -8116,7 +8116,7 @@
 						{ "name": "time", "value": "@event.time" },
 						{ "name": "tickTime", "value": "@event.tickTime" },
 						{ "name": "quarantineTarget", "value": "@event.file.abstractPath" },
-						{ "name": "should_trust_company_whitelist", "value": false },
+						{ "name": "should_trust_viruskov_cloud", "value": false },
 						{ "name": "should_trust_comodo_fls_cloud", "value": false }
 					]
 				}
@@ -8140,7 +8140,7 @@
 						{ "name": "processes", "value": "@event.processes" },
 						{ "name": "time", "value": "@event.time" },
 						{ "name": "tickTime", "value": "@event.tickTime" },
-						{ "name": "should_trust_company_whitelist", "value": false },
+						{ "name": "should_trust_viruskov_cloud", "value": false },
 						{ "name": "should_trust_comodo_fls_cloud", "value": false }
 					]
 				}
@@ -8165,7 +8165,7 @@
 						{ "name": "time", "value": "@event.time" },
 						{ "name": "tickTime", "value": "@event.tickTime" },
 						{ "name": "quarantineTarget", "value": "@event.file.abstractPath" },
-						{ "name": "should_trust_company_whitelist", "value": false },
+						{ "name": "should_trust_viruskov_cloud", "value": false },
 						{ "name": "should_trust_comodo_fls_cloud", "value": false }
 					]
 				}
@@ -8255,7 +8255,7 @@
 							{ "name": "registryDeleteTarget", "value": "@event.registry.abstractPath" },
 							{ "name": "registryDeleteTargetRaw", "value": "@event.registry.rawPath" },
 							{ "name": "registry", "value": "@event.registry" },
-							{ "name": "should_trust_company_whitelist", "value": false },
+							{ "name": "should_trust_viruskov_cloud", "value": false },
 							{ "name": "should_trust_comodo_fls_cloud", "value": false }
 						]
 					}
@@ -8335,7 +8335,7 @@
 							{ "name": "time", "value": "@event.time" },
 							{ "name": "tickTime", "value": "@event.tickTime" },
 							{ "name": "quarantineTarget", "value": "@event.childProcess.imagePath" },
-							{ "name": "should_trust_company_whitelist", "value": false },
+							{ "name": "should_trust_viruskov_cloud", "value": false },
 							{ "name": "should_trust_comodo_fls_cloud", "value": false }
 						]
 					}
@@ -8400,7 +8400,7 @@
 							{ "name": "time", "value": "@event.time" },
 							{ "name": "tickTime", "value": "@event.tickTime" },
 							{ "name": "quarantineTarget", "value": "@event.file.abstractPath" },
-							{ "name": "should_trust_company_whitelist", "value": false },
+							{ "name": "should_trust_viruskov_cloud", "value": false },
 							{ "name": "should_trust_comodo_fls_cloud", "value": false }
 						]
 					}
@@ -8441,7 +8441,7 @@
 							{ "name": "tickTime", "value": "@event.tickTime" },
 							{ "name": "quarantineTarget", "value": "@event.driver.image" },
 							{ "name": "driverInfo", "value": "@event.driver" },
-							{ "name": "should_trust_company_whitelist", "value": false },
+							{ "name": "should_trust_viruskov_cloud", "value": false },
 							{ "name": "should_trust_comodo_fls_cloud", "value": false }
 						]
 					}
@@ -8504,7 +8504,7 @@
 							{ "name": "time", "value": "@event.time" },
 							{ "name": "tickTime", "value": "@event.tickTime" },
 							{ "name": "quarantineTarget", "value": "@event.file.rawPath" },
-							{ "name": "should_trust_company_whitelist", "value": false },
+							{ "name": "should_trust_viruskov_cloud", "value": false },
 							{ "name": "should_trust_comodo_fls_cloud", "value": false }
 						]
 					}
@@ -8571,7 +8571,7 @@
 							{ "name": "unknownDllPath", "value": "@event.process.unknownDllPath" },
 							{ "name": "hasUnknownDllComodo", "value": "@event.process.hasUnknownDllComodo" },
 							{ "name": "hasUnknownDllCertificate", "value": "@event.process.hasUnknownDllCertificate" },
-							{ "name": "should_trust_company_whitelist", "value": false },
+							{ "name": "should_trust_viruskov_cloud", "value": false },
 							{ "name": "should_trust_comodo_fls_cloud", "value": false }
 						]
 					}
@@ -8634,7 +8634,7 @@
 							{ "name": "time", "value": "@event.time" },
 							{ "name": "tickTime", "value": "@event.tickTime" },
 							{ "name": "targetPort", "value": "@event.file.rawPath" },
-							{ "name": "should_trust_company_whitelist", "value": false },
+							{ "name": "should_trust_viruskov_cloud", "value": false },
 							{ "name": "should_trust_comodo_fls_cloud", "value": false }
 						]
 					}
@@ -8741,7 +8741,7 @@
 							{ "name": "startFunction", "value": "@event.process.loaderStartFunction" },
 							{ "name": "dllAttackChain", "value": "@event.process.dllAttackChain" },
 							{ "name": "dllMapping", "value": "@event.process.dllMapping" },
-							{ "name": "should_trust_company_whitelist", "value": false },
+							{ "name": "should_trust_viruskov_cloud", "value": false },
 							{ "name": "should_trust_comodo_fls_cloud", "value": false }
 						]
 					}

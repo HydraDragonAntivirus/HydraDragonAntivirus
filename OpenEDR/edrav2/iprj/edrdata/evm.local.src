@@ -357,7 +357,7 @@
 							"name": "baseType",
 							"value": "@const.eventBaseType.MLE_PROCESS_ELEVATION"
 						},
-						{ "name": "should_trust_company_whitelist", "value": true },
+						{ "name": "should_trust_viruskov_cloud", "value": true },
 						{ "name": "should_trust_comodo_fls_cloud", "value": true }
 					]
 				}
@@ -388,7 +388,7 @@
 							"value": "@const.eventBaseType.MLE_INTEGRITY_LEVEL_ELEVATION"
 						},
 						{ "name": "quarantineTarget", "value": "@event.process.imageFile.rawPath" },
-						{ "name": "should_trust_company_whitelist", "value": true },
+						{ "name": "should_trust_viruskov_cloud", "value": true },
 						{ "name": "should_trust_comodo_fls_cloud", "value": true }
 					]
 				}
@@ -498,7 +498,7 @@
 							"name": "baseType",
 							"value": "@const.eventBaseType.MLE_THREAD_ELEVATION"
 						},
-						{ "name": "should_trust_company_whitelist", "value": true },
+						{ "name": "should_trust_viruskov_cloud", "value": true },
 						{ "name": "should_trust_comodo_fls_cloud", "value": true }
 					]
 				}
