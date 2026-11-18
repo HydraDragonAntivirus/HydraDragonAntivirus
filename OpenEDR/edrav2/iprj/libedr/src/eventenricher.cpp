@@ -5284,12 +5284,24 @@ void EventEnricher::executeUnfilteredLocalScan(Variant& vEvent, Variant& vProces
 			};
 			const bool isPerfDat = endsWith(".dat") &&
 				(lowerDos.find("\\windows\\system32\\perfc") != std::string::npos ||
-				 lowerDos.find("\\windows\\system32\\perfh") != std::string::npos);
-			if (isPerfDat ||
+				 lowerDos.find("\\windows\\system32\\perfh") != std::string::npos ||
+				 lowerDos.find("\\webcachev01.dat") != std::string::npos ||
+				 lowerDos.find("\\staticcache.dat") != std::string::npos ||
+				 lowerDos.find("\\activationstore.dat") != std::string::npos ||
+				 lowerDos.find("\\fontcache") != std::string::npos);
+			const bool isOsMetaFile =
+				endsWith("\\desktop.ini") || endsWith("\\appxblockmap.xml") ||
+				endsWith(".dat.log1") || endsWith(".dat.log2");
+			if (isPerfDat || isOsMetaFile ||
 				endsWith(".evtx") || endsWith(".pnf") || endsWith(".nls") ||
 				endsWith(".inf_loc") || endsWith(".ebd") || endsWith(".jfm") ||
 				endsWith(".chk") || endsWith(".blf") || endsWith(".regtrans-ms") ||
-				endsWith(".lex"))
+				endsWith(".lex") ||
+				endsWith(".db") || endsWith(".db-wal") || endsWith(".db-shm") ||
+				endsWith(".srd") || endsWith(".srd-wal") || endsWith(".srd-shm") ||
+				endsWith(".pri") || endsWith(".pckgdep") ||
+				endsWith(".cur") || endsWith(".ani") || endsWith(".sst") ||
+				endsWith(".cdpresource"))
 			{
 				continue;
 			}

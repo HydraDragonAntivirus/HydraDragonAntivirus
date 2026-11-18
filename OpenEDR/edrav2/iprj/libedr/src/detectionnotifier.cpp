@@ -1813,7 +1813,17 @@ static int staticScanVerdictName(const std::string& sUtf8Path, std::string& sNam
 			// verdict, so the queued scan tries again later.
 			if (verdict == "Deferred")
 			{
-				openedr_static::WriteLog("scan-result", "file=" + sUtf8Path + "; verdict=Deferred");
+				std::string note;
+				auto pos = report.find("\"note\":\"");
+				if (pos != std::string::npos)
+				{
+					pos += 8;
+					auto end = report.find('"', pos);
+					if (end != std::string::npos)
+						note = report.substr(pos, std::min<size_t>(end - pos, 180));
+				}
+				openedr_static::WriteLog("scan-result", "file=" + sUtf8Path + "; verdict=Deferred" +
+					(note.empty() ? "" : "; note=" + note));
 				return 0;
 			}
 			// openedr_cloud says why: "Error(gone)", "Error(locked_or_gone)".
