@@ -3807,7 +3807,7 @@ static void recordShadowBackupImpl(int64_t nPid, Event eEventType, const Variant
 			auto& vec = s_backups[nPid];
 			if (vec.size() < c_nMaxBackupsPerProcess)
 			{
-				ShadowBackupEntry entry;
+				EventEnricher::ShadowBackupEntry entry;
 				entry.wsOriginal = wsFilePath;
 				entry.nTick = nTick;
 				entry.nOp = (eEventType == Event::LLE_FILE_CREATE) ? (nCreationStatus == 1 ? 3 : 0) :
