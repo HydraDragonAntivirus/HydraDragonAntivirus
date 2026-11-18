@@ -54,7 +54,7 @@
 		// checks per DLL. The result is reused for this many seconds per process
 		// (0 = inspect on every event); a DLL loaded meanwhile is seen at the next
 		// inspection. At most this many processes are kept.
-		"moduleInspectionCacheSeconds": 5,
+		"moduleInspectionCacheSeconds": 60,
 		"moduleInspectionCacheMaxEntries": 4096,
 		// Event rate log: every this many seconds the enricher logs how many
 		// events it received, by type (API hook events by function) and by

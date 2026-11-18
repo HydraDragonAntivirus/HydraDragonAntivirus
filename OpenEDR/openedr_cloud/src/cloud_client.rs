@@ -145,7 +145,7 @@ impl CloudSession {
         // checks only run *between* messages — so one lost reply would hold
         // the global CLIENT mutex (and every caller queued on it) for good.
         {
-            let io_timeout = Some(Duration::from_secs(30));
+            let io_timeout = Some(Duration::from_secs(12));
             let tcp = match socket.get_ref() {
                 MaybeTlsStream::Plain(s) => Some(s),
                 MaybeTlsStream::Rustls(s) => Some(s.get_ref()),
@@ -225,9 +225,29 @@ impl CloudSession {
     }
 }
 
+fn set_socket_timeouts(socket: &WsStream, timeout: Duration) {
+    let io_timeout = Some(timeout);
+    let tcp = match socket.get_ref() {
+        MaybeTlsStream::Plain(s) => Some(s),
+        MaybeTlsStream::Rustls(s) => Some(s.get_ref()),
+        _ => None,
+    };
+    if let Some(tcp) = tcp {
+        let _ = tcp.set_read_timeout(io_timeout);
+        let _ = tcp.set_write_timeout(io_timeout);
+    }
+}
+
+fn upload_timeout_for_size(size_bytes: u64) -> Duration {
+    let extra_secs = (size_bytes / (1024 * 1024)).min(95);
+    Duration::from_secs(25 + extra_secs)
+}
+
 const CLIENT_POOL_SIZE: usize = 8;
-const MAX_CLOUD_UPLOAD_BYTES: u64 = 64 * 1024 * 1024;
+const MAX_CLOUD_UPLOAD_BYTES: u64 = 100 * 1024 * 1024;
 const LARGE_UPLOAD_BUFFER_RESET_BYTES: u64 = 4 * 1024 * 1024;
+const SERIALIZE_UPLOAD_THRESHOLD_BYTES: u64 = 8 * 1024 * 1024;
+static LARGE_UPLOAD_MUTEX: Mutex<()> = Mutex::new(());
 static CLIENT_POOL: [Mutex<Option<CloudSession>>; CLIENT_POOL_SIZE] = [
     Mutex::new(None),
     Mutex::new(None),
@@ -465,10 +485,11 @@ pub fn scan_file(path: &Path) -> FileScanReport {
             return Err(format!("Socket write error: {}", e));
         }
 
-        // Wait for result or need_upload (extend timeout once upload starts so
-        // multi-megabyte transfers are not cut off at 12 s).
-        let start = Instant::now();
-        let mut timeout = Duration::from_secs(12);
+        // Wait for result or need_upload (extend timeout proportionally up to
+        // 120 s for uploads up to 100 MB).
+        let mut start = Instant::now();
+        let mut timeout = Duration::from_secs(10);
+        set_socket_timeouts(socket, Duration::from_secs(12));
         let mut sent_large_upload = false;
         loop {
             if start.elapsed() > timeout {
@@ -505,7 +526,7 @@ pub fn scan_file(path: &Path) -> FileScanReport {
                             if file_size > MAX_CLOUD_UPLOAD_BYTES {
                                 return Ok(("Unknown".to_string(), Vec::new()));
                             }
-                            timeout = Duration::from_secs(60);
+                            timeout = upload_timeout_for_size(file_size);
                             // Upload file
                             // `path`: the full local path, so the server scans the
                             // upload under it (path-scoped rules such as the
@@ -527,7 +548,18 @@ pub fn scan_file(path: &Path) -> FileScanReport {
                                 session.abandon_request();
                                 return Ok(("Unknown".to_string(), Vec::new()));
                             }
-                            timeout = Duration::from_secs(60);
+                            let _large_guard = if file_size > SERIALIZE_UPLOAD_THRESHOLD_BYTES {
+                                Some(
+                                    LARGE_UPLOAD_MUTEX
+                                        .lock()
+                                        .unwrap_or_else(|poisoned| poisoned.into_inner()),
+                                )
+                            } else {
+                                None
+                            };
+                            start = Instant::now();
+                            timeout = upload_timeout_for_size(file_size);
+                            set_socket_timeouts(socket, timeout);
                             let file_bytes = match std::fs::read(path) {
                                 Ok(b) => b,
                                 Err(e) => return Err(format!("Failed reading file for upload: {}", e)),
@@ -553,6 +585,10 @@ pub fn scan_file(path: &Path) -> FileScanReport {
                     }
                 }
                 Message::Ping(p) => {
+                    if start.elapsed() > timeout {
+                        session.abandon_request();
+                        return Err("Cloud query timed out".to_string());
+                    }
                     let _ = socket.send(Message::Pong(p));
                 }
                 _ => {}
@@ -620,8 +656,9 @@ pub fn scan_bytes(data: &[u8], name: &str) -> (String, Vec<DetectionItem>, Strin
             return Err(format!("Socket write error: {}", e));
         }
 
-        let start = Instant::now();
-        let mut timeout = Duration::from_secs(12);
+        let mut start = Instant::now();
+        let mut timeout = Duration::from_secs(10);
+        set_socket_timeouts(socket, Duration::from_secs(12));
         let mut sent_large_upload = false;
         loop {
             if start.elapsed() > timeout {
@@ -658,7 +695,7 @@ pub fn scan_bytes(data: &[u8], name: &str) -> (String, Vec<DetectionItem>, Strin
                             if size > MAX_CLOUD_UPLOAD_BYTES {
                                 return Ok(("Unknown".to_string(), Vec::new()));
                             }
-                            timeout = Duration::from_secs(60);
+                            timeout = upload_timeout_for_size(size);
                             let scan_req = serde_json::json!({
                                 "type": "scan",
                                 "id": req_id,
@@ -675,7 +712,18 @@ pub fn scan_bytes(data: &[u8], name: &str) -> (String, Vec<DetectionItem>, Strin
                                 session.abandon_request();
                                 return Ok(("Unknown".to_string(), Vec::new()));
                             }
-                            timeout = Duration::from_secs(60);
+                            let _large_guard = if size > SERIALIZE_UPLOAD_THRESHOLD_BYTES {
+                                Some(
+                                    LARGE_UPLOAD_MUTEX
+                                        .lock()
+                                        .unwrap_or_else(|poisoned| poisoned.into_inner()),
+                                )
+                            } else {
+                                None
+                            };
+                            start = Instant::now();
+                            timeout = upload_timeout_for_size(size);
+                            set_socket_timeouts(socket, timeout);
                             if size > LARGE_UPLOAD_BUFFER_RESET_BYTES {
                                 sent_large_upload = true;
                             }
@@ -697,6 +745,10 @@ pub fn scan_bytes(data: &[u8], name: &str) -> (String, Vec<DetectionItem>, Strin
                     }
                 }
                 Message::Ping(p) => {
+                    if start.elapsed() > timeout {
+                        session.abandon_request();
+                        return Err("Cloud query timed out".to_string());
+                    }
                     let _ = socket.send(Message::Pong(p));
                 }
                 _ => {}

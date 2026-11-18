@@ -1867,6 +1867,9 @@ struct CachedFileVerdict {
 	// until this time, then the file is asked about again. Zero for a decided
 	// verdict, which is kept for as long as the file is unchanged.
 	std::chrono::steady_clock::time_point unknownUntil{};
+	// Timestamp of the last GetFileAttributesExW identity check, so hot paths
+	// avoid hammering disk stat on every event for unchanged active binaries.
+	std::chrono::steady_clock::time_point lastStatCheck{};
 };
 
 static std::mutex s_mtxVerdictCache;
@@ -1903,6 +1906,27 @@ static int getCachedFileVerdictWithName(const std::string& sUtf8Path, std::strin
 	std::string lowerPath = sUtf8Path;
 	for (auto& c : lowerPath) c = (char)::tolower((unsigned char)c);
 
+	const auto now = std::chrono::steady_clock::now();
+	{
+		std::lock_guard<std::mutex> lock(s_mtxVerdictCache);
+		auto it = s_verdictCache.find(lowerPath);
+		if (it == s_verdictCache.end())
+			return 0;
+		// A cached "Unknown" / "Deferred" entry decides nothing for trust/quick queries.
+		if (it->second.unknownUntil != std::chrono::steady_clock::time_point{})
+			return 0;
+		if (now - it->second.lastStatCheck < std::chrono::seconds(3))
+		{
+			sNameOut = it->second.threatName;
+			if (pDetailOut)
+			{
+				*pDetailOut = it->second.detail;
+				pDetailOut->fFromCache = true;
+			}
+			return it->second.verdict;
+		}
+	}
+
 	uint64_t size = 0, mtime = 0;
 	if (!getFileIdentityUtf8(sUtf8Path, size, mtime))
 		return 0;
@@ -1911,10 +1935,9 @@ static int getCachedFileVerdictWithName(const std::string& sUtf8Path, std::strin
 	auto it = s_verdictCache.find(lowerPath);
 	if (it != s_verdictCache.end() && it->second.size == size && it->second.mtime == mtime)
 	{
-		// A cached "Unknown" decides nothing: callers see 0 as before and go
-		// on to scanFileWithLocalEngines, which answers it from the cache.
 		if (it->second.unknownUntil != std::chrono::steady_clock::time_point{})
 			return 0;
+		it->second.lastStatCheck = std::chrono::steady_clock::now();
 		sNameOut = it->second.threatName;
 		if (pDetailOut)
 		{
@@ -2267,19 +2290,16 @@ int DetectionNotifier::scanFileWithLocalEngines(const std::string& sUtf8Path, st
 	{
 		sThreatNameOut.clear();
 		const int nUnknown = s_unknownVerdictDefault.load(std::memory_order_relaxed);
-		// VirusKov answered "Unknown" or Comodo FLS answered "Absent" / "Unknown"
-		// (never "Fail" or unreachable): reuse for unknownAnswerCacheSeconds /
-		// flsAnswerCacheSeconds so active DLLs are not re-hashed and re-queried
-		// every 5 s while VirusKov is deferred.
+		// VirusKov answered "Unknown" -> reuse for unknownAnswerCacheSeconds;
+		// "Deferred" / "Error" -> cool down for 60 s so stalled files don't loop.
+		// Comodo FLS answered "Absent" / "Unknown" -> reuse for flsAnswerCacheSeconds.
 		const int nViruskovTtl = (detail.sViruskov == "Unknown")
 			? s_unknownAnswerCacheSeconds.load(std::memory_order_relaxed)
-			: 0;
+			: ((detail.sViruskov == "Deferred" || detail.sViruskov == "Error") ? 60 : 0);
 		const int nFlsTtl = (detail.sFls == "Absent" || detail.sFls == "Unknown")
 			? s_flsAnswerCacheSeconds.load(std::memory_order_relaxed)
 			: 0;
-		const int nTtl = (detail.sViruskov == "Deferred" || detail.sViruskov == "Error")
-			? 0
-			: ((nViruskovTtl > 0) ? nViruskovTtl : nFlsTtl);
+		const int nTtl = (nViruskovTtl > 0) ? nViruskovTtl : nFlsTtl;
 		if (hasIdentity && nTtl > 0)
 		{
 			std::lock_guard<std::mutex> lock(s_mtxVerdictCache);
@@ -2289,14 +2309,19 @@ int DetectionNotifier::scanFileWithLocalEngines(const std::string& sUtf8Path, st
 				for (size_t i = 0; i < kMaxVerdictCacheSize / 2 && it != s_verdictCache.end(); ++i)
 					it = s_verdictCache.erase(it);
 			}
-			CachedFileVerdict entry{ nUnknown, std::string(), size, mtime, detail };
-			entry.unknownUntil = std::chrono::steady_clock::now() + std::chrono::seconds(nTtl);
+			const auto now = std::chrono::steady_clock::now();
+			CachedFileVerdict entry{ nUnknown, std::string(), size, mtime, detail,
+				now + std::chrono::seconds(nTtl), now };
 			s_verdictCache[lowerPath] = std::move(entry);
 		}
 		return nUnknown;
 	}
 
-	if (hasIdentity && verdict > 0 && detail.sViruskov != "Deferred" && detail.sViruskov != "Error")
+	const bool fFlsCleanWithDeferredViruskov =
+		(verdict == cleanCode && detail.sFls == "Safe" &&
+		 (detail.sViruskov == "Deferred" || detail.sViruskov == "Error"));
+	if (hasIdentity && verdict > 0 &&
+		(fFlsCleanWithDeferredViruskov || (detail.sViruskov != "Deferred" && detail.sViruskov != "Error")))
 	{
 		std::lock_guard<std::mutex> lock(s_mtxVerdictCache);
 		if (s_verdictCache.size() >= kMaxVerdictCacheSize)
@@ -2309,7 +2334,12 @@ int DetectionNotifier::scanFileWithLocalEngines(const std::string& sUtf8Path, st
 				it = s_verdictCache.erase(it);
 			}
 		}
-		s_verdictCache[lowerPath] = CachedFileVerdict{ verdict, sThreatNameOut, size, mtime, detail };
+		CloudScanDetail cacheDetail = detail;
+		if (fFlsCleanWithDeferredViruskov)
+			cacheDetail.sViruskov = "Unknown";
+		const auto now = std::chrono::steady_clock::now();
+		s_verdictCache[lowerPath] = CachedFileVerdict{
+			verdict, sThreatNameOut, size, mtime, std::move(cacheDetail), {}, now };
 	}
 
 	return verdict;

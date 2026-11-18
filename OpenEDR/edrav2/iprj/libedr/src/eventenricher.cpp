@@ -136,8 +136,19 @@ namespace {
 			"c:\\windows\\immersivecontrolpanel\\",
 			"c:\\windows\\uus\\",
 			"c:\\windows\\servicing\\",
+			"c:\\windows\\branding\\",
+			"c:\\windows\\diagnostics\\",
+			"c:\\windows\\inf\\",
+			"c:\\windows\\serviceprofiles\\",
+			"c:\\windows\\logs\\",
 			"c:\\program files\\windowsapps\\microsoft.",
 			"c:\\program files\\windowsapps\\microsoftwindows.",
+			"c:\\program files (x86)\\microsoft\\edgewebview\\",
+			"c:\\program files (x86)\\microsoft\\edge\\",
+			"c:\\program files (x86)\\microsoft\\edgeupdate\\",
+			"c:\\program files\\common files\\microsoft shared\\",
+			"c:\\program files\\common files\\system\\",
+			"c:\\programdata\\microsoft\\windows\\apprepository\\",
 		};
 		for (const char* p : c_kPrefixes)
 		{
@@ -988,16 +999,17 @@ namespace {
 			? sWatch.substr(first, last - first + 1)
 			: "";
 
-		// Empty means no path restriction: capture all processes in training mode
+		std::string sLowerExe = sExePath;
+		for (auto& c : sLowerExe) c = (char)::tolower((unsigned char)c);
+
+		// Empty means no explicit path filter: capture all processes (including
+		// explorer.exe and system processes) except edrsvc's own install tree.
 		if (sTrimmed.empty())
-			return true;
+			return !IsPathUnderOwnInstallDir(sLowerExe);
 
 		// Wildcard "*.*" or "*" means ignore path restriction and capture all processes in training mode
 		if (sTrimmed == "*.*" || sTrimmed == "*" || sTrimmed.find("*.*") != std::string::npos)
 			return true;
-
-		std::string sLowerExe = sExePath;
-		for (auto& c : sLowerExe) c = (char)::tolower((unsigned char)c);
 
 	// Direct path match or contained inside watched directory
 		return (sLowerExe.find(sTrimmed) != std::string::npos);
@@ -1804,23 +1816,42 @@ namespace {
 			// file does. A header that could not be read is not kept.
 			static inline bool CheckFileIsDotNetCached(const std::wstring& wsFilePath)
 			{
-				WIN32_FILE_ATTRIBUTE_DATA fa = {};
-				if (wsFilePath.empty() || !::GetFileAttributesExW(wsFilePath.c_str(), GetFileExInfoStandard, &fa))
-					return CheckFileIsDotNet(wsFilePath);
-				const uint64_t nSize = (uint64_t(fa.nFileSizeHigh) << 32) | fa.nFileSizeLow;
-				const uint64_t nTime = (uint64_t(fa.ftLastWriteTime.dwHighDateTime) << 32) | fa.ftLastWriteTime.dwLowDateTime;
+				if (wsFilePath.empty())
+					return false;
 				std::wstring sKey = wsFilePath;
 				for (auto& c : sKey) c = static_cast<wchar_t>(::towlower(c));
 
-				struct Entry { uint64_t nSize; uint64_t nTime; bool fNet; };
+				struct Entry
+				{
+					uint64_t nSize;
+					uint64_t nTime;
+					bool fNet;
+					std::chrono::steady_clock::time_point lastStatCheck{};
+				};
 				static std::mutex s_mtx;
 				static std::unordered_map<std::wstring, Entry> s_cache;
 				constexpr size_t c_nMaxEntries = 16384;
+				const auto now = std::chrono::steady_clock::now();
+				{
+					std::scoped_lock lock(s_mtx);
+					auto it = s_cache.find(sKey);
+					if (it != s_cache.end() && now - it->second.lastStatCheck < std::chrono::seconds(5))
+						return it->second.fNet;
+				}
+
+				WIN32_FILE_ATTRIBUTE_DATA fa = {};
+				if (!::GetFileAttributesExW(wsFilePath.c_str(), GetFileExInfoStandard, &fa))
+					return CheckFileIsDotNet(wsFilePath);
+				const uint64_t nSize = (uint64_t(fa.nFileSizeHigh) << 32) | fa.nFileSizeLow;
+				const uint64_t nTime = (uint64_t(fa.ftLastWriteTime.dwHighDateTime) << 32) | fa.ftLastWriteTime.dwLowDateTime;
 				{
 					std::scoped_lock lock(s_mtx);
 					auto it = s_cache.find(sKey);
 					if (it != s_cache.end() && it->second.nSize == nSize && it->second.nTime == nTime)
+					{
+						it->second.lastStatCheck = now;
 						return it->second.fNet;
+					}
 				}
 				bool fRead = false;
 				const bool fNet = ReadFileIsDotNet(wsFilePath, fRead);
@@ -1833,7 +1864,7 @@ namespace {
 						for (size_t i = 0; i < c_nMaxEntries / 2 && it != s_cache.end(); ++i)
 							it = s_cache.erase(it);
 					}
-					s_cache[sKey] = Entry{ nSize, nTime, fNet };
+					s_cache[sKey] = Entry{ nSize, nTime, fNet, now };
 				}
 				return fNet;
 			}
@@ -1945,23 +1976,23 @@ namespace {
 						res.isDotNet = true;
 					}
 
-					// Check if this module is .NET (PE COM descriptor or BSJB magic)
-					bool modIsNet = false;
-					{
-						StageTimer stNet(c_stModDotNet);
-						modIsNet = MegaDumperNet::CheckFileIsDotNetCached(me.szExePath);
-					}
-					if (modIsNet) res.isDotNet = true;
-
-					// Two separate reasons not to deep-scan, deliberately not merged:
-					//   isSystemDll - lives in the Windows tree; scanning every system DLL on
-					//                 every process is prohibitive.
-					//   isOwnModule  - one of our own components (see IsPathUnderOwnInstallDir).
+					// Two separate reasons not to deep-scan or read PE headers, deliberately not merged:
+					//   isSystemDll - lives in the Windows tree; scanning or opening every system DLL on
+					//                 every process is prohibitive (CLR runtime DLLs are already matched above).
+					//   isOwnModule - one of our own components (see IsPathUnderOwnInstallDir).
 					//                 These carry the signature tables and constant pools the
 					//                 engines search for, so scanning them both guarantees
 					//                 self-detection and re-enters the self-scan loop.
 					bool isSystemDll = IsWindowsOsComponentPath(modLower);
 					bool isOwnModule = IsPathUnderOwnInstallDir(modLower);
+
+					bool modIsNet = false;
+					if (!isSystemDll && !isOwnModule)
+					{
+						StageTimer stNet(c_stModDotNet);
+						modIsNet = MegaDumperNet::CheckFileIsDotNetCached(me.szExePath);
+					}
+					if (modIsNet) res.isDotNet = true;
 
 					bool modFlsClean = true;
 					bool modViruskovClean = true;
@@ -2095,8 +2126,15 @@ namespace {
 		// behind. A reused PID with a different image path is inspected afresh.
 		static ModuleInspectionResult InspectProcessModulesCached(uint32_t nPid, const std::string& sProcPath)
 		{
+			if (nPid <= 4)
+				return InspectProcessModules(nPid, sProcPath);
+
+			EnsurePtmLoaded();
+			std::string sProcLower = sProcPath;
+			for (auto& c : sProcLower) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
 			const int ttl = s_moduleInspectionCacheSeconds.load(std::memory_order_relaxed);
-			if (ttl <= 0 || nPid <= 4)
+			const int effectiveTtl = (std::max)(ttl, IsWindowsOsComponentPath(sProcLower) ? 300 : 30);
+			if (effectiveTtl <= 0)
 				return InspectProcessModules(nPid, sProcPath);
 
 			struct Entry
@@ -2109,7 +2147,7 @@ namespace {
 			static std::unordered_map<uint32_t, Entry> s_cache;
 
 			const auto now = std::chrono::steady_clock::now();
-			const auto maxAge = std::chrono::seconds(ttl);
+			const auto maxAge = std::chrono::seconds(effectiveTtl);
 			{
 				std::scoped_lock lock(s_mtx);
 				auto it = s_cache.find(nPid);
@@ -2121,16 +2159,16 @@ namespace {
 
 			std::scoped_lock lock(s_mtx);
 			const size_t maxEntries = static_cast<size_t>(s_moduleInspectionCacheMaxEntries.load(std::memory_order_relaxed));
-			if (maxEntries > 0 && s_cache.size() >= maxEntries)
+			const size_t effectiveMax = (std::max)(maxEntries, size_t(4096));
+			if (s_cache.size() >= effectiveMax)
 			{
 				// Expired entries first; if all are fresh, start over.
 				for (auto it = s_cache.begin(); it != s_cache.end(); )
 					it = (now - it->second.at >= maxAge) ? s_cache.erase(it) : std::next(it);
-				if (s_cache.size() >= maxEntries)
+				if (s_cache.size() >= effectiveMax)
 					s_cache.clear();
 			}
-			if (maxEntries > 0)
-				s_cache[nPid] = Entry{ sProcPath, now, res };
+			s_cache[nPid] = Entry{ sProcPath, now, res };
 			return res;
 		}
 
@@ -2143,7 +2181,9 @@ namespace {
 			const std::string& sProcPath,
 			uint32_t nPid,
 			const ModuleInspectionResult& modRes,
-			std::string& outUntrustedReason)
+			std::string& outUntrustedReason,
+			const DetectionNotifier::CloudScanDetail* pPreProcDetail = nullptr,
+			int nPreProcCached = -1)
 		{
 			if (sProcPath.empty() || nPid <= 4) return false;
 
@@ -2153,13 +2193,19 @@ namespace {
 				return false;
 			}
 
-			DetectionNotifier::CloudScanDetail procDetail;
-			int procCached = DetectionNotifier::getCachedFileVerdict(sProcPath, &procDetail);
+			DetectionNotifier::CloudScanDetail localDetail;
+			int procCached = nPreProcCached;
+			const DetectionNotifier::CloudScanDetail* pDetail = pPreProcDetail;
+			if (!pDetail || procCached < 0)
+			{
+				procCached = DetectionNotifier::getCachedFileVerdict(sProcPath, &localDetail);
+				pDetail = &localDetail;
+			}
 			const int cleanVal = s_cleanVerdict.load(std::memory_order_relaxed);
-			bool isProcFlsClean = (procDetail.sFls == "Safe") ||
+			bool isProcFlsClean = (pDetail->sFls == "Safe") ||
 			                      (vProcess.has("flsVerdict") && static_cast<int64_t>(vProcess["flsVerdict"]) == cleanVal);
-			bool isProcViruskovClean = (procDetail.sViruskov == "Clean") ||
-			                           (procDetail.sFls.empty() && procCached == cleanVal);
+			bool isProcViruskovClean = (pDetail->sViruskov == "Clean") ||
+			                           (pDetail->sFls.empty() && procCached == cleanVal);
 
 			EnsurePtmLoaded();
 			int mode = s_configuredTrustMode.load(std::memory_order_relaxed);
@@ -3076,115 +3122,23 @@ namespace {
 		return nCopy;
 	}
 
-	// Forward enriched event to Owlyshield FastDetect ML engine
-	static void ForwardToOwlyshieldMlEngine(const Variant& vEvent)
+	// Forward enriched event to training dataset / GUI behavior pipe.
+	// Uses already-extracted paths from EventEnricher::put so lazy file/process
+	// lambda proxies are never triggered here, and avoids duplicating the
+	// s_fnEnqueue submission already executed by executeUnfilteredLocalScan.
+	static void ForwardToOwlyshieldMlEngine(const Variant& vEvent,
+		const std::string& sProcPath,
+		const std::string& sFilePath)
 	{
-		static HMODULE s_hOwlyDll = nullptr;
-		typedef int32_t (*RtEnqueueUtf8Fn)(const uint8_t*, uint32_t, uint32_t, uint32_t);
-		static RtEnqueueUtf8Fn s_fnEnqueue = nullptr;
-		static std::once_flag s_initFlag;
-
-		std::call_once(s_initFlag, []() {
-			s_hOwlyDll = ::GetModuleHandleW(L"owlyshield_ransom.dll");
-			if (!s_hOwlyDll) s_hOwlyDll = ::LoadLibraryW(L"owlyshield_ransom.dll");
-			if (!s_hOwlyDll)
-			{
-				wchar_t szMod[MAX_PATH] = {};
-				if (::GetModuleFileNameW(nullptr, szMod, MAX_PATH) > 0)
-				{
-					std::filesystem::path p(szMod);
-					s_hOwlyDll = ::LoadLibraryW((p.parent_path() / L"owlyshield_ransom.dll").c_str());
-				}
-			}
-			if (!s_hOwlyDll)
-			{
-				s_hOwlyDll = ::LoadLibraryW(L"C:\\Program Files\\HydraDragonAntivirus\\OpenEDR\\owlyshield_ransom.dll");
-			}
-			if (s_hOwlyDll != nullptr)
-			{
-				s_fnEnqueue = (RtEnqueueUtf8Fn)::GetProcAddress(s_hOwlyDll, "owlyshield_rt_enqueue_utf8");
-			}
-		});
-
-		// Real-time zero-latency file & process submission to daemon scan pool
-		if (s_fnEnqueue != nullptr)
-		{
-			StageTimer stPaths(c_stTrainPaths);
-			try
-			{
-				auto enqueueIfValid = [](RtEnqueueUtf8Fn fn, const std::string& rawPath, uint32_t isProc, uint32_t pid) {
-					if (rawPath.empty()) return;
-					std::string dos = DetectionNotifier::NtPathToDosPathString(rawPath);
-					if (!dos.empty() && (dos.find(":\\") != std::string::npos || dos.rfind("\\\\", 0) == 0))
-					{
-						fn(reinterpret_cast<const uint8_t*>(dos.data()), static_cast<uint32_t>(dos.size()), isProc, pid);
-					}
-				};
-
-				uint32_t nPid = 0;
-				if (auto optPid = variant::getByPathSafe(vEvent, "process.id")) {
-					try { nPid = static_cast<uint32_t>(optPid.value()); } catch (...) {}
-				} else if (auto optPid2 = variant::getByPathSafe(vEvent, "process.pid")) {
-					try { nPid = static_cast<uint32_t>(optPid2.value()); } catch (...) {}
-				}
-
-				// Real-time zero-latency file & process submission to daemon content scan pool
-				// Unfiltered: ALL file events (creates, writes, renames) and process launches are evaluated
-				// 1. File targets: handles file creation, modification, and critical file renames (e.g. ren *.vir *.exe)
-				std::string sSourceFile;
-				if (auto optP = variant::getByPathSafe(vEvent, "file.path"))
-					sSourceFile = std::string(optP.value());
-				else if (auto optP2 = variant::getByPathSafe(vEvent, "file.rawPath"))
-					sSourceFile = std::string(optP2.value());
-				else if (auto optP3 = variant::getByPathSafe(vEvent, "file.abstractPath"))
-					sSourceFile = std::string(optP3.value());
-
-				if (!sSourceFile.empty())
-					enqueueIfValid(s_fnEnqueue, sSourceFile, 0, nPid);
-
-				// Rename target paths: resolve relative filenames against source directory
-				if (auto optRT = variant::getByPathSafe(vEvent, "fileRenameTarget"))
-				{
-					std::string resolvedTarget = ResolveRenameTargetPath(sSourceFile, std::string(optRT.value()));
-					if (!resolvedTarget.empty())
-						enqueueIfValid(s_fnEnqueue, resolvedTarget, 0, nPid);
-				}
-				if (auto optRT2 = variant::getByPathSafe(vEvent, "file.renameTarget"))
-				{
-					std::string resolvedTarget = ResolveRenameTargetPath(sSourceFile, std::string(optRT2.value()));
-					if (!resolvedTarget.empty())
-						enqueueIfValid(s_fnEnqueue, resolvedTarget, 0, nPid);
-				}
-
-				// 2. Process targets (process spawn, executable launching)
-				if (auto optProc = variant::getByPathSafe(vEvent, "process.imageFile.abstractPath"))
-					enqueueIfValid(s_fnEnqueue, std::string(optProc.value()), 1, nPid);
-				else if (auto optProc2 = variant::getByPathSafe(vEvent, "process.imageFile.rawPath"))
-					enqueueIfValid(s_fnEnqueue, std::string(optProc2.value()), 1, nPid);
-				else if (auto optProc3 = variant::getByPathSafe(vEvent, "process.imagePath"))
-					enqueueIfValid(s_fnEnqueue, std::string(optProc3.value()), 1, nPid);
-
-				if (auto optChild = variant::getByPathSafe(vEvent, "childProcess.imageFile.abstractPath"))
-					enqueueIfValid(s_fnEnqueue, std::string(optChild.value()), 1, nPid);
-			}
-			catch (...) {}
-		}
-
-		// No owlyshield_dll_ingest_openedr_event: its consumer (owlyshield
-		// worker.rs TelemetryDrain) drops OpenedrEvent lines since the ML engine
-		// was removed, and serializing every event to JSON for it (resolving all
-		// lazy fields) was paid on every event for nothing.
-
-		// Also send rich event telemetry to the Pascal GUI via HydraHipEvent named pipe
 		try
 		{
-			std::string sPath;
-			if (auto optP = variant::getByPathSafe(vEvent, "process.imageFile.abstractPath"))
-				sPath = std::string(optP.value());
-			else if (auto optP2 = variant::getByPathSafe(vEvent, "process.imageFile.rawPath"))
-				sPath = std::string(optP2.value());
-			else if (auto optP3 = variant::getByPathSafe(vEvent, "childProcess.imageFile.abstractPath"))
-				sPath = std::string(optP3.value());
+			std::string sPath = sProcPath;
+			if (!sPath.empty() && sPath.find(":\\") == std::string::npos)
+			{
+				std::string dosProc = DetectionNotifier::NtPathToDosPathString(sPath);
+				if (!dosProc.empty())
+					sPath = std::move(dosProc);
+			}
 
 			std::string sType = vEvent.get("type", std::string());
 			if (sType.empty()) sType = vEvent.get("eventType", std::string());
@@ -3192,25 +3146,32 @@ namespace {
 			if (!sPath.empty() && !sType.empty())
 			{
 				std::string sDetails;
-				// Extract file target
-				if (auto optF = variant::getByPathSafe(vEvent, "file.path"))
-					sDetails = " [File: " + std::string(optF.value()) + "]";
-				else if (auto optF2 = variant::getByPathSafe(vEvent, "file.rawPath"))
-					sDetails = " [File: " + std::string(optF2.value()) + "]";
+				// Extract file target from pre-extracted raw path (no lazy proxy evaluation)
+				if (!sFilePath.empty())
+					sDetails = " [File: " + sFilePath + "]";
 				// Extract registry target
-				else if (auto optR = variant::getByPathSafe(vEvent, "registry.path"))
-					sDetails = " [Reg: " + std::string(optR.value()) + "]";
-				// Extract API hook function and module
-				else if (auto optA = variant::getByPathSafe(vEvent, "owlyHook.apiFunction"))
+				else if (vEvent.has("registry"))
 				{
-					if (auto optM = variant::getByPathSafe(vEvent, "owlyHook.apiModule"))
-						sDetails = " [API: " + std::string(optM.value()) + "!" + std::string(optA.value()) + "]";
-					else
-						sDetails = " [API: " + std::string(optA.value()) + "]";
+					if (auto optR = variant::getByPathSafe(vEvent, "registry.path"))
+						sDetails = " [Reg: " + std::string(optR.value()) + "]";
+				}
+				// Extract API hook function and module
+				else if (vEvent.has("owlyHook"))
+				{
+					if (auto optA = variant::getByPathSafe(vEvent, "owlyHook.apiFunction"))
+					{
+						if (auto optM = variant::getByPathSafe(vEvent, "owlyHook.apiModule"))
+							sDetails = " [API: " + std::string(optM.value()) + "!" + std::string(optA.value()) + "]";
+						else
+							sDetails = " [API: " + std::string(optA.value()) + "]";
+					}
 				}
 				// Extract network destination
-				else if (auto optN = variant::getByPathSafe(vEvent, "network.destinationAddress"))
-					sDetails = " [Net: " + std::string(optN.value()) + "]";
+				else if (vEvent.has("network"))
+				{
+					if (auto optN = variant::getByPathSafe(vEvent, "network.destinationAddress"))
+						sDetails = " [Net: " + std::string(optN.value()) + "]";
+				}
 
 				// Offload training serialization/submission and GUI pipe I/O to a
 				// background thread so they never stall the enricher queue.
@@ -3723,21 +3684,19 @@ namespace {
 	}
 }
 
-void EventEnricher::recordShadowBackup(int64_t nPid, Event eEventType, const Variant& vEvent)
+static void recordShadowBackupImpl(int64_t nPid, Event eEventType, const Variant& vEvent,
+	const std::wstring* pWsRawFilePath, const std::wstring* pWsRawRenameTarget,
+	const std::wstring* pWsRawBackupPath, int64_t nRawCreationStatus, bool fHasRawFileInfo)
 {
 	if (nPid <= 0)
 		return;
-	uint64_t nTick = 0;
-	try
-	{
-		nTick = getByPath(vEvent, "tickTime", uint64_t(0));
-	}
-	catch (...) {}
 
 	switch (eEventType)
 	{
 	case Event::LLE_PROCESS_DELETE:
 	{
+		uint64_t nTick = 0;
+		try { nTick = getByPath(vEvent, "tickTime", uint64_t(0)); } catch (...) {}
 		// Kept (with its lineage) for a while instead of dropped, so a
 		// process that made its changes and exited is still rolled back
 		// when the process that started it is convicted.
@@ -3745,34 +3704,71 @@ void EventEnricher::recordShadowBackup(int64_t nPid, Event eEventType, const Var
 		Lineage::retireLocked(nPid, nTick);
 		return;
 	}
-	default:
+	case Event::LLE_FILE_CREATE:
+		if (fHasRawFileInfo && nRawCreationStatus != 1 && nRawCreationStatus != 3)
+			return;
 		break;
+	case Event::LLE_FILE_DATA_READ_FULL:
+	case Event::LLE_FILE_MAP_READ:
+	case Event::LLE_FILE_PREIMAGE_SAVED:
+	case Event::LLE_FILE_DATA_WRITE_FULL:
+	case Event::LLE_FILE_DATA_CHANGE:
+	case Event::LLE_FILE_MAP_WRITE:
+	case Event::LLE_FILE_DELETE:
+	case Event::LLE_FILE_RENAME:
+		break;
+	default:
+		return;
 	}
+
+	uint64_t nTick = 0;
+	try
+	{
+		nTick = getByPath(vEvent, "tickTime", uint64_t(0));
+	}
+	catch (...) {}
 
 	std::wstring wsFilePath;
 	std::wstring wsNewName;
-	try
+	std::wstring wsBkInEvent;
+	int64_t nCreationStatus = nRawCreationStatus;
+	if (fHasRawFileInfo)
 	{
-		Variant vFile = vEvent.get("file");
-		wsFilePath = vFile.get("path", L"");
-		if (wsFilePath.empty())
-			wsFilePath = vFile.get("rawPath", L"");
-		if (wsFilePath.empty())
-			wsFilePath = vFile.get("uniquePath", L"");
-		if (wsFilePath.empty())
-			wsFilePath = vFile.get("abstractPath", L"");
-
-		wsFilePath = NormalizeToDosPath(wsFilePath);
-
-		if (vFile.has("renameTarget"))
-		{
-			wsNewName = vFile.get("renameTarget", L"");
-			wsNewName = ResolveRenameTargetPathW(wsFilePath, wsNewName);
-		}
+		if (pWsRawFilePath && !pWsRawFilePath->empty())
+			wsFilePath = NormalizeToDosPath(*pWsRawFilePath);
+		if (!wsFilePath.empty() && pWsRawRenameTarget && !pWsRawRenameTarget->empty())
+			wsNewName = ResolveRenameTargetPathW(wsFilePath, *pWsRawRenameTarget);
+		if (pWsRawBackupPath && !pWsRawBackupPath->empty())
+			wsBkInEvent = *pWsRawBackupPath;
 	}
-	catch (...)
+	else
 	{
-		return;
+		try
+		{
+			Variant vFile = vEvent.get("file");
+			wsFilePath = vFile.get("path", L"");
+			if (wsFilePath.empty())
+				wsFilePath = vFile.get("rawPath", L"");
+			if (wsFilePath.empty())
+				wsFilePath = vFile.get("uniquePath", L"");
+			if (wsFilePath.empty())
+				wsFilePath = vFile.get("abstractPath", L"");
+
+			wsFilePath = NormalizeToDosPath(wsFilePath);
+
+			if (vFile.has("renameTarget"))
+			{
+				wsNewName = vFile.get("renameTarget", L"");
+				wsNewName = ResolveRenameTargetPathW(wsFilePath, wsNewName);
+			}
+			wsBkInEvent = vFile.get("backupPath", L"");
+			if (eEventType == Event::LLE_FILE_CREATE)
+				nCreationStatus = vFile.get("creationStatus", int64_t(0));
+		}
+		catch (...)
+		{
+			return;
+		}
 	}
 
 	if (wsFilePath.empty())
@@ -3788,13 +3784,8 @@ void EventEnricher::recordShadowBackup(int64_t nPid, Event eEventType, const Var
 		case Event::LLE_FILE_MAP_READ:
 		{
 			std::wstring wsBk;
-			try
-			{
-				Variant vF = vEvent.get("file");
-				wsBk = vF.get("backupPath", L"");
-				wsBk = NormalizeToDosPath(wsBk);
-			}
-			catch (...) {}
+			if (!wsBkInEvent.empty())
+				wsBk = NormalizeToDosPath(wsBkInEvent);
 			if (!wsBk.empty())
 				s_allPreImages[wsFilePath] = wsBk;
 			readMap[wsFilePath] = std::move(wsBk);
@@ -3809,22 +3800,9 @@ void EventEnricher::recordShadowBackup(int64_t nPid, Event eEventType, const Var
 		case Event::LLE_FILE_DELETE:
 		case Event::LLE_FILE_RENAME:
 		{
+			if (eEventType == Event::LLE_FILE_CREATE && nCreationStatus != 1 && nCreationStatus != 3)
+				break;
 			ZeroTrust::onProcessFileModification(static_cast<uint32_t>(nPid), string::convertWCharToUtf8(wsFilePath));
-			// FileCreate comes for every open. Only a new file (1 created) or an
-			// overwrite (3 truncated: supersede / overwrite) changes anything; a
-			// plain open does not, and rollback deleted files that had only been
-			// opened. Without the field (older driver) it counts as an open.
-			int64_t nCreationStatus = 0;
-			if (eEventType == Event::LLE_FILE_CREATE)
-			{
-				try
-				{
-					nCreationStatus = getByPath(vEvent, "file.creationStatus", int64_t(0));
-				}
-				catch (...) {}
-				if (nCreationStatus != 1 && nCreationStatus != 3)
-					break;
-			}
 			constexpr size_t c_nMaxBackupsPerProcess = 1000;
 			auto& vec = s_backups[nPid];
 			if (vec.size() < c_nMaxBackupsPerProcess)
@@ -3838,11 +3816,6 @@ void EventEnricher::recordShadowBackup(int64_t nPid, Event eEventType, const Var
 					 eEventType == Event::LLE_FILE_MAP_WRITE) ? 0 :
 					(eEventType == Event::LLE_FILE_DELETE) ? 1 : 2;
 				entry.wsNewName = wsNewName;
-
-				std::wstring wsBkInEvent;
-				try {
-					wsBkInEvent = vEvent.get("file").get("backupPath", L"");
-				} catch (...) {}
 
 				if (!wsBkInEvent.empty())
 				{
@@ -3893,6 +3866,11 @@ void EventEnricher::recordShadowBackup(int64_t nPid, Event eEventType, const Var
 			break;
 		}
 	}
+}
+
+void EventEnricher::recordShadowBackup(int64_t nPid, Event eEventType, const Variant& vEvent)
+{
+	recordShadowBackupImpl(nPid, eEventType, vEvent, nullptr, nullptr, nullptr, 0, false);
 }
 
 void EventEnricher::handleThreatRemediation(int64_t nPid, const std::wstring& /* sImage */, const std::string& sThreatName)
@@ -4146,14 +4124,16 @@ static bool rescanOne(const std::string& dos, uint32_t nPid)
 	// Suspicious (3) goes on like Malicious, as on the sync path.
 	else if (nScan != 2 && nScan != 3)
 	{
+		// Already confirmed Clean (e.g. Comodo FLS Safe) - finish immediately
+		// without looping even if VirusKov timed out (Deferred).
+		if (nScan == nClean)
+			return true;
 		if (DriverPortHips::s_configuredTrustMode.load(std::memory_order_relaxed) != 1 && detail.sViruskov == "Deferred")
 			return false;
-		// Decided when Clean, or when VirusKov answered "unknown" (it looked and
-		// cannot tell; asking again gets the same answer). Only a scan that got
-		// no answer (deferred: connection error, timeout, locked file) is tried
-		// again - every "unknown" used to be re-asked 8 times over 19 minutes,
-		// each time rehashing the file and queueing on the one cloud lock.
-		return nScan == nClean || detail.sViruskov == "Unknown";
+		// Decided when VirusKov answered "unknown" (it looked and cannot tell;
+		// asking again gets the same answer). Only a scan that got no answer
+		// (deferred: connection error, timeout, locked file) is tried again.
+		return detail.sViruskov == "Unknown";
 	}
 	if (sThreat.empty())
 		sThreat = "Malware.LocalDetection";
@@ -5109,13 +5089,23 @@ void EventEnricher::executeUnfilteredLocalScan(Variant& vEvent, Variant& vProces
 				const size_t n = std::strlen(sfx);
 				return lowerDos.size() >= n && lowerDos.compare(lowerDos.size() - n, n, sfx) == 0;
 			};
-			const bool isPerfDat = endsWith(".dat") &&
+			const bool isPerfDat =
+				(endsWith(".dat") &&
 				(lowerDos.find("\\windows\\system32\\perfc") != std::string::npos ||
 				 lowerDos.find("\\windows\\system32\\perfh") != std::string::npos ||
 				 lowerDos.find("\\webcachev01.dat") != std::string::npos ||
 				 lowerDos.find("\\staticcache.dat") != std::string::npos ||
 				 lowerDos.find("\\activationstore.dat") != std::string::npos ||
-				 lowerDos.find("\\fontcache") != std::string::npos);
+				 lowerDos.find("\\fontcache") != std::string::npos ||
+				 endsWith("\\settings.dat") ||
+				 endsWith("\\icudtl.dat") ||
+				 endsWith("\\icudt44l.dat") ||
+				 endsWith("\\discovercachedata.dat"))) ||
+				endsWith("\\structuredqueryschema.bin") ||
+				endsWith("\\knowngamelist.bin") ||
+				endsWith("\\start2.bin") ||
+				endsWith("\\v8_context_snapshot.bin") ||
+				(lowerDos.find(":streamedfilestate") != std::string::npos);
 			const bool isOsMetaFile =
 				endsWith("\\desktop.ini") || endsWith("\\appxblockmap.xml") ||
 				endsWith("\\transcodedwallpaper") ||
@@ -5132,10 +5122,21 @@ void EventEnricher::executeUnfilteredLocalScan(Variant& vEvent, Variant& vProces
 				"\\windows\\wdi\\",
 				"\\windows\\csc\\",
 				"\\windows\\bcastdvr\\",
+				"\\windows\\logs\\",
+				"\\windows\\system32\\tasks\\microsoft\\",
 				"\\programdata\\microsoft\\diagnosis\\",
 				"\\programdata\\microsoft\\windows\\wer\\",
 				"\\programdata\\microsoft\\windows\\onesettings\\",
 				"\\programdata\\microsoft\\edgeupdate\\log\\",
+				"\\programdata\\microsoft\\search\\",
+				"\\programdata\\microsoft\\windows\\powergrid\\",
+				"\\programdata\\microsoft\\windows\\apprepository\\",
+				"\\appdata\\roaming\\microsoft\\protect\\",
+				"\\targetedcontentcache\\",
+				"\\trust protection lists\\",
+				"\\system volume information\\",
+				"\\onedrive\\logs\\",
+				"\\onedrive\\settings\\",
 				"\\localcache\\",
 				"\\inetcache\\",
 				"\\tempstate\\",
@@ -5167,6 +5168,8 @@ void EventEnricher::executeUnfilteredLocalScan(Variant& vEvent, Variant& vProces
 				".winmd", ".msstyles", ".dic", ".nlp", ".uce",
 				".png", ".jpg", ".jpeg", ".gif", ".bmp", ".ico", ".webp",
 				".diffbase", ".uusver", ".pcpkey", ".gthr", ".bk",
+				".txt", ".ini", ".json", ".otc", ".otc-wal", ".otc-shm",
+				".keystore", ".crwl", ".checkpoint", ".ses", ".pb", ".inf", ".manifest",
 			};
 			bool hasSkipExt = false;
 			for (const char* ext : c_kSkipExts)
@@ -5251,11 +5254,11 @@ void EventEnricher::executeUnfilteredLocalScan(Variant& vEvent, Variant& vProces
 
 		// Process executable images only need evaluation at process creation; on
 		// routine sub-events (registry, thread/desktop open, etc.), never run a
-		// blocking synchronous scan on the single enricher thread -- queue one
-		// deduplicated background scan if the verdict is still Unknown (0).
+		// blocking synchronous scan on the single enricher thread, and never queue
+		// Windows/OS component images onto RescanQueue on sub-events.
 		if (isProc && eEventType != Event::LLE_PROCESS_CREATE)
 		{
-			if (cachedVerdict == 0)
+			if (!IsWindowsOsComponentPath(lowerDos) && cachedVerdict == 0)
 			{
 				StageTimer _stQ(c_stScanAsyncQueue);
 				AsyncRescanAndQuarantine(dos, nPid, true);
@@ -5308,7 +5311,8 @@ void EventEnricher::executeUnfilteredLocalScan(Variant& vEvent, Variant& vProces
 				RescanQueue::enqueueWatch(dos, nPid); // content arrives later
 			else if (ec || nSize > 0)
 			{
-				const bool bHighPriority = isProc ||
+				const bool bHighPriority =
+					(isProc && !IsWindowsOsComponentPath(lowerDos)) ||
 					eEventType == Event::LLE_FILE_DATA_WRITE_FULL ||
 					eEventType == Event::LLE_FILE_DATA_CHANGE ||
 					eEventType == Event::LLE_FILE_RENAME;
@@ -6204,7 +6208,8 @@ void EventEnricher::put(const Variant& vEventRef)
 
 	std::string untrustedReason;
 	auto tStc_stTrust = std::chrono::steady_clock::now();
-	bool isProcessTrusted = DriverPortHips::IsProcessTrustedConfigurable(vProcess, sProcPath, nActorPid, modRes, untrustedReason);
+	bool isProcessTrusted = DriverPortHips::IsProcessTrustedConfigurable(
+		vProcess, sProcPath, nActorPid, modRes, untrustedReason, &procDetail, procCached);
 	lagScope.mark(c_stTrust, tStc_stTrust);
 	vProcess.put("isTrusted", isProcessTrusted);
 
@@ -6246,6 +6251,15 @@ void EventEnricher::put(const Variant& vEventRef)
 	vEvent.put("process", vProcess);
 	Variant vToken = getByPath(vProcess, "token.tokenObj", {});
 
+	// Pre-extract raw file properties before createLambdaProxy replaces vEvent["file"],
+	// so recordShadowBackupImpl and ForwardToOwlyshieldMlEngine never evaluate lazy proxies.
+	std::string sRawFilePathUtf8;
+	std::wstring wsRawFilePath;
+	std::wstring wsRawRenameTarget;
+	std::wstring wsRawBackupPath;
+	int64_t nRawCreationStatus = 0;
+	bool fHasRawFileSnapshot = false;
+
 	// TODO: Please add statistic for each type of processes data
 	switch (eEventType)
 	{
@@ -6257,6 +6271,22 @@ void EventEnricher::put(const Variant& vEventRef)
 	case Event::LLE_FILE_DATA_WRITE_FULL:
 	{
 		Dictionary vParams = vEvent.get("file");
+		{
+			try
+			{
+				wsRawFilePath = vParams.get("path", L"");
+				if (wsRawFilePath.empty()) wsRawFilePath = vParams.get("rawPath", L"");
+				if (wsRawFilePath.empty()) wsRawFilePath = vParams.get("uniquePath", L"");
+				if (wsRawFilePath.empty()) wsRawFilePath = vParams.get("abstractPath", L"");
+				if (!wsRawFilePath.empty())
+					sRawFilePathUtf8 = string::convertWCharToUtf8(wsRawFilePath);
+			}
+			catch (...) {}
+			try { wsRawRenameTarget = vParams.get("renameTarget", L""); } catch (...) {}
+			try { wsRawBackupPath = vParams.get("backupPath", L""); } catch (...) {}
+			try { nRawCreationStatus = vParams.get("creationStatus", int64_t(0)); } catch (...) {}
+			fHasRawFileSnapshot = true;
+		}
 		vParams.put("security", vToken);
 		if (eEventType == Event::LLE_FILE_DELETE)
 			vParams.put("cmdRemove", true);
@@ -6519,6 +6549,21 @@ void EventEnricher::put(const Variant& vEventRef)
 		// the enriched file object below replaces the raw dictionary that
 		// carried it.
 		Dictionary vParams = vEvent.get("file");
+		{
+			try
+			{
+				wsRawFilePath = vParams.get("path", L"");
+				if (wsRawFilePath.empty()) wsRawFilePath = vParams.get("rawPath", L"");
+				if (wsRawFilePath.empty()) wsRawFilePath = vParams.get("uniquePath", L"");
+				if (wsRawFilePath.empty()) wsRawFilePath = vParams.get("abstractPath", L"");
+				if (!wsRawFilePath.empty())
+					sRawFilePathUtf8 = string::convertWCharToUtf8(wsRawFilePath);
+			}
+			catch (...) {}
+			try { wsRawRenameTarget = vParams.get("renameTarget", L""); } catch (...) {}
+			try { wsRawBackupPath = vParams.get("backupPath", L""); } catch (...) {}
+			fHasRawFileSnapshot = true;
+		}
 		if (vParams.has("renameTarget"))
 			vEvent.put("fileRenameTarget", vParams["renameTarget"]);
 		vParams.put("security", vToken);
@@ -6547,6 +6592,20 @@ void EventEnricher::put(const Variant& vEventRef)
 		// Memory-mapped section I/O: enrich like regular file events so
 		// policies can correlate mapped reads/writes via uniquePath.
 		Dictionary vParams = vEvent.get("file");
+		{
+			try
+			{
+				wsRawFilePath = vParams.get("path", L"");
+				if (wsRawFilePath.empty()) wsRawFilePath = vParams.get("rawPath", L"");
+				if (wsRawFilePath.empty()) wsRawFilePath = vParams.get("uniquePath", L"");
+				if (wsRawFilePath.empty()) wsRawFilePath = vParams.get("abstractPath", L"");
+				if (!wsRawFilePath.empty())
+					sRawFilePathUtf8 = string::convertWCharToUtf8(wsRawFilePath);
+			}
+			catch (...) {}
+			try { wsRawBackupPath = vParams.get("backupPath", L""); } catch (...) {}
+			fHasRawFileSnapshot = true;
+		}
 		vParams.put("security", vToken);
 		vEvent.put("file", variant::createLambdaProxy([vParams]() -> Variant
 		{
@@ -6950,7 +7009,9 @@ void EventEnricher::put(const Variant& vEventRef)
 			} catch (...) {}
 		}
 		auto tStc_stShadow = std::chrono::steady_clock::now();
-		recordShadowBackup(nShieldPid, eEventType, vEvent);
+		recordShadowBackupImpl(nShieldPid, eEventType, vEvent,
+			&wsRawFilePath, &wsRawRenameTarget, &wsRawBackupPath,
+			nRawCreationStatus, fHasRawFileSnapshot);
 		lagScope.mark(c_stShadow, tStc_stShadow);
 
 		// If policy generated any detection/threat event, execute universal remediation (file rollback + terminate + quarantine)
@@ -6987,9 +7048,9 @@ void EventEnricher::put(const Variant& vEventRef)
 	{
 	}
 
-	// Feed all enriched events (files, processes, registry, etc.) to Owlyshield FastDetect ML engine
+	// Feed enriched events to training dataset / GUI pipe without triggering lazy proxies
 	auto tStTraining = std::chrono::steady_clock::now();
-	ForwardToOwlyshieldMlEngine(vEvent);
+	ForwardToOwlyshieldMlEngine(vEvent, sProcPath, sRawFilePathUtf8);
 	auto tStReceiver = lagScope.mark(c_stTraining, tStTraining);
 
 	pReceiver->put(vEvent);
