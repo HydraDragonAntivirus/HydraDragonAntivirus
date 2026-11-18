@@ -1128,6 +1128,446 @@ unsafe fn verify_catalog_signature(path_wide: &[u16]) -> Option<String> {
     }
 }
 
+struct PeAuthenticodeHashes {
+    sha256: [u8; 32],
+    sha1: [u8; 20],
+    has_trailing_bytes: bool,
+    pieces_ranges: [(usize, usize); 3],
+}
+
+fn pe_authenticode_hashes(data: &[u8]) -> Option<PeAuthenticodeHashes> {
+    use sha1::Sha1;
+    use sha2::{Digest, Sha256};
+
+    if data.len() < 0x40 || &data[..2] != b"MZ" {
+        return None;
+    }
+    let e_lfanew = u32::from_le_bytes(data.get(0x3C..0x40)?.try_into().ok()?) as usize;
+    if data.get(e_lfanew..e_lfanew + 4)? != b"PE\0\0" {
+        return None;
+    }
+    let opt = e_lfanew + 24;
+    let magic = u16::from_le_bytes(data.get(opt..opt + 2)?.try_into().ok()?);
+    let dirs = match magic {
+        0x10B => opt + 96,
+        0x20B => opt + 112,
+        _ => return None,
+    };
+    let num_dirs = u32::from_le_bytes(data.get(dirs - 4..dirs)?.try_into().ok()?);
+    let checksum = opt + 64;
+    if checksum + 4 > data.len() {
+        return None;
+    }
+
+    let (cert_entry, cert_off, cert_size) = if num_dirs >= 5 {
+        let entry = dirs + 4 * 8;
+        let off = u32::from_le_bytes(data.get(entry..entry + 4)?.try_into().ok()?) as usize;
+        let sz = u32::from_le_bytes(data.get(entry + 4..entry + 8)?.try_into().ok()?) as usize;
+        (entry, off, sz)
+    } else {
+        (checksum + 4, 0, 0)
+    };
+
+    let (hash_end, has_trailing_bytes) = if cert_off > 0 && cert_size > 0 {
+        let cert_end = cert_off.checked_add(cert_size)?;
+        if cert_off < cert_entry + 8 || cert_end > data.len() {
+            return None;
+        }
+        (cert_off, cert_end != data.len())
+    } else {
+        (data.len(), false)
+    };
+
+    let r0 = (0, checksum);
+    let r1 = if num_dirs >= 5 {
+        (checksum + 4, cert_entry)
+    } else {
+        (checksum + 4, checksum + 4)
+    };
+    let r2 = if num_dirs >= 5 {
+        (cert_entry + 8, hash_end)
+    } else {
+        (checksum + 4, hash_end)
+    };
+    if r0.1 > r1.0 || r1.1 > r2.0 || r2.1 > data.len() {
+        return None;
+    }
+
+    let mut h256 = Sha256::new();
+    let mut h1 = Sha1::new();
+    for &(start, end) in &[r0, r1, r2] {
+        let slice = &data[start..end];
+        h256.update(slice);
+        h1.update(slice);
+    }
+
+    Some(PeAuthenticodeHashes {
+        sha256: h256.finalize().into(),
+        sha1: h1.finalize().into(),
+        has_trailing_bytes,
+        pieces_ranges: [r0, r1, r2],
+    })
+}
+
+/// Fast in-memory check whether `data` matches any catalog entry in the local
+/// Windows `CatRoot` database. Zero disk writes.
+#[cfg(windows)]
+pub fn is_in_windows_catalog_bytes(data: &[u8]) -> bool {
+    use std::cell::Cell;
+    use sha1::Sha1;
+    use sha2::{Digest, Sha256};
+
+    struct ThreadCatAdmin(Cell<*mut std::ffi::c_void>);
+    impl Drop for ThreadCatAdmin {
+        fn drop(&mut self) {
+            let p = self.0.get();
+            if !p.is_null() {
+                unsafe {
+                    let _ = CryptCATAdminReleaseContext(p, 0);
+                }
+            }
+        }
+    }
+    thread_local! {
+        static CAT_ADMIN: ThreadCatAdmin = const { ThreadCatAdmin(Cell::new(std::ptr::null_mut())) };
+    }
+
+    let (sha256, sha1): ([u8; 32], [u8; 20]) = if let Some(pe) = pe_authenticode_hashes(data) {
+        (pe.sha256, pe.sha1)
+    } else {
+        (Sha256::digest(data).into(), Sha1::digest(data).into())
+    };
+
+    CAT_ADMIN.with(|cell| {
+        let mut admin = cell.0.get();
+        if admin.is_null() {
+            let ok = unsafe { CryptCATAdminAcquireContext(&mut admin, std::ptr::null(), 0) };
+            if ok == 0 || admin.is_null() {
+                return false;
+            }
+            cell.0.set(admin);
+        }
+
+        for hash in [&sha256[..], &sha1[..]] {
+            let mut prev: *mut std::ffi::c_void = std::ptr::null_mut();
+            let cat_info = unsafe {
+                CryptCATAdminEnumCatalogFromHash(
+                    admin,
+                    hash.as_ptr(),
+                    hash.len() as u32,
+                    0,
+                    &mut prev,
+                )
+            };
+            if !cat_info.is_null() {
+                unsafe {
+                    let _ = CryptCATAdminReleaseCatalogContext(admin, cat_info, 0);
+                }
+                return true;
+            }
+        }
+        false
+    })
+}
+
+/// In-memory verification of an embedded PE Authenticode PKCS#7 signature.
+/// Returns `None` if `data` has no embedded PE PKCS#7 signature.
+#[cfg(windows)]
+pub fn verify_authenticode_bytes(data: &[u8]) -> Option<AuthenticodeInfo> {
+    use windows::Win32::Security::Cryptography::{
+        CertCloseStore, CertFreeCertificateChain, CertFreeCertificateContext,
+        CertGetCertificateChain, CertGetNameStringW, CertGetSubjectCertificateFromStore,
+        CertVerifyCertificateChainPolicy, CryptMsgClose, CryptMsgControl, CryptMsgGetParam,
+        CryptQueryObject, CERT_CHAIN_CONTEXT, CERT_CHAIN_PARA, CERT_CHAIN_POLICY_AUTHENTICODE,
+        CERT_CHAIN_POLICY_PARA, CERT_CHAIN_POLICY_STATUS, CERT_CONTEXT, CERT_INFO,
+        CERT_NAME_SIMPLE_DISPLAY_TYPE, CERT_QUERY_CONTENT_FLAG_PKCS7_SIGNED,
+        CERT_QUERY_FORMAT_FLAG_BINARY, CERT_QUERY_OBJECT_BLOB, CMSG_CONTENT_PARAM,
+        CMSG_CTRL_VERIFY_SIGNATURE, CMSG_SIGNER_INFO, CMSG_SIGNER_INFO_PARAM, CRYPT_INTEGER_BLOB,
+        HCERTSTORE, PKCS_7_ASN_ENCODING, X509_ASN_ENCODING,
+    };
+
+    let pkcs7 = crate::auth_timestamp::embedded_pkcs7(data)?;
+    let pe_hashes = pe_authenticode_hashes(data)?;
+
+    let blob = CRYPT_INTEGER_BLOB {
+        cbData: pkcs7.len() as u32,
+        pbData: pkcs7.as_ptr() as *mut u8,
+    };
+
+    let mut hstore = HCERTSTORE::default();
+    let mut hmsg = Default::default();
+    let queried = unsafe {
+        CryptQueryObject(
+            CERT_QUERY_OBJECT_BLOB,
+            &blob as *const _ as *const std::ffi::c_void,
+            CERT_QUERY_CONTENT_FLAG_PKCS7_SIGNED,
+            CERT_QUERY_FORMAT_FLAG_BINARY,
+            0,
+            None,
+            None,
+            None,
+            Some(&mut hstore),
+            Some(&mut hmsg),
+            None,
+        )
+    };
+    if queried.is_err() || hmsg.is_null() {
+        if !hstore.0.is_null() {
+            unsafe {
+                let _ = CertCloseStore(Some(hstore), 0);
+            }
+        }
+        return Some(AuthenticodeInfo {
+            status: "unsigned".to_string(),
+            ..Default::default()
+        });
+    }
+
+    let mut signer_info_size: u32 = 0;
+    let mut signer_info_buf = Vec::new();
+    let got_signer = unsafe {
+        CryptMsgGetParam(hmsg, CMSG_SIGNER_INFO_PARAM, 0, None, &mut signer_info_size).is_ok()
+            && signer_info_size as usize >= std::mem::size_of::<CMSG_SIGNER_INFO>()
+            && {
+                signer_info_buf.resize(signer_info_size as usize, 0);
+                CryptMsgGetParam(
+                    hmsg,
+                    CMSG_SIGNER_INFO_PARAM,
+                    0,
+                    Some(signer_info_buf.as_mut_ptr() as *mut std::ffi::c_void),
+                    &mut signer_info_size,
+                )
+                .is_ok()
+            }
+    };
+
+    let mut leaf_cert: *const CERT_CONTEXT = std::ptr::null();
+    if got_signer && !hstore.0.is_null() {
+        let signer_info = unsafe { &*(signer_info_buf.as_ptr() as *const CMSG_SIGNER_INFO) };
+        let mut lookup_info = CERT_INFO {
+            Issuer: signer_info.Issuer,
+            SerialNumber: signer_info.SerialNumber,
+            ..Default::default()
+        };
+        leaf_cert = unsafe {
+            CertGetSubjectCertificateFromStore(
+                hstore,
+                X509_ASN_ENCODING | PKCS_7_ASN_ENCODING,
+                &mut lookup_info,
+            )
+        };
+    }
+
+    let mut sig_valid = false;
+    let mut chain_trusted = false;
+    let mut signer_name = None;
+    let mut issuer = None;
+    let mut thumbprint = None;
+    let mut not_before = None;
+    let mut not_after = None;
+    let mut chain_len = 0usize;
+
+    if !leaf_cert.is_null() {
+        unsafe {
+            let leaf_ref = &*leaf_cert;
+            if !leaf_ref.pCertInfo.is_null() {
+                sig_valid = CryptMsgControl(
+                    hmsg,
+                    0,
+                    CMSG_CTRL_VERIFY_SIGNATURE,
+                    Some(leaf_ref.pCertInfo as *const std::ffi::c_void),
+                )
+                .is_ok();
+
+                let cert_info = &*leaf_ref.pCertInfo;
+                not_before = Some(filetime_to_unix(cert_info.NotBefore));
+                not_after = Some(filetime_to_unix(cert_info.NotAfter));
+            }
+            thumbprint = cert_thumbprint(leaf_cert);
+
+            let mut name_buf = [0u16; 256];
+            let len = CertGetNameStringW(
+                leaf_cert,
+                CERT_NAME_SIMPLE_DISPLAY_TYPE,
+                0,
+                None,
+                Some(&mut name_buf),
+            );
+            if len > 1 {
+                signer_name = Some(String::from_utf16_lossy(&name_buf[..(len as usize - 1)]));
+            }
+
+            let chain_para = CERT_CHAIN_PARA {
+                cbSize: std::mem::size_of::<CERT_CHAIN_PARA>() as u32,
+                ..Default::default()
+            };
+            let mut chain_ctx: *mut CERT_CHAIN_CONTEXT = std::ptr::null_mut();
+            if CertGetCertificateChain(
+                None,
+                leaf_cert,
+                None,
+                Some(hstore),
+                &chain_para,
+                0,
+                None,
+                &mut chain_ctx,
+            )
+            .is_ok()
+                && !chain_ctx.is_null()
+            {
+                let ctx_ref = &*chain_ctx;
+                if ctx_ref.cChain > 0 && !ctx_ref.rgpChain.is_null() {
+                    let simple_chain = &**ctx_ref.rgpChain;
+                    chain_len = simple_chain.cElement as usize;
+                    if simple_chain.cElement > 1 && !simple_chain.rgpElement.is_null() {
+                        let next_elem = &**simple_chain.rgpElement.add(1);
+                        if !next_elem.pCertContext.is_null() {
+                            let mut issuer_buf = [0u16; 256];
+                            let ilen = CertGetNameStringW(
+                                next_elem.pCertContext,
+                                CERT_NAME_SIMPLE_DISPLAY_TYPE,
+                                0,
+                                None,
+                                Some(&mut issuer_buf),
+                            );
+                            if ilen > 1 {
+                                issuer = Some(String::from_utf16_lossy(&issuer_buf[..(ilen as usize - 1)]));
+                            }
+                        }
+                    }
+                }
+
+                let mut policy_para = CERT_CHAIN_POLICY_PARA {
+                    cbSize: std::mem::size_of::<CERT_CHAIN_POLICY_PARA>() as u32,
+                    ..Default::default()
+                };
+                let mut policy_status = CERT_CHAIN_POLICY_STATUS {
+                    cbSize: std::mem::size_of::<CERT_CHAIN_POLICY_STATUS>() as u32,
+                    ..Default::default()
+                };
+                if CertVerifyCertificateChainPolicy(
+                    CERT_CHAIN_POLICY_AUTHENTICODE,
+                    chain_ctx,
+                    &mut policy_para,
+                    &mut policy_status,
+                )
+                .as_bool()
+                {
+                    chain_trusted = policy_status.dwError == 0;
+                }
+                CertFreeCertificateChain(chain_ctx);
+            }
+            let _ = CertFreeCertificateContext(Some(leaf_cert));
+        }
+    }
+
+    // Verify signed SpcIndirectDataContent digest matches PE Authenticode digest.
+    let mut digest_matches = false;
+    let mut content_size: u32 = 0;
+    let mut content_buf = Vec::new();
+    let got_content = unsafe {
+        CryptMsgGetParam(hmsg, CMSG_CONTENT_PARAM, 0, None, &mut content_size).is_ok()
+            && content_size > 0
+            && {
+                content_buf.resize(content_size as usize, 0);
+                CryptMsgGetParam(
+                    hmsg,
+                    CMSG_CONTENT_PARAM,
+                    0,
+                    Some(content_buf.as_mut_ptr() as *mut std::ffi::c_void),
+                    &mut content_size,
+                )
+                .is_ok()
+            }
+    };
+    if got_content && !pe_hashes.has_trailing_bytes {
+        use md5::Md5;
+        use sha2::{Digest, Sha384, Sha512};
+        let contains_digest = |d: &[u8]| !d.is_empty() && content_buf.windows(d.len()).any(|w| w == d);
+        if contains_digest(&pe_hashes.sha256) || contains_digest(&pe_hashes.sha1) {
+            digest_matches = true;
+        } else {
+            let hash_with = |mut h: Box<dyn FnMut(&[u8])>| {
+                for &(s, e) in &pe_hashes.pieces_ranges {
+                    h(&data[s..e]);
+                }
+            };
+            let mut h384 = Sha384::new();
+            let mut h512 = Sha512::new();
+            let mut hmd5 = Md5::new();
+            hash_with(Box::new(|sl| {
+                h384.update(sl);
+                h512.update(sl);
+                hmd5.update(sl);
+            }));
+            digest_matches = contains_digest(&h384.finalize())
+                || contains_digest(&h512.finalize())
+                || contains_digest(&hmd5.finalize());
+        }
+    }
+
+    unsafe {
+        let _ = CryptMsgClose(Some(hmsg));
+        if !hstore.0.is_null() {
+            let _ = CertCloseStore(Some(hstore), 0);
+        }
+    }
+
+    let is_trusted = sig_valid && digest_matches && chain_trusted;
+    let is_signed = is_trusted || signer_name.is_some();
+    let status = if is_trusted {
+        "trusted".to_string()
+    } else if is_signed {
+        "signed_untrusted".to_string()
+    } else {
+        "unsigned".to_string()
+    };
+
+    let mut timestamped = false;
+    let mut timestamp_kind = None;
+    let mut timestamp_signer = None;
+    let mut timestamp_time = None;
+    if let Some(ts) = crate::auth_timestamp::parse_authenticode_timestamp(pkcs7) {
+        timestamped = true;
+        timestamp_kind = Some(
+            match ts.kind {
+                crate::auth_timestamp::TimestampKind::Rfc3161 => "rfc3161",
+                crate::auth_timestamp::TimestampKind::Pkcs9 => "pkcs9",
+            }
+            .to_string(),
+        );
+        timestamp_signer = ts.signer;
+        timestamp_time = ts.time;
+    }
+
+    Some(AuthenticodeInfo {
+        is_signed,
+        is_trusted,
+        signer_name,
+        issuer,
+        status,
+        is_catalog_signed: false,
+        chain_len,
+        thumbprint,
+        not_before,
+        not_after,
+        timestamped,
+        timestamp_kind,
+        timestamp_signer,
+        timestamp_time,
+    })
+}
+
+#[cfg(not(windows))]
+pub fn is_in_windows_catalog_bytes(_data: &[u8]) -> bool {
+    false
+}
+
+#[cfg(not(windows))]
+pub fn verify_authenticode_bytes(_data: &[u8]) -> Option<AuthenticodeInfo> {
+    None
+}
+
 #[cfg(not(windows))]
 pub fn verify_authenticode(_path: &Path) -> AuthenticodeInfo {
     AuthenticodeInfo::unsupported("unsupported_platform")

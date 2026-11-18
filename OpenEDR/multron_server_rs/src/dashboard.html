@@ -561,8 +561,8 @@
       <div class="feedbar" style="margin:0 0 8px"><h2 style="margin:0">Engine time</h2><span class="hint" id="etSummary" style="margin:0">—</span><span class="spacer"></span><label class="chk"><input type="checkbox" id="etSlowest"> Slowest since start</label></div>
       <div class="hint" style="margin-top:0">Where scan time goes, per engine stage. A stage's time is its own: stages that ran inside it (YARA on an archive member, the scan of an unpacked payload) are counted under their own name, not twice. <b>server:</b> stages are the server's own work around the engine. Refreshes every 5 s.</div>
       <div class="tablewrap" style="max-height:360px">
-        <table><thead><tr><th>Stage</th><th class="num">Share</th><th class="num">Total</th><th class="num">Calls</th><th class="num">Average</th><th class="num">Longest call</th></tr></thead>
-        <tbody id="etRows"><tr><td colspan="6" class="empty">Loading…</td></tr></tbody></table>
+        <table><thead><tr><th>Stage</th><th class="num">Share</th><th class="num">Total</th><th class="num">CPU</th><th class="num">Wait / I/O</th><th class="num">Calls</th><th class="num">Average</th><th class="num">Longest call</th></tr></thead>
+        <tbody id="etRows"><tr><td colspan="8" class="empty">Loading…</td></tr></tbody></table>
       </div>
       <h3 style="margin:14px 0 6px" id="etScansTitle">Slow scans</h3>
       <div class="tablewrap" style="max-height:420px">
@@ -3405,10 +3405,12 @@ window.sigKey = (list) => list && list.length ? `${list[0].layer}: ${list[0].nam
           <td><b>${esc(s.name)}</b></td>
           <td class="num" style="min-width:120px"><div class="bar" style="margin:0 0 2px"><div style="width:${Math.min(100, s.share)}%"></div></div>${s.share.toFixed(1)} %</td>
           <td class="num">${msText(s.totalMs)}</td>
+          <td class="num">${msText(s.cpuMs || 0)} (${(s.cpuPct || 0).toFixed(0)}%)</td>
+          <td class="num">${msText(s.waitMs || 0)}</td>
           <td class="num">${s.calls.toLocaleString()}</td>
           <td class="num">${msText(s.avgMs)}</td>
           <td class="num">${msText(s.maxMs)}</td>
-        </tr>`).join("") || `<tr><td colspan="6" class="empty">No scan yet.</td></tr>`;
+        </tr>`).join("") || `<tr><td colspan="8" class="empty">No scan yet.</td></tr>`;
       const slowest = $q("etSlowest").checked;
       $q("etScansTitle").textContent = slowest ? "Slowest scans since start" : `Recent slow scans (${msText(d.slowFromMs)} or longer)`;
       $q("etScans").innerHTML = (slowest ? d.slowest : d.recent).map(s => {

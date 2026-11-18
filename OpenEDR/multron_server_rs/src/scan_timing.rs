@@ -180,14 +180,21 @@ pub fn report() -> serde_json::Value {
         "slowScans": s.slow,
         "slowFromMs": SLOW.as_millis() as u64,
         "avgScanMs": if s.scans > 0 { ms(s.total_ns / s.scans as u128) } else { 0.0 },
-        "stages": stages.iter().map(|t| serde_json::json!({
-            "name": label(t.name),
-            "calls": t.calls,
-            "totalMs": ms(t.self_ns as u128),
-            "avgMs": if t.calls > 0 { ms(t.self_ns as u128 / t.calls as u128) } else { 0.0 },
-            "maxMs": ms(t.max_ns as u128),
-            "share": if all_ns > 0 { (t.self_ns as f64 / all_ns as f64 * 1000.0).round() / 10.0 } else { 0.0 },
-        })).collect::<Vec<_>>(),
+        "stages": stages.iter().map(|t| {
+            let cpu_ns = t.cpu_ns.min(t.self_ns);
+            let wait_ns = t.self_ns.saturating_sub(cpu_ns);
+            serde_json::json!({
+                "name": label(t.name),
+                "calls": t.calls,
+                "totalMs": ms(t.self_ns as u128),
+                "cpuMs": ms(cpu_ns as u128),
+                "waitMs": ms(wait_ns as u128),
+                "cpuPct": if t.self_ns > 0 { (cpu_ns as f64 / t.self_ns as f64 * 1000.0).round() / 10.0 } else { 0.0 },
+                "avgMs": if t.calls > 0 { ms(t.self_ns as u128 / t.calls as u128) } else { 0.0 },
+                "maxMs": ms(t.max_ns as u128),
+                "share": if all_ns > 0 { (t.self_ns as f64 / all_ns as f64 * 1000.0).round() / 10.0 } else { 0.0 },
+            })
+        }).collect::<Vec<_>>(),
         "recent": s.recent.iter().rev().map(scan_json).collect::<Vec<_>>(),
         "slowest": s.slowest.iter().map(scan_json).collect::<Vec<_>>(),
     })

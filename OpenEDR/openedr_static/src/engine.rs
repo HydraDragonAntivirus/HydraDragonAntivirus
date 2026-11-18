@@ -1774,9 +1774,14 @@ impl StaticEngine {
 
         // 1. Authenticode & Signer Check
         let mut signer_details = None;
-        if let Some(p) = disk_path {
+        let auth_info = if let Some(p) = disk_path {
             let _t = crate::memtrack::stage("scan:authenticode");
-            let info = verify_authenticode(p);
+            Some(verify_authenticode(p))
+        } else {
+            let _t = crate::memtrack::stage("scan:authenticode");
+            crate::signers::verify_authenticode_bytes(data)
+        };
+        if let Some(info) = auth_info {
             let mut trusted_by_yaml = false;
 
             if let Some(ref signer) = info.signer_name {

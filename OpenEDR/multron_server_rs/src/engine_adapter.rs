@@ -1219,7 +1219,7 @@ impl EngineAdapter {
             let safe_filename = file_system_name(name);
             let mut temp_path: Option<PathBuf> = None;
 
-            let report = if let Some(ref dir) = self.work_dir {
+            let report = if let Some(dir) = self.work_dir.as_ref().filter(|_| needs_temp_file_for_authenticode(data)) {
                 let seq = self.file_seq.fetch_add(1, Ordering::Relaxed);
                 let path = dir.join(format!("{:08}_{}", seq % 100_000_000, temp_name(&safe_filename, data)));
                 let written = {
@@ -2309,6 +2309,66 @@ fn temp_name(safe: &str, data: &[u8]) -> String {
         }
     }
     name
+}
+
+fn contains_bytes(haystack: &[u8], needle: &[u8]) -> bool {
+    !needle.is_empty() && haystack.len() >= needle.len() && haystack.windows(needle.len()).any(|w| w == needle)
+}
+
+/// Returns true only when `WinVerifyTrust` actually needs a file on disk:
+/// - Embedded-signed PEs are verified directly in memory by `verify_authenticode_bytes`.
+/// - Unsigned PEs / non-PEs only need a temp file when their hash matches a Windows Catalog
+///   (`CatRoot`) entry, or for rare non-PE embedded signatures (CAB/MSI/APPX/signed scripts).
+fn needs_temp_file_for_authenticode(data: &[u8]) -> bool {
+    if data.starts_with(b"MZ") {
+        if openedr_static::auth_timestamp::embedded_pkcs7(data).is_some() {
+            return false;
+        }
+        return openedr_static::signers::is_in_windows_catalog_bytes(data);
+    }
+
+    // CAB (MSCF): RESERVE_PRESENT flag (0x0004) indicates header reserve / signature data.
+    if data.starts_with(b"MSCF") {
+        if data.len() >= 36 {
+            let flags = u16::from_le_bytes([data[30], data[31]]);
+            if (flags & 0x0004) != 0 {
+                return true;
+            }
+        }
+        return openedr_static::signers::is_in_windows_catalog_bytes(data);
+    }
+
+    // OLE / MSI compound document: embedded DigitalSignature stream.
+    const OLE_MAGIC: &[u8] = &[0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1];
+    if data.starts_with(OLE_MAGIC) {
+        const UTF16_DIGITAL_SIG: &[u8] = b"D\0i\0g\0i\0t\0a\0l\0S\0i\0g\0n\0a\0t\0u\0r\0e\0";
+        if contains_bytes(data, UTF16_DIGITAL_SIG) {
+            return true;
+        }
+        return openedr_static::signers::is_in_windows_catalog_bytes(data);
+    }
+
+    // APPX / MSIX (ZIP): contains AppxSignature.p7x.
+    if data.starts_with(b"PK\x03\x04") {
+        if contains_bytes(data, b"AppxSignature.p7x") {
+            return true;
+        }
+        return openedr_static::signers::is_in_windows_catalog_bytes(data);
+    }
+
+    // Signed scripts (.ps1, .vbs, .js, .wsf, .bat, .cmd): signature block at tail.
+    let tail = if data.len() > 65_536 {
+        &data[data.len() - 65_536..]
+    } else {
+        data
+    };
+    const SIG_ASCII: &[u8] = b"SIG # Begin signature block";
+    const SIG_UTF16LE: &[u8] = b"S\0I\0G\0 \0#\0 \0B\0e\0g\0i\0n\0";
+    if contains_bytes(tail, SIG_ASCII) || contains_bytes(tail, SIG_UTF16LE) {
+        return true;
+    }
+
+    openedr_static::signers::is_in_windows_catalog_bytes(data)
 }
 
 pub fn file_system_name(name: &str) -> String {

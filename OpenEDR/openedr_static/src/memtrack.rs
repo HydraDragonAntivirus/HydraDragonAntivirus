@@ -267,8 +267,35 @@ pub fn snapshot() -> Vec<ComponentMem> {
 thread_local! {
     /// Time of the stages that ran inside the current one on this thread.
     static INNER_NS: Cell<u64> = const { Cell::new(0) };
+    /// CPU time of the stages that ran inside the current one on this thread.
+    static INNER_CPU_NS: Cell<u64> = const { Cell::new(0) };
     /// The scan this thread works for (`time_scan`, `in_scan_context`).
     static SCAN: std::cell::RefCell<Option<Arc<ScanTimes>>> = const { std::cell::RefCell::new(None) };
+}
+
+#[cfg(target_os = "windows")]
+fn thread_cpu_ns() -> u64 {
+    use windows::Win32::Foundation::FILETIME;
+    use windows::Win32::System::Threading::{GetCurrentThread, GetThreadTimes};
+    let mut creation = FILETIME::default();
+    let mut exit = FILETIME::default();
+    let mut kernel = FILETIME::default();
+    let mut user = FILETIME::default();
+    let ok = unsafe {
+        GetThreadTimes(GetCurrentThread(), &mut creation, &mut exit, &mut kernel, &mut user)
+    };
+    if ok.is_ok() {
+        let k = ((kernel.dwHighDateTime as u64) << 32) | (kernel.dwLowDateTime as u64);
+        let u = ((user.dwHighDateTime as u64) << 32) | (user.dwLowDateTime as u64);
+        k.saturating_add(u).saturating_mul(100)
+    } else {
+        0
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+fn thread_cpu_ns() -> u64 {
+    0
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -277,6 +304,8 @@ pub struct StageTime {
     pub calls: u64,
     /// Own time of all calls (nested stages left out).
     pub self_ns: u64,
+    /// Own thread CPU time (kernel + user) of all calls.
+    pub cpu_ns: u64,
     /// Longest own time of one call.
     pub max_ns: u64,
 }
@@ -289,15 +318,16 @@ pub struct ScanTimes {
     stages: Mutex<Vec<StageTime>>,
 }
 
-fn add_time(list: &Mutex<Vec<StageTime>>, name: &'static str, ns: u64) {
+fn add_time(list: &Mutex<Vec<StageTime>>, name: &'static str, ns: u64, cpu_ns: u64) {
     let mut l = list.lock().unwrap_or_else(|e| e.into_inner());
     match l.iter_mut().find(|s| s.name == name) {
         Some(s) => {
             s.calls += 1;
             s.self_ns += ns;
+            s.cpu_ns += cpu_ns;
             s.max_ns = s.max_ns.max(ns);
         }
-        None => l.push(StageTime { name, calls: 1, self_ns: ns, max_ns: ns }),
+        None => l.push(StageTime { name, calls: 1, self_ns: ns, cpu_ns, max_ns: ns }),
     }
 }
 
@@ -305,24 +335,37 @@ fn add_time(list: &Mutex<Vec<StageTime>>, name: &'static str, ns: u64) {
 pub struct StageTimer {
     name: &'static str,
     start: Instant,
+    start_cpu: u64,
     outer_inner: u64,
+    outer_inner_cpu: u64,
 }
 
 /// Starts timing a stage: `let _t = memtrack::stage("scan:clamav");`. For stages that
 /// are not a closure (blocks with early returns); `measure` times its closure itself.
 pub fn stage(name: &'static str) -> StageTimer {
-    StageTimer { name, start: Instant::now(), outer_inner: INNER_NS.try_with(|c| c.replace(0)).unwrap_or(0) }
+    StageTimer {
+        name,
+        start: Instant::now(),
+        start_cpu: thread_cpu_ns(),
+        outer_inner: INNER_NS.try_with(|c| c.replace(0)).unwrap_or(0),
+        outer_inner_cpu: INNER_CPU_NS.try_with(|c| c.replace(0)).unwrap_or(0),
+    }
 }
 
 impl Drop for StageTimer {
     fn drop(&mut self) {
         let total = self.start.elapsed().as_nanos() as u64;
+        let total_cpu = thread_cpu_ns().saturating_sub(self.start_cpu);
         let inner = INNER_NS.try_with(|c| c.replace(self.outer_inner + total)).unwrap_or(0);
+        let inner_cpu = INNER_CPU_NS
+            .try_with(|c| c.replace(self.outer_inner_cpu + total_cpu))
+            .unwrap_or(0);
         let own = total.saturating_sub(inner);
-        add_time(&TIMES, self.name, own);
+        let own_cpu = total_cpu.saturating_sub(inner_cpu);
+        add_time(&TIMES, self.name, own, own_cpu);
         let _ = SCAN.try_with(|s| {
             if let Some(t) = s.borrow().as_ref() {
-                add_time(&t.stages, self.name, own);
+                add_time(&t.stages, self.name, own, own_cpu);
             }
         });
     }
@@ -364,9 +407,12 @@ pub fn in_scan_context<T>(ctx: Option<Arc<ScanTimes>>, f: impl FnOnce() -> T) ->
 /// time out of the enclosing stage (it only waited for them).
 pub fn parallel_section<T>(f: impl FnOnce() -> T) -> T {
     let start = Instant::now();
+    let start_cpu = thread_cpu_ns();
     let v = f();
     let waited = start.elapsed().as_nanos() as u64;
+    let waited_cpu = thread_cpu_ns().saturating_sub(start_cpu);
     let _ = INNER_NS.try_with(|c| c.set(c.get() + waited));
+    let _ = INNER_CPU_NS.try_with(|c| c.set(c.get() + waited_cpu));
     v
 }
 
