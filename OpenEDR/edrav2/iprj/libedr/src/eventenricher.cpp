@@ -1877,6 +1877,7 @@ namespace {
 			bool hasUnknownDllComodo = false;
 			bool hasUnknownDllCertificate = false;
 			bool hasUnknownDll = false;
+			bool hasEvaluatedUnknownDll = false;
 			bool isDotNet = false;
 			bool isDotNetLoader = false;
 			std::string firstUnknownDllComodo;
@@ -1978,12 +1979,18 @@ namespace {
 							AsyncRescanAndQuarantine(modPath, nPid, false);
 							modFlsClean = false;
 							modViruskovClean = false;
+							const bool bNotEvaluatedYet =
+								(cachedVerdict == 0 && modDetail.sFls.empty() && modDetail.sViruskov.empty());
+							if (!bNotEvaluatedYet)
+								res.hasEvaluatedUnknownDll = true;
 						}
 						else
 						{
 							const int cleanVal = s_cleanVerdict.load(std::memory_order_relaxed);
 							modFlsClean = (modDetail.sFls == "Safe") || (modDetail.sFls.empty() && cachedVerdict == cleanVal);
 							modViruskovClean = (modDetail.sViruskov == "Clean") || (modDetail.sViruskov.empty() && cachedVerdict == cleanVal);
+							if (!modFlsClean || !modViruskovClean)
+								res.hasEvaluatedUnknownDll = true;
 						}
 						if (!modFlsClean)
 						{
@@ -4963,14 +4970,25 @@ static std::unordered_map<uint64_t, std::wstring> loadedSystemModules(uint32_t n
 		{
 			std::wstring sPath = me.szExePath;
 			for (auto& c : sPath) c = static_cast<wchar_t>(::towlower(c));
+			bool isSysMod = false;
 			for (const auto& d : dirs)
 			{
 				if (sPath.rfind(d, 0) == 0)
 				{
-					out[reinterpret_cast<uint64_t>(me.modBaseAddr)] = me.szExePath;
+					isSysMod = true;
 					break;
 				}
 			}
+			if (!isSysMod)
+			{
+				try
+				{
+					isSysMod = IsWindowsOsComponentPath(string::convertWCharToUtf8(sPath));
+				}
+				catch (...) {}
+			}
+			if (isSysMod)
+				out[reinterpret_cast<uint64_t>(me.modBaseAddr)] = me.szExePath;
 		} while (::Module32NextW(hSnap, &me));
 	}
 	::CloseHandle(hSnap);
@@ -5483,7 +5501,7 @@ void EventEnricher::executeUnfilteredLocalScan(Variant& vEvent, Variant& vProces
 			 eEventType == Event::LLE_FILE_MAP_READ ||
 			 eEventType == Event::LLE_FILE_MAP_WRITE);
 		const bool bDeferScan = bDeferredFileEvent ||
-			(isProc && eEventType == Event::LLE_PROCESS_CREATE);
+			(isProc && eEventType == Event::LLE_PROCESS_CREATE && IsWindowsOsComponentPath(lowerDos));
 
 		std::string sThreat;
 		int r = 0;
@@ -5504,7 +5522,7 @@ void EventEnricher::executeUnfilteredLocalScan(Variant& vEvent, Variant& vProces
 		}
 
 		// Rescan race / Deferred scans: queue onto RescanQueue worker pool.
-		if (r == 0 && bDeferScan)
+		if (r == 0 && (bDeferScan || (isProc && eEventType == Event::LLE_PROCESS_CREATE)))
 		{
 			StageTimer _stQ(c_stScanAsyncQueue);
 			std::error_code ec;
@@ -6426,12 +6444,18 @@ void EventEnricher::put(const Variant& vEventRef)
 
 	// An untrusted process (native or managed - MegaDumper unpacks both), or a
 	// .NET loader with an unknown DLL: dump it (MegaDumper.dll) and scan what
-	// was unpacked in memory. Wait until sProcPath has an evaluated verdict
-	// (procCached != 0) so pre-existing boot processes aren't dumped before scan.
+	// was unpacked in memory. Wait until sProcPath or one of its DLLs actually
+	// finished evaluation so clean processes aren't dumped before first scan.
+	const int trustMode = DriverPortHips::s_configuredTrustMode.load(std::memory_order_relaxed);
+	const bool isProcImageSelfTrusted = (trustMode == 1) ? isProcFlsClean
+	                                  : (trustMode == 2) ? isProcViruskovClean
+	                                  : (isProcFlsClean && isProcViruskovClean);
+	const bool shouldDumpUntrusted =
+		(procCached != 0 && !isProcImageSelfTrusted) || modRes.hasEvaluatedUnknownDll;
 	if (modRes.isDotNetLoader && modRes.hasUnknownDll)
 		DumpQueue::enqueue(nActorPid, sProcPath, ".NET loader with an unknown DLL");
 	else if (!isProcessTrusted && DriverPortHips::s_dumpUntrusted.load(std::memory_order_relaxed) &&
-		procCached != 0)
+		shouldDumpUntrusted)
 		DumpQueue::enqueue(nActorPid, sProcPath, modRes.isDotNet ? "untrusted managed process" : "untrusted native process");
 
 	// Alert on .NET loader with unknown DLL in attack chain
@@ -6473,32 +6497,30 @@ void EventEnricher::put(const Variant& vEventRef)
 		if (eEventType == Event::LLE_FILE_DATA_CHANGE)
 			vParams.put("cmdModify", true);
 
-		// Enrich File Trust (Comodo FLS vs Microsoft Certificate list):
+		// Enrich File Trust (Comodo FLS vs VirusKov Cloud):
 		std::string sFilePathCheck;
 		if (vParams.has("path")) sFilePathCheck = Narrow(vParams.get("path", L""));
 		else if (vParams.has("rawPath")) sFilePathCheck = Narrow(vParams.get("rawPath", L""));
 		if (!sFilePathCheck.empty())
 		{
-			int fileFlsVerdict = DetectionNotifier::getCachedFileVerdict(sFilePathCheck);
-			bool isFileFlsClean = (fileFlsVerdict == DriverPortHips::s_cleanVerdict.load(std::memory_order_relaxed));
+			DetectionNotifier::CloudScanDetail fileDetail;
+			int fileFlsVerdict = DetectionNotifier::getCachedFileVerdict(sFilePathCheck, &fileDetail);
+			const int cleanVal = DriverPortHips::s_cleanVerdict.load(std::memory_order_relaxed);
+			bool isFileFlsClean = (fileFlsVerdict == cleanVal) || (fileDetail.sFls == "Safe");
 			bool isFileUnknown = DriverPortHips::isUnknownVerdict(fileFlsVerdict);
 
 			vParams.put("isTrustedAccordingToFls", isFileFlsClean);
 			vParams.put("isUnknownAccordingToComodo", isFileUnknown);
 			vEvent.put("isUnknownAccordingToComodo", isFileUnknown);
 
-			// Certificate trust of the file (SignDataProvider is the single authority)
-			// only once its content is final (FileDataWriteFull). It used to run on
-			// every file event - create, mid-write change, read, delete and every
-			// handle close - and its cache is keyed on size + mtime, so a file being
-			// written missed it every time and paid a fresh WinVerifyTrust (which
-			// hashes the whole file for the catalog lookup) per event.
 			if (eEventType == Event::LLE_FILE_DATA_WRITE_FULL)
 			{
-				bool isFileCertTrusted = DetectionNotifier::isFileSignatureTrusted(sFilePathCheck);
-				vParams.put("isTrustedAccordingToCertificate", isFileCertTrusted);
-				vParams.put("isUnknownAccordingToCertificate", !isFileCertTrusted);
-				vEvent.put("isUnknownAccordingToCertificate", !isFileCertTrusted);
+				bool isFileViruskovClean = (fileDetail.sViruskov == "Clean") ||
+					(fileDetail.sFls.empty() && fileFlsVerdict == cleanVal);
+				vParams.put("isTrustedAccordingToViruskov", isFileViruskovClean);
+				vParams.put("isTrustedAccordingToCertificate", isFileViruskovClean);
+				vParams.put("isUnknownAccordingToCertificate", !isFileViruskovClean);
+				vEvent.put("isUnknownAccordingToCertificate", !isFileViruskovClean);
 			}
 		}
 
