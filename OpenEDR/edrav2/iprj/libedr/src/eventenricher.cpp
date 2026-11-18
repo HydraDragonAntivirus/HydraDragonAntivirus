@@ -119,6 +119,34 @@ namespace {
 		return cNext == '\\' || cNext == '/';
 	}
 
+	//
+	// True when `sLowerPath` sits under a Windows OS system or Inbox/Store
+	// component directory whose passive reads/loads should not flood scanning.
+	//
+	bool IsWindowsOsComponentPath(const std::string& sLowerPath)
+	{
+		static const char* const c_kPrefixes[] = {
+			"c:\\windows\\system32\\",
+			"c:\\windows\\syswow64\\",
+			"c:\\windows\\winsxs\\",
+			"c:\\windows\\microsoft.net\\",
+			"c:\\windows\\systemapps\\",
+			"c:\\windows\\shellcomponents\\",
+			"c:\\windows\\shellexperiences\\",
+			"c:\\windows\\immersivecontrolpanel\\",
+			"c:\\windows\\uus\\",
+			"c:\\windows\\servicing\\",
+			"c:\\program files\\windowsapps\\microsoft.",
+			"c:\\program files\\windowsapps\\microsoftwindows.",
+		};
+		for (const char* p : c_kPrefixes)
+		{
+			if (sLowerPath.find(p) != std::string::npos)
+				return true;
+		}
+		return false;
+	}
+
 	// Script hosts and script extensions come from edrsvc.cfg
 	// (scanner.scriptInterpreters / scanner.scriptExtensions).
 	//
@@ -1931,10 +1959,7 @@ namespace {
 					//                 These carry the signature tables and constant pools the
 					//                 engines search for, so scanning them both guarantees
 					//                 self-detection and re-enters the self-scan loop.
-					bool isSystemDll = (modLower.find("c:\\windows\\system32") != std::string::npos ||
-					                    modLower.find("c:\\windows\\syswow64") != std::string::npos ||
-					                    modLower.find("c:\\windows\\winsxs") != std::string::npos ||
-					                    modLower.find("c:\\windows\\microsoft.net\\") != std::string::npos);
+					bool isSystemDll = IsWindowsOsComponentPath(modLower);
 					bool isOwnModule = IsPathUnderOwnInstallDir(modLower);
 
 					bool modFlsClean = true;
@@ -1950,7 +1975,7 @@ namespace {
 						int cachedVerdict = DetectionNotifier::getCachedFileVerdict(modPath, &modDetail);
 						if (isUnknownVerdict(cachedVerdict))
 						{
-							AsyncRescanAndQuarantine(modPath, nPid, true);
+							AsyncRescanAndQuarantine(modPath, nPid, false);
 							modFlsClean = false;
 							modViruskovClean = false;
 						}
@@ -1994,9 +2019,7 @@ namespace {
 						if (modIsNet)
 						{
 							bool nameSimilar = MegaDumperNet::HasNameSimilarity(sProcName, modName);
-							bool isNonSystem = (modLower.find("c:\\windows\\system32") == std::string::npos &&
-							                    modLower.find("c:\\windows\\syswow64") == std::string::npos &&
-							                    modLower.find("c:\\windows\\winsxs") == std::string::npos);
+							bool isNonSystem = !IsWindowsOsComponentPath(modLower);
 
 							if (nameSimilar)
 							{
@@ -5280,8 +5303,11 @@ void EventEnricher::executeUnfilteredLocalScan(Variant& vEvent, Variant& vProces
 		if (IsPathUnderOwnInstallDir(lowerDos))
 			continue;
 
-		// Skip non-executable OS log/index/locale/PNF/perf-counter files on file I/O events
-		// so AsyncRescan is not flooded with System.evtx, *.PNF, *.NLS, perfc*.dat, etc.
+		if (!isProc && eEventType == Event::LLE_FILE_DELETE)
+			continue;
+
+		// Skip non-executable OS log/index/locale/PNF/perf/font/telemetry files on
+		// file I/O events so AsyncRescan is not flooded and cache/stat calls are avoided.
 		if (!isProc)
 		{
 			auto endsWith = [&lowerDos](const char* sfx) {
@@ -5297,28 +5323,89 @@ void EventEnricher::executeUnfilteredLocalScan(Variant& vEvent, Variant& vProces
 				 lowerDos.find("\\fontcache") != std::string::npos);
 			const bool isOsMetaFile =
 				endsWith("\\desktop.ini") || endsWith("\\appxblockmap.xml") ||
+				endsWith("\\transcodedwallpaper") ||
 				endsWith(".dat.log1") || endsWith(".dat.log2");
-			const bool isOsCachePath =
-				lowerDos.find("\\cryptneturlcache\\") != std::string::npos ||
-				lowerDos.find("\\ebwebview\\") != std::string::npos ||
-				lowerDos.find("\\crashpad\\") != std::string::npos;
-			if (isPerfDat || isOsMetaFile || isOsCachePath ||
-				endsWith(".evtx") || endsWith(".pnf") || endsWith(".nls") ||
-				endsWith(".inf_loc") || endsWith(".ebd") || endsWith(".jfm") ||
-				endsWith(".chk") || endsWith(".blf") || endsWith(".regtrans-ms") ||
-				endsWith(".lex") ||
-				endsWith(".mui") || endsWith(".clb") || endsWith(".etl") ||
-				endsWith("\\edb.log") || endsWith("\\edb00001.log") ||
-				endsWith("\\edb00002.log") || endsWith("\\edbtmp.log") ||
-				endsWith(".db") || endsWith(".db-wal") || endsWith(".db-shm") ||
-				endsWith(".srd") || endsWith(".srd-wal") || endsWith(".srd-shm") ||
-				endsWith(".pri") || endsWith(".pckgdep") ||
-				endsWith(".cur") || endsWith(".ani") || endsWith(".sst") ||
-				endsWith(".cdpresource") || endsWith(".mkd") || endsWith(".pf") ||
-				endsWith(".sdb") || endsWith(".mun"))
+
+			static const char* const c_kOsCacheDirs[] = {
+				"\\cryptneturlcache\\",
+				"\\ebwebview\\",
+				"\\crashpad\\",
+				"\\windows\\fonts\\",
+				"\\windows\\diagtrack\\",
+				"\\windows\\panther\\",
+				"\\windows\\appcompat\\",
+				"\\windows\\wdi\\",
+				"\\windows\\csc\\",
+				"\\windows\\bcastdvr\\",
+				"\\programdata\\microsoft\\diagnosis\\",
+				"\\programdata\\microsoft\\windows\\wer\\",
+				"\\programdata\\microsoft\\windows\\onesettings\\",
+				"\\programdata\\microsoft\\edgeupdate\\log\\",
+				"\\localcache\\",
+				"\\inetcache\\",
+				"\\tempstate\\",
+				"\\systemappdata\\helium\\",
+				"\\ac\\tokenbroker\\cache\\",
+			};
+			bool isOsCachePath = false;
+			for (const char* dir : c_kOsCacheDirs)
 			{
-				continue;
+				if (lowerDos.find(dir) != std::string::npos)
+				{
+					isOsCachePath = true;
+					break;
+				}
 			}
+
+			static const char* const c_kSkipExts[] = {
+				".evtx", ".pnf", ".nls", ".inf_loc", ".ebd", ".jfm",
+				".chk", ".blf", ".regtrans-ms", ".lex", ".mui", ".clb", ".etl",
+				"\\edb.log", "\\edb00001.log", "\\edb00002.log", "\\edbtmp.log",
+				".db", ".db-wal", ".db-shm", ".srd", ".srd-wal", ".srd-shm",
+				".pri", ".pckgdep", ".cur", ".ani", ".sst", ".cdpresource",
+				".mkd", ".pf", ".sdb", ".mun",
+				".ttf", ".ttc", ".otf", ".fon",
+				".log", ".log1", ".log2", ".aodl", ".odl", ".wer",
+				".dmp", ".hdmp", ".mdmp",
+				".pak", ".dxcache", ".tbres", ".cdp", ".hve",
+				".automaticdestinations-ms", ".customdestinations-ms",
+				".winmd", ".msstyles", ".dic", ".nlp", ".uce",
+				".png", ".jpg", ".jpeg", ".gif", ".bmp", ".ico", ".webp",
+				".diffbase", ".uusver", ".pcpkey", ".gthr", ".bk",
+			};
+			bool hasSkipExt = false;
+			for (const char* ext : c_kSkipExts)
+			{
+				if (endsWith(ext))
+				{
+					hasSkipExt = true;
+					break;
+				}
+			}
+			if (isPerfDat || isOsMetaFile || isOsCachePath || hasSkipExt)
+				continue;
+		}
+
+		// FileCreate / Close / read / map-read look at the target file only; the actor's
+		// image was looked at when that process started. Run before getCachedFileVerdict
+		// to skip redundant stat/cache lookups on every file I/O event.
+		if (isProc && (eEventType == Event::LLE_FILE_CREATE ||
+			eEventType == Event::LLE_FILE_CLOSE ||
+			eEventType == Event::LLE_FILE_DATA_READ_FULL ||
+			eEventType == Event::LLE_FILE_MAP_READ || eEventType == Event::LLE_FILE_MAP_WRITE))
+			continue;
+
+		// Passive opens/reads/closes of Windows system/InboxApp paths (wmiprvse/svchost
+		// touching System32/SysWOW64/WinSxS/.NET/SystemApps/Servicing/WindowsApps) must
+		// not trigger stat/cache lookups or flood AsyncRescan; real writes emit
+		// WriteFull/DataChange/MapWrite/Rename and are still scanned.
+		if (!isProc && (eEventType == Event::LLE_FILE_MAP_READ ||
+			eEventType == Event::LLE_FILE_DATA_READ_FULL ||
+			eEventType == Event::LLE_FILE_CREATE ||
+			eEventType == Event::LLE_FILE_CLOSE))
+		{
+			if (IsWindowsOsComponentPath(lowerDos))
+				continue;
 		}
 
 		// Fast path: if already cached as Clean, skip heavy static scanning completely
@@ -5367,13 +5454,6 @@ void EventEnricher::executeUnfilteredLocalScan(Variant& vEvent, Variant& vProces
 		// on size + last-write time, and the FLS client caches by hash, so a file
 		// that really is clean costs no extra scan.
 
-		// FileCreate / read / map-read look at the target file only; the actor's image
-		// was looked at when that process started.
-		if (isProc && (eEventType == Event::LLE_FILE_CREATE ||
-			eEventType == Event::LLE_FILE_DATA_READ_FULL ||
-			eEventType == Event::LLE_FILE_MAP_READ || eEventType == Event::LLE_FILE_MAP_WRITE))
-			continue;
-
 		// Process executable images only need evaluation at process creation; on
 		// routine sub-events (registry, thread/desktop open, etc.), never run a
 		// blocking synchronous scan on the single enricher thread -- queue one
@@ -5388,48 +5468,30 @@ void EventEnricher::executeUnfilteredLocalScan(Variant& vEvent, Variant& vProces
 			continue;
 		}
 
-		// Passive opens/reads/closes of Windows system paths (wmiprvse/svchost
-		// touching System32/SysWOW64/WinSxS/.NET/SystemApps/Servicing) must not
-		// block the enricher thread or flood AsyncRescan; real writes emit
-		// WriteFull/DataChange/MapWrite and are still scanned.
-		if (!isProc && (eEventType == Event::LLE_FILE_MAP_READ ||
-			eEventType == Event::LLE_FILE_DATA_READ_FULL ||
-			eEventType == Event::LLE_FILE_CREATE ||
-			eEventType == Event::LLE_FILE_CLOSE))
-		{
-			const bool isWinSysPath =
-				lowerDos.find("c:\\windows\\system32\\") != std::string::npos ||
-				lowerDos.find("c:\\windows\\syswow64\\") != std::string::npos ||
-				lowerDos.find("c:\\windows\\winsxs\\") != std::string::npos ||
-				lowerDos.find("c:\\windows\\microsoft.net\\") != std::string::npos ||
-				lowerDos.find("c:\\windows\\systemapps\\") != std::string::npos ||
-				lowerDos.find("c:\\windows\\servicing\\") != std::string::npos;
-			if (isWinSysPath)
-				continue;
-		}
-
-		// A. Synchronous scan (ClamAV, YARA-X, ML, Signer, EICAR)
-		// Everything except the mid-write file events, opens, closes, and full reads is scanned
-		// inline, before the event is emitted. A file that is being written right now has
-		// no final content yet, and opens/reads/closes happen for every file the system
-		// touches (inline that would block the single enricher thread), so those
-		// go to the async rescan below.
+		// A. Defer heavy scans off the single EventEnricher thread so arrival lag
+		// stays near 0 ms: mid-write/rename/preimage/open/close/read file events AND
+		// uncached process creation events are queued to RescanQueue's worker pool
+		// (process-create and writes at high priority, opens/reads at normal priority).
 		const bool bDeferredFileEvent = !isProc &&
 			(eEventType == Event::LLE_FILE_DATA_WRITE_FULL ||
 			 eEventType == Event::LLE_FILE_DATA_CHANGE ||
 			 eEventType == Event::LLE_FILE_CREATE ||
 			 eEventType == Event::LLE_FILE_CLOSE ||
+			 eEventType == Event::LLE_FILE_RENAME ||
+			 eEventType == Event::LLE_FILE_PREIMAGE_SAVED ||
 			 eEventType == Event::LLE_FILE_DATA_READ_FULL ||
 			 eEventType == Event::LLE_FILE_MAP_READ ||
 			 eEventType == Event::LLE_FILE_MAP_WRITE);
+		const bool bDeferScan = bDeferredFileEvent ||
+			(isProc && eEventType == Event::LLE_PROCESS_CREATE);
 
 		std::string sThreat;
 		int r = 0;
-		if (!bDeferredFileEvent)
+		if (!bDeferScan)
 		{
 			DetectionNotifier::CloudScanDetail detail;
 			r = DetectionNotifier::scanFileWithLocalEngines(dos, sThreat, &detail);
-			if (t_pStageUs != nullptr)
+			if (t_pStageUs != nullptr && !detail.fFromCache)
 			{
 				t_pStageUs[c_stScanSha1] += detail.nSha1Us;
 				t_pStageUs[c_stScanFls] += detail.nFlsUs;
@@ -5441,16 +5503,8 @@ void EventEnricher::executeUnfilteredLocalScan(Variant& vEvent, Variant& vProces
 			}
 		}
 
-		// Rescan race / Deferred scans: an inline scan that comes back Unknown
-		// (0 bytes, or locked at Create) needs one re-read once the writer is done,
-		// so a locked or empty file is never left unscanned.
-		// A process image at its start too: the FLS lookup waits only up to its
-		// timeout and then answers Unknown while the query goes on in the
-		// background. A file FLS knows as malware was then never looked at again
-		// (process-create is scanned once) and ran until a manual scan found the
-		// verdict cached. The rescan reads that late answer.
-		if (r == 0 && (bDeferredFileEvent ||
-			(isProc && eEventType == Event::LLE_PROCESS_CREATE)))
+		// Rescan race / Deferred scans: queue onto RescanQueue worker pool.
+		if (r == 0 && bDeferScan)
 		{
 			StageTimer _stQ(c_stScanAsyncQueue);
 			std::error_code ec;
@@ -5461,7 +5515,8 @@ void EventEnricher::executeUnfilteredLocalScan(Variant& vEvent, Variant& vProces
 			{
 				const bool bHighPriority = isProc ||
 					eEventType == Event::LLE_FILE_DATA_WRITE_FULL ||
-					eEventType == Event::LLE_FILE_DATA_CHANGE;
+					eEventType == Event::LLE_FILE_DATA_CHANGE ||
+					eEventType == Event::LLE_FILE_RENAME;
 				AsyncRescanAndQuarantine(dos, nPid, bHighPriority);
 			}
 		}

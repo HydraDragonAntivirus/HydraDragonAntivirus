@@ -237,8 +237,12 @@ impl CloudSession {
     }
 }
 
-const CLIENT_POOL_SIZE: usize = 4;
+const CLIENT_POOL_SIZE: usize = 8;
 static CLIENT_POOL: [Mutex<Option<CloudSession>>; CLIENT_POOL_SIZE] = [
+    Mutex::new(None),
+    Mutex::new(None),
+    Mutex::new(None),
+    Mutex::new(None),
     Mutex::new(None),
     Mutex::new(None),
     Mutex::new(None),
@@ -471,10 +475,12 @@ pub fn scan_file(path: &Path) -> FileScanReport {
             return Err(format!("Socket write error: {}", e));
         }
 
-        // Wait for result or need_upload
+        // Wait for result or need_upload (extend timeout once upload starts so
+        // multi-megabyte transfers are not cut off at 12 s).
         let start = Instant::now();
+        let mut timeout = Duration::from_secs(12);
         loop {
-            if start.elapsed() > Duration::from_secs(12) {
+            if start.elapsed() > timeout {
                 session.abandon_request();
                 return Err("Cloud query timed out".to_string());
             }
@@ -502,6 +508,7 @@ pub fn scan_file(path: &Path) -> FileScanReport {
                             let (verdict, detections) = parse_result_verdict(&val);
                             return Ok((verdict, detections));
                         } else if msg_type == "need_upload" {
+                            timeout = Duration::from_secs(60);
                             // Upload file
                             // `path`: the full local path, so the server scans the
                             // upload under it (path-scoped rules such as the
@@ -519,6 +526,7 @@ pub fn scan_file(path: &Path) -> FileScanReport {
                                 return Err(format!("Upload request error: {}", e));
                             }
                         } else if msg_type == "send_file" {
+                            timeout = Duration::from_secs(60);
                             let file_bytes = match std::fs::read(path) {
                                 Ok(b) => b,
                                 Err(e) => return Err(format!("Failed reading file for upload: {}", e)),
@@ -529,6 +537,9 @@ pub fn scan_file(path: &Path) -> FileScanReport {
                             }
                         } else if msg_type == "error" {
                             let err_msg = val.get("message").and_then(|m| m.as_str()).unwrap_or("cloud error");
+                            if err_msg.to_ascii_lowercase().contains("file too large") {
+                                return Ok(("Unknown".to_string(), Vec::new()));
+                            }
                             return Err(err_msg.to_string());
                         }
                     }
