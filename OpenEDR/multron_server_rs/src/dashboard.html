@@ -3403,7 +3403,9 @@ window.sigKey = (list) => list && list.length ? `${list[0].layer}: ${list[0].nam
       if (!r.ok) return;
       const d = await r.json();
       $q("etSummary").textContent = `${d.scans.toLocaleString()} scans · average ${msText(d.avgScanMs)} · ${d.slowScans.toLocaleString()} took ${msText(d.slowFromMs)} or longer`;
-      const picked = etStage && (d.stageSlowest || {})[etStage] ? etStage : null;
+      // A picked stage stays picked even with no file listed yet (every call under
+      // the floor, or not run since start): the table says so instead of ignoring the click.
+      const picked = etStage && d.stages.some(s => s.name === etStage) ? etStage : null;
       $q("etRows").innerHTML = d.stages.map(s => `<tr class="etStage" data-stage="${esc(s.name)}" style="cursor:pointer${s.name === picked ? ";background:var(--accent-soft, rgba(80,140,255,.14))" : ""}" title="Files this stage was slowest on">
           <td><b>${esc(s.name)}</b>${s.name === picked ? " ▸" : ""}</td>
           <td class="num" style="min-width:120px"><div class="bar" style="margin:0 0 2px"><div style="width:${Math.min(100, s.share)}%"></div></div>${s.share.toFixed(1)} %</td>
@@ -3416,14 +3418,14 @@ window.sigKey = (list) => list && list.length ? `${list[0].layer}: ${list[0].nam
         </tr>`).join("") || `<tr><td colspan="8" class="empty">No scan yet.</td></tr>`;
       if (picked) {
         $q("etScansTitle").textContent = `Files ${picked} took longest on (its own time, ${msText(20)} or longer)`;
-        $q("etScans").innerHTML = d.stageSlowest[picked].map(h => `<tr data-sha="${esc(h.sha256)}" data-name="${esc(h.file)}">
+        $q("etScans").innerHTML = ((d.stageSlowest || {})[picked] || []).map(h => `<tr data-sha="${esc(h.sha256)}" data-name="${esc(h.file)}">
           <td>${esc(new Date(h.at).toLocaleTimeString())}</td>
           <td class="file" title="${esc(h.file)}"><b>${esc(h.file)}</b></td>
           <td class="num">${size(h.size)}</td>
           <td>${verdictTag(h.verdict)}</td>
           <td class="num">${msText(h.totalMs)}</td>
           <td><b>${esc(picked)}</b> ${msText(h.ms)}${h.calls > 1 ? ` ×${h.calls}` : ""} (${h.share.toFixed(0)} % of the scan)</td>
-        </tr>`).join("") || `<tr><td colspan="6" class="empty">No file yet.</td></tr>`;
+        </tr>`).join("") || `<tr><td colspan="6" class="empty">No file took ${msText(20)} or longer in ${esc(picked)} since the server started.</td></tr>`;
         return;
       }
       const slowest = $q("etSlowest").checked;

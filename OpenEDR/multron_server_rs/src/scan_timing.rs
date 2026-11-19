@@ -123,6 +123,14 @@ fn note_stage_hits(s: &mut State, file: &str, sha: &str, size: usize, total: Dur
     }
 }
 
+/// Stages timed outside the engine scan (the server's threat-intel steps, which run
+/// after it): their files join each stage's slowest list like the engine's do. Not
+/// counted as a scan.
+pub fn record_stages(file: &str, sha: &str, size: usize, total: Duration, verdict: Option<&str>, stages: &[StageTime]) {
+    let mut s = STATE.lock().unwrap_or_else(|e| e.into_inner());
+    note_stage_hits(&mut s, file, sha, size, total, verdict, stages);
+}
+
 fn ms(ns: u128) -> f64 {
     (ns as f64 / 1_000_000.0 * 10.0).round() / 10.0
 }
@@ -289,5 +297,14 @@ mod tests {
         assert_eq!(hits.len(), SLOWEST_PER_STAGE);
         assert_eq!(hits[0].file, format!("f{}.dll", SLOWEST_PER_STAGE + 4));
         assert!(hits.windows(2).all(|w| w[0].stage_ns >= w[1].stage_ns));
+    }
+
+    #[test]
+    fn stages_timed_after_the_scan_list_their_files_without_counting_a_scan() {
+        let before = report()["scans"].as_u64().unwrap();
+        record_stages("late.exe", "abc", 7, Duration::from_millis(90), Some("unknown"), &[stage("server:ti_test_only", 40)]);
+        let r = report();
+        assert_eq!(r["scans"].as_u64().unwrap(), before);
+        assert_eq!(r["stageSlowest"]["server:ti_test_only"][0]["file"], "late.exe");
     }
 }

@@ -1809,15 +1809,14 @@ static int staticScanVerdictName(const std::string& sUtf8Path, std::string& sNam
 			// verdict, so the queued scan tries again later.
 			if (verdict == "Deferred")
 			{
+				// The report is pretty-printed ("note": "..."), so read the key with
+				// the whitespace-tolerant helpers; a plain "\"note\":\"" search never
+				// matched and the reason was dropped from the log.
 				std::string note;
-				auto pos = report.find("\"note\":\"");
-				if (pos != std::string::npos)
-				{
-					pos += 8;
-					auto end = report.find('"', pos);
-					if (end != std::string::npos)
-						note = report.substr(pos, std::min<size_t>(end - pos, 180));
-				}
+				size_t noteKeyEnd = 0;
+				if (FindJsonKey(report, "note", 1, 0, noteKeyEnd) &&
+					ReadJsonKeyString(report, noteKeyEnd, note) && note.size() > 180)
+					note.resize(180);
 				openedr_static::WriteLog("scan-result", "file=" + sUtf8Path + "; verdict=Deferred" +
 					(note.empty() ? "" : "; note=" + note));
 				return 0;

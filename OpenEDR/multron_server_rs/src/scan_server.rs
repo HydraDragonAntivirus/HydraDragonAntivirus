@@ -2317,6 +2317,7 @@ pub fn apply_threat_intel(
     apply_imphash_sigs(ti, data, &trace, res);
     let report = apply_smart_whitelist(ti, data, name, &trace, res);
     trace.log_if_slow(name, data.len(), res);
+    trace.record(name, data.len(), res);
     report
 }
 
@@ -2342,6 +2343,7 @@ const SLOW_TI: Duration = Duration::from_millis(500);
 pub struct TiTrace {
     started: std::time::Instant,
     inner: std::cell::Cell<Duration>,
+    /// (memtrack stage name, own time, detail)
     steps: std::cell::RefCell<Vec<(&'static str, Duration, String)>>,
 }
 
@@ -2359,8 +2361,26 @@ impl TiTrace {
         let total = t.elapsed();
         let own = total.saturating_sub(self.inner.get());
         self.inner.set(outer + total);
-        self.steps.borrow_mut().push((name.trim_start_matches("server:ti_"), own, detail));
+        self.steps.borrow_mut().push((name, own, detail));
         out
+    }
+
+    /// Puts this file among the slowest of each step (dashboard: Engine time, click a
+    /// stage): the steps run after the engine scan, outside its per-file timing.
+    fn record(&self, name: &str, size: usize, res: &ResultMessage) {
+        let mut stages: Vec<openedr_static::memtrack::StageTime> = Vec::new();
+        for (step, d, _) in self.steps.borrow().iter() {
+            let ns = d.as_nanos() as u64;
+            match stages.iter_mut().find(|s| s.name == *step) {
+                Some(s) => {
+                    s.calls += 1;
+                    s.self_ns += ns;
+                    s.max_ns = s.max_ns.max(ns);
+                }
+                None => stages.push(openedr_static::memtrack::StageTime { name: step, calls: 1, self_ns: ns, cpu_ns: 0, max_ns: ns }),
+            }
+        }
+        crate::scan_timing::record_stages(name, &res.sha256, size, self.started.elapsed(), Some(&res.verdict), &stages);
     }
 
     fn log_if_slow(&self, name: &str, size: usize, res: &ResultMessage) {
@@ -2380,6 +2400,7 @@ impl TiTrace {
             res.verdict
         );
         for (step, d, detail) in steps.iter() {
+            let step = step.trim_start_matches("server:ti_");
             out.push_str(&format!("\n[SLOW-TI]   {step} {:.0}ms", ms(*d)));
             if !detail.is_empty() {
                 out.push_str(&format!(" ({detail})"));

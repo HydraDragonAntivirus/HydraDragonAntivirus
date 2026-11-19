@@ -1,7 +1,7 @@
 use std::io::Read;
 use std::net::TcpStream;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicI64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
@@ -179,6 +179,13 @@ impl CloudSession {
                     if let Ok(val) = serde_json::from_str::<serde_json::Value>(&txt) {
                         let msg_type = val.get("type").and_then(|x| x.as_str()).unwrap_or("");
                         if msg_type == "hello_ok" {
+                            // Compressed uploads the server takes ("encodings"); an
+                            // older server lists none and gets raw bytes.
+                            let br = val
+                                .get("encodings")
+                                .and_then(|e| e.as_array())
+                                .is_some_and(|a| a.iter().any(|x| x.as_str() == Some("br")));
+                            BROTLI_UPLOAD.store(br, Ordering::Relaxed);
                             hello_ok = true;
                             break;
                         } else if msg_type == "error" {
@@ -223,6 +230,36 @@ impl CloudSession {
         self.socket = None;
         self.last_failure = Some(Instant::now());
     }
+}
+
+/// The server listed "br" in its last `hello_ok`: uploads go Brotli-compressed.
+static BROTLI_UPLOAD: AtomicBool = AtomicBool::new(false);
+
+/// Below this an upload goes raw: the saving is a few bytes.
+const BROTLI_MIN_UPLOAD_BYTES: usize = 1024;
+
+/// The bytes to put on the wire for an upload: Brotli-compressed when the server
+/// takes it and it comes out smaller (the server rejects a `csize` >= `size`);
+/// otherwise `None` and the raw bytes go.
+fn pack_upload(data: &[u8]) -> Option<Vec<u8>> {
+    if !BROTLI_UPLOAD.load(Ordering::Relaxed) || data.len() < BROTLI_MIN_UPLOAD_BYTES {
+        return None;
+    }
+    // Quality 5: most of the ratio of the slow levels at a speed that keeps a
+    // 100 MB upload in seconds on the agent.
+    let params = brotli::enc::BrotliEncoderParams { quality: 5, lgwin: 22, ..Default::default() };
+    let mut out = Vec::with_capacity(data.len() / 2);
+    brotli::BrotliCompress(&mut &data[..], &mut out, &params).ok()?;
+    (out.len() < data.len()).then_some(out)
+}
+
+/// The `scan` request, announcing the Brotli encoding when the upload is `packed`.
+fn scan_request(mut req: serde_json::Value, packed: Option<&Vec<u8>>) -> serde_json::Value {
+    if let (Some(p), Some(o)) = (packed, req.as_object_mut()) {
+        o.insert("encoding".into(), serde_json::json!("br"));
+        o.insert("csize".into(), serde_json::json!(p.len()));
+    }
+    req
 }
 
 fn set_socket_timeouts(socket: &WsStream, timeout: Duration) {
@@ -491,6 +528,8 @@ pub fn scan_file(path: &Path) -> FileScanReport {
         let mut timeout = Duration::from_secs(10);
         set_socket_timeouts(socket, Duration::from_secs(12));
         let mut sent_large_upload = false;
+        // Read and packed at `need_upload`: the `scan` request announces the encoding.
+        let mut upload: Option<(Vec<u8>, Option<Vec<u8>>)> = None;
         loop {
             if start.elapsed() > timeout {
                 session.abandon_request();
@@ -527,18 +566,33 @@ pub fn scan_file(path: &Path) -> FileScanReport {
                                 return Ok(("Unknown".to_string(), Vec::new()));
                             }
                             timeout = upload_timeout_for_size(file_size);
+                            let file_bytes = match std::fs::read(path) {
+                                Ok(b) => b,
+                                Err(e) => {
+                                    session.abandon_request();
+                                    return Err(format!("Failed reading file for upload: {}", e));
+                                }
+                            };
+                            // Changed since it was hashed: the server would refuse the
+                            // size; the next scan asks again.
+                            if file_bytes.len() as u64 != file_size {
+                                session.abandon_request();
+                                return Err("File changed while it was being scanned".to_string());
+                            }
+                            let packed = pack_upload(&file_bytes);
                             // Upload file
                             // `path`: the full local path, so the server scans the
                             // upload under it (path-scoped rules such as the
                             // hosts-file PUM rule only match that file).
-                            let scan_req = serde_json::json!({
+                            let scan_req = scan_request(serde_json::json!({
                                 "type": "scan",
                                 "id": req_id,
                                 "sha256": sha256_hex,
                                 "name": file_name,
                                 "size": file_size,
                                 "path": path_str
-                            });
+                            }), packed.as_ref());
+                            upload = Some((file_bytes, packed));
                             if let Err(e) = socket.send(Message::Text(scan_req.to_string().into())) {
                                 session.drop_connection();
                                 return Err(format!("Upload request error: {}", e));
@@ -560,14 +614,15 @@ pub fn scan_file(path: &Path) -> FileScanReport {
                             start = Instant::now();
                             timeout = upload_timeout_for_size(file_size);
                             set_socket_timeouts(socket, timeout);
-                            let file_bytes = match std::fs::read(path) {
-                                Ok(b) => b,
-                                Err(e) => return Err(format!("Failed reading file for upload: {}", e)),
+                            let Some((file_bytes, packed)) = upload.take() else {
+                                session.abandon_request();
+                                return Err("send_file before need_upload".to_string());
                             };
-                            if file_bytes.len() as u64 > LARGE_UPLOAD_BUFFER_RESET_BYTES {
+                            let wire = packed.unwrap_or(file_bytes);
+                            if wire.len() as u64 > LARGE_UPLOAD_BUFFER_RESET_BYTES {
                                 sent_large_upload = true;
                             }
-                            if let Err(e) = socket.send(Message::Binary(file_bytes.into())) {
+                            if let Err(e) = socket.send(Message::Binary(wire.into())) {
                                 session.drop_connection();
                                 return Err(format!("File upload binary error: {}", e));
                             }
@@ -660,6 +715,8 @@ pub fn scan_bytes(data: &[u8], name: &str) -> (String, Vec<DetectionItem>, Strin
         let mut timeout = Duration::from_secs(10);
         set_socket_timeouts(socket, Duration::from_secs(12));
         let mut sent_large_upload = false;
+        // Read and packed at `need_upload`: the `scan` request announces the encoding.
+        let mut upload: Option<(Vec<u8>, Option<Vec<u8>>)> = None;
         loop {
             if start.elapsed() > timeout {
                 session.abandon_request();
@@ -696,13 +753,15 @@ pub fn scan_bytes(data: &[u8], name: &str) -> (String, Vec<DetectionItem>, Strin
                                 return Ok(("Unknown".to_string(), Vec::new()));
                             }
                             timeout = upload_timeout_for_size(size);
-                            let scan_req = serde_json::json!({
+                            let packed = pack_upload(data);
+                            let scan_req = scan_request(serde_json::json!({
                                 "type": "scan",
                                 "id": req_id,
                                 "sha256": sha256_hex,
                                 "name": name,
                                 "size": size
-                            });
+                            }), packed.as_ref());
+                            upload = Some((Vec::new(), packed));
                             if let Err(e) = socket.send(Message::Text(scan_req.to_string().into())) {
                                 session.drop_connection();
                                 return Err(format!("Upload request error: {}", e));
@@ -727,7 +786,11 @@ pub fn scan_bytes(data: &[u8], name: &str) -> (String, Vec<DetectionItem>, Strin
                             if size > LARGE_UPLOAD_BUFFER_RESET_BYTES {
                                 sent_large_upload = true;
                             }
-                            if let Err(e) = socket.send(Message::Binary(data.to_vec().into())) {
+                            let wire = match upload.take() {
+                                Some((_, Some(packed))) => packed,
+                                _ => data.to_vec(),
+                            };
+                            if let Err(e) = socket.send(Message::Binary(wire.into())) {
                                 session.drop_connection();
                                 return Err(format!("Binary upload error: {}", e));
                             }
@@ -1276,5 +1339,29 @@ pub fn scan_system_events() -> String {
     match res {
         Ok(json_str) => json_str,
         Err(_) => "[]".to_string(),
+    }
+}
+
+#[cfg(test)]
+mod brotli_upload_tests {
+    use super::*;
+
+    #[test]
+    fn packed_upload_decodes_to_the_original_and_is_raw_when_not_offered() {
+        let data: Vec<u8> = (0..200_000u32).flat_map(|i| (i % 251).to_le_bytes()).collect();
+        BROTLI_UPLOAD.store(false, Ordering::Relaxed);
+        assert!(pack_upload(&data).is_none());
+        BROTLI_UPLOAD.store(true, Ordering::Relaxed);
+        let packed = pack_upload(&data).expect("compressible data is packed");
+        assert!(packed.len() < data.len());
+        // The server decodes with brotli_decompressor, which `brotli` re-exports.
+        let mut plain = Vec::new();
+        brotli::Decompressor::new(&packed[..], 64 * 1024).read_to_end(&mut plain).unwrap();
+        assert_eq!(plain, data);
+        assert!(pack_upload(&data[..100]).is_none(), "tiny uploads go raw");
+        let req = scan_request(serde_json::json!({"type": "scan", "size": data.len()}), Some(&packed));
+        assert_eq!(req["encoding"], "br");
+        assert_eq!(req["csize"], packed.len());
+        BROTLI_UPLOAD.store(false, Ordering::Relaxed);
     }
 }

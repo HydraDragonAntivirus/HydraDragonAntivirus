@@ -47,6 +47,7 @@ type
     // PushRows found a result list in the service's answer.
     FParsedRows: Boolean;
     procedure PushProgress;
+    procedure PushBatchStatus;
     procedure Walk(const ADir: WideString);
     procedure Consider(const APath: WideString);
     procedure FlushBatch;
@@ -192,6 +193,10 @@ const
   // getFileReputationBulk answer wait: a base plus a share per file in the batch.
   BULK_RECV_BASE_MS = 15000;
   BULK_RECV_PER_FILE_MS = 30000;
+  // Files per getFileReputationBulk call. The service answers only after a full
+  // engine scan + cloud lookup of every file in the call, so a big batch showed
+  // nothing for minutes (and a Cancel dropped all of it); small ones stream rows.
+  REP_BATCH_FILES = 5;
   VALKYRIE_URL = 'https://valkyrie.comodo.com/';
   FORUMS_URL = 'https://forums.comodo.com/';
   VIRUSKOV_URL = 'https://viruskov.com';
@@ -323,6 +328,15 @@ begin
     ' (batch ' + IntToStr(FBatchNo) + ')... ' + ShortPath(FCurrent, 70);
 end;
 
+procedure TRepWalkThread.PushBatchStatus;
+begin
+  if FForm = nil then
+    Exit;
+  FForm.StatusLbl.Caption := 'Batch ' + IntToStr(FBatchNo) + ': the service is scanning ' +
+    IntToStr(FBatch.Count) + ' file(s) (' + IntToStr(FCount) + ' checked so far)... ' +
+    ShortPath(FBatch[0], 60);
+end;
+
 procedure TRepWalkThread.PushRows;
 var
   Frm: TRepForm;
@@ -404,6 +418,10 @@ begin
       Req := Req + '"' + EscapeJson(FBatch[i]) + '"';
     end;
     Req := Req + ']}}';
+    try
+      Synchronize(@PushBatchStatus);
+    except
+    end;
     // The service scans the batch file by file (cloud lookups and a full engine
     // scan each), so a fixed 15 s ran out on every slow batch and its files
     // were shown as failed while the service was still working. Cancel breaks
@@ -445,7 +463,7 @@ begin
   // No extension gate: every file enters the bulk scan (server caps giants).
   FBatch.Add(UTF8Encode(APath));
   FCurrent := UTF8Encode(APath);
-  if FBatch.Count >= 25 then
+  if FBatch.Count >= REP_BATCH_FILES then
     FlushBatch;
   Inc(FCount);
   if (FCount mod 25) = 0 then
@@ -860,7 +878,11 @@ begin
     FThread.Terminate;
     FThread := nil;
   end;
-  FinishScan('Cancelled.');
+  if FRowsThisScan = 0 then
+    FinishScan('Cancelled before the service answered the first batch (each file ' +
+      'gets a full engine scan and a cloud lookup).')
+  else
+    FinishScan('Cancelled.');
 end;
 
 procedure TRepForm.WalkDone(Sender: TObject);
