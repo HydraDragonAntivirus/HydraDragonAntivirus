@@ -349,6 +349,8 @@ pub fn dashboard_router(state: Arc<AppState>) -> Router {
         .route("/api/alyzer/unpack", post(crate::alyzer::handle_unpack))
         .route("/api/alyzer/scan", post(crate::alyzer::handle_scan))
         .route("/api/alyzer/save", post(crate::alyzer::handle_save).route_layer(DefaultBodyLimit::max(64 * 1024 * 1024)))
+        .route("/api/alyzer/export", post(crate::alyzer::handle_export))
+        .route("/api/alyzer/download", get(crate::alyzer::handle_download))
         .route("/api/events/ecs", get(handle_events_ecs))
         .route("/api/v1/edr/telemetry/behavior", post(crate::edr_telemetry::handle_edr_telemetry_behavior))
         .route("/api/v1/edr/telemetry/network-flows", post(crate::edr_telemetry::handle_edr_telemetry_network_flows))

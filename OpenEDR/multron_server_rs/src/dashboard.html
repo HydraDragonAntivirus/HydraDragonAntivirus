@@ -1189,6 +1189,8 @@
         <button class="ghost" id="vaFp" disabled title="False positive: turn off the signature that detects this file (from the last engine result or the scan just run here)">Turn off signature…</button>
         <button class="ghost" id="vaImphash" disabled title="Make an analyst imphash signature from this PE (Signature room)">Imphash signature</button>
         <button class="ghost" id="vaUnpack" disabled title="Runs the PE in the engine's Unicorn emulator and opens the memory image">Unpack (Unicorn)</button>
+        <button class="ghost" id="vaExport" disabled title="Saves the open file as it is now (Unicorn memory image, file extracted from an archive, …) to alyzer_saved\ next to the server">Save copy</button>
+        <button class="ghost" id="vaDownload" disabled title="Downloads the open file through the browser (runnable extensions get .bin appended)">Download</button>
       </div>
       <div class="hint" id="vaMsg" style="margin:4px 0 8px">Opens a kept upload or any file on this server: hashes, PE headers, sections with entropy, imports / exports, strings, indicators, a disassembler (x86 / x64, ARM, Thumb, ARM64 for PE, ELF, Mach-O and raw code, with import names), the scanner's own decompiler, archive extractor and Unicorn unpacker, and a hex editor. The original file is never changed; edits are saved as a copy in <code>alyzer_edited\</code>.</div>
       <div id="vaBody" hidden>
@@ -4721,6 +4723,8 @@ window.sigKey = (list) => list && list.length ? `${list[0].layer}: ${list[0].nam
     $("vaVk").disabled = !d.viruskov;
     $("vaFp").disabled = !d.engine_detail;
     $("vaUnpack").disabled = !r.pe;
+    $("vaExport").disabled = false;
+    $("vaDownload").disabled = false;
     $("vaImphash").disabled = !(r.hashes && r.hashes.imphash);
     $("vaTitle").innerHTML = `<b>${esc(d.name)}</b> <span class="hint" style="margin:0">${size(d.size)} · ${esc(r.file_type || "")} · ${esc(d.source)}</span>`;
     renderOverview(); renderPe(); renderImports();
@@ -4999,6 +5003,27 @@ window.sigKey = (list) => list && list.length ? `${list[0].layer}: ${list[0].nam
       if (r.ok === false) { msg(r.message || "Nothing unpacked."); $("vaUnpack").disabled = false; return; }
       setDoc(r); msg(`Unpacked: ${r.source}`); refreshDocs();
     } catch (e) { msg(e.message, true); $("vaUnpack").disabled = false; }
+  };
+
+  // ---------------- save / download the open file ----------------
+  // An unpacked memory image or a member taken out of an archive is only in memory
+  // on the server; these write it out as it is now (hex edits: "Save" in the editor).
+  $("vaExport").onclick = async () => {
+    if (!doc) return;
+    if (hasEdits() && !confirm("The unsaved hex edits are not included (use Save in the hex editor for them). Save the file without them?")) return;
+    $("vaExport").disabled = true;
+    try {
+      const r = await api("/api/alyzer/export", { token: doc.token });
+      msg(`Saved ${size(r.size)} to ${r.path} (SHA-256 ${r.sha256})`);
+    } catch (e) { msg(e.message, true); }
+    finally { $("vaExport").disabled = false; }
+  };
+  $("vaDownload").onclick = () => {
+    if (!doc) return;
+    const a = document.createElement("a");
+    a.href = `/api/alyzer/download?token=${encodeURIComponent(doc.token)}`;
+    a.rel = "noopener";
+    document.body.appendChild(a); a.click(); a.remove();
   };
 
   // ---------------- disassembly (iced-x86 / yaxpeax-arm on the server) ----------------

@@ -701,6 +701,55 @@ pub struct TokenBody {
     token: String,
 }
 
+/// File name for a saved / downloaded copy: the open file's name made safe, prefixed
+/// with the start of its SHA-256 so two copies never overwrite each other. Executable
+/// extensions get `.bin` appended, so a double click on an unpacked sample (or a
+/// member taken out of an archive) cannot run it.
+fn export_name(name: &str, sha: &str) -> String {
+    let safe: String = name.chars().map(|c| if c.is_alphanumeric() || ".-_".contains(c) { c } else { '_' }).take(120).collect();
+    let lower = safe.to_ascii_lowercase();
+    const RUNNABLE: &[&str] = &[
+        ".exe", ".dll", ".scr", ".sys", ".com", ".cpl", ".ocx", ".msi", ".bat", ".cmd", ".ps1", ".vbs", ".js",
+        ".jse", ".wsf", ".hta", ".lnk", ".jar",
+    ];
+    let tail = if RUNNABLE.iter().any(|e| lower.ends_with(e)) { ".bin" } else { "" };
+    format!("{}_{safe}{tail}", &sha[..12.min(sha.len())])
+}
+
+/// "Save copy": writes the open file as it is now - an Unicorn memory image, a member
+/// extracted from an archive, a decoded stream - to `alyzer_saved/` next to the
+/// server. Until now such files lived only in memory (only hex edits could be saved).
+pub async fn handle_export(Json(b): Json<TokenBody>) -> Response {
+    let Some((name, data)) = doc(&b.token) else { return err(StatusCode::NOT_FOUND, "file is not open any more, open it again") };
+    let sha = sha256_hex(&data);
+    let dir = crate::config::app_dir().join("alyzer_saved");
+    if let Err(e) = std::fs::create_dir_all(&dir) {
+        return err(StatusCode::INTERNAL_SERVER_ERROR, format!("{}: {e}", dir.display()));
+    }
+    let path = dir.join(export_name(&name, &sha));
+    if !path.exists() {
+        if let Err(e) = std::fs::write(&path, data.as_slice()) {
+            return err(StatusCode::INTERNAL_SERVER_ERROR, format!("{}: {e}", path.display()));
+        }
+    }
+    Json(serde_json::json!({ "ok": true, "path": path.display().to_string(), "sha256": sha, "size": data.len() })).into_response()
+}
+
+/// "Download": the open file as a browser download (same name as `handle_export`).
+pub async fn handle_download(Query(q): Query<TokenQuery>) -> Response {
+    let Some((name, data)) = doc(&q.token) else { return err(StatusCode::NOT_FOUND, "file is not open any more, open it again") };
+    let file = export_name(&name, &sha256_hex(&data));
+    (
+        [
+            (header::CONTENT_TYPE, "application/octet-stream".to_string()),
+            (header::CACHE_CONTROL, "no-store".to_string()),
+            (header::CONTENT_DISPOSITION, format!("attachment; filename=\"{file}\"")),
+        ],
+        data.as_ref().clone(),
+    )
+        .into_response()
+}
+
 /// Scans the open file with the engine now (nothing is kept, the verdict cache and
 /// telemetry are not touched) and returns verdict, threat, engines and signer. Same
 /// verdict as a live scan: analyst TLSH / imphash signatures, the TLSH blacklist and
