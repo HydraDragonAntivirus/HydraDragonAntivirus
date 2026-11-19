@@ -6189,6 +6189,11 @@ void EventEnricher::put(const Variant& vEventRef)
 	vProcess.put("hasUnknownDllComodo", modRes.hasUnknownDllComodo);
 	vProcess.put("hasUnknownDllCertificate", modRes.hasUnknownDllCertificate);
 	vProcess.put("hasUnknownDll", modRes.hasUnknownDllComodo || modRes.hasUnknownDllCertificate);
+	// True only when at least one module has an actual (non-clean) scan verdict.
+	// hasUnknownDll* also counts modules that were never scanned yet (cached
+	// verdict 0 with no FLS/Viruskov detail) - they stay untrusted for process
+	// trust, but must not raise MLE_DOTNET_LOADER_ATTACK_CHAIN on their own.
+	vProcess.put("hasEvaluatedUnknownDll", modRes.hasEvaluatedUnknownDll);
 	std::string primaryUnknownDll = !modRes.firstUnknownDllComodo.empty() ? modRes.firstUnknownDllComodo : modRes.firstUnknownDllCert;
 	vProcess.put("unknownDllPath", primaryUnknownDll);
 	vProcess.put("isTrustedAccordingToFls", isProcFlsClean && !modRes.hasUnknownDllComodo);
@@ -6209,10 +6214,6 @@ void EventEnricher::put(const Variant& vEventRef)
 	{
 		vEvent.put("loaderTargetDll", modRes.loaderTargetDll);
 		vEvent.put("startFunction", modRes.loaderStartFunction);
-		if (modRes.hasUnknownDll)
-		{
-			vEvent.put("quarantineTarget", modRes.loaderTargetDll);
-		}
 	}
 
 	std::string untrustedReason;
@@ -6222,40 +6223,21 @@ void EventEnricher::put(const Variant& vEventRef)
 	lagScope.mark(c_stTrust, tStc_stTrust);
 	vProcess.put("isTrusted", isProcessTrusted);
 
-	// An untrusted process (native or managed - MegaDumper unpacks both), or a
-	// .NET loader with an unknown DLL: dump it (MegaDumper.dll) and scan what
-	// was unpacked in memory. Wait until sProcPath or one of its DLLs actually
-	// finished evaluation so clean processes aren't dumped before first scan.
+	// An untrusted process (native or managed - MegaDumper unpacks both): dump it
+	// (MegaDumper.dll) and scan what was unpacked in memory. Wait until sProcPath
+	// or one of its DLLs actually finished evaluation so clean processes aren't
+	// dumped before first scan. The .NET loader attack chain itself is decided
+	// only by DotNetLoaderAttackChainExploitDetection in ptm.local.src, which
+	// gets isDotNetLoader / hasEvaluatedUnknownDll from vProcess above.
 	const int trustMode = DriverPortHips::s_configuredTrustMode.load(std::memory_order_relaxed);
 	const bool isProcImageSelfTrusted = (trustMode == 1) ? isProcFlsClean
 	                                  : (trustMode == 2) ? isProcViruskovClean
 	                                  : (isProcFlsClean && isProcViruskovClean);
 	const bool shouldDumpUntrusted =
 		(procCached != 0 && !isProcImageSelfTrusted) || modRes.hasEvaluatedUnknownDll;
-	if (modRes.isDotNetLoader && modRes.hasUnknownDll)
-		DumpQueue::enqueue(nActorPid, sProcPath, ".NET loader with an unknown DLL");
-	else if (!isProcessTrusted && DriverPortHips::s_dumpUntrusted.load(std::memory_order_relaxed) &&
+	if (!isProcessTrusted && DriverPortHips::s_dumpUntrusted.load(std::memory_order_relaxed) &&
 		shouldDumpUntrusted)
 		DumpQueue::enqueue(nActorPid, sProcPath, modRes.isDotNet ? "untrusted managed process" : "untrusted native process");
-
-	// Alert on .NET loader with unknown DLL in attack chain
-	if (modRes.isDotNetLoader && modRes.hasUnknownDll)
-	{
-		LOGLVL(Critical, FMT("enricher: [.NET LOADER ATTACK CHAIN DETECTED] Process <" << sProcPath
-			<< "> (PID: " << nActorPid << ") loaded untrusted target DLL <"
-			<< modRes.loaderTargetDll << "> (Start: " << modRes.loaderStartFunction << ")"));
-
-		HANDLE hPipeAlert = ::CreateFileW(L"\\\\.\\pipe\\HydraHipEvent",
-			GENERIC_WRITE, 0, NULL, OPEN_EXISTING, 0, NULL);
-		if (hPipeAlert != INVALID_HANDLE_VALUE)
-		{
-			std::string alertMsg = "THREAT_ALERT:Exploit.Win32.DotNetLoader.AttackChain|" +
-				sProcPath + "|0|" + modRes.dllAttackChain + "\n";
-			DWORD written = 0;
-			::WriteFile(hPipeAlert, alertMsg.data(), static_cast<DWORD>(alertMsg.size()), &written, NULL);
-			::CloseHandle(hPipeAlert);
-		}
-	}
 
 	vEvent.put("process", vProcess);
 	Variant vToken = getByPath(vProcess, "token.tokenObj", {});

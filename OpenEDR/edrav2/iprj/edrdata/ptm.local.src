@@ -8703,6 +8703,10 @@
 								"args": [ "@event.process.isDotNetLoader", true ]
 							},
 							{
+								"$operation": "equal",
+								"args": [ "@event.process.hasEvaluatedUnknownDll", true ]
+							},
+							{
 								"$operation": "or",
 								"args": [
 									{
