@@ -1056,23 +1056,21 @@ impl EngineAdapter {
 
         // 3. Malicious XOR filter (respects override removals)
         if self.is_blacklisted(&clean) {
-            // An allow-listed company wins over the hash filter, but the signer is
-            // only in the file (Authenticode): with any company allow-listed the file
-            // is scanned, and the full scan gives the same XOR-filter verdict unless
-            // its signer is allowed (`scan_blocking_inner`).
-            if self.analyst.has_company_allow() || self.want_xorfilter_upload(&clean) {
-                return None;
-            }
-            return Some(hash_result("malicious", Some("Malware.Hash.XorFilter"), "Matched malicious SHA-256 (XOR Filter)", 1.0, &clean, "hash"));
+            // A trusted signer (`signer_rules/trusted_signers.yaml` with a valid
+            // signature) or an allow-listed company wins over the hash filter, but the
+            // signer is only in the file (Authenticode): the file is always scanned,
+            // and the full scan gives the same XOR-filter verdict unless its signer is
+            // trusted or allowed (`apply_xorfilter`, `scan_blocking_inner`).
+            return None;
         }
 
         None
     }
 
-    /// A cached verdict that the company lists decided (an XOR-filter hit, an
-    /// allow-listed or block-listed signer), cached before the lists last changed: it
-    /// has to be scanned again.
-    pub fn stale_for_company_lists(&self, v: &crate::cache::CachedVerdict) -> bool {
+    /// A cached verdict that the signer lists decide (an XOR-filter hit, an
+    /// allow-listed or block-listed company), cached before they last changed: it has
+    /// to be scanned again.
+    pub fn stale_for_signer_lists(&self, v: &crate::cache::CachedVerdict) -> bool {
         let changed = self.analyst.companies_changed_at();
         if changed == 0 || v.at > changed {
             return false;
@@ -1135,6 +1133,20 @@ impl EngineAdapter {
         }
 
         if let Some(algo) = hit_algo {
+            // Signed by a publisher of `signer_rules/trusted_signers.yaml` with a valid
+            // signature (the engine's `is_fully_trusted`): the hash filter is
+            // probabilistic and does not overrule a vetted signer. Listed, not applied;
+            // the engine's own verdict stays.
+            if res.signer.as_ref().is_some_and(|s| s.trusted) {
+                let d = crate::threat_intel::DetectionRef {
+                    layer: "XOR filter (trusted signer, not applied)".to_string(),
+                    name: format!("Malware.Hash.XorFilter ({algo})"),
+                };
+                if !res.detections.contains(&d) {
+                    res.detections.push(d);
+                }
+                return;
+            }
             if res.verdict != "malicious" {
                 let detail_msg = format!("Matched malicious {} (XOR Filter)", algo);
                 let h = hash_result("malicious", Some("Malware.Hash.XorFilter"), &detail_msg, 1.0, &sha_l, "hash");

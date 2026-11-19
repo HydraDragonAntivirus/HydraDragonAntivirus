@@ -323,11 +323,6 @@ impl AnalystEngine {
         msg
     }
 
-    /// At least one company is allow-listed.
-    pub fn has_company_allow(&self) -> bool {
-        !self.companies.read().unwrap().allow.is_empty()
-    }
-
     /// Unix seconds of the last change to the company lists (0: none since start).
     pub fn companies_changed_at(&self) -> i64 {
         self.companies_changed_at.load(Ordering::Relaxed)
