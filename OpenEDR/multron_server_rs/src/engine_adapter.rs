@@ -1070,13 +1070,24 @@ impl EngineAdapter {
     /// A cached verdict that the signer lists decide (an XOR-filter hit, an
     /// allow-listed or block-listed company), cached before they last changed: it has
     /// to be scanned again.
-    pub fn stale_for_signer_lists(&self, v: &crate::cache::CachedVerdict) -> bool {
+    /// Same for a blacklist override (remove / restore from the dashboard): an
+    /// XOR-filter hit cached before it, or a non-malicious verdict whose SHA-256 is on
+    /// the blacklist again.
+    pub fn stale_for_signer_lists(&self, sha_hex: &str, v: &crate::cache::CachedVerdict) -> bool {
+        let threat = v.threat.as_deref().unwrap_or("");
+        let xorfilter_hit = threat == "Malware.Hash.XorFilter";
+        let overrides = crate::blacklist_removals::changed_at();
+        if overrides != 0
+            && v.at <= overrides
+            && (xorfilter_hit || (v.verdict != "malicious" && self.is_blacklisted(sha_hex)))
+        {
+            return true;
+        }
         let changed = self.analyst.companies_changed_at();
         if changed == 0 || v.at > changed {
             return false;
         }
-        let threat = v.threat.as_deref().unwrap_or("");
-        threat == "Malware.Hash.XorFilter"
+        xorfilter_hit
             || threat.starts_with("Riskware.Multi.BlockedSigner")
             || v.detail.as_deref().is_some_and(|d| d.starts_with("Trusted company (analyst allow-list)"))
     }
@@ -1116,17 +1127,26 @@ impl EngineAdapter {
             return;
         }
 
-        // 2. Malicious XOR filter: check SHA-256, SHA-1 and MD5 (respects overrides and 0-size protection)
+        // 2. Malicious XOR filter: check SHA-256, SHA-1 and MD5 (respects overrides and 0-size protection).
+        // A blacklist override on any one of the file's hashes takes the whole file off
+        // the blacklist: removing its SHA-256 must not leave its SHA-1 / MD5 hitting.
         let mut hit_algo = None;
-        if self.is_blacklisted(&sha_l) {
-            hit_algo = Some("SHA-256");
-        } else if let Some(d) = data {
-            let sha1_hex = hex::encode(crate::analyzer::sha1(d));
-            if self.is_blacklisted(&sha1_hex) {
-                hit_algo = Some("SHA-1");
-            } else {
-                let md5_hex = hex::encode(crate::analyzer::md5(d));
-                if self.is_blacklisted(&md5_hex) {
+        let sha256_hit = self.is_blacklisted(&sha_l);
+        // SHA-1 / MD5 only when needed: no SHA-256 hit, or an override may name them.
+        let hashes = data
+            .filter(|_| !sha256_hit || crate::blacklist_removals::any())
+            .map(|d| (hex::encode(crate::analyzer::sha1(d)), hex::encode(crate::analyzer::md5(d))));
+        let overridden = crate::blacklist_removals::is_removed(&sha_l)
+            || hashes.as_ref().is_some_and(|(s1, m5)| {
+                crate::blacklist_removals::is_removed(s1) || crate::blacklist_removals::is_removed(m5)
+            });
+        if !overridden {
+            if sha256_hit {
+                hit_algo = Some("SHA-256");
+            } else if let Some((sha1_hex, md5_hex)) = &hashes {
+                if self.is_blacklisted(sha1_hex) {
+                    hit_algo = Some("SHA-1");
+                } else if self.is_blacklisted(md5_hex) {
                     hit_algo = Some("MD5");
                 }
             }

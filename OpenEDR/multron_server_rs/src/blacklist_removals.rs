@@ -9,6 +9,7 @@
 
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Write};
+use std::sync::atomic::{AtomicI64, Ordering};
 use std::sync::{OnceLock, RwLock};
 
 use serde::{Deserialize, Serialize};
@@ -79,6 +80,19 @@ fn append(v: &serde_json::Value) -> std::io::Result<()> {
     writeln!(f, "{v}")
 }
 
+/// Unix seconds of the last remove / restore since start (0: none). Verdicts cached
+/// before it that the XOR filter decided are stale: see `Engine::stale_for_signer_lists`.
+static CHANGED_AT: AtomicI64 = AtomicI64::new(0);
+
+pub fn changed_at() -> i64 {
+    CHANGED_AT.load(Ordering::Relaxed)
+}
+
+/// Whether any override is active (cheap: lets callers skip hashing when none is).
+pub fn any() -> bool {
+    !removals().read().unwrap().is_empty()
+}
+
 pub fn is_removed(hash: &str) -> bool {
     let g = removals().read().unwrap();
     !g.is_empty() && g.contains_key(&hash.trim().to_ascii_lowercase())
@@ -112,6 +126,7 @@ pub fn remove_hash(hash: &str, analyst: &str, reason: &str) -> std::io::Result<b
     };
     append(&serde_json::to_value(&r).unwrap_or_default())?;
     g.insert(h, r);
+    CHANGED_AT.store(crate::cache::now_secs(), Ordering::Relaxed);
     Ok(true)
 }
 
@@ -129,5 +144,6 @@ pub fn restore_hash(hash: &str, analyst: &str) -> std::io::Result<bool> {
         "reason": "Restored to blacklist",
         "removed_at": chrono::Utc::now().to_rfc3339()
     }))?;
+    CHANGED_AT.store(crate::cache::now_secs(), Ordering::Relaxed);
     Ok(true)
 }
