@@ -230,6 +230,7 @@ impl EngineAdapter {
                 match std::panic::catch_unwind(|| StaticEngine::init(&rules_dir)) {
                     Ok(mut engine) => {
                         load_analyst_yara_into(&mut engine);
+                        load_analyst_rules_into(&mut engine);
                         adapter.analyst.reload();
                         let elapsed = started.elapsed().as_millis() as i64;
                         adapter.load_ms.store(elapsed, Ordering::Relaxed);
@@ -791,26 +792,32 @@ impl EngineAdapter {
                 let new_md5 = load_filter(&rules_dir, "malicious_md5.xf", "MD5");
                 let new_xvirus = load_plain_xvirus_md5(&rules_dir);
                 let result = match std::panic::catch_unwind(|| StaticEngine::init(&rules_dir)) {
-                    Ok(new_engine) => match adapter.engine.get() {
-                        Some(slot) => match slot.write() {
-                            Ok(mut guard) => {
-                                let old = std::mem::replace(&mut *guard, new_engine);
-                                drop(guard);
-                                *adapter.malicious_sha256_xf.write().unwrap() = new_sha256;
-                                *adapter.malicious_sha1_xf.write().unwrap() = new_sha1;
-                                *adapter.malicious_md5_xf.write().unwrap() = new_md5;
-                                *adapter.xvirus_plain_md5.write().unwrap() = new_xvirus;
-                                drop(old); // free the old engine outside the lock
-                                adapter.load_analyst_yara();
-                                adapter.analyst.reload();
-                                let ms = started.elapsed().as_millis() as i64;
-                                adapter.load_ms.store(ms, Ordering::Relaxed);
-                                Ok(ms)
-                            }
-                            Err(_) => Err("engine lock poisoned".to_string()),
-                        },
-                        None => Err("engine not ready".to_string()),
-                    },
+                    Ok(mut new_engine) => {
+                        // Analyst signer / registry / URL / Sigma rules go into the new
+                        // engine *before* the swap: a trusted-signer rule missing for even
+                        // a moment would let signed clean files be judged without it.
+                        load_analyst_rules_into(&mut new_engine);
+                        match adapter.engine.get() {
+                            Some(slot) => match slot.write() {
+                                Ok(mut guard) => {
+                                    let old = std::mem::replace(&mut *guard, new_engine);
+                                    drop(guard);
+                                    *adapter.malicious_sha256_xf.write().unwrap() = new_sha256;
+                                    *adapter.malicious_sha1_xf.write().unwrap() = new_sha1;
+                                    *adapter.malicious_md5_xf.write().unwrap() = new_md5;
+                                    *adapter.xvirus_plain_md5.write().unwrap() = new_xvirus;
+                                    drop(old); // free the old engine outside the lock
+                                    adapter.load_analyst_yara();
+                                    adapter.analyst.reload();
+                                    let ms = started.elapsed().as_millis() as i64;
+                                    adapter.load_ms.store(ms, Ordering::Relaxed);
+                                    Ok(ms)
+                                }
+                                Err(_) => Err("engine lock poisoned".to_string()),
+                            },
+                            None => Err("engine not ready".to_string()),
+                        }
+                    }
                     Err(_) => Err("panic while loading the new engine".to_string()),
                 };
                 let msg = match &result {
@@ -925,7 +932,7 @@ impl EngineAdapter {
     /// General runtime rule reload without restart. Kinds:
     /// - `url`: URL threat rules YAML (replaces the whole document)
     /// - `strings`: HydraDragonSig string-rule YAML (replaces)
-    /// - `registry`: PUA registry YAML (replaces; shares the string-rule store)
+    /// - `registry`: PUA registry rule YAML (replaces the registry matcher)
     /// - `yara_src`: one YARA source document (appended to the YARA set)
     /// Binary bundles (ML models, compiled `.yrc`) stay restart-only.
     pub fn reload_rules(&self, kind: &str, content: &str) -> Result<String, String> {
@@ -1323,15 +1330,24 @@ impl EngineAdapter {
                     .as_ref()
                     .and_then(|s| self.analyst.company_decision_for(s))
                 {
-                    Some(crate::analyst_engine::CompanyDecision::Block(company)) => apply_analyst_hit(
-                        &mut res,
-                        &crate::analyst_engine::AnalystHit {
-                            engine: "company_blocklist",
-                            name: format!("Riskware.Multi.BlockedSigner ({company})"),
-                            verdict: "malicious",
-                        },
-                    ),
-                    Some(crate::analyst_engine::CompanyDecision::Allow(company)) => apply_company_allow(&mut res, &company),
+                    Some(crate::analyst_engine::CompanyDecision::Block(company, reason, family)) => {
+                        apply_analyst_hit(
+                            &mut res,
+                            &crate::analyst_engine::AnalystHit {
+                                engine: "company_blocklist",
+                                name: if family.is_empty() {
+                                    format!("Riskware.Multi.BlockedSigner ({company})")
+                                } else {
+                                    family
+                                },
+                                verdict: "malicious",
+                            },
+                        );
+                        append_company_reason(&mut res, &reason);
+                    }
+                    Some(crate::analyst_engine::CompanyDecision::Allow(company, reason)) => {
+                        apply_company_allow(&mut res, &company, &reason)
+                    }
                     None => {}
                 }
             }
@@ -1535,10 +1551,23 @@ impl EngineAdapter {
         }
     }
 
-    pub fn check_registry(&self, reg_path: &str) -> Result<openedr_static::report::RegistryCheckReport, String> {
+    /// The engine's `check_registry` plus the title / description of the registry rule file that
+    /// matched (`registry_match_detail`), read under the same engine lock so a reload
+    /// in between cannot pair one engine's verdict with another's rule. The detail is
+    /// `None` when nothing matched or the matching rule set carries no title.
+    pub fn check_registry_with_detail(
+        &self,
+        reg_path: &str,
+    ) -> Result<(openedr_static::report::RegistryCheckReport, Option<(String, String)>), String> {
         let engine = self.engine.get().ok_or_else(|| "engine not ready".to_string())?;
         let engine = engine.read().map_err(|_| "engine lock poisoned".to_string())?;
-        Ok(engine.check_registry(reg_path))
+        let report = engine.check_registry(reg_path);
+        let detail = if report.matched_patterns.is_empty() && !report.is_pua_autostart {
+            None
+        } else {
+            engine.registry_match_detail(reg_path)
+        };
+        Ok((report, detail))
     }
 
     pub fn get_registry_targets(&self) -> Result<Vec<String>, String> {
@@ -1847,15 +1876,33 @@ pub fn apply_analyst_hit(res: &mut ResultMessage, hit: &crate::analyst_engine::A
 
 /// Allow-listed, validly signed company: the engine verdict becomes clean. Analyst
 /// ClamAV/HydraDragonSig hits are applied afterwards and can still raise it again.
-fn apply_company_allow(res: &mut ResultMessage, company: &str) {
+fn apply_company_allow(res: &mut ResultMessage, company: &str, reason: &str) {
     // Marked even when the engine already said clean: the analyst layers after it
     // (`apply_analyst_hit`) must see that the signer is trusted.
-    let detail = if res.verdict == "clean" {
-        format!("Trusted company (analyst allow-list): {company}")
-    } else {
-        format!("Trusted company (analyst allow-list): {company}; engine said {}", res.verdict)
-    };
+    let mut detail = format!("Trusted company (analyst allow-list): {company}");
+    if !reason.is_empty() {
+        detail.push_str(&format!(" — {reason}"));
+    }
+    if res.verdict != "clean" {
+        detail.push_str(&format!("; engine said {}", res.verdict));
+    }
     mark_clean(res, detail, COMPANY_ALLOW_RULESET);
+}
+
+/// The analyst's reason for a block-listed company, after the detection detail
+/// (kept in `antivirus.detail` too, which is what the clients read).
+fn append_company_reason(res: &mut ResultMessage, reason: &str) {
+    if reason.is_empty() {
+        return;
+    }
+    let detail = match res.detail.take() {
+        Some(d) if !d.is_empty() => format!("{d} — {reason}"),
+        _ => reason.to_string(),
+    };
+    res.detail = Some(detail.clone());
+    if let Some(o) = res.antivirus.as_mut().and_then(|a| a.as_object_mut()) {
+        o.insert("detail".into(), serde_json::json!(detail));
+    }
 }
 
 const COMPANY_ALLOW_RULESET: &str = "analyst/company_allowlist";
@@ -1939,6 +1986,7 @@ fn build_result(report: &StaticScanReport, sha: &str) -> ResultMessage {
             timestamp_kind: s.timestamp_kind.clone(),
             timestamp_signer: s.timestamp_signer.clone().filter(|n| !n.trim().is_empty()),
             timestamp_time: s.timestamp_time,
+            trusted_rule: s.trusted_rule.clone().filter(|n| !n.trim().is_empty()),
         }),
         detections: report
             .detections
@@ -2431,6 +2479,55 @@ fn load_analyst_yara_into(engine: &mut StaticEngine) -> (usize, Vec<String>) {
         eprintln!("[engine] analyst YARA rules: {ok} loaded, {} failed {:?}", failed.len(), failed);
     }
     (ok, failed)
+}
+
+/// Analyst rule files of one YAML kind under `analyst_signatures/<folder>/`, sorted
+/// so load order (and so which duplicate wins) does not depend on the file system.
+fn analyst_yaml_files(folder: &str) -> Vec<PathBuf> {
+    let dir = crate::human_review::analyst_dir().join(folder);
+    let Ok(rd) = std::fs::read_dir(&dir) else { return Vec::new() };
+    let mut files: Vec<PathBuf> = rd
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| p.extension().is_some_and(|e| e == "yaml" || e == "yml"))
+        .collect();
+    files.sort();
+    files
+}
+
+/// Adds the analyst-written signer, registry and URL rules
+/// (`analyst_signatures/{signer_rules,registry_rules,url_rules}/*.yaml`) and the
+/// analyst Sigma folder (`analyst_signatures/sigma`) to an engine. Unlike YARA these
+/// cannot be appended to a live engine piecemeal and stay correct after an edit or a
+/// delete, so they are loaded only while an engine is being built (startup and
+/// `reload_all`); the signature room triggers a full reload after every change.
+/// A broken file is logged and skipped, it never stops the engine from loading.
+fn load_analyst_rules_into(engine: &mut StaticEngine) {
+    type AddFn = fn(&mut StaticEngine, &str) -> Result<usize, String>;
+    let kinds: [(&str, &str, AddFn); 3] = [
+        ("signer_rules", "signer", StaticEngine::add_signer_rules_yaml),
+        ("registry_rules", "registry", StaticEngine::add_registry_rules_yaml),
+        ("url_rules", "URL", StaticEngine::add_url_rules_yaml),
+    ];
+    for (folder, label, add) in kinds {
+        let mut ok = 0usize;
+        let mut failed = Vec::new();
+        for p in analyst_yaml_files(folder) {
+            let name = p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+            match std::fs::read_to_string(&p).map_err(|e| e.to_string()).and_then(|src| add(engine, &src)) {
+                Ok(n) => ok += n,
+                Err(e) => failed.push(format!("{name}: {e}")),
+            }
+        }
+        if ok > 0 || !failed.is_empty() {
+            eprintln!("[engine] analyst {label} rules: {ok} loaded, {} failed {:?}", failed.len(), failed);
+        }
+    }
+    let sigma = crate::human_review::analyst_dir().join("sigma");
+    if sigma.is_dir() {
+        eprintln!("[engine] analyst Sigma rules from {}", sigma.display());
+        let _ = engine.add_hayabusa_rules_dir(sigma);
+    }
 }
 
 fn contains_bytes(haystack: &[u8], needle: &[u8]) -> bool {

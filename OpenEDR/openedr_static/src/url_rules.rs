@@ -274,6 +274,112 @@ fn rule_matches(
     matched
 }
 
+/// Compile one rule definition. Shared by the replacing loader and the merging
+/// one so both accept exactly the same rules.
+fn compile_rule(def: UrlRuleDef) -> Result<CompiledUrlRule, String> {
+    let compile = |pat: &Option<String>| -> Result<Option<Regex>, String> {
+        match pat {
+            Some(pat) => Regex::new(pat).map(Some).map_err(|e| format!("Regex error in {}: {e}", def.id)),
+            None => Ok(None),
+        }
+    };
+    let url_re = compile(&def.conditions.url_regex)?;
+    let path_re = compile(&def.conditions.path_regex)?;
+    let query_re = compile(&def.conditions.query_regex)?;
+    let body_re = compile(&def.conditions.body_regex)?;
+    let host_re = compile(&def.conditions.host_regex)?;
+    Ok(CompiledUrlRule {
+        id: def.id,
+        title: def.title,
+        description: def.description,
+        severity: def.severity,
+        score: def.score,
+        override_whitelist: def.override_whitelist,
+        skip_if_whitelisted: def.skip_if_whitelisted,
+        url_re,
+        path_re,
+        query_re,
+        body_re,
+        host_re,
+        schemes: def.conditions.scheme.map(|v| v.into_iter().map(|s| s.to_lowercase()).collect()),
+        ports: def.conditions.ports,
+        tlds: def.conditions.tlds.map(|v| v.into_iter().map(|s| s.to_lowercase()).collect()),
+        is_ip: def.conditions.is_ip,
+        cidr_blacklisted: def.conditions.cidr_blacklisted,
+        liveness: def.conditions.liveness.map(|v| v.into_iter().map(|s| s.to_lowercase()).collect()),
+        content_difference: def.conditions.content_difference,
+        min_difference_percent: def.conditions.min_difference_percent,
+        require_equal_status: def.conditions.require_equal_status,
+    })
+}
+
+/// True when the rule declares at least one condition. A rule with none can
+/// never match (`rule_matches` ORs the declared terms), so an analyst rule
+/// like that is a mistake, not a no-op.
+fn has_condition(c: &UrlConditionsDef) -> bool {
+    c.url_regex.is_some()
+        || c.path_regex.is_some()
+        || c.query_regex.is_some()
+        || c.body_regex.is_some()
+        || c.host_regex.is_some()
+        || c.scheme.as_ref().is_some_and(|v| !v.is_empty())
+        || c.ports.as_ref().is_some_and(|v| !v.is_empty())
+        || c.tlds.as_ref().is_some_and(|v| !v.is_empty())
+        || c.is_ip.is_some()
+        || c.cidr_blacklisted.is_some()
+        || c.liveness.as_ref().is_some_and(|v| !v.is_empty())
+        || c.content_difference.is_some()
+}
+
+/// Parse and check an analyst URL rule document; see [`validate_url_rules_yaml`].
+fn parse_analyst_url_rules(src: &str) -> Result<UrlRuleFile, String> {
+    let file: UrlRuleFile = serde_yaml::from_str(src).map_err(|e| format!("YAML parse error: {e}"))?;
+    if file.rules.is_empty() && file.unwhitelist_subdomains.is_empty() && file.deterministic_rules.is_empty() {
+        return Err("document contains no rules".to_string());
+    }
+    let mut seen = HashSet::new();
+    for (idx, def) in file.rules.iter().enumerate() {
+        let id = def.id.trim();
+        if id.is_empty() {
+            return Err(format!("rule #{}: missing `id`", idx + 1));
+        }
+        if id != def.id {
+            return Err(format!("rule {id}: `id` has leading/trailing whitespace"));
+        }
+        if !seen.insert(id.to_string()) {
+            return Err(format!("rule {id}: duplicate `id`"));
+        }
+        if def.title.trim().is_empty() {
+            return Err(format!("rule {id}: missing `title`"));
+        }
+        // The verdict engine compares severity with `==`, so "malicious" or
+        // "High" would load and then silently never count. Exact spelling only.
+        if def.severity != "Malicious" && def.severity != "Suspicious" {
+            return Err(format!(
+                "rule {id}: `severity` must be exactly \"Malicious\" or \"Suspicious\", got {:?}",
+                def.severity
+            ));
+        }
+        if def.score > 100 {
+            return Err(format!("rule {id}: `score` must be 0-100, got {}", def.score));
+        }
+        if !has_condition(&def.conditions) {
+            return Err(format!("rule {id}: needs at least one condition"));
+        }
+        compile_rule(def.clone())?;
+    }
+    Ok(file)
+}
+
+/// Validate an analyst URL rule document with the same strictness as
+/// [`UrlThreatEngine::load_yaml`] (all required fields present, every regex
+/// compiles) plus: non-empty unique `id`, non-empty `title`, `severity`
+/// exactly `Malicious` or `Suspicious`, `score` 0-100 and at least one
+/// condition. Returns the rule count.
+pub fn validate_url_rules_yaml(src: &str) -> Result<usize, String> {
+    parse_analyst_url_rules(src).map(|f| f.rules.len())
+}
+
 impl UrlThreatEngine {
     /// An empty engine: no rules, no unwhitelist set, no deterministic ids.
     /// Callers load the rule document from disk via [`Self::load_from_file`] or
@@ -321,52 +427,44 @@ impl UrlThreatEngine {
 
         let mut compiled = Vec::new();
         for def in file.rules {
-            let url_re = match def.conditions.url_regex {
-                Some(ref pat) => Some(Regex::new(pat).map_err(|e| format!("Regex error in {}: {e}", def.id))?),
-                None => None,
-            };
-            let path_re = match def.conditions.path_regex {
-                Some(ref pat) => Some(Regex::new(pat).map_err(|e| format!("Regex error in {}: {e}", def.id))?),
-                None => None,
-            };
-            let query_re = match def.conditions.query_regex {
-                Some(ref pat) => Some(Regex::new(pat).map_err(|e| format!("Regex error in {}: {e}", def.id))?),
-                None => None,
-            };
-            let body_re = match def.conditions.body_regex {
-                Some(ref pat) => Some(Regex::new(pat).map_err(|e| format!("Regex error in {}: {e}", def.id))?),
-                None => None,
-            };
-            let host_re = match def.conditions.host_regex {
-                Some(ref pat) => Some(Regex::new(pat).map_err(|e| format!("Regex error in {}: {e}", def.id))?),
-                None => None,
-            };
-            compiled.push(CompiledUrlRule {
-                id: def.id,
-                title: def.title,
-                description: def.description,
-                severity: def.severity,
-                score: def.score,
-                override_whitelist: def.override_whitelist,
-                skip_if_whitelisted: def.skip_if_whitelisted,
-                url_re,
-                path_re,
-                query_re,
-                body_re,
-                host_re,
-                schemes: def.conditions.scheme.map(|v| v.into_iter().map(|s| s.to_lowercase()).collect()),
-                ports: def.conditions.ports,
-                tlds: def.conditions.tlds.map(|v| v.into_iter().map(|s| s.to_lowercase()).collect()),
-                is_ip: def.conditions.is_ip,
-                cidr_blacklisted: def.conditions.cidr_blacklisted,
-                liveness: def.conditions.liveness.map(|v| v.into_iter().map(|s| s.to_lowercase()).collect()),
-                content_difference: def.conditions.content_difference,
-                min_difference_percent: def.conditions.min_difference_percent,
-                require_equal_status: def.conditions.require_equal_status,
-            });
+            compiled.push(compile_rule(def)?);
         }
         let count = compiled.len();
         self.rules = compiled;
+        Ok(count)
+    }
+
+    /// Merge an analyst rule document into the loaded set instead of replacing
+    /// it (contrast [`Self::load_yaml`]): the shipped rules stay, a rule whose
+    /// `id` already exists is replaced in place (keeping its evaluation order),
+    /// new ids are appended, and `unwhitelist_subdomains` / `deterministic_rules`
+    /// are added to the existing sets.
+    ///
+    /// Validated in full ([`validate_url_rules_yaml`]) and compiled before
+    /// anything changes, so a bad document leaves the engine untouched.
+    /// Returns the number of rules in the document.
+    pub fn merge_yaml(&mut self, yaml_str: &str) -> Result<usize, String> {
+        let file = parse_analyst_url_rules(yaml_str)?;
+        let mut compiled = Vec::with_capacity(file.rules.len());
+        for def in file.rules {
+            compiled.push(compile_rule(def)?);
+        }
+        let count = compiled.len();
+        for rule in compiled {
+            match self.rules.iter_mut().find(|r| r.id == rule.id) {
+                Some(existing) => *existing = rule,
+                None => self.rules.push(rule),
+            }
+        }
+        for sub in file.unwhitelist_subdomains {
+            self.add_unwhitelisted_subdomain(&sub);
+        }
+        for id in file.deterministic_rules {
+            let clean = id.trim().to_string();
+            if !clean.is_empty() {
+                self.deterministic_rules.insert(clean);
+            }
+        }
         Ok(count)
     }
 
@@ -678,5 +776,72 @@ pub fn match_deterministic_rules(&self, raw_url: &str) -> Vec<String> {
             content_scanned: page_content.is_some(),
             unwhitelisted_for_ml,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const SHIPPED: &str = r#"
+rules:
+  - id: SHIPPED_1
+    title: "Shipped"
+    description: "shipped rule"
+    severity: Suspicious
+    score: 40
+    conditions:
+      tlds: [".zip"]
+unwhitelist_subdomains: ["a.example.com"]
+"#;
+
+    const ANALYST: &str = r#"
+rules:
+  - id: SHIPPED_1
+    title: "Shipped, tightened"
+    description: "analyst override"
+    severity: Malicious
+    score: 90
+    conditions:
+      tlds: [".zip"]
+  - id: ANALYST_1
+    title: "Paste site payload"
+    description: "raw paste download"
+    severity: Malicious
+    score: 85
+    conditions:
+      url_regex: '(?i)pastebin\.com/raw/'
+unwhitelist_subdomains: ["b.example.com"]
+"#;
+
+    #[test]
+    fn validate_url_rules_accepts_valid_document() {
+        assert_eq!(validate_url_rules_yaml(ANALYST), Ok(2));
+    }
+
+    #[test]
+    fn validate_url_rules_rejects_bad_rules() {
+        let bad_sev = "rules:\n  - id: X\n    title: T\n    description: d\n    severity: malicious\n    score: 50\n    conditions:\n      tlds: [\".x\"]\n";
+        assert!(validate_url_rules_yaml(bad_sev).unwrap_err().contains("severity"));
+        let bad_re = "rules:\n  - id: X\n    title: T\n    description: d\n    severity: Malicious\n    score: 50\n    conditions:\n      url_regex: \"(\"\n";
+        assert!(validate_url_rules_yaml(bad_re).unwrap_err().contains("Regex error in X"));
+        let no_cond = "rules:\n  - id: X\n    title: T\n    description: d\n    severity: Malicious\n    score: 50\n    conditions: {}\n";
+        assert!(validate_url_rules_yaml(no_cond).unwrap_err().contains("condition"));
+        let missing_score = "rules:\n  - id: X\n    title: T\n    description: d\n    severity: Malicious\n    conditions:\n      tlds: [\".x\"]\n";
+        assert!(validate_url_rules_yaml(missing_score).is_err());
+    }
+
+    #[test]
+    fn merge_yaml_keeps_shipped_and_replaces_by_id() {
+        let mut e = UrlThreatEngine::new();
+        assert_eq!(e.load_yaml(SHIPPED), Ok(1));
+        assert_eq!(e.merge_yaml(ANALYST), Ok(2));
+        assert_eq!(e.rule_count(), 2);
+        assert!(e.is_unwhitelisted("a.example.com") && e.is_unwhitelisted("b.example.com"));
+        let r = e.inspect("https://x.zip/", false, false, 0.0, 0, None, false);
+        assert!(r.detections.iter().any(|d| d.rule_id == "SHIPPED_1" && d.severity == "Malicious"));
+        // A rejected document changes nothing.
+        assert!(e.merge_yaml("rules: [{id: Z, title: T, description: d, severity: High, score: 1, conditions: {is_ip: true}}]").is_err());
+        assert_eq!(e.rule_count(), 2);
     }
 }

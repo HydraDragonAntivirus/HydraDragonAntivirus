@@ -32,6 +32,10 @@ pub struct HayabusaEventMatch {
 
 pub struct HayabusaScanner {
     rules_dir: PathBuf,
+    /// Additional rule directories (analyst Sigma rules). Parsed with the same
+    /// `StoredStatic` - hence the same `rules_dir/config`, level floor and
+    /// status filter - as `rules_dir`, so they behave exactly like shipped rules.
+    extra_dirs: Vec<PathBuf>,
     stored_static: Option<StoredStatic>,
     rule_keys: Nested<String>,
     is_valid: bool,
@@ -39,36 +43,31 @@ pub struct HayabusaScanner {
 
 impl HayabusaScanner {
     pub fn new(rules_dir: &Path) -> Self {
-        if !rules_dir.is_dir() {
-            return Self {
-                rules_dir: rules_dir.to_path_buf(),
-                stored_static: None,
-                rule_keys: Nested::new(),
-                is_valid: false,
-            };
+        Self::new_with_extra(rules_dir, &[])
+    }
+
+    /// `new`, plus the `.yml` rules under each of `extra_dirs`. Missing extra
+    /// directories are skipped. Correlation rules only link to rules parsed
+    /// from the same directory (Hayabusa resolves them per parse).
+    pub fn new_with_extra(rules_dir: &Path, extra_dirs: &[PathBuf]) -> Self {
+        let extra_dirs: Vec<PathBuf> = extra_dirs.iter().filter(|d| d.is_dir()).cloned().collect();
+        let invalid = |extra_dirs: Vec<PathBuf>| Self {
+            rules_dir: rules_dir.to_path_buf(),
+            extra_dirs,
+            stored_static: None,
+            rule_keys: Nested::new(),
+            is_valid: false,
+        };
+        if !rules_dir.is_dir() && extra_dirs.is_empty() {
+            return invalid(extra_dirs);
         }
 
         let stored_static = match create_minimal_stored_static(rules_dir) {
             Some(s) => s,
-            None => {
-                return Self {
-                    rules_dir: rules_dir.to_path_buf(),
-                    stored_static: None,
-                    rule_keys: Nested::new(),
-                    is_valid: false,
-                };
-            }
+            None => return invalid(extra_dirs),
         };
 
-        let exclude_ids = filter::RuleExclude::new();
-        let rule_nodes = Detection::parse_rule_files(
-            "informational",
-            "",
-            rules_dir,
-            &exclude_ids,
-            &stored_static,
-            &mut HtmlReporter::default(),
-        );
+        let rule_nodes = parse_all_rule_dirs(rules_dir, &extra_dirs, &stored_static);
 
         let mut key_set: HashSet<String> = HashSet::new();
         for r in &rule_nodes {
@@ -80,6 +79,7 @@ impl HayabusaScanner {
 
         Self {
             rules_dir: rules_dir.to_path_buf(),
+            extra_dirs,
             stored_static: Some(stored_static),
             rule_keys,
             is_valid,
@@ -101,15 +101,7 @@ impl HayabusaScanner {
             Err(_) => return Vec::new(),
         };
 
-        let exclude_ids = filter::RuleExclude::new();
-        let rule_nodes = Detection::parse_rule_files(
-            "informational",
-            "",
-            &self.rules_dir,
-            &exclude_ids,
-            stored_static,
-            &mut HtmlReporter::default(),
-        );
+        let rule_nodes = parse_all_rule_dirs(&self.rules_dir, &self.extra_dirs, stored_static);
         if rule_nodes.is_empty() {
             return Vec::new();
         }
@@ -141,15 +133,7 @@ impl HayabusaScanner {
             Err(_) => return Vec::new(),
         };
 
-        let exclude_ids = filter::RuleExclude::new();
-        let rule_nodes = Detection::parse_rule_files(
-            "informational",
-            "",
-            &self.rules_dir,
-            &exclude_ids,
-            stored_static,
-            &mut HtmlReporter::default(),
-        );
+        let rule_nodes = parse_all_rule_dirs(&self.rules_dir, &self.extra_dirs, stored_static);
         if rule_nodes.is_empty() {
             return Vec::new();
         }
@@ -173,6 +157,142 @@ impl HayabusaScanner {
 
         all_matches
     }
+}
+
+/// Parse the main rule directory and every extra one with one `StoredStatic`
+/// (same config, `informational` floor, status filter). A missing main
+/// directory contributes nothing rather than failing the extra ones.
+fn parse_all_rule_dirs(
+    rules_dir: &Path,
+    extra_dirs: &[PathBuf],
+    stored_static: &StoredStatic,
+) -> Vec<rule::RuleNode> {
+    let exclude_ids = filter::RuleExclude::new();
+    let mut nodes = Vec::new();
+    for dir in std::iter::once(rules_dir).chain(extra_dirs.iter().map(PathBuf::as_path)) {
+        if !dir.is_dir() {
+            continue;
+        }
+        nodes.extend(Detection::parse_rule_files(
+            "informational",
+            "",
+            dir,
+            &exclude_ids,
+            stored_static,
+            &mut HtmlReporter::default(),
+        ));
+    }
+    nodes
+}
+
+const SIGMA_LEVELS: &[&str] = &["informational", "low", "medium", "high", "critical"];
+
+/// Validate one analyst Sigma/Hayabusa rule document. Returns its `title`.
+///
+/// Structural checks first (precise messages for the common mistakes):
+/// `title`, `id`, `level` in informational|low|medium|high|critical, a
+/// `logsource` mapping and a `detection` mapping with a `condition`. Then the
+/// rule goes through Hayabusa's own loader and `RuleNode::init` - the exact
+/// path a shipped rule takes - so a condition that references a missing
+/// selection, a bad modifier, an invalid regex, or a field Hayabusa's format
+/// demands (it requires `author` and `date`) is rejected here rather than
+/// silently dropped when the scheduled scan builds the scanner.
+pub fn validate_sigma_yaml(src: &str) -> Result<String, String> {
+    let doc: serde_yaml::Value = serde_yaml::from_str(src).map_err(|e| format!("YAML parse error: {e}"))?;
+    let map = doc.as_mapping().ok_or("rule must be a YAML mapping")?;
+    let get = |k: &str| map.get(serde_yaml::Value::String(k.to_string()));
+    let non_empty_str = |k: &str| -> Result<String, String> {
+        match get(k) {
+            Some(serde_yaml::Value::String(s)) if !s.trim().is_empty() => Ok(s.trim().to_string()),
+            Some(_) => Err(format!("`{k}` must be a non-empty string")),
+            None => Err(format!("missing `{k}`")),
+        }
+    };
+    let title = non_empty_str("title")?;
+    non_empty_str("id")?;
+    let level = non_empty_str("level")?.to_ascii_lowercase();
+    if !SIGMA_LEVELS.contains(&level.as_str()) {
+        return Err(format!("`level` must be one of {}, got {level:?}", SIGMA_LEVELS.join("|")));
+    }
+    if !get("logsource").is_some_and(|v| v.is_mapping()) {
+        return Err("`logsource` must be a mapping".to_string());
+    }
+    let detection = get("detection")
+        .and_then(|v| v.as_mapping())
+        .ok_or("`detection` must be a mapping")?;
+    if !detection.contains_key(serde_yaml::Value::String("condition".to_string())) {
+        return Err("`detection` has no `condition`".to_string());
+    }
+    hayabusa_rule_check(src)?;
+    Ok(title)
+}
+
+/// Run `src` through Hayabusa's rule loader and `RuleNode::init`.
+///
+/// The loader only reads rule files, so the document goes through a private
+/// temp file. One `StoredStatic` (embedded default config) is built once and
+/// reused; the mutex serializes checks so the shared error log can be read
+/// back per call.
+fn hayabusa_rule_check(src: &str) -> Result<(), String> {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::sync::{Mutex, OnceLock};
+    static CHECKER: OnceLock<Mutex<StoredStatic>> = OnceLock::new();
+    static SEQ: AtomicU64 = AtomicU64::new(0);
+
+    let checker = CHECKER.get_or_init(|| {
+        // The shipped Hayabusa rule tree next to the executable when there is
+        // one (its `config/` is what the scanner itself will use); otherwise a
+        // directory that does not exist, so config lookups fall back to
+        // Hayabusa's defaults. Rule *validity* does not depend on that config.
+        let exe_dir = std::env::current_exe()
+            .ok()
+            .and_then(|p| p.parent().map(Path::to_path_buf));
+        let rules_dir = exe_dir
+            .iter()
+            .flat_map(|d| [d.join("hayabusa_rules"), d.join("rules").join("hayabusa")])
+            .find(|d| d.join("config").is_dir())
+            .unwrap_or_else(|| std::env::temp_dir().join("openedr_sigma_check"));
+        let ss = create_minimal_stored_static(&rules_dir)
+            .expect("create_minimal_stored_static always returns Some");
+        Mutex::new(ss)
+    });
+    let ss = checker.lock().unwrap_or_else(|p| p.into_inner());
+
+    let path = std::env::temp_dir().join(format!(
+        "openedr_sigma_check_{}_{}.yml",
+        std::process::id(),
+        SEQ.fetch_add(1, Ordering::Relaxed)
+    ));
+    std::fs::write(&path, src).map_err(|e| format!("cannot stage rule for validation: {e}"))?;
+    let path_str = path.display().to_string();
+    let scrub = |m: &str| m.replace(&path_str, "<rule>");
+
+    let log_before = ss.error_log_stack.lock().map(|l| l.len()).unwrap_or(0);
+    let mut loader = hayabusa::yaml::ParseYaml::new(&ss);
+    let read = loader.read_dir(&path, "informational", "", &filter::RuleExclude::new(), &ss);
+    let _ = std::fs::remove_file(&path);
+    read.map_err(|e| format!("Hayabusa could not read the rule: {e}"))?;
+
+    if loader.error_rule_count > 0 {
+        let msgs: Vec<String> = ss
+            .error_log_stack
+            .lock()
+            .map(|l| l.iter().skip(log_before).map(|m| scrub(m)).collect())
+            .unwrap_or_default();
+        return Err(if msgs.is_empty() {
+            "Hayabusa rejected the rule format".to_string()
+        } else {
+            msgs.join("; ")
+        });
+    }
+    if loader.files.is_empty() {
+        return Err("Hayabusa would not load this rule (deprecated/unsupported `status`, or filtered out)".to_string());
+    }
+    for (rule_path, yaml) in loader.files {
+        let mut node = rule::create_rule(rule_path, yaml);
+        node.init(&ss).map_err(|errs| errs.iter().map(|m| scrub(m)).collect::<Vec<_>>().join("; "))?;
+    }
+    Ok(())
 }
 
 fn get_evtx_dir() -> PathBuf {
@@ -296,4 +416,47 @@ fn add_if_new(
         timestamp: Some(di.detected_time.to_rfc3339()),
         details: if di.detail.is_empty() { None } else { Some(di.detail.to_string()) },
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const VALID: &str = r#"
+title: Analyst test rule
+id: 6f1b8c2e-0000-4000-8000-000000000001
+author: analyst
+date: 2026/11/19
+level: high
+status: test
+logsource:
+    product: windows
+    service: security
+detection:
+    selection:
+        Channel: Security
+        EventID: 4625
+    condition: selection
+"#;
+
+    #[test]
+    fn validate_sigma_accepts_valid_rule() {
+        assert_eq!(validate_sigma_yaml(VALID), Ok("Analyst test rule".to_string()));
+    }
+
+    #[test]
+    fn validate_sigma_rejects_bad_rules() {
+        assert!(validate_sigma_yaml(&VALID.replace("level: high", "level: severe"))
+            .unwrap_err()
+            .contains("level"));
+        assert!(validate_sigma_yaml(&VALID.replace("    condition: selection\n", ""))
+            .unwrap_err()
+            .contains("condition"));
+        assert!(validate_sigma_yaml("title: x\n").is_err());
+        // Structurally fine, but the condition names a selection that does not
+        // exist: only Hayabusa's own init catches this.
+        let err = validate_sigma_yaml(&VALID.replace("condition: selection", "condition: missing_sel"))
+            .unwrap_err();
+        assert!(!err.is_empty());
+    }
 }

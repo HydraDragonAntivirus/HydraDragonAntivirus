@@ -431,6 +431,7 @@ pub fn dashboard_router(state: Arc<AppState>) -> Router {
             post(handle_reviews_bulk).route_layer(DefaultBodyLimit::max(16 * 1024 * 1024)),
         )
         .route("/api/signatures", get(handle_signatures_list).post(handle_signature_save))
+        .route("/api/signatures/schema", get(handle_signatures_schema))
         .route("/api/signatures/delete", post(handle_signature_delete))
         .route("/api/imphash-signatures", get(handle_imphash_list).post(handle_imphash_create))
         .route("/api/imphash-signatures/delete", post(handle_imphash_delete))
@@ -2925,6 +2926,12 @@ async fn handle_signatures_list() -> impl IntoResponse {
     }))
 }
 
+/// Field and enum-value description of every signature room kind, for the
+/// dashboard's rule form builder (`analyst_engine::signatures_schema`). Static: GET only.
+async fn handle_signatures_schema() -> impl IntoResponse {
+    Json(crate::analyst_engine::signatures_schema())
+}
+
 fn default_kind() -> String {
     "yara".into()
 }
@@ -2937,9 +2944,50 @@ struct SignatureSaveBody {
     source: String,
 }
 
+/// Every kind the signature room accepts, for error messages.
+const SIG_KINDS_HELP: &str =
+    "unknown kind (yara | hydradragonsig | clamav_ndb | clamav_ldb | firewall | signer | registry | url | sigma)";
+
+/// The file name a rule of `kind` is saved under: a threat name in canonical form for
+/// detection kinds, a plain safe file name for the free-named ones (signer, registry,
+/// URL, Sigma), which may hold trusted publishers or several detections per file.
+fn signature_file_name(kind: crate::analyst_engine::SigKind, name: &str) -> Result<String, String> {
+    if kind.free_name() {
+        crate::analyst_engine::normalize_rule_file_name(name)
+    } else {
+        crate::naming::normalize_threat_name(name)
+    }
+}
+
+/// Signer / registry / URL / Sigma rules live inside the static engine and only load
+/// while it is built, so a save or delete starts the same full rebuild as
+/// `POST /api/engine/reload` (the old engine keeps scanning meanwhile). `reload_all`
+/// returns at once and builds on its own thread. Cached verdicts are dropped when the
+/// new engine is in place, not before: dropping them earlier would only let the old
+/// engine cache them again. Returns the sentence for the response note.
+fn rebuild_engine_for_rules(app: &Arc<AppState>, what: &str) -> String {
+    let app2 = Arc::clone(app);
+    let what_done = what.to_string();
+    let started = app.engine.reload_all(
+        || {},
+        move |res| match res {
+            Ok(ms) => {
+                app2.scan_server.cache.invalidate_all();
+                info_event(&app2, format!("engine rebuilt in {ms} ms after {what_done}, verdict cache invalidated"));
+            }
+            Err(e) => info_event(&app2, format!("engine rebuild after {what_done} failed, old engine kept: {e}")),
+        },
+    );
+    match started {
+        Ok(()) => "Engine reloading, active in a few seconds.".to_string(),
+        Err(e) => format!("Engine reload not started ({e}): reload the engine to apply it."),
+    }
+}
+
 /// Validates the name and the source for its engine, then writes
 /// `analyst_signatures/<engine>/<Name>.<ext>`. YARA is compiled into the live engine
-/// (append-only); ClamAV and HydraDragonSig sets are rebuilt from disk at once.
+/// (append-only); ClamAV and HydraDragonSig sets are rebuilt from disk at once;
+/// signer / registry / URL / Sigma rules start a full engine rebuild.
 async fn handle_signature_save(
     State(app): State<Arc<AppState>>,
     Json(b): Json<SignatureSaveBody>,
@@ -2947,9 +2995,9 @@ async fn handle_signature_save(
     use crate::analyst_engine::{validate_clamav, validate_hydrasig, SigKind};
     let bad = |e: String| (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": e}))).into_response();
     let Some(kind) = SigKind::parse(&b.kind) else {
-        return bad("unknown kind (yara | hydradragonsig | clamav_ndb | clamav_ldb | firewall)".into());
+        return bad(SIG_KINDS_HELP.into());
     };
-    let name = match crate::naming::normalize_threat_name(&b.name) {
+    let name = match signature_file_name(kind, &b.name) {
         Ok(n) => n,
         Err(e) => return bad(e),
     };
@@ -2958,6 +3006,7 @@ async fn handle_signature_save(
     }
     let path = kind.path(&name);
     let existed = path.exists();
+    let mut sigma_title = String::new();
     let checked = match kind {
         SigKind::Yara => {
             if !b.source.contains("rule ") {
@@ -2968,6 +3017,14 @@ async fn handle_signature_save(
         SigKind::HydraSig => validate_hydrasig(&b.source),
         SigKind::ClamNdb | SigKind::ClamLdb => validate_clamav(kind, &b.source),
         SigKind::Firewall => crate::analyst_engine::validate_firewall_yaml(&b.source),
+        SigKind::Signer => crate::analyst_engine::validate_signer_rules(&b.source),
+        SigKind::Registry => crate::analyst_engine::validate_registry_rules(&b.source),
+        SigKind::Url => crate::analyst_engine::validate_url_rules(&b.source),
+        // One Sigma rule per file; its title goes into the note.
+        SigKind::Sigma => crate::analyst_engine::validate_sigma(&b.source).map(|title| {
+            sigma_title = title;
+            1
+        }),
     };
     let count = match checked {
         Ok(n) => n,
@@ -2976,7 +3033,14 @@ async fn handle_signature_save(
     if let Err(e) = std::fs::write(&path, &b.source) {
         return (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": e.to_string()}))).into_response();
     }
-    let note = if kind == SigKind::Yara {
+    let note = if kind.needs_engine_rebuild() {
+        let what = if kind == SigKind::Sigma && !sigma_title.trim().is_empty() {
+            format!("Saved Sigma rule \"{}\".", sigma_title.trim())
+        } else {
+            format!("Saved ({count} {} rule(s)).", kind.id())
+        };
+        format!("{what} {}", rebuild_engine_for_rules(&app, &format!("saving {} rule {name}", kind.id())))
+    } else if kind == SigKind::Yara {
         if existed {
             "Saved. The previous version stays loaded too until the next engine reload.".to_string()
         } else {
@@ -2991,7 +3055,7 @@ async fn handle_signature_save(
     };
     info_event(&app, format!("signature room: {} {name} {}", kind.id(), if existed { "updated" } else { "added" }));
     // Retrohunt: this signature over every kept file, matches rescanned with the full engine.
-    let (note, hunt) = if kind == SigKind::Firewall {
+    let (note, hunt) = if !kind.retrohuntable() {
         (note, 0)
     } else {
         let hunt = crate::retrohunt::start(&app.scan_server, kind, &name, &b.source);
@@ -3014,11 +3078,14 @@ async fn handle_retrohunt_archive(State(app): State<Arc<AppState>>, Json(b): Jso
         return bad("on the main server, saving the signature starts its retrohunt");
     }
     let Some(kind) = SigKind::parse(&b.kind) else {
-        return bad("unknown kind (yara | hydradragonsig | clamav_ndb | clamav_ldb | firewall)");
+        return bad(SIG_KINDS_HELP);
     };
     if kind == SigKind::Firewall {
         return bad("firewall rules filter network traffic, they do not scan static file archives");
     };
+    if !kind.retrohuntable() {
+        return bad("signer, registry, URL and Sigma rules are not file content rules and cannot be retrohunted");
+    }
     if b.source.trim().is_empty() {
         return bad("the rule is empty");
     }
@@ -3045,19 +3112,25 @@ struct SignatureDeleteBody {
 }
 
 /// Deletes an analyst signature. ClamAV / HydraDragonSig ones are unloaded at once;
-/// YARA stays loaded until the next engine reload.
+/// YARA stays loaded until the next engine reload; signer / registry / URL / Sigma
+/// ones start a full engine rebuild, which drops them.
 async fn handle_signature_delete(
     State(app): State<Arc<AppState>>,
     Json(b): Json<SignatureDeleteBody>,
 ) -> Response {
     use crate::analyst_engine::SigKind;
-    let (Some(kind), Ok(name)) = (SigKind::parse(&b.kind), crate::naming::normalize_threat_name(&b.name)) else {
+    let Some(kind) = SigKind::parse(&b.kind) else {
+        return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "invalid kind or name"}))).into_response();
+    };
+    let Ok(name) = signature_file_name(kind, &b.name) else {
         return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "invalid kind or name"}))).into_response();
     };
     if let Err(e) = std::fs::remove_file(kind.path(&name)) {
         return (StatusCode::NOT_FOUND, Json(serde_json::json!({"error": e.to_string()}))).into_response();
     }
-    let note = if kind == SigKind::Yara {
+    let note = if kind.needs_engine_rebuild() {
+        format!("Deleted. {}", rebuild_engine_for_rules(&app, &format!("deleting {} rule {name}", kind.id())))
+    } else if kind == SigKind::Yara {
         "Deleted. It stays loaded until the next engine reload.".to_string()
     } else {
         let engine = Arc::clone(&app.engine);
@@ -3176,6 +3249,10 @@ struct CompanyAddBody {
     sample_name: String,
     #[serde(default)]
     analyst: String,
+    #[serde(default)]
+    title: String,
+    #[serde(default)]
+    family: String,
 }
 
 /// Adds a single signer to allow or block list with mandatory reason and optional sample metadata.
@@ -3206,6 +3283,9 @@ async fn handle_companies_add(
         sample_name: b.sample_name.trim().to_string(),
         analyst: if b.analyst.trim().is_empty() { "analyst".to_string() } else { b.analyst.trim().to_string() },
         added: chrono::Utc::now().to_rfc3339(),
+        title: b.title.trim().to_string(),
+        family: b.family.trim().to_string(),
+        aliases: Vec::new(),
     };
 
     if let Err(e) = crate::company_signers::add(entry) {

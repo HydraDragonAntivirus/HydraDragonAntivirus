@@ -62,6 +62,13 @@ pub struct SignerDetails {
     /// `genTime` of the RFC 3161 token, Unix seconds. `None` for PKCS#9.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub timestamp_time: Option<i64>,
+
+    /// The trusted-signer rule that made this file trusted, as
+    /// `"<title>: <description>"`. Trust suppresses findings, so the dashboard
+    /// has to be able to say *which* rule granted it. `None` when the file is
+    /// not trusted by a rule.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub trusted_rule: Option<String>,
 }
 
 /// A first-class in-memory object to be scanned by the engine.

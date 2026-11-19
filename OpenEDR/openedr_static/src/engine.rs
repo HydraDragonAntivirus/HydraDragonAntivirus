@@ -194,6 +194,9 @@ pub struct StaticEngine {
     /// every service start paid for loading the whole Sigma rule set even though
     /// nothing would use it for hours. Built on first use instead.
     hayabusa_dir: PathBuf,
+    /// Analyst Sigma rule directories, parsed together with `hayabusa_dir`
+    /// (same config and levels) when the scanner is first built.
+    hayabusa_extra_dirs: Vec<PathBuf>,
     hayabusa: std::sync::OnceLock<HayabusaScanner>,
     string_rules: PeStringRules,
     /// PUM (Potentially Unwanted Modification) rules
@@ -628,6 +631,7 @@ impl StaticEngine {
             signers,
             pua_registry,
             hayabusa_dir,
+            hayabusa_extra_dirs: Vec::new(),
             hayabusa: std::sync::OnceLock::new(),
             string_rules,
             registry_content_rules,
@@ -763,8 +767,62 @@ impl StaticEngine {
         self.string_rules.load_yaml(yaml)
     }
 
+    /// Replace the PUA registry patterns with one registry-rule YAML document
+    /// (`RegistryRuleFile` or a plain pattern list). Returns the pattern count,
+    /// or -1 when the document is neither. This used to forward to
+    /// `set_string_rules`, which loaded registry YAML as string rules and left
+    /// the registry matcher untouched.
     pub fn set_registry_rules(&mut self, yaml: &str) -> i32 {
-        self.set_string_rules(yaml)
+        match PuaRegistryMatcher::from_yaml_str(yaml) {
+            Some(m) => {
+                let n = m.pattern_count();
+                self.pua_registry = m;
+                i32::try_from(n).unwrap_or(i32::MAX)
+            }
+            None => -1,
+        }
+    }
+
+    /// Add analyst signer rules (see `signers::validate_signer_rules_yaml`) to
+    /// the loaded `signer_rules/` corpus. Call after `init` and before the
+    /// engine is shared. Returns the rule count.
+    pub fn add_signer_rules_yaml(&mut self, src: &str) -> Result<usize, String> {
+        self.signers.add_rules_yaml(src)
+    }
+
+    /// Append analyst registry rules (see
+    /// `ptm_registry::validate_registry_rules_yaml`) to the PUA registry
+    /// matcher. Returns the number of patterns added.
+    pub fn add_registry_rules_yaml(&mut self, src: &str) -> Result<usize, String> {
+        self.pua_registry.add_rules_yaml(src)
+    }
+
+    /// `(title, description)` of the first detailed registry rule matching
+    /// `path`. `None` when nothing matches or only flat-list patterns do -
+    /// those carry no rule metadata. Complements `check_registry`, whose
+    /// report shape stays as it is.
+    pub fn registry_match_detail(&self, path: &str) -> Option<(String, String)> {
+        self.pua_registry
+            .match_detail(path)
+            .map(|m| (m.title.clone(), m.description.clone()))
+    }
+
+    /// Merge analyst URL rules (see `url_rules::validate_url_rules_yaml`) into
+    /// the loaded rule set: existing ids are replaced, new ones appended, the
+    /// shipped rules stay. Returns the document's rule count.
+    pub fn add_url_rules_yaml(&mut self, src: &str) -> Result<usize, String> {
+        self.url_engine.merge_yaml(src)
+    }
+
+    /// Register an extra directory of Sigma/Hayabusa `.yml` rules, parsed with
+    /// the shipped ones (same config and levels) when the scanner is built.
+    pub fn add_hayabusa_rules_dir(&mut self, dir: PathBuf) {
+        if !self.hayabusa_extra_dirs.contains(&dir) {
+            self.hayabusa_extra_dirs.push(dir);
+        }
+        // `&mut self` proves no scan holds the scanner: drop a scanner built
+        // without this directory so the next scan picks it up.
+        self.hayabusa.take();
     }
 
     /// The Hayabusa scanner, built on first use.
@@ -775,7 +833,7 @@ impl StaticEngine {
     /// they are both inside the scheduled scan anyway.
     fn hayabusa(&self) -> &HayabusaScanner {
         self.hayabusa
-            .get_or_init(|| HayabusaScanner::new(&self.hayabusa_dir))
+            .get_or_init(|| HayabusaScanner::new_with_extra(&self.hayabusa_dir, &self.hayabusa_extra_dirs))
     }
 
     /// Scan a Windows EVTX log file for threat events using Hayabusa rules.
@@ -1788,28 +1846,32 @@ impl StaticEngine {
         };
         if let Some(info) = auth_info {
             let mut trusted_by_yaml = false;
+            let mut trusted_rule = None;
 
             if let Some(ref signer) = info.signer_name {
-                if self.signers.is_malicious(signer) {
+                if let Some(hit) = self.signers.malicious_match(signer) {
                     detections.push(DetectionItem {
                         layer: "SignerRule".to_string(),
-                        name: format!("MaliciousSigner: {signer}"),
+                        name: signer_rule_name(hit, || format!("MaliciousSigner: {signer}")),
                         score: Some(1.0),
-                        details: Some("Matched malicious_vendors.yaml".to_string()),
+                        details: Some(signer_rule_details(hit, "Matched malicious_vendors.yaml")),
                     });
                     max_score = max_score.max(1.0);
-                } else if self.signers.is_pua(signer) {
+                } else if let Some(hit) = self.signers.pua_match(signer) {
                     // PUA vendor: Suspicious / PUA, not Malicious (0.85 is the
                     // Malicious cut-off, so the old 0.85 made every PUA signer malicious).
                     detections.push(DetectionItem {
                         layer: "SignerRule".to_string(),
-                        name: format!("PuaSigner: {signer}"),
+                        name: signer_rule_name(hit, || format!("PuaSigner: {signer}")),
                         score: Some(CLAM_PUA_SCORE),
-                        details: Some("Matched pua_vendors.yaml".to_string()),
+                        details: Some(signer_rule_details(hit, "Matched pua_vendors.yaml")),
                     });
                     max_score = max_score.max(CLAM_PUA_SCORE);
-                } else if info.is_trusted && self.signers.is_trusted(signer) {
-                    trusted_by_yaml = true;
+                } else if info.is_trusted {
+                    if let Some(hit) = self.signers.trusted_match(signer) {
+                        trusted_by_yaml = true;
+                        trusted_rule = hit.meta.as_deref().and_then(|m| m.summary());
+                    }
                 }
             }
 
@@ -1819,37 +1881,41 @@ impl StaticEngine {
             // them. These two checks run on top of the publisher list rather
             // than instead of it.
             if let Some(ref issuer) = info.issuer {
-                if self.signers.is_malicious_issuer(issuer) {
+                if let Some(hit) = self.signers.malicious_issuer_match(issuer) {
                     detections.push(DetectionItem {
                         layer: "SignerRule".to_string(),
-                        name: format!("MaliciousCertIssuer: {issuer}"),
+                        name: signer_rule_name(hit, || format!("MaliciousCertIssuer: {issuer}")),
                         score: Some(1.0),
-                        details: Some(
-                            "Matched malicious_vendors.yaml (signature_issuer_*)".to_string(),
-                        ),
+                        details: Some(signer_rule_details(
+                            hit,
+                            "Matched malicious_vendors.yaml (signature_issuer_*)",
+                        )),
                     });
                     max_score = max_score.max(1.0);
-                } else if self.signers.is_pua_issuer(issuer) {
+                } else if let Some(hit) = self.signers.pua_issuer_match(issuer) {
                     detections.push(DetectionItem {
                         layer: "SignerRule".to_string(),
-                        name: format!("PuaCertIssuer: {issuer}"),
+                        name: signer_rule_name(hit, || format!("PuaCertIssuer: {issuer}")),
                         score: Some(CLAM_PUA_SCORE),
-                        details: Some("Matched pua_vendors.yaml (signature_issuer_*)".to_string()),
+                        details: Some(signer_rule_details(
+                            hit,
+                            "Matched pua_vendors.yaml (signature_issuer_*)",
+                        )),
                     });
                     max_score = max_score.max(CLAM_PUA_SCORE);
                 }
             }
 
             if let Some(ref tp) = info.thumbprint {
-                if self.signers.is_pinned_thumbprint(tp) {
+                if let Some(hit) = self.signers.pinned_thumbprint_match(tp) {
                     detections.push(DetectionItem {
                         layer: "SignerRule".to_string(),
-                        name: format!("PinnedCertificate: {tp}"),
+                        name: signer_rule_name(hit, || format!("PinnedCertificate: {tp}")),
                         score: Some(1.0),
-                        details: Some(
-                            "Matched malicious_vendors.yaml (signature_thumbprint_any)"
-                                .to_string(),
-                        ),
+                        details: Some(signer_rule_details(
+                            hit,
+                            "Matched malicious_vendors.yaml (signature_thumbprint_any)",
+                        )),
                     });
                     max_score = max_score.max(1.0);
                 }
@@ -1868,15 +1934,15 @@ impl StaticEngine {
             // A timestamp authority the rules name as abusive is the
             // certificate-abuse case one layer down from the code signer.
             if let Some(ref tsa) = info.timestamp_signer {
-                if self.signers.is_malicious_tsa(tsa) {
+                if let Some(hit) = self.signers.malicious_tsa_match(tsa) {
                     detections.push(DetectionItem {
                         layer: "SignerRule".to_string(),
-                        name: format!("MaliciousTimestampSigner: {tsa}"),
+                        name: signer_rule_name(hit, || format!("MaliciousTimestampSigner: {tsa}")),
                         score: Some(1.0),
-                        details: Some(
-                            "Matched malicious_vendors.yaml (signature_timestamp_signer_*)"
-                                .to_string(),
-                        ),
+                        details: Some(signer_rule_details(
+                            hit,
+                            "Matched malicious_vendors.yaml (signature_timestamp_signer_*)",
+                        )),
                     });
                     max_score = max_score.max(1.0);
                 }
@@ -1897,6 +1963,7 @@ impl StaticEngine {
                 timestamp_kind: info.timestamp_kind,
                 timestamp_signer: info.timestamp_signer,
                 timestamp_time: info.timestamp_time,
+                trusted_rule: if is_fully_trusted { trusted_rule } else { None },
             });
         }
 
@@ -2779,6 +2846,25 @@ impl StaticEngine {
     pub fn is_unwhitelisted_subdomain(&self, host: &str) -> bool {
         self.url_engine.is_unwhitelisted(host)
     }
+}
+
+/// Detection name for a signer-rule hit: the rule's malware `family` when it
+/// names one (what an analyst searches for), otherwise the historical
+/// `<Kind>: <value>` form, so rules without a family read exactly as before.
+fn signer_rule_name(hit: &crate::signers::PatternItem, fallback: impl FnOnce() -> String) -> String {
+    hit.meta
+        .as_deref()
+        .and_then(|m| m.family.clone())
+        .unwrap_or_else(fallback)
+}
+
+/// Detection details for a signer-rule hit: `"<title>: <description>"` of the
+/// rule that fired, falling back to the old "Matched <file>" text.
+fn signer_rule_details(hit: &crate::signers::PatternItem, fallback: &str) -> String {
+    hit.meta
+        .as_deref()
+        .and_then(|m| m.summary())
+        .unwrap_or_else(|| fallback.to_string())
 }
 
 /// Largest rule file that is parsed to prove it is one (bigger files are scanned

@@ -126,6 +126,11 @@ pub struct SignerSummary {
     pub timestamp_signer: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub timestamp_time: Option<i64>,
+    /// The `signer_rules/` trusted-signer rule this file matched (`id`, or `title`
+    /// when the rule has no id), so the dashboard can say *why* a signer counted
+    /// as trusted. Absent when no rule matched and in files written before it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub trusted_rule: Option<String>,
 }
 
 fn is_zero(v: &usize) -> bool {
@@ -174,6 +179,9 @@ impl SignerSummary {
             .filter(|s| !s.trim().is_empty())
         {
             parts.push(format!("timestamped by {tsa}"));
+        }
+        if let Some(rule) = self.trusted_rule.as_deref().filter(|s| !s.trim().is_empty()) {
+            parts.push(format!("trusted by signer rule {rule}"));
         }
         if parts.is_empty() {
             None

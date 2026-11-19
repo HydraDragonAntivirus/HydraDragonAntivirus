@@ -128,6 +128,12 @@ impl Matcher {
             }
             SigKind::HydraSig => RuleSet::from_yaml_str(source).map(Matcher::Sig).map_err(|e| format!("{e:#}")),
             SigKind::Firewall => Err("firewall rules filter network traffic, they do not scan static file archives".into()),
+            // Signer rules match Authenticode metadata the full engine extracts, not
+            // bytes a standalone matcher can see; registry / URL / Sigma rules judge
+            // live events. None of them can be hunted over stored files on their own.
+            SigKind::Signer | SigKind::Registry | SigKind::Url | SigKind::Sigma => {
+                Err(format!("{} rules are not file content rules and cannot be retrohunted", kind.id()))
+            }
         }
     }
 

@@ -1421,13 +1421,22 @@ async fn session_loop(
                 } else {
                     String::new()
                 };
-                match server.engine.check_registry(&path) {
-                    Ok(report) => {
-                        let res_msg = serde_json::json!({
+                match server.engine.check_registry_with_detail(&path) {
+                    Ok((report, detail)) => {
+                        let mut res_msg = serde_json::json!({
                             "type": "registry_result",
                             "id": msg.id,
                             "result": report,
                         });
+                        // Which registry rule matched, for the client's alert text.
+                        // Only present on a match with a titled rule, so older
+                        // clients see exactly the message they always did.
+                        if let Some((title, description)) = detail {
+                            res_msg["rule_title"] = serde_json::Value::String(title);
+                            if !description.is_empty() {
+                                res_msg["rule_description"] = serde_json::Value::String(description);
+                            }
+                        }
                         send_json(out, &res_msg);
                     }
                     Err(err) => send_error(out, Some(msg.id), &err),

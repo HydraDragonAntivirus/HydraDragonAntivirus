@@ -1,4 +1,5 @@
 use std::path::Path;
+use std::sync::Arc;
 use serde::Deserialize;
 
 #[derive(Debug, Clone, Deserialize)]
@@ -15,8 +16,186 @@ pub struct SignerRule {
     pub id: String,
     #[serde(default)]
     pub title: String,
+    /// Why the rule exists. Carried into the detection's `details` so the
+    /// dashboard can say *why* a publisher is listed, not only that it is.
+    #[serde(default)]
+    pub description: String,
+    /// `info` / `low` / `medium` / `high` / `critical` (any case). Metadata
+    /// only: the score still comes from the list the rule lands in.
+    #[serde(default)]
+    pub severity: String,
+    /// `trusted`, `malware` (alias `malicious`) or `pua`. The shipped files
+    /// are already split by verdict, so the loader ignores this there; for
+    /// analyst rules (one mixed document) it decides the list.
+    #[serde(default)]
+    pub verdict: String,
+    /// Malware family the certificate is known for (`Trojan.FakeAV`). When set
+    /// it becomes the detection name, which is what an analyst searches for.
+    #[serde(default)]
+    pub family: String,
     #[serde(default)]
     pub conditions: Vec<SignerCondition>,
+}
+
+/// Per-rule metadata kept next to every pattern a rule contributed, so a match
+/// can report the rule that fired instead of only the list it came from. One
+/// `Arc` per rule, shared by all of its conditions.
+#[derive(Debug, Clone, Default)]
+pub struct SignerRuleMeta {
+    pub id: String,
+    pub title: String,
+    pub description: String,
+    pub family: Option<String>,
+    pub severity: Option<String>,
+}
+
+impl SignerRuleMeta {
+    fn from_rule(rule: &SignerRule) -> Self {
+        let opt = |s: &str| {
+            let t = s.trim();
+            (!t.is_empty()).then(|| t.to_string())
+        };
+        Self {
+            id: rule.id.trim().to_string(),
+            title: rule.title.trim().to_string(),
+            description: rule.description.trim().to_string(),
+            family: opt(&rule.family),
+            severity: opt(&rule.severity),
+        }
+    }
+
+    /// `"<title>: <description>"`, or whichever of the two is present. `None`
+    /// when the rule carried neither, so callers fall back to their old text.
+    pub fn summary(&self) -> Option<String> {
+        match (self.title.is_empty(), self.description.is_empty()) {
+            (false, false) => Some(format!("{}: {}", self.title, self.description)),
+            (false, true) => Some(self.title.clone()),
+            (true, false) => Some(self.description.clone()),
+            (true, true) => None,
+        }
+    }
+}
+
+/// Condition types the loader understands. Anything else is silently ignored
+/// for the shipped files (see SIGNER_RULES.md), but rejected for analyst rules,
+/// where a typo must not quietly disable the rule.
+const SIGNER_CONDITION_TYPES: &[&str] = &[
+    "signature_signer_contains",
+    "signature_signer_equals",
+    "signature_issuer_contains",
+    "signature_issuer_equals",
+    "signature_timestamp_signer_contains",
+    "signature_timestamp_signer_equals",
+    "signature_thumbprint_any",
+    "signature_thumbprint_equals",
+];
+
+/// Which list an analyst rule feeds. Parsed from `SignerRule::verdict`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SignerVerdict {
+    Trusted,
+    Malware,
+    Pua,
+}
+
+impl SignerVerdict {
+    fn parse(v: &str) -> Option<Self> {
+        match v.trim().to_ascii_lowercase().as_str() {
+            "trusted" => Some(Self::Trusted),
+            "malware" | "malicious" => Some(Self::Malware),
+            "pua" => Some(Self::Pua),
+            _ => None,
+        }
+    }
+}
+
+/// `aa:bb:..`, `aa bb ..`, `aa-bb-..` or bare hex to 40 lowercase hex chars.
+/// Strict: any other character is an error rather than being dropped, so a
+/// pasted value with stray text cannot collapse into a different digest.
+fn normalize_thumbprint_strict(value: &str) -> Result<String, String> {
+    let mut hex = String::with_capacity(40);
+    for c in value.trim().chars() {
+        if c.is_ascii_hexdigit() {
+            hex.push(c.to_ascii_lowercase());
+        } else if !matches!(c, ':' | ' ' | '-') {
+            return Err(format!("thumbprint contains invalid character {c:?}"));
+        }
+    }
+    if hex.len() != 40 {
+        return Err(format!("thumbprint must be 40 hex chars (SHA-1), got {}", hex.len()));
+    }
+    Ok(hex)
+}
+
+/// Validate an analyst signer-rule document (same schema as the shipped
+/// `signer_rules/*.yaml`). Stricter than the shipped loader on purpose: every
+/// rule needs a non-empty `id` and `title`, a `verdict` of `trusted`,
+/// `malware` (`malicious`) or `pua`, at least one condition, and only known
+/// condition types. Trusted rules may only use `signature_signer_*`, because
+/// trust is only ever decided on the publisher (`SignerDb::is_trusted`).
+///
+/// Conditions of one rule are independent (any one matching is a hit), exactly
+/// as in the shipped files.
+///
+/// Returns the rule count.
+pub fn validate_signer_rules_yaml(src: &str) -> Result<usize, String> {
+    parse_analyst_signer_rules(src).map(|rules| rules.len())
+}
+
+fn parse_analyst_signer_rules(src: &str) -> Result<Vec<(SignerVerdict, SignerRule)>, String> {
+    let file: SignerRuleFile =
+        serde_yaml::from_str(src).map_err(|e| format!("YAML parse error: {e}"))?;
+    if file.rules.is_empty() {
+        return Err("document contains no rules".to_string());
+    }
+    let mut seen = std::collections::HashSet::new();
+    let mut out = Vec::with_capacity(file.rules.len());
+    for (idx, rule) in file.rules.into_iter().enumerate() {
+        let id = rule.id.trim();
+        if id.is_empty() {
+            return Err(format!("rule #{}: missing `id`", idx + 1));
+        }
+        if !seen.insert(id.to_string()) {
+            return Err(format!("rule {id}: duplicate `id`"));
+        }
+        if rule.title.trim().is_empty() {
+            return Err(format!("rule {id}: missing `title`"));
+        }
+        let verdict = SignerVerdict::parse(&rule.verdict).ok_or_else(|| {
+            format!(
+                "rule {id}: `verdict` must be trusted, malware (malicious) or pua, got {:?}",
+                rule.verdict
+            )
+        })?;
+        if rule.conditions.is_empty() {
+            return Err(format!("rule {id}: needs at least one condition"));
+        }
+        for (ci, cond) in rule.conditions.iter().enumerate() {
+            let t = cond.cond_type.as_str();
+            if !SIGNER_CONDITION_TYPES.contains(&t) {
+                return Err(format!(
+                    "rule {id}: condition #{}: unsupported type {t:?} (supported: {})",
+                    ci + 1,
+                    SIGNER_CONDITION_TYPES.join(", ")
+                ));
+            }
+            if cond.value.trim().is_empty() {
+                return Err(format!("rule {id}: condition #{} ({t}): empty `value`", ci + 1));
+            }
+            if verdict == SignerVerdict::Trusted && !t.starts_with("signature_signer_") {
+                return Err(format!(
+                    "rule {id}: condition #{} ({t}): trusted rules only support signature_signer_contains / signature_signer_equals",
+                    ci + 1
+                ));
+            }
+            if t.starts_with("signature_thumbprint_") {
+                normalize_thumbprint_strict(&cond.value)
+                    .map_err(|e| format!("rule {id}: condition #{} ({t}): {e}", ci + 1))?;
+            }
+        }
+        out.push((verdict, rule));
+    }
+    Ok(out)
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -125,6 +304,9 @@ impl AuthenticodeInfo {
 pub struct PatternItem {
     pub value: String,
     pub is_exact: bool,
+    /// The rule this pattern came from. `None` only for patterns built without
+    /// a rule document.
+    pub meta: Option<Arc<SignerRuleMeta>>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -145,7 +327,9 @@ pub struct SignerDb {
     malicious_tsas: Vec<PatternItem>,
     /// Leaf certificate SHA-1 fingerprints, lowercase hex. Pins one exact
     /// certificate - the only way to name a revoked-but-still-trusted one.
-    pinned_thumbprints: Vec<String>,
+    /// `PatternItem` (always exact) rather than a bare string so a pin can
+    /// report the rule that set it.
+    pinned_thumbprints: Vec<PatternItem>,
     /// SHA-256 benign whitelist (`.xf`, BinaryFuse32 only). Owned by the signer side on
     /// purpose: this is the file-identity trust table, and it sits next to the
     /// vendor lists so `SignerDb` stays the single authority for "is this file
@@ -189,6 +373,37 @@ impl SignerDb {
         db.pua = pua.names;
         db.pua_issuers = pua.issuers;
         db
+    }
+
+    /// Append an analyst signer-rule document (see
+    /// [`validate_signer_rules_yaml`]) to the loaded corpus. Each rule lands in
+    /// the lists of its own `verdict`: trusted -> publishers; malware ->
+    /// publishers / issuers / TSAs / pinned thumbprints; pua -> publishers /
+    /// issuers (the PUA side has no TSA or pin list, so those conditions on a
+    /// PUA rule are accepted but, like in `pua_vendors.yaml`, never consulted).
+    ///
+    /// All-or-nothing: the document is validated in full before anything is
+    /// added. Returns the rule count.
+    pub fn add_rules_yaml(&mut self, src: &str) -> Result<usize, String> {
+        let rules = parse_analyst_signer_rules(src)?;
+        let count = rules.len();
+        for (verdict, rule) in rules {
+            let loaded = LoadedConditions::from_rules(std::slice::from_ref(&rule));
+            match verdict {
+                SignerVerdict::Trusted => self.trusted.extend(loaded.names),
+                SignerVerdict::Malware => {
+                    self.malicious.extend(loaded.names);
+                    self.malicious_issuers.extend(loaded.issuers);
+                    self.malicious_tsas.extend(loaded.tsas);
+                    self.pinned_thumbprints.extend(loaded.thumbprints);
+                }
+                SignerVerdict::Pua => {
+                    self.pua.extend(loaded.names);
+                    self.pua_issuers.extend(loaded.issuers);
+                }
+            }
+        }
+        Ok(count)
     }
 
     /// Load the SHA-256 benign whitelist from `xorfilter_rules/benign_sha256.xf`.
@@ -252,42 +467,35 @@ struct LoadedConditions {
     /// Timestamp authorities behind the countersignature.
     tsas: Vec<PatternItem>,
     /// Leaf SHA-1 fingerprints, colon-stripped and lowercased.
-    thumbprints: Vec<String>,
+    thumbprints: Vec<PatternItem>,
 }
 
 impl SignerDb {
     pub fn is_malicious(&self, signer: &str) -> bool {
-        Self::matches_list(&self.malicious, signer)
+        self.malicious_match(signer).is_some()
     }
 
     pub fn is_pua(&self, signer: &str) -> bool {
-        Self::matches_list(&self.pua, signer)
+        self.pua_match(signer).is_some()
     }
 
     pub fn is_trusted(&self, signer: &str) -> bool {
-        if self.is_malicious(signer) || self.is_pua(signer) {
-            return false;
-        }
-        Self::matches_list(&self.trusted, signer)
+        self.trusted_match(signer).is_some()
     }
 
     /// Issuing CA is listed as a malware certificate source.
     pub fn is_malicious_issuer(&self, issuer: &str) -> bool {
-        Self::matches_list(&self.malicious_issuers, issuer)
+        self.malicious_issuer_match(issuer).is_some()
     }
 
     /// Issuing CA is listed as a PUA / unwanted-software certificate source.
     pub fn is_pua_issuer(&self, issuer: &str) -> bool {
-        Self::matches_list(&self.pua_issuers, issuer)
+        self.pua_issuer_match(issuer).is_some()
     }
 
     /// Leaf certificate is pinned by exact SHA-1.
     pub fn is_pinned_thumbprint(&self, thumbprint: &str) -> bool {
-        if self.pinned_thumbprints.is_empty() || thumbprint.is_empty() {
-            return false;
-        }
-        let t = thumbprint.trim().to_ascii_lowercase();
-        self.pinned_thumbprints.iter().any(|p| *p == t)
+        self.pinned_thumbprint_match(thumbprint).is_some()
     }
 
     /// Timestamp authority behind the countersignature is listed as abusive.
@@ -296,7 +504,46 @@ impl SignerDb {
     /// an attacker who cannot get a code-signing cert can still occasionally
     /// talk a friendly TSA into dating a signature.
     pub fn is_malicious_tsa(&self, tsa: &str) -> bool {
-        Self::matches_list(&self.malicious_tsas, tsa)
+        self.malicious_tsa_match(tsa).is_some()
+    }
+
+    // --- `*_match`: same decisions as the `is_*` above, but returning the
+    // pattern that fired so the caller can report its rule (`PatternItem::meta`).
+
+    pub fn malicious_match(&self, signer: &str) -> Option<&PatternItem> {
+        Self::find_in_list(&self.malicious, signer)
+    }
+
+    pub fn pua_match(&self, signer: &str) -> Option<&PatternItem> {
+        Self::find_in_list(&self.pua, signer)
+    }
+
+    /// A malicious or PUA listing always wins over a trusted one.
+    pub fn trusted_match(&self, signer: &str) -> Option<&PatternItem> {
+        if self.is_malicious(signer) || self.is_pua(signer) {
+            return None;
+        }
+        Self::find_in_list(&self.trusted, signer)
+    }
+
+    pub fn malicious_issuer_match(&self, issuer: &str) -> Option<&PatternItem> {
+        Self::find_in_list(&self.malicious_issuers, issuer)
+    }
+
+    pub fn pua_issuer_match(&self, issuer: &str) -> Option<&PatternItem> {
+        Self::find_in_list(&self.pua_issuers, issuer)
+    }
+
+    pub fn pinned_thumbprint_match(&self, thumbprint: &str) -> Option<&PatternItem> {
+        if self.pinned_thumbprints.is_empty() || thumbprint.is_empty() {
+            return None;
+        }
+        let t = thumbprint.trim().to_ascii_lowercase();
+        self.pinned_thumbprints.iter().find(|p| p.value == t)
+    }
+
+    pub fn malicious_tsa_match(&self, tsa: &str) -> Option<&PatternItem> {
+        Self::find_in_list(&self.malicious_tsas, tsa)
     }
 
     /// `(publisher, issuer, pinned fingerprints)` sizes of the loaded corpus,
@@ -305,44 +552,57 @@ impl SignerDb {
         (self.malicious_issuers.len(), self.pua_issuers.len(), self.pinned_thumbprints.len())
     }
 
-    fn matches_list(list: &[PatternItem], signer: &str) -> bool {
+    /// First pattern in `list` matching `signer` (case-insensitive; `_equals`
+    /// exact, `_contains` substring). First, so the shipped order decides which
+    /// rule is reported when several name the same publisher.
+    fn find_in_list<'a>(list: &'a [PatternItem], signer: &str) -> Option<&'a PatternItem> {
         if list.is_empty() || signer.is_empty() {
-            return false;
+            return None;
         }
         let lower = signer.to_lowercase();
-        for p in list {
+        list.iter().find(|p| {
             if p.is_exact {
-                if lower == p.value {
-                    return true;
-                }
-            } else if lower.contains(&p.value) {
-                return true;
+                lower == p.value
+            } else {
+                lower.contains(&p.value)
             }
-        }
-        false
+        })
     }
 
     fn load_file(path: &Path) -> LoadedConditions {
-        let mut out = LoadedConditions::default();
         if !path.is_file() {
-            return out;
+            return LoadedConditions::default();
         }
         let content = match std::fs::read_to_string(path) {
             Ok(c) => c,
-            Err(_) => return out,
+            Err(_) => return LoadedConditions::default(),
         };
         let file: SignerRuleFile = match serde_yaml::from_str(&content) {
             Ok(f) => f,
-            Err(_) => return out,
+            Err(_) => return LoadedConditions::default(),
         };
+        LoadedConditions::from_rules(&file.rules)
+    }
+}
 
-        for rule in file.rules {
-            for cond in rule.conditions {
+impl LoadedConditions {
+    /// Split the conditions of `rules` into the per-field lists, each pattern
+    /// carrying its rule's metadata. Lenient like the shipped loader always was:
+    /// empty values, unknown types and malformed thumbprints are skipped.
+    fn from_rules(rules: &[SignerRule]) -> Self {
+        let mut out = LoadedConditions::default();
+        for rule in rules {
+            let meta = Arc::new(SignerRuleMeta::from_rule(rule));
+            for cond in &rule.conditions {
                 if cond.value.is_empty() {
                     continue;
                 }
                 let value = cond.value.to_lowercase();
-                let item = PatternItem { value, is_exact: cond.cond_type.ends_with("_equals") };
+                let item = PatternItem {
+                    value,
+                    is_exact: cond.cond_type.ends_with("_equals"),
+                    meta: Some(meta.clone()),
+                };
                 match cond.cond_type.as_str() {
                     "signature_signer_contains" | "signature_signer_equals" => {
                         out.names.push(item);
@@ -363,7 +623,7 @@ impl SignerDb {
                             .collect::<String>()
                             .to_ascii_lowercase();
                         if hex.len() == 40 {
-                            out.thumbprints.push(hex);
+                            out.thumbprints.push(PatternItem { value: hex, is_exact: true, ..item });
                         }
                     }
                     _ => {}
@@ -1896,5 +2156,74 @@ rules:
             "a TSA is not the publisher of the file");
 
         let _ = std::fs::remove_dir_all(dir);
+    }
+
+    const ANALYST_SIGNERS: &str = r#"
+rules:
+  - id: analyst-mal-1
+    title: "Fake updater certificate"
+    description: "Seen signing FakeAV droppers"
+    verdict: malicious
+    family: "Trojan.FakeAV"
+    severity: high
+    conditions:
+      - type: signature_signer_contains
+        value: "Evil Updates Ltd"
+      - type: signature_thumbprint_any
+        value: "AA:BB:CC:DD:EE:FF:00:11:22:33:44:55:66:77:88:99:aa:bb:cc:dd"
+  - id: analyst-trust-1
+    title: "In-house build signer"
+    verdict: trusted
+    conditions:
+      - type: signature_signer_equals
+        value: "Contoso Build"
+"#;
+
+    #[test]
+    fn validate_signer_rules_accepts_analyst_document() {
+        assert_eq!(validate_signer_rules_yaml(ANALYST_SIGNERS), Ok(2));
+    }
+
+    #[test]
+    fn validate_signer_rules_rejects_bad_rules() {
+        let no_verdict = "rules:\n  - id: r1\n    title: T\n    conditions:\n      - type: signature_signer_contains\n        value: x\n";
+        assert!(validate_signer_rules_yaml(no_verdict).unwrap_err().contains("r1"));
+
+        let bad_type = "rules:\n  - id: r2\n    title: T\n    verdict: pua\n    conditions:\n      - type: signature_signer_like\n        value: x\n";
+        assert!(validate_signer_rules_yaml(bad_type).unwrap_err().contains("unsupported type"));
+
+        let trusted_issuer = "rules:\n  - id: r3\n    title: T\n    verdict: trusted\n    conditions:\n      - type: signature_issuer_contains\n        value: x\n";
+        assert!(validate_signer_rules_yaml(trusted_issuer).unwrap_err().contains("trusted rules only"));
+
+        let short_tp = "rules:\n  - id: r4\n    title: T\n    verdict: malware\n    conditions:\n      - type: signature_thumbprint_any\n        value: abcd\n";
+        assert!(validate_signer_rules_yaml(short_tp).unwrap_err().contains("40 hex"));
+
+        let no_title = "rules:\n  - id: r5\n    verdict: malware\n    conditions:\n      - type: signature_signer_contains\n        value: x\n";
+        assert!(validate_signer_rules_yaml(no_title).unwrap_err().contains("title"));
+
+        assert!(validate_signer_rules_yaml("rules: []").is_err());
+    }
+
+    #[test]
+    fn add_rules_yaml_routes_by_verdict_and_keeps_metadata() {
+        let mut db = SignerDb::default();
+        assert_eq!(db.add_rules_yaml(ANALYST_SIGNERS), Ok(2));
+
+        let hit = db.malicious_match("EVIL UPDATES LTD").expect("malicious publisher");
+        let meta = hit.meta.as_deref().unwrap();
+        assert_eq!(meta.family.as_deref(), Some("Trojan.FakeAV"));
+        assert_eq!(
+            meta.summary().as_deref(),
+            Some("Fake updater certificate: Seen signing FakeAV droppers")
+        );
+        assert!(db.is_pinned_thumbprint("aabbccddeeff00112233445566778899aabbccdd"));
+
+        let trusted = db.trusted_match("Contoso Build").expect("trusted publisher");
+        assert_eq!(trusted.meta.as_deref().unwrap().title, "In-house build signer");
+        assert!(!db.is_malicious("Contoso Build"));
+
+        // A rejected document adds nothing.
+        assert!(db.add_rules_yaml("rules:\n  - id: x\n    title: T\n    verdict: nope\n    conditions: []\n").is_err());
+        assert_eq!(db.pattern_counts(), (1, 1, 0));
     }
 }

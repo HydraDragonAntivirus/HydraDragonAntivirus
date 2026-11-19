@@ -256,6 +256,31 @@
   .dangerbox { background: var(--red-bg); color: var(--red); border-radius: 8px; padding: 8px 10px; font-size: 12.5px; margin: 8px 0; }
   #feedWrap { max-height: 520px; }
   #clientsWrap { max-height: 260px; }
+  /* Signature room: rule builder */
+  details.rb { border: 1px solid var(--border); border-radius: 8px; background: var(--panel2); padding: 8px 12px 12px; margin-bottom: 12px; }
+  details.rb > summary { cursor: pointer; font-size: 12px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .5px; }
+  .rb .rb-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 0 10px; }
+  .rb .rb-full { grid-column: 1 / -1; }
+  .rb .rb-help { font-size: 11px; color: var(--muted); margin-top: 3px; }
+  .rb .rb-gl { display: block; font-size: 12px; color: var(--muted); margin: 12px 0 4px; font-weight: 700; }
+  .rb .rb-req { color: var(--red); }
+  .rb input, .rb select, .rb textarea { background: var(--panel); }
+  .rb textarea { min-height: 52px; font-family: Consolas, monospace; font-size: 12px; }
+  .rb .rb-rows { display: grid; gap: 8px; }
+  .rb .rb-row { border: 1px solid var(--border); border-radius: 6px; padding: 4px 10px 10px; background: var(--panel2); min-width: 0; }
+  .rb .rb-row .rb-row { background: var(--panel); }
+  .rb .rb-row-h { display: flex; gap: 8px; align-items: flex-end; }
+  .rb .rb-row-h > div { flex: 1; min-width: 0; }
+  .rb .rb-row-h > button { flex: none; margin-bottom: 2px; }
+  .rb .rb-checks { display: flex; flex-wrap: wrap; gap: 4px 12px; }
+  .rb label.chkl { margin-top: 10px; }
+  .rb .rb-checks label.chkl { margin-top: 0; }
+  .rb fieldset { border: 1px solid var(--border); border-radius: 6px; padding: 2px 10px 10px; margin: 10px 0 0; min-width: 0; }
+  .rb legend { font-size: 12px; font-weight: 700; color: var(--muted); padding: 0 4px; }
+  .rb .rb-acts { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; align-items: center; }
+  .rb .rb-q { display: flex; gap: 8px; align-items: center; font-size: 12px; padding: 4px 0; border-bottom: 1px solid var(--border); }
+  .rb .rb-q span:first-child { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #askDlg input[type="text"] { box-sizing: border-box; }
 </style>
 <script>
   // Analyst key (analyst_keys.txt on the server): sent with every dashboard API call,
@@ -593,7 +618,16 @@
             <option value="clamav_ndb">ClamAV body signature (.ndb)</option>
             <option value="clamav_ldb">ClamAV logical signature (.ldb)</option>
             <option value="firewall">HydraDragon Firewall Rule (.yaml)</option>
+            <option value="signer">Signer rules (trusted / malware / PUA vendor)</option>
+            <option value="registry">Registry rules</option>
+            <option value="url">URL threat rules</option>
+            <option value="sigma">Sigma / Hayabusa rule</option>
           </select>
+          <div id="sigFileNameWrap" hidden>
+            <label for="sigFileName">File name</label>
+            <input id="sigFileName" type="text" maxlength="80" placeholder="my_vendor_rules" autocomplete="off" spellcheck="false" aria-describedby="sigFileNameHint">
+            <div class="hint" id="sigFileNameHint" style="margin-top:4px">Letters, digits, <code>.</code> <code>_</code> <code>-</code>. These rule files are not named after a threat, so the name builder above is not used for them.</div>
+          </div>
           <div class="row2">
             <button class="ghost" id="nbUseVerdict" style="margin-top:8px">Use in human verdict</button>
             <button class="ghost" id="nbNewRule" style="margin-top:8px">New rule from template</button>
@@ -602,6 +636,18 @@
           <div class="ha-list" id="sigList" style="max-height:220px"></div>
         </div>
         <div>
+          <details class="rb" id="rbPanel" open>
+            <summary>Rule builder: <span id="rbKindName">YARA rule</span></summary>
+            <div class="hint" id="rbIntro"></div>
+            <div id="rbForm"></div>
+            <div id="rbQueue" hidden></div>
+            <div class="rb-acts">
+              <button type="button" class="ghost" id="rbAddRule" hidden title="Check this rule and keep it in a list, then fill the form for the next one">Add rule to list</button>
+              <button type="button" class="ghost" id="rbGenerate" title="Write the rule(s) into the source editor below">Generate into source</button>
+              <button type="button" class="ghost" id="rbReset">Reset form</button>
+              <span class="hint" id="rbSchemaNote" style="margin:0"></span>
+            </div>
+          </details>
           <label for="sigSource"><span id="sigKindLabel">YARA rule</span> <span id="sigEditing" style="font-weight:400"></span></label>
           <textarea id="sigSource" spellcheck="false" style="min-height:300px; font-family:Consolas, monospace; font-size:12px; white-space:pre;"></textarea>
           <div class="row2">
@@ -3091,18 +3137,35 @@ window.sigKey = (list) => list && list.length ? `${list[0].layer}: ${list[0].nam
   const nbBuild = async () => {
     const parts = [$("nbCat").value, $("nbPlat").value, $("nbFam").value.trim()];
     if ($("nbVar").value.trim()) parts.push($("nbVar").value.trim());
-    if (!parts[2]) { $("nbName").textContent = "—"; $("nbErr").textContent = ""; nbCurrent = ""; return; }
+    if (!parts[2]) { $("nbName").textContent = "—"; $("nbErr").textContent = ""; nbCurrent = ""; rbSync(); return; }
     try {
       const r = await (await fetch("/api/naming?name=" + encodeURIComponent(parts.join(".")))).json();
       if (r.ok) { nbCurrent = r.name; $("nbName").textContent = r.name; $("nbErr").textContent = ""; }
       else { nbCurrent = ""; $("nbName").textContent = "—"; $("nbErr").textContent = r.error; }
+      rbSync();
     } catch (_) {}
   };
-  const KIND_LABEL = { yara: "YARA rule", hydradragonsig: "HydraDragonSig rule (YAML)", clamav_ndb: "ClamAV .ndb (Name:TargetType:Offset:HexSig)", clamav_ldb: "ClamAV .ldb (Name;Target;Logic;Subsigs)", firewall: "HydraDragon Firewall Rule (.yaml)" };
+  const KIND_LABEL = { yara: "YARA rule", hydradragonsig: "HydraDragonSig rule (YAML)", clamav_ndb: "ClamAV .ndb (Name:TargetType:Offset:HexSig)", clamav_ldb: "ClamAV .ldb (Name;Target;Logic;Subsigs)", firewall: "HydraDragon Firewall Rule (.yaml)",
+    signer: "Signer rules (trusted / malware / PUA vendor)", registry: "Registry rules", url: "URL threat rules", sigma: "Sigma / Hayabusa rule" };
+  // Kinds saved under a plain file name (#sigFileName) instead of a threat name.
+  const PLAIN_KINDS = new Set(["signer", "registry", "url", "sigma"]);
+  const sigIsPlain = (kind) => PLAIN_KINDS.has(kind);
   const sigTemplate = (name, kind) => {
     const id = name.replace(/[^A-Za-z0-9_]/g, "_");
     const today = new Date().toISOString().slice(0, 10);
     const analyst = ($("haAnalyst").value || "").trim() || "analyst";
+    if (kind === "signer") {
+      return `name: "${name}"\nversion: "1"\nrules:\n  - id: "ANALYST-SIGNER-001"\n    title: "Abusive publisher"\n    description: "Written by ${analyst} on ${today}"\n    verdict: malware\n    family: "Trojan.Win32.SignerAbuse"\n    severity: high\n    confidence: 90\n    score: 90\n    tags: ["analyst"]\n    conditions:\n      - type: signature_signer_contains\n        value: "Example Publisher Ltd"\n        nocase: true\n`;
+    }
+    if (kind === "registry") {
+      return `name: "${name}"\ndescription: "Analyst registry rules by ${analyst} on ${today}"\nrules:\n  - id: "ANALYST-REG-001"\n    title: "Adware toolbar key"\n    description: ""\n    severity: medium\n    verdict: pua\n    family: "Adware.Win32.Toolbar"\n    patterns:\n      - "*software\\\\exampletoolbar*"\n`;
+    }
+    if (kind === "url") {
+      return `rules:\n  - id: "ANALYST_URL_001"\n    title: "Payload download from a raw IP"\n    description: "Written by ${analyst} on ${today}"\n    severity: "Suspicious"\n    score: 60\n    override_whitelist: false\n    skip_if_whitelisted: true\n    conditions:\n      is_ip: true\n      path_regex: "(?i)\\\\.(exe|scr|ps1)$"\n`;
+    }
+    if (kind === "sigma") {
+      return `title: "Suspicious process"\nid: ${typeof crypto.randomUUID === "function" ? crypto.randomUUID() : "00000000-0000-4000-8000-000000000000"}\nstatus: experimental\ndescription: "Written by ${analyst}"\nauthor: "${analyst}"\ndate: ${today}\ntags:\n  - attack.execution\nlogsource:\n  product: windows\n  category: process_creation\ndetection:\n  selection:\n    Image|endswith: "\\\\example.exe"\n  condition: selection\nfalsepositives:\n  - Unknown\nlevel: high\n`;
+    }
     if (kind === "hydradragonsig") {
       return `rules:\n  - id: ANALYST-${id.toUpperCase()}\n    title: "${name}"\n    description: "Written by ${analyst} on ${today}"\n    severity: high\n    verdict: malware\n    confidence: 90\n    score: 90\n    family: "${name}"\n    tags: [analyst]\n    logic: all\n    conditions:\n      - type: string_set\n        min: 2\n        nocase: true\n        values:\n          - "first unique string"\n          - "second unique string"\n      - type: import_set\n        min: 1\n        names:\n          - "VirtualAllocEx"\n`;
     }
@@ -3113,11 +3176,27 @@ window.sigKey = (list) => list && list.length ? `${list[0].layer}: ${list[0].nam
       return `# ${name} by ${analyst}, ${today}\n# Logic 0&1 = both subsignatures; subsigs are hex (use ::i for case-insensitive ASCII).\n${name};Engine:51-255,Target:1;0&1;52656d636f73;6c6963656e7365\n`;
     }
     if (kind === "firewall") {
-      return `rules:\n  - name: "${id}"\n    description: "Analyst firewall protection rule by ${analyst} on ${today}"\n    action: block\n    protocol: tcp\n    dst_port:\n      ports: [4444, 8888]\n    domain:\n      domains: ["malicious-c2.example"]\n      subdomains: true\n    regex:\n      - '(?i)POST /api/v1/gate'\n`;
+      return `rules:\n  - name: "${id}"\n    description: "Analyst firewall protection rule by ${analyst} on ${today}"\n    action: block\n    protocol: tcp\n    dst_port:\n      ports: [4444, 8888]\n    domain:\n      domains: ["malicious-c2.example"]\n      subdomains: true\n    regex:\n      pattern: "POST /api/v1/gate"\n      case_insensitive: true\n`;
     }
     return `rule ${id}\n{\n    meta:\n        threat_name = "${name}"\n        author = "${analyst}"\n        date = "${today}"\n        description = ""\n\n    strings:\n        $s1 = "" ascii wide\n\n    condition:\n        uint16(0) == 0x5A4D and any of them\n}\n`;
   };
-  $("sigKind").addEventListener("change", () => { $("sigKindLabel").textContent = KIND_LABEL[$("sigKind").value]; });
+  const sigKindChanged = () => {
+    const kind = $("sigKind").value;
+    $("sigKindLabel").textContent = KIND_LABEL[kind] || kind;
+    $("sigFileNameWrap").hidden = !sigIsPlain(kind);
+    rbShow();
+  };
+  $("sigKind").addEventListener("change", sigKindChanged);
+  // The name a rule is saved / deleted / hunted under: the threat name, or the
+  // plain file name for the kinds in PLAIN_KINDS.
+  const sigTargetName = () => {
+    const kind = $("sigKind").value;
+    if (!sigIsPlain(kind)) return nbCurrent ? { name: nbCurrent } : { error: "Build a valid threat name first." };
+    const n = $("sigFileName").value.trim();
+    if (!n) return { error: "Write a file name first." };
+    if (!/^[A-Za-z0-9._-]+$/.test(n) || /^\.+$/.test(n)) return { error: "File name: letters, digits, . _ - only." };
+    return { name: n };
+  };
   let sigItems = [];
   const sigLoad = async () => {
     try {
@@ -3137,25 +3216,36 @@ window.sigKey = (list) => list && list.length ? `${list[0].layer}: ${list[0].nam
   };
   window.sigEdit = (i) => {
     const it = sigItems[i]; if (!it) return;
-    const p = it.name.split(".");
-    $("nbCat").value = p[0]; $("nbPlat").value = p[1]; $("nbFam").value = p[2] || ""; $("nbVar").value = p[3] || "";
-    nbCurrent = it.name; $("nbName").textContent = it.name; $("nbErr").textContent = "";
-    $("sigKind").value = it.kind; $("sigKindLabel").textContent = KIND_LABEL[it.kind];
+    if (sigIsPlain(it.kind)) $("sigFileName").value = it.name;
+    else {
+      const p = it.name.split(".");
+      $("nbCat").value = p[0]; $("nbPlat").value = p[1]; $("nbFam").value = p[2] || ""; $("nbVar").value = p[3] || "";
+      nbCurrent = it.name; $("nbName").textContent = it.name; $("nbErr").textContent = "";
+    }
+    $("sigKind").value = it.kind; sigKindChanged();
     $("sigSource").value = it.source; $("sigEditing").textContent = "— editing " + it.name;
+    rbSync();
   };
   ["nbCat", "nbPlat"].forEach(id => $(id).addEventListener("change", nbBuild));
   ["nbFam", "nbVar"].forEach(id => $(id).addEventListener("input", nbBuild));
   $("nbCopy").onclick = () => nbCurrent && navigator.clipboard.writeText(nbCurrent);
   $("nbUseVerdict").onclick = () => { if (nbCurrent) { $("haThreat").value = nbCurrent; $("humanAnalysis").scrollIntoView({ behavior: "smooth" }); } };
   $("nbNewRule").onclick = () => {
+    const kind = $("sigKind").value;
+    if (sigIsPlain(kind)) {
+      const n = $("sigFileName").value.trim();
+      $("sigSource").value = sigTemplate(n || "analyst_rules", kind); $("sigEditing").textContent = "— new " + (n || "(write a file name)");
+      return;
+    }
     if (!nbCurrent) { $("nbErr").textContent = "Build a valid name first."; return; }
-    $("sigSource").value = sigTemplate(nbCurrent, $("sigKind").value); $("sigEditing").textContent = "— new " + nbCurrent;
+    $("sigSource").value = sigTemplate(nbCurrent, kind); $("sigEditing").textContent = "— new " + nbCurrent;
   };
   $("sigSave").onclick = async () => {
     $("sigMsg").style.color = ""; $("sigMsg").textContent = "";
-    if (!nbCurrent) { $("sigMsg").textContent = "Build a valid threat name first."; return; }
+    const target = sigTargetName();
+    if (target.error) { $("sigMsg").textContent = target.error; return; }
     try {
-      const r = await post("/api/signatures", { kind: $("sigKind").value, name: nbCurrent, source: $("sigSource").value });
+      const r = await post("/api/signatures", { kind: $("sigKind").value, name: target.name, source: $("sigSource").value });
       $("sigMsg").style.color = "var(--green)"; $("sigMsg").textContent = r.note; sigLoad();
       if (r.retrohunt) { rhOpen.add(r.retrohunt); rhLoad(); }
     } catch (err) { $("sigMsg").textContent = err.message; }
@@ -3163,17 +3253,919 @@ window.sigKey = (list) => list && list.length ? `${list[0].layer}: ${list[0].nam
   $("sigHuntArchive").onclick = async () => {
     $("sigMsg").style.color = ""; $("sigMsg").textContent = "";
     try {
-      const r = await post("/api/retrohunt/archive", { kind: $("sigKind").value, name: nbCurrent || "", source: $("sigSource").value });
+      const r = await post("/api/retrohunt/archive", { kind: $("sigKind").value, name: sigTargetName().name || "", source: $("sigSource").value });
       $("sigMsg").style.color = "var(--green)"; $("sigMsg").textContent = `Archive retrohunt #${r.retrohunt} queued (match only).`;
       rhOpen.add(r.retrohunt); rhLoad();
     } catch (err) { $("sigMsg").textContent = err.message; }
   };
   $("sigDelete").onclick = async () => {
-    if (!nbCurrent) return;
-    if (!confirm(`Delete ${nbCurrent}? It stays loaded until the next engine reload.`)) return;
-    try { const r = await post("/api/signatures/delete", { kind: $("sigKind").value, name: nbCurrent }); $("sigMsg").textContent = r.note; $("sigSource").value = ""; sigLoad(); }
+    const target = sigTargetName();
+    if (target.error) { $("sigMsg").style.color = ""; $("sigMsg").textContent = target.error; return; }
+    if (!confirm(`Delete ${target.name}? It stays loaded until the next engine reload.`)) return;
+    try { const r = await post("/api/signatures/delete", { kind: $("sigKind").value, name: target.name }); $("sigMsg").textContent = r.note; $("sigSource").value = ""; sigLoad(); }
     catch (err) { $("sigMsg").textContent = err.message; }
   };
+
+  // ---------------- Rule builder ----------------
+  // Field-by-field forms for every signature format. "Generate" writes the
+  // source into #sigSource, which stays the editable source of truth for saving.
+  const sp = (n) => " ".repeat(n);
+  // YAML double-quoted scalar; the same escapes are valid in a YARA text string.
+  const yq = (s) => '"' + String(s ?? "").replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(/\n/g, "\\n").replace(/\r/g, "\\r").replace(/\t/g, "\\t")
+    .replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, c => "\\x" + c.charCodeAt(0).toString(16).padStart(2, "0")) + '"';
+  const yv = (v) => typeof v === "number" || typeof v === "boolean" ? String(v) : yq(v);
+  const ynum = (s) => /^-?\d+(\.\d+)?$/.test(String(s)) ? String(s) : yq(s);
+  const yE = (s) => /^[A-Za-z0-9_][A-Za-z0-9_.\-]*$/.test(String(s)) && !/^(true|false|null|yes|no|on|off|~)$/i.test(String(s)) ? String(s) : yq(s);
+  const yflow = (arr, f = yq) => "[" + arr.map(f).join(", ") + "]";
+  const yList = (out, ind, key, arr, f = yq) => { if (!arr.length) return; out.push(`${sp(ind)}${key}:`); arr.forEach(v => out.push(`${sp(ind + 2)}- ${f(v)}`)); };
+
+  // Reading the forms: every control carries data-k; rows are read inside their row.
+  const K = (root, k) => root.querySelector(`[data-k="${k}"]`);
+  const eV = (e) => e ? String(e.value).trim() : "";
+  const eLines = (e) => eV(e).split(/\r?\n/).map(s => s.trim()).filter(Boolean);
+  const eCsv = (e) => eV(e).split(/[,\n]/).map(s => s.trim()).filter(Boolean);
+  const eB = (e) => !!(e && e.checked);
+  const eTri = (e) => { const s = eV(e); return s === "" ? null : s === "true"; };
+  const eChecks = (e) => e ? [...e.querySelectorAll("input:checked")].map(i => i.value) : [];
+
+  // Validation: need() collects the errors shown in #sigMsg; the first bad field gets focus.
+  let rbErrs = [], rbErrEl = null, rbLastGen = "";
+  const need = (ok, msg, el) => { if (!ok) { rbErrs.push(msg); if (!rbErrEl && el) rbErrEl = el; } return !!ok; };
+  const rbBegin = () => { rbErrs = []; rbErrEl = null; };
+  const rbFail = () => {
+    if (!rbErrs.length) return false;
+    $("sigMsg").style.color = ""; $("sigMsg").textContent = "Rule builder: " + rbErrs.join(" · ");
+    if (rbErrEl) { const d = rbErrEl.closest("details"); if (d) d.open = true; rbErrEl.focus(); }
+    return true;
+  };
+  const rbOk = (msg) => { $("sigMsg").style.color = "var(--green)"; $("sigMsg").textContent = msg; };
+  const strF = (root, k, label, o = {}) => {
+    const e = K(root, k), s = eV(e);
+    need(!o.req || s, `${label} is required`, e);
+    if (s && o.re) need(o.re.test(s), `${label}: ${o.reMsg || "invalid value"}`, e);
+    return s;
+  };
+  const numF = (root, k, label, o = {}) => {
+    const e = K(root, k), s = eV(e);
+    if (s === "") { need(!o.req, `${label} is required`, e); return null; }
+    const n = Number(s);
+    if (!need(Number.isFinite(n) && (!o.int || Number.isInteger(n)), `${label} must be a ${o.int ? "whole " : ""}number`, e)) return null;
+    if (o.min != null && !need(n >= o.min, `${label} must be >= ${o.min}`, e)) return null;
+    if (o.max != null && !need(n <= o.max, `${label} must be <= ${o.max}`, e)) return null;
+    return n;
+  };
+  const portsF = (root, k, label) => {
+    const e = K(root, k), out = [];
+    eCsv(e).forEach(p => { const n = Number(p); if (need(/^\d+$/.test(p) && n <= 65535, `${label}: "${p}" is not a port (0-65535)`, e)) out.push(n); });
+    return out;
+  };
+
+  // Form controls. f: {k, label, t: text|num|area|sel|tri|chk|date, v, ph, help (static HTML), req, opts, full, show, rows}
+  let rbN = 0;
+  const rbId = () => "rbf" + (++rbN);
+  const rbOpt = (o, cur) => { const [v, t] = Array.isArray(o) ? o : [o, o]; return `<option value="${haEsc(v)}"${String(v) === String(cur ?? "") ? " selected" : ""}>${haEsc(t)}</option>`; };
+  const rbF = (f) => {
+    const id = rbId(), t = f.t || "text";
+    const wrap = (x) => `<div${f.full ? ' class="rb-full"' : ""}${f.show ? ` data-show="${f.show}"` : ""}>${x}${f.help ? `<div class="rb-help" id="${id}h">${f.help}</div>` : ""}</div>`;
+    const desc = f.help ? ` aria-describedby="${id}h"` : "";
+    if (t === "chk") return wrap(`<label class="chkl" for="${id}"><input type="checkbox" id="${id}" data-k="${f.k}"${f.v ? " checked" : ""}${desc}> ${haEsc(f.label)}</label>`);
+    const lab = `<label for="${id}">${haEsc(f.label)}${f.req ? ' <span class="rb-req" aria-hidden="true">*</span>' : ""}</label>`;
+    const attrs = `id="${id}" data-k="${f.k}"${f.req ? ' aria-required="true"' : ""}${f.ph ? ` placeholder="${haEsc(f.ph)}"` : ""}${desc}`;
+    let ctl;
+    if (t === "sel" || t === "tri") ctl = `<select ${attrs}>${(t === "tri" ? [["", "(not set)"], ["true", "true"], ["false", "false"]] : f.opts).map(o => rbOpt(o, f.v)).join("")}</select>`;
+    else if (t === "area") ctl = `<textarea ${attrs} spellcheck="false" rows="${f.rows || 3}">${haEsc(f.v ?? "")}</textarea>`;
+    else ctl = `<input ${attrs} type="${t === "num" ? "number" : t === "date" ? "date" : "text"}"${t === "num" ? ' step="any"' : ""} value="${haEsc(f.v ?? "")}" autocomplete="off" spellcheck="false">`;
+    return wrap(lab + ctl);
+  };
+  const rbChecks = (k, label, opts, on, help) => `<div class="rb-full" role="group" aria-label="${haEsc(label)}"><span class="rb-gl">${haEsc(label)}</span><div class="rb-checks" data-k="${k}">` +
+    opts.map(o => { const id = rbId(); return `<label class="chkl" for="${id}"><input type="checkbox" id="${id}" value="${haEsc(o)}"${on.includes(o) ? " checked" : ""}> ${haEsc(o)}</label>`; }).join("") +
+    `</div>${help ? `<div class="rb-help">${help}</div>` : ""}</div>`;
+  const rbFs = (legend, inner) => `<fieldset><legend>${haEsc(legend)}</legend><div class="rb-grid">${inner}</div></fieldset>`;
+  const rbDel = (what) => `<button type="button" class="ghost" data-rb-del title="Remove this ${what}" aria-label="Remove this ${what}">&#10005;</button>`;
+  const rbToday = () => new Date().toISOString().slice(0, 10);
+  const rbAnalyst = () => ($("haAnalyst").value || "").trim();
+  // Fill a field from the name builder unless the analyst typed their own value.
+  const rbAuto = (el, v) => { if (el && (!el.value || el.value === el.dataset.auto)) { el.value = v; el.dataset.auto = v; } };
+  const rbUuid = () => {
+    try { if (typeof crypto.randomUUID === "function") return crypto.randomUUID(); } catch (_) {}
+    const b = crypto.getRandomValues(new Uint8Array(16));
+    b[6] = b[6] & 0x0f | 0x40; b[8] = b[8] & 0x3f | 0x80;
+    const h = [...b].map(x => x.toString(16).padStart(2, "0")).join("");
+    return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`;
+  };
+
+  // Allowed values: GET /api/signatures/schema when the server has it, these defaults otherwise.
+  const SEV5 = ["info", "low", "medium", "high", "critical"];
+  const HDS_TYPES_MAIN = ["string_contains", "string_regex", "import_any", "import_all", "dll_any", "file_entropy", "file_size_gte", "file_size_lte", "section_name_regex", "path_regex",
+    "file_type", "hash_sha256", "imphash_any", "byte_pattern", "authenticode", "version_info", "registry_key", "registry_value", "path_glob", "domain_blocklist", "pe_subsystem", "packed_pe"];
+  const HDS_TYPES_MORE = ["string_set", "env_reference", "import_set", "import_regex", "export_any", "export_all", "export_set", "dll_regex", "suspicious_import_count", "section_entropy",
+    "pe_section", "pe_sections_summary", "export_hash_any", "pe_timestamp", "pe_anchor_pattern", "byte_repeat", "authentihash_any", "resource_match", "resource_hash_any", "resources_absent",
+    "hash_md5", "hash_sha1", "hash_crc32", "file_timestamp", "file_attributes", "not_mz", "feature_gte", "feature_lte", "feature_bounds", "byte_set", "unpacker_any", "opcode_pattern", "bytecode",
+    "rule_match", "has_parent", "parent_feature_gte", "parent_feature_lte", "feature_delta_gte", "new_import_set", "new_elf_import_set", "pe_icon_any", "image_fuzzy_hash_any", "clsid",
+    "hosts_entry", "sector_pattern", "native_signature", "dex_class_regex", "dex_method_count"];
+  const FILE_TYPES = "pe, exe, dll, sys, pe32, pe64, elf, elf32, elf64, macho, apk, zip, archive, 7z, rar, gzip, tar, jar, dex, java_class, asar, pdf, office, openxml, ole, text, script, powershell, batch, javascript, vbs, python, shell, binary, unknown, broken, broken_executable, broken_pe, broken_elf, broken_macho, broken_apk, dotnet";
+  const CLAM_TARGETS = [["0", "0: any file"], ["1", "1: PE"], ["2", "2: OLE2"], ["3", "3: HTML"], ["4", "4: mail"], ["5", "5: graphics"], ["6", "6: ELF"], ["7", "7: ASCII text"], ["9", "9: Mach-O"], ["10", "10: PDF"], ["11", "11: Flash"], ["12", "12: Java"]];
+  const RB_DEF = {
+    hydradragonsig: { severity: SEV5, verdict: ["malware", "pua", "suspicious", "clean", "trusted"], logic: ["all", "any", "threshold"], condition_types: [...HDS_TYPES_MAIN, ...HDS_TYPES_MORE] },
+    signer: { verdict: ["trusted", "malware", "pua"], severity: SEV5,
+      condition_types: ["signature_signer_contains", "signature_signer_equals", "signature_issuer_contains", "signature_issuer_equals", "signature_timestamp_signer_contains", "signature_timestamp_signer_equals", "signature_thumbprint_equals"] },
+    registry: { verdict: ["pua", "malware", "suspicious"], severity: SEV5 },
+    url: { severity: ["Malicious", "Suspicious"], liveness: ["active", "potentially_up", "potentially_down", "inactive", "unknown"] },
+    sigma: { status: ["stable", "test", "experimental", "deprecated", "unsupported"], level: ["informational", "low", "medium", "high", "critical"],
+      modifier: ["", "contains", "startswith", "endswith", "re", "all", "contains|all", "base64offset|contains", "windash|contains", "cidr"] },
+    firewall: { severity: ["informational", "low", "medium", "high", "critical"], protocol: ["http", "https", "udp", "tcp", "icmp", "arp", "any"],
+      action: ["traffic_attack", "block", "allow", "ask", "terminate", "quarantine", "kill_and_remove", "change_packet", "solve_packet", "change_request_body", "change_response_body"],
+      condition_logic: ["and", "or"], localhost_type: ["loopback", "private_a", "private_b", "private_c", "private", "any", "all", "none"], encoding: ["plain", "base64", "base58", "hex", "reverse"] },
+  };
+  let rbSchema = null;
+  const rbSchemaReady = fetch("/api/signatures/schema", { cache: "no-store" })
+    .then(r => r.ok ? r.json() : null)
+    .then(d => { rbSchema = d && typeof d === "object" ? d : null; $("rbSchemaNote").textContent = rbSchema ? "Allowed values from the server schema." : "Built-in allowed values (no server schema)."; })
+    .catch(() => { $("rbSchemaNote").textContent = "Built-in allowed values (no server schema)."; });
+  // A list of values: an array (of strings or {value|name|type|id}), {values|enum|options: [...]},
+  // or, with byKeys (condition type maps), the keys of a mapping.
+  const rbVals = (v, byKeys) => {
+    if (v && typeof v === "object" && !Array.isArray(v)) { const inner = v.values || v.enum || v.options; return inner ? rbVals(inner) : byKeys ? rbVals(Object.keys(v)) : null; }
+    return Array.isArray(v) && v.length ? v.map(x => x && typeof x === "object" ? (x.value ?? x.name ?? x.type ?? x.id) : x).filter(x => x != null).map(String) : null;
+  };
+  const rbKindSchema = (kind) => { const r = rbSchema && (rbSchema.kinds || rbSchema); return r && typeof r[kind] === "object" ? r[kind] : null; };
+  const rbEnum = (kind, ...keys) => {
+    const s = rbKindSchema(kind);
+    if (s) for (const key of keys) {
+      const f = Array.isArray(s.fields) ? s.fields.find(x => x && (x.name === key || x.key === key)) : (s.fields || {})[key];
+      const byKeys = /condition|types/.test(key);
+      for (const c of [s[key], s.enums && s.enums[key], f]) { const r = c && rbVals(c, byKeys); if (r) return r; }
+    }
+    return (RB_DEF[kind] || {})[keys[0]] || [];
+  };
+  // Parameter names the schema gives for a condition type (used as a hint for the YAML box).
+  const rbCondKeys = (kind, type) => {
+    const s = rbKindSchema(kind); if (!s) return null;
+    for (const c of [s.condition_types, s.conditions, s.types]) {
+      if (Array.isArray(c)) { const x = c.find(o => o && typeof o === "object" && (o.type || o.name) === type); if (x) return rbVals(x.params || x.keys || x.fields || [], true); }
+      else if (c && typeof c === "object" && c[type]) { const x = c[type]; return rbVals(Array.isArray(x) ? x : x.params || x.keys || x.fields || [], true); }
+    }
+    return null;
+  };
+
+  // ---- HydraDragonSig conditions (keys from hydradragonsig/FORMAT.md, section 5) ----
+  // Parameter t: s string, n number, b bool (def = default), tri unset/true/false, l list (one per line),
+  // la list with numbers unquoted, up list upper-cased, map "Key = value" lines. A dotted k (scope.start) is a nested mapping.
+  const P = (k, t, label, help, o) => Object.assign({ k, t, label, help }, o || {});
+  const ENC = () => [P("nocase", "b", "nocase", "Fold ASCII case."), P("ascii", "b", "ascii", "UTF-8 bytes (on by default).", { def: true }), P("wide", "b", "wide", "UTF-16LE."),
+    P("utf8", "b", "utf8", ""), P("utf16", "b", "utf16", "UTF-16BE."), P("decoded", "b", "decoded", "Also search decoded base64 / hex strings.")];
+  const IMP_HELP = "Case-insensitive suffix match on <code>dll!function</code>: write <code>!VirtualAlloc</code> for the whole name or <code>kernel32.dll!VirtualAlloc</code> to pin the DLL.";
+  const RE_HELP = "Rust regex, unanchored; start with <code>(?i)</code> for case-insensitive.";
+  const HEX = (n) => ({ re: new RegExp(`^[0-9a-fA-F]{${n}}$`), reMsg: `${n} hex characters` });
+  const HDS_COND = {
+    string_contains: { help: "The text occurs in the file in one of the selected encodings.", p: [P("value", "s", "value", "Exact text to find.", { req: 1, full: 1 }), ...ENC()] },
+    string_set: { help: "At least <code>min</code> of the values occur (min defaults to all of them).", p: [P("values", "l", "values (one per line)", "", { req: 1 }), P("min", "n", "min", "Default: all values.", { int: 1, min: 1 }), ...ENC(), P("regex", "b", "regex", "Values are regexes over the extracted strings.")] },
+    string_regex: { help: "The regex matches an extracted (or decoded) string.", p: [P("pattern", "s", "pattern", RE_HELP, { req: 1, full: 1 }), P("decoded", "b", "decoded", "Also decoded strings.")] },
+    env_reference: { help: "Strings referencing environment variables (%APPDATA%, $env:, getenv...).", p: [P("min", "n", "min", "Default 1.", { int: 1, min: 1 })] },
+    import_any: { help: "One name matches an import.", p: [P("names", "l", "names (one per line)", IMP_HELP, { req: 1 })] },
+    import_all: { help: "Every name matches an import.", p: [P("names", "l", "names (one per line)", IMP_HELP, { req: 1 })] },
+    import_set: { help: "At least <code>min</code> names match imports.", p: [P("names", "l", "names (one per line)", IMP_HELP, { req: 1 }), P("min", "n", "min", "Default 1.", { int: 1, min: 1 })] },
+    import_regex: { help: "The regex matches a <code>dll!function</code> string.", p: [P("pattern", "s", "pattern", RE_HELP, { req: 1, full: 1 })] },
+    export_any: { help: "One name is exported (exact, case-insensitive).", p: [P("names", "l", "names (one per line)", "", { req: 1 })] },
+    export_all: { help: "Every name is exported.", p: [P("names", "l", "names (one per line)", "", { req: 1 })] },
+    export_set: { help: "At least <code>min</code> names are exported.", p: [P("names", "l", "names (one per line)", "", { req: 1 }), P("min", "n", "min", "Default 1.", { int: 1, min: 1 })] },
+    dll_any: { help: "An imported DLL has this name (exact, case-insensitive, with extension).", p: [P("names", "l", "names (one per line)", "e.g. <code>ws2_32.dll</code>", { req: 1 })] },
+    dll_regex: { help: "The regex matches an imported DLL name (case-insensitive).", p: [P("pattern", "s", "pattern", RE_HELP, { req: 1, full: 1 })] },
+    suspicious_import_count: { help: "At least <code>min</code> imports are in the suspicious API list.", p: [P("min", "n", "min", "", { req: 1, int: 1, min: 1 })] },
+    section_entropy: { help: "Some section's raw data has entropy >= min.", p: [P("min", "n", "min", "0-8 bits per byte, e.g. 7.2.", { req: 1, min: 0, max: 8 })] },
+    section_name_regex: { help: "The regex matches a PE section name.", p: [P("pattern", "s", "pattern", RE_HELP + " e.g. <code>^UPX</code>", { req: 1, full: 1 })] },
+    packed_pe: { help: "Packer heuristics: UPX* section, several high-entropy or unnamed sections. No parameters.", p: [] },
+    pe_subsystem: { help: "Cheap first condition for driver-only rules.", p: [P("values", "la", "values (one per line)", "<code>native</code>, <code>windows_gui</code>, <code>windows_cui</code>, <code>efi_application</code>, ... or a number.", { req: 1 })] },
+    authenticode: { help: "Authenticode signature; the signer keys must all hold on one signature.", p: [P("signed", "tri", "signed", "true: carries a WIN_CERTIFICATE; false: unsigned."),
+      P("subject_glob", "s", "subject_glob", "Glob on the certificate subject CN / O / OU."), P("publisher", "s", "publisher", "CN of the signing certificate (case-insensitive)."),
+      P("oem_id", "s", "oem_id", "SpcSpOpusInfo program name."), P("cert_tbs_any", "l", "cert_tbs_any (one per line)", "TBS hash of a chain certificate: 40 / 64 / 96 hex.", { re: /^([0-9a-fA-F]{40}|[0-9a-fA-F]{64}|[0-9a-fA-F]{96})$/, reMsg: "40, 64 or 96 hex characters" })] },
+    version_info: { help: "VS_VERSIONINFO checks; every given key must hold.", p: [P("fields", "map", "fields (Key = glob, one per line)", "e.g. <code>CompanyName = *Example*</code>; <code>%NULL%</code> = empty; a leading <code>!</code> negates."),
+      P("absent", "b", "absent", "Match when there is no RT_VERSION resource."), P("file_version_min", "s", "file_version_min", "a[.b[.c[.d]]], inclusive."), P("file_version_max", "s", "file_version_max", ""),
+      P("product_version_min", "s", "product_version_min", ""), P("product_version_max", "s", "product_version_max", "")] },
+    file_type: { help: "The file has one of these types.", p: [P("values", "l", "values (one per line)", "Known: " + FILE_TYPES + " (plus rule-assigned types).", { req: 1 })] },
+    file_size_gte: { help: "File size >= bytes.", p: [P("bytes", "n", "bytes", "", { req: 1, int: 1, min: 0 })] },
+    file_size_lte: { help: "File size <= bytes.", p: [P("bytes", "n", "bytes", "e.g. 307200 for 300 KiB.", { req: 1, int: 1, min: 0 })] },
+    file_entropy: { help: "Whole-file entropy >= min.", p: [P("min", "n", "min", "0-8 bits per byte.", { req: 1, min: 0, max: 8 })] },
+    hash_sha256: { help: "The file SHA-256 equals the value.", p: [P("value", "s", "value", "", Object.assign({ req: 1, full: 1 }, HEX(64)))] },
+    hash_sha1: { help: "The file SHA-1 equals the value.", p: [P("value", "s", "value", "", Object.assign({ req: 1, full: 1 }, HEX(40)))] },
+    hash_md5: { help: "The file MD5 equals the value.", p: [P("value", "s", "value", "", Object.assign({ req: 1, full: 1 }, HEX(32)))] },
+    hash_crc32: { help: "The file CRC32 equals the value.", p: [P("value", "s", "value", "", Object.assign({ req: 1 }, HEX(8)))] },
+    imphash_any: { help: "The PE import hash is one of the values. Every .NET program shares one: combine with other conditions.", p: [P("values", "l", "values (one per line)", "32 hex characters each.", Object.assign({ req: 1 }, HEX(32)))] },
+    path_regex: { help: "The regex matches the scanned path.", p: [P("pattern", "s", "pattern", RE_HELP, { req: 1, full: 1 })] },
+    path_glob: { help: "Glob on the scanned path: <code>*</code>, <code>**</code>, <code>?</code>, <code>#</code>; <code>%VAR%</code> and <code>&lt;$WINDIR&gt;</code> are expanded.", p: [P("pattern", "s", "pattern", "e.g. <code>%APPDATA%&#92;**&#92;*.exe</code>", { req: 1, full: 1 })] },
+    byte_pattern: { help: "Hex pattern inside scope, and none of the excludes anywhere. Syntax: <code>4D 5A ?? 4? ~00 [2-8] ( 90 | 91 )</code>.", p: [P("pattern", "s", "pattern", "", { req: 1, full: 1 }),
+      P("scope.start", "n", "scope start", "Byte offset; negative = from the end.", { int: 1 }), P("scope.end", "n", "scope end", "Exclusive; optional.", { int: 1 }), P("excludes", "l", "excludes (one per line)", "Known-benign patterns.")] },
+    byte_set: { help: "At least <code>min</code> of the patterns occur (default all).", p: [P("patterns", "l", "patterns (one per line)", "", { req: 1 }), P("min", "n", "min", "", { int: 1, min: 1 }),
+      P("scope.start", "n", "scope start", "", { int: 1 }), P("scope.end", "n", "scope end", "", { int: 1 }), P("excludes", "l", "excludes (one per line)", "")] },
+    registry_key: { help: "The registry key exists (Windows; glob segments allowed).", p: [P("key", "s", "key", "e.g. <code>HKLM&#92;SOFTWARE&#92;Example</code>", { req: 1, full: 1 }), P("recursive", "b", "recursive", "Search the subtree."), P("value_pattern", "s", "value_pattern", "Regex: a value name in the key must match.")] },
+    registry_value: { help: "At least <code>min</code> values under the key pass every given filter.", p: [P("key", "s", "key", "", { req: 1, full: 1 }), P("recursive", "b", "recursive", ""), P("value_regex", "s", "value_regex", "Regex on the value name."),
+      P("data_regex", "s", "data_regex", "Regex on the text data."), P("data_not_regex", "s", "data_not_regex", "Keep values whose data does NOT match."), P("data_hex", "s", "data_hex", "Hex pattern on binary data."),
+      P("md5", "s", "md5", "", HEX(32)), P("sha256", "s", "sha256", "", HEX(64)), P("min", "n", "min", "Default 1.", { int: 1, min: 1 })] },
+    domain_blocklist: { help: "Domains in the file's strings are listed in the categorized blocklist DB.", p: [P("categories", "up", "categories (one per line)", "e.g. MALWARE, PHISHING; empty = any category."),
+      P("min", "n", "min", "Distinct listed domains, default 1.", { int: 1, min: 1 }), P("decoded", "b", "decoded", "Also decoded strings."), P("db", "s", "db", "Optional path of a domain:CATEGORY file.")] },
+    rule_match: { help: "Earlier rules (same file or loaded before) matched in this scan.", p: [P("ids", "l", "ids (one per line)", "", { req: 1 }), P("min", "n", "min", "Default: all.", { int: 1, min: 1 })] },
+    feature_gte: { help: "A numeric feature is >= value (FORMAT.md section 9).", p: [P("name", "s", "name", "e.g. <code>pe_import_count</code>", { req: 1 }), P("value", "n", "value", "", { req: 1 })] },
+    feature_lte: { help: "A numeric feature is <= value.", p: [P("name", "s", "name", "e.g. <code>pe_import_count</code>", { req: 1 }), P("value", "n", "value", "", { req: 1 })] },
+    not_mz: { help: "The file does not start with MZ. No parameters.", p: [] },
+    resources_absent: { help: "The PE has no resources. No parameters.", p: [] },
+    has_parent: { help: "The scan has a parent file (unpacked dump, extracted payload). No parameters.", p: [] },
+  };
+  const OTHER_PH = {
+    pe_section: "select: last\nflags_all: [write, execute]\nentropy_min: 7.8\nraw_size_min: 32768",
+    opcode_pattern: "region: entry\nskip: [nop]\npattern: \"pushad; call *; pop reg\"",
+    pe_anchor_pattern: "anchor: entry\noffset: 0\npatterns: [\"E8 ?? ?? ?? ?? 5D\"]",
+    feature_bounds: "bounds:\n  - {feature: pe_section_count, min: 1, max: 3}",
+    resource_match: "type_glob: RT_RCDATA\nsize_min: 4096\ndata_patterns: [\"4D 5A\"]",
+    clsid: "guids: [\"{00000000-0000-0000-0000-000000000000}\"]",
+    hosts_entry: "host: \"(?i)example\\\\.com\"",
+  };
+  const hdsTypes = () => { const s = rbEnum("hydradragonsig", "condition_types", "conditions", "types"); return [...new Set([...HDS_TYPES_MAIN, ...s, ...HDS_TYPES_MORE])]; };
+  const hdsParams = (type) => {
+    const d = HDS_COND[type];
+    if (!d) {
+      const keys = rbCondKeys("hydradragonsig", type);
+      return `<div class="rb-grid">${rbF({ k: "yaml", label: "params (YAML)", t: "area", rows: 4, full: 1, ph: OTHER_PH[type] || (keys && keys.length ? keys.map(x => x + ": ").join("\n") : "key: value"),
+        help: `Written under <code>- type: ${haEsc(type)}</code> and indented for you. Keys are listed in the format guide.` })}</div>`;
+    }
+    const ft = (p) => p.t === "b" ? "chk" : p.t === "tri" ? "tri" : p.t === "n" ? "num" : ["l", "la", "up", "map"].includes(p.t) ? "area" : "text";
+    return (d.help ? `<div class="rb-help">${d.help}</div>` : "") + (d.p.length ? `<div class="rb-grid">${d.p.map(p => rbF({ k: p.k, label: p.label, t: ft(p), v: p.t === "b" ? p.def : "",
+      req: p.req, help: p.help, full: p.full || ["l", "la", "up", "map"].includes(p.t), rows: 3 })).join("")}</div>` : "");
+  };
+  const hdsCondRow = (type) => `<div class="rb-row" data-row="cond"><div class="rb-row-h">${rbF({ k: "type", label: "Condition type", t: "sel", opts: hdsTypes(), v: type })}${rbDel("condition")}</div>
+    <div class="rb-params">${hdsParams(type)}</div></div>`;
+  const hdsCondLines = (row, i) => {
+    const type = eV(K(row, "type")), d = HDS_COND[type], at = `Condition ${i + 1} (${type})`, pi = sp(8);
+    const out = [`      - type: ${type}`];
+    if (!d) {
+      const e = K(row, "yaml"), raw = e ? e.value : "";
+      need(!/\t/.test(raw), `${at}: use spaces, not tabs`, e);
+      const ls = raw.split(/\r?\n/).filter(l => l.trim());
+      const cut = ls.length ? Math.min(...ls.map(l => l.match(/^ */)[0].length)) : 0;
+      ls.forEach(l => out.push(pi + l.slice(cut).replace(/\s+$/, "")));
+      return out;
+    }
+    const groups = {};
+    for (const p of d.p) {
+      const e = K(row, p.k), lab = `${at}: ${p.label}`;
+      let val = null;
+      if (p.t === "b") { if (eB(e) !== !!p.def) val = String(eB(e)); }
+      else if (p.t === "tri") { const b = eTri(e); if (b !== null) val = String(b); }
+      else if (p.t === "n") { const n = numF(row, p.k, lab, p); if (n !== null) val = String(n); }
+      else if (p.t === "l" || p.t === "la" || p.t === "up") {
+        let arr = eLines(e); if (p.t === "up") arr = arr.map(s => s.toUpperCase());
+        need(!p.req || arr.length, `${lab} needs at least one entry`, e);
+        if (p.re) arr.forEach(x => need(p.re.test(x), `${lab}: "${x}" must be ${p.reMsg}`, e));
+        yList(out, 8, p.k, arr, p.t === "la" ? ynum : yq);
+        continue;
+      } else if (p.t === "map") {
+        const ls = eLines(e); if (!ls.length) continue;
+        out.push(`${pi}${p.k}:`);
+        ls.forEach(l => { const m = l.match(/^([^=]+?)\s*=\s*(.*)$/); if (need(m, `${lab}: write Key = value ("${l}")`, e)) out.push(`${pi}  ${yq(m[1])}: ${yq(m[2])}`); });
+        continue;
+      } else {
+        const s = eV(e);
+        need(!p.req || s, `${lab} is required`, e);
+        if (s && p.re) need(p.re.test(s), `${lab} must be ${p.reMsg}`, e);
+        if (s) val = yq(s);
+      }
+      if (val === null) continue;
+      const dot = p.k.indexOf(".");
+      if (dot > 0) (groups[p.k.slice(0, dot)] = groups[p.k.slice(0, dot)] || []).push(`${p.k.slice(dot + 1)}: ${val}`);
+      else out.push(`${pi}${p.k}: ${val}`);
+    }
+    for (const g in groups) out.push(`${pi}${g}: {${groups[g].join(", ")}}`);
+    return out;
+  };
+
+  // ---- Per-kind forms: render() HTML, init(root) listeners, sync(root) name-builder defaults,
+  // rule(root) -> {id, label, lines} for list kinds (multi), doc(root[, items]) -> source text.
+  const ruleRows = (root, which) => [...root.querySelectorAll(`[data-row="${which}"]`)];
+  const RB = {};
+  RB.hydradragonsig = {
+    multi: true, idKey: "id",
+    intro: "One rule per form; <b>Add rule to list</b> keeps it and lets you write the next. The signature room saves only <code>malware</code>, <code>pua</code> or <code>suspicious</code> rules whose <code>family</code> is a canonical threat name.",
+    render: () => `<div class="rb-grid">
+      ${rbF({ k: "id", label: "id", req: 1, ph: "ANALYST-TROJAN-REMCOS-001", help: "Unique rule id: letters, digits, <code>- _ .</code>" })}
+      ${rbF({ k: "title", label: "title", req: 1, help: "Short title shown in findings." })}
+      ${rbF({ k: "severity", label: "severity", t: "sel", opts: rbEnum("hydradragonsig", "severity", "severities"), v: "high", help: "Output only: it does not change the verdict." })}
+      ${rbF({ k: "verdict", label: "verdict", t: "sel", opts: rbEnum("hydradragonsig", "verdict", "verdicts"), v: "malware", help: "malware makes the file malicious; pua / suspicious make it suspicious." })}
+      ${rbF({ k: "confidence", label: "confidence", t: "num", v: 60, help: "0-100, output only." })}
+      ${rbF({ k: "score", label: "score", t: "num", v: 10, help: "Added to the file score (capped at 100); the highest finding names the threat." })}
+      ${rbF({ k: "family", label: "family", req: 1, full: 1, help: "Threat name reported for the file; filled from the name builder (Category.Platform.Family[.Variant])." })}
+      ${rbF({ k: "description", label: "description", t: "area", rows: 2, full: 1 })}
+      ${rbF({ k: "tags", label: "tags", ph: "analyst, rat", help: "Comma-separated." })}
+      ${rbF({ k: "reference", label: "reference", ph: "https://... or a sample SHA-256", help: "Where the rule comes from." })}
+      ${rbF({ k: "mitre", label: "mitre", full: 1, ph: "T1055|Process Injection|defense-evasion, T1059.001|PowerShell|execution", help: "Comma-separated; each entry is <code>id|name|tactic</code> (the loader needs all three)." })}
+      ${rbF({ k: "logic", label: "logic", t: "sel", opts: rbEnum("hydradragonsig", "logic"), v: "all", help: "all: every condition; any: one of them; threshold: at least N." })}
+      ${rbF({ k: "threshold", label: "threshold", t: "num", show: "thr", help: "How many conditions must match. Cheap gates (file_type, size) count too." })}
+      ${rbF({ k: "file_path", label: "file_path (optional)", full: 1, ph: "%SystemRoot%\\System32\\drivers\\etc\\hosts", help: "Only evaluate the rule for this exact path: <code>%VAR%</code> expanded, case-insensitive, no wildcards." })}
+    </div>
+    <span class="rb-gl">Conditions</span>
+    <div class="rb-rows" data-rows="cond">${hdsCondRow("string_contains")}</div>
+    <button type="button" class="ghost" data-rb-add="cond" style="margin-top:8px">+ Condition</button>`,
+    init: (root) => {
+      const upd = () => { root.querySelector('[data-show="thr"]').hidden = eV(K(root, "logic")) !== "threshold"; };
+      K(root, "logic").addEventListener("change", upd); upd();
+      root.addEventListener("click", (ev) => { if (ev.target.closest('[data-rb-add="cond"]')) root.querySelector('[data-rows="cond"]').insertAdjacentHTML("beforeend", hdsCondRow("string_contains")); });
+      root.addEventListener("change", (ev) => { const t = ev.target, row = t.closest('[data-row="cond"]'); if (row && t.dataset.k === "type") row.querySelector(".rb-params").innerHTML = hdsParams(t.value); });
+    },
+    sync: (root) => {
+      if (!nbCurrent) return;
+      const n = (rbQueue.hydradragonsig || []).length + 1;
+      rbAuto(K(root, "family"), nbCurrent);
+      rbAuto(K(root, "title"), nbCurrent);
+      rbAuto(K(root, "id"), "ANALYST-" + nbCurrent.toUpperCase().replace(/[^A-Z0-9]+/g, "-") + "-" + String(n).padStart(3, "0"));
+    },
+    next: (root) => { ["id", "title"].forEach(k => { K(root, k).value = ""; }); },
+    filled: (root) => !!(eV(K(root, "id")) || eV(K(root, "title"))),
+    rule: (root) => {
+      const I = sp(4), o = [];
+      const id = strF(root, "id", "id", { req: 1, re: /^[A-Za-z0-9_.\-]+$/, reMsg: "use letters, digits, - _ ." });
+      const title = strF(root, "title", "title", { req: 1 });
+      const family = strF(root, "family", "family", { req: 1 });
+      const conf = numF(root, "confidence", "confidence", { min: 0, max: 100, int: 1 });
+      const score = numF(root, "score", "score", { min: 0, max: 100, int: 1 });
+      const logic = eV(K(root, "logic")), rows = ruleRows(root, "cond");
+      need(rows.length, "Add at least one condition (a rule without conditions never matches)");
+      let thr = null;
+      if (logic === "threshold") { thr = numF(root, "threshold", "threshold", { req: 1, min: 1, int: 1 }); if (thr !== null) need(thr <= rows.length, `threshold (${thr}) is larger than the number of conditions (${rows.length})`, K(root, "threshold")); }
+      const mitre = eCsv(K(root, "mitre")).map(m => m.split("|").map(s => s.trim()));
+      mitre.forEach(m => need(m.length === 3 && m.every(Boolean), `mitre entry "${m.join("|")}" needs id|name|tactic`, K(root, "mitre")));
+      o.push(`  - id: ${yq(id)}`, `${I}title: ${yq(title)}`);
+      const desc = eV(K(root, "description")); if (desc) o.push(`${I}description: ${yq(desc)}`);
+      o.push(`${I}severity: ${yE(eV(K(root, "severity")))}`, `${I}verdict: ${yE(eV(K(root, "verdict")))}`);
+      if (conf !== null) o.push(`${I}confidence: ${conf}`);
+      if (score !== null) o.push(`${I}score: ${score}`);
+      o.push(`${I}family: ${yq(family)}`);
+      const tags = eCsv(K(root, "tags")); if (tags.length) o.push(`${I}tags: ${yflow(tags)}`);
+      if (mitre.length) { o.push(`${I}mitre:`); mitre.forEach(m => o.push(`${I}  - {id: ${yq(m[0])}, name: ${yq(m[1])}, tactic: ${yq(m[2])}}`)); }
+      const ref = eV(K(root, "reference")); if (ref) o.push(`${I}reference: ${yq(ref)}`);
+      o.push(`${I}logic: ${yE(logic)}`);
+      if (thr !== null) o.push(`${I}threshold: ${thr}`);
+      const fp = eV(K(root, "file_path")); if (fp) o.push(`${I}file_path: ${yq(fp)}`);
+      o.push(`${I}conditions:`);
+      rows.forEach((r, i) => o.push(...hdsCondLines(r, i)));
+      return { id, label: `${id} (${title})`, lines: o };
+    },
+    doc: (root, items) => `rules:\n${items.map(it => it.lines.join("\n")).join("\n\n")}\n`,
+  };
+
+  const sgRow = () => `<div class="rb-row" data-row="sg"><div class="rb-row-h">
+      ${rbF({ k: "type", label: "Condition type", t: "sel", opts: rbEnum("signer", "condition_types", "conditions", "types"), v: "signature_signer_contains" })}${rbDel("condition")}</div>
+    <div class="rb-grid">${rbF({ k: "value", label: "value", req: 1, full: 1, help: "Publisher / issuing CA / timestamp authority text; a thumbprint is the leaf SHA-1, 40 hex (colons and spaces are dropped)." })}
+      ${rbF({ k: "nocase", label: "nocase", t: "chk", v: true, help: "Case-insensitive compare." })}</div></div>`;
+  RB.signer = {
+    multi: true, idKey: "id",
+    intro: "Authenticode publisher rules. <b>trusted</b> rules use only signer (publisher) conditions and also need a valid Authenticode signature: trust is never granted by the name alone. <b>malware</b> / <b>pua</b> rules name an abusive publisher or, better, the issuing CA.",
+    render: () => `<div class="rb-grid">${rbF({ k: "set_name", label: "Rule set name (name:)", full: 1, ph: "Analyst signer rules", help: "Top-level <code>name</code> of the file; <code>version: \"1\"</code> is written for you." })}</div>
+    ${rbFs("Rule", `
+      ${rbF({ k: "id", label: "id", req: 1, ph: "ANALYST-SIGNER-001" })}
+      ${rbF({ k: "title", label: "title", req: 1 })}
+      ${rbF({ k: "verdict", label: "verdict", t: "sel", opts: rbEnum("signer", "verdict", "verdicts"), v: "malware", help: "trusted, malware or pua." })}
+      ${rbF({ k: "family", label: "family", show: "fam", help: "Threat name for malware / pua, e.g. <code>PUA.Win32.ExampleVendor</code>." })}
+      ${rbF({ k: "severity", label: "severity", t: "sel", opts: rbEnum("signer", "severity", "severities"), v: "high" })}
+      ${rbF({ k: "confidence", label: "confidence", t: "num", v: 90, help: "0-100." })}
+      ${rbF({ k: "score", label: "score", t: "num", v: 90, help: "0-100." })}
+      ${rbF({ k: "tags", label: "tags", ph: "analyst", help: "Comma-separated." })}
+      ${rbF({ k: "description", label: "description", t: "area", rows: 2, full: 1 })}`)}
+    <span class="rb-gl">Conditions</span>
+    <div class="rb-rows" data-rows="sg">${sgRow()}</div>
+    <button type="button" class="ghost" data-rb-add="sg" style="margin-top:8px">+ Condition</button>`,
+    init: (root) => {
+      const upd = () => { root.querySelector('[data-show="fam"]').hidden = eV(K(root, "verdict")) === "trusted"; };
+      K(root, "verdict").addEventListener("change", upd); upd();
+      root.addEventListener("click", (ev) => { if (ev.target.closest('[data-rb-add="sg"]')) root.querySelector('[data-rows="sg"]').insertAdjacentHTML("beforeend", sgRow()); });
+    },
+    sync: (root) => rbAuto(K(root, "set_name"), $("sigFileName").value.trim()),
+    next: (root) => { ["id", "title"].forEach(k => { K(root, k).value = ""; }); },
+    filled: (root) => !!(eV(K(root, "id")) || eV(K(root, "title"))),
+    rule: (root) => {
+      const I = sp(4), o = [];
+      const id = strF(root, "id", "id", { req: 1, re: /^[A-Za-z0-9_.\-]+$/, reMsg: "use letters, digits, - _ ." });
+      const title = strF(root, "title", "title", { req: 1 });
+      const verdict = eV(K(root, "verdict")), trusted = verdict === "trusted";
+      const family = trusted ? "" : strF(root, "family", "family (malware / pua)", { req: 1 });
+      const conf = numF(root, "confidence", "confidence", { min: 0, max: 100, int: 1 });
+      const score = numF(root, "score", "score", { min: 0, max: 100, int: 1 });
+      const rows = ruleRows(root, "sg");
+      need(rows.length, "Add at least one signer condition");
+      o.push(`  - id: ${yq(id)}`, `${I}title: ${yq(title)}`);
+      const desc = eV(K(root, "description")); if (desc) o.push(`${I}description: ${yq(desc)}`);
+      o.push(`${I}verdict: ${yE(verdict)}`);
+      if (family) o.push(`${I}family: ${yq(family)}`);
+      o.push(`${I}severity: ${yE(eV(K(root, "severity")))}`);
+      if (conf !== null) o.push(`${I}confidence: ${conf}`);
+      if (score !== null) o.push(`${I}score: ${score}`);
+      const tags = eCsv(K(root, "tags")); if (tags.length) o.push(`${I}tags: ${yflow(tags)}`);
+      o.push(`${I}conditions:`);
+      rows.forEach((r, i) => {
+        const type = eV(K(r, "type")), e = K(r, "value"); let v = eV(e);
+        need(v, `Condition ${i + 1}: value is required`, e);
+        if (trusted) need(/^signature_signer_/.test(type), `Condition ${i + 1}: trusted rules use only signature_signer_* conditions`, K(r, "type"));
+        if (/thumbprint/.test(type) && v) { v = v.replace(/[^0-9a-fA-F]/g, "").toLowerCase(); need(v.length === 40, `Condition ${i + 1}: a thumbprint is 40 hex characters`, e); }
+        o.push(`      - type: ${yE(type)}`, `        value: ${yq(v)}`, `        nocase: ${eB(K(r, "nocase"))}`);
+      });
+      return { id, label: `${id} (${verdict}: ${title})`, lines: o };
+    },
+    doc: (root, items) => `name: ${yq(eV(K(root, "set_name")) || $("sigFileName").value.trim() || "Analyst signer rules")}\nversion: "1"\nrules:\n${items.map(it => it.lines.join("\n")).join("\n\n")}\n`,
+  };
+
+  RB.registry = {
+    multi: true, idKey: "id", allowEmpty: true,
+    intro: "Registry key rules. Patterns are case-insensitive globs: <code>*x*</code> contains, <code>x*</code> starts with, <code>*x</code> ends with. Write keys with single backslashes, e.g. <code>*software&#92;exampletoolbar*</code>; the YAML escapes them for you.",
+    render: () => `<div class="rb-grid">
+      ${rbF({ k: "doc_name", label: "name", ph: "Analyst registry rules", help: "Name of the rule file." })}
+      ${rbF({ k: "doc_description", label: "description", help: "What this file covers." })}</div>
+    ${rbFs("Rule", `
+      ${rbF({ k: "id", label: "id", req: 1, ph: "ANALYST-REG-001" })}
+      ${rbF({ k: "title", label: "title", req: 1 })}
+      ${rbF({ k: "severity", label: "severity", t: "sel", opts: rbEnum("registry", "severity", "severities"), v: "medium" })}
+      ${rbF({ k: "verdict", label: "verdict", t: "sel", opts: rbEnum("registry", "verdict", "verdicts"), v: "pua" })}
+      ${rbF({ k: "family", label: "family", full: 1, help: "Threat name reported, e.g. <code>Adware.Win32.Toolbar</code>." })}
+      ${rbF({ k: "description", label: "description", t: "area", rows: 2, full: 1 })}
+      ${rbF({ k: "patterns", label: "patterns (one per line)", t: "area", rows: 4, req: 1, full: 1, ph: "*software\\exampletoolbar*\n*clsid\\{00000000-0000-0000-0000-000000000000}*", help: "Glob per line, matched case-insensitively against the full key path." })}`)}
+    ${rbFs("Flat lists (optional)", `
+      ${rbF({ k: "pua_reg_paths", label: "pua_reg_paths", t: "area", rows: 3, full: 1, help: "One glob per line: keys left by unwanted software." })}
+      ${rbF({ k: "persistence_paths", label: "persistence_paths", t: "area", rows: 3, full: 1, help: "One per line: autostart locations to watch." })}
+      ${rbF({ k: "suspicious_keys", label: "suspicious_keys", t: "area", rows: 3, full: 1, help: "One per line." })}`)}`,
+    sync: (root) => rbAuto(K(root, "doc_name"), $("sigFileName").value.trim()),
+    next: (root) => { ["id", "title", "patterns"].forEach(k => { K(root, k).value = ""; }); },
+    filled: (root) => !!(eV(K(root, "id")) || eV(K(root, "title")) || eV(K(root, "patterns"))),
+    rule: (root) => {
+      const I = sp(4), o = [];
+      const id = strF(root, "id", "id", { req: 1, re: /^[A-Za-z0-9_.\-]+$/, reMsg: "use letters, digits, - _ ." });
+      const title = strF(root, "title", "title", { req: 1 });
+      const verdict = eV(K(root, "verdict")), family = eV(K(root, "family"));
+      need(family || verdict === "suspicious", "family is required for pua / malware rules", K(root, "family"));
+      const pats = eLines(K(root, "patterns"));
+      need(pats.length, "patterns: write at least one glob", K(root, "patterns"));
+      o.push(`  - id: ${yq(id)}`, `${I}title: ${yq(title)}`, `${I}description: ${yq(eV(K(root, "description")))}`,
+        `${I}severity: ${yE(eV(K(root, "severity")))}`, `${I}verdict: ${yE(verdict)}`);
+      if (family) o.push(`${I}family: ${yq(family)}`);
+      yList(o, 4, "patterns", pats);
+      return { id, label: `${id} (${title})`, lines: o };
+    },
+    doc: (root, items) => {
+      const out = [];
+      const nm = eV(K(root, "doc_name")), ds = eV(K(root, "doc_description"));
+      if (nm) out.push(`name: ${yq(nm)}`);
+      if (ds) out.push(`description: ${yq(ds)}`);
+      const flat = ["pua_reg_paths", "persistence_paths", "suspicious_keys"].map(k => [k, eLines(K(root, k))]);
+      need(items.length || flat.some(f => f[1].length), "Write a rule or fill one of the flat lists");
+      if (items.length) out.push("rules:", items.map(it => it.lines.join("\n")).join("\n\n"));
+      flat.forEach(([k, arr]) => yList(out, 0, k, arr));
+      return out.join("\n") + "\n";
+    },
+  };
+
+  RB.url = {
+    multi: true, idKey: "id", allowEmpty: true,
+    intro: "Live URL inspection rules. The conditions of one rule are <b>OR</b>-ed: any condition that holds fires the rule. Only filled conditions are written.",
+    render: () => `${rbFs("Rule", `
+      ${rbF({ k: "id", label: "id", req: 1, ph: "ANALYST_URL_001" })}
+      ${rbF({ k: "title", label: "title", req: 1 })}
+      ${rbF({ k: "severity", label: "severity", t: "sel", opts: rbEnum("url", "severity", "severities"), v: "Suspicious", help: "Written exactly as listed." })}
+      ${rbF({ k: "score", label: "score", t: "num", v: 60, req: 1, help: "0-100." })}
+      ${rbF({ k: "override_whitelist", label: "override_whitelist", t: "chk", help: "Fire even for whitelisted hosts." })}
+      ${rbF({ k: "skip_if_whitelisted", label: "skip_if_whitelisted", t: "chk", help: "Do not fire for whitelisted hosts." })}
+      ${rbF({ k: "description", label: "description", t: "area", rows: 2, full: 1 })}`)}
+    ${rbFs("Conditions (OR)", `
+      ${rbF({ k: "url_regex", label: "url_regex", full: 1, help: RE_HELP })}
+      ${rbF({ k: "host_regex", label: "host_regex" })}
+      ${rbF({ k: "path_regex", label: "path_regex" })}
+      ${rbF({ k: "query_regex", label: "query_regex" })}
+      ${rbF({ k: "body_regex", label: "body_regex", help: "On the fetched page body." })}
+      ${rbF({ k: "scheme", label: "scheme", ph: "http, ftp", help: "Comma-separated list." })}
+      ${rbF({ k: "ports", label: "ports", ph: "8080, 4444", help: "Comma-separated numbers." })}
+      ${rbF({ k: "tlds", label: "tlds", ph: "xyz, top", help: "Comma-separated, without the dot." })}
+      ${rbF({ k: "is_ip", label: "is_ip", t: "tri", help: "Host is a raw IP address." })}
+      ${rbF({ k: "cidr_blacklisted", label: "cidr_blacklisted", t: "tri", help: "Host is in a blacklisted CIDR." })}
+      ${rbF({ k: "content_difference", label: "content_difference", t: "tri", help: "Client and server copies of the page differ (difference scans only)." })}
+      ${rbF({ k: "require_equal_status", label: "require_equal_status", t: "tri", help: "Only when both sides got the same HTTP status." })}
+      ${rbF({ k: "min_difference_percent", label: "min_difference_percent", t: "num", help: "0-100, with content_difference." })}
+      ${rbChecks("liveness", "liveness", rbEnum("url", "liveness"), [], "Liveness labels the rule applies to (any of them).")}`)}
+    ${rbFs("File lists (optional)", `
+      ${rbF({ k: "unwhitelist_subdomains", label: "unwhitelist_subdomains", t: "area", rows: 3, full: 1, help: "One host per line, taken out of the whitelist so the URL model still judges it. Not a detection." })}
+      ${rbF({ k: "deterministic_rules", label: "deterministic_rules", t: "area", rows: 2, full: 1, help: "One rule id per line." })}`)}`,
+    next: (root) => { ["id", "title"].forEach(k => { K(root, k).value = ""; }); },
+    filled: (root) => !!(eV(K(root, "id")) || eV(K(root, "title"))),
+    rule: (root) => {
+      const I = sp(4), C = sp(6), o = [], c = [];
+      const id = strF(root, "id", "id", { req: 1, re: /^[A-Za-z0-9_.\-]+$/, reMsg: "use letters, digits, - _ ." });
+      const title = strF(root, "title", "title", { req: 1 });
+      const score = numF(root, "score", "score", { req: 1, min: 0, max: 100, int: 1 });
+      ["url_regex", "path_regex", "query_regex", "body_regex", "host_regex"].forEach(k => { const v = eV(K(root, k)); if (v) c.push(`${C}${k}: ${yq(v)}`); });
+      const scheme = eCsv(K(root, "scheme")).map(s => s.toLowerCase().replace(/:\/*$/, ""));
+      if (scheme.length) c.push(`${C}scheme: ${yflow(scheme)}`);
+      const ports = portsF(root, "ports", "ports"); if (ports.length) c.push(`${C}ports: ${yflow(ports, yv)}`);
+      const tlds = eCsv(K(root, "tlds")).map(s => s.toLowerCase().replace(/^\.+/, "")); if (tlds.length) c.push(`${C}tlds: ${yflow(tlds)}`);
+      ["is_ip", "cidr_blacklisted", "content_difference", "require_equal_status"].forEach(k => { const b = eTri(K(root, k)); if (b !== null) c.push(`${C}${k}: ${b}`); });
+      const live = eChecks(K(root, "liveness")); if (live.length) c.push(`${C}liveness: ${yflow(live)}`);
+      const mdp = numF(root, "min_difference_percent", "min_difference_percent", { min: 0, max: 100, int: 1 }); if (mdp !== null) c.push(`${C}min_difference_percent: ${mdp}`);
+      need(c.length, "Fill at least one condition");
+      o.push(`  - id: ${yq(id)}`, `${I}title: ${yq(title)}`, `${I}description: ${yq(eV(K(root, "description")))}`, `${I}severity: ${yq(eV(K(root, "severity")))}`);
+      if (score !== null) o.push(`${I}score: ${score}`);
+      o.push(`${I}override_whitelist: ${eB(K(root, "override_whitelist"))}`, `${I}skip_if_whitelisted: ${eB(K(root, "skip_if_whitelisted"))}`, `${I}conditions:`, ...c);
+      return { id, label: `${id} (${title})`, lines: o };
+    },
+    doc: (root, items) => {
+      const out = [];
+      yList(out, 0, "unwhitelist_subdomains", eLines(K(root, "unwhitelist_subdomains")).map(s => s.toLowerCase()));
+      yList(out, 0, "deterministic_rules", eLines(K(root, "deterministic_rules")));
+      need(items.length || out.length, "Write a rule or fill one of the file lists");
+      out.push(items.length ? "rules:\n" + items.map(it => it.lines.join("\n")).join("\n\n") : "rules: []");
+      return out.join("\n") + "\n";
+    },
+  };
+
+  const SIGMA_KW = new Set(["and", "or", "not", "of", "them", "all", "1"]);
+  const sgmField = () => `<div class="rb-row" data-row="fld"><div class="rb-row-h">
+      ${rbF({ k: "field", label: "Field", ph: "Image" })}
+      ${rbF({ k: "mod", label: "Modifier", t: "sel", opts: ["", ...rbEnum("sigma", "modifier", "modifiers").filter(Boolean)].map(m => [m, m || "(none: equals)"]) })}${rbDel("field")}</div>
+    ${rbF({ k: "vals", label: "Values (one per line: any of them)", t: "area", rows: 2, help: "Numbers stay numbers; <code>null</code> = field absent. Write backslashes once (<code>&#92;cmd.exe</code>)." })}</div>`;
+  const sgmBlock = (name) => `<div class="rb-row" data-row="blk"><div class="rb-row-h">
+      ${rbF({ k: "bname", label: "Search identifier", v: name, help: "Used in the condition: selection..., filter..." })}${rbDel("search identifier")}</div>
+    <div class="rb-rows" data-rows="fld">${sgmField()}</div>
+    <button type="button" class="ghost" data-rb-add="fld" style="margin-top:6px">+ Field</button></div>`;
+  const sgmAutoCond = (root) => {
+    const names = ruleRows(root, "blk").map(b => eV(K(b, "bname"))).filter(Boolean);
+    const sel = names.filter(n => !/^filter/i.test(n)), fil = names.filter(n => /^filter/i.test(n));
+    let c = sel.length > 1 ? (sel.every(n => /^selection/i.test(n)) ? "all of selection*" : sel.join(" and ")) : (sel[0] || "");
+    if (fil.length) c += (c ? " and " : "") + "not " + (fil.length > 1 ? "1 of filter*" : fil[0]);
+    rbAuto(K(root, "condition"), c);
+  };
+  RB.sigma = {
+    intro: "A standard Sigma rule (Hayabusa reads the same YAML). Search identifiers hold field / modifier / values rows; rows of one identifier are AND-ed, the values of one row are OR-ed.",
+    render: () => `<div class="rb-grid">
+      ${rbF({ k: "title", label: "title", req: 1, full: 1 })}
+      <div class="rb-full">${rbF({ k: "id", label: "id (UUID)", req: 1, v: rbUuid() })}<button type="button" class="ghost" data-rb-uuid style="margin-top:6px">New UUID</button></div>
+      ${rbF({ k: "status", label: "status", t: "sel", opts: rbEnum("sigma", "status", "statuses"), v: "experimental" })}
+      ${rbF({ k: "level", label: "level", t: "sel", opts: rbEnum("sigma", "level", "levels"), v: "high" })}
+      ${rbF({ k: "author", label: "author", req: 1, v: rbAnalyst(), help: "Required by Hayabusa's rule loader." })}
+      ${rbF({ k: "date", label: "date", req: 1, t: "date", v: rbToday(), help: "Required by Hayabusa's rule loader." })}
+      ${rbF({ k: "description", label: "description", t: "area", rows: 2, full: 1 })}
+      ${rbF({ k: "references", label: "references (one per line)", t: "area", rows: 2, full: 1 })}
+      ${rbF({ k: "tags", label: "tags", full: 1, ph: "attack.execution, attack.t1059.001", help: "Comma-separated." })}</div>
+    ${rbFs("logsource", `
+      ${rbF({ k: "product", label: "product", v: "windows" })}
+      ${rbF({ k: "service", label: "service", ph: "security, sysmon, powershell" })}
+      ${rbF({ k: "category", label: "category", ph: "process_creation" })}`)}
+    <span class="rb-gl">detection</span>
+    <div class="rb-rows" data-rows="blk">${sgmBlock("selection")}</div>
+    <div class="rb-acts" style="margin-top:8px"><button type="button" class="ghost" data-rb-add="sel">+ Selection</button><button type="button" class="ghost" data-rb-add="filter">+ Filter</button></div>
+    <div class="rb-grid">
+      ${rbF({ k: "condition", label: "condition", req: 1, full: 1, help: "e.g. <code>selection and not filter</code>, <code>1 of selection*</code>. Kept in step with the identifiers until you edit it." })}
+      ${rbF({ k: "falsepositives", label: "falsepositives (one per line)", t: "area", rows: 2, full: 1 })}
+      ${rbF({ k: "details", label: "details (Hayabusa)", full: 1, ph: "Cmdline: %CommandLine% ¦ Proc: %Image%", help: "Optional alert summary line with %Field% placeholders." })}</div>`,
+    init: (root) => {
+      root.addEventListener("click", (ev) => {
+        if (ev.target.closest("[data-rb-uuid]")) { K(root, "id").value = rbUuid(); return; }
+        const add = ev.target.closest("[data-rb-add]"); if (!add) return;
+        const w = add.dataset.rbAdd;
+        if (w === "fld") { add.closest('[data-row="blk"]').querySelector('[data-rows="fld"]').insertAdjacentHTML("beforeend", sgmField()); return; }
+        const base = w === "filter" ? "filter" : "selection", have = new Set(ruleRows(root, "blk").map(b => eV(K(b, "bname"))));
+        let name = base, n = 1; while (have.has(name)) name = base + "_" + (++n);
+        root.querySelector('[data-rows="blk"]').insertAdjacentHTML("beforeend", sgmBlock(name));
+        sgmAutoCond(root);
+      });
+      root.addEventListener("input", (ev) => { if (ev.target.dataset.k === "bname") sgmAutoCond(root); });
+      sgmAutoCond(root);
+    },
+    afterDel: (root) => sgmAutoCond(root),
+    sync: (root) => rbAuto(K(root, "author"), rbAnalyst()),
+    doc: (root) => {
+      const out = [];
+      const title = strF(root, "title", "title", { req: 1 });
+      const id = strF(root, "id", "id", { req: 1, re: /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/, reMsg: "must be a UUID (use New UUID)" });
+      const cond = strF(root, "condition", "condition", { req: 1 });
+      const blocks = ruleRows(root, "blk");
+      need(blocks.length, "detection needs at least one search identifier");
+      const names = [];
+      const det = [];
+      blocks.forEach((b, bi) => {
+        const ne = K(b, "bname"), name = eV(ne);
+        if (!need(/^[A-Za-z_][A-Za-z0-9_]*$/.test(name), `Search identifier ${bi + 1}: use letters, digits and _`, ne)) return;
+        need(!names.includes(name), `Search identifier "${name}" is used twice`, ne);
+        names.push(name);
+        const map = new Map();
+        ruleRows(b, "fld").forEach((f, fi) => {
+          const fe = K(f, "field"), field = eV(fe), vals = eLines(K(f, "vals"));
+          if (!field && !vals.length) return;
+          if (!need(/^[A-Za-z0-9_.\-]+$/.test(field), `${name}, row ${fi + 1}: field name is required (letters, digits, _ . -)`, fe)) return;
+          need(vals.length, `${name}, row ${fi + 1}: write at least one value`, K(f, "vals"));
+          const key = field + (eV(K(f, "mod")) ? "|" + eV(K(f, "mod")) : "");
+          map.set(key, (map.get(key) || []).concat(vals));
+        });
+        need(map.size, `${name}: add at least one field row`, ne);
+        det.push(`  ${name}:`);
+        const fv = (v) => v === "null" ? "null" : /^-?\d+$/.test(v) ? v : yq(v);
+        map.forEach((vals, key) => { if (vals.length === 1) det.push(`    ${key}: ${fv(vals[0])}`); else { det.push(`    ${key}:`); vals.forEach(v => det.push(`      - ${fv(v)}`)); } });
+      });
+      (cond.match(/[A-Za-z_][A-Za-z0-9_*]*/g) || []).filter(t => !SIGMA_KW.has(t.toLowerCase())).forEach(t => {
+        const re = new RegExp("^" + t.replace(/\*/g, ".*") + "$");
+        need(t.includes("*") ? names.some(n => re.test(n)) : names.includes(t), `condition: "${t}" is not a search identifier`, K(root, "condition"));
+      });
+      const ls = ["product", "service", "category"].map(k => [k, eV(K(root, k))]).filter(x => x[1]);
+      need(ls.length, "logsource needs a product, service or category", K(root, "product"));
+      out.push(`title: ${yq(title)}`, `id: ${id.toLowerCase()}`, `status: ${yE(eV(K(root, "status")))}`);
+      const desc = eV(K(root, "description")); if (desc) out.push(`description: ${yq(desc)}`);
+      yList(out, 0, "references", eLines(K(root, "references")));
+      const author = strF(root, "author", "author", { req: 1 }); if (author) out.push(`author: ${yq(author)}`);
+      const date = strF(root, "date", "date", { req: 1 }); if (date) out.push(`date: ${/^\d{4}-\d{2}-\d{2}$/.test(date) ? date : yq(date)}`);
+      yList(out, 0, "tags", eCsv(K(root, "tags")), yE);
+      out.push("logsource:"); ls.forEach(([k, v]) => out.push(`  ${k}: ${yE(v)}`));
+      out.push("detection:", ...det, `  condition: ${/[:#]|^[\[\]{}&*!|>'"%@`]/.test(cond) ? yq(cond) : cond}`);
+      yList(out, 0, "falsepositives", eLines(K(root, "falsepositives")));
+      out.push(`level: ${yE(eV(K(root, "level")))}`);
+      const details = eV(K(root, "details")); if (details) out.push(`details: ${yq(details)}`);
+      return out.join("\n") + "\n";
+    },
+  };
+
+  const fwIp = (side) => `${rbF({ k: side + ".addresses", label: "addresses", t: "area", rows: 2, help: "One IP per line." })}${rbF({ k: side + ".cidr_ranges", label: "cidr_ranges", t: "area", rows: 2, help: "One CIDR per line, e.g. 10.0.0.0/8." })}`;
+  const fwPort = (side) => `${rbF({ k: side + ".ports", label: "ports", ph: "4444, 8888", help: "Comma-separated." })}${rbF({ k: side + ".ranges", label: "ranges", ph: "1000-2000, 6660-6669", help: "Comma-separated low-high." })}${rbF({ k: side + ".excluded_ports", label: "excluded_ports", ph: "80, 443", help: "Never match these." })}`;
+  RB.firewall = {
+    multi: true, idKey: "name",
+    intro: "HydraDragon Firewall rules. Only the sections you fill are written; <code>condition_logic</code> says whether they must all hold (and) or one is enough (or).",
+    render: () => `<div class="rb-grid">
+      ${rbF({ k: "name", label: "name", req: 1, ph: "block_example_c2", help: "Unique rule name." })}
+      ${rbF({ k: "severity", label: "severity", t: "sel", opts: [["", "(not set)"], ...rbEnum("firewall", "severity", "severities")], v: "high" })}
+      ${rbF({ k: "protocol", label: "protocol", t: "sel", opts: rbEnum("firewall", "protocol", "protocols"), v: "tcp" })}
+      ${rbF({ k: "action", label: "action", t: "sel", opts: rbEnum("firewall", "action", "actions"), v: "block" })}
+      ${rbF({ k: "condition_logic", label: "condition_logic", t: "sel", opts: rbEnum("firewall", "condition_logic"), v: "and" })}
+      ${rbF({ k: "encoding", label: "encoding", t: "sel", opts: rbEnum("firewall", "encoding", "encodings"), v: "plain", help: "How the payload is decoded before content matching." })}
+      ${rbF({ k: "localhost_type", label: "localhost_type", t: "sel", opts: [["", "(not set)"], ...rbEnum("firewall", "localhost_type", "localhost_types")] })}
+      ${rbF({ k: "enabled", label: "enabled", t: "chk", v: true })}
+      ${rbF({ k: "replacement", label: "Replacement data", t: "area", rows: 2, full: 1, show: "chg", help: "Written as change_data / change_request_body / change_response_body for the change_* actions." })}
+      ${rbF({ k: "description", label: "description", t: "area", rows: 2, full: 1 })}</div>
+    ${rbFs("src_ip", fwIp("src_ip"))}${rbFs("dst_ip", fwIp("dst_ip"))}
+    ${rbFs("src_port", fwPort("src_port"))}${rbFs("dst_port", fwPort("dst_port"))}
+    ${rbFs("domain", `${rbF({ k: "domain.domains", label: "domains", t: "area", rows: 2, full: 1, help: "One per line." })}${rbF({ k: "domain.case_insensitive", label: "case_insensitive", t: "chk", v: true })}${rbF({ k: "domain.subdomains", label: "subdomains", t: "chk", v: true, help: "Also match subdomains." })}`)}
+    ${rbFs("url", rbF({ k: "url.patterns", label: "patterns", t: "area", rows: 2, full: 1, help: "One per line." }))}
+    ${rbFs("content", `${rbF({ k: "content.literal", label: "literal", full: 1, help: "Payload substring." })}${rbF({ k: "content.case_insensitive", label: "case_insensitive", t: "chk" })}`)}
+    ${rbFs("regex", `${rbF({ k: "regex.pattern", label: "pattern", full: 1, help: "One regex (a mapping, not a list)." })}${rbF({ k: "regex.case_insensitive", label: "case_insensitive", t: "chk" })}`)}
+    ${rbFs("json_match", `${rbF({ k: "json_match.key", label: "key" })}${rbF({ k: "json_match.value", label: "value" })}`)}`,
+    init: (root) => {
+      const upd = () => { root.querySelector('[data-show="chg"]').hidden = !/^change_(packet|request_body|response_body)$/.test(eV(K(root, "action"))); };
+      K(root, "action").addEventListener("change", upd); upd();
+    },
+    next: (root) => { K(root, "name").value = ""; },
+    filled: (root) => !!eV(K(root, "name")),
+    rule: (root) => {
+      const I = sp(4), J = sp(6), o = [], sec = [];
+      const name = strF(root, "name", "name", { req: 1 });
+      const ipSec = (side) => {
+        const a = K(root, side + ".addresses"), c = K(root, side + ".cidr_ranges"), addrs = eLines(a), cidrs = eLines(c);
+        addrs.forEach(x => need(/^[0-9a-fA-F:.]+$/.test(x), `${side}: "${x}" is not an IP address`, a));
+        cidrs.forEach(x => need(/^[0-9a-fA-F:.]+\/\d{1,3}$/.test(x), `${side}: "${x}" is not a CIDR range`, c));
+        if (!addrs.length && !cidrs.length) return;
+        sec.push(`${I}${side}:`); if (addrs.length) sec.push(`${J}addresses: ${yflow(addrs)}`); if (cidrs.length) sec.push(`${J}cidr_ranges: ${yflow(cidrs)}`);
+      };
+      const portSec = (side) => {
+        const ports = portsF(root, side + ".ports", side + " ports"), ex = portsF(root, side + ".excluded_ports", side + " excluded_ports");
+        const re = K(root, side + ".ranges"), ranges = [];
+        eCsv(re).forEach(r => { const m = r.match(/^(\d+)\s*-\s*(\d+)$/); if (need(m && +m[1] <= +m[2] && +m[2] <= 65535, `${side} ranges: "${r}" is not low-high`, re)) ranges.push(`[${+m[1]}, ${+m[2]}]`); });
+        if (!ports.length && !ranges.length && !ex.length) return;
+        sec.push(`${I}${side}:`);
+        if (ports.length) sec.push(`${J}ports: ${yflow(ports, yv)}`);
+        if (ranges.length) sec.push(`${J}ranges: [${ranges.join(", ")}]`);
+        if (ex.length) sec.push(`${J}excluded_ports: ${yflow(ex, yv)}`);
+      };
+      ipSec("src_ip"); ipSec("dst_ip"); portSec("src_port"); portSec("dst_port");
+      const doms = eLines(K(root, "domain.domains"));
+      if (doms.length) sec.push(`${I}domain:`, `${J}domains: ${yflow(doms)}`, `${J}case_insensitive: ${eB(K(root, "domain.case_insensitive"))}`, `${J}subdomains: ${eB(K(root, "domain.subdomains"))}`);
+      const urls = eLines(K(root, "url.patterns")); if (urls.length) sec.push(`${I}url:`, `${J}patterns: ${yflow(urls)}`);
+      const lit = eV(K(root, "content.literal")); if (lit) sec.push(`${I}content:`, `${J}literal: ${yq(lit)}`, `${J}case_insensitive: ${eB(K(root, "content.case_insensitive"))}`);
+      const rx = eV(K(root, "regex.pattern")); if (rx) sec.push(`${I}regex:`, `${J}pattern: ${yq(rx)}`, `${J}case_insensitive: ${eB(K(root, "regex.case_insensitive"))}`);
+      const lh = eV(K(root, "localhost_type")); if (lh) sec.push(`${I}localhost_type: ${yE(lh)}`);
+      const jk = eV(K(root, "json_match.key")), jv = eV(K(root, "json_match.value"));
+      if (jk || jv) { need(jk && jv, "json_match needs both key and value", K(root, "json_match.key")); sec.push(`${I}json_match:`, `${J}key: ${yq(jk)}`, `${J}value: ${yq(jv)}`); }
+      const proto = eV(K(root, "protocol")), action = eV(K(root, "action"));
+      need(sec.length || proto !== "any", "Fill at least one section (or pick a protocol): this rule would match all traffic");
+      o.push(`  - name: ${yq(name)}`);
+      const desc = eV(K(root, "description")); if (desc) o.push(`${I}description: ${yq(desc)}`);
+      const sev = eV(K(root, "severity")); if (sev) o.push(`${I}severity: ${yE(sev)}`);
+      o.push(`${I}enabled: ${eB(K(root, "enabled"))}`, `${I}protocol: ${yE(proto)}`, `${I}action: ${yE(action)}`, `${I}condition_logic: ${yE(eV(K(root, "condition_logic")))}`);
+      const enc = eV(K(root, "encoding")); if (enc && enc !== "plain") o.push(`${I}encoding: ${yE(enc)}`);
+      const chg = { change_packet: "change_data", change_request_body: "change_request_body", change_response_body: "change_response_body" }[action];
+      if (chg) { const rep = eV(K(root, "replacement")); need(rep, `${action} needs the replacement data`, K(root, "replacement")); o.push(`${I}${chg}: ${yq(rep)}`); }
+      o.push(...sec);
+      return { id: name, label: `${name} (${action})`, lines: o };
+    },
+    doc: (root, items) => `rules:\n${items.map(it => it.lines.join("\n")).join("\n\n")}\n`,
+  };
+
+  const YARA_MODS = ["nocase", "wide", "ascii", "fullword", "xor", "base64"];
+  const MZ = "uint16(0) == 0x5A4D and ";
+  const yaraStr = (n) => `<div class="rb-row" data-row="ystr"><div class="rb-row-h">
+      ${rbF({ k: "sid", label: "id", v: "$s" + n })}
+      ${rbF({ k: "skind", label: "kind", t: "sel", opts: [["text", "text"], ["hex", "hex"], ["regex", "regex"]] })}${rbDel("string")}</div>
+    <div class="rb-grid">${rbF({ k: "sval", label: "value", full: 1, help: "text: plain characters; hex: <code>4D 5A ?? [2-4] (90 | 91)</code>; regex: the body without the slashes." })}
+      ${rbChecks("smods", "modifiers", YARA_MODS, ["ascii", "wide"])}</div></div>`;
+  const yaraName = () => nbCurrent ? nbCurrent.replace(/[^A-Za-z0-9_]/g, "_").replace(/^(\d)/, "_$1") : "";
+  RB.yara = {
+    intro: "Rule name and <code>threat_name</code> come from the name builder.",
+    render: () => `<div class="addr"><span data-k="nameview">—</span></div>
+    ${rbFs("meta", `
+      ${rbF({ k: "author", label: "author", v: rbAnalyst() })}
+      ${rbF({ k: "date", label: "date", t: "date", v: rbToday() })}
+      ${rbF({ k: "verdict", label: "verdict", t: "sel", opts: [["", "(not set)"], "malware", "pua", "suspicious"] })}
+      ${rbF({ k: "family", label: "family", help: "Defaults to the threat name." })}
+      ${rbF({ k: "reference", label: "reference" })}
+      ${rbF({ k: "hash", label: "hash", help: "Sample MD5 / SHA-1 / SHA-256." })}
+      ${rbF({ k: "description", label: "description", full: 1 })}`)}
+    <span class="rb-gl">strings</span>
+    <div class="rb-rows" data-rows="ystr">${yaraStr(1)}</div>
+    <button type="button" class="ghost" data-rb-add="ystr" style="margin-top:8px">+ String</button>
+    <div class="rb-grid">
+      ${rbF({ k: "mz", label: "PE files only (uint16(0) == 0x5A4D)", t: "chk", v: true, full: 1 })}
+      ${rbF({ k: "condition", label: "condition", t: "area", rows: 2, req: 1, full: 1, v: MZ + "any of them", help: "e.g. <code>2 of ($s*)</code>, <code>all of them</code>, <code>filesize &lt; 500KB</code>." })}</div>`,
+    init: (root) => {
+      const modVis = (row) => { const k = eV(K(row, "skind")); row.querySelectorAll('[data-k="smods"] label').forEach(l => { const m = l.querySelector("input").value; l.hidden = k === "hex" || (k === "regex" && (m === "xor" || m === "base64")); }); };
+      root.addEventListener("click", (ev) => { if (ev.target.closest('[data-rb-add="ystr"]')) { root.querySelector('[data-rows="ystr"]').insertAdjacentHTML("beforeend", yaraStr(ruleRows(root, "ystr").length + 1)); } });
+      root.addEventListener("change", (ev) => {
+        const t = ev.target;
+        if (t.dataset.k === "skind") modVis(t.closest('[data-row="ystr"]'));
+        if (t.dataset.k === "mz") { const c = K(root, "condition"); c.value = t.checked ? (c.value.startsWith(MZ) ? c.value : MZ + c.value) : c.value.replace(MZ, ""); }
+      });
+    },
+    sync: (root) => { K(root, "nameview").textContent = yaraName() ? `rule ${yaraName()}  (threat_name ${nbCurrent})` : "Build a threat name above first."; rbAuto(K(root, "author"), rbAnalyst()); },
+    doc: (root) => {
+      const name = yaraName();
+      need(name, "Build a valid threat name first (it becomes the rule name)", $("nbFam"));
+      const cond = strF(root, "condition", "condition", { req: 1 });
+      const hash = eV(K(root, "hash"));
+      if (hash) need(/^([0-9a-fA-F]{32}|[0-9a-fA-F]{40}|[0-9a-fA-F]{64})$/.test(hash), "hash must be an MD5, SHA-1 or SHA-256", K(root, "hash"));
+      const meta = [["threat_name", nbCurrent], ["author", eV(K(root, "author"))], ["date", eV(K(root, "date"))], ["description", eV(K(root, "description"))],
+        ["reference", eV(K(root, "reference"))], ["hash", hash.toLowerCase()], ["verdict", eV(K(root, "verdict"))], ["family", eV(K(root, "family")) || nbCurrent]].filter(m => m[1]);
+      const strs = [], ids = new Set();
+      ruleRows(root, "ystr").forEach((r, i) => {
+        const ie = K(r, "sid"), id = eV(ie), kind = eV(K(r, "skind")), ve = K(r, "sval"), raw = K(r, "sval").value;
+        if (!raw.trim() && (id === "$s" + (i + 1) || !id)) return; // untouched empty row
+        if (!need(/^\$[A-Za-z0-9_]*$/.test(id), `String ${i + 1}: id must look like $name`, ie)) return;
+        need(id === "$" || !ids.has(id), `String ${id} is defined twice`, ie); ids.add(id);
+        need(raw.trim(), `String ${id}: value is required`, ve);
+        let mods = eChecks(K(r, "smods"));
+        if (kind === "hex") {
+          const h = raw.trim().replace(/^\{|\}$/g, "").trim();
+          need(/^[0-9a-fA-F?\s\[\]\-()|~]+$/.test(h), `String ${id}: hex may only hold hex digits, ??, [n-m], ( | ) and ~`, ve);
+          strs.push(`        ${id} = { ${h.replace(/\s+/g, " ")} }`);
+          return;
+        }
+        if (kind === "regex") {
+          mods = mods.filter(m => m !== "xor" && m !== "base64");
+          const m = raw.trim().match(/^\/(.*)\/([is]*)$/), flags = m ? m[2] : "";
+          const body = (m ? m[1] : raw.trim()).replace(/\\\//g, "/").replace(/\//g, "\\/");
+          strs.push(`        ${id} = /${body}/${flags}${mods.length ? " " + mods.join(" ") : ""}`);
+          return;
+        }
+        if (mods.includes("base64")) need(!mods.some(m => m === "nocase" || m === "xor" || m === "fullword"), `String ${id}: base64 cannot be combined with nocase, xor or fullword`, ve);
+        if (mods.includes("xor")) need(!mods.includes("nocase"), `String ${id}: xor cannot be combined with nocase`, ve);
+        strs.push(`        ${id} = ${yq(raw)}${mods.length ? " " + mods.join(" ") : ""}`);
+      });
+      if (!strs.length) need(!/\bthem\b|\$/.test(cond), "The condition refers to strings, but there are none");
+      const out = [`rule ${name}`, "{", "    meta:", ...meta.map(([k, v]) => `        ${k} = ${yq(v)}`)];
+      if (strs.length) out.push("", "    strings:", ...strs);
+      out.push("", "    condition:", ...cond.split(/\r?\n/).map(l => "        " + l.trim()).filter(l => l.trim()), "}");
+      return out.join("\n") + "\n";
+    },
+  };
+
+  RB.clamav_ndb = {
+    intro: "One body signature line: <code>Name:TargetType:Offset:HexSig</code>. The name is the threat name from the name builder.",
+    render: () => `<div class="addr"><span data-k="nameview">—</span></div><div class="rb-grid">
+      ${rbF({ k: "target", label: "TargetType", t: "sel", opts: CLAM_TARGETS, v: "1" })}
+      ${rbF({ k: "offset", label: "Offset", v: "*", req: 1, help: "<code>*</code> anywhere, <code>n</code> absolute, <code>EP+n</code> / <code>EP-n</code> entry point, <code>EOF-n</code>, <code>Sx+n</code> section x, <code>SL+n</code> last section, <code>SEx</code> whole section; <code>,max</code> adds a shift window." })}
+      ${rbF({ k: "hex", label: "HexSig", t: "area", rows: 3, req: 1, full: 1, help: "Hex bytes; <code>??</code> any byte, <code>a?</code> / <code>?a</code> nibbles, <code>*</code> any run, <code>{n-m}</code> / <code>{-n}</code> / <code>{n-}</code> jumps, <code>(aa|bb)</code> alternatives, <code>!(aa|bb)</code> negation, <code>[n-m]</code>." })}</div>`,
+    sync: (root) => { K(root, "nameview").textContent = nbCurrent || "Build a threat name above first."; },
+    doc: (root) => {
+      need(nbCurrent, "Build a valid threat name first", $("nbFam"));
+      const off = strF(root, "offset", "Offset", { req: 1, re: /^(\*|\d+|EP[+-]\d+|EOF-\d+|S\d+\+\d+|SL\+\d+|SE\d+)(,\d+)?$/i, reMsg: "not a ClamAV offset (*, n, EP+n, EOF-n, Sx+n, SL+n, SEx)" });
+      const he = K(root, "hex"), hex = eV(he).replace(/\s+/g, "");
+      need(hex, "HexSig is required", he);
+      if (hex) need(/^[0-9a-fA-F?*{}\-\[\]()|!BL]+$/.test(hex) && /[0-9a-fA-F]{2}/.test(hex), "HexSig: hex digits and ClamAV wildcards only (no ':' or ';')", he);
+      return `${nbCurrent}:${eV(K(root, "target"))}:${off.toUpperCase()}:${hex}\n`;
+    },
+  };
+
+  const ldbSub = () => `<div class="rb-row" data-row="sub"><div class="rb-row-h">${rbF({ k: "sub", label: "Subsignature", ph: "52656d636f73::i", help: "Hex body, optional <code>offset:</code> prefix (e.g. <code>EP+0:</code>) and <code>::i</code> nocase / <code>::w</code> wide / <code>::a</code> ascii / <code>::f</code> fullword." })}${rbDel("subsignature")}</div></div>`;
+  RB.clamav_ldb = {
+    intro: "One logical signature: <code>Name;TargetDescription;Logic;Subsig0;Subsig1...</code>. Subsignatures are numbered 0, 1, 2... in the order below.",
+    render: () => `<div class="addr"><span data-k="nameview">—</span></div><div class="rb-grid">
+      ${rbF({ k: "engine", label: "Engine", v: "51-255", help: "min-max functionality level; written first." })}
+      ${rbF({ k: "target", label: "Target", t: "sel", opts: CLAM_TARGETS, v: "1" })}
+      ${rbF({ k: "filesize", label: "FileSize", ph: "1000-500000", help: "min-max bytes (optional)." })}
+      ${rbF({ k: "other", label: "Other TargetDescription pairs", full: 1, ph: "NumberOfSections:3-5, EntryPoint:4096-8192", help: "Comma-separated <code>Key:value</code>: EntryPoint, NumberOfSections, Container, Intermediates, IconGroup1, IconGroup2, HandlerType." })}
+      ${rbF({ k: "logic", label: "Logic", full: 1, ph: "0&1", help: "e.g. <code>0&amp;1</code>, <code>(0|1)&amp;2</code>, <code>0&gt;2</code>, <code>(0|1)=1</code>. Empty: all subsignatures (0&amp;1&amp;...)." })}</div>
+    <span class="rb-gl">Subsignatures</span>
+    <div class="rb-rows" data-rows="sub">${ldbSub()}${ldbSub()}</div>
+    <button type="button" class="ghost" data-rb-add="sub" style="margin-top:8px">+ Subsignature</button>`,
+    init: (root) => root.addEventListener("click", (ev) => { if (ev.target.closest('[data-rb-add="sub"]')) root.querySelector('[data-rows="sub"]').insertAdjacentHTML("beforeend", ldbSub()); }),
+    sync: (root) => { K(root, "nameview").textContent = nbCurrent || "Build a threat name above first."; },
+    doc: (root) => {
+      need(nbCurrent, "Build a valid threat name first", $("nbFam"));
+      const eng = strF(root, "engine", "Engine", { re: /^\d+(-\d+)?$/, reMsg: "min-max" });
+      const fs = strF(root, "filesize", "FileSize", { re: /^\d+(-\d+)?$/, reMsg: "min-max" });
+      const oe = K(root, "other"), other = eCsv(oe);
+      other.forEach(x => need(/^[A-Za-z0-9]+:[^,;]+$/.test(x), `TargetDescription pair "${x}" must be Key:value`, oe));
+      const subs = [];
+      ruleRows(root, "sub").forEach((r, i) => { const e = K(r, "sub"), v = eV(e); if (!v) return; if (need(!/;/.test(v), `Subsignature ${subs.length}: ';' is not allowed`, e)) subs.push(v.replace(/\s+/g, "")); });
+      need(subs.length, "Write at least one subsignature", root.querySelector('[data-k="sub"]'));
+      need(subs.length <= 64, "At most 64 subsignatures");
+      const le = K(root, "logic"); let logic = eV(le).replace(/\s+/g, "");
+      if (!logic) logic = subs.map((_, i) => i).join("&");
+      if (subs.length && need(/^[0-9&|()=<>,]+$/.test(logic), "Logic: digits, & | ( ) = < > and , only", le))
+        (logic.replace(/[=<>]\d+(,\d+)?/g, "").match(/\d+/g) || []).forEach(n => need(+n < subs.length, `Logic refers to subsignature ${n}, but there are ${subs.length}`, le));
+      const td = [eng && `Engine:${eng}`, `Target:${eV(K(root, "target"))}`, fs && `FileSize:${fs}`, ...other].filter(Boolean).join(",");
+      return `${nbCurrent};${td};${logic};${subs.join(";")}\n`;
+    },
+  };
+
+  // ---- Builder controller ----
+  const rbForms = {}, rbQueue = {};
+  const rbRoot = (kind) => {
+    let r = rbForms[kind];
+    if (!r) {
+      r = document.createElement("div"); r.dataset.kind = kind;
+      r.innerHTML = RB[kind].render();
+      $("rbForm").appendChild(r); rbForms[kind] = r;
+      if (RB[kind].init) RB[kind].init(r);
+    }
+    return r;
+  };
+  function rbSync() {
+    const kind = $("sigKind").value, def = RB[kind], r = rbForms[kind];
+    if (def && r && def.sync) def.sync(r);
+  }
+  const rbQueueRender = () => {
+    const kind = $("sigKind").value, q = rbQueue[kind] || [], box = $("rbQueue");
+    box.hidden = !q.length;
+    box.innerHTML = q.length ? `<span class="rb-gl">Rules in the list (${q.length}): Generate writes them all, plus the form when it is filled</span>` +
+      q.map((it, i) => `<div class="rb-q"><span>${haEsc(it.label)}</span><button type="button" class="ghost" data-rbq-del="${i}" aria-label="Remove ${haEsc(it.id)} from the list">Remove</button></div>`).join("") : "";
+  };
+  async function rbShow() {
+    await rbSchemaReady;
+    const kind = $("sigKind").value, def = RB[kind];
+    for (const k in rbForms) rbForms[k].hidden = k !== kind;
+    $("rbKindName").textContent = KIND_LABEL[kind] || kind;
+    $("rbIntro").innerHTML = def ? def.intro || "" : "No builder for this format: write the source below.";
+    $("rbAddRule").hidden = !(def && def.multi);
+    $("rbGenerate").disabled = !def;
+    if (def) { const r = rbRoot(kind); r.hidden = false; rbSync(); }
+    rbQueueRender();
+  }
+  $("rbForm").addEventListener("click", (ev) => {
+    const b = ev.target.closest("[data-rb-del]"); if (!b) return;
+    const root = b.closest("[data-kind]"), row = b.closest(".rb-row");
+    if (row) row.remove();
+    const def = root && RB[root.dataset.kind];
+    if (def && def.afterDel) def.afterDel(root);
+  });
+  $("rbQueue").addEventListener("click", (ev) => {
+    const b = ev.target.closest("[data-rbq-del]"); if (!b) return;
+    const q = rbQueue[$("sigKind").value] || [];
+    q.splice(+b.dataset.rbqDel, 1); rbQueueRender(); rbSync();
+  });
+  $("rbAddRule").onclick = () => {
+    const kind = $("sigKind").value, def = RB[kind], root = rbForms[kind];
+    if (!def || !def.multi || !root) return;
+    rbBegin();
+    const it = def.rule(root), q = rbQueue[kind] || (rbQueue[kind] = []);
+    if (it) need(!q.some(x => x.id === it.id), `${def.idKey} "${it.id}" is already in the list`, K(root, def.idKey));
+    if (rbFail() || !it) return;
+    q.push(it);
+    if (def.next) def.next(root);
+    rbSync(); rbQueueRender();
+    rbOk(`Added ${it.id} to the list (${q.length}). Fill the form for the next rule, or Generate.`);
+  };
+  $("rbGenerate").onclick = () => {
+    const kind = $("sigKind").value, def = RB[kind], root = rbForms[kind];
+    if (!def || !root) return;
+    rbBegin();
+    let text = null;
+    if (def.multi) {
+      const items = (rbQueue[kind] || []).slice();
+      if (def.filled(root) || (!items.length && !def.allowEmpty)) {
+        const it = def.rule(root);
+        if (it) { need(!items.some(x => x.id === it.id), `${def.idKey} "${it.id}" is already in the list`, K(root, def.idKey)); items.push(it); }
+      }
+      if (!rbErrs.length) text = def.doc(root, items);
+    } else text = def.doc(root);
+    if (rbFail() || text == null) return;
+    const cur = $("sigSource").value;
+    if (cur.trim() && cur !== rbLastGen && !confirm("Replace the text in the source editor with the generated rule?")) return;
+    $("sigSource").value = text; rbLastGen = text;
+    if (!$("sigEditing").textContent) $("sigEditing").textContent = "— new " + (sigTargetName().name || "");
+    rbOk("Generated into the source editor. Review it, then Compile & save.");
+  };
+  $("rbReset").onclick = () => {
+    const kind = $("sigKind").value, r = rbForms[kind];
+    if (!r || !confirm("Clear this builder form" + (RB[kind].multi ? " and its rule list" : "") + "?")) return;
+    r.remove(); delete rbForms[kind]; rbQueue[kind] = [];
+    rbShow();
+  };
+  $("sigFileName").addEventListener("input", rbSync);
+  sigKindChanged();
   sigLoad();
 
   // Analyst imphash signatures.
@@ -3550,11 +4542,18 @@ window.sigKey = (list) => list && list.length ? `${list[0].layer}: ${list[0].nam
           const list = act.slice(3);
           const d = await api("/api/companies/lookup-signer?sha256=" + sha);
           if (!d.found) { toast(d.note || "No Authenticode signer known for this file."); return; }
-          const reason = await window.askDlg({ title: `Add signer to the ${list}-list`, sha: sha, html: `<div><b>Signer:</b> ${window.askEsc(d.signer)}</div>`, label: "Reason", required: true, ok: list === "block" ? "Block-list signer" : "Allow-list signer", danger: list === "block" });
+          const block = list === "block";
+          // Title and (block-list only) detection name go with the signer; the dialog body stays in the DOM until the next question.
+          const extra = `<label class="ask-l" for="sgAddTitle">Title (optional)</label><input id="sgAddTitle" type="text" maxlength="200" autocomplete="off" placeholder="Display title, e.g. the company's name">` +
+            (block ? `<label class="ask-l" for="sgAddFamily">Detection name (optional)</label><input id="sgAddFamily" type="text" maxlength="120" autocomplete="off" spellcheck="false" placeholder="PUA.Win32.VendorName" aria-describedby="sgAddFamilyHint">` +
+              `<div class="hint" id="sgAddFamilyHint" style="margin-top:4px">Threat name reported for files signed by this signer (block-list only).</div>` : "");
+          const reason = await window.askDlg({ title: `Add signer to the ${list}-list`, sha: sha, html: `<div><b>Signer:</b> ${window.askEsc(d.signer)}</div>` + extra, label: "Reason", required: true, ok: block ? "Block-list signer" : "Allow-list signer", danger: block });
           if (reason === null) return;
+          const fieldVal = (id) => { const e = document.getElementById(id); return e ? e.value.trim() : ""; };
+          const title = fieldVal("sgAddTitle"), family = block ? fieldVal("sgAddFamily") : "";
           let analyst = "";
           try { analyst = localStorage.getItem("multron_analyst") || ""; } catch (_) {}
-          const r = await api("/api/companies/add", { name: d.signer, list, reason, sha256: sha, sample_name: name || d.sample_name || "", analyst });
+          const r = await api("/api/companies/add", { name: d.signer, list, reason, sha256: sha, sample_name: name || d.sample_name || "", analyst, title, family });
           toast(r.note || "Signer added");
           if (typeof window.coLoad === "function") window.coLoad();
         }
