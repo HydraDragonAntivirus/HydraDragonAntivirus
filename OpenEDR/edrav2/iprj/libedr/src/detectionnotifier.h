@@ -85,6 +85,7 @@ public:
 	{
 		std::string sSha1;         // file SHA-1 (the FLS key)
 		std::string sFls;          // Comodo FLS: Absent / Safe / Malicious / Unknown / Fail
+		int nFlsVerdict = -1;      // Comodo FLS verdict code as answered (-1: not asked / failed)
 		std::string sViruskov;     // VirusKov: Clean / Malicious / Suspicious / Unknown / Error
 		std::string sViruskovName; // VirusKov detection name, when it detected
 		bool fFromCache = false;   // answered from the size + last-write cache

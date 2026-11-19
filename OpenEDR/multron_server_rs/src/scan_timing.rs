@@ -16,6 +16,11 @@ const RECENT: usize = 50;
 const SLOWEST: usize = 20;
 /// Stages listed per scan (the rest are summed into "other stages").
 const STAGES_PER_SCAN: usize = 8;
+/// Files kept per stage: the ones that stage took longest on, from every scan (a
+/// stage can be slow on a file whose whole scan stays under `SLOW`).
+const SLOWEST_PER_STAGE: usize = 15;
+/// A stage call shorter than this is not a candidate for its slowest files.
+const STAGE_FLOOR: Duration = Duration::from_millis(20);
 
 #[derive(Clone)]
 struct SlowScan {
@@ -57,6 +62,20 @@ impl Objects {
     }
 }
 
+/// One file a stage was slow on.
+#[derive(Clone)]
+struct StageHit {
+    at: chrono::DateTime<chrono::Utc>,
+    file: String,
+    sha256: String,
+    size: usize,
+    /// The stage's own time in this scan (all its calls).
+    stage_ns: u64,
+    calls: u64,
+    total: Duration,
+    verdict: String,
+}
+
 struct State {
     scans: u64,
     slow: u64,
@@ -64,9 +83,45 @@ struct State {
     recent: VecDeque<SlowScan>,
     /// Slowest first.
     slowest: Vec<SlowScan>,
+    /// Per stage, the files it took longest on, slowest first.
+    by_stage: Vec<(&'static str, Vec<StageHit>)>,
 }
 
-static STATE: Mutex<State> = Mutex::new(State { scans: 0, slow: 0, total_ns: 0, recent: VecDeque::new(), slowest: Vec::new() });
+static STATE: Mutex<State> =
+    Mutex::new(State { scans: 0, slow: 0, total_ns: 0, recent: VecDeque::new(), slowest: Vec::new(), by_stage: Vec::new() });
+
+/// Keeps `stages` of this scan among the slowest files of each stage.
+fn note_stage_hits(s: &mut State, file: &str, sha: &str, size: usize, total: Duration, verdict: Option<&str>, stages: &[StageTime]) {
+    let floor = STAGE_FLOOR.as_nanos() as u64;
+    for t in stages.iter().filter(|t| t.self_ns >= floor) {
+        let i = match s.by_stage.iter().position(|(n, _)| *n == t.name) {
+            Some(i) => i,
+            None => {
+                s.by_stage.push((t.name, Vec::new()));
+                s.by_stage.len() - 1
+            }
+        };
+        let hits = &mut s.by_stage[i].1;
+        if hits.len() == SLOWEST_PER_STAGE && hits.last().is_some_and(|l| l.stage_ns >= t.self_ns) {
+            continue;
+        }
+        let at = hits.partition_point(|h| h.stage_ns >= t.self_ns);
+        hits.insert(
+            at,
+            StageHit {
+                at: chrono::Utc::now(),
+                file: file.to_string(),
+                sha256: sha.to_string(),
+                size,
+                stage_ns: t.self_ns,
+                calls: t.calls,
+                total,
+                verdict: verdict.unwrap_or("error").to_string(),
+            },
+        );
+        hits.truncate(SLOWEST_PER_STAGE);
+    }
+}
 
 fn ms(ns: u128) -> f64 {
     (ns as f64 / 1_000_000.0 * 10.0).round() / 10.0
@@ -91,6 +146,7 @@ pub fn record(
     let mut s = STATE.lock().unwrap_or_else(|e| e.into_inner());
     s.scans += 1;
     s.total_ns += total.as_nanos();
+    note_stage_hits(&mut s, file, sha, size, total, verdict, &stages);
     if total < SLOW {
         return;
     }
@@ -195,7 +251,43 @@ pub fn report() -> serde_json::Value {
                 "share": if all_ns > 0 { (t.self_ns as f64 / all_ns as f64 * 1000.0).round() / 10.0 } else { 0.0 },
             })
         }).collect::<Vec<_>>(),
+        // Per stage (by its shown name), the files it took longest on.
+        "stageSlowest": s.by_stage.iter().map(|(name, hits)| (label(name).to_string(), hits.iter().map(|h| serde_json::json!({
+            "at": h.at,
+            "file": h.file,
+            "sha256": h.sha256,
+            "size": h.size,
+            "ms": ms(h.stage_ns as u128),
+            "calls": h.calls,
+            "totalMs": ms(h.total.as_nanos()),
+            "share": if h.total.as_nanos() > 0 { (h.stage_ns as f64 / h.total.as_nanos() as f64 * 1000.0).round() / 10.0 } else { 0.0 },
+            "verdict": h.verdict,
+        })).collect::<Vec<_>>().into())).collect::<serde_json::Map<String, serde_json::Value>>(),
         "recent": s.recent.iter().rev().map(scan_json).collect::<Vec<_>>(),
         "slowest": s.slowest.iter().map(scan_json).collect::<Vec<_>>(),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn stage(name: &'static str, ms: u64) -> StageTime {
+        StageTime { name, calls: 1, self_ns: ms * 1_000_000, cpu_ns: 0, max_ns: ms * 1_000_000 }
+    }
+
+    #[test]
+    fn keeps_each_stages_slowest_files_slowest_first() {
+        let mut s = State { scans: 0, slow: 0, total_ns: 0, recent: VecDeque::new(), slowest: Vec::new(), by_stage: Vec::new() };
+        let total = Duration::from_millis(500);
+        for i in 0..(SLOWEST_PER_STAGE as u64 + 5) {
+            let file = format!("f{i}.dll");
+            note_stage_hits(&mut s, &file, "sha", 10, total, Some("clean"), &[stage("scan:infector", 30 + i), stage("scan:yara", 5)]);
+        }
+        assert!(s.by_stage.iter().all(|(n, _)| *n != "scan:yara"), "below the floor");
+        let (_, hits) = s.by_stage.iter().find(|(n, _)| *n == "scan:infector").unwrap();
+        assert_eq!(hits.len(), SLOWEST_PER_STAGE);
+        assert_eq!(hits[0].file, format!("f{}.dll", SLOWEST_PER_STAGE + 4));
+        assert!(hits.windows(2).all(|w| w[0].stage_ns >= w[1].stage_ns));
+    }
 }

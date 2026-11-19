@@ -15,6 +15,7 @@
 
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
 use std::sync::RwLock;
 
 use hydradragonclamav::scanner::{Engine as ClamEngine, ScanOptions as ClamScanOptions};
@@ -98,11 +99,17 @@ pub struct AnalystEngine {
     clam: RwLock<Option<ClamEngine>>,
     sig: RwLock<Option<RuleSet>>,
     companies: RwLock<CompanyLists>,
+    /// The company lists were loaded once (the first load is not a change).
+    companies_loaded: AtomicBool,
+    /// Unix seconds of the last change to the company lists (0: none since start).
+    /// Verdicts cached before it that depend on them (XOR-filter hits, allow-listed
+    /// signers) are stale: see `ScanServer::known_opts`.
+    companies_changed_at: AtomicI64,
 }
 
 /// Analyst company (Authenticode signer) lists: `analyst_signatures/companies_allow.txt`
 /// and `companies_block.txt`, one signer name per line, matched case-insensitively.
-#[derive(Debug, Clone, Default, serde::Serialize)]
+#[derive(Debug, Clone, Default, PartialEq, serde::Serialize)]
 pub struct CompanyLists {
     pub allow: Vec<String>,
     pub block: Vec<String>,
@@ -299,7 +306,14 @@ impl AnalystEngine {
 
         let companies = CompanyLists { allow: read_list("companies_allow.txt"), block: read_list("companies_block.txt") };
         let (n_allow, n_block) = (companies.allow.len(), companies.block.len());
-        *self.companies.write().unwrap() = companies;
+        {
+            let mut cur = self.companies.write().unwrap();
+            if *cur != companies && self.companies_loaded.load(Ordering::Relaxed) {
+                self.companies_changed_at.store(crate::cache::now_secs(), Ordering::Relaxed);
+            }
+            *cur = companies;
+        }
+        self.companies_loaded.store(true, Ordering::Relaxed);
 
         let msg = format!(
             "companies {n_allow} allowed / {n_block} blocked, analyst signatures: clamav {clam_loaded} sigs from {clam_count} files ({clam_errors} errors), hydradragonsig {sig_rules} rules ({} files failed)",
@@ -307,6 +321,16 @@ impl AnalystEngine {
         );
         eprintln!("[engine] {msg}");
         msg
+    }
+
+    /// At least one company is allow-listed.
+    pub fn has_company_allow(&self) -> bool {
+        !self.companies.read().unwrap().allow.is_empty()
+    }
+
+    /// Unix seconds of the last change to the company lists (0: none since start).
+    pub fn companies_changed_at(&self) -> i64 {
+        self.companies_changed_at.load(Ordering::Relaxed)
     }
 
     pub fn company_lists(&self) -> CompanyLists {

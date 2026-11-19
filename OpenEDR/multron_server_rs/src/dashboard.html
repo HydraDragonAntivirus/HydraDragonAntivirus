@@ -559,7 +559,7 @@
 
     <section class="card" id="engineTimeCard">
       <div class="feedbar" style="margin:0 0 8px"><h2 style="margin:0">Engine time</h2><span class="hint" id="etSummary" style="margin:0">—</span><span class="spacer"></span><label class="chk"><input type="checkbox" id="etSlowest"> Slowest since start</label></div>
-      <div class="hint" style="margin-top:0">Where scan time goes, per engine stage. A stage's time is its own: stages that ran inside it (YARA on an archive member, the scan of an unpacked payload) are counted under their own name, not twice. <b>server:</b> stages are the server's own work around the engine. Refreshes every 5 s.</div>
+      <div class="hint" style="margin-top:0">Where scan time goes, per engine stage. A stage's time is its own: stages that ran inside it (YARA on an archive member, the scan of an unpacked payload) are counted under their own name, not twice. <b>server:</b> stages are the server's own work around the engine. Click a stage to list the files it was slowest on; click it again to go back. Refreshes every 5 s.</div>
       <div class="tablewrap" style="max-height:360px">
         <table><thead><tr><th>Stage</th><th class="num">Share</th><th class="num">Total</th><th class="num">CPU</th><th class="num">Wait / I/O</th><th class="num">Calls</th><th class="num">Average</th><th class="num">Longest call</th></tr></thead>
         <tbody id="etRows"><tr><td colspan="8" class="empty">Loading…</td></tr></tbody></table>
@@ -3394,6 +3394,8 @@ window.sigKey = (list) => list && list.length ? `${list[0].layer}: ${list[0].nam
 
   const msText = (v) => v >= 60000 ? dur(Math.round(v / 1000)) : v >= 1000 ? (v / 1000).toFixed(v < 10000 ? 2 : 1) + " s" : v.toFixed(v < 10 ? 1 : 0) + " ms";
   const verdictTag = (v) => `<span class="tag t-${esc(v === "error" ? "error" : v)}">${esc(v)}</span>`;
+  // Stage picked in the Engine time table (its slowest files are listed below).
+  let etStage = null;
   const loadEngineTime = async () => {
     if (document.hidden) return;
     try {
@@ -3401,8 +3403,9 @@ window.sigKey = (list) => list && list.length ? `${list[0].layer}: ${list[0].nam
       if (!r.ok) return;
       const d = await r.json();
       $q("etSummary").textContent = `${d.scans.toLocaleString()} scans · average ${msText(d.avgScanMs)} · ${d.slowScans.toLocaleString()} took ${msText(d.slowFromMs)} or longer`;
-      $q("etRows").innerHTML = d.stages.map(s => `<tr>
-          <td><b>${esc(s.name)}</b></td>
+      const picked = etStage && (d.stageSlowest || {})[etStage] ? etStage : null;
+      $q("etRows").innerHTML = d.stages.map(s => `<tr class="etStage" data-stage="${esc(s.name)}" style="cursor:pointer${s.name === picked ? ";background:var(--accent-soft, rgba(80,140,255,.14))" : ""}" title="Files this stage was slowest on">
+          <td><b>${esc(s.name)}</b>${s.name === picked ? " ▸" : ""}</td>
           <td class="num" style="min-width:120px"><div class="bar" style="margin:0 0 2px"><div style="width:${Math.min(100, s.share)}%"></div></div>${s.share.toFixed(1)} %</td>
           <td class="num">${msText(s.totalMs)}</td>
           <td class="num">${msText(s.cpuMs || 0)} (${(s.cpuPct || 0).toFixed(0)}%)</td>
@@ -3411,6 +3414,18 @@ window.sigKey = (list) => list && list.length ? `${list[0].layer}: ${list[0].nam
           <td class="num">${msText(s.avgMs)}</td>
           <td class="num">${msText(s.maxMs)}</td>
         </tr>`).join("") || `<tr><td colspan="8" class="empty">No scan yet.</td></tr>`;
+      if (picked) {
+        $q("etScansTitle").textContent = `Files ${picked} took longest on (its own time, ${msText(20)} or longer)`;
+        $q("etScans").innerHTML = d.stageSlowest[picked].map(h => `<tr data-sha="${esc(h.sha256)}" data-name="${esc(h.file)}">
+          <td>${esc(new Date(h.at).toLocaleTimeString())}</td>
+          <td class="file" title="${esc(h.file)}"><b>${esc(h.file)}</b></td>
+          <td class="num">${size(h.size)}</td>
+          <td>${verdictTag(h.verdict)}</td>
+          <td class="num">${msText(h.totalMs)}</td>
+          <td><b>${esc(picked)}</b> ${msText(h.ms)}${h.calls > 1 ? ` ×${h.calls}` : ""} (${h.share.toFixed(0)} % of the scan)</td>
+        </tr>`).join("") || `<tr><td colspan="6" class="empty">No file yet.</td></tr>`;
+        return;
+      }
       const slowest = $q("etSlowest").checked;
       $q("etScansTitle").textContent = slowest ? "Slowest scans since start" : `Recent slow scans (${msText(d.slowFromMs)} or longer)`;
       $q("etScans").innerHTML = (slowest ? d.slowest : d.recent).map(s => {
@@ -3437,6 +3452,12 @@ window.sigKey = (list) => list && list.length ? `${list[0].layer}: ${list[0].nam
   loadEngineTime();
   every(5000, loadEngineTime);
   $q("etSlowest").onchange = loadEngineTime;
+  $q("etRows").addEventListener("click", (e) => {
+    const row = e.target.closest("tr.etStage");
+    if (!row) return;
+    etStage = etStage === row.dataset.stage ? null : row.dataset.stage;
+    loadEngineTime();
+  });
 })();
 </script>
 <script>

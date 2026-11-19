@@ -42,6 +42,10 @@ type
     FCurrent: string;
     FPendingJson: string;
     FPendingFailedBatch: TStringList;
+    // Why the current batch got no verdicts (shown in its rows' Family cell).
+    FFailReason: string;
+    // PushRows found a result list in the service's answer.
+    FParsedRows: Boolean;
     procedure PushProgress;
     procedure Walk(const ADir: WideString);
     procedure Consider(const APath: WideString);
@@ -185,6 +189,9 @@ implementation
 {$R *.lfm}
 
 const
+  // getFileReputationBulk answer wait: a base plus a share per file in the batch.
+  BULK_RECV_BASE_MS = 15000;
+  BULK_RECV_PER_FILE_MS = 30000;
   VALKYRIE_URL = 'https://valkyrie.comodo.com/';
   FORUMS_URL = 'https://forums.comodo.com/';
   VIRUSKOV_URL = 'https://viruskov.com';
@@ -295,13 +302,15 @@ begin
       for i := 0 to FPendingFailedBatch.Count - 1 do
       begin
         fp := FPendingFailedBatch[i];
-        Frm.UpsertRow(fp, fp, '', 'Lookup failed', '—', '—', 4, 0);
+        Frm.UpsertRow(fp, fp, '', 'Lookup failed', '—', FFailReason, 4, 0);
         Inc(Frm.FRowsThisScan);
       end;
     finally
       Frm.ResultsView.Items.EndUpdate;
     end;
     Frm.RecountSummary;
+    Frm.StatusLbl.Caption := 'Batch ' + IntToStr(FBatchNo) + ' failed: ' +
+      FFailReason + ' (scan continues)';
   except
   end;
 end;
@@ -335,6 +344,7 @@ begin
     arr := j.FindPath('result.results');
     if (arr = nil) or (arr.JSONType <> jtArray) then
       Exit;
+    FParsedRows := True;
     try
       Frm.ResultsView.Items.BeginUpdate;
       try
@@ -384,6 +394,7 @@ begin
   if Terminated then
     Exit;
   Inc(FBatchNo);
+  FFailReason := '';
   try
     Req := '{"jsonrpc":"2.0","id":1,"method":"getFileReputationBulk","params":{"paths":[';
     for i := 0 to FBatch.Count - 1 do
@@ -393,32 +404,35 @@ begin
       Req := Req + '"' + EscapeJson(FBatch[i]) + '"';
     end;
     Req := Req + ']}}';
-    if HttpPostJson(GUI_RPC_HOST, GUI_RPC_PORT, Req, Resp) then
+    // The service scans the batch file by file (cloud lookups and a full engine
+    // scan each), so a fixed 15 s ran out on every slow batch and its files
+    // were shown as failed while the service was still working. Cancel breaks
+    // the wait at once (CancelHttpPostJson), so a long bound costs nothing.
+    if HttpPostJson(GUI_RPC_HOST, GUI_RPC_PORT, Req, Resp, HTTP_SEND_TIMEOUT_MS,
+      BULK_RECV_BASE_MS + FBatch.Count * BULK_RECV_PER_FILE_MS) then
     begin
       FPendingJson := Resp;
+      FParsedRows := False;
       try
         Synchronize(@PushRows);
       except
       end;
+      if not FParsedRows then
+        FFailReason := 'Unreadable answer from the service';
     end
     else
-    begin
-      // Lookup failed (e.g. timeout or server busy) - push status and CONTINUE scanning!
-      FPendingFailedBatch.Assign(FBatch);
-      try
-        Synchronize(@PushFailedRows);
-      except
-      end;
-    end;
+      FFailReason := HttpPostJsonLastError;
   except
     on E: Exception do
-    begin
-      // Always catch network/transport exceptions, record failed status, and keep walking
-      try
-        FPendingFailedBatch.Assign(FBatch);
-        Synchronize(@PushFailedRows);
-      except
-      end;
+      FFailReason := 'Error: ' + E.Message;
+  end;
+  if (FFailReason <> '') and not Terminated then
+  begin
+    // No verdicts for this batch: record why and keep walking.
+    try
+      FPendingFailedBatch.Assign(FBatch);
+      Synchronize(@PushFailedRows);
+    except
     end;
   end;
   FBatch.Clear;
@@ -721,7 +735,7 @@ begin
   case v of
     2: Result := 'Malicious';
     1: Result := 'Safe';
-    4: Result := 'Lookup failed';
+    4: Result := 'Cloud unavailable';
   else
     Result := 'Unknown';
   end;
@@ -923,8 +937,12 @@ begin
     Result := 'Known malicious (cloud verdict 2). Quarantine is recommended.'
   else if AVerdictText = 'Safe' then
     Result := 'Known clean (cloud verdict 1).'
+  else if AVerdictText = 'Cloud unavailable' then
+    Result := 'The cloud (FLS) could not be asked for this file (verdict 4): ' +
+      'FLS service not loaded or the lookup failed. VirusKov columns still apply.'
   else if AVerdictText = 'Lookup failed' then
-    Result := 'Local lookup error (cloud verdict 4 or transport failure).'
+    Result := 'No answer from the local service for this file; the Family ' +
+      'column says why (service not running, timeout, ...).'
   else
     Result := 'Unknown to the cloud (verdict 3) or file gone (verdict 0). ' +
       'Normal for new or rare files; upload to Valkyrie for analysis.';

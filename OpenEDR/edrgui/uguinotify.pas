@@ -78,6 +78,12 @@ type
   // batch aborts immediately instead of hanging until the recv timeout.
   procedure CancelHttpPostJson;
 
+threadvar
+  // Why the last HttpPostJson on this thread returned False ('' after a
+  // success): service not reachable, send failed, no response in time, or
+  // cancelled. For status text and failed rows.
+  HttpPostJsonLastError: string;
+
 implementation
 
 var
@@ -129,6 +135,7 @@ var
 begin
   Result := False;
   AResponse := '';
+  HttpPostJsonLastError := 'Network stack unavailable';
 
   if not EnsureWSA then
     Exit;
@@ -160,7 +167,11 @@ begin
       tv.tv_usec := 600000;
       res := select(0, nil, @fdWrite, @fdExcept, @tv);
       if (res <= 0) or FD_ISSET(s, fdExcept) or (not FD_ISSET(s, fdWrite)) then
+      begin
+        HttpPostJsonLastError := 'Service not reachable (' + AHost + ':' +
+          IntToStr(APort) + '): is edrsvc running?';
         Exit;
+      end;
     end;
 
     // Restore blocking mode for socket send/recv timeouts
@@ -187,7 +198,10 @@ begin
     begin
       n := send(s, Req[Off], Length(Req) - Off + 1, 0);
       if n <= 0 then
+      begin
+        HttpPostJsonLastError := 'Sending the request to the service failed';
         Exit;
+      end;
       Inc(Off, n);
     end;
 
@@ -200,11 +214,28 @@ begin
       Move(buf[0], Resp[Length(Resp) - n + 1], n);
     until False;
 
+    // n = 0: the service closed the connection after its answer (Connection:
+    // close). n < 0: the receive timed out or was cancelled; what arrived is
+    // a cut-off answer, not a result.
+    if n < 0 then
+    begin
+      if WSAGetLastError = WSAETIMEDOUT then
+        HttpPostJsonLastError := 'No answer from the service within ' +
+          IntToStr(ARecvTimeoutMs div 1000) + ' s'
+      else
+        HttpPostJsonLastError := 'Cancelled or connection lost';
+      Exit;
+    end;
+
     PosHdr := Pos(#13#10#13#10, Resp);
     if PosHdr <= 0 then
+    begin
+      HttpPostJsonLastError := 'Empty answer from the service';
       Exit;
+    end;
 
     AResponse := Copy(Resp, PosHdr + 4, MaxInt);
+    HttpPostJsonLastError := '';
     Result := True;
   finally
     CancelSock := INVALID_SOCKET;

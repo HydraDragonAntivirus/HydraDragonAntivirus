@@ -2181,6 +2181,7 @@ int DetectionNotifier::scanFileWithLocalEngines(const std::string& sUtf8Path, st
 						std::chrono::steady_clock::now() - tFls0).count());
 					int nCv = static_cast<int>(cv);
 					detail.sFls = FlsVerdictName(nCv);
+					detail.nFlsVerdict = nCv;
 					if (nCv == cleanCode)
 					{
 						verdict = cleanCode;
@@ -2255,6 +2256,7 @@ int DetectionNotifier::scanFileWithLocalEngines(const std::string& sUtf8Path, st
 							std::chrono::steady_clock::now() - tFls0).count());
 						int nCv = static_cast<int>(cv);
 						detail.sFls = FlsVerdictName(nCv);
+						detail.nFlsVerdict = nCv;
 						if (nCv == malCode)
 						{
 							verdict = malCode;
@@ -3379,32 +3381,15 @@ Variant DetectionNotifier::execute(Variant vCommand, Variant vParams){
 					std::string sHash;
 					std::string sLocalHash;
 					int nVerdict = s_unknownReputationVerdict.load(std::memory_order_relaxed);
-					if (!bulkHashOverBudget(sPath))
-					{
-						sHash = sha1HexOfFileUtf8(sPath);
+					const bool fHashed = !bulkHashOverBudget(sPath);
+					if (fHashed)
 						sLocalHash = sha256HexOfFileUtf8(sPath);
-						if (!sHash.empty())
-						{
-							if (pFls)
-							{
-								try
-								{
-									auto v = pFls->getFileVerdict(sHash);
-									nVerdict = static_cast<int>(v);
-								}
-								catch (...)
-								{
-									nVerdict = s_staticUnknownVerdict.load(std::memory_order_relaxed);
-								}
-							}
-							else
-							{
-								nVerdict = s_staticUnknownVerdict.load(std::memory_order_relaxed);
-							}
-						}
-					}
 					int nLocal = s_staticUnknownVerdict.load(std::memory_order_relaxed);
 					std::string sLocalName;
+					// The local scan hashes the file with SHA-1 and asks FLS itself;
+					// its answer is reused below instead of hashing and asking again
+					// (a batch is handled file by file, and the GUI waits for all of it).
+					CloudScanDetail localDetail;
 					try
 					{
 						int nCached = getCachedFileVerdictWithName(sPath, sLocalName);
@@ -3419,7 +3404,7 @@ Variant DetectionNotifier::execute(Variant vCommand, Variant vParams){
 						}
 						else if (s_enableCloud.load(std::memory_order_relaxed))
 						{
-							int nScanned = DetectionNotifier::scanFileWithLocalEngines(sPath, sLocalName);
+							int nScanned = DetectionNotifier::scanFileWithLocalEngines(sPath, sLocalName, &localDetail);
 							if (nScanned == s_cleanVerdict.load(std::memory_order_relaxed) ||
 								nScanned == s_malwareVerdict.load(std::memory_order_relaxed) ||
 								nScanned == 3)
@@ -3429,6 +3414,37 @@ Variant DetectionNotifier::execute(Variant vCommand, Variant vParams){
 						}
 					}
 					catch (...) {}
+					if (fHashed)
+					{
+						if (localDetail.nFlsVerdict >= 0 && !localDetail.sSha1.empty())
+						{
+							sHash = localDetail.sSha1;
+							nVerdict = localDetail.nFlsVerdict;
+						}
+						else
+						{
+							sHash = sha1HexOfFileUtf8(sPath);
+							if (!sHash.empty())
+							{
+								if (pFls)
+								{
+									try
+									{
+										auto v = pFls->getFileVerdict(sHash);
+										nVerdict = static_cast<int>(v);
+									}
+									catch (...)
+									{
+										nVerdict = s_staticUnknownVerdict.load(std::memory_order_relaxed);
+									}
+								}
+								else
+								{
+									nVerdict = s_staticUnknownVerdict.load(std::memory_order_relaxed);
+								}
+							}
+						}
+					}
 					vOut.push_back(Dictionary({
 						{"path", sPath}, {"hash", sHash}, {"sha256", sLocalHash},
 						{"verdict", nVerdict}, {"local", nLocal}, {"viruskov", nLocal},

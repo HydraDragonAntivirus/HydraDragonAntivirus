@@ -1056,13 +1056,31 @@ impl EngineAdapter {
 
         // 3. Malicious XOR filter (respects override removals)
         if self.is_blacklisted(&clean) {
-            if self.want_xorfilter_upload(&clean) {
+            // An allow-listed company wins over the hash filter, but the signer is
+            // only in the file (Authenticode): with any company allow-listed the file
+            // is scanned, and the full scan gives the same XOR-filter verdict unless
+            // its signer is allowed (`scan_blocking_inner`).
+            if self.analyst.has_company_allow() || self.want_xorfilter_upload(&clean) {
                 return None;
             }
             return Some(hash_result("malicious", Some("Malware.Hash.XorFilter"), "Matched malicious SHA-256 (XOR Filter)", 1.0, &clean, "hash"));
         }
 
         None
+    }
+
+    /// A cached verdict that the company lists decided (an XOR-filter hit, an
+    /// allow-listed or block-listed signer), cached before the lists last changed: it
+    /// has to be scanned again.
+    pub fn stale_for_company_lists(&self, v: &crate::cache::CachedVerdict) -> bool {
+        let changed = self.analyst.companies_changed_at();
+        if changed == 0 || v.at > changed {
+            return false;
+        }
+        let threat = v.threat.as_deref().unwrap_or("");
+        threat == "Malware.Hash.XorFilter"
+            || threat.starts_with("Riskware.Multi.BlockedSigner")
+            || v.detail.as_deref().is_some_and(|d| d.starts_with("Trusted company (analyst allow-list)"))
     }
 
     /// An XOR-filter hit whose file is not kept yet: ask for the upload until it is kept
