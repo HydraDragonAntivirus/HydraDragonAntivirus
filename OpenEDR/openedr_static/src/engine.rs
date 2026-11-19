@@ -1338,6 +1338,7 @@ impl StaticEngine {
         max_score: &mut f32,
         parent: Option<&hydradragonsig::models::ParentInfo>,
         behavior: Option<&hydradragonsig::models::BehaviorTrace>,
+        sha256_hex: &str,
     ) {
         if bytes.len() <= 12 {
             return;
@@ -1419,15 +1420,12 @@ impl StaticEngine {
         } else {
             Vec::new()
         };
-        let sha256_hex = {
-            let mut hasher = Sha256::new();
-            hasher.update(bytes);
-            hex::encode(hasher.finalize())
-        };
+        // `sha256_hex` is the caller's hash of these same bytes (it was
+        // hashed a second time here for every extracted object).
         for hit in self.string_rules.scan_bytes_with_behavior(
             bytes,
             name,
-            &sha256_hex,
+            sha256_hex,
             &strings,
             is_pe,
             false,
@@ -1620,6 +1618,7 @@ impl StaticEngine {
         let mut obj_max_score = 0.0f32;
 
         let sha256 = {
+            let _t = crate::memtrack::stage("scan:sha256");
             let mut hasher = Sha256::new();
             hasher.update(&object.bytes);
             hex::encode(hasher.finalize())
@@ -1652,6 +1651,7 @@ impl StaticEngine {
             &mut obj_max_score,
             object.parent.as_ref(),
             None,
+            &sha256,
         );
         // A member that is itself an installer: the PE model extracted it.
         crate::ml::pe_combined::forget_extraction();
@@ -1730,9 +1730,12 @@ impl StaticEngine {
 
         let file_size = data.len() as u64;
 
-        let mut sha256_hasher = Sha256::new();
-        sha256_hasher.update(data);
-        let sha256_hex = hex::encode(sha256_hasher.finalize());
+        let sha256_hex = {
+            let _t = crate::memtrack::stage("scan:sha256");
+            let mut sha256_hasher = Sha256::new();
+            sha256_hasher.update(data);
+            hex::encode(sha256_hasher.finalize())
+        };
 
         let mut detections = Vec::new();
         let mut max_score: f32 = 0.0;

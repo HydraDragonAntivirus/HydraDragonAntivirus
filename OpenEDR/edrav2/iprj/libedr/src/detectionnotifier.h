@@ -84,6 +84,7 @@ public:
 	struct CloudScanDetail
 	{
 		std::string sSha1;         // file SHA-1 (the FLS key)
+		std::string sSha256;       // file SHA-256 (the verdict-by-content key), hashed with sSha1
 		std::string sFls;          // Comodo FLS: Absent / Safe / Malicious / Unknown / Fail
 		int nFlsVerdict = -1;      // Comodo FLS verdict code as answered (-1: not asked / failed)
 		std::string sViruskov;     // VirusKov: Clean / Malicious / Suspicious / Unknown / Error
@@ -92,9 +93,26 @@ public:
 		uint64_t nSha1Us = 0;      // time spent hashing the file for FLS
 		uint64_t nFlsUs = 0;       // time spent waiting on FLS
 		uint64_t nStaticUs = 0;    // time spent in staticScanVerdictName (openedr_static)
+		// Parts of nSha1Us when SHA-1 and SHA-256 come from one read of the file:
+		uint64_t nHashReadUs = 0;  //   reading the file from disk
+		uint64_t nSha1HashUs = 0;  //   SHA-1 over the bytes read
+		uint64_t nSha256HashUs = 0; //  SHA-256 over the bytes read
+		// Part of nStaticUs: the cloud client re-reading + SHA-256 hashing the
+		// file before asking VirusKov (its report's sha256_ms).
+		uint64_t nCloudSha256Ms = 0;
 	};
 	static int scanFileWithLocalEngines(const std::string& sUtf8Path, std::string& sThreatNameOut,
 		CloudScanDetail* pDetail);
+
+private:
+	///
+	/// One verdict-cache lookup + scan of a file. scanFileWithLocalEngines
+	/// wraps it so a file is scanned by one thread at a time.
+	///
+	static int scanFileWithLocalEnginesOnce(const std::string& sUtf8Path, std::string& sThreatNameOut,
+		CloudScanDetail* pDetail);
+
+public:
 
 	///
 	/// Scans an in-memory buffer (e.g. a process command line) with the local

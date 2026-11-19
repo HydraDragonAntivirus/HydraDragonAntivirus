@@ -27,6 +27,13 @@ pub struct FileScanReport {
     pub scanned_at: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub note: Option<String>,
+    /// Time spent reading + SHA-256 hashing the file before asking the cloud.
+    #[serde(default, skip_serializing_if = "is_zero_u64")]
+    pub sha256_ms: u64,
+}
+
+fn is_zero_u64(v: &u64) -> bool {
+    *v == 0
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -469,12 +476,16 @@ pub fn scan_file(path: &Path) -> FileScanReport {
                 sha256: String::new(),
                 file_size: 0,
                 scanned_at: chrono_now_iso(),
+                sha256_ms: 0,
                 note: Some("File not found or unreadable".to_string()),
             };
         }
     };
 
-    let (sha256_hex, file_size) = match compute_sha256(file) {
+    let t_sha256 = Instant::now();
+    let hashed = compute_sha256(file);
+    let sha256_ms = t_sha256.elapsed().as_millis() as u64;
+    let (sha256_hex, file_size) = match hashed {
         Ok(res) => res,
         Err(_) => {
             return FileScanReport {
@@ -484,6 +495,7 @@ pub fn scan_file(path: &Path) -> FileScanReport {
                 sha256: String::new(),
                 file_size: 0,
                 scanned_at: chrono_now_iso(),
+                sha256_ms,
                 note: Some("Failed to read file contents for hashing".to_string()),
             };
         }
@@ -659,6 +671,7 @@ pub fn scan_file(path: &Path) -> FileScanReport {
             sha256: sha256_hex,
             file_size,
             scanned_at: chrono_now_iso(),
+            sha256_ms,
             note: None,
         },
         // No answer (connection error, timeout, cloud error): "Deferred", not
@@ -672,6 +685,7 @@ pub fn scan_file(path: &Path) -> FileScanReport {
             sha256: sha256_hex,
             file_size,
             scanned_at: chrono_now_iso(),
+            sha256_ms,
             note: Some(format!("Cloud scan deferred: {}", e)),
         },
     }

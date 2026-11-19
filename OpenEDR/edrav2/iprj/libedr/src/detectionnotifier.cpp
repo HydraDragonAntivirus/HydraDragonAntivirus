@@ -27,6 +27,7 @@
 #include <algorithm>
 #include <cctype>
 #include <mutex>
+#include <condition_variable>
 #include <thread>
 #include <chrono>
 #include <cwctype>
@@ -1230,49 +1231,111 @@ static bool queryCloudPumVerdict(const std::string& sKeyPath, const std::string&
 //
 //
 //
-// Hash a file using a caller-selected digest; return lowercase hex or empty
-// when the UTF-8 path cannot be opened/read.
+// Reads the file once, feeding every chunk to fnChunk. false when the UTF-8
+// path cannot be opened/read.
+static bool readFileChunksUtf8(const std::string& sUtf8Path,
+	const std::function<void(const char*, size_t)>& fnChunk, uint64_t* pReadUs = nullptr)
+{
+	try
+	{
+		if (sUtf8Path.empty())
+			return false;
+		int nWide = ::MultiByteToWideChar(CP_UTF8, 0, sUtf8Path.c_str(), -1, nullptr, 0);
+		if (nWide <= 1)
+			return false;
+		std::wstring ws(static_cast<size_t>(nWide), L'\0');
+		if (::MultiByteToWideChar(CP_UTF8, 0, sUtf8Path.c_str(), -1, &ws[0], nWide) <= 0)
+			return false;
+		ws.resize(static_cast<size_t>(nWide - 1));
+		std::ifstream f(ws, std::ios::binary);
+		if (!f)
+			return false;
+		char buf[65536];
+		while (f)
+		{
+			const auto tRead0 = std::chrono::steady_clock::now();
+			f.read(buf, sizeof(buf));
+			if (pReadUs)
+				*pReadUs += static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::microseconds>(
+					std::chrono::steady_clock::now() - tRead0).count());
+			std::streamsize n = f.gcount();
+			if (n > 0)
+				fnChunk(buf, static_cast<size_t>(n));
+		}
+		return !f.bad();
+	}
+	catch (...) { return false; }
+}
+
+template<typename TDigest>
+static std::string digestHex(const TDigest& h)
+{
+	static const char* kHex = "0123456789abcdef";
+	std::string out;
+	out.reserve(sizeof(h.byte) * 2);
+	for (size_t i = 0; i < sizeof(h.byte); ++i)
+	{
+		unsigned char b = static_cast<unsigned char>(h.byte[i]);
+		out.push_back(kHex[b >> 4]);
+		out.push_back(kHex[b & 0xF]);
+	}
+	return out;
+}
+
+// Lowercase hex digest of a file with the given crypt::*::Hasher; empty
+// string when the UTF-8 path cannot be opened/read.
 template<typename THasher>
 static std::string hashFileHexUtf8(const std::string& sUtf8Path)
 {
 	try
 	{
-		if (sUtf8Path.empty())
-			return {};
-		int nWide = ::MultiByteToWideChar(CP_UTF8, 0, sUtf8Path.c_str(), -1, nullptr, 0);
-		if (nWide <= 1)
-			return {};
-		std::wstring ws(static_cast<size_t>(nWide), L'\0');
-		if (::MultiByteToWideChar(CP_UTF8, 0, sUtf8Path.c_str(), -1, &ws[0], nWide) <= 0)
-			return {};
-		ws.resize(static_cast<size_t>(nWide - 1));
-		std::ifstream f(ws, std::ios::binary);
-		if (!f)
-			return {};
 		THasher hasher;
-		char buf[65536];
-		while (f)
-		{
-			f.read(buf, sizeof(buf));
-			std::streamsize n = f.gcount();
-			if (n > 0)
-				hasher.update(buf, static_cast<size_t>(n));
-		}
-		if (f.bad())
+		if (!readFileChunksUtf8(sUtf8Path, [&hasher](const char* p, size_t n) { hasher.update(p, n); }))
 			return {};
-		auto h = hasher.finalize();
-		static const char* kHex = "0123456789abcdef";
-		std::string out;
-		out.reserve(sizeof(h.byte) * 2);
-		for (size_t i = 0; i < sizeof(h.byte); ++i)
-		{
-			unsigned char b = static_cast<unsigned char>(h.byte[i]);
-			out.push_back(kHex[b >> 4]);
-			out.push_back(kHex[b & 0xF]);
-		}
-		return out;
+		return digestHex(hasher.finalize());
 	}
 	catch (...) { return {}; }
+}
+
+// FLS needs the SHA-1, the verdict cache and the engines key on SHA-256:
+// both from one read of the file instead of two.
+// pReadUs / pSha1Us / pSha256Us (optional) get the disk-read time and each
+// digest's own time, so a slow hash step shows whether the disk or the CPU was slow.
+static bool sha1AndSha256HexOfFileUtf8(const std::string& sUtf8Path, std::string& sSha1Out, std::string& sSha256Out,
+	uint64_t* pReadUs = nullptr, uint64_t* pSha1Us = nullptr, uint64_t* pSha256Us = nullptr)
+{
+	sSha1Out.clear();
+	sSha256Out.clear();
+	try
+	{
+		using Clock = std::chrono::steady_clock;
+		auto usSince = [](Clock::time_point t0) {
+			return static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::microseconds>(Clock::now() - t0).count());
+		};
+		uint64_t nSha1Us = 0, nSha256Us = 0;
+		crypt::sha1::Hasher h1;
+		crypt::sha256::Hasher h256;
+		if (!readFileChunksUtf8(sUtf8Path, [&](const char* p, size_t n)
+			{
+				auto t0 = Clock::now();
+				h1.update(p, n);
+				nSha1Us += usSince(t0);
+				t0 = Clock::now();
+				h256.update(p, n);
+				nSha256Us += usSince(t0);
+			}, pReadUs))
+			return false;
+		auto t0 = Clock::now();
+		sSha1Out = digestHex(h1.finalize());
+		nSha1Us += usSince(t0);
+		t0 = Clock::now();
+		sSha256Out = digestHex(h256.finalize());
+		nSha256Us += usSince(t0);
+		if (pSha1Us) *pSha1Us += nSha1Us;
+		if (pSha256Us) *pSha256Us += nSha256Us;
+		return true;
+	}
+	catch (...) { return false; }
 }
 
 // SHA-256 backs local verdict/malware matching and quarantine identities.
@@ -1540,6 +1603,28 @@ static bool ReadJsonKeyString(const std::string& json, size_t keyEndPos, std::st
 	return ParseJsonString(p, end, out);
 }
 
+// "sha256_ms" of the last openedr_static_scan_file report on this thread (the
+// cloud client's read + SHA-256 of the file); 0 when absent.
+thread_local uint64_t t_nLastCloudSha256Ms = 0;
+
+static uint64_t OpenedrReportSha256Ms(const std::string& json)
+{
+	size_t keyEnd = 0;
+	if (!FindJsonKey(json, "sha256_ms", 1, 0, keyEnd))
+		return 0;
+	const char* p = json.data() + keyEnd;
+	const char* end = json.data() + json.size();
+	SkipJsonWs(p, end);
+	if (p >= end || *p != ':')
+		return 0;
+	++p;
+	SkipJsonWs(p, end);
+	uint64_t n = 0;
+	while (p < end && *p >= '0' && *p <= '9')
+		n = n * 10 + static_cast<uint64_t>(*p++ - '0');
+	return n;
+}
+
 static bool OpenedrReportVerdict(const std::string& json, std::string& verdictOut)
 {
 	size_t keyEnd = 0;
@@ -1754,6 +1839,7 @@ static int staticScanVerdictName(const std::string& sUtf8Path, std::string& sNam
 				return 0;
 			}
 		std::string report(json);
+		t_nLastCloudSha256Ms += OpenedrReportSha256Ms(report);
 		s_openedr.fnFreeString(json);
 		std::string verdict;
 		if (!OpenedrReportVerdict(report, verdict))
@@ -1874,6 +1960,23 @@ struct CachedFileVerdict {
 static std::mutex s_mtxVerdictCache;
 static std::unordered_map<std::string, CachedFileVerdict> s_verdictCache;
 static constexpr size_t kMaxVerdictCacheSize = 8192;
+// The same answers by content SHA-256 (size/mtime unused), so a copy of a file
+// under another path is not scanned again. Guarded by s_mtxVerdictCache.
+static std::unordered_map<std::string, CachedFileVerdict> s_verdictBySha256;
+
+// Caller holds s_mtxVerdictCache.
+static void rememberVerdictBySha256(const std::string& sSha256, const CachedFileVerdict& entry)
+{
+	if (sSha256.empty())
+		return;
+	if (s_verdictBySha256.size() >= kMaxVerdictCacheSize)
+	{
+		auto it = s_verdictBySha256.begin();
+		for (size_t i = 0; i < kMaxVerdictCacheSize / 2 && it != s_verdictBySha256.end(); ++i)
+			it = s_verdictBySha256.erase(it);
+	}
+	s_verdictBySha256[sSha256] = entry;
+}
 
 static bool getFileIdentityUtf8(const std::string& sUtf8Path, uint64_t& nSizeOut, uint64_t& nMtimeOut)
 {
@@ -2109,7 +2212,101 @@ static const char* ViruskovVerdictName(int nVerdict)
 	}
 }
 
+// Scans running now, by lowercased path and by content SHA-256. Two threads
+// asking about the same file at the same time (the enricher and the async
+// rescan queue, or two rescan workers) each hashed and scanned it in full -
+// 70 s twice for one sample on a 2-core VM - and the same sample under another
+// path (Temp drop + Desktop copy) was scanned again from scratch. A second
+// caller now waits for the first and then reads its answer from the cache;
+// when the answer was not cacheable it scans after the first, not alongside it.
+namespace {
+	struct InFlightScan
+	{
+		std::mutex mtx;
+		std::condition_variable cv;
+		bool fDone = false;
+	};
+	using InFlightScanMap = std::unordered_map<std::string, std::shared_ptr<InFlightScan>>;
+	std::mutex s_mtxInFlightScans;
+	InFlightScanMap s_inFlightByPath;
+	InFlightScanMap s_inFlightBySha256;
+
+	// Holds one key of an InFlightScanMap: acquire() waits while another
+	// thread holds it, then holds it. Released (and waiters woken) when the
+	// slot goes out of scope, a throwing scan included.
+	class ScanSlot
+	{
+		InFlightScanMap* m_pMap = nullptr;
+		std::string m_sKey;
+		std::shared_ptr<InFlightScan> m_pScan;
+	public:
+		ScanSlot() = default;
+		ScanSlot(const ScanSlot&) = delete;
+		ScanSlot& operator=(const ScanSlot&) = delete;
+
+		void acquire(InFlightScanMap& map, const std::string& sKey)
+		{
+			release();
+			while (true)
+			{
+				std::shared_ptr<InFlightScan> pOther;
+				{
+					std::lock_guard<std::mutex> lock(s_mtxInFlightScans);
+					auto& slot = map[sKey];
+					if (!slot)
+					{
+						slot = std::make_shared<InFlightScan>();
+						m_pMap = &map;
+						m_sKey = sKey;
+						m_pScan = slot;
+						return;
+					}
+					pOther = slot;
+				}
+				std::unique_lock<std::mutex> lk(pOther->mtx);
+				pOther->cv.wait(lk, [&pOther]() { return pOther->fDone; });
+			}
+		}
+
+		void release()
+		{
+			if (!m_pScan)
+				return;
+			{
+				std::lock_guard<std::mutex> lock(s_mtxInFlightScans);
+				auto it = m_pMap->find(m_sKey);
+				if (it != m_pMap->end() && it->second == m_pScan)
+					m_pMap->erase(it);
+			}
+			{
+				std::lock_guard<std::mutex> lk(m_pScan->mtx);
+				m_pScan->fDone = true;
+			}
+			m_pScan->cv.notify_all();
+			m_pScan.reset();
+		}
+
+		~ScanSlot() { release(); }
+	};
+}
+
 int DetectionNotifier::scanFileWithLocalEngines(const std::string& sUtf8Path, std::string& sThreatNameOut,
+	CloudScanDetail* pDetail)
+{
+	if (sUtf8Path.empty())
+		return 0;
+
+	std::string lowerPath = sUtf8Path;
+	for (auto& c : lowerPath) c = (char)::tolower((unsigned char)c);
+
+	// After waiting, scanFileWithLocalEnginesOnce finds the first caller's
+	// answer in s_verdictCache, or scans if it was not cacheable.
+	ScanSlot pathSlot;
+	pathSlot.acquire(s_inFlightByPath, lowerPath);
+	return scanFileWithLocalEnginesOnce(sUtf8Path, sThreatNameOut, pDetail);
+}
+
+int DetectionNotifier::scanFileWithLocalEnginesOnce(const std::string& sUtf8Path, std::string& sThreatNameOut,
 	CloudScanDetail* pDetail)
 {
 	CloudScanDetail detail;
@@ -2147,6 +2344,9 @@ int DetectionNotifier::scanFileWithLocalEngines(const std::string& sUtf8Path, st
 	int cleanCode = s_cleanVerdict.load(std::memory_order_relaxed);
 	int malCode = s_malwareVerdict.load(std::memory_order_relaxed);
 
+	// Held until this scan's answer is in the caches below.
+	ScanSlot sha256Slot;
+	t_nLastCloudSha256Ms = 0;
 	const auto tScanTotal0 = std::chrono::steady_clock::now();
 	if (!cloudEnabled)
 	{
@@ -2163,11 +2363,48 @@ int DetectionNotifier::scanFileWithLocalEngines(const std::string& sUtf8Path, st
 	{
 		// 1. Check Comodo Cloud FLS first
 		const auto tHash0 = std::chrono::steady_clock::now();
-		std::string sHash = sha1HexOfFileUtf8(sUtf8Path);
+		std::string sHash, sSha256;
+		sha1AndSha256HexOfFileUtf8(sUtf8Path, sHash, sSha256,
+			&detail.nHashReadUs, &detail.nSha1HashUs, &detail.nSha256HashUs);
 		detail.nSha1Us += static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::microseconds>(
 			std::chrono::steady_clock::now() - tHash0).count());
 		detail.sSha1 = sHash;
-		if (!sHash.empty())
+		detail.sSha256 = sSha256;
+
+		// Same content under another path: wait for a scan of it that is
+		// running, then reuse its answer instead of asking FLS and running the
+		// engines again. Keyed on SHA-256, never SHA-1 (colliding SHA-1 pairs
+		// can be made, so a clean twin could whitelist a malicious one).
+		bool fContentHit = false;
+		if (!sSha256.empty())
+		{
+			sha256Slot.acquire(s_inFlightBySha256, sSha256);
+			std::lock_guard<std::mutex> lock(s_mtxVerdictCache);
+			auto it = s_verdictBySha256.find(sSha256);
+			if (it != s_verdictBySha256.end())
+			{
+				const bool fUnknownExpired = it->second.unknownUntil != std::chrono::steady_clock::time_point{} &&
+					std::chrono::steady_clock::now() >= it->second.unknownUntil;
+				if (!fUnknownExpired)
+				{
+					const CloudScanDetail hashTimes = detail;
+					detail = it->second.detail;
+					detail.nSha1Us = hashTimes.nSha1Us;
+					detail.nHashReadUs = hashTimes.nHashReadUs;
+					detail.nSha1HashUs = hashTimes.nSha1HashUs;
+					detail.nSha256HashUs = hashTimes.nSha256HashUs;
+					detail.nCloudSha256Ms = 0;
+					detail.nFlsUs = 0;
+					detail.nStaticUs = 0;
+					detail.fFromCache = true;
+					verdict = it->second.verdict;
+					sThreatNameOut = it->second.threatName;
+					fContentHit = true;
+				}
+			}
+		}
+
+		if (!fContentHit && !sHash.empty())
 		{
 			try
 			{
@@ -2198,7 +2435,7 @@ int DetectionNotifier::scanFileWithLocalEngines(const std::string& sUtf8Path, st
 
 		// 2. Also query VirusKov Cloud unless FLS already convicted as Malware,
 		//    so VIRUSKOV_CLOUD (mode 2) and BOTH (mode 3) always have VirusKov status.
-		if (verdict != malCode)
+		if (!fContentHit && verdict != malCode)
 		{
 			const auto tStat0 = std::chrono::steady_clock::now();
 			std::string sVkThreat;
@@ -2272,12 +2509,16 @@ int DetectionNotifier::scanFileWithLocalEngines(const std::string& sUtf8Path, st
 			}
 		}
 	}
+	detail.nCloudSha256Ms = t_nLastCloudSha256Ms;
 	const auto nScanTotalMs = std::chrono::duration_cast<std::chrono::milliseconds>(
 		std::chrono::steady_clock::now() - tScanTotal0).count();
 	if (nScanTotalMs >= 500)
 		LOGWRN(FMT("[SLOW-CALL] scanFileWithLocalEngines took " << nScanTotalMs << " ms on <" << sUtf8Path
-			<< "> | sha1=" << (detail.nSha1Us / 1000) << "ms fls=" << (detail.nFlsUs / 1000)
-			<< "ms static=" << (detail.nStaticUs / 1000) << "ms"));
+			<< "> | hash=" << (detail.nSha1Us / 1000) << "ms (read=" << (detail.nHashReadUs / 1000)
+			<< "ms sha1=" << (detail.nSha1HashUs / 1000) << "ms sha256=" << (detail.nSha256HashUs / 1000)
+			<< "ms) fls=" << (detail.nFlsUs / 1000)
+			<< "ms static=" << (detail.nStaticUs / 1000) << "ms (cloud.sha256=" << detail.nCloudSha256Ms << "ms)"
+			<< (detail.fFromCache ? " [content cache]" : "")));
 
 	// 3 here is staticScanVerdictName's "Suspicious" (the FLS steps above only
 	// ever store the clean / malware codes). The cfg's unknownVerdicts list
@@ -2313,6 +2554,8 @@ int DetectionNotifier::scanFileWithLocalEngines(const std::string& sUtf8Path, st
 			const auto now = std::chrono::steady_clock::now();
 			CachedFileVerdict entry{ nUnknown, std::string(), size, mtime, detail,
 				now + std::chrono::seconds(nTtl), now };
+			if (!detail.fFromCache) // a content hit keeps its first expiry
+				rememberVerdictBySha256(detail.sSha256, entry);
 			s_verdictCache[lowerPath] = std::move(entry);
 		}
 		return nUnknown;
@@ -2339,8 +2582,10 @@ int DetectionNotifier::scanFileWithLocalEngines(const std::string& sUtf8Path, st
 		if (fFlsCleanWithDeferredViruskov)
 			cacheDetail.sViruskov = "Unknown";
 		const auto now = std::chrono::steady_clock::now();
-		s_verdictCache[lowerPath] = CachedFileVerdict{
-			verdict, sThreatNameOut, size, mtime, std::move(cacheDetail), {}, now };
+		CachedFileVerdict entry{ verdict, sThreatNameOut, size, mtime, std::move(cacheDetail), {}, now };
+		if (!detail.fFromCache)
+			rememberVerdictBySha256(entry.detail.sSha256, entry);
+		s_verdictCache[lowerPath] = std::move(entry);
 	}
 
 	return verdict;
