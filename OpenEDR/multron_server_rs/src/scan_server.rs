@@ -985,33 +985,100 @@ async fn handle_hash_insights(
 }
 
 /// `ThreatIntelStore::type_stats` walks every record; the website polls, so cache it.
-pub fn cached_type_stats(server: &ScanServer) -> serde_json::Value {
-    static CACHE: StdMutex<Option<(std::time::Instant, serde_json::Value)>> = StdMutex::new(None);
-    let mut g = CACHE.lock().unwrap();
-    if let Some((t, v)) = g.as_ref() {
-        if t.elapsed() < Duration::from_secs(60) {
+/// A public statistic that is expensive to compute (a walk over every hash the
+/// threat-intel store knows). It used to be recomputed inside the request of the first
+/// visitor after it expired, with the cache mutex held: that visitor waited for the
+/// whole walk (over 90 s on the live server) and every request behind it queued on the
+/// mutex, so the website's statistics page "did not answer".
+///
+/// Now a request never computes it: it gets the value at once, and when that value is
+/// older than `max_age` one background thread recomputes it (stale-while-revalidate).
+/// Only the very first call, before any value exists, waits for the computation
+/// (`warm_public_stats` makes that happen at startup instead of on a visitor).
+struct SwrCache<T> {
+    value: StdMutex<Option<(std::time::Instant, T)>>,
+    /// Serialises the first computation; later refreshes are guarded by `refreshing`.
+    first: StdMutex<()>,
+    refreshing: std::sync::atomic::AtomicBool,
+}
+
+impl<T: Clone + Send + 'static> SwrCache<T> {
+    const fn new() -> Self {
+        Self { value: StdMutex::new(None), first: StdMutex::new(()), refreshing: std::sync::atomic::AtomicBool::new(false) }
+    }
+
+    fn get(
+        &'static self,
+        server: &Arc<ScanServer>,
+        max_age: Duration,
+        compute: fn(&ScanServer) -> T,
+    ) -> T {
+        use std::sync::atomic::Ordering;
+        if let Some((t, v)) = self.value.lock().unwrap().as_ref() {
+            if t.elapsed() >= max_age && !self.refreshing.swap(true, Ordering::AcqRel) {
+                let srv = Arc::clone(server);
+                let spawned = std::thread::Builder::new().name("public-stats".into()).spawn(move || {
+                    let v = compute(&srv);
+                    *self.value.lock().unwrap() = Some((std::time::Instant::now(), v));
+                    self.refreshing.store(false, Ordering::Release);
+                });
+                if spawned.is_err() {
+                    self.refreshing.store(false, Ordering::Release);
+                }
+            }
             return v.clone();
         }
+        // Nothing computed yet: one caller computes, the others wait for it here
+        // rather than each walking the store at the same time.
+        let _first = self.first.lock().unwrap();
+        if let Some((_, v)) = self.value.lock().unwrap().as_ref() {
+            return v.clone();
+        }
+        let v = compute(server);
+        *self.value.lock().unwrap() = Some((std::time::Instant::now(), v.clone()));
+        v
     }
-    let v = server.threat_intel.type_stats(7);
-    *g = Some((std::time::Instant::now(), v.clone()));
-    v
+}
+
+static TYPE_STATS: SwrCache<serde_json::Value> = SwrCache::new();
+static ABSENT_UNKNOWN: SwrCache<usize> = SwrCache::new();
+static INTEL_STATS: SwrCache<crate::threat_intel::ThreatIntelStats> = SwrCache::new();
+static HUMAN_STATS: SwrCache<serde_json::Value> = SwrCache::new();
+static DATASET_STATS: SwrCache<serde_json::Value> = SwrCache::new();
+const PUBLIC_STATS_MAX_AGE: Duration = Duration::from_secs(60);
+
+/// Fills every public-statistics cache on a background thread, so the first website
+/// visitor after a start gets numbers at once instead of waiting for the walks.
+pub fn warm_public_stats(server: &Arc<ScanServer>) {
+    let srv = Arc::clone(server);
+    let _ = std::thread::Builder::new().name("public-stats-warm".into()).spawn(move || {
+        let t = std::time::Instant::now();
+        let _ = cached_intel_stats(&srv);
+        let _ = cached_absent_unknown(&srv);
+        let _ = cached_type_stats(&srv);
+        let _ = cached_human_stats(&srv);
+        let _ = cached_dataset_stats(&srv);
+        eprintln!("[stats] public statistics ready in {} ms", t.elapsed().as_millis());
+    });
+}
+
+/// Human / AI review numbers for the website (`ReviewStore::public_stats` walks
+/// every review; it ran on the async runtime on every request).
+fn cached_human_stats(server: &Arc<ScanServer>) -> serde_json::Value {
+    HUMAN_STATS.get(server, PUBLIC_STATS_MAX_AGE, |s| s.threat_intel.reviews.public_stats())
+}
+
+pub fn cached_type_stats(server: &Arc<ScanServer>) -> serde_json::Value {
+    TYPE_STATS.get(server, PUBLIC_STATS_MAX_AGE, |s| s.threat_intel.type_stats(7))
 }
 
 /// Unknown hashes whose file the server does not have (never uploaded, dropped by the
 /// quota, offloaded). They are left out of the public statistics: nothing was analysed.
 /// Cached for 60 s like the type statistics.
-fn cached_absent_unknown(server: &ScanServer) -> usize {
-    static CACHE: StdMutex<Option<(std::time::Instant, usize)>> = StdMutex::new(None);
-    let mut g = CACHE.lock().unwrap();
-    if let Some((t, n)) = g.as_ref() {
-        if t.elapsed() < Duration::from_secs(60) {
-            return *n;
-        }
-    }
-    let n = server.threat_intel.unknown_hashes().iter().filter(|s| !server.engine.is_kept(s)).count();
-    *g = Some((std::time::Instant::now(), n));
-    n
+fn cached_absent_unknown(server: &Arc<ScanServer>) -> usize {
+    ABSENT_UNKNOWN.get(server, PUBLIC_STATS_MAX_AGE, |s| {
+        s.threat_intel.unknown_hashes().iter().filter(|h| !s.engine.is_kept(h)).count()
+    })
 }
 
 /// The matched signature names are for the dashboard only.
@@ -1025,27 +1092,18 @@ fn public_type_stats(mut v: serde_json::Value) -> serde_json::Value {
 }
 
 /// Public telemetry totals for the website statistics page.
-fn cached_intel_stats(server: &ScanServer) -> crate::threat_intel::ThreatIntelStats {
-    static CACHE: StdMutex<Option<(std::time::Instant, crate::threat_intel::ThreatIntelStats)>> = StdMutex::new(None);
-    let mut g = CACHE.lock().unwrap();
-    if let Some((t, v)) = g.as_ref() {
-        if t.elapsed() < Duration::from_secs(60) {
-            return v.clone();
-        }
-    }
-    let v = server.threat_intel.stats();
-    *g = Some((std::time::Instant::now(), v.clone()));
-    v
+fn cached_intel_stats(server: &Arc<ScanServer>) -> crate::threat_intel::ThreatIntelStats {
+    INTEL_STATS.get(server, PUBLIC_STATS_MAX_AGE, |s| s.threat_intel.stats())
 }
 
 async fn handle_insights_stats(State(server): State<Arc<ScanServer>>) -> Response {
     // No per-IP quota here: the website polls this endpoint, and the 500/day quota of the
     // hash lookups was used up in about an hour, after which the numbers froze.
     let srv = Arc::clone(&server);
-    let Ok((stats, absent, types)) = tokio::task::spawn_blocking(move || {
+    let Ok((stats, absent, types, human)) = tokio::task::spawn_blocking(move || {
         let stats = cached_intel_stats(&srv);
         let absent = cached_absent_unknown(&srv).min(stats.unknown_count);
-        (stats, absent, cached_type_stats(&srv))
+        (stats, absent, cached_type_stats(&srv), cached_human_stats(&srv))
     })
     .await
     else {
@@ -1056,7 +1114,7 @@ async fn handle_insights_stats(State(server): State<Arc<ScanServer>>) -> Respons
         "engine": ENGINE_NAME,
         "feed": "VirusKov Community Telemetry",
         // Public numbers only (no analyst names); the dashboard has the full stats.
-        "human_analysis": server.threat_intel.reviews.public_stats(),
+        "human_analysis": human,
         // Malicious + suspicious files by malware type (all time and last 7 days).
         "types": public_type_stats(types),
         "telemetry": {
@@ -4016,15 +4074,12 @@ async fn handle_similar(
 
 /// Public ML dataset numbers, rebuilt at most once a minute (one pass over the index).
 /// Counts only: no folder, file name or hash ever leaves the server.
-fn cached_dataset_stats(server: &ScanServer) -> serde_json::Value {
-    static CACHE: StdMutex<Option<(std::time::Instant, serde_json::Value)>> = StdMutex::new(None);
-    let mut g = CACHE.lock().unwrap();
-    if let Some((t, v)) = g.as_ref() {
-        if t.elapsed() < Duration::from_secs(60) {
-            return v.clone();
-        }
-    }
-    let v = match server.engine.dataset.get() {
+fn cached_dataset_stats(server: &Arc<ScanServer>) -> serde_json::Value {
+    DATASET_STATS.get(server, PUBLIC_STATS_MAX_AGE, compute_dataset_stats)
+}
+
+fn compute_dataset_stats(server: &ScanServer) -> serde_json::Value {
+    match server.engine.dataset.get() {
         None => serde_json::json!({ "status": "success", "enabled": false, "ready": false }),
         Some(ds) => match ds.public_stats_with(&server.threat_intel.user_files(), &crate::archived::dataset_samples()) {
             None => serde_json::json!({ "status": "success", "enabled": true, "ready": false }),
@@ -4040,9 +4095,7 @@ fn cached_dataset_stats(server: &ScanServer) -> serde_json::Value {
                 "groups": st.groups,
             }),
         },
-    };
-    *g = Some((std::time::Instant::now(), v.clone()));
-    v
+    }
 }
 
 /// Public ML dataset totals (own / public / user-submitted) for the statistics page.

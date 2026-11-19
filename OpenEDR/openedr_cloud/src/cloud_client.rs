@@ -269,6 +269,16 @@ fn scan_request(mut req: serde_json::Value, packed: Option<&Vec<u8>>) -> serde_j
     req
 }
 
+/// Server `MAX_WS_MESSAGE` is 1 MiB (`scan_server.rs`); send uploads in 256 KiB binary frames.
+const WS_UPLOAD_CHUNK_BYTES: usize = 256 * 1024;
+
+fn send_binary_chunked(socket: &mut WsStream, data: &[u8]) -> Result<(), tungstenite::Error> {
+    for chunk in data.chunks(WS_UPLOAD_CHUNK_BYTES) {
+        socket.send(Message::Binary(chunk.to_vec().into()))?;
+    }
+    Ok(())
+}
+
 fn set_socket_timeouts(socket: &WsStream, timeout: Duration) {
     let io_timeout = Some(timeout);
     let tcp = match socket.get_ref() {
@@ -634,7 +644,7 @@ pub fn scan_file(path: &Path) -> FileScanReport {
                             if wire.len() as u64 > LARGE_UPLOAD_BUFFER_RESET_BYTES {
                                 sent_large_upload = true;
                             }
-                            if let Err(e) = socket.send(Message::Binary(wire.into())) {
+                            if let Err(e) = send_binary_chunked(socket, &wire) {
                                 session.drop_connection();
                                 return Err(format!("File upload binary error: {}", e));
                             }
@@ -800,11 +810,9 @@ pub fn scan_bytes(data: &[u8], name: &str) -> (String, Vec<DetectionItem>, Strin
                             if size > LARGE_UPLOAD_BUFFER_RESET_BYTES {
                                 sent_large_upload = true;
                             }
-                            let wire = match upload.take() {
-                                Some((_, Some(packed))) => packed,
-                                _ => data.to_vec(),
-                            };
-                            if let Err(e) = socket.send(Message::Binary(wire.into())) {
+                            let packed_opt = upload.take().and_then(|(_, p)| p);
+                            let wire: &[u8] = packed_opt.as_deref().unwrap_or(data);
+                            if let Err(e) = send_binary_chunked(socket, wire) {
                                 session.drop_connection();
                                 return Err(format!("Binary upload error: {}", e));
                             }
@@ -1236,7 +1244,7 @@ pub fn scan_evtx(path: &Path) -> String {
 
                     if msg_id == req_id {
                         if msg_type == "send_file" {
-                            if let Err(e) = socket.send(Message::Binary(file_bytes.clone().into())) {
+                            if let Err(e) = send_binary_chunked(socket, &file_bytes) {
                                 session.drop_connection();
                                 return Err(format!("Binary upload error: {}", e));
                             }

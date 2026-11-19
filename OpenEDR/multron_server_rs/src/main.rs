@@ -295,6 +295,8 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         Some(preloaded_cache),
     );
     memwatch::spawn(Arc::clone(&scan_server));
+    // Website statistics computed now, in the background, not by the first visitor.
+    crate::scan_server::warm_public_stats(&scan_server);
     if args.archive {
         crate::archive::spawn_reloader(Arc::clone(&scan_server));
     } else {

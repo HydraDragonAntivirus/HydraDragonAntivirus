@@ -339,7 +339,7 @@
           </button>
           <button type="button" id="tabScannerBtn" class="sc-tab" role="tab" aria-selected="false" aria-controls="paneScanner">
             <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M11.5 2.75H5.5a1.5 1.5 0 0 0-1.5 1.5v11.5a1.5 1.5 0 0 0 1.5 1.5h9a1.5 1.5 0 0 0 1.5-1.5V7.25z"/><path d="M11.5 2.75v4.5H16"/></svg>
-            <span class="sc-tab-t"><span data-i18n="sc.tab_file">Dosya</span><small data-i18n="sc.tab_file_s">En fazla 50 MB</small></span>
+            <span class="sc-tab-t"><span data-i18n="sc.tab_file">Dosya</span><small data-i18n="sc.tab_file_s">En fazla 100 MB</small></span>
           </button>
           <button type="button" id="tabLookupBtn" class="sc-tab" role="tab" aria-selected="false" aria-controls="paneLookup">
             <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M7.5 3 6 17M14 3l-1.5 14M3.5 7.25h14M2.5 12.75h14"/></svg>
@@ -389,7 +389,7 @@
             </span>
             <div class="sc-drop-t" data-i18n="sc.drop_title">Dosyayı buraya bırakın</div>
             <div class="sc-drop-s" data-i18n="sc.drop_or">ya da <u>bilgisayarınızdan seçin</u></div>
-            <div class="sc-drop-types" data-i18n="drop.types">PE, EXE, DLL, ZIP, APK, ELF veya şüpheli belgeler (Maksimum 50 MB)</div>
+            <div class="sc-drop-types" data-i18n="drop.types">PE, EXE, DLL, ZIP, APK, ELF veya şüpheli belgeler (Maksimum 100 MB)</div>
           </div>
           <div class="sc-drop-notes">
             <p data-i18n="drop.tip"><b>İpucu:</b> Eklenti (AdBlock / uBlock) engellemesi veya bağlantı hatası yaşarsanız lütfen sayfayı <b>gizli sekmeden (Incognito)</b> açıp deneyin.</p>
@@ -955,7 +955,7 @@
       }
 
       function handleFile(file) {
-        if (!file || file.size > 50 * 1024 * 1024) { alert(t('scan.max_size_alert')); return; }
+        if (!file || file.size > 100 * 1024 * 1024) { alert(t('scan.max_size_alert')); return; }
         fileStatusBox.style.display = 'block';
         fileResultBox.style.display = 'none';
         fileStatusTitle.textContent = t('scan.preparing');
@@ -1131,6 +1131,7 @@
             <li><a href="mailto:viruskov@viruskov.com?subject=[FP-BILDIRIMI]" data-i18n="vk.foot.fp">Yanlış pozitif bildir</a></li>
             <li><a href="mailto:viruskov@viruskov.com">viruskov@viruskov.com</a></li>
             <li><a href="../eula.html" data-i18n="vk.foot.eula">EULA &amp; koşullar</a></li>
+            <li><a href="../openedr-eula.html" data-i18n="vk.foot.oeula">OpenEDR EULA</a></li>
           </ul>
         </div>
       </div>

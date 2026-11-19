@@ -698,6 +698,7 @@
             <li><a href="mailto:viruskov@viruskov.com?subject=[FP-BILDIRIMI]" data-i18n="vk.foot.fp">Yanlış pozitif bildir</a></li>
             <li><a href="mailto:viruskov@viruskov.com">viruskov@viruskov.com</a></li>
             <li><a href="eula.html" data-i18n="vk.foot.eula">EULA &amp; koşullar</a></li>
+            <li><a href="openedr-eula.html" data-i18n="vk.foot.oeula">OpenEDR EULA</a></li>
           </ul>
         </div>
       </div>
@@ -719,6 +720,9 @@
         const res = await fetch('https://api.viruskov.com/api/v1/insights/stats');
         if (res.ok) {
           const data = await res.json();
+          // The same response carries the human-review numbers: one request per poll
+          // instead of a second fetch of this endpoint for them.
+          if (data.human_analysis) renderHuman(data.human_analysis);
           if (data.status === 'success' && data.telemetry) {
             const t = data.telemetry;
             const elHashes = document.getElementById('tiTotalHashes');
@@ -855,12 +859,6 @@
           : '';
       }
     }
-    async function fetchHuman() {
-      try {
-        const res = await fetch('https://api.viruskov.com/api/v1/insights/stats');
-        if (res.ok) { const d = await res.json(); renderHuman(d.human_analysis); }
-      } catch (_) {}
-    }
 
     // ML dataset (own / public / both). Fetched once per page load: this endpoint is
     // under the per-IP REST quota, and the server refreshes it at most once a minute.
@@ -962,8 +960,6 @@
 
     fetchTelemetry();
     setInterval(fetchTelemetry, 8000);
-    fetchHuman();
-    setInterval(fetchHuman, 30000);
 
     // 2. Scan History Manager
     function getScanHistory() {
