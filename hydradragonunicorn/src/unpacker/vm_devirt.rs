@@ -5312,7 +5312,6 @@ fn validate_function_soundness(func: &LiftedFunction, view: &PeImageView) -> Res
     };
 
     let check_xmms = |xmms: &[(ExprId, ExprId); 16],
-                      pending: &[(i64, ExprId)],
                       stores: &[StoreRecord],
                       all_aliasing: bool,
                       max_ver: u32,
@@ -5327,11 +5326,6 @@ fn validate_function_soundness(func: &LiftedFunction, view: &PeImageView) -> Res
                 }
                 check_expr_clean(lo, "xmm_out", stores, all_aliasing, max_ver, max_cr8_ver)?;
                 check_expr_clean(hi, "xmm_out", stores, all_aliasing, max_ver, max_cr8_ver)?;
-                if expr_loads_overlapping_caller_slots(&func.arena, lo, pending, word_bytes)
-                    || expr_loads_overlapping_caller_slots(&func.arena, hi, pending, word_bytes)
-                {
-                    return Err("load_across_aliasing_store".into());
-                }
             }
         }
         Ok(())
@@ -5419,7 +5413,7 @@ fn validate_function_soundness(func: &LiftedFunction, view: &PeImageView) -> Res
                                 max_ver: u32,
                                 max_cr8_ver: u32|
          -> Result<(), String> {
-            check_xmms(final_xmms, pending, stores, all_aliasing, max_ver, max_cr8_ver)?;
+            check_xmms(final_xmms, stores, all_aliasing, max_ver, max_cr8_ver)?;
             for &(_, val) in pending {
                 check_expr_clean(val, "caller_store", stores, all_aliasing, max_ver, max_cr8_ver)?;
             }
@@ -5429,9 +5423,6 @@ fn validate_function_soundness(func: &LiftedFunction, view: &PeImageView) -> Res
                 }
                 let e = final_regs[r.idx()];
                 check_expr_clean(e, r.as_str(), stores, all_aliasing, max_ver, max_cr8_ver)?;
-                if expr_loads_overlapping_caller_slots(&func.arena, e, pending, word_bytes) {
-                    return Err("load_across_aliasing_store".into());
-                }
             }
             Ok(())
         };
@@ -5531,20 +5522,8 @@ fn validate_function_soundness(func: &LiftedFunction, view: &PeImageView) -> Res
                     cur_max_ver,
                     cur_cr8_ver,
                 )?;
-                // The pending stores go out one after another: a value must not read a
-                // slot another one has already overwritten.
-                for (i, &(_, val)) in exit.pending.iter().enumerate() {
-                    let others: Vec<(i64, ExprId)> = exit
-                        .pending
-                        .iter()
-                        .enumerate()
-                        .filter(|&(j, _)| j != i)
-                        .map(|(_, &p)| p)
-                        .collect();
-                    if expr_loads_overlapping_caller_slots(&func.arena, val, &others, word_bytes) {
-                        return Err("load_across_aliasing_store".into());
-                    }
-                }
+                // Values reading slots the pending stores overwrite are read before
+                // them (`emit_block_outputs_and_jump`).
             }
             IrTerm::MidCall { target, final_regs, final_xmms, pending_caller_stores, cont_block, .. } => {
                 if let MidCallTarget::DirectVa(va) = target {
@@ -5699,38 +5678,6 @@ fn expr_loads_through_aligned_base(arena: &ExprArena, root: ExprId) -> bool {
         if let ExprNode::Load { addr, .. } = node {
             if expr_contains_aligned_base(arena, *addr) {
                 return true;
-            }
-        }
-        push_expr_children(node, &mut st);
-    }
-    false
-}
-
-fn expr_loads_overlapping_caller_slots(
-    arena: &ExprArena,
-    root: ExprId,
-    pending_caller_stores: &[(i64, ExprId)],
-    word_bytes: u8,
-) -> bool {
-    if pending_caller_stores.is_empty() {
-        return false;
-    }
-    let mut seen = HashSet::new();
-    let mut st = vec![root];
-    while let Some(id) = st.pop() {
-        if !seen.insert(id) {
-            continue;
-        }
-        let node = arena.get(id);
-        if let ExprNode::Load { addr, width, .. } = node {
-            if let Some((StackSpace::CallerStack, loff)) = arena.as_stack_offset(*addr) {
-                for &(soff, _) in pending_caller_stores {
-                    if (loff as i128) < (soff as i128) + (word_bytes as i128)
-                        && (soff as i128) < (loff as i128) + (*width as i128)
-                    {
-                        return true;
-                    }
-                }
             }
         }
         push_expr_children(node, &mut st);
@@ -5937,6 +5884,24 @@ impl<'a> CodegenCtx<'a> {
         self.emit_alu_imm(a, AluOp::And, dst, mask, Some(spill_reg))
     }
 
+    /// Evaluated by one load or move that uses no other register (so it can go into
+    /// the spill register while the destination holds a value).
+    fn is_leaf(&self, id: ExprId) -> bool {
+        if self.spills.contains_key(&id) || self.pinned.contains_key(&id) {
+            return true;
+        }
+        match self.arena.get(id) {
+            ExprNode::Const(_) | ExprNode::XmmIn(..) => true,
+            ExprNode::RegIn(r) => *r != ArchReg::Rsp,
+            ExprNode::EntryRflags => self.bitness == 64,
+            ExprNode::Load { addr, .. } => {
+                matches!(self.arena.as_stack_offset(*addr), Some((StackSpace::CallerStack, off))
+                    if i32::try_from(self.rsp_depth + off).is_ok())
+            }
+            _ => false,
+        }
+    }
+
     fn emit_alu_imm(
         &self,
         a: &mut CodeAssembler,
@@ -5999,6 +5964,43 @@ impl<'a> CodegenCtx<'a> {
             }
         }
         .map_err(|e| e.to_string())
+    }
+
+    /// `dst = dst op leaf` (`is_leaf`): straight from its stack slot when it is a qword
+    /// there, otherwise through `spill_reg`.
+    fn emit_alu_leaf(
+        &mut self,
+        a: &mut CodeAssembler,
+        op: AluOp,
+        dst: ArchReg,
+        leaf: ExprId,
+        spill_reg: ArchReg,
+    ) -> Result<(), String> {
+        if self.bitness == 64 {
+            let at = self.spills.get(&leaf).or_else(|| self.pinned.get(&leaf)).map(|&d| self.rsp_depth - d);
+            let slot = at.or_else(|| match self.arena.get(leaf) {
+                ExprNode::Load { addr, width: 8, .. } => match self.arena.as_stack_offset(*addr) {
+                    Some((StackSpace::CallerStack, off)) => Some(self.rsp_depth + off),
+                    _ => None,
+                },
+                _ => None,
+            });
+            if let Some(rel) = slot.and_then(|r| i32::try_from(r).ok()) {
+                let m = qword_ptr(gpr64::rsp + rel);
+                let d = to_asm64(dst);
+                return match op {
+                    AluOp::Add => a.add(d, m),
+                    AluOp::Sub => a.sub(d, m),
+                    AluOp::And => a.and(d, m),
+                    AluOp::Or => a.or(d, m),
+                    AluOp::Xor => a.xor(d, m),
+                    AluOp::Mul => a.imul_2(d, m),
+                }
+                .map_err(|e| e.to_string());
+            }
+        }
+        self.eval_expr_into(a, leaf, spill_reg, dst)?;
+        self.emit_alu_reg(a, op, dst, spill_reg)
     }
 
     fn eval_expr_into(
@@ -6115,6 +6117,17 @@ impl<'a> CodegenCtx<'a> {
                         return self.emit_alu_imm(a, AluOp::Sub, dst, imm.wrapping_neg(), Some(spill_reg));
                     }
                     return self.emit_alu_imm(a, op, dst, imm, Some(spill_reg));
+                }
+                // An operand read in one instruction without a scratch register goes
+                // straight into `spill_reg` after the other one: no push / pop of `dst`
+                // (either side for the commutative operations).
+                if self.is_leaf(rhs) {
+                    self.eval_expr_into(a, lhs, dst, spill_reg)?;
+                    return self.emit_alu_leaf(a, op, dst, rhs, spill_reg);
+                }
+                if op != AluOp::Sub && self.is_leaf(lhs) {
+                    self.eval_expr_into(a, rhs, dst, spill_reg)?;
+                    return self.emit_alu_leaf(a, op, dst, lhs, spill_reg);
                 }
                 self.eval_expr_into(a, lhs, dst, spill_reg)?;
                 self.emit_push(a, dst)?;
@@ -6858,12 +6871,12 @@ fn plan_hoisted(func: &LiftedFunction, base0: i64, slots: &mut HashMap<ExprId, i
 /// Only what is evaluated anyway: a `Select` arm runs only when chosen, so a node
 /// reached through arms alone is taken only when it reads no memory (a load there may
 /// be guarded by the condition).
-fn shared_subexprs(ctx: &CodegenCtx<'_>, roots: &[ExprId]) -> Vec<ExprId> {
+fn shared_subexprs(ctx: &CodegenCtx<'_>, roots: &[ExprId]) -> Vec<(ExprId, u64)> {
     shared_subexprs_in(ctx.arena, roots, |id| ctx.spills.contains_key(&id) || ctx.pinned.contains_key(&id))
 }
 
 /// `shared_subexprs`, with `done` the values already on the stack.
-fn shared_subexprs_in(arena: &ExprArena, roots: &[ExprId], done: impl Fn(ExprId) -> bool) -> Vec<ExprId> {
+fn shared_subexprs_in(arena: &ExprArena, roots: &[ExprId], done: impl Fn(ExprId) -> bool) -> Vec<(ExprId, u64)> {
     let children = |id: ExprId, out: &mut Vec<ExprId>| push_expr_children(arena.get(id), out);
     // References (over every path, arms included) and unconditional reach.
     let mut refs: HashMap<ExprId, u32> = HashMap::new();
@@ -6910,7 +6923,7 @@ fn shared_subexprs_in(arena: &ExprArena, roots: &[ExprId], done: impl Fn(ExprId)
     ids.sort_unstable();
     let mut cost: HashMap<ExprId, u32> = HashMap::new();
     let mut reads_mem: HashMap<ExprId, bool> = HashMap::new();
-    let mut chosen: Vec<ExprId> = Vec::new();
+    let mut chosen: Vec<(ExprId, u64)> = Vec::new();
     let mut chosen_set: HashSet<ExprId> = HashSet::new();
     for id in ids {
         if done(id) {
@@ -6933,8 +6946,10 @@ fn shared_subexprs_in(arena: &ExprArena, roots: &[ExprId], done: impl Fn(ExprId)
             node,
             ExprNode::Const(_) | ExprNode::RegIn(_) | ExprNode::StackBase | ExprNode::XmmIn(..) | ExprNode::EntryRflags
         ) || arena.as_stack_offset(id).is_some();
-        if refs.get(&id).copied().unwrap_or(0) >= 2 && c >= 3 && !trivial && (uncond.contains(&id) || !m) {
-            chosen.push(id);
+        let r = refs.get(&id).copied().unwrap_or(0);
+        if r >= 2 && c >= 3 && !trivial && (uncond.contains(&id) || !m) {
+            // Evaluations saved: its cost for every use after the first.
+            chosen.push((id, c as u64 * (r as u64 - 1)));
             chosen_set.insert(id);
         }
     }
@@ -6946,13 +6961,20 @@ fn shared_subexprs_in(arena: &ExprArena, roots: &[ExprId], done: impl Fn(ExprId)
 /// safe to read: its block's earlier stores have captured the older ones.
 fn precompute_shared(a: &mut CodeAssembler, ctx: &mut CodegenCtx<'_>, roots: &[ExprId]) -> Result<(), String> {
     let [w0, _, w2] = ctx.scratch;
-    for id in shared_subexprs(ctx, roots) {
-        if ctx.spills.len() >= MAX_BLOCK_SPILLS {
-            break;
-        }
-        if !ctx.spill_free && expr_uses_spill(ctx.arena, ctx.bitness, id) {
-            continue;
-        }
+    // The block's spill budget (a kernel thread has 24 KiB of stack), less a reserve
+    // for the loads later stores make it read early (`emit_block_effects`): the
+    // subexpressions that save the most evaluation get it.
+    let room = MAX_BLOCK_SPILLS.saturating_sub(SPILL_RESERVE_FOR_LOADS).saturating_sub(ctx.spills.len());
+    let mut picked: Vec<(ExprId, u64)> = shared_subexprs(ctx, roots)
+        .into_iter()
+        .filter(|&(id, _)| ctx.spill_free || !expr_uses_spill(ctx.arena, ctx.bitness, id))
+        .collect();
+    if picked.len() > room {
+        picked.sort_unstable_by(|x, y| y.1.cmp(&x.1).then(x.0.cmp(&y.0)));
+        picked.truncate(room);
+        picked.sort_unstable_by_key(|&(id, _)| id);
+    }
+    for (id, _) in picked {
         ctx.eval_expr_into(a, id, w0, w2)?;
         ctx.emit_push(a, w0)?;
         ctx.spills.insert(id, ctx.rsp_depth);
@@ -6962,6 +6984,9 @@ fn precompute_shared(a: &mut CodeAssembler, ctx: &mut CodegenCtx<'_>, roots: &[E
 
 /// Upper bound on loads pushed in one block (each is a qword of stack).
 const MAX_BLOCK_SPILLS: usize = 256;
+
+/// Spill slots `precompute_shared` leaves to loads read early.
+const SPILL_RESERVE_FOR_LOADS: usize = 64;
 
 /// `effects` in order. `later` are the expressions the block evaluates after them
 /// (exit registers and stores, the branch condition).
@@ -7568,6 +7593,45 @@ fn emit_block_outputs_and_jump(
         ctx.pinned.remove(&l);
         ctx.spills.insert(l, ctx.rsp_depth);
     }
+    // Caller-frame slots the pending stores below overwrite: every value still to be
+    // computed (other stores, registers, XMMs) that reads one reads it now, before
+    // the first of them. All effects are done, so these reads see what they should.
+    if !pending_caller_stores.is_empty() {
+        let overlaps = |loff: i64, w: u8| {
+            pending_caller_stores
+                .iter()
+                .any(|&(off, _)| loff < off + word_bytes && off < loff + w as i64)
+        };
+        let mut st: Vec<ExprId> = later.clone();
+        let mut seen = HashSet::new();
+        let mut loads: Vec<ExprId> = Vec::new();
+        while let Some(id) = st.pop() {
+            if !seen.insert(id) || ctx.spills.contains_key(&id) || ctx.pinned.contains_key(&id) {
+                continue;
+            }
+            let node = ctx.arena.get(id);
+            if let ExprNode::Load { addr, width, .. } = node {
+                if let Some((StackSpace::CallerStack, loff)) = ctx.arena.as_stack_offset(*addr) {
+                    if overlaps(loff, *width) {
+                        loads.push(id);
+                        continue;
+                    }
+                }
+            }
+            push_expr_children(node, &mut st);
+        }
+        loads.sort_unstable();
+        let [w0, _, w2] = ctx.scratch;
+        for l in loads {
+            if ctx.spills.len() >= MAX_BLOCK_SPILLS {
+                return Err("spill_limit".into());
+            }
+            ctx.eval_expr_into(a, l, w0, w2)?;
+            ctx.emit_push(a, w0)?;
+            ctx.spills.insert(l, ctx.rsp_depth);
+        }
+    }
+
     // Shared subexpressions of the outputs, once each (all stores are done).
     if need_w0 {
         precompute_shared(a, &mut ctx, &later)?;
@@ -7713,7 +7777,9 @@ fn compile_function_into_asm(
         .map(|_| a.create_label())
         .collect();
 
+    let mut dbg_starts: Vec<usize> = Vec::new();
     for (bi, block) in func.blocks.iter().enumerate() {
+        dbg_starts.push(a.instructions().len());
         if bi > 0 {
             a.set_label(&mut block_lbls[bi]).map_err(|e| e.to_string())?;
             a.zero_bytes().map_err(|e| e.to_string())?;
@@ -8051,6 +8117,33 @@ fn compile_function_into_asm(
                 )?;
             }
             IrTerm::Bailout(r) => return Err(r.clone()),
+        }
+    }
+    if std::env::var("DBGTMP_DIS").is_ok() {
+        dbg_starts.push(a.instructions().len());
+        let ins = a.instructions();
+        let mut fmt = IntelFormatter::new();
+        let mut hist: HashMap<String, usize> = HashMap::new();
+        for x in ins {
+            let mut t = String::new();
+            fmt.format(x, &mut t);
+            let t = t.split(' ').next().unwrap_or("").to_string();
+            *hist.entry(t).or_default() += 1;
+        }
+        let mut hv: Vec<_> = hist.into_iter().collect();
+        hv.sort_by(|a, b| b.1.cmp(&a.1));
+        eprintln!("DBGTMP_HIST {:?}", &hv[..hv.len().min(12)]);
+        if let Some(bi) = func.blocks.iter().position(|b| matches!(b.term, IrTerm::ExitToVm { .. })) {
+            let mut out = String::new();
+            for x in &ins[dbg_starts[bi]..dbg_starts[bi + 1]] {
+                let mut t = String::new();
+                fmt.format(x, &mut t);
+                out.push_str(&t);
+                out.push('
+');
+            }
+            eprintln!("DBGTMP_BLOCK {} insns
+{}DBGTMP_END", dbg_starts[bi + 1] - dbg_starts[bi], out);
         }
     }
     Ok(())
@@ -10480,6 +10573,120 @@ mod tests {
             };
             assert_eq!(run_with_flags(&orig_pe, base + 0x1000, c, d, 0, 0), want, "original {c:#x} {d:#x}");
             assert_eq!(run_with_flags(&devirt_pe, base + 0x1000, c, d, 0, 0), want, "devirtualized {c:#x} {d:#x}");
+        }
+    }
+
+    #[test]
+    fn exit_values_read_caller_slots_before_the_exit_overwrites_them_e2e() {
+        use gpr64::*;
+        let base = 0x1_4000_0000u64;
+        let mut text_sec = vec![0xCCu8; 0x200];
+        // The caller fills its home slots, calls, then reads them back.
+        let fn0 = assemble_at(64, base + 0x1000, |a| {
+            a.sub(rsp, 0x28)?;
+            // Callee's home slots 1 and 2 (entry + 8 / + 0x10).
+            a.mov(qword_ptr(rsp), 0x500)?;
+            a.mov(qword_ptr(rsp + 0x08), 0x600)?;
+            a.call(base + 0x1100)?;
+            a.shl(rax, 16)?;
+            a.add(rax, qword_ptr(rsp))?;
+            a.shl(rax, 16)?;
+            a.add(rax, qword_ptr(rsp + 0x08))?;
+            a.add(rsp, 0x28)?;
+            a.ret()
+        });
+        text_sec[..fn0.len()].copy_from_slice(&fn0);
+        let callee = assemble_at(64, base + 0x1100, |a| a.jmp(base + 0x2000));
+        text_sec[0x100..0x100 + callee.len()].copy_from_slice(&callee);
+        let mut vmp_sec = vec![0xCCu8; 0x400];
+        // rax = old home slot 1; home slot 1 = rcx; home slot 2 = old home slot 1 + 1.
+        let stub = assemble_at(64, base + 0x2000, |a| {
+            a.push(rbx)?;
+            a.push(rbp)?;
+            a.mov(rax, qword_ptr(rsp + 0x18))?;
+            a.mov(r8, rax)?;
+            for k in 0..40i32 {
+                a.add(r8, k + 3)?;
+                a.sub(r8, k + 3)?;
+            }
+            a.mov(qword_ptr(rsp + 0x18), rcx)?;
+            a.add(r8, 1)?;
+            a.mov(qword_ptr(rsp + 0x20), r8)?;
+            a.pop(rbp)?;
+            a.pop(rbx)?;
+            a.ret()
+        });
+        vmp_sec[..stub.len()].copy_from_slice(&stub);
+        let orig_pe = build_two_exec_pe64(&text_sec, &vmp_sec, 0x1000);
+        let (devirt_pe, report) = devirtualize_pe_bytes(&orig_pe, BinaryDevirtConfig::default()).unwrap();
+        assert_eq!(report.devirtualized_total, 1, "bailouts: {:?}", report.bailout_reasons);
+        for c in [7u64, 123] {
+            // rax = 0x500, home 1 = rcx, home 2 = 0x501.
+            let want = (((0x500 << 16) + c) << 16) + 0x501;
+            assert_eq!(run_with_flags(&orig_pe, base + 0x1000, c, 0, 0, 0), want, "original {c}");
+            assert_eq!(run_with_flags(&devirt_pe, base + 0x1000, c, 0, 0, 0), want, "devirtualized {c}");
+        }
+    }
+
+    #[test]
+    fn leaf_operands_from_registers_and_caller_slots_e2e() {
+        use gpr64::*;
+        let base = 0x1_4000_0000u64;
+        let mut text_sec = vec![0xCCu8; 0x200];
+        let fn0 = assemble_at(64, base + 0x1000, |a| {
+            a.sub(rsp, 0x28)?;
+            a.mov(r8, 0x1234_5678_9abc_def0u64)?;
+            a.mov(qword_ptr(rsp), r8)?; // callee's home 1
+            a.mov(qword_ptr(rsp + 0x08), 0x77)?; // callee's home 2
+            a.call(base + 0x1100)?;
+            a.add(rsp, 0x28)?;
+            a.ret()
+        });
+        text_sec[..fn0.len()].copy_from_slice(&fn0);
+        let callee = assemble_at(64, base + 0x1100, |a| a.jmp(base + 0x2000));
+        text_sec[0x100..0x100 + callee.len()].copy_from_slice(&callee);
+        let mut vmp_sec = vec![0xCCu8; 0x400];
+        // Non-commutative with a leaf on the left (rcx - (h1 * rdx)), leaves on both
+        // sides, a caller-slot qword as the right operand of every operation.
+        let stub = assemble_at(64, base + 0x2000, |a| {
+            a.push(rbx)?;
+            a.push(rbp)?;
+            a.mov(r8, qword_ptr(rsp + 0x18))?; // h1
+            a.mov(r9, qword_ptr(rsp + 0x20))?; // h2
+            for k in 0..40i32 {
+                a.add(r9, k + 3)?;
+                a.sub(r9, k + 3)?;
+            }
+            a.mov(r10, r8)?;
+            a.imul_2(r10, rdx)?;
+            a.mov(rax, rcx)?;
+            a.sub(rax, r10)?; // rcx - h1 * rdx
+            a.mov(r11, rcx)?;
+            a.xor(r11, rdx)?;
+            a.and(r11, r8)?; // (rcx ^ rdx) & h1
+            a.add(rax, r11)?;
+            a.mov(r10, r9)?;
+            a.sub(r10, rcx)?; // h2 - rcx
+            a.or(r10, rdx)?;
+            a.xor(rax, r10)?;
+            a.sub(rax, r9)?;
+            a.pop(rbp)?;
+            a.pop(rbx)?;
+            a.ret()
+        });
+        vmp_sec[..stub.len()].copy_from_slice(&stub);
+        let orig_pe = build_two_exec_pe64(&text_sec, &vmp_sec, 0x1000);
+        let (devirt_pe, report) = devirtualize_pe_bytes(&orig_pe, BinaryDevirtConfig::default()).unwrap();
+        assert_eq!(report.devirtualized_total, 1, "bailouts: {:?}", report.bailout_reasons);
+        let h1 = 0x1234_5678_9abc_def0u64;
+        let h2 = 0x77u64;
+        for (c, d) in [(5u64, 3u64), (u64::MAX, 0x8000_0000_0000_0001), (0, 0), (0xdead_beef, 0x1_0000_0001)] {
+            let mut r = c.wrapping_sub(h1.wrapping_mul(d));
+            r = r.wrapping_add((c ^ d) & h1);
+            r ^= h2.wrapping_sub(c) | d;
+            r = r.wrapping_sub(h2);
+            assert_eq!(run_with_flags(&orig_pe, base + 0x1000, c, d, 0, 0), r, "original {c:#x} {d:#x}");
+            assert_eq!(run_with_flags(&devirt_pe, base + 0x1000, c, d, 0, 0), r, "devirtualized {c:#x} {d:#x}");
         }
     }
 
