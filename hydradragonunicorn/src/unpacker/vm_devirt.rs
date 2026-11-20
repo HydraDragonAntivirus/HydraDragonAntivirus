@@ -4275,6 +4275,9 @@ pub fn lift_vm_entry_cfg(
                         if let (Some((parent, poff)), Some(mask)) = (arena.as_stack_offset(lhs), arena.as_const(rhs)) {
                             debug_assert_eq!(state.aligned_defs.len(), aid as usize);
                             state.aligned_defs.push((parent, poff, mask));
+                            if parent == StackSpace::CallerStack {
+                                state.stack.note_aligned_frame(aid, poff);
+                            }
                         }
                         let abase = arena.aligned_base(aid);
                         state.write_reg(&mut arena, ArchReg::Rsp, RegSlice::Full64, abase);
@@ -5164,10 +5167,7 @@ fn validate_function_soundness(func: &LiftedFunction, view: &PeImageView) -> Res
         }
     }
 
-    // `(mem_ver, all-aliasing)` at the start of the block being checked. A load is
-    // only a problem when a store of an EARLIER block may have overwritten what it
-    // read: against the stores of its own block the codegen evaluates it before them
-    // (`CodegenCtx::spills`, `emit_block_effects`).
+    // `(mem_ver, all-aliasing)` at the start of the block being checked.
     let block_start: std::cell::Cell<(u32, bool)> = std::cell::Cell::new((0, false));
     let check_expr_clean = |e: ExprId,
                             ctx: &str,
@@ -5182,12 +5182,10 @@ fn validate_function_soundness(func: &LiftedFunction, view: &PeImageView) -> Res
         if expr_contains_entry_flag(&func.arena, e) {
             return Err("entry_flag_beyond_block0".into());
         }
-        let (start_ver, start_all_aliasing) = block_start.get();
-        let prior: Vec<StoreRecord> = stores.iter().copied().filter(|st| st.ver_after <= start_ver).collect();
-        let _ = all_aliasing;
-        if expr_has_aliasing_stale_load(&func.arena, view, e, &prior, start_all_aliasing, max_ver.min(start_ver)) {
-            return Err("load_across_aliasing_store".into());
-        }
+        // Loads against stores: the codegen reads every load before the first store
+        // that follows it on the path, in its own block (`CodegenCtx::spills`) or for
+        // later blocks into the frame's pinned slots (`plan_pinned_loads`).
+        let _ = (stores, all_aliasing, max_ver, &block_start);
         if expr_has_stale_cr8(&func.arena, e, max_cr8_ver) {
             return Err("cr8_stale_read".into());
         }
@@ -5554,41 +5552,6 @@ fn push_expr_children(node: &ExprNode, st: &mut Vec<ExprId>) {
     }
 }
 
-fn expr_has_aliasing_stale_load(
-    arena: &ExprArena,
-    view: &PeImageView,
-    root: ExprId,
-    stores: &[StoreRecord],
-    all_aliasing: bool,
-    max_ver: u32,
-) -> bool {
-    if max_ver == 0 {
-        return false;
-    }
-    let mut seen = HashSet::new();
-    let mut st = vec![root];
-    while let Some(id) = st.pop() {
-        if !seen.insert(id) {
-            continue;
-        }
-        let node = arena.get(id);
-        if let ExprNode::Load { mem_ver, addr, width } = node {
-            if all_aliasing {
-                if *mem_ver < max_ver {
-                    return true;
-                }
-            } else if stores
-                .iter()
-                .any(|sr| *mem_ver < sr.ver_after && addrs_may_alias(arena, view, *addr, *width, sr.addr, sr.width))
-            {
-                return true;
-            }
-        }
-        push_expr_children(node, &mut st);
-    }
-    false
-}
-
 fn expr_loads_overlapping_caller_slots(
     arena: &ExprArena,
     root: ExprId,
@@ -5672,6 +5635,9 @@ struct CodegenCtx<'a> {
     /// Loads already read and pushed, by the `rsp_depth` after their push: a later
     /// store of the block could change what they read (see `emit_block_effects`).
     spills: HashMap<ExprId, i64>,
+    /// Loads already read into the frame's pinned slots on this path, by slot depth
+    /// (`StackBase - depth`; see `plan_pinned_loads`).
+    pinned: HashMap<ExprId, i64>,
 }
 
 impl<'a> CodegenCtx<'a> {
@@ -5862,7 +5828,7 @@ impl<'a> CodegenCtx<'a> {
         if dst == spill_reg {
             return Err("codegen_dst_eq_spill".into());
         }
-        if let Some(&at) = self.spills.get(&expr) {
+        if let Some(&at) = self.spills.get(&expr).or_else(|| self.pinned.get(&expr)) {
             // Read earlier, before a store that could have changed it.
             let rel = self.rsp_depth - at;
             let m = mem_disp(self.bitness, ArchReg::Rsp, rel, self.word_bytes as u8);
@@ -6350,6 +6316,269 @@ fn effect_store_ver(e: &IrEffect) -> Option<u32> {
     }
 }
 
+/// The frame a block runs in (see `compile_function_into_asm`).
+struct BlockFrame<'p> {
+    /// RSP at the block's start is `StackBase - base_depth`.
+    base_depth: i64,
+    /// The frame's entry RFLAGS are at `StackBase - 8`.
+    rflags_saved: bool,
+    /// Pinned slots of the function (`plan_pinned_loads`), by load.
+    pin_slots: &'p HashMap<ExprId, i64>,
+    /// `mem_ver` after the last memory-writing effect before the block, on its paths.
+    start_ver: u32,
+    /// Loads read by the blocks reachable from this one.
+    succ_loads: &'p [ExprId],
+}
+
+impl BlockFrame<'_> {
+    /// Pinned loads already read at the block's start: every pinned load read before
+    /// the last store on the way here (`plan_pinned_loads`).
+    fn active_pinned(&self, arena: &ExprArena) -> HashMap<ExprId, i64> {
+        self.pin_slots
+            .iter()
+            .filter(|&(&l, _)| matches!(arena.get(l), ExprNode::Load { mem_ver, .. } if *mem_ver < self.start_ver))
+            .map(|(&l, &d)| (l, d))
+            .collect()
+    }
+}
+
+/// Where loads that a later block reads live once a store has come between.
+struct PinPlan {
+    /// Load -> slot depth (`StackBase - depth`), for each load some store of an earlier
+    /// block (on a path to a block reading it) comes after.
+    slots: HashMap<ExprId, i64>,
+    /// Per block: `mem_ver` after the last memory-writing effect before it.
+    start_ver: Vec<u32>,
+    /// Per block: every load the blocks reachable from it read.
+    succ_loads: Vec<Vec<ExprId>>,
+}
+
+/// Upper bound on pinned slots of a function.
+const MAX_PINNED_LOADS: usize = 1024;
+
+/// Every block evaluates its values from the entry state, lazily, so a load an earlier
+/// block made reads memory only where it is used - after any store of the blocks in
+/// between. Such a load is read right before the first store that follows it on the
+/// path (`emit_block_effects`, same place as the in-block spills) into a slot of a
+/// per-frame area below the saved RFLAGS (`base0` = bytes above it), which stays
+/// allocated for the whole frame.
+///
+/// A store with `mem_ver_after = w` captures every load the later blocks read with
+/// `mem_ver < w`. At a block's start the captured ones are the pinned loads with
+/// `mem_ver` below the version after the last store before it (`start_ver`); a block
+/// reached with two different such versions is rejected.
+fn plan_pinned_loads(func: &LiftedFunction, view: &PeImageView, base0: i64) -> Result<PinPlan, String> {
+    let n = func.blocks.len();
+    let succs = |b: &LiftedBlock| -> Vec<usize> {
+        match &b.term {
+            IrTerm::CondBranch { taken_block, fallthrough_block, .. } => vec![*taken_block, *fallthrough_block],
+            _ => Vec::new(),
+        }
+    };
+    let own_loads: Vec<HashSet<ExprId>> = func
+        .blocks
+        .iter()
+        .map(|b| {
+            let mut out = HashSet::new();
+            let mut seen = HashSet::new();
+            let mut st = block_root_exprs(b);
+            while let Some(id) = st.pop() {
+                if !seen.insert(id) {
+                    continue;
+                }
+                let node = func.arena.get(id);
+                if matches!(node, ExprNode::Load { .. }) {
+                    out.insert(id);
+                }
+                push_expr_children(node, &mut st);
+            }
+            out
+        })
+        .collect();
+    let mut succ_loads: Vec<Vec<ExprId>> = Vec::with_capacity(n);
+    for b in &func.blocks {
+        let mut reached = HashSet::new();
+        let mut st = succs(b);
+        let mut loads = HashSet::new();
+        while let Some(x) = st.pop() {
+            if !reached.insert(x) {
+                continue;
+            }
+            loads.extend(own_loads[x].iter().copied());
+            st.extend(succs(&func.blocks[x]));
+        }
+        let mut v: Vec<ExprId> = loads.into_iter().collect();
+        v.sort_unstable();
+        succ_loads.push(v);
+    }
+    let mut pinned: Vec<ExprId> = Vec::new();
+    let mut is_pinned = HashSet::new();
+    // Only loads some such store may overwrite: the others read the same in any block.
+    let store_of = |e: &IrEffect| -> Option<(ExprId, u8)> {
+        match e {
+            IrEffect::Store { addr, width, .. }
+            | IrEffect::AtomicCmpXchg { addr, width, .. }
+            | IrEffect::AtomicRmw { addr, width, .. } => Some((*addr, *width)),
+            _ => None,
+        }
+    };
+    for (bi, b) in func.blocks.iter().enumerate() {
+        for eff in &b.effects {
+            if let (Some(w), Some((saddr, sw))) = (effect_store_ver(eff), store_of(eff)) {
+                for &l in &succ_loads[bi] {
+                    let ExprNode::Load { addr, width, mem_ver } = func.arena.get(l) else { continue };
+                    if *mem_ver < w
+                        && !is_pinned.contains(&l)
+                        && addrs_may_alias(&func.arena, view, *addr, *width, saddr, sw)
+                    {
+                        is_pinned.insert(l);
+                        pinned.push(l);
+                    }
+                }
+            }
+        }
+    }
+    if pinned.len() > MAX_PINNED_LOADS {
+        return Err("pinned_limit".into());
+    }
+    pinned.sort_unstable();
+    let slots: HashMap<ExprId, i64> = pinned
+        .iter()
+        .enumerate()
+        .map(|(i, &l)| (l, base0 + 8 * (i as i64 + 1)))
+        .collect();
+
+    // Version after the last store before each block.
+    let mut start_ver: Vec<Option<u32>> = vec![None; n];
+    if n > 0 {
+        start_ver[0] = Some(0);
+    }
+    for (bi, b) in func.blocks.iter().enumerate() {
+        if let IrTerm::MidCall { cont_block, .. } = &b.term {
+            // A new frame: nothing of the old one is read there.
+            let _ = bi;
+            start_ver[*cont_block] = Some(0);
+        }
+    }
+    let mut work: VecDeque<usize> = (0..n).filter(|&i| start_ver[i].is_some()).collect();
+    while let Some(bi) = work.pop_front() {
+        let Some(mut v) = start_ver[bi] else { continue };
+        for eff in &func.blocks[bi].effects {
+            if let Some(w) = effect_store_ver(eff) {
+                v = w;
+            }
+        }
+        for sx in succs(&func.blocks[bi]) {
+            match start_ver[sx] {
+                None => {
+                    start_ver[sx] = Some(v);
+                    work.push_back(sx);
+                }
+                Some(old) if old != v && !slots.is_empty() => return Err("pinned_ver_merge".into()),
+                Some(_) => {}
+            }
+        }
+    }
+    Ok(PinPlan { slots, start_ver: start_ver.into_iter().map(|v| v.unwrap_or(0)).collect(), succ_loads })
+}
+
+/// Subexpressions `roots` use more than once (each use re-evaluates them: the
+/// codegen walks the expression DAG as a tree), worth computing once and pushing
+/// (`precompute_shared`). Ascending ids: children are interned before their parents,
+/// so each one only uses ones before it.
+///
+/// Only what is evaluated anyway: a `Select` arm runs only when chosen, so a node
+/// reached through arms alone is taken only when it reads no memory (a load there may
+/// be guarded by the condition).
+fn shared_subexprs(ctx: &CodegenCtx<'_>, roots: &[ExprId]) -> Vec<ExprId> {
+    let arena = ctx.arena;
+    let done = |id: ExprId| ctx.spills.contains_key(&id) || ctx.pinned.contains_key(&id);
+    let children = |id: ExprId, out: &mut Vec<ExprId>| push_expr_children(arena.get(id), out);
+    // References (over every path, arms included) and unconditional reach.
+    let mut refs: HashMap<ExprId, u32> = HashMap::new();
+    let mut uncond: HashSet<ExprId> = HashSet::new();
+    let mut st: Vec<(ExprId, bool)> = roots.iter().map(|&r| (r, true)).collect();
+    while let Some((id, u)) = st.pop() {
+        let c = refs.entry(id).or_insert(0);
+        *c += 1;
+        let first = *c == 1;
+        let newly_uncond = u && uncond.insert(id);
+        if done(id) || !(first || newly_uncond) {
+            continue;
+        }
+        if let ExprNode::Select { cond, if_true, if_false } = arena.get(id) {
+            st.push((*cond, u));
+            if first {
+                st.push((*if_true, false));
+                st.push((*if_false, false));
+            }
+            continue;
+        }
+        let mut ch = Vec::new();
+        children(id, &mut ch);
+        for x in ch {
+            // Revisiting only to spread `uncond`: count each edge once.
+            if first {
+                st.push((x, u));
+            } else if !uncond.contains(&x) {
+                st.push((x, true));
+                if let Some(c) = refs.get_mut(&x) {
+                    *c -= 1; // the push above counts again
+                }
+            }
+        }
+    }
+    let mut ids: Vec<ExprId> = refs.keys().copied().collect();
+    ids.sort_unstable();
+    let mut cost: HashMap<ExprId, u32> = HashMap::new();
+    let mut reads_mem: HashMap<ExprId, bool> = HashMap::new();
+    let mut chosen: Vec<ExprId> = Vec::new();
+    let mut chosen_set: HashSet<ExprId> = HashSet::new();
+    for id in ids {
+        if done(id) {
+            cost.insert(id, 1);
+            reads_mem.insert(id, false);
+            continue;
+        }
+        let node = arena.get(id);
+        let mut ch = Vec::new();
+        children(id, &mut ch);
+        let mut c: u32 = 1;
+        let mut m = matches!(node, ExprNode::Load { .. });
+        for x in &ch {
+            c = c.saturating_add(if chosen_set.contains(x) { 1 } else { cost.get(x).copied().unwrap_or(1) });
+            m |= reads_mem.get(x).copied().unwrap_or(true);
+        }
+        cost.insert(id, c);
+        reads_mem.insert(id, m);
+        let trivial = matches!(
+            node,
+            ExprNode::Const(_) | ExprNode::RegIn(_) | ExprNode::StackBase | ExprNode::XmmIn(..) | ExprNode::EntryRflags
+        ) || arena.as_stack_offset(id).is_some();
+        if refs.get(&id).copied().unwrap_or(0) >= 2 && c >= 3 && !trivial && (uncond.contains(&id) || !m) {
+            chosen.push(id);
+            chosen_set.insert(id);
+        }
+    }
+    chosen
+}
+
+/// Computes `shared_subexprs(roots)` once each and pushes them (`CodegenCtx::spills`),
+/// as far as the spill budget goes. Only where every load the roots read is already
+/// safe to read: its block's earlier stores have captured the older ones.
+fn precompute_shared(a: &mut CodeAssembler, ctx: &mut CodegenCtx<'_>, roots: &[ExprId]) -> Result<(), String> {
+    let [w0, _, w2] = ctx.scratch;
+    for id in shared_subexprs(ctx, roots) {
+        if ctx.spills.len() >= MAX_BLOCK_SPILLS {
+            break;
+        }
+        ctx.eval_expr_into(a, id, w0, w2)?;
+        ctx.emit_push(a, w0)?;
+        ctx.spills.insert(id, ctx.rsp_depth);
+    }
+    Ok(())
+}
+
 /// Upper bound on loads pushed in one block (each is a qword of stack).
 const MAX_BLOCK_SPILLS: usize = 256;
 
@@ -6365,6 +6594,7 @@ const MAX_BLOCK_SPILLS: usize = 256;
 fn emit_block_effects(
     a: &mut CodeAssembler,
     ctx: &mut CodegenCtx<'_>,
+    frame: &BlockFrame<'_>,
     effects: &[IrEffect],
     later: &[ExprId],
 ) -> Result<(), String> {
@@ -6374,9 +6604,17 @@ fn emit_block_effects(
             let mut roots: Vec<ExprId> = effects[i + 1..].iter().flat_map(effect_exprs).collect();
             roots.extend_from_slice(later);
             let mut loads: Vec<ExprId> = Vec::new();
+            // Loads of the blocks this one can reach that a store on the way may change.
+            for &l in frame.succ_loads {
+                if frame.pin_slots.contains_key(&l) && !ctx.pinned.contains_key(&l) && !ctx.spills.contains_key(&l) {
+                    if matches!(ctx.arena.get(l), ExprNode::Load { mem_ver, .. } if *mem_ver < ver) {
+                        loads.push(l);
+                    }
+                }
+            }
             let mut seen = HashSet::new();
             while let Some(id) = roots.pop() {
-                if !seen.insert(id) || ctx.spills.contains_key(&id) {
+                if !seen.insert(id) || ctx.spills.contains_key(&id) || ctx.pinned.contains_key(&id) {
                     continue;
                 }
                 let node = ctx.arena.get(id);
@@ -6389,7 +6627,16 @@ fn emit_block_effects(
                 push_expr_children(node, &mut roots);
             }
             loads.sort_unstable();
+            loads.dedup();
             for l in loads {
+                if let Some(&depth) = frame.pin_slots.get(&l) {
+                    // Read again by a later block: into its pinned slot.
+                    ctx.eval_expr_into(a, l, w0, w2)?;
+                    let m = mem_disp(ctx.bitness, ArchReg::Rsp, ctx.rsp_depth - depth, ctx.word_bytes as u8);
+                    ctx.emit_store_to_mem(a, m, w0, ctx.word_bytes as u8)?;
+                    ctx.pinned.insert(l, depth);
+                    continue;
+                }
                 if ctx.spills.len() >= MAX_BLOCK_SPILLS {
                     return Err("spill_limit".into());
                 }
@@ -6398,6 +6645,7 @@ fn emit_block_effects(
                 ctx.spills.insert(l, ctx.rsp_depth);
             }
         }
+        precompute_shared(a, ctx, &effect_exprs(eff))?;
         match eff {
             IrEffect::Store { addr, width, value, .. } => {
                 ctx.eval_expr_into(a, *value, w0, w2)?;
@@ -6701,7 +6949,7 @@ fn emit_vm_exit(a: &mut CodeAssembler, exit: &VmExit, target: u64) -> Result<(),
 fn emit_block_outputs_and_jump(
     a: &mut CodeAssembler,
     bitness: u32,
-    base_depth: i64,
+    frame: &BlockFrame<'_>,
     arena: &ExprArena,
     effects: &[IrEffect],
     pending_caller_stores: &[(i64, ExprId)],
@@ -6714,6 +6962,7 @@ fn emit_block_outputs_and_jump(
 ) -> Result<(), String> {
     let reg_limit = if bitness == 64 { 16 } else { 8 };
     let word_bytes = if bitness == 64 { 8i64 } else { 4i64 };
+    let base_depth = frame.base_depth;
 
     let mut modified: Vec<(ArchReg, ExprId)> = Vec::new();
     let mut read_inputs: HashSet<ArchReg> = HashSet::new();
@@ -6837,6 +7086,7 @@ fn emit_block_outputs_and_jump(
         scratch,
         eval_steps: 0,
         spills: HashMap::new(),
+        pinned: frame.active_pinned(arena),
     };
 
     let final_hw_rsp_delta = if pre_ret_pop {
@@ -6844,7 +7094,9 @@ fn emit_block_outputs_and_jump(
     } else {
         rsp_delta_target
     };
-    if final_hw_rsp_delta < 0 {
+    // Only ever lower RSP here: the frame's saved RFLAGS and pinned slots stay above
+    // it while values are computed. It reaches its final value at the very end.
+    if final_hw_rsp_delta < -base_depth {
         ctx.emit_rsp_adjust(a, final_hw_rsp_delta)?;
     }
 
@@ -6874,12 +7126,38 @@ fn emit_block_outputs_and_jump(
     for &(_, (lo, hi)) in &modified_xmms {
         later.extend([lo, hi]);
     }
-    emit_block_effects(a, &mut ctx, effects, &later)?;
+    emit_block_effects(a, &mut ctx, frame, effects, &later)?;
+
+    // A caller-frame store over a pinned slot would change it before the values that
+    // read it are computed: move those to the pushed spills (below RSP's final value
+    // and every store) first.
+    let mut overwritten: Vec<(ExprId, i64)> = ctx
+        .pinned
+        .iter()
+        .filter(|&(_, &d)| {
+            pending_caller_stores
+                .iter()
+                .any(|&(off, _)| off < -d + ctx.word_bytes && -d < off + word_bytes)
+        })
+        .map(|(&l, &d)| (l, d))
+        .collect();
+    overwritten.sort_unstable();
+    for (l, _) in overwritten {
+        let [w0, _, w2] = ctx.scratch;
+        ctx.eval_expr_into(a, l, w0, w2)?;
+        ctx.emit_push(a, w0)?;
+        ctx.pinned.remove(&l);
+        ctx.spills.insert(l, ctx.rsp_depth);
+    }
+    // Shared subexpressions of the outputs, once each (all stores are done).
+    if need_w0 && need_w2 {
+        precompute_shared(a, &mut ctx, &later)?;
+    }
 
     // Emit caller-frame stack stores (`off >= rsp_delta_target`). With the entry
     // RFLAGS saved at `StackBase - 8`, the stores over `[-16, 0)` go last, after every
     // other value (that may read the saved RFLAGS) has been computed.
-    let over_saved = |off: i64| base_depth > 0 && off > -16 - word_bytes && off < 0;
+    let over_saved = |off: i64| frame.rflags_saved && off > -16 - word_bytes && off < 0;
     let ordered: Vec<(i64, ExprId)> = pending_caller_stores
         .iter()
         .copied()
@@ -6966,6 +7244,7 @@ fn compile_function_into_asm(
     a: &mut CodeAssembler,
     bitness: u32,
     func: &LiftedFunction,
+    view: &PeImageView,
     entry_lbl: &mut CodeLabel,
 ) -> Result<(), String> {
     a.set_label(entry_lbl).map_err(|e| e.to_string())?;
@@ -6983,6 +7262,17 @@ fn compile_function_into_asm(
         a.pushfq().map_err(|e| e.to_string())?;
         a.lea(gpr64::rsp, ptr(gpr64::rsp) - 8).map_err(|e| e.to_string())?;
     }
+    // Below them, each frame keeps the pinned loads (`plan_pinned_loads`).
+    let base0: i64 = if saves_rflags { 16 } else { 0 };
+    let plan = plan_pinned_loads(func, view, base0)?;
+    if !plan.slots.is_empty() && bitness != 64 {
+        return Err("pinned_32bit".into());
+    }
+    let pin_bytes = 8 * plan.slots.len() as i64;
+    let pin_d = i32::try_from(pin_bytes).map_err(|_| "pinned_disp".to_string())?;
+    if pin_bytes > 0 {
+        a.lea(gpr64::rsp, ptr(gpr64::rsp) - pin_d).map_err(|e| e.to_string())?;
+    }
 
     let mut block_lbls: Vec<CodeLabel> = (0..func.blocks.len())
         .map(|_| a.create_label())
@@ -6993,7 +7283,14 @@ fn compile_function_into_asm(
             a.set_label(&mut block_lbls[bi]).map_err(|e| e.to_string())?;
             a.zero_bytes().map_err(|e| e.to_string())?;
         }
-        let base_depth: i64 = if saves_rflags { 16 } else { 0 };
+        let base_depth: i64 = base0 + pin_bytes;
+        let frame = BlockFrame {
+            base_depth,
+            rflags_saved: saves_rflags,
+            pin_slots: &plan.slots,
+            start_ver: plan.start_ver[bi],
+            succ_loads: &plan.succ_loads[bi],
+        };
 
         match &block.term {
             IrTerm::CondBranch { cond, taken_block, fallthrough_block } => {
@@ -7057,6 +7354,7 @@ fn compile_function_into_asm(
                     scratch,
                     eval_steps: 0,
                     spills: HashMap::new(),
+                    pinned: frame.active_pinned(&func.arena),
                 };
                 // Save scratch registers used by `cond`/`effects`
                 let mut pushed_sc = Vec::new();
@@ -7070,7 +7368,8 @@ fn compile_function_into_asm(
                     ctx.saved_regs.insert(s, ctx.rsp_depth);
                     pushed_sc.push(s);
                 }
-                emit_block_effects(a, &mut ctx, &block.effects, &[*cond])?;
+                emit_block_effects(a, &mut ctx, &frame, &block.effects, &[*cond])?;
+                precompute_shared(a, &mut ctx, &[*cond])?;
                 // Compute condition `0/1` into `scratch[2]`? No, emit_branch_on_cond uses flags then restores scratch BEFORE jcc!
                 let mut l_taken_tramp = a.create_label();
                 ctx.emit_branch_on_cond(a, *cond, &mut l_taken_tramp, scratch[0], scratch[1])?;
@@ -7115,7 +7414,7 @@ fn compile_function_into_asm(
                 emit_block_outputs_and_jump(
                     a,
                     bitness,
-                    base_depth,
+                    &frame,
                     &func.arena,
                     &block.effects,
                     pending_caller_stores,
@@ -7132,7 +7431,7 @@ fn compile_function_into_asm(
                 emit_block_outputs_and_jump(
                     a,
                     bitness,
-                    base_depth,
+                    &frame,
                     &func.arena,
                     &block.effects,
                     pending_caller_stores,
@@ -7150,7 +7449,7 @@ fn compile_function_into_asm(
                 emit_block_outputs_and_jump(
                     a,
                     bitness,
-                    base_depth,
+                    &frame,
                     &func.arena,
                     &block.effects,
                     pending_caller_stores,
@@ -7183,7 +7482,7 @@ fn compile_function_into_asm(
                 emit_block_outputs_and_jump(
                     a,
                     bitness,
-                    base_depth,
+                    &frame,
                     &func.arena,
                     &block.effects,
                     &[],
@@ -7211,7 +7510,7 @@ fn compile_function_into_asm(
                 emit_block_outputs_and_jump(
                     a,
                     bitness,
-                    base_depth,
+                    &frame,
                     &func.arena,
                     &block.effects,
                     &exit.pending,
@@ -7228,7 +7527,7 @@ fn compile_function_into_asm(
                 emit_block_outputs_and_jump(
                     a,
                     bitness,
-                    base_depth,
+                    &frame,
                     &func.arena,
                     &block.effects,
                     pending_caller_stores,
@@ -7253,7 +7552,7 @@ fn compile_function_into_asm(
                 emit_block_outputs_and_jump(
                     a,
                     bitness,
-                    base_depth,
+                    &frame,
                     &func.arena,
                     &block.effects,
                     pending_caller_stores,
@@ -7290,6 +7589,9 @@ fn compile_function_into_asm(
                             // The continuation is a new frame: save its entry RFLAGS.
                             asm.pushfq().map_err(|e| e.to_string())?;
                             asm.lea(gpr64::rsp, ptr(gpr64::rsp) - 8).map_err(|e| e.to_string())?;
+                        }
+                        if pin_bytes > 0 {
+                            asm.lea(gpr64::rsp, ptr(gpr64::rsp) - pin_d).map_err(|e| e.to_string())?;
                         }
                         asm.jmp(c_lbl).map_err(|e| e.to_string())
                     },
@@ -7393,7 +7695,7 @@ pub fn devirtualize_pe_bytes(
         let mut test_asm = CodeAssembler::new(view.bitness)
             .map_err(|e| UnpackerError::General(format!("CodeAssembler: {e}")))?;
         let mut test_lbl = test_asm.create_label();
-        if let Err(err) = compile_function_into_asm(&mut test_asm, view.bitness, &lifted, &mut test_lbl) {
+        if let Err(err) = compile_function_into_asm(&mut test_asm, view.bitness, &lifted, &view, &mut test_lbl) {
             record_bailout(format!("codegen_{err}"), &lifted, true);
             continue;
         }
@@ -7461,7 +7763,7 @@ pub fn devirtualize_pe_bytes(
             stub_native_counts.push(n_cnt);
 
             let mut lbl = master_asm.create_label();
-            compile_function_into_asm(&mut master_asm, view.bitness, lifted, &mut lbl)
+            compile_function_into_asm(&mut master_asm, view.bitness, lifted, &view, &mut lbl)
                 .map_err(|e| UnpackerError::General(format!("master compile failed: {e}")))?;
             stub_labels.push(lbl);
         }
@@ -8668,6 +8970,99 @@ mod tests {
         }
     }
 
+    #[test]
+    fn unwritten_aligned_slots_below_entry_are_undefined_not_unknown_e2e() {
+        use gpr64::*;
+        let base = 0x1_4000_0000u64;
+        let mut text_sec = vec![0xCCu8; 0x200];
+        let fn0 = assemble_at(64, base + 0x1000, |a| a.jmp(base + 0x2000));
+        text_sec[..fn0.len()].copy_from_slice(&fn0);
+        let exit_ret = assemble_at(64, base + 0x1040, |a| a.ret());
+        text_sec[0x40..0x40 + exit_ret.len()].copy_from_slice(&exit_ret);
+        let mut vmp_sec = vec![0xCCu8; 0x400];
+        let stub = assemble_at(64, base + 0x2000, |a| {
+            a.push(rbx)?;
+            a.push(rbp)?;
+            a.mov(rbp, rsp)?;
+            a.and(rsp, -16)?;
+            a.sub(rsp, 0x40)?;
+            // A VM register never written: its stale value goes to r10 (a dead output).
+            a.mov(r10, qword_ptr(rsp + 0x28))?;
+            // Partly written slot, read back whole and masked: only the written bytes count.
+            a.mov(dword_ptr(rsp + 0x20), gpr32::ecx)?;
+            a.mov(rax, qword_ptr(rsp + 0x20))?;
+            for k in 0..60i32 {
+                a.add(rax, k + 3)?;
+                a.sub(rax, k + 3)?;
+            }
+            a.shl(rax, 32)?;
+            a.shr(rax, 32)?;
+            a.add(rax, rdx)?;
+            a.mov(rsp, rbp)?;
+            a.pop(rbp)?;
+            a.pop(rbx)?;
+            a.jmp(base + 0x1040)
+        });
+        vmp_sec[..stub.len()].copy_from_slice(&stub);
+        let orig_pe = build_two_exec_pe64(&text_sec, &vmp_sec, 0x1000);
+        let (devirt_pe, report) = devirtualize_pe_bytes(&orig_pe, BinaryDevirtConfig::default()).unwrap();
+        assert_eq!(report.devirtualized_total, 1, "bailouts: {:?}", report.bailout_reasons);
+        assert_eq!(report.hybrid_vm_exits, 0);
+        for (c, d) in [(7u64, 1u64), (0xdead_beef_1234_5678, 0x20), (u64::MAX, 0)] {
+            let want = (c & 0xffff_ffff) + d;
+            assert_eq!(run_with_flags(&orig_pe, base + 0x1000, c, d, 0, 0), want);
+            assert_eq!(run_with_flags(&devirt_pe, base + 0x1000, c, d, 0, 0), want);
+        }
+    }
+
+    #[test]
+    fn aligned_frame_over_stack_written_before_is_still_free_e2e() {
+        use gpr64::*;
+        let base = 0x1_4000_0000u64;
+        let mut text_sec = vec![0xCCu8; 0x200];
+        let fn0 = assemble_at(64, base + 0x1000, |a| a.jmp(base + 0x2000));
+        text_sec[..fn0.len()].copy_from_slice(&fn0);
+        let exit_ret = assemble_at(64, base + 0x1040, |a| a.ret());
+        text_sec[0x40..0x40 + exit_ret.len()].copy_from_slice(&exit_ret);
+        let mut vmp_sec = vec![0xCCu8; 0x400];
+        let stub = assemble_at(64, base + 0x2000, |a| {
+            a.push(rbx)?;
+            a.push(rbp)?;
+            // Scratch below RSP, written and released before the frame is aligned.
+            a.sub(rsp, 0x80)?;
+            for k in 0..16i32 {
+                a.mov(qword_ptr(rsp + k * 8), rcx)?;
+            }
+            a.add(rsp, 0x80)?;
+            a.mov(rbp, rsp)?;
+            a.and(rsp, -16)?;
+            a.sub(rsp, 0x40)?;
+            a.mov(r10, qword_ptr(rsp + 0x28))?;
+            a.mov(dword_ptr(rsp + 0x20), gpr32::ecx)?;
+            a.mov(rax, qword_ptr(rsp + 0x20))?;
+            for k in 0..60i32 {
+                a.add(rax, k + 3)?;
+                a.sub(rax, k + 3)?;
+            }
+            a.shl(rax, 32)?;
+            a.shr(rax, 32)?;
+            a.add(rax, rdx)?;
+            a.mov(rsp, rbp)?;
+            a.pop(rbp)?;
+            a.pop(rbx)?;
+            a.jmp(base + 0x1040)
+        });
+        vmp_sec[..stub.len()].copy_from_slice(&stub);
+        let orig_pe = build_two_exec_pe64(&text_sec, &vmp_sec, 0x1000);
+        let (devirt_pe, report) = devirtualize_pe_bytes(&orig_pe, BinaryDevirtConfig::default()).unwrap();
+        assert_eq!(report.devirtualized_total, 1, "bailouts: {:?}", report.bailout_reasons);
+        for (c, d) in [(7u64, 1u64), (0xdead_beef_1234_5678, 0x20)] {
+            let want = (c & 0xffff_ffff) + d;
+            assert_eq!(run_with_flags(&orig_pe, base + 0x1000, c, d, 0, 0), want);
+            assert_eq!(run_with_flags(&devirt_pe, base + 0x1000, c, d, 0, 0), want);
+        }
+    }
+
     /// Runs `entry` with `rcx`/`rdx` and the given entry CF; returns rax, rbx, rbp, the
     /// RSP difference and the final CF.
     fn run_with_cf(pe_bytes: &[u8], entry: u64, rcx_in: u64, rdx_in: u64, cf: bool) -> (u64, u64, u64, u64, u64) {
@@ -9133,6 +9528,83 @@ mod tests {
         for (pl, ps, want) in [(base + 0x3000, base + 0x3000, 159u64), (base + 0x3000, base + 0x3010, 15)] {
             assert_eq!(run(&orig_pe, pl, ps), (want, 77), "original");
             assert_eq!(run(&devirt_pe, pl, ps), (want, 77), "devirtualized");
+        }
+    }
+
+    #[test]
+    fn load_used_in_a_later_block_after_an_aliasing_store_is_pinned_e2e() {
+        use gpr64::*;
+        let base = 0x1_4000_0000u64;
+        let mut text_sec = vec![0xCCu8; 0x200];
+        let fn0 = assemble_at(64, base + 0x1000, |a| a.jmp(base + 0x2000));
+        text_sec[..fn0.len()].copy_from_slice(&fn0);
+        let exit_ret = assemble_at(64, base + 0x1040, |a| a.ret());
+        text_sec[0x40..0x40 + exit_ret.len()].copy_from_slice(&exit_ret);
+        let mut vmp_sec = vec![0xCCu8; 0x1000];
+        // rax = [rcx] in block 0; a branch block then stores `[rdx]` (rcx may equal rdx)
+        // and branches again; the exits use rax and [rcx] read after the store.
+        let stub = assemble_at(64, base + 0x2000, |a| {
+            let mut other = a.create_label();
+            let mut tail = a.create_label();
+            let mut tail2 = a.create_label();
+            a.sub(rsp, 0x28)?;
+            a.mov(r11, rcx)?;
+            for k in 0..200i32 {
+                a.add(r11, k + 3)?;
+                a.sub(r11, k + 3)?;
+            }
+            a.mov(rax, qword_ptr(rcx))?;
+            a.test(gpr8::dl, 0x10)?;
+            a.jnz(other)?;
+            a.mov(qword_ptr(rdx), 88)?;
+            a.test(gpr8::cl, 8)?;
+            a.jnz(tail2)?;
+            a.mov(r9, qword_ptr(rcx))?;
+            a.jmp(tail)?;
+            a.set_label(&mut tail2)?;
+            a.mov(r9, qword_ptr(rcx))?;
+            a.add(r9, 1000)?;
+            a.jmp(tail)?;
+            a.set_label(&mut other)?;
+            a.mov(qword_ptr(rdx), 99)?;
+            a.test(gpr8::cl, 8)?;
+            a.jnz(tail2)?;
+            a.mov(r9, qword_ptr(rcx))?;
+            a.set_label(&mut tail)?;
+            a.lea(rax, ptr(rax + r9 * 2))?;
+            a.add(rsp, 0x28)?;
+            a.jmp(base + 0x1040)
+        });
+        vmp_sec[..stub.len()].copy_from_slice(&stub);
+        let orig_pe = build_two_exec_pe64(&text_sec, &vmp_sec, 0x1000);
+        let (devirt_pe, report) = devirtualize_pe_bytes(&orig_pe, BinaryDevirtConfig::default()).unwrap();
+        assert_eq!(report.devirtualized_total, 1, "bailouts: {:?}", report.bailout_reasons);
+        let run = |pe: &[u8], p_load: u64, p_store: u64| -> (u64, u64) {
+            let s = Sample::from_bytes(pe).unwrap();
+            let mut eng = UnpackerEngine::new(s, "mem");
+            eng.init_uc().unwrap();
+            {
+                let uc = eng.unicorn_mut().unwrap();
+                uc.mem_write(base + 0x3000, &5u64.to_le_bytes()).unwrap();
+                uc.mem_write(base + 0x3010, &9u64.to_le_bytes()).unwrap();
+            }
+            let ret = eng.call_function(base + 0x1000, &[p_load, p_store], 100_000, 2_000).unwrap();
+            let mut b = [0u8; 8];
+            eng.unicorn_mut().unwrap().mem_read(p_store, &mut b).unwrap();
+            (ret, u64::from_le_bytes(b))
+        };
+        for (pl, ps, want) in [
+            // aliasing, stores 88: 5 + 88 * 2
+            (base + 0x3000, base + 0x3000, (181u64, 88u64)),
+            // disjoint, stores 99: 5 + 5 * 2
+            (base + 0x3000, base + 0x3010, (15, 99)),
+            // aliasing at 0x3010, stores 99: 9 + 99 * 2
+            (base + 0x3010, base + 0x3010, (207, 99)),
+            // load at 0x3008 (bit 3 set): 0 + (88 + 1000) * 2 with the store aliasing
+            (base + 0x3008, base + 0x3008, (2176, 88)),
+        ] {
+            assert_eq!(run(&orig_pe, pl, ps), want, "original {pl:#x} {ps:#x}");
+            assert_eq!(run(&devirt_pe, pl, ps), want, "devirtualized {pl:#x} {ps:#x}");
         }
     }
 

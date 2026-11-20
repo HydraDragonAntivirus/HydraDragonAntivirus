@@ -1902,6 +1902,12 @@ impl ExprArena {
 #[derive(Debug, Clone)]
 pub struct SymStack {
     pub slots: HashMap<(StackSpace, i64), ExprId>,
+    /// Aligned frames (`AlignedScratch(id)`) made from RSP = caller-stack offset
+    /// `poff`: their slots below the aligned base lie below RSP at that moment, free
+    /// stack whatever was written there before (an interrupt may overwrite it). Dropped
+    /// when a caller-stack write lands below `poff` later (it could be the same memory,
+    /// now inside the frame).
+    pub fresh_aligned: HashMap<u32, i64>,
 }
 
 impl Default for SymStack {
@@ -1914,6 +1920,7 @@ impl SymStack {
     pub fn new() -> Self {
         Self {
             slots: HashMap::new(),
+            fresh_aligned: HashMap::new(),
         }
     }
 
@@ -1929,9 +1936,21 @@ impl SymStack {
         }
         let expr = match space {
             StackSpace::CallerStack => arena.load_stack(slot_off, 8, mem_ver),
-            StackSpace::AlignedScratch(_dbg_id) => {
-                if std::env::var("DBGTMP_AL").is_ok() { eprintln!("DBGTMP_AL id={_dbg_id} off={slot_off}"); }
-                let v = arena.opaque();
+            StackSpace::AlignedScratch(id) => {
+                // Below the frame's entry RSP and never written since: the memory there
+                // was free stack when the frame began, so its content is undefined (an
+                // interrupt could have overwritten it). Any value is one the original
+                // could have read; 0 keeps partly written slots exact for their
+                // written bytes. Otherwise unknown.
+                // `base <= poff <= 0`: a slot wholly below the base ends at or below `poff`,
+                // under everything the frame had pushed and under the entry RSP.
+                let below_entry =
+                    slot_off + 8 <= 0 && self.fresh_aligned.get(&id).is_some_and(|&poff| poff <= 0);
+                let v = if below_entry {
+                    arena.const_u64(0)
+                } else {
+                    arena.opaque()
+                };
                 self.slots.insert((space, slot_off), v);
                 v
             }
@@ -1988,6 +2007,9 @@ impl SymStack {
         let w = width.clamp(1, 8);
         let slot_off = off.div_euclid(8) * 8;
         let byte_in_slot = off.rem_euclid(8) as u32;
+        if space == StackSpace::CallerStack && !self.fresh_aligned.is_empty() {
+            self.fresh_aligned.retain(|_, poff| slot_off >= *poff);
+        }
 
         if w == 8 && byte_in_slot == 0 {
             self.slots.insert((space, slot_off), val);
@@ -2019,6 +2041,13 @@ impl SymStack {
         self.write_scalar(arena, space, off + lo_bytes as i64, hi_bytes, hi_val, mem_ver);
     }
 
+    /// Records a new aligned frame made from RSP = caller-stack offset `poff` (see
+    /// `fresh_aligned`). Caller-stack values written below `poff` earlier do not
+    /// matter: RSP has since gone above them, so that memory is free stack too.
+    pub fn note_aligned_frame(&mut self, id: u32, poff: i64) {
+        self.fresh_aligned.insert(id, poff);
+    }
+
     pub fn read_xmm(
         &mut self,
         arena: &mut ExprArena,
@@ -2047,6 +2076,39 @@ impl SymStack {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn fresh_aligned_slots_read_zero_only_below_entry_and_until_aliased() {
+        let mut ar = ExprArena::default();
+        let al = StackSpace::AlignedScratch(0);
+        // Frame aligned from RSP = entry - 0x10: slots below the base are free stack.
+        let mut st = SymStack::new();
+        st.note_aligned_frame(0, -0x10);
+        let z = st.read_scalar(&mut ar, al, -0x20, 8, 0);
+        assert_eq!(ar.as_const(z), Some(0));
+        // At or above the base it could be the pushed registers: unknown.
+        let up = st.read_scalar(&mut ar, al, 0, 8, 0);
+        assert!(ar.contains_opaque(up));
+        // A caller-stack write below `poff` may be the same memory: no longer fresh.
+        let mut st2 = SymStack::new();
+        st2.note_aligned_frame(0, -0x10);
+        let v = ar.reg_in(ArchReg::Rcx);
+        st2.write_scalar(&mut ar, StackSpace::CallerStack, -0x40, 8, v, 0);
+        let u = st2.read_scalar(&mut ar, al, -0x20, 8, 0);
+        assert!(ar.contains_opaque(u));
+        // Aligned from above the entry RSP: the slot may be the caller's frame.
+        let mut st3 = SymStack::new();
+        st3.note_aligned_frame(0, 0x20);
+        let c = st3.read_scalar(&mut ar, al, -0x20, 8, 0);
+        assert!(ar.contains_opaque(c));
+        // Written below `poff` before the frame (RSP has gone back above it since):
+        // free stack as well.
+        let mut st4 = SymStack::new();
+        st4.write_scalar(&mut ar, StackSpace::CallerStack, -0x30, 8, v, 0);
+        st4.note_aligned_frame(0, -0x10);
+        let d = st4.read_scalar(&mut ar, al, -0x20, 8, 0);
+        assert_eq!(ar.as_const(d), Some(0));
+    }
 
     #[test]
     fn or_absorbs_by_known_bits_and_cmp_moves_constants() {
