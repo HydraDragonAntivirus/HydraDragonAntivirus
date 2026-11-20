@@ -992,6 +992,9 @@ pub struct LiftedBlock {
     pub entry_va: u64,
     pub effects: Vec<IrEffect>,
     pub term: IrTerm,
+    /// What `AlignedBase(i)` is in this block (index = i, as `SymState::aligned_defs`):
+    /// ids are per path, so blocks of different paths may give one id different frames.
+    pub aligned_defs: Vec<(StackSpace, i64, u64)>,
 }
 
 #[derive(Debug, Clone)]
@@ -3123,6 +3126,7 @@ fn materialize_select_node(
                 id: bid,
                 entry_va: cur_ip,
                 effects: Vec::new(),
+                aligned_defs: state.aligned_defs.clone(),
                 term: IrTerm::CondBranch {
                     cond: *cond,
                     taken_block,
@@ -3152,6 +3156,7 @@ fn materialize_select_node(
                             id: bid,
                             entry_va: va,
                             effects: Vec::new(),
+                            aligned_defs: s2.aligned_defs.clone(),
                             term: IrTerm::ExitJmp {
                                 target_va: va,
                                 rsp_delta,
@@ -3174,6 +3179,7 @@ fn materialize_select_node(
                         id: bid,
                         entry_va: cur_ip,
                         effects: Vec::new(),
+                        aligned_defs: s2.aligned_defs.clone(),
                         term: IrTerm::ExitAddJmp {
                             reg,
                             disp,
@@ -3227,6 +3233,8 @@ pub fn lift_vm_entry_cfg(
         let mut last_cur_ip: u64;
         let mut last_ins: Option<Instruction>;
         let mut pending_diag_detail: Option<String> = None;
+        // The aligned frames of this block's path (`LiftedBlock::aligned_defs`).
+        let mut block_aligned = state.aligned_defs.clone();
 
         let term = loop {
             last_cur_ip = state.ip;
@@ -3418,6 +3426,7 @@ pub fn lift_vm_entry_cfg(
                                 id: bid,
                                 entry_va: bva,
                                 effects: Vec::new(),
+                                aligned_defs: b_state.aligned_defs.clone(),
                                 term: IrTerm::ExitJmp {
                                     target_va: bva,
                                     rsp_delta,
@@ -4356,7 +4365,7 @@ pub fn lift_vm_entry_cfg(
                         if let (Some((parent, poff)), Some(mask)) = (arena.as_stack_offset(lhs), arena.as_const(rhs)) {
                             debug_assert_eq!(state.aligned_defs.len(), aid as usize);
                             state.aligned_defs.push((parent, poff, mask));
-                            arena.note_aligned_def(aid, (parent, poff, mask));
+                            block_aligned = state.aligned_defs.clone();
                             if parent == StackSpace::CallerStack {
                                 state.stack.note_aligned_frame(aid, poff);
                             }
@@ -4949,6 +4958,7 @@ pub fn lift_vm_entry_cfg(
             entry_va,
             effects,
             term,
+            aligned_defs: block_aligned,
         });
     }
 
@@ -4965,6 +4975,7 @@ pub fn lift_vm_entry_cfg(
                     entry_va: start_va,
                     effects: Vec::new(),
                     term: IrTerm::Bailout("unfilled_block".into()),
+                    aligned_defs: Vec::new(),
                 }
             })
         })
@@ -5783,6 +5794,8 @@ struct CodegenCtx<'a> {
     pinned: HashMap<ExprId, i64>,
     /// `scratch[2]` is saved (or free) and may be clobbered as a spill register.
     spill_free: bool,
+    /// The block's aligned frames (`LiftedBlock::aligned_defs`).
+    aligned: &'a [(StackSpace, i64, u64)],
 }
 
 impl<'a> CodegenCtx<'a> {
@@ -5895,9 +5908,9 @@ impl<'a> CodegenCtx<'a> {
         }
     }
 
-    /// `AlignedBase(k)` = `(parent + off) & mask` as the VM computed it: the same
-    /// StackBase, so the same address (see `validate_function_soundness` for where it
-    /// may appear).
+    /// `AlignedBase(k)` = `(parent + off) & mask` as the VM computed it on the block's
+    /// path (`LiftedBlock::aligned_defs`): the same StackBase, so the same address (see
+    /// `validate_function_soundness` for where it may appear).
     fn emit_aligned_base(
         &mut self,
         a: &mut CodeAssembler,
@@ -5907,10 +5920,10 @@ impl<'a> CodegenCtx<'a> {
         depth: u8,
     ) -> Result<(), String> {
         if self.bitness != 64 || depth > 8 {
-            return Err("unlowerable_aligned_base/*D*/_depth".into());
+            return Err("unlowerable_aligned_base".into());
         }
-        let Some((parent, off, mask)) = self.arena.aligned_def(k) else {
-            return Err(format!("unlowerable_aligned_base/*D*/_{}", if self.arena.dbg_has_def(k) { "conflict" } else { "nodef" }));
+        let Some(&(parent, off, mask)) = self.aligned.get(k as usize) else {
+            return Err("unlowerable_aligned_base".into());
         };
         match parent {
             StackSpace::CallerStack => self.emit_stack_base_addr(a, dst, off, Some(spill_reg))?,
@@ -6506,6 +6519,8 @@ struct BlockFrame<'p> {
     hoist_here: &'p [ExprId],
     /// Values a dominating block already put in their slots.
     hoist_active: &'p [ExprId],
+    /// The block's aligned frames.
+    aligned: &'p [(StackSpace, i64, u64)],
 }
 
 impl BlockFrame<'_> {
@@ -6691,7 +6706,8 @@ fn plan_pinned_loads(func: &LiftedFunction, view: &PeImageView, base0: i64) -> R
 /// area (`slots`, after the loads) and read from there below it.
 ///
 /// Only values that read no memory and nothing a native call changes: they are computed
-/// on every path through that block, also on those that would not need them.
+/// on every path through that block, also on those that would not need them. No
+/// aligned-frame addresses either: blocks further down may give an id another frame.
 fn plan_hoisted(func: &LiftedFunction, base0: i64, slots: &mut HashMap<ExprId, i64>) -> (Vec<Vec<ExprId>>, Vec<Vec<ExprId>>) {
     const MIN_COST: u32 = 4;
     let n = func.blocks.len();
@@ -6750,7 +6766,12 @@ fn plan_hoisted(func: &LiftedFunction, base0: i64, slots: &mut HashMap<ExprId, i
         let node = arena.get(id);
         let mut ok = !matches!(
             node,
-            ExprNode::Load { .. } | ExprNode::CallRet { .. } | ExprNode::Cr8Read(_) | ExprNode::EntryFlag(_) | ExprNode::Opaque(_)
+            ExprNode::Load { .. }
+                | ExprNode::CallRet { .. }
+                | ExprNode::Cr8Read(_)
+                | ExprNode::EntryFlag(_)
+                | ExprNode::Opaque(_)
+                | ExprNode::AlignedBase(_)
         );
         if ok {
             let mut ch = Vec::new();
@@ -7484,6 +7505,7 @@ fn emit_block_outputs_and_jump(
         spills: HashMap::new(),
         pinned: frame.active_pinned(arena),
         spill_free: need_w2,
+        aligned: frame.aligned,
     };
 
     let final_hw_rsp_delta = if pre_ret_pop {
@@ -7705,6 +7727,7 @@ fn compile_function_into_asm(
             succ_loads: &plan.succ_loads[bi],
             hoist_here: &plan.hoist_at[bi],
             hoist_active: &plan.hoist_active[bi],
+            aligned: &block.aligned_defs,
         };
 
         match &block.term {
@@ -7771,6 +7794,7 @@ fn compile_function_into_asm(
                     spills: HashMap::new(),
                     pinned: frame.active_pinned(&func.arena),
                     spill_free: false,
+                    aligned: &block.aligned_defs,
                 };
                 // `scratch[2]` too when effects or shared subexpressions need it.
                 let want_w2 = !block.effects.is_empty()
@@ -9312,6 +9336,80 @@ mod tests {
             let want = ((d & 3) + 1) * 100 + c;
             assert_eq!(run_with_flags(&orig_pe, base + 0x1000, c, d, 0, 0), want, "original {c:#x} {d:#x}");
             assert_eq!(run_with_flags(&devirt_pe, base + 0x1000, c, d, 0, 0), want, "devirtualized {c:#x} {d:#x}");
+        }
+    }
+
+    #[test]
+    fn same_aligned_frame_id_on_two_paths_with_different_frames_e2e() {
+        use gpr64::*;
+        let base = 0x1_4000_0000u64;
+        let mut text_sec = vec![0xCCu8; 0x200];
+        let fn0 = assemble_at(64, base + 0x1000, |a| a.jmp(base + 0x2000));
+        text_sec[..fn0.len()].copy_from_slice(&fn0);
+        let exit_ret = assemble_at(64, base + 0x1040, |a| a.ret());
+        text_sec[0x40..0x40 + exit_ret.len()].copy_from_slice(&exit_ret);
+        let fn1 = assemble_at(64, base + 0x1080, |a| {
+            a.call(base + 0x1000)?;
+            a.ret()
+        });
+        text_sec[0x80..0x80 + fn1.len()].copy_from_slice(&fn1);
+        let mut vmp_sec = vec![0xCCu8; 0x400];
+        // One path pushes once more before `and rsp, -16`: the first aligned frame of
+        // each path (id 0) comes from a different RSP.
+        let stub = assemble_at(64, base + 0x2000, |a| {
+            let mut aligned = a.create_label();
+            a.push(rbx)?;
+            a.push(rbp)?;
+            a.mov(rbp, rsp)?;
+            a.test(gpr8::dl, 2)?;
+            a.jz(aligned)?;
+            a.push(rax)?;
+            a.set_label(&mut aligned)?;
+            a.and(rsp, -16)?;
+            a.sub(rsp, 0x40)?;
+            a.mov(qword_ptr(rsp + 0x10), rcx)?;
+            a.mov(qword_ptr(rsp + 0x18), 0x77)?;
+            a.lea(r12, ptr(rsp + 0x10))?;
+            a.mov(rax, rcx)?;
+            for k in 0..40i32 {
+                a.add(rax, k + 3)?;
+                a.sub(rax, k + 3)?;
+            }
+            a.mov(r8, rdx)?;
+            a.and(r8, 0x20)?;
+            a.mov(r10, base + 0x2300)?;
+            a.add(r10, r8)?;
+            a.jmp(r10)
+        });
+        assert!(stub.len() < 0x300, "stub overlaps the handlers");
+        vmp_sec[..stub.len()].copy_from_slice(&stub);
+        for (off, add) in [(0x300usize, 1i32), (0x320, 2)] {
+            let h = assemble_at(64, base + 0x2000 + off as u64, |a| {
+                a.mov(rax, qword_ptr(r12))?;
+                a.add(rax, qword_ptr(r12 + 8))?;
+                a.add(rax, add)?;
+                a.mov(rsp, rbp)?;
+                a.pop(rbp)?;
+                a.pop(rbx)?;
+                a.jmp(base + 0x1040)
+            });
+            vmp_sec[off..off + h.len()].copy_from_slice(&h);
+        }
+        let orig_pe = build_two_exec_pe64(&text_sec, &vmp_sec, 0x1000);
+        let (devirt_pe, report) = devirtualize_pe_bytes(&orig_pe, BinaryDevirtConfig::default()).unwrap();
+        assert_eq!(report.devirtualized_total, 1, "bailouts: {:?}", report.bailout_reasons);
+        for entry in [base + 0x1000, base + 0x1080] {
+            for (c, d) in [(5u64, 0u64), (5, 2), (9, 0x20), (0xdead_beef_0000_0001, 0x22)] {
+                let run = |pe: &[u8]| {
+                    let s = Sample::from_bytes(pe).unwrap();
+                    let mut eng = UnpackerEngine::new(s, "mem");
+                    eng.init_uc().unwrap();
+                    eng.call_function(entry, &[c, d], 100_000, 2_000).unwrap()
+                };
+                let want = c.wrapping_add(0x77).wrapping_add(if d & 0x20 != 0 { 2 } else { 1 });
+                assert_eq!(run(&orig_pe), want, "original {entry:#x} {c:#x} {d:#x}");
+                assert_eq!(run(&devirt_pe), want, "devirtualized {entry:#x} {c:#x} {d:#x}");
+            }
         }
     }
 

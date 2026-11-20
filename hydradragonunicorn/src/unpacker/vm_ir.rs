@@ -321,10 +321,6 @@ pub struct ExprArena {
     next_opaque: u32,
     max_nodes: usize,
     select_dist_depth: u8,
-    /// What each `AlignedBase(id)` is: `(parent, off, mask)`, RSP = `parent + off`
-    /// then `and rsp, mask`. Ids are per path, so one id may mean different frames on
-    /// different paths: `None` then.
-    aligned_defs: HashMap<u32, Option<(StackSpace, i64, u64)>>,
 }
 
 impl Default for ExprArena {
@@ -360,7 +356,6 @@ impl ExprArena {
             next_opaque: 0,
             max_nodes: max_nodes.max(256),
             select_dist_depth: 0,
-            aligned_defs: HashMap::new(),
         }
     }
 
@@ -425,19 +420,6 @@ impl ExprArena {
 
     pub fn entry_rflags(&mut self) -> ExprId {
         self.intern_node(ExprNode::EntryRflags)
-    }
-
-    /// Records how `AlignedBase(id)` was made on some path (see `aligned_defs`).
-    pub fn note_aligned_def(&mut self, id: u32, def: (StackSpace, i64, u64)) {
-        let e = self.aligned_defs.entry(id).or_insert(Some(def));
-        if *e != Some(def) {
-            *e = None;
-        }
-    }
-
-    /// How `AlignedBase(id)` was made, when every path agrees.
-    pub fn aligned_def(&self, id: u32) -> Option<(StackSpace, i64, u64)> {
-        self.aligned_defs.get(&id).copied().flatten()
     }
 
     pub fn aligned_base(&mut self, id: u32) -> ExprId {
