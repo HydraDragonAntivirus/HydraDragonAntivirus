@@ -970,6 +970,8 @@ pub enum FlagsReplay {
     Test { a: i64, width: u8 },
     /// `add a, b`.
     Add { a: i64, b: i64, width: u8 },
+    /// `push a; popfq`: the flags are still the entry ones, `a` holds the saved RFLAGS.
+    Popf { a: i64 },
 }
 
 #[derive(Debug, Clone)]
@@ -1015,6 +1017,7 @@ fn expr_brief(arena: &ExprArena, id: ExprId, depth: u8) -> String {
             ExprNode::RegIn(r) => out.push_str(r.as_str()),
             ExprNode::XmmIn(idx, hi) => out.push_str(&format!("xmm{idx}_{}", if *hi { "hi" } else { "lo" })),
             ExprNode::StackBase => out.push_str("StackBase"),
+            ExprNode::EntryRflags => out.push_str("EntryRflags"),
             ExprNode::AlignedBase(n) => out.push_str(&format!("AlignedBase({n})")),
             ExprNode::CallRet { call_id, reg } => out.push_str(&format!("CallRet({call_id},{})", reg.as_str())),
             ExprNode::Load { addr, width, mem_ver } => {
@@ -1092,6 +1095,13 @@ fn expr_brief(arena: &ExprArena, id: ExprId, depth: u8) -> String {
                 rec(arena, *b, d, out);
                 out.push(')');
             }
+            ExprNode::MulHiU(a, b) | ExprNode::MulHiS(a, b) => {
+                out.push_str(if matches!(arena.get(id), ExprNode::MulHiS(..)) { "MulHiS(" } else { "MulHiU(" });
+                rec(arena, *a, d, out);
+                out.push(',');
+                rec(arena, *b, d, out);
+                out.push(')');
+            }
             ExprNode::Ror(a, b) => {
                 out.push_str("Ror(");
                 rec(arena, *a, d, out);
@@ -1150,6 +1160,7 @@ fn expr_flags_tag(arena: &ExprArena, id: ExprId) -> String {
         ExprNode::RegIn(_) => "RegIn",
         ExprNode::XmmIn(..) => "XmmIn",
         ExprNode::StackBase => "StackBase",
+        ExprNode::EntryRflags => "EntryRflags",
         ExprNode::AlignedBase(_) => "AlignedBase",
         ExprNode::CallRet { .. } => "CallRet",
         ExprNode::Load { .. } => "Load",
@@ -1164,6 +1175,8 @@ fn expr_flags_tag(arena: &ExprArena, id: ExprId) -> String {
         ExprNode::Sar(..) => "Sar",
         ExprNode::Rol(..) => "Rol",
         ExprNode::Ror(..) => "Ror",
+        ExprNode::MulHiU(..) => "MulHiU",
+        ExprNode::MulHiS(..) => "MulHiS",
         ExprNode::Not(_) => "Not",
         ExprNode::Neg(_) => "Neg",
         ExprNode::SExt { .. } => "SExt",
@@ -1223,7 +1236,9 @@ fn expr_flags_tag(arena: &ExprArena, id: ExprId) -> String {
             | ExprNode::Shr(a, b)
             | ExprNode::Sar(a, b)
             | ExprNode::Rol(a, b)
-            | ExprNode::Ror(a, b) => {
+            | ExprNode::Ror(a, b)
+            | ExprNode::MulHiU(a, b)
+            | ExprNode::MulHiS(a, b) => {
                 stack.push(*a);
                 stack.push(*b);
             }
@@ -1580,13 +1595,25 @@ impl SymState {
             },
             FlagState::Entry => {
                 if !self.entry_flags_clobbered && self.cum_rsp_offset == 0 {
+                    // Block 0 can still branch on the hardware flags directly.
                     entry_cc_to_u8(cc).map(|c| arena.entry_flag(c))
                 } else {
-                    None
+                    // Anywhere else: the bits of the frame's saved entry RFLAGS.
+                    entry_rflags_cond(arena, cc)
                 }
             }
             FlagState::Unknown => None,
         }
+    }
+
+    /// A condition as a value (`setcc`, `cmov`, `adc`, `sbb`): like `eval_cond_code`,
+    /// but entry flags always come from the saved RFLAGS - the `EntryFlag` form only
+    /// lowers as block 0's own branch, not inside an expression.
+    fn cond_value(&self, arena: &mut ExprArena, cc: ConditionCode) -> Option<ExprId> {
+        if matches!(self.flags, FlagState::Entry) {
+            return entry_rflags_cond(arena, cc);
+        }
+        self.eval_cond_code(arena, cc)
     }
 
     fn known_cf(&self, arena: &mut ExprArena) -> Option<bool> {
@@ -1607,6 +1634,69 @@ impl SymState {
         out.sort_by_key(|&(off, _)| off);
         out
     }
+}
+
+/// A condition code read from the frame's saved entry RFLAGS (`ExprNode::EntryRflags`):
+/// CF bit 0, PF bit 2, ZF bit 6, SF bit 7, OF bit 11.
+fn entry_rflags_cond(arena: &mut ExprArena, cc: ConditionCode) -> Option<ExprId> {
+    let rf = arena.entry_rflags();
+    let bit = |arena: &mut ExprArena, n: u64| {
+        let s = arena.shr_const(rf, n);
+        arena.and_const(s, 1)
+    };
+    let cf = bit(arena, 0);
+    let pf = bit(arena, 2);
+    let zf = bit(arena, 6);
+    let sf = bit(arena, 7);
+    let of = bit(arena, 11);
+    Some(match cc {
+        ConditionCode::b => cf,
+        ConditionCode::ae => arena.xor_const(cf, 1),
+        ConditionCode::e => zf,
+        ConditionCode::ne => arena.xor_const(zf, 1),
+        ConditionCode::be => arena.or(cf, zf),
+        ConditionCode::a => {
+            let x = arena.or(cf, zf);
+            arena.xor_const(x, 1)
+        }
+        ConditionCode::s => sf,
+        ConditionCode::ns => arena.xor_const(sf, 1),
+        ConditionCode::p => pf,
+        ConditionCode::np => arena.xor_const(pf, 1),
+        ConditionCode::o => of,
+        ConditionCode::no => arena.xor_const(of, 1),
+        ConditionCode::l => arena.xor(sf, of),
+        ConditionCode::ge => {
+            let x = arena.xor(sf, of);
+            arena.xor_const(x, 1)
+        }
+        ConditionCode::le => {
+            let x = arena.xor(sf, of);
+            arena.or(zf, x)
+        }
+        ConditionCode::g => {
+            let x = arena.xor(sf, of);
+            let le = arena.or(zf, x);
+            arena.xor_const(le, 1)
+        }
+        _ => return None,
+    })
+}
+
+/// RDX (EDX) of a one-operand `mul` / `imul` of width `w`: a `MulHi` node for 64 bits,
+/// plain arithmetic on the extended operands for 32 bits (the product fits in 64).
+fn mul_high_half(arena: &mut ExprArena, a: ExprId, b: ExprId, w: u8, signed: bool) -> ExprId {
+    if w == 8 {
+        return arena.mul_hi(a, b, signed);
+    }
+    let (xa, xb) = if signed {
+        (arena.sext(a, 32), arena.sext(b, 32))
+    } else {
+        (arena.zext_mask(a, 4), arena.zext_mask(b, 4))
+    };
+    let prod = arena.mul(xa, xb);
+    let hi = arena.shr_const(prod, 32);
+    arena.zext_mask(hi, 4)
 }
 
 fn eval_mem_ea(state: &SymState, arena: &mut ExprArena, bitness: u32, ins: &Instruction, next_ip: u64) -> ExprId {
@@ -1895,6 +1985,11 @@ fn write_operand(
 }
 
 fn eval_cond_for_mnemonic(state: &SymState, arena: &mut ExprArena, m: Mnemonic) -> Option<ExprId> {
+    eval_cond_for_mnemonic_as(state, arena, m, false)
+}
+
+/// `as_value`: the condition is used as a value (`setcc` / `cmov`), see `SymState::cond_value`.
+fn eval_cond_for_mnemonic_as(state: &SymState, arena: &mut ExprArena, m: Mnemonic, as_value: bool) -> Option<ExprId> {
     let cc = match m {
         Mnemonic::Cmova | Mnemonic::Seta | Mnemonic::Ja => ConditionCode::a,
         Mnemonic::Cmovae | Mnemonic::Setae | Mnemonic::Jae => ConditionCode::ae,
@@ -1912,7 +2007,11 @@ fn eval_cond_for_mnemonic(state: &SymState, arena: &mut ExprArena, m: Mnemonic) 
         Mnemonic::Cmovno | Mnemonic::Setno | Mnemonic::Jno => ConditionCode::no,
         _ => return None,
     };
-    state.eval_cond_code(arena, cc)
+    if as_value {
+        state.cond_value(arena, cc)
+    } else {
+        state.eval_cond_code(arena, cc)
+    }
 }
 
 /// Decomposes a multi-boolean polynomial indirect branch target (up to 5 `{0, 1}` variables)
@@ -2111,7 +2210,7 @@ fn plan_vm_exit(state: &SymState, arena: &mut ExprArena, view: &PeImageView, va:
 
     // Flags: dead at the target, or replayed from the last flag-setting operation.
     let flag_vals: Vec<ExprId>;
-    let flags_kind: Option<(u8, u8)>; // (0 cmp / 1 test / 2 add, width)
+    let flags_kind: Option<(u8, u8)>; // (0 cmp / 1 test / 2 add / 3 popf, width)
     if flags_dead_at(view, va) {
         flag_vals = Vec::new();
         flags_kind = None;
@@ -2128,6 +2227,11 @@ fn plan_vm_exit(state: &SymState, arena: &mut ExprArena, view: &PeImageView, va:
             FlagState::Add { lhs, rhs, width, .. } => {
                 flag_vals = vec![*lhs, *rhs];
                 flags_kind = Some((2, *width));
+            }
+            FlagState::Entry => {
+                // The frame's entry RFLAGS, saved where the frame began.
+                flag_vals = vec![arena.entry_rflags()];
+                flags_kind = Some((3, 8));
             }
             _ => return None,
         }
@@ -2172,7 +2276,8 @@ fn plan_vm_exit(state: &SymState, arena: &mut ExprArena, view: &PeImageView, va:
     let flags = flags_kind.map(|(kind, width)| match kind {
         0 => FlagsReplay::Cmp { a: flag_offs[0], b: flag_offs[1], width },
         1 => FlagsReplay::Test { a: flag_offs[0], width },
-        _ => FlagsReplay::Add { a: flag_offs[0], b: flag_offs[1], width },
+        2 => FlagsReplay::Add { a: flag_offs[0], b: flag_offs[1], width },
+        _ => FlagsReplay::Popf { a: flag_offs[0] },
     });
     Some(VmExit { rsp_delta, pending, temp_stores, bases, final_base, final_off, flags })
 }
@@ -2353,7 +2458,9 @@ fn try_decompose_bool_mux_target(
             | ExprNode::Shr(a, b)
             | ExprNode::Sar(a, b)
             | ExprNode::Rol(a, b)
-            | ExprNode::Ror(a, b) => collect_bool_vars(arena, *a, memo, visits)
+            | ExprNode::Ror(a, b)
+            | ExprNode::MulHiU(a, b)
+            | ExprNode::MulHiS(a, b) => collect_bool_vars(arena, *a, memo, visits)
                 .and_then(|va| {
                     collect_bool_vars(arena, *b, memo, visits).and_then(|vb| merge_vars(va, &vb))
                 })
@@ -2461,6 +2568,16 @@ fn try_decompose_bool_mux_target(
                 let va = eval_poly(arena, *a, vars, mask, memo)?;
                 let vb = eval_poly(arena, *b, vars, mask, memo)?;
                 va.rotate_right((vb & 63) as u32)
+            }
+            ExprNode::MulHiU(a, b) => {
+                let va = eval_poly(arena, *a, vars, mask, memo)?;
+                let vb = eval_poly(arena, *b, vars, mask, memo)?;
+                (((va as u128) * (vb as u128)) >> 64) as u64
+            }
+            ExprNode::MulHiS(a, b) => {
+                let va = eval_poly(arena, *a, vars, mask, memo)?;
+                let vb = eval_poly(arena, *b, vars, mask, memo)?;
+                (((va as i64 as i128) * (vb as i64 as i128)) >> 64) as u64
             }
             ExprNode::Select { cond, if_true, if_false } => {
                 let c = eval_poly(arena, *cond, vars, mask, memo)?;
@@ -3829,7 +3946,17 @@ pub fn lift_vm_entry_cfg(
                     }
                 }
                 Mnemonic::Pushfq | Mnemonic::Pushfd => {
-                    let rfl = arena.opaque();
+                    // Flags untouched since this frame began (function entry or a native
+                    // call's return): the value is the frame's entry RFLAGS, which the
+                    // recompiled code saves there (VM enters `pushfq` first thing; as an
+                    // unknown value, every exit that writes the VM context was rejected).
+                    // `entry_flags_clobbered` is about the hardware flags in later blocks,
+                    // not about the value, so it does not matter here.
+                    let rfl = if view.bitness == 64 && matches!(state.flags, FlagState::Entry) {
+                        arena.entry_rflags()
+                    } else {
+                        arena.opaque()
+                    };
                     if !matches!(state.flags, FlagState::Unknown)
                         && (!matches!(state.flags, FlagState::Entry) || !state.entry_flags_clobbered)
                     {
@@ -3854,6 +3981,10 @@ pub fn lift_vm_entry_cfg(
                         .find(|(id, _)| *id == val)
                         .map(|(_, fl)| fl.clone());
                     match restored {
+                        _ if *arena.get(val) == ExprNode::EntryRflags => {
+                            // The frame's saved entry RFLAGS put back.
+                            state.set_flags(FlagState::Entry);
+                        }
                         Some(FlagState::Entry) if !state.entry_flags_clobbered => {
                             state.set_flags(FlagState::Entry);
                         }
@@ -3881,7 +4012,7 @@ pub fn lift_vm_entry_cfg(
                 | Mnemonic::Cmovns
                 | Mnemonic::Cmovo
                 | Mnemonic::Cmovno => {
-                    let Some(cond) = eval_cond_for_mnemonic(&state, &mut arena, m) else {
+                    let Some(cond) = eval_cond_for_mnemonic_as(&state, &mut arena, m, true) else {
                         break IrTerm::Bailout(format!("cmov_unknown_flags_{m:?}"));
                     };
                     let w = op_width_bytes(&ins, view.bitness, 0);
@@ -3912,7 +4043,7 @@ pub fn lift_vm_entry_cfg(
                 | Mnemonic::Setns
                 | Mnemonic::Seto
                 | Mnemonic::Setno => {
-                    let Some(cond) = eval_cond_for_mnemonic(&state, &mut arena, m) else {
+                    let Some(cond) = eval_cond_for_mnemonic_as(&state, &mut arena, m, true) else {
                         break IrTerm::Bailout(format!("setcc_unknown_flags_{m:?}"));
                     };
                     if !write_operand(&mut state, &mut arena, &mut effects, view.bitness, &ins, next_ip, 0, cond) {
@@ -3965,11 +4096,32 @@ pub fn lift_vm_entry_cfg(
                             Some(false) => {}
                             Some(true) => sum_rhs = arena.add_const(rhs, 1),
                             None => {
-                                let res = arena.opaque();
+                                // Carry known only as an expression (`cmp` / `add` operands,
+                                // the saved entry RFLAGS): lhs + rhs + CF, and the carry out
+                                // exactly - not the `Add` flags, whose CF would be wrong
+                                // for a carry-in of 1 and r == lhs.
+                                let Some(cf_in) = state.cond_value(&mut arena, ConditionCode::b) else {
+                                    let res = arena.opaque();
+                                    if !write_operand(&mut state, &mut arena, &mut effects, view.bitness, &ins, next_ip, 0, res) {
+                                        break IrTerm::Bailout("adc_write".into());
+                                    }
+                                    state.set_flags(FlagState::Unknown);
+                                    continue;
+                                };
+                                let zl = arena.zext_mask(lhs, w);
+                                let zrh = arena.zext_mask(rhs, w);
+                                let s1 = arena.add(zl, zrh);
+                                let s2 = arena.add(s1, cf_in);
+                                let res = arena.zext_mask(s2, w);
                                 if !write_operand(&mut state, &mut arena, &mut effects, view.bitness, &ins, next_ip, 0, res) {
                                     break IrTerm::Bailout("adc_write".into());
                                 }
-                                state.set_flags(FlagState::Unknown);
+                                // CF' = r < lhs  |  (CF & r == lhs)
+                                let lt = arena.cmp(CondPred::Ult, res, zl);
+                                let eq = arena.cmp(CondPred::Eq, res, zl);
+                                let ceq = arena.and(cf_in, eq);
+                                let cf_out = arena.or(lt, ceq);
+                                state.set_flags(FlagState::CarryExpr(cf_out));
                                 continue;
                             }
                         }
@@ -3995,7 +4147,7 @@ pub fn lift_vm_entry_cfg(
                             Some(false) => {}
                             Some(true) => sub_rhs = arena.add_const(rhs, 1),
                             None => {
-                                if let Some(cf_expr) = state.eval_cond_code(&mut arena, ConditionCode::b) {
+                                if let Some(cf_expr) = state.cond_value(&mut arena, ConditionCode::b) {
                                     if ins.op0_kind() == OpKind::Register
                                         && ins.op1_kind() == OpKind::Register
                                         && ins.op0_register() == ins.op1_register()
@@ -4008,11 +4160,30 @@ pub fn lift_vm_entry_cfg(
                                         continue;
                                     }
                                 }
-                                let res = arena.opaque();
+                                // Borrow known only as an expression: lhs - rhs - CF, and the
+                                // borrow out exactly.
+                                let Some(cf_in) = state.cond_value(&mut arena, ConditionCode::b) else {
+                                    let res = arena.opaque();
+                                    if !write_operand(&mut state, &mut arena, &mut effects, view.bitness, &ins, next_ip, 0, res) {
+                                        break IrTerm::Bailout("sbb_write".into());
+                                    }
+                                    state.set_flags(FlagState::Unknown);
+                                    continue;
+                                };
+                                let zl = arena.zext_mask(lhs, w);
+                                let zrh = arena.zext_mask(rhs, w);
+                                let d1 = arena.sub(zl, zrh);
+                                let d2 = arena.sub(d1, cf_in);
+                                let res = arena.zext_mask(d2, w);
                                 if !write_operand(&mut state, &mut arena, &mut effects, view.bitness, &ins, next_ip, 0, res) {
                                     break IrTerm::Bailout("sbb_write".into());
                                 }
-                                state.set_flags(FlagState::Unknown);
+                                // CF' = lhs < rhs  |  (CF & lhs == rhs)
+                                let lt = arena.cmp(CondPred::Ult, zl, zrh);
+                                let eq = arena.cmp(CondPred::Eq, zl, zrh);
+                                let ceq = arena.and(cf_in, eq);
+                                let cf_out = arena.or(lt, ceq);
+                                state.set_flags(FlagState::CarryExpr(cf_out));
                                 continue;
                             }
                         }
@@ -4082,6 +4253,23 @@ pub fn lift_vm_entry_cfg(
                         })
                         && arena.as_stack_offset(lhs).is_some()
                     {
+                        // Re-aligning an already aligned frame: with `AlignedBase(p)` a
+                        // multiple of 2^k >= the new alignment, `(AlignedBase(p) + off) & mask`
+                        // is exactly `AlignedBase(p) + (off & mask)` - the same frame, not a
+                        // new unknown base whose slots would all read as unknown.
+                        if let (Some((StackSpace::AlignedScratch(p), poff)), Some(mask)) =
+                            (arena.as_stack_offset(lhs), arena.as_const(rhs))
+                        {
+                            let parent_mask = state.aligned_defs.get(p as usize).map(|d| d.2 as i64);
+                            if parent_mask.is_some_and(|pm| pm <= mask as i64) {
+                                let pb = arena.aligned_base(p);
+                                let off = arena.const_u64((poff & mask as i64) as u64);
+                                let nb = arena.add(pb, off);
+                                state.write_reg(&mut arena, ArchReg::Rsp, RegSlice::Full64, nb);
+                                state.set_flags(FlagState::Unknown);
+                                continue;
+                            }
+                        }
                         let aid = state.next_aligned_id;
                         state.next_aligned_id += 1;
                         if let (Some((parent, poff)), Some(mask)) = (arena.as_stack_offset(lhs), arena.as_const(rhs)) {
@@ -4162,7 +4350,7 @@ pub fn lift_vm_entry_cfg(
                             } else {
                                 let mv = arena.mul(rax_v, rhs);
                                 let lo = arena.zext_mask(mv, w);
-                                let hi = arena.opaque();
+                                let hi = mul_high_half(&mut arena, rax_v, rhs, w, true);
                                 let sl = if w == 8 { RegSlice::Full64 } else { RegSlice::Low32 };
                                 state.write_reg(&mut arena, ArchReg::Rax, sl, lo);
                                 state.write_reg(&mut arena, ArchReg::Rdx, sl, hi);
@@ -4222,7 +4410,7 @@ pub fn lift_vm_entry_cfg(
                     } else {
                         let mv = arena.mul(rax_v, rhs);
                         let lo = arena.zext_mask(mv, w);
-                        let hi = arena.opaque();
+                        let hi = mul_high_half(&mut arena, rax_v, rhs, w, false);
                         state.write_reg(&mut arena, ArchReg::Rax, sl, lo);
                         state.write_reg(&mut arena, ArchReg::Rdx, sl, hi);
                     }
@@ -4844,13 +5032,143 @@ fn mem_disp(bitness: u32, base: ArchReg, disp: i64, width: u8) -> AsmMemoryOpera
     }
 }
 
+/// Every expression a lifted function computes: effects, branch conditions, exit
+/// registers and stores.
+fn function_root_exprs(func: &LiftedFunction) -> Vec<ExprId> {
+    func.blocks.iter().flat_map(block_root_exprs).collect()
+}
+
+/// The expressions one block computes (see `function_root_exprs`).
+fn block_root_exprs(b: &LiftedBlock) -> Vec<ExprId> {
+    let mut roots = Vec::new();
+    {
+        for e in &b.effects {
+            match e {
+                IrEffect::Store { addr, value, .. } => roots.extend([*addr, *value]),
+                IrEffect::AtomicCmpXchg { addr, expected_rax, desired, .. } => roots.extend([*addr, *expected_rax, *desired]),
+                IrEffect::AtomicRmw { addr, src, .. } => roots.extend([*addr, *src]),
+                IrEffect::WriteCr8 { val, .. } => roots.push(*val),
+                IrEffect::CallNative { .. } => {}
+            }
+        }
+        let (regs, xmms, pending): (Option<&[ExprId; 16]>, Option<&[(ExprId, ExprId); 16]>, &[(i64, ExprId)]) = match &b.term {
+            IrTerm::CondBranch { cond, .. } => {
+                roots.push(*cond);
+                (None, None, &[])
+            }
+            IrTerm::MidCall { final_regs, final_xmms, pending_caller_stores, .. }
+            | IrTerm::ExitRet { final_regs, final_xmms, pending_caller_stores, .. }
+            | IrTerm::ExitJmp { final_regs, final_xmms, pending_caller_stores, .. }
+            | IrTerm::ExitCall { final_regs, final_xmms, pending_caller_stores, .. }
+            | IrTerm::ExitIndirectMem { final_regs, final_xmms, pending_caller_stores, .. } => {
+                (Some(final_regs), Some(final_xmms), pending_caller_stores.as_slice())
+            }
+            IrTerm::ExitAddJmp { final_regs, final_xmms, .. } => (Some(final_regs), Some(final_xmms), &[]),
+            IrTerm::ExitToVm { exit, final_regs, final_xmms, .. } => {
+                (Some(final_regs), Some(final_xmms), exit.pending.as_slice())
+            }
+            IrTerm::Bailout(_) => (None, None, &[]),
+        };
+        if let Some(r) = regs {
+            roots.extend(r.iter().copied());
+        }
+        if let Some(x) = xmms {
+            for &(lo, hi) in x {
+                roots.extend([lo, hi]);
+            }
+        }
+        roots.extend(pending.iter().map(|&(_, v)| v));
+    }
+    roots
+}
+
+fn expr_contains_node(arena: &ExprArena, root: ExprId, want: &ExprNode) -> bool {
+    let mut seen = HashSet::new();
+    let mut st = vec![root];
+    while let Some(id) = st.pop() {
+        if !seen.insert(id) {
+            continue;
+        }
+        let node = arena.get(id);
+        if node == want {
+            return true;
+        }
+        push_expr_children(node, &mut st);
+    }
+    false
+}
+
+/// The function reads the entry RFLAGS somewhere, so its prologue must save them.
+fn function_uses_entry_rflags(func: &LiftedFunction) -> bool {
+    function_root_exprs(func)
+        .into_iter()
+        .any(|r| expr_contains_node(&func.arena, r, &ExprNode::EntryRflags))
+}
+
 fn validate_function_soundness(func: &LiftedFunction, view: &PeImageView) -> Result<(), String> {
     let bitness = view.bitness;
     let word_bytes: u8 = if bitness == 64 { 8 } else { 4 };
     if let Some(ref b) = func.first_bailout {
         return Err(b.clone());
     }
+    // A frame's entry RFLAGS live at `StackBase - 8` (see `compile_function_into_asm`).
+    // An exit's stores over `[-16, 0)` could overwrite them before a register or
+    // memory store that reads them is computed (those stores are ordered last, but
+    // registers and effects come after them).
+    if function_uses_entry_rflags(func) {
+        if bitness != 64 {
+            return Err("entry_rflags_32bit".into());
+        }
+        let reads = |e: ExprId| expr_contains_node(&func.arena, e, &ExprNode::EntryRflags);
+        for b in &func.blocks {
+            let pending: &[(i64, ExprId)] = match &b.term {
+                IrTerm::ExitRet { pending_caller_stores, .. }
+                | IrTerm::ExitJmp { pending_caller_stores, .. }
+                | IrTerm::ExitCall { pending_caller_stores, .. }
+                | IrTerm::ExitIndirectMem { pending_caller_stores, .. } => pending_caller_stores,
+                IrTerm::ExitToVm { exit, .. } => &exit.pending,
+                _ => &[],
+            };
+            if !pending.iter().any(|&(o, _)| o > -16 - word_bytes as i64 && o < 0) {
+                continue;
+            }
+            let mut later: Vec<ExprId> = Vec::new();
+            for e in &b.effects {
+                match e {
+                    IrEffect::Store { addr, value, .. } => later.extend([*addr, *value]),
+                    IrEffect::AtomicCmpXchg { addr, expected_rax, desired, .. } => later.extend([*addr, *expected_rax, *desired]),
+                    IrEffect::AtomicRmw { addr, src, .. } => later.extend([*addr, *src]),
+                    IrEffect::WriteCr8 { val, .. } => later.push(*val),
+                    IrEffect::CallNative { .. } => {}
+                }
+            }
+            let (regs, xmms): (Option<&[ExprId; 16]>, Option<&[(ExprId, ExprId); 16]>) = match &b.term {
+                IrTerm::ExitRet { final_regs, final_xmms, .. }
+                | IrTerm::ExitJmp { final_regs, final_xmms, .. }
+                | IrTerm::ExitCall { final_regs, final_xmms, .. }
+                | IrTerm::ExitIndirectMem { final_regs, final_xmms, .. }
+                | IrTerm::ExitToVm { final_regs, final_xmms, .. } => (Some(final_regs), Some(final_xmms)),
+                _ => (None, None),
+            };
+            if let Some(r) = regs {
+                later.extend(r.iter().copied());
+            }
+            if let Some(x) = xmms {
+                for &(lo, hi) in x {
+                    later.extend([lo, hi]);
+                }
+            }
+            if later.into_iter().any(reads) {
+                return Err("entry_rflags_overwritten".into());
+            }
+        }
+    }
 
+    // `(mem_ver, all-aliasing)` at the start of the block being checked. A load is
+    // only a problem when a store of an EARLIER block may have overwritten what it
+    // read: against the stores of its own block the codegen evaluates it before them
+    // (`CodegenCtx::spills`, `emit_block_effects`).
+    let block_start: std::cell::Cell<(u32, bool)> = std::cell::Cell::new((0, false));
     let check_expr_clean = |e: ExprId,
                             ctx: &str,
                             stores: &[StoreRecord],
@@ -4864,7 +5182,10 @@ fn validate_function_soundness(func: &LiftedFunction, view: &PeImageView) -> Res
         if expr_contains_entry_flag(&func.arena, e) {
             return Err("entry_flag_beyond_block0".into());
         }
-        if expr_has_aliasing_stale_load(&func.arena, view, e, stores, all_aliasing, max_ver) {
+        let (start_ver, start_all_aliasing) = block_start.get();
+        let prior: Vec<StoreRecord> = stores.iter().copied().filter(|st| st.ver_after <= start_ver).collect();
+        let _ = all_aliasing;
+        if expr_has_aliasing_stale_load(&func.arena, view, e, &prior, start_all_aliasing, max_ver.min(start_ver)) {
             return Err("load_across_aliasing_store".into());
         }
         if expr_has_stale_cr8(&func.arena, e, max_cr8_ver) {
@@ -4911,6 +5232,7 @@ fn validate_function_soundness(func: &LiftedFunction, view: &PeImageView) -> Res
     let mut visited_ver = HashSet::new();
     visited_ver.insert(0usize);
     while let Some(bi) = work.pop_front() {
+        block_start.set((entry_max_ver[bi], entry_all_aliasing[bi]));
         let mut cur_stores = entry_stores[bi].clone();
         let mut cur_all_aliasing = entry_all_aliasing[bi];
         let mut cur_max_ver = entry_max_ver[bi];
@@ -5217,6 +5539,8 @@ fn push_expr_children(node: &ExprNode, st: &mut Vec<ExprId>) {
         | ExprNode::Sar(a, b)
         | ExprNode::Rol(a, b)
         | ExprNode::Ror(a, b)
+        | ExprNode::MulHiU(a, b)
+        | ExprNode::MulHiS(a, b)
         | ExprNode::Cmp { lhs: a, rhs: b, .. } => {
             st.push(*a);
             st.push(*b);
@@ -5345,6 +5669,9 @@ struct CodegenCtx<'a> {
     saved_regs: HashMap<ArchReg, i64>,
     scratch: [ArchReg; 3],
     eval_steps: usize,
+    /// Loads already read and pushed, by the `rsp_depth` after their push: a later
+    /// store of the block could change what they read (see `emit_block_effects`).
+    spills: HashMap<ExprId, i64>,
 }
 
 impl<'a> CodegenCtx<'a> {
@@ -5535,10 +5862,29 @@ impl<'a> CodegenCtx<'a> {
         if dst == spill_reg {
             return Err("codegen_dst_eq_spill".into());
         }
+        if let Some(&at) = self.spills.get(&expr) {
+            // Read earlier, before a store that could have changed it.
+            let rel = self.rsp_depth - at;
+            let m = mem_disp(self.bitness, ArchReg::Rsp, rel, self.word_bytes as u8);
+            return if self.bitness == 64 {
+                a.mov(to_asm64(dst), m)
+            } else {
+                a.mov(to_asm32(dst), m)
+            }
+            .map_err(|e| e.to_string());
+        }
         match self.arena.get(expr).clone() {
             ExprNode::Const(v) => self.emit_mov_imm(a, dst, v),
             ExprNode::RegIn(r) => self.read_reg_in(a, dst, r),
             ExprNode::StackBase => self.emit_stack_base_addr(a, dst, 0, Some(spill_reg)),
+            // Saved by the function prologue at `StackBase - 8` (see `compile_function_into_asm`).
+            ExprNode::EntryRflags => {
+                if self.bitness != 64 {
+                    return Err("entry_rflags_32bit".into());
+                }
+                let rel = i32::try_from(self.rsp_depth - 8).map_err(|_| "entry_rflags_disp".to_string())?;
+                a.mov(to_asm64(dst), qword_ptr(gpr64::rsp + rel)).map_err(|e| e.to_string())
+            }
             ExprNode::Not(x) => {
                 self.eval_expr_into(a, x, dst, spill_reg)?;
                 if self.bitness == 64 {
@@ -5624,6 +5970,34 @@ impl<'a> CodegenCtx<'a> {
                 // Pop saved `lhs` back into `dst` safely!
                 self.emit_pop(a, dst)?;
                 self.emit_alu_reg(a, op, dst, spill_reg)
+            }
+            ExprNode::MulHiU(x, y) | ExprNode::MulHiS(x, y) => {
+                // RDX of `mul` / `imul` r/m64. Both operands go on the stack, RAX/RDX are
+                // saved around the multiply, the high half replaces the first operand's
+                // slot and is popped into `dst` last (so `dst` may be RAX or RDX).
+                if self.bitness != 64 {
+                    return Err("mulhi_32bit".into());
+                }
+                let signed = matches!(self.arena.get(expr), ExprNode::MulHiS(..));
+                self.eval_expr_into(a, x, dst, spill_reg)?;
+                self.emit_push(a, dst)?;
+                self.eval_expr_into(a, y, dst, spill_reg)?;
+                self.emit_push(a, dst)?;
+                let e = |e: iced_x86::IcedError| e.to_string();
+                a.push(gpr64::rax).map_err(e)?;
+                a.push(gpr64::rdx).map_err(e)?;
+                a.mov(gpr64::rax, qword_ptr(gpr64::rsp + 24)).map_err(e)?;
+                if signed {
+                    a.imul(qword_ptr(gpr64::rsp + 16)).map_err(e)?;
+                } else {
+                    a.mul(qword_ptr(gpr64::rsp + 16)).map_err(e)?;
+                }
+                a.mov(qword_ptr(gpr64::rsp + 24), gpr64::rdx).map_err(e)?;
+                a.pop(gpr64::rdx).map_err(e)?;
+                a.pop(gpr64::rax).map_err(e)?;
+                a.lea(gpr64::rsp, ptr(gpr64::rsp) + 8).map_err(e)?;
+                self.rsp_depth -= 8;
+                self.emit_pop(a, dst)
             }
             ExprNode::Shl(lhs, rhs)
             | ExprNode::Shr(lhs, rhs)
@@ -5906,6 +6280,8 @@ fn collect_read_regs_into(arena: &ExprArena, expr: ExprId, out: &mut HashSet<Arc
             | ExprNode::Sar(a, b)
             | ExprNode::Rol(a, b)
             | ExprNode::Ror(a, b)
+            | ExprNode::MulHiU(a, b)
+            | ExprNode::MulHiS(a, b)
             | ExprNode::Cmp { lhs: a, rhs: b, .. } => {
                 st.push(*a);
                 st.push(*b);
@@ -5953,13 +6329,75 @@ fn pick_three_scratch_regs(bitness: u32, avoid: &HashSet<ArchReg>) -> [ArchReg; 
     [picked[0], picked[1], picked[2]]
 }
 
+/// Expressions an effect evaluates.
+fn effect_exprs(e: &IrEffect) -> Vec<ExprId> {
+    match e {
+        IrEffect::Store { addr, value, .. } => vec![*addr, *value],
+        IrEffect::AtomicCmpXchg { addr, expected_rax, desired, .. } => vec![*addr, *expected_rax, *desired],
+        IrEffect::AtomicRmw { addr, src, .. } => vec![*addr, *src],
+        IrEffect::WriteCr8 { val, .. } => vec![*val],
+        IrEffect::CallNative { .. } => Vec::new(),
+    }
+}
+
+/// Memory version after an effect that writes memory.
+fn effect_store_ver(e: &IrEffect) -> Option<u32> {
+    match e {
+        IrEffect::Store { mem_ver_after, .. }
+        | IrEffect::AtomicCmpXchg { mem_ver_after, .. }
+        | IrEffect::AtomicRmw { mem_ver_after, .. } => Some(*mem_ver_after),
+        IrEffect::WriteCr8 { .. } | IrEffect::CallNative { .. } => None,
+    }
+}
+
+/// Upper bound on loads pushed in one block (each is a qword of stack).
+const MAX_BLOCK_SPILLS: usize = 256;
+
+/// `effects` in order. `later` are the expressions the block evaluates after them
+/// (exit registers and stores, the branch condition).
+///
+/// Before each effect that writes memory, every load that is still to be used - by a
+/// later effect or by `later` - and that read memory before this write
+/// (`mem_ver < mem_ver_after`) is evaluated now and pushed (`CodegenCtx::spills`):
+/// the codegen evaluates expressions lazily, after the writes, and the write could
+/// change what the load saw. No alias analysis here: every such load is kept, which
+/// is always correct. Spills stay on the stack until the block's end.
 fn emit_block_effects(
     a: &mut CodeAssembler,
     ctx: &mut CodegenCtx<'_>,
     effects: &[IrEffect],
+    later: &[ExprId],
 ) -> Result<(), String> {
     let [w0, w1, w2] = ctx.scratch;
-    for eff in effects {
+    for (i, eff) in effects.iter().enumerate() {
+        if let Some(ver) = effect_store_ver(eff) {
+            let mut roots: Vec<ExprId> = effects[i + 1..].iter().flat_map(effect_exprs).collect();
+            roots.extend_from_slice(later);
+            let mut loads: Vec<ExprId> = Vec::new();
+            let mut seen = HashSet::new();
+            while let Some(id) = roots.pop() {
+                if !seen.insert(id) || ctx.spills.contains_key(&id) {
+                    continue;
+                }
+                let node = ctx.arena.get(id);
+                if let ExprNode::Load { mem_ver, .. } = node {
+                    if *mem_ver < ver {
+                        loads.push(id);
+                        continue; // its address is evaluated with it
+                    }
+                }
+                push_expr_children(node, &mut roots);
+            }
+            loads.sort_unstable();
+            for l in loads {
+                if ctx.spills.len() >= MAX_BLOCK_SPILLS {
+                    return Err("spill_limit".into());
+                }
+                ctx.eval_expr_into(a, l, w0, w2)?;
+                ctx.emit_push(a, w0)?;
+                ctx.spills.insert(l, ctx.rsp_depth);
+            }
+        }
         match eff {
             IrEffect::Store { addr, width, value, .. } => {
                 ctx.eval_expr_into(a, *value, w0, w2)?;
@@ -6212,10 +6650,14 @@ fn emit_vm_exit(a: &mut CodeAssembler, exit: &VmExit, target: u64) -> Result<(),
         }
     }
     // Replay the last flag-setting operation. Only mov / lea / pop / jmp follow.
-    if let Some(f) = exit.flags {
+    if let Some(FlagsReplay::Popf { a: t }) = exit.flags {
+        a.push(qword_ptr(rsp + temp(t)?)).map_err(err)?;
+        a.popfq().map_err(err)?;
+    } else if let Some(f) = exit.flags {
         let (a_off, b_off, width) = match f {
             FlagsReplay::Cmp { a, b, width } | FlagsReplay::Add { a, b, width } => (a, Some(b), width),
             FlagsReplay::Test { a, width } => (a, None, width),
+            FlagsReplay::Popf { .. } => unreachable!("handled above"),
         };
         a.mov(rax, qword_ptr(rsp + temp(a_off)?)).map_err(err)?;
         if let Some(b) = b_off {
@@ -6234,6 +6676,7 @@ fn emit_vm_exit(a: &mut CodeAssembler, exit: &VmExit, target: u64) -> Result<(),
             (FlagsReplay::Test { .. }, 4) => a.test(gpr32::eax, gpr32::eax),
             (FlagsReplay::Test { .. }, 2) => a.test(gpr16::ax, gpr16::ax),
             (FlagsReplay::Test { .. }, _) => a.test(gpr8::al, gpr8::al),
+            (FlagsReplay::Popf { .. }, _) => unreachable!("handled above"),
         }
         .map_err(err)?;
     }
@@ -6258,6 +6701,7 @@ fn emit_vm_exit(a: &mut CodeAssembler, exit: &VmExit, target: u64) -> Result<(),
 fn emit_block_outputs_and_jump(
     a: &mut CodeAssembler,
     bitness: u32,
+    base_depth: i64,
     arena: &ExprArena,
     effects: &[IrEffect],
     pending_caller_stores: &[(i64, ExprId)],
@@ -6388,10 +6832,11 @@ fn emit_block_outputs_and_jump(
         bitness,
         word_bytes,
         arena,
-        rsp_depth: 0,
+        rsp_depth: base_depth,
         saved_regs: HashMap::new(),
         scratch,
         eval_steps: 0,
+        spills: HashMap::new(),
     };
 
     let final_hw_rsp_delta = if pre_ret_pop {
@@ -6421,15 +6866,33 @@ fn emit_block_outputs_and_jump(
         }
     }
 
-    // Emit caller-frame stack stores (`off >= rsp_delta_target`)
-    for &(off, val) in pending_caller_stores {
+    // Memory effects first, in program order: loads that a later write could change
+    // are read before it (see `emit_block_effects`). Then the caller-frame slots, which
+    // hold the final values (an effect writing the same slot comes before them).
+    let mut later: Vec<ExprId> = pending_caller_stores.iter().map(|&(_, v)| v).collect();
+    later.extend(modified.iter().map(|&(_, e)| e));
+    for &(_, (lo, hi)) in &modified_xmms {
+        later.extend([lo, hi]);
+    }
+    emit_block_effects(a, &mut ctx, effects, &later)?;
+
+    // Emit caller-frame stack stores (`off >= rsp_delta_target`). With the entry
+    // RFLAGS saved at `StackBase - 8`, the stores over `[-16, 0)` go last, after every
+    // other value (that may read the saved RFLAGS) has been computed.
+    let over_saved = |off: i64| base_depth > 0 && off > -16 - word_bytes && off < 0;
+    let ordered: Vec<(i64, ExprId)> = pending_caller_stores
+        .iter()
+        .copied()
+        .filter(|&(o, _)| !over_saved(o))
+        .chain(pending_caller_stores.iter().copied().filter(|&(o, _)| over_saved(o)))
+        .collect();
+    for &(off, val) in &ordered {
         let [w0, _, w2] = ctx.scratch;
         ctx.eval_expr_into(a, val, w0, w2)?;
         let rel = ctx.rsp_depth + off;
         let m = mem_disp(ctx.bitness, ArchReg::Rsp, rel, word_bytes as u8);
         ctx.emit_store_to_mem(a, m, w0, word_bytes as u8)?;
     }
-    emit_block_effects(a, &mut ctx, effects)?;
 
     let [w0, _, w2] = ctx.scratch;
     let mut pushed_xmms: Vec<u8> = Vec::new();
@@ -6466,6 +6929,19 @@ fn emit_block_outputs_and_jump(
         ctx.rsp_depth -= 16;
     }
 
+    // Drop the spilled loads (flag-preserving `lea rsp`); they sit above the entry pushes.
+    if !ctx.spills.is_empty() {
+        let bytes = ctx.spills.len() as i64 * ctx.word_bytes;
+        let d = i32::try_from(bytes).map_err(|_| "spill_disp".to_string())?;
+        if ctx.bitness == 64 {
+            a.lea(gpr64::rsp, ptr(gpr64::rsp) + d).map_err(|e| e.to_string())?;
+        } else {
+            a.lea(gpr32::esp, ptr(gpr32::esp) + d).map_err(|e| e.to_string())?;
+        }
+        ctx.rsp_depth -= bytes;
+        ctx.spills.clear();
+    }
+
     // Restore preserved scratch entries; discard non-preserved scratch slots via flag-preserving `lea rsp`
     for &(er, restore) in entry_pushed.iter().rev() {
         if restore {
@@ -6495,6 +6971,19 @@ fn compile_function_into_asm(
     a.set_label(entry_lbl).map_err(|e| e.to_string())?;
     a.zero_bytes().map_err(|e| e.to_string())?;
 
+    // Keep the entry RFLAGS for the whole function when anything reads them
+    // (`ExprNode::EntryRflags`): `pushfq` leaves them at `StackBase - 8`, and RSP
+    // stays 16 below the entry RSP between blocks (every block starts at that depth).
+    // Neither instruction changes the flags, so block 0 still sees the entry flags.
+    // Every frame (the function entry and each native call's return, where
+    // `SymState::new` starts over) saves its RFLAGS the same way, so in every block
+    // RSP is 16 below the frame's `StackBase` and `EntryRflags` is at `StackBase - 8`.
+    let saves_rflags = bitness == 64 && function_uses_entry_rflags(func);
+    if saves_rflags {
+        a.pushfq().map_err(|e| e.to_string())?;
+        a.lea(gpr64::rsp, ptr(gpr64::rsp) - 8).map_err(|e| e.to_string())?;
+    }
+
     let mut block_lbls: Vec<CodeLabel> = (0..func.blocks.len())
         .map(|_| a.create_label())
         .collect();
@@ -6504,6 +6993,7 @@ fn compile_function_into_asm(
             a.set_label(&mut block_lbls[bi]).map_err(|e| e.to_string())?;
             a.zero_bytes().map_err(|e| e.to_string())?;
         }
+        let base_depth: i64 = if saves_rflags { 16 } else { 0 };
 
         match &block.term {
             IrTerm::CondBranch { cond, taken_block, fallthrough_block } => {
@@ -6562,10 +7052,11 @@ fn compile_function_into_asm(
                     bitness,
                     word_bytes: if bitness == 64 { 8 } else { 4 },
                     arena: &func.arena,
-                    rsp_depth: 0,
+                    rsp_depth: base_depth,
                     saved_regs: HashMap::new(),
                     scratch,
                     eval_steps: 0,
+                    spills: HashMap::new(),
                 };
                 // Save scratch registers used by `cond`/`effects`
                 let mut pushed_sc = Vec::new();
@@ -6579,11 +7070,27 @@ fn compile_function_into_asm(
                     ctx.saved_regs.insert(s, ctx.rsp_depth);
                     pushed_sc.push(s);
                 }
-                emit_block_effects(a, &mut ctx, &block.effects)?;
+                emit_block_effects(a, &mut ctx, &block.effects, &[*cond])?;
                 // Compute condition `0/1` into `scratch[2]`? No, emit_branch_on_cond uses flags then restores scratch BEFORE jcc!
                 let mut l_taken_tramp = a.create_label();
                 ctx.emit_branch_on_cond(a, *cond, &mut l_taken_tramp, scratch[0], scratch[1])?;
+                // Spilled loads sit above the scratch pushes: dropped on both paths.
+                let spill_bytes = ctx.spills.len() as i64 * ctx.word_bytes;
+                let spill_d = i32::try_from(spill_bytes).map_err(|_| "spill_disp".to_string())?;
+                let drop_spills = |a: &mut CodeAssembler| -> Result<(), String> {
+                    if spill_d == 0 {
+                        return Ok(());
+                    }
+                    if bitness == 64 {
+                        a.lea(gpr64::rsp, ptr(gpr64::rsp) + spill_d).map_err(|e| e.to_string())
+                    } else {
+                        a.lea(gpr32::esp, ptr(gpr32::esp) + spill_d).map_err(|e| e.to_string())
+                    }
+                };
                 // Fallthrough path: restore scratch & jump to fallthrough block
+                drop_spills(a)?;
+                ctx.rsp_depth -= spill_bytes;
+                ctx.spills.clear();
                 for &s in pushed_sc.iter().rev() {
                     ctx.emit_pop(a, s)?;
                 }
@@ -6592,6 +7099,7 @@ fn compile_function_into_asm(
                 // Taken path: restore scratch (keep flags not needed at target!) & jump to taken block
                 a.set_label(&mut l_taken_tramp).map_err(|e| e.to_string())?;
                 a.zero_bytes().map_err(|e| e.to_string())?;
+                drop_spills(a)?;
                 for &s in pushed_sc.iter().rev() {
                     // Restore `RSP` increment without touching stack? No, `pop` restores `s` AND `RSP`!
                     if bitness == 64 {
@@ -6607,6 +7115,7 @@ fn compile_function_into_asm(
                 emit_block_outputs_and_jump(
                     a,
                     bitness,
+                    base_depth,
                     &func.arena,
                     &block.effects,
                     pending_caller_stores,
@@ -6623,6 +7132,7 @@ fn compile_function_into_asm(
                 emit_block_outputs_and_jump(
                     a,
                     bitness,
+                    base_depth,
                     &func.arena,
                     &block.effects,
                     pending_caller_stores,
@@ -6640,6 +7150,7 @@ fn compile_function_into_asm(
                 emit_block_outputs_and_jump(
                     a,
                     bitness,
+                    base_depth,
                     &func.arena,
                     &block.effects,
                     pending_caller_stores,
@@ -6672,6 +7183,7 @@ fn compile_function_into_asm(
                 emit_block_outputs_and_jump(
                     a,
                     bitness,
+                    base_depth,
                     &func.arena,
                     &block.effects,
                     &[],
@@ -6699,6 +7211,7 @@ fn compile_function_into_asm(
                 emit_block_outputs_and_jump(
                     a,
                     bitness,
+                    base_depth,
                     &func.arena,
                     &block.effects,
                     &exit.pending,
@@ -6715,6 +7228,7 @@ fn compile_function_into_asm(
                 emit_block_outputs_and_jump(
                     a,
                     bitness,
+                    base_depth,
                     &func.arena,
                     &block.effects,
                     pending_caller_stores,
@@ -6739,6 +7253,7 @@ fn compile_function_into_asm(
                 emit_block_outputs_and_jump(
                     a,
                     bitness,
+                    base_depth,
                     &func.arena,
                     &block.effects,
                     pending_caller_stores,
@@ -6771,6 +7286,11 @@ fn compile_function_into_asm(
                             }
                         }
                         .map_err(|e| e.to_string())?;
+                        if saves_rflags {
+                            // The continuation is a new frame: save its entry RFLAGS.
+                            asm.pushfq().map_err(|e| e.to_string())?;
+                            asm.lea(gpr64::rsp, ptr(gpr64::rsp) - 8).map_err(|e| e.to_string())?;
+                        }
                         asm.jmp(c_lbl).map_err(|e| e.to_string())
                     },
                 )?;
@@ -8145,6 +8665,474 @@ mod tests {
             let want = (rcx_in & 0xffff_ffff) + if rdx_in & 0x20 != 0 { 2 } else { 1 };
             assert_eq!(run(&orig_pe), want);
             assert_eq!(run(&devirt_pe), want);
+        }
+    }
+
+    /// Runs `entry` with `rcx`/`rdx` and the given entry CF; returns rax, rbx, rbp, the
+    /// RSP difference and the final CF.
+    fn run_with_cf(pe_bytes: &[u8], entry: u64, rcx_in: u64, rdx_in: u64, cf: bool) -> (u64, u64, u64, u64, u64) {
+        let s = Sample::from_bytes(pe_bytes).unwrap();
+        let mut eng = UnpackerEngine::new(s, "mem");
+        eng.init_uc().unwrap();
+        let rsp_before = {
+            let uc = eng.unicorn_mut().unwrap();
+            uc.reg_write(RegisterX86::RBP as i32, 0xB0B0_0000_1111).unwrap();
+            uc.reg_write(RegisterX86::RBX as i32, 0xB1B1_0000_2222).unwrap();
+            let fl = uc.reg_read(RegisterX86::EFLAGS as i32).unwrap();
+            uc.reg_write(RegisterX86::EFLAGS as i32, if cf { fl | 1 } else { fl & !1 }).unwrap();
+            uc.reg_read(RegisterX86::RSP as i32).unwrap()
+        };
+        let ret = eng.call_function(entry, &[rcx_in, rdx_in], 200_000, 2_000).unwrap();
+        let uc = eng.unicorn_mut().unwrap();
+        (
+            ret,
+            uc.reg_read(RegisterX86::RBX as i32).unwrap(),
+            uc.reg_read(RegisterX86::RBP as i32).unwrap(),
+            uc.reg_read(RegisterX86::RSP as i32).unwrap().wrapping_sub(rsp_before),
+            uc.reg_read(RegisterX86::EFLAGS as i32).unwrap() & 1,
+        )
+    }
+
+    #[test]
+    fn vm_context_with_pushfq_is_rebuilt_on_vm_exit_e2e() {
+        use gpr64::*;
+        let base = 0x1_4000_0000u64;
+        let mut text_sec = vec![0xCCu8; 0x200];
+        let fn0 = assemble_at(64, base + 0x1000, |a| a.jmp(base + 0x2000));
+        text_sec[..fn0.len()].copy_from_slice(&fn0);
+        let exit_ret = assemble_at(64, base + 0x1040, |a| a.ret());
+        text_sec[0x40..0x40 + exit_ret.len()].copy_from_slice(&exit_ret);
+
+        let mut vmp_sec = vec![0xCCu8; 0x400];
+        // vmenter: the entry flags go into the context first, then an aligned frame.
+        let stub = assemble_at(64, base + 0x2000, |a| {
+            a.pushfq()?;
+            a.push(rbx)?;
+            a.push(rbp)?;
+            a.mov(rbp, rsp)?;
+            a.and(rsp, -16)?;
+            a.sub(rsp, 0x40)?;
+            a.mov(qword_ptr(rsp + 0x10), rcx)?;
+            a.mov(rax, rcx)?;
+            for k in 0..30i32 {
+                a.add(rax, k + 3)?;
+                a.sub(rax, k + 3)?;
+            }
+            a.mov(r8, rdx)?;
+            a.and(r8, 0x20)?;
+            a.mov(r10, base + 0x2300)?;
+            a.add(r10, r8)?;
+            a.jmp(r10)
+        });
+        assert!(stub.len() < 0x300);
+        vmp_sec[..stub.len()].copy_from_slice(&stub);
+        // Handlers restore the pushed flags and use the entry CF.
+        for (off, add) in [(0x300usize, 1i32), (0x320, 2)] {
+            let h = assemble_at(64, base + 0x2000 + off as u64, |a| {
+                a.mov(rax, qword_ptr(rsp + 0x10))?;
+                a.add(rax, add)?;
+                a.mov(rsp, rbp)?;
+                a.pop(rbp)?;
+                a.pop(rbx)?;
+                a.popfq()?;
+                a.adc(rax, 0)?;
+                a.jmp(base + 0x1040)
+            });
+            vmp_sec[off..off + h.len()].copy_from_slice(&h);
+        }
+        let orig_pe = build_two_exec_pe64(&text_sec, &vmp_sec, 0x1000);
+        let (devirt_pe, report) = devirtualize_pe_bytes(&orig_pe, BinaryDevirtConfig::default()).unwrap();
+        assert_eq!(report.devirtualized_total, 1, "bailouts: {:?}", report.bailout_reasons);
+        assert_eq!(report.hybrid_vm_exits, 1);
+        for cf in [false, true] {
+            for (rcx_in, rdx_in) in [(7u64, 0u64), (7, 0x20)] {
+                let orig = run_with_cf(&orig_pe, base + 0x1000, rcx_in, rdx_in, cf);
+                let want = rcx_in + if rdx_in & 0x20 != 0 { 2 } else { 1 } + cf as u64;
+                assert_eq!(orig.0, want, "original cf={cf} rdx={rdx_in:#x}");
+                assert_eq!(run_with_cf(&devirt_pe, base + 0x1000, rcx_in, rdx_in, cf), orig, "devirtualized cf={cf} rdx={rdx_in:#x}");
+            }
+        }
+    }
+
+    #[test]
+    fn exit_with_untouched_entry_flags_restores_them_e2e() {
+        use gpr64::*;
+        let base = 0x1_4000_0000u64;
+        let mut text_sec = vec![0xCCu8; 0x200];
+        let fn0 = assemble_at(64, base + 0x1000, |a| a.jmp(base + 0x2000));
+        text_sec[..fn0.len()].copy_from_slice(&fn0);
+        let exit_ret = assemble_at(64, base + 0x1040, |a| a.ret());
+        text_sec[0x40..0x40 + exit_ret.len()].copy_from_slice(&exit_ret);
+
+        let mut vmp_sec = vec![0xCCu8; 0x400];
+        // Nothing before `cpuid` touches the flags (lea only); `jc` reads the entry CF.
+        let stub = assemble_at(64, base + 0x2000, |a| {
+            let mut carry = a.create_label();
+            let mut tail = a.create_label();
+            a.lea(rsp, ptr(rsp) - 0x20)?;
+            a.mov(qword_ptr(rsp + 0x10), rbx)?;
+            a.mov(r9, rcx)?; // cpuid clobbers rax/rbx/rcx/rdx
+            a.mov(rax, rcx)?;
+            for k in 0..30i32 {
+                a.lea(rax, ptr(rax) + (k + 3))?;
+                a.lea(rax, ptr(rax) - (k + 3))?;
+            }
+            a.cpuid()?;
+            a.jc(carry)?;
+            a.mov(rax, r9)?;
+            a.add(rax, 10)?;
+            a.jmp(tail)?;
+            a.set_label(&mut carry)?;
+            a.mov(rax, r9)?;
+            a.add(rax, 20)?;
+            a.set_label(&mut tail)?;
+            a.mov(rbx, qword_ptr(rsp + 0x10))?;
+            a.lea(rsp, ptr(rsp) + 0x20)?;
+            a.jmp(base + 0x1040)
+        });
+        vmp_sec[..stub.len()].copy_from_slice(&stub);
+        let orig_pe = build_two_exec_pe64(&text_sec, &vmp_sec, 0x1000);
+        let (devirt_pe, report) = devirtualize_pe_bytes(&orig_pe, BinaryDevirtConfig::default()).unwrap();
+        assert_eq!(report.devirtualized_total, 1, "bailouts: {:?}", report.bailout_reasons);
+        assert_eq!(report.hybrid_vm_exits, 1);
+        for cf in [false, true] {
+            let orig = run_with_cf(&orig_pe, base + 0x1000, 100, 0, cf);
+            assert_eq!(orig.0, 100 + if cf { 20 } else { 10 }, "original cf={cf}");
+            let dev = run_with_cf(&devirt_pe, base + 0x1000, 100, 0, cf);
+            // cpuid clobbers rbx/rcx/rdx in both; compare rax, rbx, rsp and CF.
+            assert_eq!((dev.0, dev.1, dev.3, dev.4), (orig.0, orig.1, orig.3, orig.4), "devirtualized cf={cf}");
+        }
+    }
+
+    #[test]
+    fn pushfq_context_with_native_midcall_e2e() {
+        use gpr64::*;
+        let base = 0x1_4000_0000u64;
+        let mut text_sec = vec![0xCCu8; 0x200];
+        let fn0 = assemble_at(64, base + 0x1000, |a| a.jmp(base + 0x2000));
+        text_sec[..fn0.len()].copy_from_slice(&fn0);
+        let exit_ret = assemble_at(64, base + 0x1040, |a| a.ret());
+        text_sec[0x40..0x40 + exit_ret.len()].copy_from_slice(&exit_ret);
+        // Native helper the VM calls: rax = rcx * 3 + 1.
+        let helper = assemble_at(64, base + 0x1100, |a| {
+            a.lea(rax, ptr(rcx + rcx * 2) + 1)?;
+            a.ret()
+        });
+        text_sec[0x100..0x100 + helper.len()].copy_from_slice(&helper);
+
+        let mut vmp_sec = vec![0xCCu8; 0x400];
+        let stub = assemble_at(64, base + 0x2000, |a| {
+            a.pushfq()?;
+            a.push(rbx)?;
+            a.sub(rsp, 0x28)?;
+            a.mov(rbx, rcx)?;
+            a.mov(rax, rcx)?;
+            for k in 0..30i32 {
+                a.add(rax, k + 3)?;
+                a.sub(rax, k + 3)?;
+            }
+            a.call(base + 0x1100)?;
+            a.add(rax, rbx)?;
+            a.add(rsp, 0x28)?;
+            a.pop(rbx)?;
+            a.popfq()?;
+            a.jmp(base + 0x1040)
+        });
+        vmp_sec[..stub.len()].copy_from_slice(&stub);
+        let orig_pe = build_two_exec_pe64(&text_sec, &vmp_sec, 0x1000);
+        let (devirt_pe, report) = devirtualize_pe_bytes(&orig_pe, BinaryDevirtConfig::default()).unwrap();
+        assert_eq!(report.devirtualized_total, 1, "bailouts: {:?}", report.bailout_reasons);
+        for cf in [false, true] {
+            for rcx_in in [2u64, 1000] {
+                let orig = run_with_cf(&orig_pe, base + 0x1000, rcx_in, 0, cf);
+                assert_eq!(orig.0, rcx_in * 4 + 1, "original");
+                let dev = run_with_cf(&devirt_pe, base + 0x1000, rcx_in, 0, cf);
+                assert_eq!((dev.0, dev.1, dev.2, dev.3), (orig.0, orig.1, orig.2, orig.3), "devirtualized cf={cf} rcx={rcx_in}");
+            }
+        }
+    }
+
+    #[test]
+    fn exit_after_native_call_restores_callee_flags_e2e() {
+        use gpr64::*;
+        let base = 0x1_4000_0000u64;
+        let mut text_sec = vec![0xCCu8; 0x200];
+        let fn0 = assemble_at(64, base + 0x1000, |a| a.jmp(base + 0x2000));
+        text_sec[..fn0.len()].copy_from_slice(&fn0);
+        let exit_ret = assemble_at(64, base + 0x1040, |a| a.ret());
+        text_sec[0x40..0x40 + exit_ret.len()].copy_from_slice(&exit_ret);
+        // Native helper: CF = (rcx < 50), rax = rcx.
+        let helper = assemble_at(64, base + 0x1100, |a| {
+            a.mov(rax, rcx)?;
+            a.cmp(rcx, 50)?;
+            a.ret()
+        });
+        text_sec[0x100..0x100 + helper.len()].copy_from_slice(&helper);
+
+        let mut vmp_sec = vec![0xCCu8; 0x400];
+        let stub = assemble_at(64, base + 0x2000, |a| {
+            let mut carry = a.create_label();
+            let mut tail = a.create_label();
+            a.pushfq()?;
+            a.push(rbx)?;
+            a.sub(rsp, 0x28)?;
+            a.mov(r9, rcx)?;
+            a.mov(rax, rcx)?;
+            for k in 0..30i32 {
+                a.add(rax, k + 3)?;
+                a.sub(rax, k + 3)?;
+            }
+            a.call(base + 0x1100)?;
+            // Continuation: flags are the helper's; nothing touches them before jc.
+            for k in 0..20i32 {
+                a.lea(r10, ptr(r9) + (k + 1))?;
+            }
+            a.cpuid()?;
+            a.jc(carry)?;
+            a.lea(rax, ptr(r9) + 1000)?;
+            a.jmp(tail)?;
+            a.set_label(&mut carry)?;
+            a.lea(rax, ptr(r9) + 2000)?;
+            a.set_label(&mut tail)?;
+            a.add(rsp, 0x28)?;
+            a.pop(rbx)?;
+            a.popfq()?;
+            a.jmp(base + 0x1040)
+        });
+        vmp_sec[..stub.len()].copy_from_slice(&stub);
+        let orig_pe = build_two_exec_pe64(&text_sec, &vmp_sec, 0x1000);
+        let (devirt_pe, report) = devirtualize_pe_bytes(&orig_pe, BinaryDevirtConfig::default()).unwrap();
+        assert_eq!(report.devirtualized_total, 1, "bailouts: {:?}", report.bailout_reasons);
+        assert_eq!(report.hybrid_vm_exits, 1);
+        for cf in [false, true] {
+            for rcx_in in [10u64, 90] {
+                let orig = run_with_cf(&orig_pe, base + 0x1000, rcx_in, 0, cf);
+                assert_eq!(orig.0, rcx_in + if rcx_in < 50 { 2000 } else { 1000 }, "original");
+                let dev = run_with_cf(&devirt_pe, base + 0x1000, rcx_in, 0, cf);
+                // cpuid clobbers rbx inside, but rbx is restored from the stack.
+                assert_eq!((dev.0, dev.1, dev.2, dev.3, dev.4), orig, "devirtualized cf={cf} rcx={rcx_in}");
+            }
+        }
+    }
+
+    fn run_with_flags(pe_bytes: &[u8], entry: u64, rcx_in: u64, rdx_in: u64, set: u64, clear: u64) -> u64 {
+        let s = Sample::from_bytes(pe_bytes).unwrap();
+        let mut eng = UnpackerEngine::new(s, "mem");
+        eng.init_uc().unwrap();
+        {
+            let uc = eng.unicorn_mut().unwrap();
+            let fl = uc.reg_read(RegisterX86::EFLAGS as i32).unwrap();
+            uc.reg_write(RegisterX86::EFLAGS as i32, (fl | set) & !clear).unwrap();
+        }
+        eng.call_function(entry, &[rcx_in, rdx_in], 200_000, 2_000).unwrap()
+    }
+
+    #[test]
+    fn adc_sbb_with_symbolic_carry_e2e() {
+        use gpr64::*;
+        let base = 0x1_4000_0000u64;
+        let mut text_sec = vec![0xCCu8; 0x200];
+        let fn0 = assemble_at(64, base + 0x1000, |a| a.jmp(base + 0x2000));
+        text_sec[..fn0.len()].copy_from_slice(&fn0);
+        let exit_ret = assemble_at(64, base + 0x1040, |a| a.ret());
+        text_sec[0x40..0x40 + exit_ret.len()].copy_from_slice(&exit_ret);
+        let mut vmp_sec = vec![0xCCu8; 0x400];
+        let stub = assemble_at(64, base + 0x2000, |a| {
+            a.sub(rsp, 0x28)?;
+            a.mov(r11, rcx)?;
+            for k in 0..30i32 {
+                a.add(r11, k + 3)?;
+                a.sub(r11, k + 3)?;
+            }
+            // carry of rcx + rdx
+            a.mov(rax, rcx)?;
+            a.xor(r8, r8)?;
+            a.add(rax, rdx)?;
+            a.adc(r8, 0)?;
+            // borrow of rcx - rdx
+            a.mov(r10, rcx)?;
+            a.xor(r9, r9)?;
+            a.sub(r10, rdx)?;
+            a.sbb(r9, 0)?;
+            a.imul_3(r8, r8, 10)?;
+            a.sub(r8, r9)?;
+            a.mov(rax, r8)?;
+            a.add(rsp, 0x28)?;
+            a.jmp(base + 0x1040)
+        });
+        vmp_sec[..stub.len()].copy_from_slice(&stub);
+        let orig_pe = build_two_exec_pe64(&text_sec, &vmp_sec, 0x1000);
+        let (devirt_pe, report) = devirtualize_pe_bytes(&orig_pe, BinaryDevirtConfig::default()).unwrap();
+        assert_eq!(report.devirtualized_total, 1, "bailouts: {:?}", report.bailout_reasons);
+        for (c, d) in [(1u64, 2u64), (u64::MAX, 1), (5, 9), (u64::MAX, u64::MAX), (0, 0), (1 << 63, 1 << 63)] {
+            let want = (c.checked_add(d).is_none() as u64) * 10 + (c < d) as u64;
+            assert_eq!(run_with_flags(&orig_pe, base + 0x1000, c, d, 0, 0), want, "original {c:#x} {d:#x}");
+            assert_eq!(run_with_flags(&devirt_pe, base + 0x1000, c, d, 0, 0), want, "devirtualized {c:#x} {d:#x}");
+        }
+    }
+
+    #[test]
+    fn mul_imul_high_half_e2e() {
+        use gpr64::*;
+        let base = 0x1_4000_0000u64;
+        let mut text_sec = vec![0xCCu8; 0x200];
+        let fn0 = assemble_at(64, base + 0x1000, |a| a.jmp(base + 0x2000));
+        text_sec[..fn0.len()].copy_from_slice(&fn0);
+        let exit_ret = assemble_at(64, base + 0x1040, |a| a.ret());
+        text_sec[0x40..0x40 + exit_ret.len()].copy_from_slice(&exit_ret);
+        let mut vmp_sec = vec![0xCCu8; 0x1000];
+        let stub = assemble_at(64, base + 0x2000, |a| {
+            a.sub(rsp, 0x28)?;
+            a.mov(r11, rcx)?;
+            for k in 0..120i32 {
+                a.add(r11, k + 3)?;
+                a.sub(r11, k + 3)?;
+            }
+            a.mov(r10, rdx)?;
+            // unsigned 64-bit high half
+            a.mov(rax, rcx)?;
+            a.mul(r10)?;
+            a.mov(r8, rdx)?;
+            // signed 64-bit high half
+            a.mov(rax, rcx)?;
+            a.imul(r10)?;
+            a.mov(r9, rdx)?;
+            // unsigned 32-bit high half (EDX)
+            a.mov(gpr32::eax, gpr32::ecx)?;
+            a.mul(gpr32::r10d)?;
+            a.mov(gpr32::r11d, gpr32::edx)?;
+            // signed 32-bit high half
+            a.mov(gpr32::eax, gpr32::ecx)?;
+            a.imul(gpr32::r10d)?;
+            // rax = hiU * 3 + hiS ^ (hi32u << 32) ^ hi32s
+            a.imul_3(r8, r8, 3)?;
+            a.add(r8, r9)?;
+            a.shl(r11, 32)?;
+            a.xor(r8, r11)?;
+            a.mov(gpr32::edx, gpr32::edx)?;
+            a.xor(r8, rdx)?;
+            a.mov(rax, r8)?;
+            a.add(rsp, 0x28)?;
+            a.jmp(base + 0x1040)
+        });
+        vmp_sec[..stub.len()].copy_from_slice(&stub);
+        let orig_pe = build_two_exec_pe64(&text_sec, &vmp_sec, 0x1000);
+        let (devirt_pe, report) = devirtualize_pe_bytes(&orig_pe, BinaryDevirtConfig::default()).unwrap();
+        assert_eq!(report.devirtualized_total, 1, "bailouts: {:?}", report.bailout_reasons);
+        assert_eq!(report.hybrid_vm_exits, 0);
+        for (c, d) in [
+            (1u64, 2u64),
+            (u64::MAX, 3),
+            (0x1234_5678_9abc_def0, 0x0fed_cba9_8765_4321),
+            (u64::MAX, u64::MAX),
+            (0, 7),
+            (1 << 63, 1 << 63),
+            (0xffff_ffff, 0x8000_0001),
+        ] {
+            let hu = ((c as u128 * d as u128) >> 64) as u64;
+            let hs = (((c as i64 as i128) * (d as i64 as i128)) >> 64) as u64;
+            let h32u = ((c as u32 as u64 * d as u32 as u64) >> 32) as u32 as u64;
+            let h32s = (((c as u32 as i32 as i64) * (d as u32 as i32 as i64)) >> 32) as u32 as u64;
+            let want = hu.wrapping_mul(3).wrapping_add(hs) ^ (h32u << 32) ^ h32s;
+            assert_eq!(run_with_flags(&orig_pe, base + 0x1000, c, d, 0, 0), want, "original {c:#x} {d:#x}");
+            assert_eq!(run_with_flags(&devirt_pe, base + 0x1000, c, d, 0, 0), want, "devirtualized {c:#x} {d:#x}");
+        }
+    }
+
+    #[test]
+    fn entry_flags_read_as_values_beyond_block0_e2e() {
+        use gpr64::*;
+        let base = 0x1_4000_0000u64;
+        let mut text_sec = vec![0xCCu8; 0x200];
+        let fn0 = assemble_at(64, base + 0x1000, |a| a.jmp(base + 0x2000));
+        text_sec[..fn0.len()].copy_from_slice(&fn0);
+        let exit_ret = assemble_at(64, base + 0x1040, |a| a.ret());
+        text_sec[0x40..0x40 + exit_ret.len()].copy_from_slice(&exit_ret);
+        let mut vmp_sec = vec![0xCCu8; 0x400];
+        let stub = assemble_at(64, base + 0x2000, |a| {
+            let mut zero_path = a.create_label();
+            let mut tail = a.create_label();
+            a.lea(rsp, ptr(rsp) - 0x28)?;
+            a.mov(rax, rcx)?;
+            for k in 0..30i32 {
+                a.lea(rax, ptr(rax) + (k + 3))?;
+                a.lea(rax, ptr(rax) - (k + 3))?;
+            }
+            a.jz(zero_path)?;
+            a.setc(gpr8::dl)?;
+            a.movzx(gpr32::edx, gpr8::dl)?;
+            a.lea(rax, ptr(rax + rdx) + 100)?;
+            a.jmp(tail)?;
+            a.set_label(&mut zero_path)?;
+            a.setc(gpr8::dl)?;
+            a.movzx(gpr32::edx, gpr8::dl)?;
+            a.lea(rax, ptr(rax + rdx) + 200)?;
+            a.set_label(&mut tail)?;
+            a.lea(rsp, ptr(rsp) + 0x28)?;
+            a.jmp(base + 0x1040)
+        });
+        vmp_sec[..stub.len()].copy_from_slice(&stub);
+        let orig_pe = build_two_exec_pe64(&text_sec, &vmp_sec, 0x1000);
+        let (devirt_pe, report) = devirtualize_pe_bytes(&orig_pe, BinaryDevirtConfig::default()).unwrap();
+        assert_eq!(report.devirtualized_total, 1, "bailouts: {:?}", report.bailout_reasons);
+        const CF: u64 = 1;
+        const ZF: u64 = 1 << 6;
+        for (cf, zf) in [(false, false), (true, false), (false, true), (true, true)] {
+            let set = if cf { CF } else { 0 } | if zf { ZF } else { 0 };
+            let clear = (CF | ZF) & !set;
+            let want = 1000 + cf as u64 + if zf { 200 } else { 100 };
+            assert_eq!(run_with_flags(&orig_pe, base + 0x1000, 1000, 0, set, clear), want, "original cf={cf} zf={zf}");
+            assert_eq!(run_with_flags(&devirt_pe, base + 0x1000, 1000, 0, set, clear), want, "devirtualized cf={cf} zf={zf}");
+        }
+    }
+
+    #[test]
+    fn load_used_after_possibly_aliasing_store_is_read_first_e2e() {
+        use gpr64::*;
+        let base = 0x1_4000_0000u64;
+        let mut text_sec = vec![0xCCu8; 0x200];
+        let fn0 = assemble_at(64, base + 0x1000, |a| a.jmp(base + 0x2000));
+        text_sec[..fn0.len()].copy_from_slice(&fn0);
+        let exit_ret = assemble_at(64, base + 0x1040, |a| a.ret());
+        text_sec[0x40..0x40 + exit_ret.len()].copy_from_slice(&exit_ret);
+        let mut vmp_sec = vec![0xCCu8; 0x400];
+        // rax = [rcx] read BEFORE `[rdx] = 77`, r9 = [rcx] after it; rcx may equal rdx.
+        let stub = assemble_at(64, base + 0x2000, |a| {
+            a.sub(rsp, 0x28)?;
+            a.mov(r11, rcx)?;
+            for k in 0..30i32 {
+                a.add(r11, k + 3)?;
+                a.sub(r11, k + 3)?;
+            }
+            a.mov(rax, qword_ptr(rcx))?;
+            a.mov(qword_ptr(rdx), 77)?;
+            a.mov(r9, qword_ptr(rcx))?;
+            a.lea(rax, ptr(rax + r9 * 2))?;
+            a.add(rsp, 0x28)?;
+            a.jmp(base + 0x1040)
+        });
+        vmp_sec[..stub.len()].copy_from_slice(&stub);
+        let orig_pe = build_two_exec_pe64(&text_sec, &vmp_sec, 0x1000);
+        let (devirt_pe, report) = devirtualize_pe_bytes(&orig_pe, BinaryDevirtConfig::default()).unwrap();
+        assert_eq!(report.devirtualized_total, 1, "bailouts: {:?}", report.bailout_reasons);
+        let run = |pe: &[u8], p_load: u64, p_store: u64| -> (u64, u64) {
+            let s = Sample::from_bytes(pe).unwrap();
+            let mut eng = UnpackerEngine::new(s, "mem");
+            eng.init_uc().unwrap();
+            {
+                let uc = eng.unicorn_mut().unwrap();
+                uc.mem_write(base + 0x3000, &5u64.to_le_bytes()).unwrap();
+                uc.mem_write(base + 0x3010, &9u64.to_le_bytes()).unwrap();
+            }
+            let ret = eng.call_function(base + 0x1000, &[p_load, p_store], 100_000, 2_000).unwrap();
+            let mut b = [0u8; 8];
+            eng.unicorn_mut().unwrap().mem_read(p_store, &mut b).unwrap();
+            (ret, u64::from_le_bytes(b))
+        };
+        // Aliasing: 5 + 77 * 2; disjoint: 5 + 5 * 2.
+        for (pl, ps, want) in [(base + 0x3000, base + 0x3000, 159u64), (base + 0x3000, base + 0x3010, 15)] {
+            assert_eq!(run(&orig_pe, pl, ps), (want, 77), "original");
+            assert_eq!(run(&devirt_pe, pl, ps), (want, 77), "devirtualized");
         }
     }
 

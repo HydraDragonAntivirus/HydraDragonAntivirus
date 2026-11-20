@@ -284,6 +284,9 @@ pub enum ExprNode {
     XmmIn(u8, bool),
     StackBase,
     AlignedBase(u32),
+    /// RFLAGS as they were when the lifted code was entered (what a `pushfq` stores
+    /// before anything changed the flags). The recompiled code saves them on entry.
+    EntryRflags,
     CallRet { call_id: u32, reg: ArchReg },
     Load { addr: ExprId, width: u8, mem_ver: u32 },
     Add(ExprId, ExprId),
@@ -297,6 +300,10 @@ pub enum ExprNode {
     Sar(ExprId, ExprId),
     Rol(ExprId, ExprId),
     Ror(ExprId, ExprId),
+    /// High 64 bits of the 128-bit unsigned product (`mul r/m64` -> RDX).
+    MulHiU(ExprId, ExprId),
+    /// High 64 bits of the 128-bit signed product (`imul r/m64` -> RDX).
+    MulHiS(ExprId, ExprId),
     Not(ExprId),
     Neg(ExprId),
     SExt { val: ExprId, from_bits: u8 },
@@ -380,6 +387,7 @@ impl ExprArena {
                 | ExprNode::RegIn(_)
                 | ExprNode::XmmIn(_, _)
                 | ExprNode::StackBase
+                | ExprNode::EntryRflags
                 | ExprNode::AlignedBase(_)
                 | ExprNode::EntryFlag(_)
                 | ExprNode::Cr8Read(_)
@@ -408,6 +416,10 @@ impl ExprArena {
 
     pub fn stack_base(&mut self) -> ExprId {
         self.intern_node(ExprNode::StackBase)
+    }
+
+    pub fn entry_rflags(&mut self) -> ExprId {
+        self.intern_node(ExprNode::EntryRflags)
     }
 
     pub fn aligned_base(&mut self, id: u32) -> ExprId {
@@ -965,6 +977,32 @@ impl ExprArena {
             }
         }
         self.intern_node(ExprNode::Mul(a, b))
+    }
+
+    /// High half of the 128-bit product of two 64-bit values (`signed`: `imul`).
+    pub fn mul_hi(&mut self, raw_a: ExprId, raw_b: ExprId, signed: bool) -> ExprId {
+        let (a, b) = self.order_pair(raw_a, raw_b);
+        if let (Some(ca), Some(cb)) = (self.as_const(a), self.as_const(b)) {
+            let hi = if signed {
+                (((ca as i64 as i128) * (cb as i64 as i128)) >> 64) as u64
+            } else {
+                (((ca as u128) * (cb as u128)) >> 64) as u64
+            };
+            return self.const_u64(hi);
+        }
+        match self.as_const(b) {
+            Some(0) => return self.const_u64(0),
+            // x * 1: the high half is 0 unsigned, the sign of x signed.
+            Some(1) if !signed => return self.const_u64(0),
+            Some(1) => return self.sar_const_63(a),
+            _ => {}
+        }
+        self.intern_node(if signed { ExprNode::MulHiS(a, b) } else { ExprNode::MulHiU(a, b) })
+    }
+
+    fn sar_const_63(&mut self, a: ExprId) -> ExprId {
+        let s = self.const_u64(63);
+        self.sar(a, s)
     }
 
     pub fn and(&mut self, raw_a: ExprId, raw_b: ExprId) -> ExprId {
@@ -1689,6 +1727,7 @@ impl ExprArena {
                 | ExprNode::RegIn(_)
                 | ExprNode::XmmIn(_, _)
                 | ExprNode::StackBase
+                | ExprNode::EntryRflags
                 | ExprNode::AlignedBase(_)
                 | ExprNode::CallRet { .. }
                 | ExprNode::EntryFlag(_)
@@ -1707,6 +1746,8 @@ impl ExprArena {
                 | ExprNode::Sar(a, b)
                 | ExprNode::Rol(a, b)
                 | ExprNode::Ror(a, b)
+                | ExprNode::MulHiU(a, b)
+                | ExprNode::MulHiS(a, b)
                 | ExprNode::Cmp { lhs: a, rhs: b, .. } => {
                     stack.push(*a);
                     stack.push(*b);
@@ -1752,6 +1793,7 @@ impl ExprArena {
             | ExprNode::RegIn(_)
             | ExprNode::XmmIn(_, _)
             | ExprNode::StackBase
+            | ExprNode::EntryRflags
             | ExprNode::AlignedBase(_)
             | ExprNode::CallRet { .. }
             | ExprNode::EntryFlag(_)
@@ -1823,6 +1865,12 @@ impl ExprArena {
                 let nb = self.substitute_memo(b, from, to, memo);
                 if na == a && nb == b { id } else { self.rol(na, nb) }
             }
+            ExprNode::MulHiU(a, b) | ExprNode::MulHiS(a, b) => {
+                let signed = matches!(self.get(id), ExprNode::MulHiS(..));
+                let na = self.substitute_memo(a, from, to, memo);
+                let nb = self.substitute_memo(b, from, to, memo);
+                if na == a && nb == b { id } else { self.mul_hi(na, nb, signed) }
+            }
             ExprNode::Ror(a, b) => {
                 let na = self.substitute_memo(a, from, to, memo);
                 let nb = self.substitute_memo(b, from, to, memo);
@@ -1881,7 +1929,8 @@ impl SymStack {
         }
         let expr = match space {
             StackSpace::CallerStack => arena.load_stack(slot_off, 8, mem_ver),
-            StackSpace::AlignedScratch(_) => {
+            StackSpace::AlignedScratch(_dbg_id) => {
+                if std::env::var("DBGTMP_AL").is_ok() { eprintln!("DBGTMP_AL id={_dbg_id} off={slot_off}"); }
                 let v = arena.opaque();
                 self.slots.insert((space, slot_off), v);
                 v
