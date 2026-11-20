@@ -4275,6 +4275,7 @@ pub fn lift_vm_entry_cfg(
                         if let (Some((parent, poff)), Some(mask)) = (arena.as_stack_offset(lhs), arena.as_const(rhs)) {
                             debug_assert_eq!(state.aligned_defs.len(), aid as usize);
                             state.aligned_defs.push((parent, poff, mask));
+                            arena.note_aligned_def(aid, (parent, poff, mask));
                             if parent == StackSpace::CallerStack {
                                 state.stack.note_aligned_frame(aid, poff);
                             }
@@ -5167,6 +5168,34 @@ fn validate_function_soundness(func: &LiftedFunction, view: &PeImageView) -> Res
         }
     }
 
+    // The VM's aligned frames (`AlignedBase`) live only as symbolic slots: their
+    // memory is written out by `ExitToVm` alone. Their address is fine as a value there
+    // and in a branch condition (nothing reads through it before the frame is in
+    // memory); a load or store through it, or the address reaching memory, a native
+    // call or any other exit, is not.
+    for b in &func.blocks {
+        let has_ab = |e: ExprId| expr_contains_aligned_base(&func.arena, e);
+        for eff in &b.effects {
+            if effect_exprs(eff).into_iter().any(has_ab) {
+                let k = match eff { IrEffect::Store { addr, value, .. } => if has_ab(*addr) { if func.arena.as_stack_offset(*addr).is_some() {"st_addr_const"} else {"st_addr_sym"} } else if has_ab(*value) {"st_val"} else {"?"}, _ => "other_eff" };
+                return Err(format!("aligned_frame_escapes/*DBG*/_{k}"));
+            }
+        }
+        let allowed = matches!(b.term, IrTerm::CondBranch { .. } | IrTerm::ExitToVm { .. });
+        for r in block_root_exprs(b) {
+            if !has_ab(r) {
+                continue;
+            }
+            if !allowed {
+                let k = match &b.term { IrTerm::MidCall{..} => "midcall", IrTerm::ExitRet{..} => "ret", IrTerm::ExitJmp{..} => "jmp", IrTerm::ExitCall{..} => "call", _ => "other" };
+                return Err(format!("aligned_frame_escapes/*DBG*/_{k}"));
+            }
+            if expr_loads_through_aligned_base(&func.arena, r) {
+                return Err("aligned_frame_load".into());
+            }
+        }
+    }
+
     // `(mem_ver, all-aliasing)` at the start of the block being checked.
     let block_start: std::cell::Cell<(u32, bool)> = std::cell::Cell::new((0, false));
     let check_expr_clean = |e: ExprId,
@@ -5552,6 +5581,41 @@ fn push_expr_children(node: &ExprNode, st: &mut Vec<ExprId>) {
     }
 }
 
+fn expr_contains_aligned_base(arena: &ExprArena, root: ExprId) -> bool {
+    let mut seen = HashSet::new();
+    let mut st = vec![root];
+    while let Some(id) = st.pop() {
+        if !seen.insert(id) {
+            continue;
+        }
+        let node = arena.get(id);
+        if matches!(node, ExprNode::AlignedBase(_)) {
+            return true;
+        }
+        push_expr_children(node, &mut st);
+    }
+    false
+}
+
+/// A load whose address is in an aligned frame.
+fn expr_loads_through_aligned_base(arena: &ExprArena, root: ExprId) -> bool {
+    let mut seen = HashSet::new();
+    let mut st = vec![root];
+    while let Some(id) = st.pop() {
+        if !seen.insert(id) {
+            continue;
+        }
+        let node = arena.get(id);
+        if let ExprNode::Load { addr, .. } = node {
+            if expr_contains_aligned_base(arena, *addr) {
+                return true;
+            }
+        }
+        push_expr_children(node, &mut st);
+    }
+    false
+}
+
 fn expr_loads_overlapping_caller_slots(
     arena: &ExprArena,
     root: ExprId,
@@ -5750,6 +5814,35 @@ impl<'a> CodegenCtx<'a> {
             self.emit_mov_reg(a, dst, ArchReg::Rsp)?;
             self.emit_alu_imm(a, AluOp::Add, dst, rel as u64, tmp)
         }
+    }
+
+    /// `AlignedBase(k)` = `(parent + off) & mask` as the VM computed it: the same
+    /// StackBase, so the same address (see `validate_function_soundness` for where it
+    /// may appear).
+    fn emit_aligned_base(
+        &mut self,
+        a: &mut CodeAssembler,
+        k: u32,
+        dst: ArchReg,
+        spill_reg: ArchReg,
+        depth: u8,
+    ) -> Result<(), String> {
+        if self.bitness != 64 || depth > 8 {
+            return Err("unlowerable_aligned_base".into());
+        }
+        let Some((parent, off, mask)) = self.arena.aligned_def(k) else {
+            return Err("unlowerable_aligned_base".into());
+        };
+        match parent {
+            StackSpace::CallerStack => self.emit_stack_base_addr(a, dst, off, Some(spill_reg))?,
+            StackSpace::AlignedScratch(p) => {
+                self.emit_aligned_base(a, p, dst, spill_reg, depth + 1)?;
+                if off != 0 {
+                    self.emit_alu_imm(a, AluOp::Add, dst, off as u64, Some(spill_reg))?;
+                }
+            }
+        }
+        self.emit_alu_imm(a, AluOp::And, dst, mask, Some(spill_reg))
     }
 
     fn emit_alu_imm(
@@ -6088,7 +6181,7 @@ impl<'a> CodegenCtx<'a> {
                 }
             }
             ExprNode::Opaque(_) => Err("unlowerable_opaque".into()),
-            ExprNode::AlignedBase(_) => Err("unlowerable_aligned_base".into()),
+            ExprNode::AlignedBase(k) => self.emit_aligned_base(a, k, dst, spill_reg, 0),
             ExprNode::CallRet { .. } => Err("unlowerable_call_ret".into()),
         }
     }
@@ -8741,6 +8834,117 @@ mod tests {
             assert_eq!(orig.0, want, "original, rdx={rdx_in:#x}");
             assert_eq!(run_case(&devirt_pe, rcx_in, rdx_in), orig, "devirtualized, rdx={rdx_in:#x}");
         }
+    }
+
+    #[test]
+    fn aligned_frame_pointer_in_a_register_survives_the_vm_exit_e2e() {
+        use gpr64::*;
+        let base = 0x1_4000_0000u64;
+        let mut text_sec = vec![0xCCu8; 0x200];
+        let fn0 = assemble_at(64, base + 0x1000, |a| a.jmp(base + 0x2000));
+        text_sec[..fn0.len()].copy_from_slice(&fn0);
+        let exit_ret = assemble_at(64, base + 0x1040, |a| a.ret());
+        text_sec[0x40..0x40 + exit_ret.len()].copy_from_slice(&exit_ret);
+        // Entered 8 bytes lower too: the alignment padding differs.
+        let fn1 = assemble_at(64, base + 0x1080, |a| {
+            a.call(base + 0x1000)?;
+            a.ret()
+        });
+        text_sec[0x80..0x80 + fn1.len()].copy_from_slice(&fn1);
+        let mut vmp_sec = vec![0xCCu8; 0x400];
+        // r12 points into the aligned frame (a VM context pointer) at the VM exit.
+        let stub = assemble_at(64, base + 0x2000, |a| {
+            a.push(rbx)?;
+            a.push(rbp)?;
+            a.mov(rbp, rsp)?;
+            a.and(rsp, -16)?;
+            a.sub(rsp, 0x40)?;
+            a.mov(qword_ptr(rsp + 0x10), rcx)?;
+            a.mov(qword_ptr(rsp + 0x18), 0x77)?;
+            a.lea(r12, ptr(rsp + 0x10))?;
+            a.mov(rax, rcx)?;
+            for k in 0..40i32 {
+                a.add(rax, k + 3)?;
+                a.sub(rax, k + 3)?;
+            }
+            a.mov(r8, rdx)?;
+            a.and(r8, 0x20)?;
+            a.mov(r10, base + 0x2300)?;
+            a.add(r10, r8)?;
+            a.jmp(r10)
+        });
+        assert!(stub.len() < 0x300, "stub overlaps the handlers");
+        vmp_sec[..stub.len()].copy_from_slice(&stub);
+        for (off, add) in [(0x300usize, 1i32), (0x320, 2)] {
+            let h = assemble_at(64, base + 0x2000 + off as u64, |a| {
+                a.mov(rax, qword_ptr(r12))?;
+                a.add(rax, qword_ptr(r12 + 8))?;
+                a.add(rax, add)?;
+                a.mov(rsp, rbp)?;
+                a.pop(rbp)?;
+                a.pop(rbx)?;
+                a.jmp(base + 0x1040)
+            });
+            vmp_sec[off..off + h.len()].copy_from_slice(&h);
+        }
+        let orig_pe = build_two_exec_pe64(&text_sec, &vmp_sec, 0x1000);
+        let (devirt_pe, report) = devirtualize_pe_bytes(&orig_pe, BinaryDevirtConfig::default()).unwrap();
+        assert_eq!(report.devirtualized_total, 1, "bailouts: {:?}", report.bailout_reasons);
+        assert_eq!(report.hybrid_vm_exits, 1);
+        for entry in [base + 0x1000, base + 0x1080] {
+            for (c, d) in [(5u64, 0u64), (5, 0x20), (0xdead_beef_0000_0001, 0x20)] {
+                let run = |pe: &[u8]| {
+                    let s = Sample::from_bytes(pe).unwrap();
+                    let mut eng = UnpackerEngine::new(s, "mem");
+                    eng.init_uc().unwrap();
+                    eng.call_function(entry, &[c, d], 100_000, 2_000).unwrap()
+                };
+                let want = c.wrapping_add(0x77).wrapping_add(if d & 0x20 != 0 { 2 } else { 1 });
+                assert_eq!(run(&orig_pe), want, "original {entry:#x} {c:#x} {d:#x}");
+                assert_eq!(run(&devirt_pe), want, "devirtualized {entry:#x} {c:#x} {d:#x}");
+            }
+        }
+    }
+
+    #[test]
+    fn aligned_frame_pointer_leaving_through_a_plain_exit_is_rejected() {
+        use gpr64::*;
+        let base = 0x1_4000_0000u64;
+        let mut text_sec = vec![0xCCu8; 0x200];
+        let fn0 = assemble_at(64, base + 0x1000, |a| a.jmp(base + 0x2000));
+        text_sec[..fn0.len()].copy_from_slice(&fn0);
+        let exit_ret = assemble_at(64, base + 0x1040, |a| a.ret());
+        text_sec[0x40..0x40 + exit_ret.len()].copy_from_slice(&exit_ret);
+        let mut vmp_sec = vec![0xCCu8; 0x400];
+        // The frame's contents never reach memory outside `ExitToVm`: a pointer to it in
+        // a register at an ordinary exit would point at whatever is there.
+        let stub = assemble_at(64, base + 0x2000, |a| {
+            a.push(rbx)?;
+            a.push(rbp)?;
+            a.mov(rbp, rsp)?;
+            a.and(rsp, -16)?;
+            a.sub(rsp, 0x40)?;
+            a.mov(qword_ptr(rsp + 0x10), rcx)?;
+            a.lea(r12, ptr(rsp + 0x10))?;
+            a.mov(rax, rcx)?;
+            for k in 0..40i32 {
+                a.add(rax, k + 3)?;
+                a.sub(rax, k + 3)?;
+            }
+            a.mov(rsp, rbp)?;
+            a.pop(rbp)?;
+            a.pop(rbx)?;
+            a.jmp(base + 0x1040)
+        });
+        vmp_sec[..stub.len()].copy_from_slice(&stub);
+        let orig_pe = build_two_exec_pe64(&text_sec, &vmp_sec, 0x1000);
+        let (_, report) = devirtualize_pe_bytes(&orig_pe, BinaryDevirtConfig::default()).unwrap();
+        assert_eq!(report.devirtualized_total, 0);
+        assert!(
+            report.bailout_reasons.iter().any(|(r, _)| r.contains("aligned_frame_escapes")),
+            "bailouts: {:?}",
+            report.bailout_reasons
+        );
     }
 
     #[test]
