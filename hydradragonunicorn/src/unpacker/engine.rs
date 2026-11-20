@@ -61,8 +61,8 @@ const PAGE_SIZE: u64 = 0x1000;
 // The stack fills the space up to the TEB (~1.8 MB): with 512 KB below the start,
 // stubs that probe a large frame (`sub esp, n` / __chkstk) or recurse ran off its
 // bottom (16 of the faults in the 2026-10-30 profile wrote to 0xffffc).
-const STACK_ADDR: u64 = 0x0003_0000;
-const STACK_SIZE: u64 = 0x0020_0000 - STACK_ADDR;
+pub(crate) const STACK_ADDR: u64 = 0x0003_0000;
+pub(crate) const STACK_SIZE: u64 = 0x0020_0000 - STACK_ADDR;
 /// Where ESP starts: near the top, as in a Windows thread, with room above for
 /// the entry point's return address and frames that read their caller's.
 const STACK_START: u64 = STACK_ADDR + STACK_SIZE - 0x4000;
@@ -72,14 +72,17 @@ const LDR_ADDR: u64 = 0x202000;
 const GDT_ADDR: u64 = 0x205000;
 /// Static TLS: the pointer array, then block 0 (up to the next mapping, far above).
 const TLS_ADDR: u64 = 0x206000;
+/// Synthetic Windows kernel driver structures (DRIVER_OBJECT, KLDR_DATA_TABLE_ENTRY, RegistryPath).
+const KDRV_ADDR: u64 = 0x0028_0000;
+const KDRV_SIZE: u64 = 0x10000;
 const HOOK_ADDR: u64 = 0x7F000000;
 // Keep the synthetic RET target away from the mapped region's trailing page;
 // Unicorn may fetch a small instruction window past a basic block boundary.
-const SEH_RETURN_ADDR: u64 = HOOK_ADDR + 0x0F0000;
+pub(crate) const SEH_RETURN_ADDR: u64 = HOOK_ADDR + 0x0F0000;
 /// Return address of the entry point: an EXE's start routine or a DLL's DllMain that
 /// returns lands here and the run ends cleanly (it used to return to address 0 and end
 /// as a FETCH_UNMAPPED fault).
-const ENTRY_RETURN_ADDR: u64 = HOOK_ADDR + 0x0F2000;
+pub const ENTRY_RETURN_ADDR: u64 = HOOK_ADDR + 0x0F2000;
 
 /// How an emulation run ended (`UnpackerEngine::end`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -422,9 +425,11 @@ struct HookState {
     /// on every instruction and halved the emulation speed.
     insn_budget: u64,
     insn_count: u64,
-    /// Instructions of each (block address, size), decoded once.
-    block_insns: HashMap<(u64, u32), u32>,
+    /// `(insn_count, ends_with_indirect_branch)` of each (block address, size), decoded once.
+    block_insns: HashMap<(u64, u32), (u32, bool)>,
     blocks_seen: u32,
+    total_blocks: u64,
+    vm_indirect_blocks: u64,
     sample_sections: Vec<Section>,
     unpacker: UnpackerConfig,
     log_instr: bool,
@@ -453,6 +458,9 @@ struct SehDispatch {
     exception_record: u32,
     context_record: u32,
     dispatcher_context: u32,
+    exception_pointers: u32,
+    veh_handlers: Vec<u32>,
+    veh_index: usize,
     next: u32,
     initial_esp: u32,
 }
@@ -483,7 +491,7 @@ struct Seh64Handler {
 #[derive(Clone, Copy)]
 struct RuntimeFunction64 { begin: u32, end: u32, unwind: u32, entry: u64 }
 
-const SEH64_RETURN_ADDR: u64 = HOOK_ADDR + 0x0f1000;
+pub(crate) const SEH64_RETURN_ADDR: u64 = HOOK_ADDR + 0x0f1000;
 
 fn write_u64(uc: &mut Unicorn<'static, ()>, addr: u64, value: u64) -> bool {
     uc.mem_write(addr, &value.to_le_bytes()).is_ok()
@@ -878,7 +886,7 @@ fn setup_x64_handler(uc: &mut Unicorn<'static, ()>, active: &Seh64Dispatch) -> O
 fn begin_x64_seh(uc: &mut Unicorn<'static, ()>, shared: &Rc<RefCell<HookState>>, fault: SehFault) -> Option<u64> {
     let (base, image_size, rva, size, veh_handlers) = {
         let mut s = shared.borrow_mut();
-        if !s.is_64 || s.seh_count >= 32 { return None; }
+        if !s.is_64 || s.seh_count >= 128 { return None; }
         s.seh_count += 1;
         (s.image_base, s.image_size, s.exception_rva, s.exception_size,
          s.veh_handlers.iter().map(|(_, h)| *h).collect::<Vec<_>>())
@@ -918,11 +926,14 @@ fn begin_x64_seh(uc: &mut Unicorn<'static, ()>, shared: &Rc<RefCell<HookState>>,
 fn finish_x64_seh(uc: &mut Unicorn<'static, ()>, shared: &Rc<RefCell<HookState>>) -> Option<u64> {
     let mut active = shared.borrow_mut().seh64_active.take()?;
     let ret = uc.reg_read(RegisterX86::RAX as i32).ok()? as u32;
-    if ret == 0 {
+    let is_table = active.handlers.get(active.next_handler).is_some_and(|h| h.table);
+    let continue_exec = if is_table { ret == 0 } else { ret == u32::MAX };
+    let continue_search = if is_table { ret == 1 } else { ret == 0 };
+    if continue_exec {
         let context = uc.mem_read_as_vec(active.context_ptr, 0x4d0).ok()?;
         return restore_x64_context(uc, &context);
     }
-    if ret != 1 { return None; }
+    if !continue_search { return None; }
     active.next_handler += 1;
     let _ = active.handlers.get(active.next_handler)?;
     let next = setup_x64_handler(uc, &active)?;
@@ -943,20 +954,83 @@ fn x86_segment_descriptor(base: u32, limit: u32, access: u8, flags: u8) -> [u8; 
     ]
 }
 
+fn dispatch_next_x86_seh_frame(
+    uc: &mut Unicorn<'static, ()>,
+    image_base: u64,
+    image_size: u64,
+    start_frame: u32,
+    record: u32,
+    ctx_ptr: u32,
+    disp_ptr: u32,
+    esp_base: u32,
+) -> Option<(u32, u32, u32)> {
+    let mut frame = start_frame;
+    loop {
+        if frame < STACK_ADDR as u32 || frame as u64 + 8 > STACK_ADDR + STACK_SIZE {
+            return None;
+        }
+        let words = uc.mem_read_as_vec(frame as u64, 8).ok()?;
+        let next = u32::from_le_bytes(words[0..4].try_into().ok()?);
+        let handler = u32::from_le_bytes(words[4..8].try_into().ok()?);
+        if handler == 0 {
+            return None;
+        }
+        if valid_seh_handler(image_base, image_size, handler) {
+            let mut sp = esp_base;
+            let args = [SEH_RETURN_ADDR as u32, record, frame, ctx_ptr, disp_ptr];
+            for value in args.iter().rev() {
+                sp = sp.checked_sub(4)?;
+                uc.mem_write(sp as u64, &value.to_le_bytes()).ok()?;
+            }
+            uc.reg_write(RegisterX86::ESP as i32, sp as u64).ok()?;
+            uc.reg_write(RegisterX86::EIP as i32, handler as u64).ok()?;
+            return Some((handler, next, sp));
+        }
+        if next <= frame || next == u32::MAX {
+            return None;
+        }
+        frame = next;
+    }
+}
+
+fn restore_x86_seh_context(uc: &mut Unicorn<'static, ()>, ctx: &[u8]) -> Option<u64> {
+    for (off, reg) in [
+        (0x9c, RegisterX86::EDI),
+        (0xa0, RegisterX86::ESI),
+        (0xa4, RegisterX86::EBX),
+        (0xa8, RegisterX86::EDX),
+        (0xac, RegisterX86::ECX),
+        (0xb0, RegisterX86::EAX),
+        (0xb4, RegisterX86::EBP),
+        (0xc0, RegisterX86::EFLAGS),
+        (0xc4, RegisterX86::ESP),
+    ] {
+        uc.reg_write(reg as i32, u32::from_le_bytes(ctx[off..off + 4].try_into().ok()?) as u64).ok()?;
+    }
+    let ip = u32::from_le_bytes(ctx[0xb8..0xbc].try_into().ok()?);
+    uc.reg_write(RegisterX86::EIP as i32, ip as u64).ok()?;
+    Some(ip as u64)
+}
+
 fn begin_x86_seh(
     uc: &mut Unicorn<'static, ()>,
     shared: &Rc<RefCell<HookState>>,
     fault: SehFault,
 ) -> Option<u64> {
-    let (is_64, seh_count, image_base, image_size) = {
+    let (is_64, seh_count, image_base, image_size, veh_handlers) = {
         let state = shared.borrow();
-        (state.is_64, state.seh_count, state.image_base, state.image_size)
+        let vehs = state
+            .veh_handlers
+            .iter()
+            .filter_map(|(_, h)| u32::try_from(*h).ok().filter(|&a| valid_seh_handler(state.image_base, state.image_size, a)))
+            .collect::<Vec<_>>();
+        (state.is_64, state.seh_count, state.image_base, state.image_size, vehs)
     };
-    if is_64 || seh_count >= 32 { return None; }
+    if is_64 || seh_count >= 128 { return None; }
     shared.borrow_mut().seh_count = seh_count + 1;
     let head = u32::from_le_bytes(uc.mem_read_as_vec(TEB_ADDR, 4).ok()?.try_into().ok()?);
-    if head == u32::MAX || head == 0 { return None; }
-    let mut esp = uc.reg_read(RegisterX86::ESP as i32).ok()? as u32;
+    if veh_handlers.is_empty() && (head == u32::MAX || head == 0) { return None; }
+    let esp = uc.reg_read(RegisterX86::ESP as i32).ok()? as u32;
     let mut context = vec![0u8; 0x2cc];
     let put = |buf: &mut [u8], off: usize, value: u32| { buf[off..off + 4].copy_from_slice(&value.to_le_bytes()); };
     put(&mut context, 0x00, 0x0001_0007); // CONTEXT_FULL | CONTEXT_i386
@@ -973,6 +1047,7 @@ fn begin_x86_seh(
     let record = esp.checked_sub(0x500)?;
     let ctx_ptr = record.checked_add(0x80)?;
     let disp_ptr = ctx_ptr.checked_add(0x2cc)?;
+    let ptrs = disp_ptr.checked_add(0x20)?;
     uc.mem_write(ctx_ptr as u64, &context).ok()?;
     let mut er = vec![0u8; 80];
     er[0..4].copy_from_slice(&fault.code.to_le_bytes());
@@ -985,26 +1060,44 @@ fn begin_x86_seh(
     }
     uc.mem_write(record as u64, &er).ok()?;
     uc.mem_write(disp_ptr as u64, &[0u8; 32]).ok()?;
-    let mut frame = head;
-    loop {
-        if frame < STACK_ADDR as u32 || frame as u64 + 8 > STACK_ADDR + STACK_SIZE { return None; }
-        let words = uc.mem_read_as_vec(frame as u64, 8).ok()?;
-        let next = u32::from_le_bytes(words[0..4].try_into().ok()?);
-        let handler = u32::from_le_bytes(words[4..8].try_into().ok()?);
-        if handler == 0 { return None; }
-        if valid_seh_handler(image_base, image_size, handler) {
-            let mut caller_sp = record;
-            let args = [SEH_RETURN_ADDR as u32, record, frame, ctx_ptr, disp_ptr];
-            for value in args.iter().rev() { caller_sp = caller_sp.checked_sub(4)?; uc.mem_write(caller_sp as u64, &value.to_le_bytes()).ok()?; }
-            esp = caller_sp;
-            uc.reg_write(RegisterX86::ESP as i32, esp as u64).ok()?;
-            uc.reg_write(RegisterX86::EIP as i32, handler as u64).ok()?;
-            shared.borrow_mut().seh_active = Some(SehDispatch { context, exception_record: record, context_record: ctx_ptr, dispatcher_context: disp_ptr, next, initial_esp: esp });
-            return Some(handler as u64);
+    uc.mem_write(ptrs as u64, &record.to_le_bytes()).ok()?;
+    uc.mem_write(ptrs as u64 + 4, &ctx_ptr.to_le_bytes()).ok()?;
+
+    if let Some(&handler) = veh_handlers.first() {
+        let mut sp = record;
+        for value in [ptrs, SEH_RETURN_ADDR as u32] {
+            sp = sp.checked_sub(4)?;
+            uc.mem_write(sp as u64, &value.to_le_bytes()).ok()?;
         }
-        if next <= frame || next == u32::MAX { return None; }
-        frame = next;
+        uc.reg_write(RegisterX86::ESP as i32, sp as u64).ok()?;
+        uc.reg_write(RegisterX86::EIP as i32, handler as u64).ok()?;
+        shared.borrow_mut().seh_active = Some(SehDispatch {
+            context,
+            exception_record: record,
+            context_record: ctx_ptr,
+            dispatcher_context: disp_ptr,
+            exception_pointers: ptrs,
+            veh_handlers,
+            veh_index: 0,
+            next: head,
+            initial_esp: record,
+        });
+        return Some(handler as u64);
     }
+
+    let (handler, next, sp) = dispatch_next_x86_seh_frame(uc, image_base, image_size, head, record, ctx_ptr, disp_ptr, record)?;
+    shared.borrow_mut().seh_active = Some(SehDispatch {
+        context,
+        exception_record: record,
+        context_record: ctx_ptr,
+        dispatcher_context: disp_ptr,
+        exception_pointers: ptrs,
+        veh_handlers: Vec::new(),
+        veh_index: 0,
+        next,
+        initial_esp: sp,
+    });
+    Some(handler as u64)
 }
 
 fn finish_x86_seh(uc: &mut Unicorn<'static, ()>, shared: &Rc<RefCell<HookState>>) -> Option<u64> {
@@ -1013,26 +1106,52 @@ fn finish_x86_seh(uc: &mut Unicorn<'static, ()>, shared: &Rc<RefCell<HookState>>
         (state.seh_active.take()?, state.seh_count, state.image_base, state.image_size)
     };
     active.context = uc.mem_read_as_vec(active.context_record as u64, 0x2cc).ok()?;
-    match uc.reg_read(RegisterX86::EAX as i32).ok()? as u32 {
-        0 => {
-            for (off, reg) in [(0x9c,RegisterX86::EDI),(0xa0,RegisterX86::ESI),(0xa4,RegisterX86::EBX),(0xa8,RegisterX86::EDX),(0xac,RegisterX86::ECX),(0xb0,RegisterX86::EAX),(0xb4,RegisterX86::EBP),(0xc0,RegisterX86::EFLAGS),(0xc4,RegisterX86::ESP)] {
-                uc.reg_write(reg as i32, u32::from_le_bytes(active.context[off..off+4].try_into().ok()?) as u64).ok()?;
-            }
-            let ip = u32::from_le_bytes(active.context[0xb8..0xbc].try_into().ok()?);
-            uc.reg_write(RegisterX86::EIP as i32, ip as u64).ok()?;
-            Some(ip as u64)
+    let eax = uc.reg_read(RegisterX86::EAX as i32).ok()? as u32;
+
+    // Active x86 VEH pass before FS:[0] frame handlers
+    if active.veh_index < active.veh_handlers.len() {
+        if eax == u32::MAX {
+            return restore_x86_seh_context(uc, &active.context);
         }
-        1 => {
-            if active.next == u32::MAX || seh_count >= 32 { return None; }
-            let words = uc.mem_read_as_vec(active.next as u64, 8).ok()?;
-            let next = u32::from_le_bytes(words[0..4].try_into().ok()?);
-            let handler = u32::from_le_bytes(words[4..8].try_into().ok()?);
-            if !valid_seh_handler(image_base, image_size, handler) { return None; }
-            let args = [SEH_RETURN_ADDR as u32, active.exception_record, active.next, active.context_record, active.dispatcher_context];
-            let mut sp = active.initial_esp;
-            for value in args.iter().rev() { sp = sp.checked_sub(4)?; uc.mem_write(sp as u64, &value.to_le_bytes()).ok()?; }
+        if eax != 0 {
+            return None;
+        }
+        active.veh_index += 1;
+        if let Some(&next_veh) = active.veh_handlers.get(active.veh_index) {
+            if seh_count >= 128 { return None; }
+            let mut sp = active.exception_record;
+            for value in [active.exception_pointers, SEH_RETURN_ADDR as u32] {
+                sp = sp.checked_sub(4)?;
+                uc.mem_write(sp as u64, &value.to_le_bytes()).ok()?;
+            }
             uc.reg_write(RegisterX86::ESP as i32, sp as u64).ok()?;
-            uc.reg_write(RegisterX86::EIP as i32, handler as u64).ok()?;
+            uc.reg_write(RegisterX86::EIP as i32, next_veh as u64).ok()?;
+            let mut state = shared.borrow_mut();
+            state.seh_count = seh_count + 1;
+            state.seh_active = Some(active);
+            return Some(next_veh as u64);
+        }
+        if active.next == 0 || active.next == u32::MAX || seh_count >= 128 {
+            return None;
+        }
+        let (handler, next, sp) = dispatch_next_x86_seh_frame(
+            uc, image_base, image_size, active.next, active.exception_record,
+            active.context_record, active.dispatcher_context, active.exception_record,
+        )?;
+        let mut state = shared.borrow_mut();
+        state.seh_count = seh_count + 1;
+        state.seh_active = Some(SehDispatch { next, initial_esp: sp, ..active });
+        return Some(handler as u64);
+    }
+
+    match eax {
+        0 => restore_x86_seh_context(uc, &active.context),
+        1 => {
+            if active.next == u32::MAX || seh_count >= 128 { return None; }
+            let (handler, next, sp) = dispatch_next_x86_seh_frame(
+                uc, image_base, image_size, active.next, active.exception_record,
+                active.context_record, active.dispatcher_context, active.initial_esp,
+            )?;
             let mut state = shared.borrow_mut();
             state.seh_count = seh_count + 1;
             state.seh_active = Some(SehDispatch { next, initial_esp: sp, ..active });
@@ -1042,9 +1161,34 @@ fn finish_x86_seh(uc: &mut Unicorn<'static, ()>, shared: &Rc<RefCell<HookState>>
     }
 }
 
+fn valid_handler_addr(image_base: u64, image_size: u64, handler: u64) -> bool {
+    let in_image = handler >= image_base && handler < image_base.saturating_add(image_size);
+    let in_alloc = handler >= apicalls::ALLOC_BASE && handler < apicalls::ALLOC_END;
+    in_image || in_alloc
+}
+
 fn valid_seh_handler(image_base: u64, image_size: u64, handler: u32) -> bool {
-    let address = handler as u64;
-    address >= image_base && address < image_base.saturating_add(image_size)
+    valid_handler_addr(image_base, image_size, handler as u64)
+}
+
+fn apply_veh_call(st: &mut HookState, is_add: bool, arg0: u64, arg1: u64) -> u64 {
+    if is_add {
+        if !valid_handler_addr(st.image_base, st.image_size, arg1) {
+            return 0;
+        }
+        let handle = st.next_veh_handle;
+        st.next_veh_handle = st.next_veh_handle.wrapping_add(1).max(1);
+        if arg0 != 0 {
+            st.veh_handlers.insert(0, (handle, arg1));
+        } else {
+            st.veh_handlers.push((handle, arg1));
+        }
+        handle
+    } else {
+        let before = st.veh_handlers.len();
+        st.veh_handlers.retain(|(handle, _)| *handle != arg0);
+        (before != st.veh_handlers.len()) as u64
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1086,8 +1230,13 @@ pub struct UnpackerEngine {
     pub log_apicalls: bool,
     pub trace_mode: bool,
     pub behavior_trace: BehaviorTrace,
+    pub unique_blocks: usize,
+    pub total_blocks: u64,
+    pub vm_indirect_blocks: u64,
+    pub seh_dispatches: u32,
+    pub insn_count: u64,
 
-    uc: Option<Unicorn<'static, ()>>,
+    pub(crate) uc: Option<Unicorn<'static, ()>>,
     hook_ids: Vec<UcHookId>,
     hook_state: Rc<RefCell<HookState>>,
 }
@@ -1134,6 +1283,11 @@ impl UnpackerEngine {
             log_apicalls: false,
             trace_mode,
             behavior_trace: BehaviorTrace::default(),
+            unique_blocks: 0,
+            total_blocks: 0,
+            vm_indirect_blocks: 0,
+            seh_dispatches: 0,
+            insn_count: 0,
             uc: None,
             hook_ids: Vec::new(),
             hook_state: Rc::new(RefCell::new(HookState {
@@ -1173,6 +1327,8 @@ impl UnpackerEngine {
                 insn_count: 0,
                 block_insns: HashMap::new(),
                 blocks_seen: 0,
+                total_blocks: 0,
+                vm_indirect_blocks: 0,
                 sample_sections: sections,
                 unpacker,
                 log_instr: false,
@@ -1207,6 +1363,214 @@ impl UnpackerEngine {
         &self.behavior_trace.calls
     }
 
+    pub fn unique_blocks(&self) -> usize {
+        self.unique_blocks
+    }
+
+    pub fn total_blocks(&self) -> u64 {
+        self.total_blocks
+    }
+
+    pub fn vm_indirect_blocks(&self) -> u64 {
+        self.vm_indirect_blocks
+    }
+
+    pub fn seh_dispatches(&self) -> u32 {
+        self.seh_dispatches
+    }
+
+    pub fn insn_count(&self) -> u64 {
+        self.insn_count
+    }
+
+    // ------------------------------------------------------------------
+    // PE Loader Fidelity Helpers (LOAD_CONFIG cookie & Kernel Driver Env)
+    // ------------------------------------------------------------------
+
+    /// Initializes an uninitialized MSVC `LOAD_CONFIG.SecurityCookie` slot (and its
+    /// complement) so `GsDriverEntry` / `__security_init_cookie` does not fail with `int 29h`.
+    fn init_security_cookie(
+        &self,
+        uc: &mut Unicorn<'static, ()>,
+        image_base: u64,
+        virtual_size: u64,
+        is_64: bool,
+    ) {
+        let Some(lc_dir) = self
+            .sample
+            .opt_header
+            .data_directory
+            .get(10)
+            .filter(|d| d.virtual_address != 0)
+        else {
+            return;
+        };
+        let dir_va = image_base.saturating_add(lc_dir.virtual_address as u64);
+        let img_end = image_base.saturating_add(virtual_size);
+        let read_u32_mem = |uc: &Unicorn<'static, ()>, va: u64| -> Option<u32> {
+            let b = uc.mem_read_as_vec(va, 4).ok()?;
+            <[u8; 4]>::try_from(b).ok().map(u32::from_le_bytes)
+        };
+        let read_u64_mem = |uc: &Unicorn<'static, ()>, va: u64| -> Option<u64> {
+            let b = uc.mem_read_as_vec(va, 8).ok()?;
+            <[u8; 8]>::try_from(b).ok().map(u64::from_le_bytes)
+        };
+
+        let Some(lc_size) = read_u32_mem(uc, dir_va) else {
+            return;
+        };
+
+        if is_64 {
+            const DEFAULT_COOKIE_64: u64 = 0x0000_2B99_2DDF_A232;
+            const INIT_COOKIE_64: u64 = 0x0000_7A53_9C1E_4B2F;
+            if lc_size < 0x60 {
+                return;
+            }
+            let Some(cookie_va) = read_u64_mem(uc, dir_va + 0x58) else {
+                return;
+            };
+            if cookie_va >= image_base && cookie_va.saturating_add(8) <= img_end {
+                if let Some(cur) = read_u64_mem(uc, cookie_va) {
+                    if cur == 0 || cur == DEFAULT_COOKIE_64 {
+                        let _ = uc.mem_write(cookie_va, &INIT_COOKIE_64.to_le_bytes());
+                        if cookie_va.saturating_add(16) <= img_end {
+                            if let Some(comp) = read_u64_mem(uc, cookie_va + 8) {
+                                if comp == 0 || comp == !DEFAULT_COOKIE_64 {
+                                    let _ = uc.mem_write(
+                                        cookie_va + 8,
+                                        &(!INIT_COOKIE_64).to_le_bytes(),
+                                    );
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        } else {
+            const DEFAULT_COOKIE_32: u32 = 0xBB40_E64E;
+            const INIT_COOKIE_32: u32 = 0x5A3C_91E7;
+            if lc_size < 0x40 {
+                return;
+            }
+            let Some(cookie_va32) = read_u32_mem(uc, dir_va + 0x3C) else {
+                return;
+            };
+            let cookie_va = cookie_va32 as u64;
+            if cookie_va >= image_base && cookie_va.saturating_add(4) <= img_end {
+                if let Some(cur) = read_u32_mem(uc, cookie_va) {
+                    if cur == 0 || cur == DEFAULT_COOKIE_32 {
+                        let _ = uc.mem_write(cookie_va, &INIT_COOKIE_32.to_le_bytes());
+                        if cookie_va.saturating_add(8) <= img_end {
+                            if let Some(comp) = read_u32_mem(uc, cookie_va + 4) {
+                                if comp == 0 || comp == !DEFAULT_COOKIE_32 {
+                                    let _ = uc.mem_write(
+                                        cookie_va + 4,
+                                        &(!INIT_COOKIE_32).to_le_bytes(),
+                                    );
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// Sets up minimal Windows kernel driver structures (`DRIVER_OBJECT`, `KLDR_DATA_TABLE_ENTRY`,
+    /// and `RegistryPath` `UNICODE_STRING`) when `Subsystem == 1` (NATIVE) on x86/x64.
+    fn init_kernel_driver_env(
+        &self,
+        uc: &mut Unicorn<'static, ()>,
+        arch: PeArch,
+        image_base: u64,
+        virtual_size: u64,
+        start_addr: u64,
+        esp_val: u64,
+    ) {
+        if self.sample.opt_header.subsystem != 1 || !matches!(arch, PeArch::X86 | PeArch::X64) {
+            return;
+        }
+        let img_end = image_base.saturating_add(virtual_size);
+        let kdrv_end = KDRV_ADDR + KDRV_SIZE;
+        if KDRV_ADDR < img_end && kdrv_end > image_base {
+            return;
+        }
+        if uc
+            .mem_map(KDRV_ADDR, KDRV_SIZE, Prot::READ | Prot::WRITE)
+            .is_err()
+        {
+            return;
+        }
+
+        let is_64 = arch.is_64();
+        let ldr_entry = KDRV_ADDR + 0x1000;
+        let reg_path = KDRV_ADDR + 0x2000;
+        let reg_buf = KDRV_ADDR + 0x2100;
+
+        let mut region = vec![0u8; KDRV_SIZE as usize];
+        // DRIVER_OBJECT at +0x0000
+        region[0x00..0x02].copy_from_slice(&4u16.to_le_bytes());
+        let drv_size: u16 = if is_64 { 0x150 } else { 0xA8 };
+        region[0x02..0x04].copy_from_slice(&drv_size.to_le_bytes());
+        if is_64 {
+            region[0x18..0x20].copy_from_slice(&image_base.to_le_bytes());
+            region[0x20..0x24].copy_from_slice(&(virtual_size as u32).to_le_bytes());
+            region[0x28..0x30].copy_from_slice(&ldr_entry.to_le_bytes());
+        } else {
+            region[0x0C..0x10].copy_from_slice(&(image_base as u32).to_le_bytes());
+            region[0x10..0x14].copy_from_slice(&(virtual_size as u32).to_le_bytes());
+            region[0x14..0x18].copy_from_slice(&(ldr_entry as u32).to_le_bytes());
+        }
+
+        // KLDR_DATA_TABLE_ENTRY at +0x1000
+        let l = 0x1000usize;
+        if is_64 {
+            region[l..l + 8].copy_from_slice(&ldr_entry.to_le_bytes());
+            region[l + 8..l + 16].copy_from_slice(&ldr_entry.to_le_bytes());
+            region[l + 0x30..l + 0x38].copy_from_slice(&image_base.to_le_bytes());
+            region[l + 0x38..l + 0x40].copy_from_slice(&start_addr.to_le_bytes());
+            region[l + 0x40..l + 0x44].copy_from_slice(&(virtual_size as u32).to_le_bytes());
+        } else {
+            region[l..l + 4].copy_from_slice(&(ldr_entry as u32).to_le_bytes());
+            region[l + 4..l + 8].copy_from_slice(&(ldr_entry as u32).to_le_bytes());
+            region[l + 0x18..l + 0x1C].copy_from_slice(&(image_base as u32).to_le_bytes());
+            region[l + 0x1C..l + 0x20].copy_from_slice(&(start_addr as u32).to_le_bytes());
+            region[l + 0x20..l + 0x24].copy_from_slice(&(virtual_size as u32).to_le_bytes());
+        }
+
+        // UNICODE_STRING RegistryPath at +0x2000 + UTF-16 string at +0x2100
+        let svc_path: Vec<u8> = r"\Registry\Machine\System\CurrentControlSet\Services\Sample"
+            .encode_utf16()
+            .flat_map(u16::to_le_bytes)
+            .collect();
+        let u = 0x2000usize;
+        let len_bytes = svc_path.len() as u16;
+        region[u..u + 2].copy_from_slice(&len_bytes.to_le_bytes());
+        region[u + 2..u + 4].copy_from_slice(&(len_bytes + 2).to_le_bytes());
+        if is_64 {
+            region[u + 8..u + 16].copy_from_slice(&reg_buf.to_le_bytes());
+        } else {
+            region[u + 4..u + 8].copy_from_slice(&(reg_buf as u32).to_le_bytes());
+        }
+        region[0x2100..0x2100 + svc_path.len()].copy_from_slice(&svc_path);
+
+        if uc.mem_write(KDRV_ADDR, &region).is_err() {
+            return;
+        }
+
+        match arch {
+            PeArch::X64 => {
+                let _ = uc.reg_write(RegisterX86::RCX as i32, KDRV_ADDR);
+                let _ = uc.reg_write(RegisterX86::RDX as i32, reg_path);
+            }
+            PeArch::X86 => {
+                let _ = uc.mem_write(esp_val + 4, &(KDRV_ADDR as u32).to_le_bytes());
+                let _ = uc.mem_write(esp_val + 8, &(reg_path as u32).to_le_bytes());
+            }
+            _ => {}
+        }
+    }
+
     // ------------------------------------------------------------------
     // init_uc — set up Unicorn, map PE, load DLLs, hook imports
     // ------------------------------------------------------------------
@@ -1234,6 +1598,7 @@ impl UnpackerEngine {
             .map_err(|e| UnpackerError::EmulatorError(format!("mem_write PE: {:?}", e)))?;
 
         self.sample.loaded_image = mmap_image;
+        self.init_security_cookie(&mut uc, image_base, virtual_size as u64, is_64);
 
         // --- Map TEB ---
         let teb_size = page_align(0x1000);
@@ -1506,6 +1871,8 @@ impl UnpackerEngine {
             }
         }
 
+        self.init_kernel_driver_env(&mut uc, arch, image_base, virtual_size as u64, start_addr, esp_val);
+
         // --- Store imported function info & patch IAT with hook addresses ---
         self.parse_and_patch_imports(&mut uc, image_base)?;
         if is_64 {
@@ -1582,31 +1949,35 @@ impl UnpackerEngine {
                             log::info!("API call: {}", api_name);
                             let is_add_veh = norm == "addvectoredexceptionhandler" || norm == "rtladdvectoredexceptionhandler";
                             let is_remove_veh = norm == "removevectoredexceptionhandler" || norm == "rtlremovevectoredexceptionhandler";
-                            if st.is_64 && (is_add_veh || is_remove_veh) {
-                                if let Ok(rsp) = uc.reg_read(RegisterX86::RSP as i32) {
-                                    let ret_addr = uc.mem_read_as_vec(rsp, 8)
-                                        .ok().and_then(|b| <[u8; 8]>::try_from(b).ok())
-                                        .map(u64::from_le_bytes).unwrap_or(0);
-                                    let arg0 = uc.reg_read(RegisterX86::RCX as i32).unwrap_or(0);
-                                    let arg1 = uc.reg_read(RegisterX86::RDX as i32).unwrap_or(0);
-                                    let ret = if is_add_veh {
-                                        if arg1 < st.image_base || arg1 >= st.image_base.saturating_add(st.image_size) { 0 }
-                                        else {
-                                            let handle = st.next_veh_handle;
-                                            st.next_veh_handle = st.next_veh_handle.wrapping_add(1).max(1);
-                                            if arg0 != 0 { st.veh_handlers.insert(0, (handle, arg1)); }
-                                            else { st.veh_handlers.push((handle, arg1)); }
-                                            handle
-                                        }
-                                    } else {
-                                        let before = st.veh_handlers.len();
-                                        st.veh_handlers.retain(|(handle, _)| *handle != arg0);
-                                        (before != st.veh_handlers.len()) as u64
-                                    };
+                            if is_add_veh || is_remove_veh {
+                                if st.is_64 {
+                                    if let Ok(rsp) = uc.reg_read(RegisterX86::RSP as i32) {
+                                        let ret_addr = uc.mem_read_as_vec(rsp, 8)
+                                            .ok().and_then(|b| <[u8; 8]>::try_from(b).ok())
+                                            .map(u64::from_le_bytes).unwrap_or(0);
+                                        let arg0 = uc.reg_read(RegisterX86::RCX as i32).unwrap_or(0);
+                                        let arg1 = uc.reg_read(RegisterX86::RDX as i32).unwrap_or(0);
+                                        let ret = apply_veh_call(st, is_add_veh, arg0, arg1);
+                                        if ret_addr != 0 && !(ret_addr >= st.hook_addr && ret_addr < st.hook_addr + 0x100000) {
+                                            let _ = uc.reg_write(RegisterX86::RAX as i32, ret);
+                                            let _ = uc.reg_write(RegisterX86::RSP as i32, rsp + 8);
+                                            let _ = uc.reg_write(RegisterX86::RIP as i32, ret_addr);
+                                            false
+                                        } else { true }
+                                    } else { true }
+                                } else if let Ok(esp) = uc.reg_read(RegisterX86::ESP as i32) {
+                                    let rd32 = |a: u64| uc.mem_read_as_vec(a, 4).ok()
+                                        .and_then(|b| <[u8; 4]>::try_from(b).ok())
+                                        .map(u32::from_le_bytes).unwrap_or(0) as u64;
+                                    let ret_addr = rd32(esp);
+                                    let arg0 = rd32(esp + 4);
+                                    let arg1 = if is_add_veh { rd32(esp + 8) } else { 0 };
+                                    let pop = if is_add_veh { 12 } else { 8 };
+                                    let ret = apply_veh_call(st, is_add_veh, arg0, arg1);
                                     if ret_addr != 0 && !(ret_addr >= st.hook_addr && ret_addr < st.hook_addr + 0x100000) {
-                                        let _ = uc.reg_write(RegisterX86::RAX as i32, ret);
-                                        let _ = uc.reg_write(RegisterX86::RSP as i32, rsp + 8);
-                                        let _ = uc.reg_write(RegisterX86::RIP as i32, ret_addr);
+                                        let _ = uc.reg_write(RegisterX86::EAX as i32, ret & 0xFFFF_FFFF);
+                                        let _ = uc.reg_write(RegisterX86::ESP as i32, esp + pop);
+                                        let _ = uc.reg_write(RegisterX86::EIP as i32, ret_addr);
                                         false
                                     } else { true }
                                 } else { true }
@@ -1779,23 +2150,15 @@ impl UnpackerEngine {
                                         &mut st.dllname_to_functionlist,
                                     );
 
-                                    // Model Windows VEH registration in-process. The returned
-                                    // opaque handle is stable for RemoveVectoredExceptionHandler.
-                                    if is_64 && (norm == "addvectoredexceptionhandler" || norm == "rtladdvectoredexceptionhandler") {
-                                        let first = raw_args.first().copied().unwrap_or(0) != 0;
-                                        let handler = raw_args.get(1).copied().unwrap_or(0);
-                                        if handler >= st.image_base && handler < st.image_base.saturating_add(st.image_size) {
-                                            let handle = st.next_veh_handle;
-                                            st.next_veh_handle = st.next_veh_handle.wrapping_add(1).max(1);
-                                            if first { st.veh_handlers.insert(0, (handle, handler)); }
-                                            else { st.veh_handlers.push((handle, handler)); }
-                                            ret_val = handle;
-                                        } else { ret_val = 0; }
-                                    } else if is_64 && (norm == "removevectoredexceptionhandler" || norm == "rtlremovevectoredexceptionhandler") {
+                                    // Model Windows VEH registration in-process (both x86 and x64, including
+                                    // handlers inside VirtualAlloc'd regions).
+                                    if norm == "addvectoredexceptionhandler" || norm == "rtladdvectoredexceptionhandler" {
+                                        let arg0 = raw_args.first().copied().unwrap_or(0);
+                                        let arg1 = raw_args.get(1).copied().unwrap_or(0);
+                                        ret_val = apply_veh_call(st, true, arg0, arg1);
+                                    } else if norm == "removevectoredexceptionhandler" || norm == "rtlremovevectoredexceptionhandler" {
                                         let handle = raw_args.first().copied().unwrap_or(0);
-                                        let before = st.veh_handlers.len();
-                                        st.veh_handlers.retain(|(h, _)| *h != handle);
-                                        ret_val = (before != st.veh_handlers.len()) as u64;
+                                        ret_val = apply_veh_call(st, false, handle, 0);
                                     }
 
                                     // Categorize behavior trace with deduplication
@@ -1953,20 +2316,21 @@ impl UnpackerEngine {
                     let st = &mut *guard;
                     let end = addr + (size as u64).max(1);
                     st.blocks_seen = st.blocks_seen.wrapping_add(1);
+                    st.total_blocks = st.total_blocks.wrapping_add(1);
                     let out_of_time = st.blocks_seen & 255 == 0 && st.deadline.is_some_and(|d| Instant::now() >= d);
-                    let out_of_budget = st.insn_budget > 0 && {
-                        let n = match st.block_insns.get(&(addr, size)) {
-                            Some(&n) => n,
-                            None => {
-                                let n = count_block_insns(uc, addr, size, st.is_64);
-                                st.block_insns.insert((addr, size), n);
-                                n
-                            }
-                        };
-                        let spent = st.insn_count >= st.insn_budget;
-                        st.insn_count += n as u64;
-                        spent
+                    let (n, indirect) = match st.block_insns.get(&(addr, size)) {
+                        Some(&entry) => entry,
+                        None => {
+                            let entry = analyze_block_insns(uc, addr, size, st.is_64);
+                            st.block_insns.insert((addr, size), entry);
+                            entry
+                        }
                     };
+                    if indirect {
+                        st.vm_indirect_blocks = st.vm_indirect_blocks.wrapping_add(1);
+                    }
+                    let out_of_budget = st.insn_budget > 0 && st.insn_count >= st.insn_budget;
+                    st.insn_count += n as u64;
                     if out_of_time || out_of_budget || addr >= st.unpacker.endaddr || st.breakpoints.iter().any(|&b| b >= addr && b < end) {
                         true
                     } else if addr >= st.hook_addr && addr < st.hook_addr + 0x100000 {
@@ -2136,13 +2500,32 @@ impl UnpackerEngine {
         {
             let intr_state = Rc::clone(&self.hook_state);
             let intr_hook = uc.add_intr_hook(move |uc, interrupt| {
-                if interrupt == 3 {
-                    if let Ok(mut st) = intr_state.try_borrow_mut() {
-                        let ip = if st.is_64 { uc.reg_read(RegisterX86::RIP as i32).unwrap_or(1).saturating_sub(1) } else { uc.reg_read(RegisterX86::EIP as i32).unwrap_or(1).saturating_sub(1) };
-                        st.seh_fault = Some(SehFault { code: 0x80000003, address: 0, access: 0, instruction: ip });
+                let (code, subtract_one, clear_tf) = match interrupt {
+                    0 => (0xC000_0094u32, false, false), // EXCEPTION_INT_DIVIDE_BY_ZERO
+                    1 => (0x8000_0004u32, false, true),  // EXCEPTION_SINGLE_STEP
+                    3 => (0x8000_0003u32, true, false),  // EXCEPTION_BREAKPOINT
+                    4 => (0xC000_0095u32, false, false), // EXCEPTION_INT_OVERFLOW
+                    6 => (0xC000_001Du32, false, false), // EXCEPTION_ILLEGAL_INSTRUCTION
+                    13 => (0xC000_0096u32, false, false), // EXCEPTION_PRIVILEGED_INSTRUCTION
+                    _ => return,
+                };
+                if clear_tf {
+                    if let Ok(eflags) = uc.reg_read(RegisterX86::EFLAGS as i32) {
+                        let _ = uc.reg_write(RegisterX86::EFLAGS as i32, eflags & !0x100);
                     }
-                    let _ = uc.emu_stop();
                 }
+                if let Ok(mut st) = intr_state.try_borrow_mut() {
+                    let mut ip = if st.is_64 {
+                        uc.reg_read(RegisterX86::RIP as i32).unwrap_or(0)
+                    } else {
+                        uc.reg_read(RegisterX86::EIP as i32).unwrap_or(0)
+                    };
+                    if subtract_one {
+                        ip = ip.saturating_sub(1);
+                    }
+                    st.seh_fault = Some(SehFault { code, address: ip, access: 0, instruction: ip });
+                }
+                let _ = uc.emu_stop();
             })
             .map_err(|e| UnpackerError::EmulatorError(format!("add_intr_hook: {:?}", e)))?;
             self.hook_ids.push(intr_hook);
@@ -2234,6 +2617,19 @@ impl UnpackerEngine {
     /// image base + 0x10000; an appended virus body lies far past that).
     pub fn set_end_addr(&mut self, end: u64) {
         self.hook_state.borrow_mut().unpacker.endaddr = end;
+    }
+
+    pub(crate) fn swap_run_limits(&mut self, endaddr: u64, write_exec: bool, sec_hop: bool) -> (u64, bool, bool) {
+        let mut hs = self.hook_state.borrow_mut();
+        let prev = (
+            hs.unpacker.endaddr,
+            hs.unpacker.write_execute_control,
+            hs.unpacker.section_hopping_control,
+        );
+        hs.unpacker.endaddr = endaddr;
+        hs.unpacker.write_execute_control = write_exec;
+        hs.unpacker.section_hopping_control = sec_hop;
+        prev
     }
 
     /// Conditions the next runs stop on (`stop_hit` says which one); `Stops::default()`
@@ -2456,6 +2852,11 @@ impl UnpackerEngine {
             };
             self.apicall_counter = hs.apicall_counter.clone();
             self.behavior_trace = hs.behavior_trace.clone();
+            self.unique_blocks = hs.block_insns.len();
+            self.total_blocks = hs.total_blocks;
+            self.vm_indirect_blocks = hs.vm_indirect_blocks;
+            self.seh_dispatches = hs.seh_count;
+            self.insn_count = hs.insn_count;
         }
 
         match result {
@@ -2719,18 +3120,27 @@ impl UnpackerEngine {
         hs.last_code_write > 0 && hs.insn_count.saturating_sub(hs.last_code_write) <= hs.insn_count / 4
     }
 
-    /// Continues a run that used up its budget while still unpacking, from where
-    /// it stopped, for up to `timeout_us` / `count` more. A stub decompressing a
-    /// large payload (UPX on a big program) needs more than the usual budget. The
-    /// extra budget is given in slices of `UNPACK_SLICE` instructions, each only
-    /// while nothing written has run yet and the previous run was still writing
-    /// code (executable sections or allocated memory) in its last quarter, into
-    /// new pages: a decompressor fills new pages until it is done, a program that
-    /// loops, or wrote a code page once at start-up, does not. True when it ran again.
+    fn alloc_pages_written(&self) -> usize {
+        self.hook_state
+            .borrow()
+            .written_pages
+            .iter()
+            .filter(|&&p| {
+                let a = p << 12;
+                (apicalls::ALLOC_BASE..apicalls::ALLOC_END).contains(&a)
+            })
+            .count()
+    }
+
+    /// Continues a run that used up its budget while still unpacking or executing
+    /// VM-protected code with observable progress (new code/alloc pages or API calls).
     pub fn continue_unpacking(&mut self, timeout_us: u64, count: usize) -> bool {
         const UNPACK_SLICE: usize = 10_000_000;
         let mut pages = self.code_pages_written();
-        if self.end != EmuEnd::Finished || self.wx_hit.is_some() || pages == 0 || !self.writing_code_at_end() {
+        let mut alloc_pages = self.alloc_pages_written();
+        let mut calls_seen = self.behavior_trace.calls.len();
+        let can_resume = (pages > 0 && self.writing_code_at_end()) || self.vm_indirect_blocks > 0;
+        if self.end != EmuEnd::Finished || self.wx_hit.is_some() || !can_resume {
             return false;
         }
         let deadline = Instant::now() + std::time::Duration::from_micros(timeout_us);
@@ -2747,10 +3157,16 @@ impl UnpackerEngine {
             ran = true;
             left -= slice;
             let now = self.code_pages_written();
-            if self.wx_hit.is_some() || self.end != EmuEnd::Finished || now == pages || !self.writing_code_at_end() {
+            let now_alloc = self.alloc_pages_written();
+            let now_calls = self.behavior_trace.calls.len();
+            let code_progressed = now > pages && self.writing_code_at_end();
+            let vm_progressed = now_alloc > alloc_pages || now_calls > calls_seen;
+            if self.wx_hit.is_some() || self.end != EmuEnd::Finished || !(code_progressed || vm_progressed) {
                 break;
             }
             pages = now;
+            alloc_pages = now_alloc;
+            calls_seen = now_calls;
         }
         // The first run ended cleanly at its budget. An extension that faults or
         // stops at an API before anything written ran found nothing: the run counts
@@ -2760,6 +3176,160 @@ impl UnpackerEngine {
             self.stop_api = None;
         }
         ran
+    }
+
+    fn harvest_candidate_ranges(&self) -> Vec<(u64, u64, bool)> {
+        let mut ranges: Vec<(u64, u64, bool)> = Vec::new();
+        let img_lo = self.sample.base_addr;
+        let img_hi = img_lo.saturating_add(self.sample.virtualmemorysize);
+
+        for &(lo, hi) in &self.write_targets {
+            let in_image = lo >= img_lo && lo < img_hi;
+            ranges.push((lo, hi, in_image));
+        }
+
+        if let Some(uc) = self.uc.as_ref() {
+            if let Ok(regions) = uc.mem_regions() {
+                for r in regions {
+                    let lo = r.begin;
+                    let hi = r.end.saturating_add(1);
+                    if lo >= apicalls::ALLOC_BASE && lo < apicalls::ALLOC_END {
+                        let already = ranges.iter().any(|&(a, b, _)| lo >= a && hi <= b);
+                        if !already {
+                            ranges.push((lo, hi, false));
+                        }
+                    }
+                }
+            }
+        }
+        ranges
+    }
+
+    /// Scans memory written during emulation (`VirtualAlloc`/heap regions and modified
+    /// image pages) and extracts embedded PE files or non-empty runtime payloads even when
+    /// control never transferred to them (`wx_alloc_hit` not triggered).
+    pub fn harvest_written_payloads(&mut self) -> Vec<HarvestedPayload> {
+        const MAX_HARVEST_REGION: u64 = 16 << 20;
+        const MAX_HARVEST_TOTAL: usize = 32 << 20;
+
+        let ranges = self.harvest_candidate_ranges();
+        if self.uc.is_none() {
+            return Vec::new();
+        }
+
+        let mut payloads = Vec::new();
+        let mut total_read = 0usize;
+
+        for (lo, hi, in_image) in ranges {
+            if total_read >= MAX_HARVEST_TOTAL || hi <= lo {
+                break;
+            }
+            let len = (hi - lo).min(MAX_HARVEST_REGION).min((MAX_HARVEST_TOTAL - total_read) as u64) as usize;
+            if len < 64 {
+                continue;
+            }
+            let Some(buf) = self.read_mem(lo, len) else {
+                continue;
+            };
+            total_read += buf.len();
+
+            // 1. Look for embedded / mapped PE images inside the written memory
+            let mut found_pe = false;
+            let mut off = 0usize;
+            while off + 0x80 <= buf.len() {
+                if buf[off] == b'M' && buf[off + 1] == b'Z' {
+                    if let Some((img_size, ep_rva)) = mapped_pe_size(&buf[off..]) {
+                        let pe_base = lo + off as u64;
+                        let ctx = self.dump_context();
+                        let saved_ip = self.ip();
+                        let _ = self.set_ip(pe_base + ep_rva as u64);
+                        let dumped = self
+                            .uc
+                            .as_ref()
+                            .and_then(|u| crate::unpacker::imagedump::dump_image_to_bytes(u, pe_base, img_size, &ctx).ok())
+                            .filter(|d| !d.is_empty());
+                        if let Some(ip) = saved_ip {
+                            self.set_ip(ip);
+                        }
+                        let pe_bytes = dumped.unwrap_or_else(|| buf[off..off + img_size as usize].to_vec());
+                        payloads.push(HarvestedPayload {
+                            base: pe_base,
+                            size: pe_bytes.len(),
+                            in_image,
+                            is_pe: true,
+                            data: pe_bytes,
+                        });
+                        found_pe = true;
+                        off += img_size as usize;
+                        continue;
+                    } else if let Some(raw_len) = raw_pe_end(&buf[off..]) {
+                        let pe_bytes = buf[off..off + raw_len].to_vec();
+                        payloads.push(HarvestedPayload {
+                            base: lo + off as u64,
+                            size: pe_bytes.len(),
+                            in_image,
+                            is_pe: true,
+                            data: pe_bytes,
+                        });
+                        found_pe = true;
+                        off += raw_len;
+                        continue;
+                    }
+                }
+                off += 16;
+            }
+
+            // 2. If no PE was extracted and this region lies outside the original image, keep non-zero payload bytes
+            if !found_pe && !in_image {
+                let Some(nz_end) = buf.iter().rposition(|&b| b != 0).map(|i| i + 1) else {
+                    continue;
+                };
+                if nz_end >= 64 {
+                    payloads.push(HarvestedPayload {
+                        base: lo,
+                        size: nz_end,
+                        in_image: false,
+                        is_pe: false,
+                        data: buf[..nz_end].to_vec(),
+                    });
+                }
+            }
+        }
+
+        payloads
+    }
+
+    /// Extracts printable ASCII and UTF-16LE strings from memory written during emulation,
+    /// prioritizing URLs, file paths, registry keys, and command/module strings.
+    pub fn extract_written_strings(&self) -> Vec<String> {
+        const MAX_STR_SCAN: usize = 8 << 20;
+        const MAX_STRINGS: usize = 512;
+
+        let ranges = self.harvest_candidate_ranges();
+        let Some(uc) = self.uc.as_ref() else {
+            return Vec::new();
+        };
+
+        let mut seen = HashSet::new();
+        let mut high_signal = Vec::new();
+        let mut normal = Vec::new();
+        let mut scanned = 0usize;
+
+        for (lo, hi, _) in ranges {
+            if scanned >= MAX_STR_SCAN || hi <= lo {
+                break;
+            }
+            let len = (hi - lo).min((MAX_STR_SCAN - scanned) as u64) as usize;
+            let Ok(buf) = uc.mem_read_as_vec(lo, len) else {
+                continue;
+            };
+            scanned += buf.len();
+            collect_strings_from_bytes(&buf, &mut seen, &mut high_signal, &mut normal);
+        }
+
+        high_signal.extend(normal);
+        high_signal.truncate(MAX_STRINGS);
+        high_signal
     }
 
     /// What the run executed from memory it wrote outside the image (a payload
@@ -2841,6 +3411,17 @@ pub struct AllocPayload {
     pub pe: Option<Vec<u8>>,
 }
 
+/// Payload or embedded PE extracted from memory written during emulation.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct HarvestedPayload {
+    pub base: u64,
+    pub size: usize,
+    pub in_image: bool,
+    pub is_pe: bool,
+    #[serde(skip_serializing)]
+    pub data: Vec<u8>,
+}
+
 /// Bytes of one region `region_payload` reads.
 const MAX_REGION_DUMP: u64 = 64 << 20;
 
@@ -2863,6 +3444,106 @@ fn mapped_pe_size(mem: &[u8]) -> Option<(u64, u32)> {
     let ep = rd32(opt + 16)?;
     let size = page_align(rd32(opt + 56)? as u64);
     (size >= PAGE_SIZE && size <= mem.len() as u64).then_some((size, ep))
+}
+
+fn raw_pe_end(mem: &[u8]) -> Option<usize> {
+    let rd16 = |o: usize| mem.get(o..o + 2).map(|b| u16::from_le_bytes([b[0], b[1]]));
+    let rd32 = |o: usize| mem.get(o..o + 4).map(|b| u32::from_le_bytes([b[0], b[1], b[2], b[3]]));
+    if mem.get(..2)? != b"MZ" {
+        return None;
+    }
+    let pe = rd32(0x3C)? as usize;
+    if pe >= 0x1000 || mem.get(pe..pe + 4)? != b"PE\0\0" {
+        return None;
+    }
+    let coff = pe + 4;
+    let nsec = rd16(coff + 2)? as usize;
+    let opt_sz = rd16(coff + 16)? as usize;
+    let opt = coff + 20;
+    if !matches!(rd16(opt)?, 0x10B | 0x20B) {
+        return None;
+    }
+    let sec_hdr = opt + opt_sz;
+    if nsec == 0 || nsec > 96 || sec_hdr + nsec * 40 > mem.len() {
+        return None;
+    }
+    let mut end = sec_hdr + nsec * 40;
+    for i in 0..nsec {
+        let off = sec_hdr + i * 40;
+        let rsz = rd32(off + 16)? as usize;
+        let rptr = rd32(off + 20)? as usize;
+        end = end.max(rptr.saturating_add(rsz));
+    }
+    (end >= 0x200 && end <= mem.len()).then_some(end)
+}
+
+fn is_high_signal_str(s: &str) -> bool {
+    let low = s.to_ascii_lowercase();
+    low.contains("://")
+        || low.contains("http")
+        || low.contains('\\')
+        || low.contains(".exe")
+        || low.contains(".dll")
+        || low.contains(".sys")
+        || low.contains(".ps1")
+        || low.contains(".bat")
+        || low.contains("hkey_")
+        || low.contains("software\\")
+        || low.contains("cmd")
+        || low.contains("powershell")
+}
+
+pub(crate) fn collect_strings_from_bytes(
+    buf: &[u8],
+    seen: &mut HashSet<String>,
+    high_signal: &mut Vec<String>,
+    normal: &mut Vec<String>,
+) {
+    let mut push_str = |s: String| {
+        if s.len() < 6 || !seen.insert(s.clone()) {
+            return;
+        }
+        if is_high_signal_str(&s) {
+            if high_signal.len() < 512 {
+                high_signal.push(s);
+            }
+        } else if normal.len() < 512 {
+            normal.push(s);
+        }
+    };
+
+    // ASCII runs
+    let mut i = 0usize;
+    while i < buf.len() {
+        if (0x20..=0x7E).contains(&buf[i]) {
+            let start = i;
+            while i < buf.len() && (0x20..=0x7E).contains(&buf[i]) && i - start < 512 {
+                i += 1;
+            }
+            if i - start >= 6 {
+                push_str(String::from_utf8_lossy(&buf[start..i]).into_owned());
+            }
+        } else {
+            i += 1;
+        }
+    }
+
+    // UTF-16LE runs
+    let mut j = 0usize;
+    while j + 1 < buf.len() {
+        if (0x20..=0x7E).contains(&buf[j]) && buf[j + 1] == 0 {
+            let mut chars = String::new();
+            while j + 1 < buf.len() && (0x20..=0x7E).contains(&buf[j]) && buf[j + 1] == 0 && chars.len() < 512 {
+                chars.push(buf[j] as char);
+                j += 2;
+            }
+            if chars.len() >= 6 {
+                push_str(chars);
+            }
+        } else {
+            j += 1;
+        }
+    }
 }
 
 impl Drop for UnpackerEngine {
@@ -3252,18 +3933,23 @@ fn setup_ldr_entries(
 /// Index of the section that holds `addr` (an absolute address in the emulated image).
 /// Instructions in the basic block at `addr` (`size` bytes), decoded from the
 /// emulator's memory. At least 1; x86 / x64 only (other code: one per 4 bytes).
-fn count_block_insns(uc: &Unicorn<'_, ()>, addr: u64, size: u32, is_64: bool) -> u32 {
+fn analyze_block_insns(uc: &Unicorn<'_, ()>, addr: u64, size: u32, is_64: bool) -> (u32, bool) {
     let mut buf = vec![0u8; size as usize];
     if size == 0 || uc.mem_read(addr, &mut buf).is_err() {
-        return (size / 4).max(1);
+        return ((size / 4).max(1), false);
     }
     let mut dec = iced_x86::Decoder::with_ip(if is_64 { 64 } else { 32 }, &buf, addr, iced_x86::DecoderOptions::NONE);
     let mut n = 0u32;
+    let mut ends_indirect = false;
     while dec.can_decode() {
-        let _ = dec.decode();
+        let instr = dec.decode();
         n += 1;
+        ends_indirect = matches!(
+            instr.flow_control(),
+            FlowControl::IndirectBranch | FlowControl::IndirectCall
+        );
     }
-    n.max(1)
+    (n.max(1), ends_indirect)
 }
 
 fn section_index(sections: &[Section], image_base: u64, addr: u64) -> Option<usize> {
@@ -3498,5 +4184,174 @@ mod x64_unwind_tests {
         assert_eq!(caller_rsp, rsp + 0x30);
         assert_eq!(u64::from_le_bytes(context[0xa0..0xa8].try_into().unwrap()), 0x12345678);
         assert_eq!(u64::from_le_bytes(context[0x98..0xa0].try_into().unwrap()), caller_rsp);
+    }
+
+    pub(super) fn make_tiny_x64_pe(code: &[u8], ep_rva: u32) -> Vec<u8> {
+        let mut pe = vec![0u8; 0x2000];
+        pe[0..2].copy_from_slice(b"MZ");
+        pe[0x3C..0x40].copy_from_slice(&0x80u32.to_le_bytes());
+        pe[0x80..0x84].copy_from_slice(b"PE\0\0");
+        let coff = 0x84;
+        pe[coff..coff + 2].copy_from_slice(&0x8664u16.to_le_bytes()); // x64
+        pe[coff + 2..coff + 4].copy_from_slice(&1u16.to_le_bytes()); // 1 section
+        pe[coff + 16..coff + 18].copy_from_slice(&240u16.to_le_bytes());
+        pe[coff + 18..coff + 20].copy_from_slice(&0x22u16.to_le_bytes());
+
+        let opt = coff + 20;
+        pe[opt..opt + 2].copy_from_slice(&0x20Bu16.to_le_bytes()); // PE32+
+        pe[opt + 16..opt + 20].copy_from_slice(&ep_rva.to_le_bytes());
+        pe[opt + 24..opt + 32].copy_from_slice(&0x1_4000_0000u64.to_le_bytes());
+        pe[opt + 32..opt + 36].copy_from_slice(&0x1000u32.to_le_bytes());
+        pe[opt + 36..opt + 40].copy_from_slice(&0x200u32.to_le_bytes());
+        pe[opt + 56..opt + 60].copy_from_slice(&0x3000u32.to_le_bytes());
+        pe[opt + 60..opt + 64].copy_from_slice(&0x400u32.to_le_bytes());
+        pe[opt + 68..opt + 70].copy_from_slice(&3u16.to_le_bytes());
+        pe[opt + 108..opt + 112].copy_from_slice(&16u32.to_le_bytes());
+
+        let sec = opt + 240;
+        pe[sec..sec + 5].copy_from_slice(b".text");
+        pe[sec + 8..sec + 12].copy_from_slice(&0x1000u32.to_le_bytes());
+        pe[sec + 12..sec + 16].copy_from_slice(&0x1000u32.to_le_bytes());
+        pe[sec + 16..sec + 20].copy_from_slice(&0x1000u32.to_le_bytes());
+        pe[sec + 20..sec + 24].copy_from_slice(&0x400u32.to_le_bytes());
+        pe[sec + 36..sec + 40].copy_from_slice(&0x60000020u32.to_le_bytes());
+
+        let end = (0x400 + code.len()).min(pe.len());
+        pe[0x400..end].copy_from_slice(&code[..end - 0x400]);
+        pe
+    }
+
+    #[test]
+    fn int0_and_int1_dispatch_to_veh_and_resume_cleanly() {
+        // Code at VA 0x1_4000_1000 (EP = 0x1000):
+        //   0x1000: pushfq; or qword ptr [rsp], 0x100; popfq; nop; xor eax, eax; div eax; mov rax, 0xCAFE; ret
+        // VEH handler at VA 0x1_4000_1080:
+        //   rcx = PEXCEPTION_POINTERS; [rcx] = PEXCEPTION_RECORD; [rcx+8] = PCONTEXT
+        //   check exception code == 0xC0000094 (INT0) -> advance CONTEXT.Rip (+0xf8) by 2 (skip `div eax`)
+        //   always return 0 (EXCEPTION_CONTINUE_EXECUTION inside finish_x64_seh)
+        let mut code = vec![0x90u8; 0x200];
+        let ep_stub: &[u8] = &[
+            0x9C,                         // pushfq
+            0x48, 0x81, 0x0C, 0x24, 0x00, 0x01, 0x00, 0x00, // or qword ptr [rsp], 0x100 (TF)
+            0x9D,                         // popfq -> triggers single-step (#DB / INT 1)
+            0x90,                         // nop (runs after INT 1 VEH resumes)
+            0x31, 0xC0,                   // xor eax, eax
+            0xF7, 0xF0,                   // div eax -> triggers #DE / INT 0 (2 bytes)
+            0x48, 0xC7, 0xC0, 0xFE, 0xCA, 0x00, 0x00, // mov rax, 0xCAFE (0x... only signed i32 -> use 0x1337)
+            0xC3,                         // ret
+        ];
+        code[..ep_stub.len()].copy_from_slice(ep_stub);
+        // Patch 0xCAFE -> 0x00001337 (sign-extended safely)
+        code[ep_stub.len() - 5..ep_stub.len() - 1].copy_from_slice(&0x1337u32.to_le_bytes());
+
+        // VEH at offset 0x80:
+        //   mov rdx, [rcx]          ; rdx = ExceptionRecord
+        //   mov r8d, [rdx]          ; r8d = ExceptionCode
+        //   cmp r8d, 0xC0000094
+        //   jne done
+        //   mov rax, [rcx+8]        ; rax = ContextRecord
+        //   add qword ptr [rax+0xf8], 2 ; skip `f7 f0` (div eax)
+        // done:
+        //   mov eax, -1             ; EXCEPTION_CONTINUE_EXECUTION
+        //   ret
+        let veh: &[u8] = &[
+            0x48, 0x8B, 0x11,             // mov rdx, [rcx]
+            0x44, 0x8B, 0x02,             // mov r8d, [rdx]
+            0x41, 0x81, 0xF8, 0x94, 0x00, 0x00, 0xC0, // cmp r8d, 0xC0000094
+            0x75, 0x0C,                   // jne +12 -> done
+            0x48, 0x8B, 0x41, 0x08,       // mov rax, [rcx+8]
+            0x48, 0x83, 0x80, 0xF8, 0x00, 0x00, 0x00, 0x02, // add qword ptr [rax+0xf8], 2
+            // done:
+            0xB8, 0xFF, 0xFF, 0xFF, 0xFF, // mov eax, -1
+            0xC3,                         // ret
+        ];
+        code[0x80..0x80 + veh.len()].copy_from_slice(veh);
+
+        let pe = make_tiny_x64_pe(&code, 0x1000);
+        let sample = Sample::from_bytes(&pe).unwrap();
+        let mut eng = UnpackerEngine::new(sample, "mem");
+        eng.init_uc().unwrap();
+        let handler_va = eng.sample.base_addr + 0x1080;
+        eng.hook_state.borrow_mut().veh_handlers.push((1, handler_va));
+        let ret = eng.call_function(eng.sample.base_addr + 0x1000, &[], 5_000_000, 5_000).unwrap();
+        assert_eq!(ret, 0x1337);
+        assert!(eng.seh_dispatches() >= 2, "expected both INT 1 and INT 0 dispatches, got {}", eng.seh_dispatches());
+    }
+
+    #[test]
+    fn harvest_written_payloads_and_strings_from_alloc() {
+        let ep_stub: &[u8] = &[0x31, 0xC0, 0xC3]; // xor eax, eax; ret
+        let pe = make_tiny_x64_pe(ep_stub, 0x1000);
+        let sample = Sample::from_bytes(&pe).unwrap();
+        let mut eng = UnpackerEngine::new(sample, "mem");
+        eng.init_uc().unwrap();
+        let _ = eng.emu();
+
+        // Map a simulated VirtualAlloc buffer containing an embedded raw PE + decrypted URL
+        let inner_pe = make_tiny_x64_pe(&[0xC3], 0x1000);
+        let alloc_addr = apicalls::ALLOC_BASE + 0x10000;
+        {
+            let uc = eng.unicorn_mut().unwrap();
+            uc.mem_map(alloc_addr, 0x4000, Prot::ALL).unwrap();
+            uc.mem_write(alloc_addr, &inner_pe).unwrap();
+            uc.mem_write(alloc_addr + 0x2800, b"https://c2.example.invalid/stage2.bin\0").unwrap();
+        }
+
+        let payloads = eng.harvest_written_payloads();
+        assert!(payloads.iter().any(|p| p.is_pe && p.base == alloc_addr && p.size >= 0x1000));
+
+        let strings = eng.extract_written_strings();
+        assert!(strings.iter().any(|s| s.contains("https://c2.example.invalid/stage2.bin")));
+    }
+
+    #[test]
+    fn load_config_security_cookie_and_native_driver_setup() {
+        let mut sec0 = vec![0x90u8; 0x400];
+        let stub: &[u8] = &[
+            0x4C, 0x8B, 0x05, 0xF9, 0x01, 0x00, 0x00, // mov r8, [rip+0x1f9] -> [0x1200]
+            0x4D, 0x85, 0xC0,                         // test r8, r8
+            0x74, 0x1C,                               // jz fail (0x1028)
+            0x49, 0xB9, 0x32, 0xA2, 0xDF, 0x2D, 0x99, 0x2B, 0x00, 0x00, // mov r9, 0x2b992ddfa232
+            0x4D, 0x39, 0xC8,                         // cmp r8, r9
+            0x74, 0x0D,                               // je fail (0x1028)
+            0x0F, 0xB7, 0x01,                         // movzx eax, word ptr [rcx] (DRIVER_OBJECT.Type)
+            0x0F, 0xB7, 0x0A,                         // movzx ecx, word ptr [rdx] (RegistryPath.Length)
+            0xC1, 0xE0, 0x10,                         // shl eax, 16
+            0x09, 0xC8,                               // or eax, ecx
+            0xC3,                                     // ret
+            0x90,                                     // nop
+            0xCD, 0x29,                               // int 29h (fail)
+            0xC3,                                     // ret
+        ];
+        sec0[..stub.len()].copy_from_slice(stub);
+
+        // LOAD_CONFIG at RVA 0x1080 (offset 0x80 in sec0): size=0x140, SecurityCookie VA at +0x58 -> 0x140001200
+        sec0[0x80..0x84].copy_from_slice(&0x140u32.to_le_bytes());
+        sec0[0x80 + 0x58..0x80 + 0x60].copy_from_slice(&0x1_4000_1200u64.to_le_bytes());
+        // Default uninitialized GS cookie + complement at RVA 0x1200 / 0x1208
+        let def_cookie = 0x0000_2B99_2DDF_A232u64;
+        sec0[0x200..0x208].copy_from_slice(&def_cookie.to_le_bytes());
+        sec0[0x208..0x210].copy_from_slice(&(!def_cookie).to_le_bytes());
+
+        let mut pe = make_tiny_x64_pe(&sec0, 0x1000);
+        let opt = 0x84 + 20;
+        // Subsystem = 1 (IMAGE_SUBSYSTEM_NATIVE)
+        pe[opt + 68..opt + 70].copy_from_slice(&1u16.to_le_bytes());
+        // DataDirectory[10] = LOAD_CONFIG (opt + 112 + 10*8)
+        pe[opt + 192..opt + 196].copy_from_slice(&0x1080u32.to_le_bytes());
+        pe[opt + 196..opt + 200].copy_from_slice(&0x140u32.to_le_bytes());
+
+        let sample = Sample::from_bytes(&pe).unwrap();
+        let mut eng = UnpackerEngine::new(sample, "mem");
+        eng.init_uc().unwrap();
+        eng.emu().unwrap();
+        assert_eq!(eng.end, EmuEnd::EntryReturned);
+
+        let uc = eng.unicorn_mut().unwrap();
+        let rax = uc.reg_read(RegisterX86::RAX as i32).unwrap();
+        let drv_type = (rax >> 16) as u16;
+        let reg_len = (rax & 0xFFFF) as u16;
+        assert_eq!(drv_type, 4);
+        assert!(reg_len >= 20, "expected valid RegistryPath length, got {reg_len}");
     }
 }

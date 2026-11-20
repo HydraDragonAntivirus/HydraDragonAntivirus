@@ -29,7 +29,7 @@ yara-x = "1.21"
 
 # Capstone disassembler (used in shell / logging)
 capstone = "0.14"
-iced-x86 = "1.21"
+iced-x86 = { version = "1.21", features = ["code_asm"] }
 
 # Terminal colors
 colored = "3.1"

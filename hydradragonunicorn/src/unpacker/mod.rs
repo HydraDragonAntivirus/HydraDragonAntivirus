@@ -9,6 +9,9 @@ pub mod packers;
 pub mod plan;
 pub mod recipe;
 pub mod upx;
+pub mod vm;
+pub mod vm_devirt;
+pub mod vm_ir;
 
 pub use engine::UnpackerEngine;
 pub use error::UnpackerError;

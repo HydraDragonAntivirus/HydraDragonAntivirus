@@ -454,6 +454,79 @@ pub async fn handle_unpack(State(app): State<Arc<AppState>>, Json(b): Json<Token
     resp
 }
 
+/// How long the dashboard waits for one devirtualization. The lifter has its own
+/// per-entry limits (`BinaryDevirtConfig`); this only bounds the whole request. A run
+/// that is still going when it expires finishes on its own thread and is dropped.
+const DEVIRT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15 * 60);
+
+/// VM devirtualizer (hydradragonunicorn `vm_devirt`): finds the VM entries, lifts each
+/// one symbolically, recompiles the verified ones into a `.devirt` section and patches
+/// their call sites. The rebuilt PE opens as a new document; the lifter's report
+/// (coverage, bailout reasons, patched sites) comes back with it as `devirt`.
+pub async fn handle_devirt(State(app): State<Arc<AppState>>, Json(b): Json<TokenBody>) -> Response {
+    let Some((name, data)) = doc(&b.token) else { return err(StatusCode::NOT_FOUND, "file is not open any more, open it again") };
+    if !data.starts_with(b"MZ") {
+        return err(StatusCode::BAD_REQUEST, "the devirtualizer works on PE files only");
+    }
+    let started = std::time::Instant::now();
+    type DevirtOut = Result<(Vec<u8>, serde_json::Value), String>;
+    let (tx, rx) = tokio::sync::oneshot::channel::<DevirtOut>();
+    // Deep symbolic expressions recurse: the same big stack as the emulator thread.
+    let spawned = std::thread::Builder::new().name("alyzer-devirt".into()).stack_size(256 * 1024 * 1024).spawn(move || {
+        let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| -> DevirtOut {
+            use hydradragonunicorn::unpacker::vm_devirt::{devirtualize_pe_bytes, BinaryDevirtConfig};
+            let (rebuilt, report) =
+                devirtualize_pe_bytes(&data, BinaryDevirtConfig::default()).map_err(|e| format!("devirtualization failed: {e}"))?;
+            let report = serde_json::to_value(&report).map_err(|e| e.to_string())?;
+            Ok((rebuilt, report))
+        }))
+        .unwrap_or_else(|_| Err("the devirtualizer crashed on this file".into()));
+        let _ = tx.send(r);
+    });
+    if let Err(e) = spawned {
+        return err(StatusCode::INTERNAL_SERVER_ERROR, e.to_string());
+    }
+    let (rebuilt, report) = match tokio::time::timeout(DEVIRT_TIMEOUT, rx).await {
+        Ok(Ok(Ok(v))) => v,
+        Ok(Ok(Err(e))) => return err(StatusCode::BAD_REQUEST, e),
+        Ok(Err(_)) => return err(StatusCode::INTERNAL_SERVER_ERROR, "the devirtualizer thread ended without an answer"),
+        Err(_) => return err(StatusCode::GATEWAY_TIMEOUT, format!("no result after {} min", DEVIRT_TIMEOUT.as_secs() / 60)),
+    };
+    let ms = started.elapsed().as_millis();
+    let devirtualized = report["devirtualized_total"].as_u64().unwrap_or(0);
+    if devirtualized == 0 || rebuilt.is_empty() {
+        // Nothing recompiled: no new document, but the report says what was found and why
+        // each entry bailed out.
+        return Json(serde_json::json!({
+            "ok": false,
+            "message": format!("No VM entry devirtualized ({ms} ms)."),
+            "devirt": report,
+        }))
+        .into_response();
+    }
+    let resp = open_doc(
+        &app,
+        format!("{name}.devirt.bin"),
+        format!("{name} › devirtualized ({devirtualized} entries, {ms} ms)"),
+        rebuilt,
+        0,
+    )
+    .await;
+    // Add the lifter report to the document JSON open_doc built.
+    let (parts, body) = resp.into_parts();
+    let Ok(bytes) = axum::body::to_bytes(body, usize::MAX).await else {
+        return err(StatusCode::INTERNAL_SERVER_ERROR, "could not build the response");
+    };
+    match serde_json::from_slice::<serde_json::Value>(&bytes) {
+        Ok(mut v) if parts.status.is_success() => {
+            v["devirt"] = report;
+            v["devirt_ms"] = serde_json::json!(ms);
+            Json(v).into_response()
+        }
+        _ => Response::from_parts(parts, axum::body::Body::from(bytes)),
+    }
+}
+
 #[derive(Deserialize)]
 pub struct SearchQuery {
     token: String,

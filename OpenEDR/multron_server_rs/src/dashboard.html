@@ -1189,9 +1189,11 @@
         <button class="ghost" id="vaFp" disabled title="False positive: turn off the signature that detects this file (from the last engine result or the scan just run here)">Turn off signature…</button>
         <button class="ghost" id="vaImphash" disabled title="Make an analyst imphash signature from this PE (Signature room)">Imphash signature</button>
         <button class="ghost" id="vaUnpack" disabled title="Runs the PE in the engine's Unicorn emulator and opens the memory image">Unpack (Unicorn)</button>
+        <button class="ghost" id="vaDevirt" disabled title="VM devirtualizer (hydradragonunicorn): lifts the VM entries symbolically, recompiles the verified ones into a .devirt section and opens the rebuilt PE with the lifter's report">Devirtualize</button>
         <button class="ghost" id="vaExport" disabled title="Saves the open file as it is now (Unicorn memory image, file extracted from an archive, …) to alyzer_saved\ next to the server">Save copy</button>
         <button class="ghost" id="vaDownload" disabled title="Downloads the open file through the browser (runnable extensions get .bin appended)">Download</button>
       </div>
+      <div id="vaDevirtRes" hidden style="margin:4px 0 8px"></div>
       <div class="hint" id="vaMsg" style="margin:4px 0 8px">Opens a kept upload or any file on this server: hashes, PE headers, sections with entropy, imports / exports, strings, indicators, a disassembler (x86 / x64, ARM, Thumb, ARM64 for PE, ELF, Mach-O and raw code, with import names), the scanner's own decompiler, archive extractor and Unicorn unpacker, and a hex editor. The original file is never changed; edits are saved as a copy in <code>alyzer_edited\</code>.</div>
       <div id="vaBody" hidden>
         <div class="va-title" id="vaTitle"></div>
@@ -4723,6 +4725,8 @@ window.sigKey = (list) => list && list.length ? `${list[0].layer}: ${list[0].nam
     $("vaVk").disabled = !d.viruskov;
     $("vaFp").disabled = !d.engine_detail;
     $("vaUnpack").disabled = !r.pe;
+    $("vaDevirt").disabled = !r.pe;
+    devirtShow(d.devirt, d.devirt_ms);
     $("vaExport").disabled = false;
     $("vaDownload").disabled = false;
     $("vaImphash").disabled = !(r.hashes && r.hashes.imphash);
@@ -5003,6 +5007,56 @@ window.sigKey = (list) => list && list.length ? `${list[0].layer}: ${list[0].nam
       if (r.ok === false) { msg(r.message || "Nothing unpacked."); $("vaUnpack").disabled = false; return; }
       setDoc(r); msg(`Unpacked: ${r.source}`); refreshDocs();
     } catch (e) { msg(e.message, true); $("vaUnpack").disabled = false; }
+  };
+
+  // ---------------- VM devirtualizer (hydradragonunicorn vm_devirt) ----------------
+  // The lifter's report: coverage, what was recompiled, why each failed entry bailed
+  // out, and the patched call sites (click one to see it in the disassembler).
+  function devirtShow(rep, ms) {
+    const box = $("vaDevirtRes");
+    if (!rep) { box.hidden = true; box.innerHTML = ""; return; }
+    const pct = (v) => v == null ? "—" : `${Number(v).toFixed(1)}%`;
+    const n = (v) => v == null ? "—" : Number(v).toLocaleString();
+    const hx = (v) => v == null ? "—" : "0x" + Number(v).toString(16).toUpperCase();
+    const kpi = [
+      ["Entries devirtualized", `${n(rep.devirtualized_total)} / ${n(rep.discovered_total)} (${pct(rep.entry_devirt_pct)})`],
+      ["vmenter / trampoline / standalone", `${n(rep.discovered_vmenters)} / ${n(rep.discovered_trampolines)} / ${n(rep.discovered_standalone)}`],
+      ["Partially lifted / failed", `${n(rep.partially_lifted)} / ${n(rep.failed)}`],
+      ["VM byte coverage", `${pct(rep.vm_byte_coverage_pct)} (${n(rep.unique_vm_bytes_visited)} of ${n(rep.total_vm_section_bytes)} bytes)`],
+      ["Instructions", `${n(rep.raw_vm_insns_eliminated)} VM → ${n(rep.recompiled_native_insns)} native (${pct(rep.code_reduction_pct)} smaller)`],
+      ["Opaque branches folded", n(rep.opaque_branches_folded)],
+      [".devirt section", rep.devirt_section_rva != null ? `RVA ${hx(rep.devirt_section_rva)}, ${n(rep.devirt_section_size)} bytes` : "—"],
+      ["Arch / time", `${rep.is_64 ? "x64" : "x86"}${ms != null ? ` · ${n(ms)} ms` : ""}`],
+    ];
+    const bail = (rep.bailout_reasons || []).slice().sort((a, b) => b[1] - a[1]);
+    const sites = rep.patched_sites || [];
+    box.innerHTML = `<details open class="card" style="padding:10px 12px"><summary><b>Devirtualizer report</b></summary>` +
+      `<div class="tablewrap" style="margin-top:6px"><table><tbody>${kpi.map(k => `<tr><td>${esc(k[0])}</td><td class="mono">${esc(k[1])}</td></tr>`).join("")}</tbody></table></div>` +
+      (bail.length ? `<h3 class="va-h">Bailout reasons</h3><div class="tablewrap" style="max-height:200px"><table><thead><tr><th class="num">Count</th><th>Reason</th></tr></thead><tbody>` +
+        bail.map(b => `<tr><td class="num">${n(b[1])}</td><td class="mono" style="font-size:11.5px">${esc(b[0])}</td></tr>`).join("") + `</tbody></table></div>` : "") +
+      (sites.length ? `<h3 class="va-h">Patched sites (${n(sites.length)})</h3><div class="tablewrap" style="max-height:260px"><table><thead><tr><th>Kind</th><th>Patch RVA</th><th class="num">Size</th><th>Stub RVA</th><th class="num">VM insns</th><th class="num">Native</th><th class="num">Opaque folded</th></tr></thead><tbody>` +
+        sites.map(x => `<tr><td>${esc(String(x.kind))}</td><td class="mono"><a href="#" data-devirt-rva="${x.patch_rva}">${hx(x.patch_rva)}</a></td><td class="num">${n(x.patch_size)}</td><td class="mono"><a href="#" data-devirt-rva="${x.stub_rva}">${hx(x.stub_rva)}</a></td><td class="num">${n(x.raw_vm_insns)}</td><td class="num">${n(x.native_insns)}</td><td class="num">${n(x.opaque_branches_folded)}</td></tr>`).join("") +
+        `</tbody></table></div>` : "") +
+      `</details>`;
+    box.hidden = false;
+  }
+  $("vaDevirtRes").addEventListener("click", (e) => {
+    const a = e.target.closest("[data-devirt-rva]"); if (!a || !doc) return;
+    e.preventDefault();
+    const pe = (doc.report || {}).pe || {};
+    const base = Number(pe.image_base) || parseInt(String(pe.image_base || "0"), 16) || 0;
+    showSub("Disasm");
+    disGo((base + Number(a.dataset.devirtRva)).toString(16).toUpperCase());
+  });
+  $("vaDevirt").onclick = async () => {
+    if (!doc) return;
+    if (hasEdits() && !confirm("Discard the unsaved hex edits of the current file?")) return;
+    $("vaDevirt").disabled = true; msg("Devirtualizing… (symbolic lifting can take minutes)");
+    try {
+      const r = await api("/api/alyzer/devirt", { token: doc.token });
+      if (r.ok === false) { devirtShow(r.devirt); msg(r.message || "Nothing devirtualized."); $("vaDevirt").disabled = false; return; }
+      setDoc(r); msg(`Devirtualized: ${r.source}`); refreshDocs();
+    } catch (e) { msg(e.message, true); $("vaDevirt").disabled = false; }
   };
 
   // ---------------- save / download the open file ----------------

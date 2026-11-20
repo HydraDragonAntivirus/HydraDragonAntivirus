@@ -347,6 +347,7 @@ pub fn dashboard_router(state: Arc<AppState>) -> Router {
         .route("/api/alyzer/archive/open", post(crate::alyzer::handle_archive_open))
         .route("/api/alyzer/decompile", get(crate::alyzer::handle_decompile))
         .route("/api/alyzer/unpack", post(crate::alyzer::handle_unpack))
+        .route("/api/alyzer/devirt", post(crate::alyzer::handle_devirt))
         .route("/api/alyzer/scan", post(crate::alyzer::handle_scan))
         .route("/api/alyzer/save", post(crate::alyzer::handle_save).route_layer(DefaultBodyLimit::max(64 * 1024 * 1024)))
         .route("/api/alyzer/export", post(crate::alyzer::handle_export))
