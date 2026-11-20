@@ -78,11 +78,12 @@ fn run_binary_devirt(
         rep.discovered_standalone
     );
     println!(
-        "Devirtualized & patched: {} (vmenter={}, trampoline={}) ({:.2}%) | Partial: {} | Failed: {}",
+        "Devirtualized & patched: {} (vmenter={}, trampoline={}) ({:.2}%) | of which exit back to the VM: {} | Partial: {} | Failed: {}",
         rep.devirtualized_total,
         rep.devirtualized_vmenters,
         rep.devirtualized_trampolines,
         rep.entry_devirt_pct,
+        rep.hybrid_vm_exits,
         rep.partially_lifted,
         rep.failed
     );

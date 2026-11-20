@@ -48,6 +48,10 @@ pub struct BinaryDevirtConfig {
     pub include_trampolines: bool,
     pub include_vmenters: bool,
     pub extra_entry_rvas: Vec<u32>,
+    /// Recompile a function up to a `jmp reg` whose target cannot be resolved and
+    /// continue in the VM there (`IrTerm::ExitRegJmp`). Off: such functions are
+    /// rejected as `unresolved_indirect_jmp`, so the output has no VM left in them.
+    pub allow_vm_exits: bool,
     pub collect_diagnostics: bool,
 }
 
@@ -62,6 +66,7 @@ impl Default for BinaryDevirtConfig {
             include_trampolines: true,
             include_vmenters: true,
             extra_entry_rvas: Vec::new(),
+            allow_vm_exits: true,
             collect_diagnostics: false,
         }
     }
@@ -106,6 +111,9 @@ pub struct BinaryDevirtReport {
     pub devirtualized_vmenters: usize,
     pub devirtualized_trampolines: usize,
     pub partially_lifted: usize,
+    /// Of the devirtualized functions: those that hand control back to the VM at an
+    /// unresolvable `jmp reg` (`IrTerm::ExitRegJmp`); the rest are fully native.
+    pub hybrid_vm_exits: usize,
     pub failed: usize,
     pub entry_devirt_pct: f64,
     pub raw_vm_insns_eliminated: usize,
@@ -892,6 +900,21 @@ pub enum IrTerm {
     },
     ExitIndirectMem {
         rsp_disp: i64,
+        rsp_delta: i64,
+        final_regs: [ExprId; 16],
+        final_xmms: [(ExprId, ExprId); 16],
+        pending_caller_stores: Vec<(i64, ExprId)>,
+    },
+    /// Hand control back to the VM: a `jmp reg` whose target the lifter cannot
+    /// resolve (it depends on runtime data: the VM context behind a pointer, an
+    /// unknown stack slot, an input register). The recompiled code materialises the
+    /// state the original had at that `jmp` - every register (`reg` holds the target
+    /// expression), pending caller-stack stores, RSP - and executes the same
+    /// `jmp reg`, so the VM handler continues exactly as before. The function is then
+    /// recompiled up to that point instead of rejected; the report counts such
+    /// functions as `hybrid_vm_exits`.
+    ExitRegJmp {
+        reg: ArchReg,
         rsp_delta: i64,
         final_regs: [ExprId; 16],
         final_xmms: [(ExprId, ExprId); 16],
@@ -1929,6 +1952,14 @@ fn hoist_bool_product_select(arena: &mut ExprArena, id: ExprId, depth: u8) -> Op
     Some(arena.select(cond, t, f))
 }
 
+/// Boolean atoms a jump-target polynomial may have (2^n evaluations, every one must
+/// land on executable code). Dispatchers with several predicated displacements per
+/// arm carry 6-10 atoms; 5 left all of them `unresolved_indirect_jmp`.
+const MAX_MUX_VARS: usize = 10;
+/// Expression nodes walked while collecting the atoms (the arms of such dispatchers
+/// are a few hundred nodes).
+const MAX_MUX_VISITS: usize = 2048;
+
 fn try_decompose_bool_mux_target(
     arena: &mut ExprArena,
     view: &PeImageView,
@@ -1942,7 +1973,7 @@ fn try_decompose_bool_mux_target(
         for &v in b {
             if !a.contains(&v) {
                 a.push(v);
-                if a.len() > 5 {
+                if a.len() > MAX_MUX_VARS {
                     return None;
                 }
             }
@@ -1959,7 +1990,7 @@ fn try_decompose_bool_mux_target(
         if let Some(cached) = memo.get(&id) {
             return cached.clone();
         }
-        if *visits >= 256 {
+        if *visits >= MAX_MUX_VISITS {
             return None;
         }
         *visits += 1;
@@ -2167,7 +2198,7 @@ fn try_decompose_bool_mux_target(
     let mut memo = HashMap::new();
     let mut visits = 0usize;
     let vars = collect_bool_vars(arena, root, &mut memo, &mut visits)?;
-    if vars.is_empty() || vars.len() > 5 {
+    if vars.is_empty() || vars.len() > MAX_MUX_VARS {
         return None;
     }
 
@@ -3043,6 +3074,22 @@ pub fn lift_vm_entry_cfg(
                                         pending_caller_stores: pending,
                                     };
                                 }
+                            }
+                        }
+                    }
+                    // Unresolvable target, clean RSP, `jmp reg`: exit back into the VM with the
+                    // original state (see `IrTerm::ExitRegJmp`). `state.regs[jr]` is the target.
+                    if cfg.allow_vm_exits {
+                        if let (Some(jr), Some(rsp_delta)) = (jmp_arch_reg, rsp_delta_opt) {
+                            if state.regs[jr.idx()] == target_expr && jr != ArchReg::Rsp {
+                                let pending = state.collect_pending_caller_stores(rsp_delta);
+                                break IrTerm::ExitRegJmp {
+                                    reg: jr,
+                                    rsp_delta,
+                                    final_regs: state.regs,
+                                    final_xmms: state.xmms,
+                                    pending_caller_stores: pending,
+                                };
                             }
                         }
                     }
@@ -4700,6 +4747,17 @@ fn validate_function_soundness(func: &LiftedFunction, view: &PeImageView) -> Res
                     cur_cr8_ver,
                 )?;
             }
+            IrTerm::ExitRegJmp { final_regs, final_xmms, pending_caller_stores, .. } => {
+                check_exit_state(
+                    final_xmms,
+                    pending_caller_stores,
+                    final_regs,
+                    &cur_stores,
+                    cur_all_aliasing,
+                    cur_max_ver,
+                    cur_cr8_ver,
+                )?;
+            }
             IrTerm::MidCall { target, final_regs, final_xmms, pending_caller_stores, cont_block, .. } => {
                 if let MidCallTarget::DirectVa(va) = target {
                     if !view.is_executable_va(*va) {
@@ -6188,6 +6246,29 @@ fn compile_function_into_asm(
                     },
                 )?;
             }
+            IrTerm::ExitRegJmp { reg, rsp_delta, final_regs, final_xmms, pending_caller_stores, .. } => {
+                let dst_reg = *reg;
+                emit_block_outputs_and_jump(
+                    a,
+                    bitness,
+                    &func.arena,
+                    &block.effects,
+                    pending_caller_stores,
+                    final_regs,
+                    final_xmms,
+                    *rsp_delta,
+                    false,
+                    Some(dst_reg),
+                    |asm, ctx| {
+                        // `final_regs[dst_reg]` is the target the original `jmp` took.
+                        if ctx.bitness == 64 {
+                            asm.jmp(to_asm64(dst_reg)).map_err(|e| e.to_string())
+                        } else {
+                            asm.jmp(to_asm32(dst_reg)).map_err(|e| e.to_string())
+                        }
+                    },
+                )?;
+            }
             IrTerm::ExitIndirectMem { rsp_disp, rsp_delta, final_regs, final_xmms, pending_caller_stores, .. } => {
                 let d32 = i32::try_from(*rsp_disp).map_err(|_| "exit_ind_mem_disp_i32".to_string())?;
                 emit_block_outputs_and_jump(
@@ -6396,6 +6477,7 @@ pub fn devirtualize_pe_bytes(
     let mut devirt_section_size = 0usize;
     let mut patched_sites = Vec::new();
     let mut devirtualized_vmenters = 0usize;
+    let mut hybrid_vm_exits = 0usize;
     let mut devirtualized_trampolines = 0usize;
     let mut raw_vm_insns_eliminated = 0usize;
     let mut recompiled_native_insns = 0usize;
@@ -6463,6 +6545,9 @@ pub fn devirtualize_pe_bytes(
             raw_vm_insns_eliminated += lifted.raw_vm_insns;
             recompiled_native_insns += n_insns;
             opaque_branches_folded += lifted.opaque_branches_folded;
+            if lifted.blocks.iter().any(|b| matches!(b.term, IrTerm::ExitRegJmp { .. })) {
+                hybrid_vm_exits += 1;
+            }
             match e.kind {
                 VmEntryKind::CrossSectionVmEnter => devirtualized_vmenters += 1,
                 VmEntryKind::IndirectBranchTrampoline => devirtualized_trampolines += 1,
@@ -6528,6 +6613,7 @@ pub fn devirtualize_pe_bytes(
             devirtualized_vmenters,
             devirtualized_trampolines,
             partially_lifted,
+            hybrid_vm_exits,
             failed,
             entry_devirt_pct,
             raw_vm_insns_eliminated,
@@ -7281,6 +7367,81 @@ mod tests {
             assert_eq!(run_case(&devirt_pe, rva, 5), 0xAAAA);
             assert_eq!(run_case(&orig_pe, rva, 9), 0xBBBB);
             assert_eq!(run_case(&devirt_pe, rva, 9), 0xBBBB);
+        }
+    }
+
+    #[test]
+    fn unresolvable_jmp_reg_exits_back_to_vm_e2e() {
+        use gpr64::*;
+        let base = 0x1_4000_0000u64;
+
+        let mut text_sec = vec![0xCCu8; 0x200];
+        let fn0 = assemble_at(64, base + 0x1000, |a| a.jmp(base + 0x2000));
+        text_sec[..fn0.len()].copy_from_slice(&fn0);
+        let exit_ret = assemble_at(64, base + 0x1040, |a| a.ret());
+        text_sec[0x40..0x40 + exit_ret.len()].copy_from_slice(&exit_ret);
+
+        let mut vmp_sec = vec![0xCCu8; 0x400];
+        // Junk that folds away, then a handler address taken from an input register
+        // (`rdx & 0x20`: not a boolean, so no decomposition can resolve it).
+        let stub = assemble_at(64, base + 0x2000, |a| {
+            a.sub(rsp, 0x20)?;
+            a.mov(rax, rcx)?;
+            for k in 0..30i32 {
+                a.add(rax, k + 3)?;
+                a.sub(rax, k + 3)?;
+            }
+            a.add(rax, 0x10)?;
+            a.mov(r8, rdx)?;
+            a.and(r8, 0x20)?;
+            a.add(rsp, 0x20)?;
+            a.mov(r10, base + 0x2300)?;
+            a.add(r10, r8)?;
+            a.jmp(r10)
+        });
+        assert!(stub.len() < 0x300, "stub overlaps the handlers");
+        vmp_sec[..stub.len()].copy_from_slice(&stub);
+        let h0 = assemble_at(64, base + 0x2300, |a| {
+            a.add(rax, 1)?;
+            a.jmp(base + 0x1040)
+        });
+        vmp_sec[0x300..0x300 + h0.len()].copy_from_slice(&h0);
+        let h1 = assemble_at(64, base + 0x2320, |a| {
+            a.add(rax, 2)?;
+            a.jmp(base + 0x1040)
+        });
+        vmp_sec[0x320..0x320 + h1.len()].copy_from_slice(&h1);
+
+        let orig_pe = build_two_exec_pe64(&text_sec, &vmp_sec, 0x1000);
+
+        // Without VM exits the jump stays unresolved and nothing is patched.
+        let strict = BinaryDevirtConfig { allow_vm_exits: false, ..BinaryDevirtConfig::default() };
+        let (_, strict_rep) = devirtualize_pe_bytes(&orig_pe, strict).unwrap();
+        assert_eq!(strict_rep.devirtualized_total, 0, "got {strict_rep:?}");
+
+        let (devirt_pe, report) = devirtualize_pe_bytes(&orig_pe, BinaryDevirtConfig::default()).unwrap();
+        assert_eq!(report.discovered_total, 1, "got {report:?}");
+        assert_eq!(
+            report.devirtualized_total, 1,
+            "expected the stub recompiled up to its VM exit, bailouts: {:?}",
+            report.bailout_reasons
+        );
+        assert_eq!(report.hybrid_vm_exits, 1);
+
+        let run_case = |pe_bytes: &[u8], rcx_in: u64, rdx_in: u64| -> (u64, u64) {
+            let s = Sample::from_bytes(pe_bytes).unwrap();
+            let mut eng = UnpackerEngine::new(s, "mem");
+            eng.init_uc().unwrap();
+            let rsp_before = eng.unicorn_mut().unwrap().reg_read(RegisterX86::RSP as i32).unwrap();
+            let ret = eng.call_function(base + 0x1000, &[rcx_in, rdx_in], 100_000, 2_000).unwrap();
+            let rsp_after = eng.unicorn_mut().unwrap().reg_read(RegisterX86::RSP as i32).unwrap();
+            (ret, rsp_after.wrapping_sub(rsp_before))
+        };
+        for (rcx_in, rdx_in) in [(5u64, 0u64), (5, 0x20), (100, 0xffff_ffdf), (100, 0xffff_ffff)] {
+            let orig = run_case(&orig_pe, rcx_in, rdx_in);
+            let want = rcx_in + 0x10 + if rdx_in & 0x20 != 0 { 2 } else { 1 };
+            assert_eq!(orig.0, want, "original, rdx={rdx_in:#x}");
+            assert_eq!(run_case(&devirt_pe, rcx_in, rdx_in), orig, "devirtualized, rdx={rdx_in:#x}");
         }
     }
 
