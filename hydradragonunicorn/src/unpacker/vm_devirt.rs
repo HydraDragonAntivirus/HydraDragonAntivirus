@@ -1790,7 +1790,7 @@ fn read_memory_expr_depth(
     width: u8,
     depth: u8,
 ) -> ExprId {
-    if let Some((space, off)) = arena.as_stack_offset(addr) {
+    if let Some((space, off)) = stack_slot_addr(arena, addr) {
         return state.stack.read_scalar(arena, space, off, width, state.mem_ver);
     }
     if let Some(&(cached_w, cached_v)) = state.mem_cache.get(&addr) {
@@ -1829,7 +1829,7 @@ fn write_memory_expr(
     val: ExprId,
 ) {
     let masked = arena.zext_mask(val, width);
-    if let Some((space, off)) = arena.as_stack_offset(addr) {
+    if let Some((space, off)) = stack_slot_addr(arena, addr) {
         if space == StackSpace::CallerStack && off >= 0 {
             // Visible caller frame write -> update SymStack AND invalidate non-stack alias cache?
             // Keeping it in SymStack AND flushing if it exits prevents redundant stores if later popped/overwritten,
@@ -2343,6 +2343,12 @@ fn exit_to_vm_or_bailout(
     if cfg.allow_vm_exits {
         if let Some(exit) = plan_vm_exit(state, arena, view, va) {
             return IrTerm::ExitToVm { va, exit: Box::new(exit), final_regs: state.regs, final_xmms: state.xmms };
+        }
+        if std::env::var("DBGTMP_PX").is_ok() {
+            let rsp_ok = arena.as_stack_offset(state.regs[ArchReg::Rsp.idx()]).is_some();
+            let bases_ok = state.aligned_defs.len() == state.next_aligned_id as usize;
+            let fk = match &state.flags { FlagState::Entry => "entry", FlagState::Unknown => "unknown", FlagState::SubCmp{..} => "subcmp", FlagState::TestBitwise{..} => "test", FlagState::Add{..} => "add", FlagState::IncDec{..} => "incdec", FlagState::CarryExpr(_) => "carry" };
+            eprintln!("DBGTMP_PX {reason} exec={} rsp_ok={rsp_ok} bases_ok={bases_ok} flags={fk} dead={}", view.is_executable_va(va), flags_dead_at(view, va));
         }
     }
     IrTerm::Bailout(reason)
@@ -3079,7 +3085,17 @@ fn select_access_stays_on_stack(arena: &mut ExprArena, view: &PeImageView, ea: E
 /// see `write_memory_expr`).
 #[inline]
 fn is_internal_stack_addr(arena: &ExprArena, addr: ExprId) -> Option<(StackSpace, i64)> {
-    arena.as_stack_offset(addr)
+    stack_slot_addr(arena, addr)
+}
+
+/// Farthest a stack slot the symbolic stack models lies from its base: frames are
+/// far smaller. Beyond it (a garbage pointer, a dead handler's computation) an address
+/// relative to the stack is plain memory.
+const MAX_STACK_SLOT_OFFSET: i64 = 1 << 20;
+
+/// `as_stack_offset`, for the addresses the symbolic stack models as slots.
+fn stack_slot_addr(arena: &ExprArena, addr: ExprId) -> Option<(StackSpace, i64)> {
+    arena.as_stack_offset(addr).filter(|&(_, off)| off.abs() < MAX_STACK_SLOT_OFFSET)
 }
 
 /// A write there is visible to the caller (and to pointers into its frame).
@@ -6093,11 +6109,16 @@ impl<'a> CodegenCtx<'a> {
                 }
             }
             ExprNode::Load { addr, width, .. } => {
-                if let Some((StackSpace::CallerStack, off)) = self.arena.as_stack_offset(addr) {
-                    let rel = self.rsp_depth + off;
-                    let m = mem_disp(self.bitness, ArchReg::Rsp, rel, width);
+                let near = match self.arena.as_stack_offset(addr) {
+                    Some((StackSpace::CallerStack, off)) => i32::try_from(self.rsp_depth + off).ok(),
+                    _ => None,
+                };
+                if let Some(rel) = near {
+                    let m = mem_disp(self.bitness, ArchReg::Rsp, rel as i64, width);
                     self.emit_load_from_mem(a, dst, m, width)
                 } else {
+                    // Any other address, a caller-stack one too far for a displacement
+                    // included: computed into `dst`, then read.
                     self.eval_expr_into(a, addr, dst, spill_reg)?;
                     let m = mem_disp(self.bitness, dst, 0, width);
                     self.emit_load_from_mem(a, dst, m, width)
@@ -6587,7 +6608,7 @@ const MAX_PINNED_LOADS: usize = 256;
 
 /// Upper bound on expression nodes the codegen evaluates in one block (shared ones
 /// are computed once, `precompute_shared`; this only stops runaway blocks).
-const MAX_EVAL_STEPS: usize = 8192;
+const MAX_EVAL_STEPS: usize = 32_768;
 
 /// Every block evaluates its values from the entry state, lazily, so a load an earlier
 /// block made reads memory only where it is used - after any store of the blocks in
@@ -7066,9 +7087,12 @@ fn emit_block_effects(
         match eff {
             IrEffect::Store { addr, width, value, .. } => {
                 ctx.eval_expr_into(a, *value, w0, w2)?;
-                if let Some((StackSpace::CallerStack, off)) = ctx.arena.as_stack_offset(*addr) {
-                    let rel = ctx.rsp_depth + off;
-                    let m = mem_disp(ctx.bitness, ArchReg::Rsp, rel, *width);
+                let near = match ctx.arena.as_stack_offset(*addr) {
+                    Some((StackSpace::CallerStack, off)) => i32::try_from(ctx.rsp_depth + off).ok(),
+                    _ => None,
+                };
+                if let Some(rel) = near {
+                    let m = mem_disp(ctx.bitness, ArchReg::Rsp, rel as i64, *width);
                     ctx.emit_store_to_mem(a, m, w0, *width)?;
                 } else {
                     ctx.emit_push(a, w0)?;
@@ -7221,7 +7245,8 @@ fn expr_uses_spill(arena: &ExprArena, bitness: u32, expr: ExprId) -> bool {
             expr_uses_spill(arena, bitness, *x)
         }
         ExprNode::Load { addr, .. } => {
-            if matches!(arena.as_stack_offset(*addr), Some((StackSpace::CallerStack, _))) {
+            // A caller-stack slot within a displacement is read straight off RSP.
+            if matches!(arena.as_stack_offset(*addr), Some((StackSpace::CallerStack, off)) if off.abs() < 1 << 30) {
                 false
             } else {
                 expr_uses_spill(arena, bitness, *addr)
@@ -7660,7 +7685,7 @@ fn emit_block_outputs_and_jump(
         .collect();
     for &(off, val) in &ordered {
         let [w0, _, w2] = ctx.scratch;
-        let rel = ctx.rsp_depth + off;
+        let rel = i64::from(i32::try_from(ctx.rsp_depth + off).map_err(|_| "caller_slot_disp".to_string())?);
         let m = mem_disp(ctx.bitness, ArchReg::Rsp, rel, word_bytes as u8);
         if ctx.bitness == 64 && !ctx.spills.contains_key(&val) && !ctx.pinned.contains_key(&val) {
             // A constant, or an input register that still holds it: one store.
@@ -8227,13 +8252,9 @@ pub fn devirtualize_pe_bytes(
             record_bailout(format!("codegen_{err}"), &lifted, true);
             continue;
         }
-        let test_res = match test_asm.assemble_options(devirt_base_va, BlockEncoderOptions::RETURN_NEW_INSTRUCTION_OFFSETS) {
-            Ok(r) => r,
-            Err(e) => {
-                if std::env::var("DBGTMP_ASM").is_ok() { eprintln!("DBGTMP_ASM {e}"); }
-                record_bailout("asm_encode_failed".into(), &lifted, true);
-                continue;
-            }
+        let Ok(test_res) = test_asm.assemble_options(devirt_base_va, BlockEncoderOptions::RETURN_NEW_INSTRUCTION_OFFSETS) else {
+            record_bailout("asm_encode_failed".into(), &lifted, true);
+            continue;
         };
 
         // Decode emitted bytes to ensure 100% valid instructions & count native instruction count
@@ -10743,6 +10764,47 @@ mod tests {
         let (_, report) = devirtualize_pe_bytes(&orig_pe, big_min).unwrap();
         assert_eq!(report.devirtualized_total, 0);
         assert!(report.bailout_reasons.iter().any(|(r, _)| r.contains("too_little_vm_code")), "{:?}", report.bailout_reasons);
+    }
+
+    #[test]
+    fn far_stack_relative_load_is_computed_not_displaced_e2e() {
+        use gpr64::*;
+        let base = 0x1_4000_0000u64;
+        let mut text_sec = vec![0xCCu8; 0x200];
+        let fn0 = assemble_at(64, base + 0x1000, |a| a.jmp(base + 0x2000));
+        text_sec[..fn0.len()].copy_from_slice(&fn0);
+        let exit_ret = assemble_at(64, base + 0x1040, |a| a.ret());
+        text_sec[0x40..0x40 + exit_ret.len()].copy_from_slice(&exit_ret);
+        let mut vmp_sec = vec![0xCCu8; 0x400];
+        // RSP + a constant beyond any displacement, read only on a path not taken
+        // here (in a VM: a dead handler slot): it must still assemble.
+        let stub = assemble_at(64, base + 0x2000, |a| {
+            let mut skip = a.create_label();
+            a.push(rbx)?;
+            a.push(rbp)?;
+            a.mov(rax, rcx)?;
+            for k in 0..40i32 {
+                a.add(rax, k + 3)?;
+                a.sub(rax, k + 3)?;
+            }
+            a.cmp(rdx, 0x1234)?;
+            a.jne(skip)?;
+            a.mov(r9, 0x7000_0000_0000u64)?;
+            a.mov(rax, qword_ptr(rsp + r9))?;
+            a.mov(qword_ptr(rsp + r9 + 8), rcx)?;
+            a.set_label(&mut skip)?;
+            a.pop(rbp)?;
+            a.pop(rbx)?;
+            a.jmp(base + 0x1040)
+        });
+        vmp_sec[..stub.len()].copy_from_slice(&stub);
+        let orig_pe = build_two_exec_pe64(&text_sec, &vmp_sec, 0x1000);
+        let (devirt_pe, report) = devirtualize_pe_bytes(&orig_pe, BinaryDevirtConfig::default()).unwrap();
+        assert_eq!(report.devirtualized_total, 1, "bailouts: {:?}", report.bailout_reasons);
+        for c in [5u64, 0xdead_beef] {
+            assert_eq!(run_with_flags(&orig_pe, base + 0x1000, c, 0, 0, 0), c);
+            assert_eq!(run_with_flags(&devirt_pe, base + 0x1000, c, 0, 0, 0), c);
+        }
     }
 
     #[test]
