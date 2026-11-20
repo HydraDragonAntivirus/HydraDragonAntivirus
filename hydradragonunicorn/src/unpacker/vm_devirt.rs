@@ -1609,7 +1609,9 @@ fn read_memory_expr_depth(
             return arena.const_u64(ro_val);
         }
     }
-    if depth < 2 {
+    // Up to three predicates deep (8 slots): a handler table on the VM's own stack is
+    // indexed by several booleans at once.
+    if depth < 3 {
         if let Some((cond, ea1, ea0)) = try_resolve_select_mem_pair(arena, addr) {
             if is_pure_nonfaulting_read_addr(arena, view, ea1, width)
                 && is_pure_nonfaulting_read_addr(arena, view, ea0, width)
@@ -1837,6 +1839,96 @@ fn eval_cond_for_mnemonic(state: &SymState, arena: &mut ExprArena, m: Mnemonic) 
 
 /// Decomposes a multi-boolean polynomial indirect branch target (up to 5 `{0, 1}` variables)
 /// into a reduced Shannon-ordered `Select` BDD after verifying every combination is executable.
+/// Jump-target rewrite: inside `Select(c, t, f)` the condition is known, so `t` is
+/// rewritten with `c = 1` and `f` with `c = 0`; when `c` is `y == K` the true arm also
+/// gets `y = K` (`y != K`: the false arm). The arms of a dispatcher jump repeat the
+/// dispatcher test (`Or(..) == 0`) and multiply by it, so in each arm that part
+/// becomes a constant and the leaf turns into a real target. Nested selects are
+/// specialised too (a few levels; jump targets only, not every `select`, as the
+/// rewrite walks the arm).
+fn specialize_select_arms(arena: &mut ExprArena, id: ExprId, depth: u8) -> ExprId {
+    const MAX_DEPTH: u8 = 4;
+    let ExprNode::Select { cond, if_true, if_false } = arena.get(id).clone() else {
+        return id;
+    };
+    if depth > MAX_DEPTH {
+        return id;
+    }
+    let one = arena.const_u64(1);
+    let zero = arena.const_u64(0);
+    let mut t = arena.substitute(if_true, cond, one);
+    let mut f = arena.substitute(if_false, cond, zero);
+    if let ExprNode::Cmp { pred, lhs, rhs } = arena.get(cond).clone() {
+        if arena.as_const(lhs).is_none() && arena.as_const(rhs).is_some() {
+            match pred {
+                CondPred::Eq => t = arena.substitute(t, lhs, rhs),
+                CondPred::Ne => f = arena.substitute(f, lhs, rhs),
+                _ => {}
+            }
+        }
+    }
+    let t = specialize_select_arms(arena, t, depth + 1);
+    let f = specialize_select_arms(arena, f, depth + 1);
+    if t == if_true && f == if_false {
+        return id;
+    }
+    arena.select(cond, t, f)
+}
+
+/// Jump-target rewrite: `x + b * k` with `b` known to be 0 or 1 becomes
+/// `Select(b, x + k, x)`, and the arms are rewritten again, so a sum with several
+/// predicated displacements turns into a `Select` tree that `parse_select_tree` can
+/// split into conditional branches.
+///
+/// `try_decompose_bool_mux_target` already models `Mul(Cmp, k)`, but only when every
+/// leaf of the sum is boolean: one non-boolean term (`x` above: a register-derived
+/// base, a load) makes it give up, and the jump stayed `unresolved_indirect_jmp`. The
+/// leaves here are left to the usual checks (`all_select_leaves_valid`); a leaf that
+/// is still not a constant just fails there instead.
+///
+/// Done only on a jump target, not in `ExprArena::mul`: as `Mul` the products keep
+/// cancelling in linear sums (`b*k + b*(-k)`), which a `Select` would not.
+fn hoist_bool_product_select(arena: &mut ExprArena, id: ExprId, depth: u8) -> Option<ExprId> {
+    const MAX_DEPTH: u8 = 6;
+    if depth > MAX_DEPTH {
+        return None;
+    }
+    let is_bool = |arena: &ExprArena, x: ExprId| (arena.known_bits(x).0 & !1u64) == !1u64;
+    let sel = match arena.get(id).clone() {
+        ExprNode::Mul(a, b) => {
+            let (cond, k) = if arena.as_const(b).is_some() && is_bool(arena, a) {
+                (a, b)
+            } else if arena.as_const(a).is_some() && is_bool(arena, b) {
+                (b, a)
+            } else {
+                return None;
+            };
+            let zero = arena.const_u64(0);
+            arena.select(cond, k, zero)
+        }
+        ExprNode::Add(a, b) => {
+            let (inner, rest) = match hoist_bool_product_select(arena, a, depth + 1) {
+                Some(sa) => (sa, b),
+                None => (hoist_bool_product_select(arena, b, depth + 1)?, a),
+            };
+            let ExprNode::Select { cond, if_true, if_false } = arena.get(inner).clone() else {
+                return None;
+            };
+            let t = arena.add(if_true, rest);
+            let f = arena.add(if_false, rest);
+            arena.select(cond, t, f)
+        }
+        _ => return None,
+    };
+    // Further boolean products inside the arms become nested selects.
+    let ExprNode::Select { cond, if_true, if_false } = arena.get(sel).clone() else {
+        return Some(sel);
+    };
+    let t = hoist_bool_product_select(arena, if_true, depth + 1).unwrap_or(if_true);
+    let f = hoist_bool_product_select(arena, if_false, depth + 1).unwrap_or(if_false);
+    Some(arena.select(cond, t, f))
+}
+
 fn try_decompose_bool_mux_target(
     arena: &mut ExprArena,
     view: &PeImageView,
@@ -2834,10 +2926,21 @@ pub fn lift_vm_entry_cfg(
                     };
                     // Decompose multi-boolean polynomial muxes into reduced `Select` BDDs before splitting
                     if !matches!(arena.get(target_expr), ExprNode::Select { .. }) {
-                        if let Some(decomposed) = try_decompose_bool_mux_target(&mut arena, view, target_expr) {
+                        let rewritten = try_decompose_bool_mux_target(&mut arena, view, target_expr)
+                            .or_else(|| hoist_bool_product_select(&mut arena, target_expr, 0));
+                        if let Some(decomposed) = rewritten {
                             target_expr = decomposed;
                             if let Some(jr) = jmp_arch_reg {
                                 state.regs[jr.idx()] = decomposed;
+                            }
+                        }
+                    }
+                    if matches!(arena.get(target_expr), ExprNode::Select { .. }) {
+                        let specialized = specialize_select_arms(&mut arena, target_expr, 0);
+                        if specialized != target_expr {
+                            target_expr = specialized;
+                            if let Some(jr) = jmp_arch_reg {
+                                state.regs[jr.idx()] = specialized;
                             }
                         }
                     }
@@ -6893,6 +6996,62 @@ mod tests {
         let orig_res = run_fn2(&orig_pe, 42);
         assert_eq!(orig_res.0, 42 + 5 + 0x10 + 0x100);
         assert_eq!(run_fn2(&devirt_pe, 42), orig_res);
+    }
+
+    #[test]
+    fn select_arms_specialise_by_their_condition() {
+        let base = 0x1_4000_0000u64;
+        let mut arena = ExprArena::default();
+        // Dispatcher shape: c = (v == 0); target = Select(c, v * K + T1, v * K + T2)
+        let rcx = arena.reg_in(ArchReg::Rcx);
+        let rdx = arena.reg_in(ArchReg::Rdx);
+        let v = arena.or(rcx, rdx);
+        let zero = arena.const_u64(0);
+        let c = arena.cmp(CondPred::Eq, v, zero);
+        let k = arena.const_u64(0x94ad9);
+        let vk = arena.mul(v, k);
+        let t = arena.add_const(vk, base + 0x100);
+        let f = arena.add_const(vk, base + 0x200);
+        let sel = arena.select(c, t, f);
+        let spec = specialize_select_arms(&mut arena, sel, 0);
+        let ExprNode::Select { if_true, .. } = arena.get(spec).clone() else { panic!("still a Select") };
+        assert_eq!(arena.as_const(if_true), Some(base + 0x100), "v == 0 in the true arm makes it a constant");
+    }
+
+    #[test]
+    fn bool_product_with_non_bool_base_hoists_to_select() {
+        let base = 0x1_4000_0000u64;
+        let mut arena = ExprArena::default();
+        // target = (load-ish non-boolean x) + (rcx == 7) * 0x40 + base
+        let r8_in = arena.reg_in(ArchReg::R8);
+        let x = arena.shr_const(r8_in, 60); // not boolean
+        let rcx_in = arena.reg_in(ArchReg::Rcx);
+        let seven = arena.const_u64(7);
+        let c = arena.cmp(CondPred::Eq, rcx_in, seven);
+        let k = arena.const_u64(0x40);
+        let prod = arena.mul(c, k);
+        let x_plus = arena.add(x, prod);
+        let target = arena.add_const(x_plus, base);
+
+        let dummy_pe = build_two_exec_pe64(&[], &[], 0x1000);
+        let view = PeImageView::from_pe_bytes(&dummy_pe).unwrap();
+        assert!(
+            try_decompose_bool_mux_target(&mut arena, &view, target).is_none(),
+            "the polynomial decomposer must still reject a non-boolean term"
+        );
+
+        let hoisted = hoist_bool_product_select(&mut arena, target, 0).expect("x + b*k must hoist");
+        let ExprNode::Select { cond, if_true, if_false } = arena.get(hoisted).clone() else {
+            panic!("expected a Select, got {:?}", arena.get(hoisted));
+        };
+        assert_eq!(cond, c);
+        let x_base = arena.add_const(x, base);
+        let x_base_k = arena.add_const(x, base + 0x40);
+        assert_eq!(if_false, x_base, "false arm is x + base");
+        assert_eq!(if_true, x_base_k, "true arm is x + base + k");
+
+        // No boolean product: nothing to hoist.
+        assert!(hoist_bool_product_select(&mut arena, x_base, 0).is_none());
     }
 
     #[test]

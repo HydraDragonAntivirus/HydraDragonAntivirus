@@ -221,6 +221,22 @@ pub enum CondPred {
 }
 
 impl CondPred {
+    /// The predicate that holds for swapped operands: `a < b` is `b > a`.
+    pub fn swap_operands(self) -> Self {
+        match self {
+            CondPred::Eq => CondPred::Eq,
+            CondPred::Ne => CondPred::Ne,
+            CondPred::Ult => CondPred::Ugt,
+            CondPred::Ule => CondPred::Uge,
+            CondPred::Ugt => CondPred::Ult,
+            CondPred::Uge => CondPred::Ule,
+            CondPred::Slt => CondPred::Sgt,
+            CondPred::Sle => CondPred::Sge,
+            CondPred::Sgt => CondPred::Slt,
+            CondPred::Sge => CondPred::Sle,
+        }
+    }
+
     pub fn invert(self) -> Self {
         match self {
             CondPred::Eq => CondPred::Ne,
@@ -956,6 +972,10 @@ impl ExprArena {
         if let (Some(ca), Some(cb)) = (self.as_const(a), self.as_const(b)) {
             return self.const_u64(ca & cb);
         }
+        // cmp & !cmp == 0
+        if self.are_complementary_cmps(a, b) {
+            return self.const_u64(0);
+        }
         if let Some(m) = self.as_const(b) {
             if m == 0 {
                 return self.const_u64(0);
@@ -1042,10 +1062,26 @@ impl ExprArena {
         self.intern_node(ExprNode::And(a, b))
     }
 
+    /// `x` and `y` are comparisons that are exact opposites (`a == b` / `a != b`,
+    /// `a < b` / `b <= a`, ...): one is 1 exactly when the other is 0. VM handlers
+    /// build opaque branch conditions as `cmp | !cmp`, which is always 1.
+    fn are_complementary_cmps(&self, x: ExprId, y: ExprId) -> bool {
+        let (ExprNode::Cmp { pred: p, lhs: a, rhs: b }, ExprNode::Cmp { pred: q, lhs: c, rhs: d }) =
+            (self.get(x), self.get(y))
+        else {
+            return false;
+        };
+        (c == a && d == b && *q == p.invert()) || (c == b && d == a && *q == p.invert().swap_operands())
+    }
+
     pub fn or(&mut self, raw_a: ExprId, raw_b: ExprId) -> ExprId {
         let (a, b) = self.order_pair(raw_a, raw_b);
         if let (Some(ca), Some(cb)) = (self.as_const(a), self.as_const(b)) {
             return self.const_u64(ca | cb);
+        }
+        // cmp | !cmp == 1 (a tautology the VM uses as an opaque predicate)
+        if self.are_complementary_cmps(a, b) {
+            return self.const_u64(1);
         }
         if let Some(m) = self.as_const(b) {
             if m == 0 {
@@ -1064,6 +1100,21 @@ impl ExprArena {
         }
         if a == b {
             return a;
+        }
+        // Known-bits absorption, for any operands (not only a constant mask): when
+        // every bit `b` can set is already a known 1 of `a`, `a | b == a`, and the
+        // other way round. VM handlers OR a boolean into a value whose bit 0 is
+        // already set (`Or(Cmp, 1)`, `Or(x | 1, cmp & cmp)`); left in place, the
+        // value looked non-constant and jump targets built from it stayed opaque.
+        {
+            let (za, oa) = self.known_bits(a);
+            let (zb, ob) = self.known_bits(b);
+            if (!zb & !oa) == 0 {
+                return a;
+            }
+            if (!za & !ob) == 0 {
+                return b;
+            }
         }
         let na = self.get(a).clone();
         let nb = self.get(b).clone();
@@ -1172,6 +1223,10 @@ impl ExprArena {
         let (a, b) = self.order_pair(raw_a, raw_b);
         if let (Some(ca), Some(cb)) = (self.as_const(a), self.as_const(b)) {
             return self.const_u64(ca ^ cb);
+        }
+        // cmp ^ !cmp == 1
+        if self.are_complementary_cmps(a, b) {
+            return self.const_u64(1);
         }
         if let Some(m) = self.as_const(b) {
             if m == 0 {
@@ -1429,6 +1484,31 @@ impl ExprArena {
             );
             return self.const_u64(if res { 1 } else { 0 });
         }
+        // Eq / Ne against a constant: move the constants of the left side over, so
+        // `(y + k1) == k2` reads `y == k2 - k1` (and `y ^ k1`, `y - k1`, `-y`, `~y`
+        // likewise). VM dispatchers compare `Or(..) + K == K`, which is `Or(..) == 0`;
+        // in normal form the same test is recognised wherever it appears, and the
+        // `Select` arms can be specialised by it.
+        if matches!(pred, CondPred::Eq | CondPred::Ne) {
+            let (l, r) = if self.as_const(lhs).is_some() { (rhs, lhs) } else { (lhs, rhs) };
+            if let Some(k2) = self.as_const(r) {
+                let moved = match self.get(l).clone() {
+                    ExprNode::Add(y, k) => self.as_const(k).map(|k1| (y, k2.wrapping_sub(k1))),
+                    ExprNode::Sub(y, k) => self.as_const(k).map(|k1| (y, k2.wrapping_add(k1))),
+                    ExprNode::Xor(y, k) => self.as_const(k).map(|k1| (y, k2 ^ k1)),
+                    ExprNode::Neg(y) => Some((y, k2.wrapping_neg())),
+                    ExprNode::Not(y) => Some((y, !k2)),
+                    _ => None,
+                };
+                if let Some((y, k)) = moved {
+                    let kc = self.const_u64(k);
+                    return self.cmp(pred, y, kc);
+                }
+                if l != lhs {
+                    return self.cmp(pred, l, r);
+                }
+            }
+        }
         // `(x + c) == x` (c != 0) is false; `(x + c) != x` is true
         let is_offset_pair = |a: ExprId, b: ExprId| -> bool {
             matches!(self.get(a), ExprNode::Add(x, k) if *x == b && matches!(self.as_const(*k), Some(c) if c != 0))
@@ -1502,12 +1582,31 @@ impl ExprArena {
         self.intern_node(ExprNode::Cmp { pred, lhs, rhs })
     }
 
-    pub fn select(&mut self, cond: ExprId, if_true: ExprId, if_false: ExprId) -> ExprId {
-        if if_true == if_false {
-            return if_true;
-        }
+    pub fn select(&mut self, cond: ExprId, mut if_true: ExprId, mut if_false: ExprId) -> ExprId {
         if let Some(c) = self.as_const(cond) {
             return if c != 0 { if_true } else { if_false };
+        }
+        // A select on the same condition inside one of the arms can only take that
+        // arm's side: Select(c, Select(c, a, b), d) -> Select(c, a, d) and
+        // Select(c, d, Select(c, a, b)) -> Select(c, d, b). Predicated stack reads
+        // and writes that share one predicate nest exactly like this, one level per
+        // access; left as they were, codegen emitted every unreachable level (a
+        // 232-instruction VM stub came out as 920 native instructions). `cond` is
+        // hash-consed, so an id comparison is enough.
+        while let ExprNode::Select { cond: c2, if_true: t2, .. } = *self.get(if_true) {
+            if c2 != cond {
+                break;
+            }
+            if_true = t2;
+        }
+        while let ExprNode::Select { cond: c2, if_false: f2, .. } = *self.get(if_false) {
+            if c2 != cond {
+                break;
+            }
+            if_false = f2;
+        }
+        if if_true == if_false {
+            return if_true;
         }
         self.intern_node(ExprNode::Select {
             cond,
@@ -1899,6 +1998,72 @@ impl SymStack {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn or_absorbs_by_known_bits_and_cmp_moves_constants() {
+        let mut ar = ExprArena::default();
+        let rcx = ar.reg_in(ArchReg::Rcx);
+        let rdx = ar.reg_in(ArchReg::Rdx);
+        let seven = ar.const_u64(7);
+        let c = ar.cmp(CondPred::Eq, rcx, seven);
+        let one = ar.const_u64(1);
+        // Cmp | 1 == 1
+        let o = ar.or(c, one);
+        assert_eq!(ar.as_const(o), Some(1));
+        // (x | 1) | (cmp & cmp) == x | 1
+        let x1 = ar.or(rdx, one);
+        let c2 = ar.cmp(CondPred::Ult, rdx, seven);
+        let cc = ar.and(c, c2);
+        let o2 = ar.or(x1, cc);
+        assert_eq!(o2, x1);
+        // nothing known: stays an Or
+        let o3 = ar.or(rcx, rdx);
+        assert!(matches!(ar.get(o3), ExprNode::Or(..)));
+
+        // (y + K) == K  ->  y == 0
+        let k = ar.const_u64(0xa2ce_8c06_44a8_8de0);
+        let y = ar.or(rcx, rdx);
+        let yk = ar.add(y, k);
+        let e = ar.cmp(CondPred::Eq, yk, k);
+        let zero = ar.const_u64(0);
+        let want = ar.cmp(CondPred::Eq, y, zero);
+        assert_eq!(e, want);
+        // (y ^ K1) != K2  ->  y != K1 ^ K2, constant on the left too
+        let k1 = ar.const_u64(0x55);
+        let k2 = ar.const_u64(0x0f);
+        let yx = ar.xor(y, k1);
+        let ne = ar.cmp(CondPred::Ne, k2, yx);
+        let k12 = ar.const_u64(0x55 ^ 0x0f);
+        let want_ne = ar.cmp(CondPred::Ne, y, k12);
+        assert_eq!(ne, want_ne);
+    }
+
+    #[test]
+    fn complementary_cmps_fold_to_constants() {
+        let mut ar = ExprArena::default();
+        let rcx = ar.reg_in(ArchReg::Rcx);
+        let rdx = ar.reg_in(ArchReg::Rdx);
+        let k = ar.const_u64(0x34be_9087_0652_2217);
+        let s = ar.sub(rcx, rdx);
+        let eq = ar.cmp(CondPred::Eq, s, k);
+        let ne = ar.cmp(CondPred::Ne, s, k);
+        let or = ar.or(eq, ne);
+        let and = ar.and(eq, ne);
+        let xor = ar.xor(ne, eq);
+        assert_eq!(ar.as_const(or), Some(1), "x==k | x!=k is always 1");
+        assert_eq!(ar.as_const(and), Some(0), "x==k & x!=k is always 0");
+        assert_eq!(ar.as_const(xor), Some(1), "x==k ^ x!=k is always 1");
+
+        // swapped operands: a < b is the opposite of b <= a
+        let lt = ar.cmp(CondPred::Ult, rcx, rdx);
+        let le_swapped = ar.cmp(CondPred::Ule, rdx, rcx);
+        let o2 = ar.or(lt, le_swapped);
+        assert_eq!(ar.as_const(o2), Some(1));
+        // not complementary: stays symbolic
+        let gt = ar.cmp(CondPred::Ugt, rcx, rdx);
+        let o3 = ar.or(lt, gt);
+        assert_eq!(ar.as_const(o3), None);
+    }
 
     #[test]
     fn mba_identities_and_opaque_predicates_collapse() {

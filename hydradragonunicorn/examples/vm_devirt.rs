@@ -28,18 +28,32 @@ fn kind_label(kind: SectionVmKind) -> &'static str {
 
 fn print_usage(prog: &str) {
     eprintln!(
-        "Usage: {prog} <pe_path> [start_rva_hex] [max_insns] [--dump <out_path>] [--devirt-pe <out_path>] [--max-entries <N>] [--diagnose-bailouts]"
+        "Usage: {prog} <pe_path> [start_rva_hex] [max_insns] [--dump <out_path>] [--devirt-pe <out_path>] [--max-entries <N>] [--max-blocks <N>] [--max-entry-insns <N>] [--diagnose-bailouts]"
     );
 }
 
-fn run_binary_devirt(pe_bytes: &[u8], out_path: Option<&str>, max_entries: usize, diagnose_bailouts: bool) {
+fn run_binary_devirt(
+    pe_bytes: &[u8],
+    out_path: Option<&str>,
+    max_entries: usize,
+    diagnose_bailouts: bool,
+    max_blocks: Option<usize>,
+    max_entry_insns: Option<usize>,
+) {
     let label = out_path.unwrap_or("<diagnostics-only>");
     println!("\n=== Binary-Wide Symbolic CFG Devirtualization -> {label} ===");
+    let defaults = BinaryDevirtConfig::default();
     let dcfg = BinaryDevirtConfig {
         max_entries,
         collect_diagnostics: diagnose_bailouts,
-        ..BinaryDevirtConfig::default()
+        max_blocks_per_entry: max_blocks.unwrap_or(defaults.max_blocks_per_entry),
+        max_total_insns_per_entry: max_entry_insns.unwrap_or(defaults.max_total_insns_per_entry),
+        ..defaults
     };
+    println!(
+        "Limits: max_blocks_per_entry={} max_total_insns_per_entry={}",
+        dcfg.max_blocks_per_entry, dcfg.max_total_insns_per_entry
+    );
     let (devirt_pe, rep) = match devirtualize_pe_bytes(pe_bytes, dcfg) {
         Ok(r) => r,
         Err(e) => {
@@ -169,6 +183,8 @@ fn main() {
     let mut devirt_pe_path: Option<String> = None;
     let mut max_entries: usize = usize::MAX;
     let mut diagnose_bailouts = false;
+    let mut max_blocks: Option<usize> = None;
+    let mut max_entry_insns: Option<usize> = None;
     let mut positional: Vec<String> = Vec::new();
     let mut i = 1;
     while i < args.len() {
@@ -202,6 +218,20 @@ fn main() {
             }
             "--diagnose-bailouts" => {
                 diagnose_bailouts = true;
+            }
+            "--max-blocks" | "--max-entry-insns" => {
+                let flag = args[i].clone();
+                i += 1;
+                let Some(val) = args.get(i).and_then(|v| v.parse::<usize>().ok()) else {
+                    eprintln!("{flag} requires an integer");
+                    print_usage(prog);
+                    process::exit(2);
+                };
+                if flag == "--max-blocks" {
+                    max_blocks = Some(val);
+                } else {
+                    max_entry_insns = Some(val);
+                }
             }
             _ => positional.push(args[i].clone()),
         }
@@ -380,6 +410,13 @@ fn main() {
         } else {
             bytes
         };
-        run_binary_devirt(&input_for_devirt, devirt_pe_path.as_deref(), max_entries, diagnose_bailouts);
+        run_binary_devirt(
+            &input_for_devirt,
+            devirt_pe_path.as_deref(),
+            max_entries,
+            diagnose_bailouts,
+            max_blocks,
+            max_entry_insns,
+        );
     }
 }
