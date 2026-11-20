@@ -54,6 +54,15 @@ pub struct BinaryDevirtConfig {
     /// (`IrTerm::ExitToVm`). Off: such functions are rejected, so every patched
     /// function is fully native.
     pub allow_vm_exits: bool,
+    /// A recompiled VM enter, or anything that hands control back to the VM, must
+    /// replace at least this many VM instructions: less is a stub that only re-enters
+    /// the VM.
+    pub min_vm_insns_replaced: usize,
+    /// Upper bound on the recompiled code, in percent of the VM instructions it
+    /// replaces. Native code that every VM exit fills the VM context from is often
+    /// larger than the VM path it replaces, and still what an analyst wants to read;
+    /// this only stops pathological growth.
+    pub max_code_growth_percent: usize,
     pub collect_diagnostics: bool,
 }
 
@@ -69,6 +78,8 @@ impl Default for BinaryDevirtConfig {
             include_vmenters: true,
             extra_entry_rvas: Vec::new(),
             allow_vm_exits: true,
+            min_vm_insns_replaced: 8,
+            max_code_growth_percent: 400,
             collect_diagnostics: false,
         }
     }
@@ -7777,9 +7788,7 @@ fn compile_function_into_asm(
         .map(|_| a.create_label())
         .collect();
 
-    let mut dbg_starts: Vec<usize> = Vec::new();
     for (bi, block) in func.blocks.iter().enumerate() {
-        dbg_starts.push(a.instructions().len());
         if bi > 0 {
             a.set_label(&mut block_lbls[bi]).map_err(|e| e.to_string())?;
             a.zero_bytes().map_err(|e| e.to_string())?;
@@ -8119,31 +8128,6 @@ fn compile_function_into_asm(
             IrTerm::Bailout(r) => return Err(r.clone()),
         }
     }
-    if std::env::var("DBGTMP_DIS").is_ok() {
-        dbg_starts.push(a.instructions().len());
-        let ins = a.instructions();
-        let mut fmt = IntelFormatter::new();
-        let mut hist: HashMap<String, usize> = HashMap::new();
-        for x in ins {
-            let mut t = String::new();
-            fmt.format(x, &mut t);
-            let t = t.split(' ').next().unwrap_or("").to_string();
-            *hist.entry(t).or_default() += 1;
-        }
-        let mut hv: Vec<_> = hist.into_iter().collect();
-        hv.sort_by(|a, b| b.1.cmp(&a.1));
-        eprintln!("DBGTMP_HIST {:?}", &hv[..hv.len().min(12)]);
-        if let Some(bi) = func.blocks.iter().position(|b| matches!(b.term, IrTerm::ExitToVm { .. })) {
-            let mut out = String::new();
-            for x in &ins[dbg_starts[bi]..dbg_starts[bi + 1]] {
-                let mut t = String::new();
-                fmt.format(x, &mut t);
-                out.push_str(&t);
-                out.push_str(" | ");
-            }
-            eprintln!("DBGTMP_BLOCK {} insns: {}DBGTMP_END", dbg_starts[bi + 1] - dbg_starts[bi], out);
-        }
-    }
     Ok(())
 }
 
@@ -8243,9 +8227,13 @@ pub fn devirtualize_pe_bytes(
             record_bailout(format!("codegen_{err}"), &lifted, true);
             continue;
         }
-        let Ok(test_res) = test_asm.assemble_options(devirt_base_va, BlockEncoderOptions::RETURN_NEW_INSTRUCTION_OFFSETS) else {
-            record_bailout("asm_encode_failed".into(), &lifted, true);
-            continue;
+        let test_res = match test_asm.assemble_options(devirt_base_va, BlockEncoderOptions::RETURN_NEW_INSTRUCTION_OFFSETS) {
+            Ok(r) => r,
+            Err(e) => {
+                if std::env::var("DBGTMP_ASM").is_ok() { eprintln!("DBGTMP_ASM {e}"); }
+                record_bailout("asm_encode_failed".into(), &lifted, true);
+                continue;
+            }
         };
 
         // Decode emitted bytes to ensure 100% valid instructions & count native instruction count
@@ -8266,14 +8254,19 @@ pub fn devirtualize_pe_bytes(
             continue;
         }
 
-        // Enforce genuine code reduction on VM enters, and on anything that hands
-        // control back to the VM (a stub that only re-enters the VM is no gain).
+        // VM enters, and anything that hands control back to the VM, must replace a
+        // real piece of VM code (a stub that only re-enters the VM is no gain) and not
+        // grow it past `max_code_growth_percent`.
         let has_vm_exit = lifted.blocks.iter().any(|b| matches!(b.term, IrTerm::ExitToVm { .. }));
-        if (entry.kind == VmEntryKind::CrossSectionVmEnter || has_vm_exit)
-            && (native_insns >= lifted.raw_vm_insns || (has_vm_exit && lifted.raw_vm_insns == 0))
-        {
-            record_bailout("no_code_reduction".into(), &lifted, true);
-            continue;
+        if entry.kind == VmEntryKind::CrossSectionVmEnter || has_vm_exit {
+            if lifted.raw_vm_insns < cfg.min_vm_insns_replaced {
+                record_bailout("too_little_vm_code".into(), &lifted, true);
+                continue;
+            }
+            if native_insns.saturating_mul(100) > lifted.raw_vm_insns.saturating_mul(cfg.max_code_growth_percent) {
+                record_bailout("code_growth_limit".into(), &lifted, true);
+                continue;
+            }
         }
 
         compiled_funcs.push((lifted, buf));
@@ -10686,6 +10679,70 @@ mod tests {
             assert_eq!(run_with_flags(&orig_pe, base + 0x1000, c, d, 0, 0), r, "original {c:#x} {d:#x}");
             assert_eq!(run_with_flags(&devirt_pe, base + 0x1000, c, d, 0, 0), r, "devirtualized {c:#x} {d:#x}");
         }
+    }
+
+    #[test]
+    fn code_size_rule_allows_bounded_growth_and_stops_the_rest() {
+        use gpr64::*;
+        let base = 0x1_4000_0000u64;
+        let mut text_sec = vec![0xCCu8; 0x200];
+        let fn0 = assemble_at(64, base + 0x1000, |a| a.jmp(base + 0x2000));
+        text_sec[..fn0.len()].copy_from_slice(&fn0);
+        let exit_ret = assemble_at(64, base + 0x1040, |a| a.ret());
+        text_sec[0x40..0x40 + exit_ret.len()].copy_from_slice(&exit_ret);
+        let mut vmp_sec = vec![0xCCu8; 0x400];
+        // A short VM path into an aligned frame whose exit back to the VM has to fill
+        // the frame: more native instructions than the VM ran, well within 4x.
+        let stub = assemble_at(64, base + 0x2000, |a| {
+            a.push(rbx)?;
+            a.push(rbp)?;
+            a.mov(rbp, rsp)?;
+            a.and(rsp, -16)?;
+            a.sub(rsp, 0x40)?;
+            for k in 0..6i32 {
+                a.mov(qword_ptr(rsp + k * 8), rcx)?;
+                a.add(rcx, k + 1)?;
+            }
+            a.mov(r8, rdx)?;
+            a.and(r8, 0x20)?;
+            a.mov(r10, base + 0x2300)?;
+            a.add(r10, r8)?;
+            a.jmp(r10)
+        });
+        assert!(stub.len() < 0x300);
+        vmp_sec[..stub.len()].copy_from_slice(&stub);
+        for (off, add) in [(0x300usize, 1i32), (0x320, 2)] {
+            let h = assemble_at(64, base + 0x2000 + off as u64, |a| {
+                a.mov(rax, qword_ptr(rsp + 0x28))?;
+                a.add(rax, add)?;
+                a.mov(rsp, rbp)?;
+                a.pop(rbp)?;
+                a.pop(rbx)?;
+                a.jmp(base + 0x1040)
+            });
+            vmp_sec[off..off + h.len()].copy_from_slice(&h);
+        }
+        let orig_pe = build_two_exec_pe64(&text_sec, &vmp_sec, 0x1000);
+        // Default: accepted although larger than the VM path.
+        let (devirt_pe, report) = devirtualize_pe_bytes(&orig_pe, BinaryDevirtConfig::default()).unwrap();
+        assert_eq!(report.devirtualized_total, 1, "bailouts: {:?}", report.bailout_reasons);
+        let f = &report.patched_sites[0];
+        assert!(f.native_insns > f.raw_vm_insns, "not a growth case: {} vs {}", f.native_insns, f.raw_vm_insns);
+        for (c, d) in [(5u64, 0u64), (5, 0x20), (0xdead_beef, 0x20)] {
+            // Slot 5 holds rcx + 1 + 2 + 3 + 4 + 5.
+            let want = c.wrapping_add(15).wrapping_add(if d & 0x20 != 0 { 2 } else { 1 });
+            assert_eq!(run_with_flags(&orig_pe, base + 0x1000, c, d, 0, 0), want);
+            assert_eq!(run_with_flags(&devirt_pe, base + 0x1000, c, d, 0, 0), want);
+        }
+        // A tighter cap rejects it, and so does a minimum it does not reach.
+        let tight = BinaryDevirtConfig { max_code_growth_percent: 100, ..BinaryDevirtConfig::default() };
+        let (_, report) = devirtualize_pe_bytes(&orig_pe, tight).unwrap();
+        assert_eq!(report.devirtualized_total, 0);
+        assert!(report.bailout_reasons.iter().any(|(r, _)| r.contains("code_growth_limit")), "{:?}", report.bailout_reasons);
+        let big_min = BinaryDevirtConfig { min_vm_insns_replaced: 10_000, ..BinaryDevirtConfig::default() };
+        let (_, report) = devirtualize_pe_bytes(&orig_pe, big_min).unwrap();
+        assert_eq!(report.devirtualized_total, 0);
+        assert!(report.bailout_reasons.iter().any(|(r, _)| r.contains("too_little_vm_code")), "{:?}", report.bailout_reasons);
     }
 
     #[test]
