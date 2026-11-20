@@ -48,9 +48,11 @@ pub struct BinaryDevirtConfig {
     pub include_trampolines: bool,
     pub include_vmenters: bool,
     pub extra_entry_rvas: Vec<u32>,
-    /// Recompile a function up to a `jmp reg` whose target cannot be resolved and
-    /// continue in the VM there (`IrTerm::ExitRegJmp`). Off: such functions are
-    /// rejected as `unresolved_indirect_jmp`, so the output has no VM left in them.
+    /// Recompile a function up to the point the lifter cannot go on (a jump whose
+    /// target depends on run-time data, an instruction it does not model, the
+    /// block/instruction budget) and continue in the original code there
+    /// (`IrTerm::ExitToVm`). Off: such functions are rejected, so every patched
+    /// function is fully native.
     pub allow_vm_exits: bool,
     pub collect_diagnostics: bool,
 }
@@ -111,8 +113,8 @@ pub struct BinaryDevirtReport {
     pub devirtualized_vmenters: usize,
     pub devirtualized_trampolines: usize,
     pub partially_lifted: usize,
-    /// Of the devirtualized functions: those that hand control back to the VM at an
-    /// unresolvable `jmp reg` (`IrTerm::ExitRegJmp`); the rest are fully native.
+    /// Of the devirtualized functions: those that hand control back to the original
+    /// code somewhere (`IrTerm::ExitToVm`); the rest are fully native.
     pub hybrid_vm_exits: usize,
     pub failed: usize,
     pub entry_devirt_pct: f64,
@@ -905,22 +907,69 @@ pub enum IrTerm {
         final_xmms: [(ExprId, ExprId); 16],
         pending_caller_stores: Vec<(i64, ExprId)>,
     },
-    /// Hand control back to the VM: a `jmp reg` whose target the lifter cannot
-    /// resolve (it depends on runtime data: the VM context behind a pointer, an
-    /// unknown stack slot, an input register). The recompiled code materialises the
-    /// state the original had at that `jmp` - every register (`reg` holds the target
-    /// expression), pending caller-stack stores, RSP - and executes the same
-    /// `jmp reg`, so the VM handler continues exactly as before. The function is then
-    /// recompiled up to that point instead of rejected; the report counts such
-    /// functions as `hybrid_vm_exits`.
-    ExitRegJmp {
-        reg: ArchReg,
-        rsp_delta: i64,
+    /// Hand control back to the original code at `va` with the state the original
+    /// had there: every register, the written stack slots (the VM's aligned frame
+    /// included, see `VmExit`), RSP and - when the code at `va` can read them - the
+    /// status flags. The instruction at `va` then runs as it always did. Used where
+    /// the lifter cannot go on: a jump whose target depends on run-time data, an
+    /// instruction it does not model, the block/instruction budget. The function is
+    /// recompiled up to there instead of rejected; the report counts such functions
+    /// as `hybrid_vm_exits`.
+    ExitToVm {
+        va: u64,
+        exit: Box<VmExit>,
         final_regs: [ExprId; 16],
         final_xmms: [(ExprId, ExprId); 16],
-        pending_caller_stores: Vec<(i64, ExprId)>,
     },
     Bailout(String),
+}
+
+/// How `IrTerm::ExitToVm` rebuilds the state at its target. All offsets are from the
+/// entry RSP (`StackBase`).
+///
+/// 1. Every value is computed first, while the input registers are intact: written
+///    caller-stack slots go to their places; the VM's aligned-frame slots (`and rsp,
+///    -16` frames, whose padding is only known at run time) and the flag operands go
+///    to a temporary area below everything else (`temp_stores`, `flags`), all as
+///    ordinary pending stores with RSP lowered to `rsp_delta` - nothing live is ever
+///    below RSP.
+/// 2. The final registers are set.
+/// 3. With two registers saved, the aligned bases are recomputed with the same `and`
+///    the VM ran (`bases`), the temporary values are copied to their aligned slots,
+///    the last flag-setting operation is replayed on the saved operands, RSP becomes
+///    its final value (only `mov`/`lea`/`pop` from here on: the flags stay) and the
+///    code jumps to the target.
+#[derive(Debug, Clone)]
+pub struct VmExit {
+    /// RSP (from the entry RSP) while values are computed: below the temporary area.
+    pub rsp_delta: i64,
+    /// Caller-stack slots and temporary slots, both as `(offset, value)`.
+    pub pending: Vec<(i64, ExprId)>,
+    /// Aligned slots: `(temporary offset, base index, offset from that base, kept
+    /// bytes)`. Bit `j` of the last field set: byte `j` of the slot was never written
+    /// and keeps what memory holds; only the other bytes are stored (0 = whole qword).
+    pub temp_stores: Vec<(i64, u32, i64, u8)>,
+    /// `AlignedBase(i)` = `(parent + off) & mask`, parent the caller stack or an
+    /// earlier aligned base.
+    pub bases: Vec<(StackSpace, i64, u64)>,
+    /// Final RSP: `bases[i] + final_off`, or `entry + final_off` for `None`.
+    pub final_base: Option<u32>,
+    pub final_off: i64,
+    /// Status flags to recreate; `None` when the code at the target overwrites them
+    /// before reading any.
+    pub flags: Option<FlagsReplay>,
+}
+
+/// The last flag-setting operation, replayed on its saved operands (temporary
+/// offsets) at the very end of a `VmExit`.
+#[derive(Debug, Clone, Copy)]
+pub enum FlagsReplay {
+    /// `cmp a, b` (also stands for `sub` / `neg`: same flags).
+    Cmp { a: i64, b: i64, width: u8 },
+    /// `test a, a` (the flags of `and` / `or` / `xor` / `test` results).
+    Test { a: i64, width: u8 },
+    /// `add a, b`.
+    Add { a: i64, b: i64, width: u8 },
 }
 
 #[derive(Debug, Clone)]
@@ -1273,6 +1322,10 @@ struct SymState {
     cr8_ver: u32,
     mem_cache: HashMap<ExprId, (u8, ExprId)>,
     next_aligned_id: u32,
+    /// How each `AlignedBase(id)` was made (index = id): RSP was `parent + off` and
+    /// `and rsp, mask` aligned it. Lets an exit rebuild the aligned frame at run time
+    /// (`IrTerm::ExitToVm`), where the alignment padding is only known then.
+    aligned_defs: Vec<(StackSpace, i64, u64)>,
     inline_depth: usize,
     cum_rsp_offset: i64,
     entry_caller_slot_versions: HashMap<i64, ExprId>,
@@ -1311,6 +1364,7 @@ impl SymState {
                 cr8_ver: 0,
                 mem_cache: HashMap::new(),
                 next_aligned_id: 0,
+                aligned_defs: Vec::new(),
                 inline_depth: 0,
                 cum_rsp_offset: 0,
                 entry_caller_slot_versions,
@@ -1328,6 +1382,7 @@ impl SymState {
             cr8_ver: 0,
             mem_cache: HashMap::new(),
             next_aligned_id: 0,
+            aligned_defs: Vec::new(),
             inline_depth: 0,
             cum_rsp_offset: 0,
             entry_caller_slot_versions,
@@ -1862,6 +1917,284 @@ fn eval_cond_for_mnemonic(state: &SymState, arena: &mut ExprArena, m: Mnemonic) 
 
 /// Decomposes a multi-boolean polynomial indirect branch target (up to 5 `{0, 1}` variables)
 /// into a reduced Shannon-ordered `Select` BDD after verifying every combination is executable.
+/// Status flags are dead at `va`: following the original code from there (straight
+/// line and unconditional jumps), every status flag is overwritten before any is
+/// read. `false` when that cannot be shown.
+fn flags_dead_at(view: &PeImageView, mut va: u64) -> bool {
+    use iced_x86::RflagsBits;
+    const STATUS: u32 = RflagsBits::OF | RflagsBits::SF | RflagsBits::ZF | RflagsBits::AF | RflagsBits::CF | RflagsBits::PF;
+    let mut live = STATUS;
+    for _ in 0..64 {
+        let Some(ins) = view.decode_insn(va) else { return false };
+        if ins.rflags_read() & live != 0 {
+            return false;
+        }
+        live &= !(ins.rflags_written() | ins.rflags_cleared() | ins.rflags_set() | ins.rflags_undefined());
+        if live == 0 {
+            return true;
+        }
+        match ins.flow_control() {
+            FlowControl::Next => va += ins.len() as u64,
+            FlowControl::UnconditionalBranch if ins.near_branch_target() != 0 => va = ins.near_branch_target(),
+            _ => return false,
+        }
+    }
+    false
+}
+
+/// A qword of an aligned slot that was read before it was written (an `Opaque`
+/// placeholder for the unknown memory) and then partly overwritten:
+/// `Or(And(Opaque, keep_mask), written)`, possibly nested. Returns the value with the
+/// unknown part zeroed and the bytes (bit per byte) that still hold the original
+/// memory, or `None` for any other shape (bit-level masks, the unknown value mixed
+/// into the written bytes, more than one unknown).
+fn split_partly_written_slot(arena: &mut ExprArena, val: ExprId) -> Option<(ExprId, u8)> {
+    fn opaques(arena: &ExprArena, id: ExprId, out: &mut Vec<ExprId>, seen: &mut HashSet<ExprId>) {
+        if !seen.insert(id) || out.len() > 1 {
+            return;
+        }
+        let node = arena.get(id);
+        if matches!(node, ExprNode::Opaque(_)) {
+            out.push(id);
+            return;
+        }
+        let mut kids = Vec::new();
+        push_expr_children(node, &mut kids);
+        for k in kids {
+            opaques(arena, k, out, seen);
+        }
+    }
+    fn byte_mask(m: u64) -> Option<u8> {
+        let mut out = 0u8;
+        for j in 0..8 {
+            match (m >> (8 * j)) & 0xFF {
+                0xFF => out |= 1 << j,
+                0 => {}
+                _ => return None,
+            }
+        }
+        Some(out)
+    }
+    fn known_zero_bytes(arena: &ExprArena, id: ExprId) -> u8 {
+        let z = arena.known_bits(id).0;
+        let mut out = 0u8;
+        for j in 0..8 {
+            if (z >> (8 * j)) & 0xFF == 0xFF {
+                out |= 1 << j;
+            }
+        }
+        out
+    }
+    /// (value with the unknown zeroed, bytes that are the unknown's) - as an
+    /// expression that only exists for the planner, so it is rebuilt as a tree of
+    /// existing node ids where possible.
+    fn split(arena: &ExprArena, id: ExprId, unknown: ExprId) -> Option<(Option<ExprId>, u8)> {
+        if id == unknown {
+            return Some((None, 0xFF));
+        }
+        match arena.get(id) {
+            ExprNode::And(a, b) => {
+                let (x, m) = if let Some(m) = arena.as_const(*b) { (*a, m) } else { (*b, arena.as_const(*a)?) };
+                let bm = byte_mask(m)?;
+                let (rest, keep) = split(arena, x, unknown)?;
+                // Bytes the mask clears are written (as 0); the others stay as they were.
+                match rest {
+                    // `x & m` with x the unknown alone: the written part is zero.
+                    None => Some((None, keep & bm)),
+                    Some(r) if keep == 0 => Some((Some(id).filter(|_| r == x), 0)),
+                    Some(_) => None,
+                }
+            }
+            ExprNode::Or(a, b) => {
+                let (ra, ka) = split(arena, *a, unknown)?;
+                let (rb, kb) = split(arena, *b, unknown)?;
+                // A byte may hold the unknown on one side only, and the other side must
+                // be known zero there.
+                if ka & kb != 0 {
+                    return None;
+                }
+                if ka != 0 && rb.is_some_and(|r| known_zero_bytes(arena, r) & ka != ka) {
+                    return None;
+                }
+                if kb != 0 && ra.is_some_and(|r| known_zero_bytes(arena, r) & kb != kb) {
+                    return None;
+                }
+                let rest = match (ra, rb) {
+                    (None, r) | (r, None) => r,
+                    (Some(_), Some(_)) => {
+                        // Both sides written: only when neither holds the unknown.
+                        if ka == 0 && kb == 0 {
+                            Some(id)
+                        } else {
+                            return None;
+                        }
+                    }
+                };
+                Some((rest, ka | kb))
+            }
+            _ => {
+                let mut v = Vec::new();
+                opaques(arena, id, &mut v, &mut HashSet::new());
+                if v.is_empty() { Some((Some(id), 0)) } else { None }
+            }
+        }
+    }
+
+    let mut found = Vec::new();
+    opaques(arena, val, &mut found, &mut HashSet::new());
+    let [unknown] = found[..] else { return None };
+    let (rest, keep) = split(arena, val, unknown)?;
+    if keep == 0 || keep == 0xFF {
+        return None;
+    }
+    // Nothing written besides the cleared bytes: store zeros there.
+    let rest = match rest {
+        Some(r) => r,
+        None => arena.const_u64(0),
+    };
+    Some((rest, keep))
+}
+
+/// `IrTerm::ExitToVm` to `va` for the current state, or `None` when the state cannot
+/// be rebuilt there (RSP is neither a fixed entry offset nor on an aligned frame,
+/// the frame cannot be described, live flags of a kind that cannot be replayed).
+fn plan_vm_exit(state: &SymState, arena: &mut ExprArena, view: &PeImageView, va: u64) -> Option<VmExit> {
+    const GAP: i64 = 64;
+    if view.bitness != 64 || !view.is_executable_va(va) {
+        return None;
+    }
+    let (final_base, final_off) = match arena.as_stack_offset(state.regs[ArchReg::Rsp.idx()])? {
+        (StackSpace::CallerStack, off) => (None, off),
+        (StackSpace::AlignedScratch(k), off) => (Some(k), off),
+    };
+    let bases = state.aligned_defs.clone();
+    if bases.len() != state.next_aligned_id as usize || final_base.is_some_and(|k| k as usize >= bases.len()) {
+        return None;
+    }
+    // Lowest address (from the entry RSP) each aligned base can have.
+    let mut lower: Vec<i64> = Vec::with_capacity(bases.len());
+    for &(parent, off, mask) in &bases {
+        let align = (!mask).checked_add(1)? as i64;
+        if !(2..=256).contains(&align) {
+            return None;
+        }
+        let parent_lower = match parent {
+            StackSpace::CallerStack => 0,
+            StackSpace::AlignedScratch(p) => *lower.get(p as usize)?,
+        };
+        lower.push(parent_lower.checked_add(off)?.checked_sub(align - 1)?);
+    }
+
+    let mut caller: Vec<(i64, ExprId)> = Vec::new();
+    let mut aligned: Vec<(u32, i64, ExprId, u8)> = Vec::new();
+    for (&(space, off), &val) in &state.stack.slots {
+        match space {
+            StackSpace::CallerStack => {
+                if state.entry_caller_slot_versions.get(&off) != Some(&val) {
+                    caller.push((off, val));
+                }
+            }
+            StackSpace::AlignedScratch(k) => {
+                // Read but never written: the memory already holds it.
+                if matches!(arena.get(val), ExprNode::Opaque(_)) {
+                    continue;
+                }
+                // Partly written: store only the written bytes (a value that still
+                // depends on unknown memory stays as it is and fails the soundness check).
+                let (v, keep) = split_partly_written_slot(arena, val).unwrap_or((val, 0));
+                aligned.push((k, off, v, keep));
+            }
+        }
+    }
+    caller.sort_by_key(|&(o, _)| o);
+    aligned.sort_by_key(|&(k, o, _, _)| (k, o));
+
+    // Flags: dead at the target, or replayed from the last flag-setting operation.
+    let flag_vals: Vec<ExprId>;
+    let flags_kind: Option<(u8, u8)>; // (0 cmp / 1 test / 2 add, width)
+    if flags_dead_at(view, va) {
+        flag_vals = Vec::new();
+        flags_kind = None;
+    } else {
+        match &state.flags {
+            FlagState::SubCmp { lhs, rhs, width } => {
+                flag_vals = vec![*lhs, *rhs];
+                flags_kind = Some((0, *width));
+            }
+            FlagState::TestBitwise { val, width } => {
+                flag_vals = vec![*val];
+                flags_kind = Some((1, *width));
+            }
+            FlagState::Add { lhs, rhs, width, .. } => {
+                flag_vals = vec![*lhs, *rhs];
+                flags_kind = Some((2, *width));
+            }
+            _ => return None,
+        }
+        if !matches!(flags_kind, Some((_, 1 | 2 | 4 | 8))) {
+            return None;
+        }
+    }
+
+    let mut lowest = 0i64;
+    for &(o, _) in &caller {
+        lowest = lowest.min(o);
+    }
+    for &(k, o, _, _) in &aligned {
+        lowest = lowest.min(lower[k as usize].checked_add(o)?);
+    }
+    let final_lower = match final_base {
+        Some(k) => lower[k as usize].checked_add(final_off)?,
+        None => final_off,
+    };
+    lowest = lowest.min(final_lower.checked_sub(GAP)?);
+    let temp_end = lowest.checked_sub(GAP)?;
+    let temp_start = temp_end.checked_sub(8 * (aligned.len() + flag_vals.len()) as i64)?;
+    let rsp_delta = (temp_start - 16).div_euclid(16) * 16;
+    if rsp_delta < -0x4000_0000 {
+        return None;
+    }
+
+    let mut pending = caller;
+    let mut temp_stores = Vec::with_capacity(aligned.len());
+    let mut t = temp_start;
+    for &(k, o, val, keep) in &aligned {
+        pending.push((t, val));
+        temp_stores.push((t, k, o, keep));
+        t += 8;
+    }
+    let mut flag_offs = Vec::with_capacity(flag_vals.len());
+    for &v in &flag_vals {
+        pending.push((t, v));
+        flag_offs.push(t);
+        t += 8;
+    }
+    let flags = flags_kind.map(|(kind, width)| match kind {
+        0 => FlagsReplay::Cmp { a: flag_offs[0], b: flag_offs[1], width },
+        1 => FlagsReplay::Test { a: flag_offs[0], width },
+        _ => FlagsReplay::Add { a: flag_offs[0], b: flag_offs[1], width },
+    });
+    Some(VmExit { rsp_delta, pending, temp_stores, bases, final_base, final_off, flags })
+}
+
+/// `ExitToVm` to `va` when VM exits are on and the state can be rebuilt there,
+/// otherwise the bailout.
+fn exit_to_vm_or_bailout(
+    cfg: &BinaryDevirtConfig,
+    state: &SymState,
+    arena: &mut ExprArena,
+    view: &PeImageView,
+    va: u64,
+    reason: String,
+) -> IrTerm {
+    if cfg.allow_vm_exits {
+        if let Some(exit) = plan_vm_exit(state, arena, view, va) {
+            return IrTerm::ExitToVm { va, exit: Box::new(exit), final_regs: state.regs, final_xmms: state.xmms };
+        }
+    }
+    IrTerm::Bailout(reason)
+}
+
 /// Jump-target rewrite: inside `Select(c, t, f)` the condition is known, so `t` is
 /// rewritten with `c = 1` and `f` with `c = 0`; when `c` is `y == K` the true arm also
 /// gets `y = K` (`y != K`: the false arm). The arms of a dispatcher jump repeat the
@@ -2307,6 +2640,7 @@ struct StateDedupKey {
     cr8_ver: u32,
     mem_cache: Vec<(ExprId, (u8, ExprId))>,
     entry_caller_slots: Vec<(i64, ExprId)>,
+    aligned_defs: Vec<(StackSpace, i64, u64)>,
 }
 
 fn make_state_dedup_key(s: &SymState) -> StateDedupKey {
@@ -2342,6 +2676,7 @@ fn make_state_dedup_key(s: &SymState) -> StateDedupKey {
         entry_flags_clobbered: s.entry_flags_clobbered,
         mem_ver: s.mem_ver,
         cr8_ver: s.cr8_ver,
+        aligned_defs: s.aligned_defs.clone(),
         mem_cache,
         entry_caller_slots,
     }
@@ -2718,7 +3053,7 @@ pub fn lift_vm_entry_cfg(
             last_cur_ip = state.ip;
             if block_insns >= cfg.max_insns_per_block || raw_vm_insns >= cfg.max_total_insns_per_entry {
                 last_ins = None;
-                break IrTerm::Bailout("insn_budget_exceeded".into());
+                break exit_to_vm_or_bailout(cfg, &state, &mut arena, view, state.ip, "insn_budget_exceeded".into());
             }
 
             let cur_ip = state.ip;
@@ -2726,7 +3061,7 @@ pub fn lift_vm_entry_cfg(
             *count += 1;
             if *count > 96 {
                 last_ins = None;
-                break IrTerm::Bailout("loop_iteration_limit".into());
+                break exit_to_vm_or_bailout(cfg, &state, &mut arena, view, cur_ip, "loop_iteration_limit".into());
             }
 
             let Some(ins) = view.decode_insn(cur_ip) else {
@@ -2757,7 +3092,7 @@ pub fn lift_vm_entry_cfg(
             if ins.has_lock_prefix() {
                 let w = ins.memory_size().size() as u8;
                 if w == 0 || w > 8 || ins.op0_kind() != OpKind::Memory {
-                    break IrTerm::Bailout(format!("unsupported_lock_{m:?}"));
+                    break exit_to_vm_or_bailout(cfg, &state, &mut arena, view, cur_ip, format!("unsupported_lock_{m:?}"));
                 }
                 let ea = eval_mem_ea(&state, &mut arena, view.bitness, &ins, next_ip);
                 match m {
@@ -2825,7 +3160,7 @@ pub fn lift_vm_entry_cfg(
                         state.set_flags(FlagState::Unknown);
                         continue;
                     }
-                    _ => break IrTerm::Bailout(format!("unsupported_lock_{m:?}")),
+                    _ => break exit_to_vm_or_bailout(cfg, &state, &mut arena, view, cur_ip, format!("unsupported_lock_{m:?}")),
                 }
             }
 
@@ -2864,7 +3199,7 @@ pub fn lift_vm_entry_cfg(
                 FlowControl::ConditionalBranch => {
                     let taken_va = ins.near_branch_target();
                     let Some(cond) = eval_cond_for_mnemonic(&state, &mut arena, m) else {
-                        break IrTerm::Bailout(format!("unsupported_jcc_{m:?}"));
+                        break exit_to_vm_or_bailout(cfg, &state, &mut arena, view, cur_ip, format!("unsupported_jcc_{m:?}"));
                     };
                     if let Some(c) = arena.as_const(cond) {
                         opaque_branches_folded += 1;
@@ -2885,7 +3220,7 @@ pub fn lift_vm_entry_cfg(
                     }
 
                     if blocks.len() + 2 > cfg.max_blocks_per_entry {
-                        break IrTerm::Bailout("max_blocks_exceeded".into());
+                        break exit_to_vm_or_bailout(cfg, &state, &mut arena, view, cur_ip, "max_blocks_exceeded".into());
                     }
 
                     let taken_state = state.clone();
@@ -3007,7 +3342,7 @@ pub fn lift_vm_entry_cfg(
                         }
                         let needed = count_select_tree_blocks(&if_true) + count_select_tree_blocks(&if_false);
                         if blocks.len() + needed > cfg.max_blocks_per_entry {
-                            break IrTerm::Bailout("max_blocks_exceeded".into());
+                            break exit_to_vm_or_bailout(cfg, &state, &mut arena, view, cur_ip, "max_blocks_exceeded".into());
                         }
                         let mut s_t = state.clone();
                         specialize_sym_state(&mut arena, &mut s_t, cond, true);
@@ -3077,21 +3412,11 @@ pub fn lift_vm_entry_cfg(
                             }
                         }
                     }
-                    // Unresolvable target, clean RSP, `jmp reg`: exit back into the VM with the
-                    // original state (see `IrTerm::ExitRegJmp`). `state.regs[jr]` is the target.
-                    if cfg.allow_vm_exits {
-                        if let (Some(jr), Some(rsp_delta)) = (jmp_arch_reg, rsp_delta_opt) {
-                            if state.regs[jr.idx()] == target_expr && jr != ArchReg::Rsp {
-                                let pending = state.collect_pending_caller_stores(rsp_delta);
-                                break IrTerm::ExitRegJmp {
-                                    reg: jr,
-                                    rsp_delta,
-                                    final_regs: state.regs,
-                                    final_xmms: state.xmms,
-                                    pending_caller_stores: pending,
-                                };
-                            }
-                        }
+                    // Unresolvable target: let the original `jmp` run (exit to it).
+                    if let t @ IrTerm::ExitToVm { .. } =
+                        exit_to_vm_or_bailout(cfg, &state, &mut arena, view, cur_ip, String::new())
+                    {
+                        break t;
                     }
                     if cfg.collect_diagnostics && bailout_detail.is_none() {
                         let tag = expr_flags_tag(&arena, target_expr);
@@ -3158,7 +3483,7 @@ pub fn lift_vm_entry_cfg(
 
                                 if let Some(target) = mid_target {
                                     if blocks.len() + 1 > cfg.max_blocks_per_entry {
-                                        break IrTerm::Bailout("max_blocks_exceeded".into());
+                                        break exit_to_vm_or_bailout(cfg, &state, &mut arena, view, cur_ip, "max_blocks_exceeded".into());
                                     }
                                     let cont_id = blocks.len();
                                     blocks.push(None);
@@ -3272,7 +3597,7 @@ pub fn lift_vm_entry_cfg(
                         let rs = expr_brief(&arena, new_rsp, 0);
                         pending_diag_detail = Some(format!("{ins_str} | ret_val={rv} | rsp={rs}"));
                     }
-                    break IrTerm::Bailout("unresolved_ret".into());
+                    break exit_to_vm_or_bailout(cfg, &state, &mut arena, view, cur_ip, "unresolved_ret".into());
                 }
                 FlowControl::Next => {
                     let is_non_access = matches!(
@@ -3350,7 +3675,7 @@ pub fn lift_vm_entry_cfg(
                         }
                     }
                 }
-                other => break IrTerm::Bailout(format!("unsupported_flow_{other:?}_{m:?}")),
+                other => break exit_to_vm_or_bailout(cfg, &state, &mut arena, view, cur_ip, format!("unsupported_flow_{other:?}_{m:?}")),
             }
 
             // Regular instructions (FlowControl::Next)
@@ -3759,6 +4084,10 @@ pub fn lift_vm_entry_cfg(
                     {
                         let aid = state.next_aligned_id;
                         state.next_aligned_id += 1;
+                        if let (Some((parent, poff)), Some(mask)) = (arena.as_stack_offset(lhs), arena.as_const(rhs)) {
+                            debug_assert_eq!(state.aligned_defs.len(), aid as usize);
+                            state.aligned_defs.push((parent, poff, mask));
+                        }
                         let abase = arena.aligned_base(aid);
                         state.write_reg(&mut arena, ArchReg::Rsp, RegSlice::Full64, abase);
                         state.set_flags(FlagState::Unknown);
@@ -4152,7 +4481,7 @@ pub fn lift_vm_entry_cfg(
                             .flatten(),
                         read_xmm_pair(view, &mut state, &mut arena, &ins, next_ip, 1),
                     ) else {
-                        break IrTerm::Bailout(format!("unsupported_{m:?}"));
+                        break exit_to_vm_or_bailout(cfg, &state, &mut arena, view, cur_ip, format!("unsupported_{m:?}"));
                     };
                     if m == Mnemonic::Punpcklqdq {
                         state.xmms[d as usize].1 = src.0;
@@ -4272,7 +4601,7 @@ pub fn lift_vm_entry_cfg(
                             continue;
                         }
                     }
-                    break IrTerm::Bailout(format!("unsupported_{m:?}"));
+                    break exit_to_vm_or_bailout(cfg, &state, &mut arena, view, cur_ip, format!("unsupported_{m:?}"));
                 }
                 Mnemonic::Pxor | Mnemonic::Xorps | Mnemonic::Xorpd => {
                     if ins.op0_kind() == OpKind::Register && ins.op1_kind() == OpKind::Register {
@@ -4288,7 +4617,7 @@ pub fn lift_vm_entry_cfg(
                             continue;
                         }
                     }
-                    break IrTerm::Bailout(format!("unsupported_{m:?}"));
+                    break exit_to_vm_or_bailout(cfg, &state, &mut arena, view, cur_ip, format!("unsupported_{m:?}"));
                 }
                 Mnemonic::Movq | Mnemonic::Movd => {
                     let w = if m == Mnemonic::Movq { 8u8 } else { 4u8 };
@@ -4320,10 +4649,10 @@ pub fn lift_vm_entry_cfg(
                             continue;
                         }
                     }
-                    break IrTerm::Bailout(format!("unsupported_{m:?}"));
+                    break exit_to_vm_or_bailout(cfg, &state, &mut arena, view, cur_ip, format!("unsupported_{m:?}"));
                 }
 
-                _ => break IrTerm::Bailout(format!("unsupported_{m:?}")),
+                _ => break exit_to_vm_or_bailout(cfg, &state, &mut arena, view, cur_ip, format!("unsupported_{m:?}")),
             }
         };
 
@@ -4747,16 +5076,36 @@ fn validate_function_soundness(func: &LiftedFunction, view: &PeImageView) -> Res
                     cur_cr8_ver,
                 )?;
             }
-            IrTerm::ExitRegJmp { final_regs, final_xmms, pending_caller_stores, .. } => {
+            IrTerm::ExitToVm { va, exit, final_regs, final_xmms } => {
+                if bitness != 64 {
+                    return Err("vm_exit_32bit".into());
+                }
+                if !view.is_executable_va(*va) {
+                    return Err("exit_target_not_executable".into());
+                }
                 check_exit_state(
                     final_xmms,
-                    pending_caller_stores,
+                    &exit.pending,
                     final_regs,
                     &cur_stores,
                     cur_all_aliasing,
                     cur_max_ver,
                     cur_cr8_ver,
                 )?;
+                // The pending stores go out one after another: a value must not read a
+                // slot another one has already overwritten.
+                for (i, &(_, val)) in exit.pending.iter().enumerate() {
+                    let others: Vec<(i64, ExprId)> = exit
+                        .pending
+                        .iter()
+                        .enumerate()
+                        .filter(|&(j, _)| j != i)
+                        .map(|(_, &p)| p)
+                        .collect();
+                    if expr_loads_overlapping_caller_slots(&func.arena, val, &others, word_bytes) {
+                        return Err("load_across_aliasing_store".into());
+                    }
+                }
             }
             IrTerm::MidCall { target, final_regs, final_xmms, pending_caller_stores, cont_block, .. } => {
                 if let MidCallTarget::DirectVa(va) = target {
@@ -5811,6 +6160,101 @@ fn expr_uses_spill(arena: &ExprArena, bitness: u32, expr: ExprId) -> bool {
     }
 }
 
+/// The tail of `IrTerm::ExitToVm` (see `VmExit`). On entry every register holds its
+/// final value and RSP is `entry + exit.rsp_delta`; the temporary values sit at their
+/// offsets above it.
+fn emit_vm_exit(a: &mut CodeAssembler, exit: &VmExit, target: u64) -> Result<(), String> {
+    use gpr64::{rax, rcx, rsp};
+    let err = |e: iced_x86::IcedError| e.to_string();
+    let d32 = |v: i64| i32::try_from(v).map_err(|_| "vm_exit_disp".to_string());
+    let nb = exit.bases.len() as i64;
+    a.push(rax).map_err(err)?;
+    a.push(rcx).map_err(err)?;
+    // Recompute each aligned base exactly as the VM did; keep them on the stack.
+    for (k, &(parent, off, mask)) in exit.bases.iter().enumerate() {
+        let depth = 16 + 8 * k as i64; // bytes pushed so far
+        match parent {
+            StackSpace::CallerStack => {
+                // entry + off == rsp + depth + (off - rsp_delta)
+                a.lea(rax, ptr(rsp) + d32(depth + off - exit.rsp_delta)?).map_err(err)?;
+            }
+            StackSpace::AlignedScratch(p) => {
+                // base p was pushed (k - 1 - p) slots above the top
+                let at = 8 * (k as i64 - 1 - p as i64);
+                if at < 0 {
+                    return Err("vm_exit_base_order".into());
+                }
+                a.mov(rax, qword_ptr(rsp + d32(at)?)).map_err(err)?;
+                a.lea(rax, ptr(rax) + d32(off)?).map_err(err)?;
+            }
+        }
+        let m32 = i32::try_from(mask as i64).map_err(|_| "vm_exit_mask".to_string())?;
+        a.and(rax, m32).map_err(err)?;
+        a.push(rax).map_err(err)?;
+    }
+    let depth = 16 + 8 * nb;
+    let base_at = |k: u32| 8 * (nb - 1 - k as i64);
+    let temp = |t: i64| d32(depth + t - exit.rsp_delta);
+    // Copy the temporary values into the aligned slots.
+    for &(t, k, o, keep) in &exit.temp_stores {
+        a.mov(rax, qword_ptr(rsp + d32(base_at(k))?)).map_err(err)?;
+        if keep == 0 {
+            a.mov(rcx, qword_ptr(rsp + temp(t)?)).map_err(err)?;
+            a.mov(qword_ptr(rax + d32(o)?), rcx).map_err(err)?;
+        } else {
+            // Only the written bytes; the kept ones are the original memory.
+            for j in 0..8i64 {
+                if keep & (1 << j) == 0 {
+                    a.mov(gpr8::cl, byte_ptr(rsp + temp(t + j)?)).map_err(err)?;
+                    a.mov(byte_ptr(rax + d32(o + j)?), gpr8::cl).map_err(err)?;
+                }
+            }
+        }
+    }
+    // Replay the last flag-setting operation. Only mov / lea / pop / jmp follow.
+    if let Some(f) = exit.flags {
+        let (a_off, b_off, width) = match f {
+            FlagsReplay::Cmp { a, b, width } | FlagsReplay::Add { a, b, width } => (a, Some(b), width),
+            FlagsReplay::Test { a, width } => (a, None, width),
+        };
+        a.mov(rax, qword_ptr(rsp + temp(a_off)?)).map_err(err)?;
+        if let Some(b) = b_off {
+            a.mov(rcx, qword_ptr(rsp + temp(b)?)).map_err(err)?;
+        }
+        match (f, width) {
+            (FlagsReplay::Cmp { .. }, 8) => a.cmp(rax, rcx),
+            (FlagsReplay::Cmp { .. }, 4) => a.cmp(gpr32::eax, gpr32::ecx),
+            (FlagsReplay::Cmp { .. }, 2) => a.cmp(gpr16::ax, gpr16::cx),
+            (FlagsReplay::Cmp { .. }, _) => a.cmp(gpr8::al, gpr8::cl),
+            (FlagsReplay::Add { .. }, 8) => a.add(rax, rcx),
+            (FlagsReplay::Add { .. }, 4) => a.add(gpr32::eax, gpr32::ecx),
+            (FlagsReplay::Add { .. }, 2) => a.add(gpr16::ax, gpr16::cx),
+            (FlagsReplay::Add { .. }, _) => a.add(gpr8::al, gpr8::cl),
+            (FlagsReplay::Test { .. }, 8) => a.test(rax, rax),
+            (FlagsReplay::Test { .. }, 4) => a.test(gpr32::eax, gpr32::eax),
+            (FlagsReplay::Test { .. }, 2) => a.test(gpr16::ax, gpr16::ax),
+            (FlagsReplay::Test { .. }, _) => a.test(gpr8::al, gpr8::al),
+        }
+        .map_err(err)?;
+    }
+    // RSP = final value; the final RAX rides on the new stack top.
+    match exit.final_base {
+        Some(k) => {
+            a.mov(rax, qword_ptr(rsp + d32(base_at(k))?)).map_err(err)?;
+            a.lea(rax, ptr(rax) + d32(exit.final_off)?).map_err(err)?;
+        }
+        None => {
+            a.lea(rax, ptr(rsp) + d32(depth + exit.final_off - exit.rsp_delta)?).map_err(err)?;
+        }
+    }
+    a.mov(rcx, qword_ptr(rsp + d32(8 * nb + 8)?)).map_err(err)?; // final RAX
+    a.mov(qword_ptr(rax - 8), rcx).map_err(err)?;
+    a.mov(rcx, qword_ptr(rsp + d32(8 * nb)?)).map_err(err)?; // final RCX
+    a.lea(rsp, ptr(rax) - 8).map_err(err)?;
+    a.pop(rax).map_err(err)?;
+    a.jmp(target).map_err(err)
+}
+
 fn emit_block_outputs_and_jump(
     a: &mut CodeAssembler,
     bitness: u32,
@@ -6246,27 +6690,24 @@ fn compile_function_into_asm(
                     },
                 )?;
             }
-            IrTerm::ExitRegJmp { reg, rsp_delta, final_regs, final_xmms, pending_caller_stores, .. } => {
-                let dst_reg = *reg;
+            IrTerm::ExitToVm { va, exit, final_regs, final_xmms } => {
+                if bitness != 64 {
+                    return Err("vm_exit_32bit".into());
+                }
+                let target = *va;
+                let exit = exit.as_ref().clone();
                 emit_block_outputs_and_jump(
                     a,
                     bitness,
                     &func.arena,
                     &block.effects,
-                    pending_caller_stores,
+                    &exit.pending,
                     final_regs,
                     final_xmms,
-                    *rsp_delta,
+                    exit.rsp_delta,
                     false,
-                    Some(dst_reg),
-                    |asm, ctx| {
-                        // `final_regs[dst_reg]` is the target the original `jmp` took.
-                        if ctx.bitness == 64 {
-                            asm.jmp(to_asm64(dst_reg)).map_err(|e| e.to_string())
-                        } else {
-                            asm.jmp(to_asm32(dst_reg)).map_err(|e| e.to_string())
-                        }
-                    },
+                    None,
+                    |asm, _| emit_vm_exit(asm, &exit, target),
                 )?;
             }
             IrTerm::ExitIndirectMem { rsp_disp, rsp_delta, final_regs, final_xmms, pending_caller_stores, .. } => {
@@ -6459,10 +6900,11 @@ pub fn devirtualize_pe_bytes(
             continue;
         }
 
-        // Enforce genuine code reduction on VM enters
-        if entry.kind == VmEntryKind::CrossSectionVmEnter
-            && lifted.raw_vm_insns > 0
-            && native_insns >= lifted.raw_vm_insns
+        // Enforce genuine code reduction on VM enters, and on anything that hands
+        // control back to the VM (a stub that only re-enters the VM is no gain).
+        let has_vm_exit = lifted.blocks.iter().any(|b| matches!(b.term, IrTerm::ExitToVm { .. }));
+        if (entry.kind == VmEntryKind::CrossSectionVmEnter || has_vm_exit)
+            && (native_insns >= lifted.raw_vm_insns || (has_vm_exit && lifted.raw_vm_insns == 0))
         {
             record_bailout("no_code_reduction".into(), &lifted, true);
             continue;
@@ -6545,7 +6987,7 @@ pub fn devirtualize_pe_bytes(
             raw_vm_insns_eliminated += lifted.raw_vm_insns;
             recompiled_native_insns += n_insns;
             opaque_branches_folded += lifted.opaque_branches_folded;
-            if lifted.blocks.iter().any(|b| matches!(b.term, IrTerm::ExitRegJmp { .. })) {
+            if lifted.blocks.iter().any(|b| matches!(b.term, IrTerm::ExitToVm { .. })) {
                 hybrid_vm_exits += 1;
             }
             match e.kind {
@@ -7442,6 +7884,267 @@ mod tests {
             let want = rcx_in + 0x10 + if rdx_in & 0x20 != 0 { 2 } else { 1 };
             assert_eq!(orig.0, want, "original, rdx={rdx_in:#x}");
             assert_eq!(run_case(&devirt_pe, rcx_in, rdx_in), orig, "devirtualized, rdx={rdx_in:#x}");
+        }
+    }
+
+    #[test]
+    fn unresolvable_jmp_on_aligned_vm_frame_exits_back_to_vm_e2e() {
+        use gpr64::*;
+        let base = 0x1_4000_0000u64;
+
+        let mut text_sec = vec![0xCCu8; 0x200];
+        let fn0 = assemble_at(64, base + 0x1000, |a| a.jmp(base + 0x2000));
+        text_sec[..fn0.len()].copy_from_slice(&fn0);
+        let exit_ret = assemble_at(64, base + 0x1040, |a| a.ret());
+        text_sec[0x40..0x40 + exit_ret.len()].copy_from_slice(&exit_ret);
+        // Same function entered 8 bytes lower: the alignment padding differs.
+        let fn1 = assemble_at(64, base + 0x1080, |a| {
+            a.call(base + 0x1000)?;
+            a.ret()
+        });
+        text_sec[0x80..0x80 + fn1.len()].copy_from_slice(&fn1);
+
+        let mut vmp_sec = vec![0xCCu8; 0x400];
+        // VM entry: frame pointer, aligned frame, context slots, then a handler address
+        // from an input register (`rdx & 0x20`, unresolvable) with RSP still aligned.
+        let stub = assemble_at(64, base + 0x2000, |a| {
+            a.push(rbx)?;
+            a.push(rbp)?;
+            a.mov(rbp, rsp)?;
+            a.and(rsp, -16)?;
+            a.sub(rsp, 0x40)?;
+            a.mov(qword_ptr(rsp + 0x10), rcx)?;
+            a.mov(qword_ptr(rsp + 0x18), 0x77)?;
+            a.mov(rax, rcx)?;
+            for k in 0..30i32 {
+                a.add(rax, k + 3)?;
+                a.sub(rax, k + 3)?;
+            }
+            a.mov(r8, rdx)?;
+            a.and(r8, 0x20)?;
+            a.mov(r10, base + 0x2300)?;
+            a.add(r10, r8)?;
+            a.jmp(r10)
+        });
+        assert!(stub.len() < 0x300, "stub overlaps the handlers");
+        vmp_sec[..stub.len()].copy_from_slice(&stub);
+        // Handlers: original VM code reading the aligned frame the exit rebuilt.
+        for (off, add) in [(0x300usize, 1i32), (0x320, 2)] {
+            let h = assemble_at(64, base + 0x2000 + off as u64, |a| {
+                a.mov(rax, qword_ptr(rsp + 0x10))?;
+                a.add(rax, qword_ptr(rsp + 0x18))?;
+                a.add(rax, add)?;
+                a.mov(rsp, rbp)?;
+                a.pop(rbp)?;
+                a.pop(rbx)?;
+                a.jmp(base + 0x1040)
+            });
+            vmp_sec[off..off + h.len()].copy_from_slice(&h);
+        }
+
+        let orig_pe = build_two_exec_pe64(&text_sec, &vmp_sec, 0x1000);
+        let (devirt_pe, report) = devirtualize_pe_bytes(&orig_pe, BinaryDevirtConfig::default()).unwrap();
+        assert_eq!(report.discovered_total, 1, "got {report:?}");
+        assert_eq!(
+            report.devirtualized_total, 1,
+            "expected the aligned-frame stub recompiled up to its VM exit, bailouts: {:?}",
+            report.bailout_reasons
+        );
+        assert_eq!(report.hybrid_vm_exits, 1);
+
+        let run_case = |pe_bytes: &[u8], entry: u64, rcx_in: u64, rdx_in: u64| -> (u64, u64, u64) {
+            let s = Sample::from_bytes(pe_bytes).unwrap();
+            let mut eng = UnpackerEngine::new(s, "mem");
+            eng.init_uc().unwrap();
+            let (rsp_before, _) = {
+                let uc = eng.unicorn_mut().unwrap();
+                uc.reg_write(RegisterX86::RBP as i32, 0xB0B0_0000_1111).unwrap();
+                uc.reg_write(RegisterX86::RBX as i32, 0xB1B1_0000_2222).unwrap();
+                (uc.reg_read(RegisterX86::RSP as i32).unwrap(), ())
+            };
+            let ret = eng.call_function(entry, &[rcx_in, rdx_in], 100_000, 2_000).unwrap();
+            let uc = eng.unicorn_mut().unwrap();
+            let rbp_after = uc.reg_read(RegisterX86::RBP as i32).unwrap();
+            let rsp_after = uc.reg_read(RegisterX86::RSP as i32).unwrap();
+            (ret, rbp_after, rsp_after.wrapping_sub(rsp_before))
+        };
+        for entry in [base + 0x1000, base + 0x1080] {
+            for (rcx_in, rdx_in) in [(5u64, 0u64), (5, 0x20), (0x1234, 0xffff_ffdf), (0x1234, 0xffff_ffff)] {
+                let orig = run_case(&orig_pe, entry, rcx_in, rdx_in);
+                let want = rcx_in + 0x77 + if rdx_in & 0x20 != 0 { 2 } else { 1 };
+                assert_eq!(orig.0, want, "original, entry={entry:#x} rdx={rdx_in:#x}");
+                assert_eq!(orig.1, 0xB0B0_0000_1111, "original keeps rbp");
+                assert_eq!(
+                    run_case(&devirt_pe, entry, rcx_in, rdx_in),
+                    orig,
+                    "devirtualized, entry={entry:#x} rdx={rdx_in:#x}"
+                );
+            }
+        }
+    }
+
+    /// A VM entry on an aligned frame: `cmp rcx, 5`, a `cpuid` the lifter does not
+    /// model (exit there; `cpuid` keeps the flags), then `jb` on the `cmp` flags.
+    /// `junk` folding pairs make the recompiled part worth patching.
+    fn build_cpuid_flags_stub(base: u64, junk: i32) -> Vec<u8> {
+        use gpr64::*;
+        let mut text_sec = vec![0xCCu8; 0x200];
+        let fn0 = assemble_at(64, base + 0x1000, |a| a.jmp(base + 0x2000));
+        text_sec[..fn0.len()].copy_from_slice(&fn0);
+        let exit_ret = assemble_at(64, base + 0x1040, |a| a.ret());
+        text_sec[0x40..0x40 + exit_ret.len()].copy_from_slice(&exit_ret);
+
+        let mut vmp_sec = vec![0xCCu8; 0x1000];
+        let stub = assemble_at(64, base + 0x2000, |a| {
+            let mut low = a.create_label();
+            let mut tail = a.create_label();
+            a.push(rbx)?;
+            a.push(rbp)?;
+            a.mov(rbp, rsp)?;
+            a.and(rsp, -16)?;
+            a.sub(rsp, 0x40)?;
+            a.mov(qword_ptr(rsp + 0x10), rcx)?;
+            a.mov(rax, rcx)?;
+            for k in 0..junk {
+                a.add(rax, k + 3)?;
+                a.sub(rax, k + 3)?;
+            }
+            a.cmp(rcx, 5)?;
+            a.mov(r9, 0x1234u64)?;
+            a.cpuid()?;
+            a.jb(low)?;
+            a.mov(rax, qword_ptr(rsp + 0x10))?;
+            a.add(rax, 100)?;
+            a.jmp(tail)?;
+            a.set_label(&mut low)?;
+            a.mov(rax, qword_ptr(rsp + 0x10))?;
+            a.add(rax, 200)?;
+            a.set_label(&mut tail)?;
+            a.mov(rsp, rbp)?;
+            a.pop(rbp)?;
+            a.pop(rbx)?;
+            a.jmp(base + 0x1040)
+        });
+        assert!(stub.len() < vmp_sec.len());
+        vmp_sec[..stub.len()].copy_from_slice(&stub);
+        build_two_exec_pe64(&text_sec, &vmp_sec, 0x1000)
+    }
+
+    fn run_rcx_case(pe_bytes: &[u8], entry: u64, rcx_in: u64) -> (u64, u64, u64, u64) {
+        let s = Sample::from_bytes(pe_bytes).unwrap();
+        let mut eng = UnpackerEngine::new(s, "mem");
+        eng.init_uc().unwrap();
+        let rsp_before = {
+            let uc = eng.unicorn_mut().unwrap();
+            uc.reg_write(RegisterX86::RBP as i32, 0xB0B0_0000_1111).unwrap();
+            uc.reg_write(RegisterX86::RBX as i32, 0xB1B1_0000_2222).unwrap();
+            uc.reg_read(RegisterX86::RSP as i32).unwrap()
+        };
+        let ret = eng.call_function(entry, &[rcx_in], 200_000, 2_000).unwrap();
+        let uc = eng.unicorn_mut().unwrap();
+        (
+            ret,
+            uc.reg_read(RegisterX86::RBP as i32).unwrap(),
+            uc.reg_read(RegisterX86::RBX as i32).unwrap(),
+            uc.reg_read(RegisterX86::RSP as i32).unwrap().wrapping_sub(rsp_before),
+        )
+    }
+
+    #[test]
+    fn exit_before_unmodelled_insn_replays_live_flags_e2e() {
+        let base = 0x1_4000_0000u64;
+        let orig_pe = build_cpuid_flags_stub(base, 30);
+
+        let strict = BinaryDevirtConfig { allow_vm_exits: false, ..BinaryDevirtConfig::default() };
+        let (_, strict_rep) = devirtualize_pe_bytes(&orig_pe, strict).unwrap();
+        assert_eq!(strict_rep.devirtualized_total, 0, "got {strict_rep:?}");
+
+        let (devirt_pe, report) = devirtualize_pe_bytes(&orig_pe, BinaryDevirtConfig::default()).unwrap();
+        assert_eq!(report.discovered_total, 1, "got {report:?}");
+        assert_eq!(report.devirtualized_total, 1, "bailouts: {:?}", report.bailout_reasons);
+        assert_eq!(report.hybrid_vm_exits, 1);
+        for rcx_in in [0u64, 4, 5, 6, 0x1234, u64::MAX] {
+            let orig = run_rcx_case(&orig_pe, base + 0x1000, rcx_in);
+            let want = rcx_in.wrapping_add(if rcx_in < 5 { 200 } else { 100 });
+            assert_eq!(orig.0, want, "original, rcx={rcx_in:#x}");
+            assert_eq!(run_rcx_case(&devirt_pe, base + 0x1000, rcx_in), orig, "devirtualized, rcx={rcx_in:#x}");
+        }
+    }
+
+    #[test]
+    fn exit_at_instruction_budget_continues_in_vm_e2e() {
+        let base = 0x1_4000_0000u64;
+        // 200 folding pairs, budget 300: the exit lands inside the junk.
+        let orig_pe = build_cpuid_flags_stub(base, 200);
+        let cfg = BinaryDevirtConfig { max_total_insns_per_entry: 300, ..BinaryDevirtConfig::default() };
+        let (devirt_pe, report) = devirtualize_pe_bytes(&orig_pe, cfg).unwrap();
+        assert_eq!(report.devirtualized_total, 1, "bailouts: {:?}", report.bailout_reasons);
+        assert_eq!(report.hybrid_vm_exits, 1);
+        for rcx_in in [3u64, 9] {
+            let orig = run_rcx_case(&orig_pe, base + 0x1000, rcx_in);
+            assert_eq!(run_rcx_case(&devirt_pe, base + 0x1000, rcx_in), orig, "rcx={rcx_in}");
+        }
+    }
+
+    #[test]
+    fn partly_written_aligned_slot_is_stored_bytewise_on_vm_exit_e2e() {
+        use gpr64::*;
+        let base = 0x1_4000_0000u64;
+        let mut text_sec = vec![0xCCu8; 0x200];
+        let fn0 = assemble_at(64, base + 0x1000, |a| a.jmp(base + 0x2000));
+        text_sec[..fn0.len()].copy_from_slice(&fn0);
+        let exit_ret = assemble_at(64, base + 0x1040, |a| a.ret());
+        text_sec[0x40..0x40 + exit_ret.len()].copy_from_slice(&exit_ret);
+
+        let mut vmp_sec = vec![0xCCu8; 0x400];
+        let stub = assemble_at(64, base + 0x2000, |a| {
+            a.push(rbx)?;
+            a.push(rbp)?;
+            a.mov(rbp, rsp)?;
+            a.and(rsp, -16)?;
+            a.sub(rsp, 0x40)?;
+            // Read the slot first (its old content is unknown), then write 4 of its bytes.
+            a.mov(r11, qword_ptr(rsp + 0x20))?;
+            a.mov(r11, 0u64)?;
+            a.mov(dword_ptr(rsp + 0x20), gpr32::ecx)?;
+            a.mov(rax, rcx)?;
+            for k in 0..30i32 {
+                a.add(rax, k + 3)?;
+                a.sub(rax, k + 3)?;
+            }
+            a.mov(r8, rdx)?;
+            a.and(r8, 0x20)?;
+            a.mov(r10, base + 0x2300)?;
+            a.add(r10, r8)?;
+            a.jmp(r10)
+        });
+        assert!(stub.len() < 0x300);
+        vmp_sec[..stub.len()].copy_from_slice(&stub);
+        for (off, add) in [(0x300usize, 1i32), (0x320, 2)] {
+            let h = assemble_at(64, base + 0x2000 + off as u64, |a| {
+                a.mov(gpr32::eax, dword_ptr(rsp + 0x20))?;
+                a.add(rax, add)?;
+                a.mov(rsp, rbp)?;
+                a.pop(rbp)?;
+                a.pop(rbx)?;
+                a.jmp(base + 0x1040)
+            });
+            vmp_sec[off..off + h.len()].copy_from_slice(&h);
+        }
+        let orig_pe = build_two_exec_pe64(&text_sec, &vmp_sec, 0x1000);
+        let (devirt_pe, report) = devirtualize_pe_bytes(&orig_pe, BinaryDevirtConfig::default()).unwrap();
+        assert_eq!(report.devirtualized_total, 1, "bailouts: {:?}", report.bailout_reasons);
+        assert_eq!(report.hybrid_vm_exits, 1);
+        for (rcx_in, rdx_in) in [(7u64, 0u64), (7, 0x20), (0xdead_beef_1234_5678, 0x20)] {
+            let run = |pe: &[u8]| {
+                let s = Sample::from_bytes(pe).unwrap();
+                let mut eng = UnpackerEngine::new(s, "mem");
+                eng.init_uc().unwrap();
+                eng.call_function(base + 0x1000, &[rcx_in, rdx_in], 100_000, 2_000).unwrap()
+            };
+            let want = (rcx_in & 0xffff_ffff) + if rdx_in & 0x20 != 0 { 2 } else { 1 };
+            assert_eq!(run(&orig_pe), want);
+            assert_eq!(run(&devirt_pe), want);
         }
     }
 
