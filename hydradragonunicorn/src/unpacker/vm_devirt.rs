@@ -5638,6 +5638,8 @@ struct CodegenCtx<'a> {
     /// Loads already read into the frame's pinned slots on this path, by slot depth
     /// (`StackBase - depth`; see `plan_pinned_loads`).
     pinned: HashMap<ExprId, i64>,
+    /// `scratch[2]` is saved (or free) and may be clobbered as a spill register.
+    spill_free: bool,
 }
 
 impl<'a> CodegenCtx<'a> {
@@ -5822,7 +5824,7 @@ impl<'a> CodegenCtx<'a> {
         spill_reg: ArchReg,
     ) -> Result<(), String> {
         self.eval_steps += 1;
-        if self.eval_steps > 2048 {
+        if self.eval_steps > MAX_EVAL_STEPS {
             return Err("expr_too_complex".into());
         }
         if dst == spill_reg {
@@ -6136,7 +6138,7 @@ impl<'a> CodegenCtx<'a> {
         tmp1: ArchReg,
     ) -> Result<(), String> {
         self.eval_steps += 1;
-        if self.eval_steps > 2048 {
+        if self.eval_steps > MAX_EVAL_STEPS {
             return Err("expr_too_complex".into());
         }
         // Compute lhs into tmp0, compare against imm32 or rhs in tmp1
@@ -6195,7 +6197,7 @@ impl<'a> CodegenCtx<'a> {
         tmp1: ArchReg,
     ) -> Result<(), String> {
         self.eval_steps += 1;
-        if self.eval_steps > 2048 {
+        if self.eval_steps > MAX_EVAL_STEPS {
             return Err("expr_too_complex".into());
         }
         if let ExprNode::Cmp { pred, lhs, rhs } = self.arena.get(cond).clone() {
@@ -6353,8 +6355,13 @@ struct PinPlan {
     succ_loads: Vec<Vec<ExprId>>,
 }
 
-/// Upper bound on pinned slots of a function.
-const MAX_PINNED_LOADS: usize = 1024;
+/// Upper bound on pinned slots of a function (2 KiB of stack: a kernel thread has
+/// 24 KiB in all).
+const MAX_PINNED_LOADS: usize = 256;
+
+/// Upper bound on expression nodes the codegen evaluates in one block (shared ones
+/// are computed once, `precompute_shared`; this only stops runaway blocks).
+const MAX_EVAL_STEPS: usize = 8192;
 
 /// Every block evaluates its values from the entry state, lazily, so a load an earlier
 /// block made reads memory only where it is used - after any store of the blocks in
@@ -6491,8 +6498,11 @@ fn plan_pinned_loads(func: &LiftedFunction, view: &PeImageView, base0: i64) -> R
 /// reached through arms alone is taken only when it reads no memory (a load there may
 /// be guarded by the condition).
 fn shared_subexprs(ctx: &CodegenCtx<'_>, roots: &[ExprId]) -> Vec<ExprId> {
-    let arena = ctx.arena;
-    let done = |id: ExprId| ctx.spills.contains_key(&id) || ctx.pinned.contains_key(&id);
+    shared_subexprs_in(ctx.arena, roots, |id| ctx.spills.contains_key(&id) || ctx.pinned.contains_key(&id))
+}
+
+/// `shared_subexprs`, with `done` the values already on the stack.
+fn shared_subexprs_in(arena: &ExprArena, roots: &[ExprId], done: impl Fn(ExprId) -> bool) -> Vec<ExprId> {
     let children = |id: ExprId, out: &mut Vec<ExprId>| push_expr_children(arena.get(id), out);
     // References (over every path, arms included) and unconditional reach.
     let mut refs: HashMap<ExprId, u32> = HashMap::new();
@@ -6507,7 +6517,14 @@ fn shared_subexprs(ctx: &CodegenCtx<'_>, roots: &[ExprId]) -> Vec<ExprId> {
             continue;
         }
         if let ExprNode::Select { cond, if_true, if_false } = arena.get(id) {
-            st.push((*cond, u));
+            if first {
+                st.push((*cond, u));
+            } else if !uncond.contains(cond) {
+                st.push((*cond, true));
+                if let Some(c) = refs.get_mut(cond) {
+                    *c -= 1; // same edge, only spreading `uncond`
+                }
+            }
             if first {
                 st.push((*if_true, false));
                 st.push((*if_false, false));
@@ -6571,6 +6588,9 @@ fn precompute_shared(a: &mut CodeAssembler, ctx: &mut CodegenCtx<'_>, roots: &[E
     for id in shared_subexprs(ctx, roots) {
         if ctx.spills.len() >= MAX_BLOCK_SPILLS {
             break;
+        }
+        if !ctx.spill_free && expr_uses_spill(ctx.arena, ctx.bitness, id) {
+            continue;
         }
         ctx.eval_expr_into(a, id, w0, w2)?;
         ctx.emit_push(a, w0)?;
@@ -7075,6 +7095,19 @@ fn emit_block_outputs_and_jump(
         || modified_xmms
             .iter()
             .any(|&(_, (lo, hi))| expr_uses_spill(arena, bitness, lo) || expr_uses_spill(arena, bitness, hi));
+    // Shared subexpressions are computed into `scratch[0]` with `scratch[2]` spare.
+    let has_shared = {
+        let mut roots: Vec<ExprId> = pending_caller_stores.iter().map(|&(_, v)| v).collect();
+        roots.extend(modified.iter().map(|&(_, e)| e));
+        for &(_, (lo, hi)) in &modified_xmms {
+            roots.extend([lo, hi]);
+        }
+        roots.extend(effects.iter().flat_map(effect_exprs));
+        let active = frame.active_pinned(arena);
+        !shared_subexprs_in(arena, &roots, |id| active.contains_key(&id)).is_empty()
+    };
+    let need_w0 = need_w0 || has_shared;
+    let need_w2 = need_w2 || has_shared;
     let need_scratch = [need_w0, need_w1, need_w2];
 
     let mut ctx = CodegenCtx {
@@ -7087,6 +7120,7 @@ fn emit_block_outputs_and_jump(
         eval_steps: 0,
         spills: HashMap::new(),
         pinned: frame.active_pinned(arena),
+        spill_free: need_w2,
     };
 
     let final_hw_rsp_delta = if pre_ret_pop {
@@ -7150,7 +7184,7 @@ fn emit_block_outputs_and_jump(
         ctx.spills.insert(l, ctx.rsp_depth);
     }
     // Shared subexpressions of the outputs, once each (all stores are done).
-    if need_w0 && need_w2 {
+    if need_w0 {
         precompute_shared(a, &mut ctx, &later)?;
     }
 
@@ -7355,14 +7389,14 @@ fn compile_function_into_asm(
                     eval_steps: 0,
                     spills: HashMap::new(),
                     pinned: frame.active_pinned(&func.arena),
+                    spill_free: false,
                 };
+                // `scratch[2]` too when effects or shared subexpressions need it.
+                let want_w2 = !block.effects.is_empty() || !shared_subexprs(&ctx, &[*cond]).is_empty();
+                ctx.spill_free = want_w2;
                 // Save scratch registers used by `cond`/`effects`
                 let mut pushed_sc = Vec::new();
-                let sc_slice = if block.effects.is_empty() {
-                    &scratch[..2]
-                } else {
-                    &scratch[..3]
-                };
+                let sc_slice = if want_w2 { &scratch[..3] } else { &scratch[..2] };
                 for &s in sc_slice {
                     ctx.emit_push(a, s)?;
                     ctx.saved_regs.insert(s, ctx.rsp_depth);
@@ -9605,6 +9639,69 @@ mod tests {
         ] {
             assert_eq!(run(&orig_pe, pl, ps), want, "original {pl:#x} {ps:#x}");
             assert_eq!(run(&devirt_pe, pl, ps), want, "devirtualized {pl:#x} {ps:#x}");
+        }
+    }
+
+    #[test]
+    fn shared_subexpressions_are_computed_once_e2e() {
+        use gpr64::*;
+        let base = 0x1_4000_0000u64;
+        let mut text_sec = vec![0xCCu8; 0x200];
+        let fn0 = assemble_at(64, base + 0x1000, |a| a.jmp(base + 0x2000));
+        text_sec[..fn0.len()].copy_from_slice(&fn0);
+        let exit_ret = assemble_at(64, base + 0x1040, |a| a.ret());
+        text_sec[0x40..0x40 + exit_ret.len()].copy_from_slice(&exit_ret);
+        let mut vmp_sec = vec![0xCCu8; 0x1000];
+        // x = x * x + (x ^ [rdx]) fourteen times: a small DAG, a tree of millions of
+        // nodes. A branch on the result and a guarded load in a select arm too.
+        let stub = assemble_at(64, base + 0x2000, |a| {
+            let mut big = a.create_label();
+            let mut tail = a.create_label();
+            a.sub(rsp, 0x28)?;
+            a.mov(r11, rcx)?;
+            for k in 0..440i32 {
+                a.add(r11, k % 60 + 3)?;
+                a.sub(r11, k % 60 + 3)?;
+            }
+            a.mov(r8, rcx)?;
+            for _ in 0..14 {
+                a.mov(rax, r8)?;
+                a.imul_2(rax, rax)?;
+                a.mov(r9, qword_ptr(rdx))?;
+                a.xor(r9, r8)?;
+                a.add(rax, r9)?;
+                a.mov(r8, rax)?;
+            }
+            a.cmp(r8, 1000)?;
+            a.ja(big)?;
+            a.mov(rax, r8)?;
+            a.jmp(tail)?;
+            a.set_label(&mut big)?;
+            a.lea(rax, ptr(r8 + r8 * 2))?;
+            a.set_label(&mut tail)?;
+            a.add(rsp, 0x28)?;
+            a.jmp(base + 0x1040)
+        });
+        assert!(stub.len() <= vmp_sec.len());
+        vmp_sec[..stub.len()].copy_from_slice(&stub);
+        let orig_pe = build_two_exec_pe64(&text_sec, &vmp_sec, 0x1000);
+        let (devirt_pe, report) = devirtualize_pe_bytes(&orig_pe, BinaryDevirtConfig::default()).unwrap();
+        assert_eq!(report.devirtualized_total, 1, "bailouts: {:?}", report.bailout_reasons);
+        let run = |pe: &[u8], c: u64, m: u64| -> u64 {
+            let s = Sample::from_bytes(pe).unwrap();
+            let mut eng = UnpackerEngine::new(s, "mem");
+            eng.init_uc().unwrap();
+            eng.unicorn_mut().unwrap().mem_write(base + 0x3000, &m.to_le_bytes()).unwrap();
+            eng.call_function(base + 0x1000, &[c, base + 0x3000], 200_000, 2_000).unwrap()
+        };
+        for (c, m) in [(0u64, 0u64), (1, 2), (3, 0xdead_beef), (u64::MAX, 7)] {
+            let mut x = c;
+            for _ in 0..14 {
+                x = x.wrapping_mul(x).wrapping_add(x ^ m);
+            }
+            let want = if x > 1000 { x.wrapping_mul(3) } else { x };
+            assert_eq!(run(&orig_pe, c, m), want, "original {c:#x} {m:#x}");
+            assert_eq!(run(&devirt_pe, c, m), want, "devirtualized {c:#x} {m:#x}");
         }
     }
 
