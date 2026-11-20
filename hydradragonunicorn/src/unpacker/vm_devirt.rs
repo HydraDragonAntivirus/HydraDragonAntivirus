@@ -8139,11 +8139,9 @@ fn compile_function_into_asm(
                 let mut t = String::new();
                 fmt.format(x, &mut t);
                 out.push_str(&t);
-                out.push('
-');
+                out.push_str(" | ");
             }
-            eprintln!("DBGTMP_BLOCK {} insns
-{}DBGTMP_END", dbg_starts[bi + 1] - dbg_starts[bi], out);
+            eprintln!("DBGTMP_BLOCK {} insns: {}DBGTMP_END", dbg_starts[bi + 1] - dbg_starts[bi], out);
         }
     }
     Ok(())
