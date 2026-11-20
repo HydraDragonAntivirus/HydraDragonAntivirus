@@ -286,6 +286,8 @@ pub enum ExprNode {
     SExt { val: ExprId, from_bits: u8 },
     Cmp { pred: CondPred, lhs: ExprId, rhs: ExprId },
     Select { cond: ExprId, if_true: ExprId, if_false: ExprId },
+    EntryFlag(u8),
+    Cr8Read(u32),
     Opaque(u32),
 }
 
@@ -308,9 +310,7 @@ impl Default for ExprArena {
 pub fn width_mask(width_bytes: u8) -> u64 {
     match width_bytes {
         0 => 0,
-        1 => 0xFF,
-        2 => 0xFFFF,
-        4 => 0xFFFF_FFFF,
+        1..=7 => (1u64 << (width_bytes * 8)) - 1,
         _ => u64::MAX,
     }
 }
@@ -365,6 +365,8 @@ impl ExprArena {
                 | ExprNode::XmmIn(_, _)
                 | ExprNode::StackBase
                 | ExprNode::AlignedBase(_)
+                | ExprNode::EntryFlag(_)
+                | ExprNode::Cr8Read(_)
                 | ExprNode::Opaque(_)
         ) && self.nodes.len() >= self.max_nodes
         {
@@ -394,6 +396,14 @@ impl ExprArena {
 
     pub fn aligned_base(&mut self, id: u32) -> ExprId {
         self.intern_node(ExprNode::AlignedBase(id))
+    }
+
+    pub fn entry_flag(&mut self, cc: u8) -> ExprId {
+        self.intern_node(ExprNode::EntryFlag(cc))
+    }
+
+    pub fn cr8_read(&mut self, ver: u32) -> ExprId {
+        self.intern_node(ExprNode::Cr8Read(ver))
     }
 
     pub fn call_ret(&mut self, call_id: u32, reg: ArchReg) -> ExprId {
@@ -443,10 +453,11 @@ impl ExprArena {
     fn known_bits_depth(&self, id: ExprId, depth: u8, budget: &mut u16) -> (u64, u64) {
         match self.get(id) {
             ExprNode::Const(v) => return (!*v, *v),
-            ExprNode::Cmp { .. } => return (!1u64, 0),
+            ExprNode::Cmp { .. } | ExprNode::EntryFlag(_) => return (!1u64, 0),
+            ExprNode::Cr8Read(_) => return (!0xFu64, 0),
             _ => {}
         }
-        if depth > 12 || *budget == 0 {
+        if depth > 24 || *budget == 0 {
             return (0, 0);
         }
         *budget -= 1;
@@ -1069,6 +1080,21 @@ impl ExprArena {
                 return self.or_const(*x, c1 | c2);
             }
         }
+        // (x & m1) | (x & m2) -> x & (m1 | m2)
+        if let (ExprNode::And(x1, m1_id), ExprNode::And(x2, m2_id)) = (&na, &nb) {
+            if x1 == x2 {
+                if let (Some(m1), Some(m2)) = (self.as_const(*m1_id), self.as_const(*m2_id)) {
+                    return self.and_const(*x1, m1 | m2);
+                }
+            }
+        }
+        // x | (x & m) -> x
+        if matches!(na, ExprNode::And(x, _) if x == b) {
+            return b;
+        }
+        if matches!(nb, ExprNode::And(x, _) if x == a) {
+            return a;
+        }
         // MBA: (a & b) | (a & ~b) -> a
         if let Some(r) = self.match_mba_or_and_not(a, b) {
             return r;
@@ -1216,10 +1242,36 @@ impl ExprArena {
             return self.const_u64(0);
         }
         if let Some(cb) = self.as_const(b) {
-            if (cb & 63) == 0 {
+            let s = cb & 63;
+            if s == 0 {
                 return a;
             }
-            let norm = self.const_u64(cb & 63);
+            match self.get(a).clone() {
+                ExprNode::Shr(inner, s2_id) if self.as_const(s2_id) == Some(s) => {
+                    return self.and_const(inner, u64::MAX.wrapping_shl(s as u32));
+                }
+                ExprNode::And(x, m_id) => {
+                    if let Some(m) = self.as_const(m_id) {
+                        if let ExprNode::Shr(inner, s2_id) = self.get(x).clone() {
+                            if self.as_const(s2_id) == Some(s) {
+                                return self.and_const(inner, m.wrapping_shl(s as u32));
+                            }
+                        }
+                    }
+                }
+                ExprNode::Shl(inner, s2_id) => {
+                    if let Some(s2) = self.as_const(s2_id) {
+                        let tot = s + (s2 & 63);
+                        return if tot >= 64 {
+                            self.const_u64(0)
+                        } else {
+                            self.shl_const(inner, tot)
+                        };
+                    }
+                }
+                _ => {}
+            }
+            let norm = self.const_u64(s);
             return self.intern_node(ExprNode::Shl(a, norm));
         }
         self.intern_node(ExprNode::Shl(a, b))
@@ -1240,6 +1292,16 @@ impl ExprArena {
             match self.get(a).clone() {
                 ExprNode::Shl(inner, s2_id) if self.as_const(s2_id) == Some(s) => {
                     return self.and_const(inner, u64::MAX >> s);
+                }
+                ExprNode::Shr(inner, s2_id) => {
+                    if let Some(s2) = self.as_const(s2_id) {
+                        let tot = s + (s2 & 63);
+                        return if tot >= 64 {
+                            self.const_u64(0)
+                        } else {
+                            self.shr_const(inner, tot)
+                        };
+                    }
                 }
                 ExprNode::And(x, c_id) => {
                     if let Some(c) = self.as_const(c_id) {
@@ -1529,7 +1591,9 @@ impl ExprArena {
                 | ExprNode::XmmIn(_, _)
                 | ExprNode::StackBase
                 | ExprNode::AlignedBase(_)
-                | ExprNode::CallRet { .. } => {}
+                | ExprNode::CallRet { .. }
+                | ExprNode::EntryFlag(_)
+                | ExprNode::Cr8Read(_) => {}
                 ExprNode::Load { addr, .. } | ExprNode::Not(addr) | ExprNode::Neg(addr) | ExprNode::SExt { val: addr, .. } => {
                     stack.push(*addr);
                 }
@@ -1556,6 +1620,133 @@ impl ExprArena {
             }
         }
         false
+    }
+
+    /// Substitutes all occurrences of `from` with `to` inside `root`, rebuilding through simplifying constructors.
+    pub fn substitute(&mut self, root: ExprId, from: ExprId, to: ExprId) -> ExprId {
+        if from == to {
+            return root;
+        }
+        let mut memo = HashMap::new();
+        self.substitute_memo(root, from, to, &mut memo)
+    }
+
+    pub fn substitute_memo(
+        &mut self,
+        id: ExprId,
+        from: ExprId,
+        to: ExprId,
+        memo: &mut HashMap<ExprId, ExprId>,
+    ) -> ExprId {
+        if from == to || id == from {
+            return if id == from { to } else { id };
+        }
+        if let Some(&mapped) = memo.get(&id) {
+            return mapped;
+        }
+        if memo.len() >= 2048 {
+            return id;
+        }
+        let node = self.get(id).clone();
+        let res = match node {
+            ExprNode::Const(_)
+            | ExprNode::RegIn(_)
+            | ExprNode::XmmIn(_, _)
+            | ExprNode::StackBase
+            | ExprNode::AlignedBase(_)
+            | ExprNode::CallRet { .. }
+            | ExprNode::EntryFlag(_)
+            | ExprNode::Cr8Read(_)
+            | ExprNode::Opaque(_) => id,
+            ExprNode::Not(a) => {
+                let na = self.substitute_memo(a, from, to, memo);
+                if na == a { id } else { self.not(na) }
+            }
+            ExprNode::Neg(a) => {
+                let na = self.substitute_memo(a, from, to, memo);
+                if na == a { id } else { self.neg(na) }
+            }
+            ExprNode::SExt { val, from_bits } => {
+                let nv = self.substitute_memo(val, from, to, memo);
+                if nv == val { id } else { self.sext(nv, from_bits) }
+            }
+            ExprNode::Load { addr, width, mem_ver } => {
+                let na = self.substitute_memo(addr, from, to, memo);
+                if na == addr { id } else { self.load(na, width, mem_ver) }
+            }
+            ExprNode::Add(a, b) => {
+                let na = self.substitute_memo(a, from, to, memo);
+                let nb = self.substitute_memo(b, from, to, memo);
+                if na == a && nb == b { id } else { self.add(na, nb) }
+            }
+            ExprNode::Sub(a, b) => {
+                let na = self.substitute_memo(a, from, to, memo);
+                let nb = self.substitute_memo(b, from, to, memo);
+                if na == a && nb == b { id } else { self.sub(na, nb) }
+            }
+            ExprNode::Mul(a, b) => {
+                let na = self.substitute_memo(a, from, to, memo);
+                let nb = self.substitute_memo(b, from, to, memo);
+                if na == a && nb == b { id } else { self.mul(na, nb) }
+            }
+            ExprNode::And(a, b) => {
+                let na = self.substitute_memo(a, from, to, memo);
+                let nb = self.substitute_memo(b, from, to, memo);
+                if na == a && nb == b { id } else { self.and(na, nb) }
+            }
+            ExprNode::Or(a, b) => {
+                let na = self.substitute_memo(a, from, to, memo);
+                let nb = self.substitute_memo(b, from, to, memo);
+                if na == a && nb == b { id } else { self.or(na, nb) }
+            }
+            ExprNode::Xor(a, b) => {
+                let na = self.substitute_memo(a, from, to, memo);
+                let nb = self.substitute_memo(b, from, to, memo);
+                if na == a && nb == b { id } else { self.xor(na, nb) }
+            }
+            ExprNode::Shl(a, b) => {
+                let na = self.substitute_memo(a, from, to, memo);
+                let nb = self.substitute_memo(b, from, to, memo);
+                if na == a && nb == b { id } else { self.shl(na, nb) }
+            }
+            ExprNode::Shr(a, b) => {
+                let na = self.substitute_memo(a, from, to, memo);
+                let nb = self.substitute_memo(b, from, to, memo);
+                if na == a && nb == b { id } else { self.shr(na, nb) }
+            }
+            ExprNode::Sar(a, b) => {
+                let na = self.substitute_memo(a, from, to, memo);
+                let nb = self.substitute_memo(b, from, to, memo);
+                if na == a && nb == b { id } else { self.sar(na, nb) }
+            }
+            ExprNode::Rol(a, b) => {
+                let na = self.substitute_memo(a, from, to, memo);
+                let nb = self.substitute_memo(b, from, to, memo);
+                if na == a && nb == b { id } else { self.rol(na, nb) }
+            }
+            ExprNode::Ror(a, b) => {
+                let na = self.substitute_memo(a, from, to, memo);
+                let nb = self.substitute_memo(b, from, to, memo);
+                if na == a && nb == b { id } else { self.ror(na, nb) }
+            }
+            ExprNode::Cmp { pred, lhs, rhs } => {
+                let nl = self.substitute_memo(lhs, from, to, memo);
+                let nr = self.substitute_memo(rhs, from, to, memo);
+                if nl == lhs && nr == rhs { id } else { self.cmp(pred, nl, nr) }
+            }
+            ExprNode::Select { cond, if_true, if_false } => {
+                let nc = self.substitute_memo(cond, from, to, memo);
+                let nt = self.substitute_memo(if_true, from, to, memo);
+                let nf = self.substitute_memo(if_false, from, to, memo);
+                if nc == cond && nt == if_true && nf == if_false {
+                    id
+                } else {
+                    self.select(nc, nt, nf)
+                }
+            }
+        };
+        memo.insert(id, res);
+        res
     }
 }
 
@@ -1618,12 +1809,14 @@ impl SymStack {
 
         if byte_in_slot + (w as u32) <= 8 {
             let q = self.read_qword(arena, space, slot_off, mem_ver);
-            let shifted = if byte_in_slot == 0 {
-                q
+            let shift = (byte_in_slot * 8) as u64;
+            let slot_mask = width_mask(w) << shift;
+            let masked = arena.and_const(q, slot_mask);
+            return if shift == 0 {
+                masked
             } else {
-                arena.shr_const(q, (byte_in_slot * 8) as u64)
+                arena.shr_const(masked, shift)
             };
-            return arena.zext_mask(shifted, w);
         }
 
         // Cross-qword unaligned read: stitch low and high slices cleanly.
@@ -1873,5 +2066,64 @@ mod tests {
         let masked = a.and_const(s, 0xFFFF_FFFF);
         let shifted = a.add_const(masked, 0x1234);
         assert!(a.as_const(shifted).is_none());
+    }
+
+    #[test]
+    fn sym_stack_unaligned_byte_writes_on_aligned_scratch_do_not_leak_opaque() {
+        let mut a = ExprArena::default();
+        let mut stack = SymStack::new();
+        let rax = a.reg_in(ArchReg::Rax);
+        let rbx = a.reg_in(ArchReg::Rbx);
+        let rcx = a.reg_in(ArchReg::Rcx);
+        let c1 = a.const_u64(1);
+        let c2 = a.const_u64(2);
+        let c3 = a.const_u64(3);
+        let b0 = a.cmp(CondPred::Eq, rax, c1);
+        let b1 = a.cmp(CondPred::Eq, rbx, c2);
+        let b2 = a.cmp(CondPred::Eq, rcx, c3);
+
+        let sp = StackSpace::AlignedScratch(0);
+        stack.write_scalar(&mut a, sp, -9, 1, b0, 0);
+        stack.write_scalar(&mut a, sp, -11, 1, b1, 0);
+        stack.write_scalar(&mut a, sp, -10, 1, b2, 0);
+
+        for (off, expected) in [(-9, b0), (-11, b1), (-10, b2)] {
+            let v = stack.read_scalar(&mut a, sp, off, 1, 0);
+            assert!(!a.contains_opaque(v), "slot {off} leaked Opaque: {:?}", a.get(v));
+            assert_eq!(a.known_bits(v).0 & !1u64, !1u64);
+            assert_eq!(v, expected);
+        }
+
+        // Verify substitute collapses boolean-guarded polynomial cleanly
+        let delta = a.const_u64(0x100);
+        let prod = a.mul(b0, delta);
+        let expr = a.add_const(prod, 0x4000);
+        let zero = a.const_u64(0);
+        let one = a.const_u64(1);
+        let s0 = a.substitute(expr, b0, zero);
+        assert_eq!(a.as_const(s0), Some(0x4000));
+        let s1 = a.substitute(expr, b0, one);
+        assert_eq!(a.as_const(s1), Some(0x4100));
+    }
+
+    #[test]
+    fn sym_stack_unaligned_all_offsets_round_trip_without_leak() {
+        for rem in 1i64..8 {
+            let mut a = ExprArena::default();
+            let xmm12 = a.xmm_in(12, false);
+            let samples = [
+                a.const_u64(0x140002B67),
+                a.stack_base(),
+                a.reg_in(ArchReg::Rcx),
+                a.xmm_in(3, false),
+            ];
+            for &val in &samples {
+                let mut stack = SymStack::new();
+                stack.write_scalar(&mut a, StackSpace::CallerStack, -0x10, 8, xmm12, 0);
+                stack.write_scalar(&mut a, StackSpace::CallerStack, -0x18 + rem, 8, val, 0);
+                let got = stack.read_scalar(&mut a, StackSpace::CallerStack, -0x18 + rem, 8, 0);
+                assert_eq!(got, val, "unaligned offset rem={rem} failed round-trip: {:?}", a.get(got));
+            }
+        }
     }
 }

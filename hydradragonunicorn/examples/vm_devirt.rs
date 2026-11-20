@@ -28,14 +28,16 @@ fn kind_label(kind: SectionVmKind) -> &'static str {
 
 fn print_usage(prog: &str) {
     eprintln!(
-        "Usage: {prog} <pe_path> [start_rva_hex] [max_insns] [--dump <out_path>] [--devirt-pe <out_path>] [--max-entries <N>]"
+        "Usage: {prog} <pe_path> [start_rva_hex] [max_insns] [--dump <out_path>] [--devirt-pe <out_path>] [--max-entries <N>] [--diagnose-bailouts]"
     );
 }
 
-fn run_binary_devirt(pe_bytes: &[u8], out_path: &str, max_entries: usize) {
-    println!("\n=== Binary-Wide Symbolic CFG Devirtualization -> {out_path} ===");
+fn run_binary_devirt(pe_bytes: &[u8], out_path: Option<&str>, max_entries: usize, diagnose_bailouts: bool) {
+    let label = out_path.unwrap_or("<diagnostics-only>");
+    println!("\n=== Binary-Wide Symbolic CFG Devirtualization -> {label} ===");
     let dcfg = BinaryDevirtConfig {
         max_entries,
+        collect_diagnostics: diagnose_bailouts,
         ..BinaryDevirtConfig::default()
     };
     let (devirt_pe, rep) = match devirtualize_pe_bytes(pe_bytes, dcfg) {
@@ -46,9 +48,11 @@ fn run_binary_devirt(pe_bytes: &[u8], out_path: &str, max_entries: usize) {
         }
     };
 
-    if let Err(e) = fs::write(out_path, &devirt_pe) {
-        eprintln!("Failed to write devirtualized PE {out_path}: {e}");
-        process::exit(1);
+    if let Some(p) = out_path {
+        if let Err(e) = fs::write(p, &devirt_pe) {
+            eprintln!("Failed to write devirtualized PE {p}: {e}");
+            process::exit(1);
+        }
     }
 
     println!(
@@ -88,6 +92,23 @@ fn run_binary_devirt(pe_bytes: &[u8], out_path: &str, max_entries: usize) {
         println!("\nTop bailout reasons:");
         for (reason, count) in rep.bailout_reasons.iter().take(15) {
             println!("  {count:5}x  {reason}");
+        }
+    }
+
+    if diagnose_bailouts {
+        println!("\n--- Diagnostic: Bailouts by entry kind (top 25) ---");
+        for (kind, reason, count) in rep.bailouts_by_kind.iter().take(25) {
+            println!("  {count:5}x  [{kind:?}]  {reason}");
+        }
+
+        println!("\n--- Diagnostic: Indirect-jmp IP clusters (top 25) ---");
+        for (kind, ip, tag, count) in rep.indirect_jmp_ip_clusters.iter().take(25) {
+            println!("  {count:5}x  [{kind:?}] @ {ip:#x}  {tag}");
+        }
+
+        println!("\n--- Diagnostic: Bailout samples (up to 35) ---");
+        for (kind, patch_rva, bip, reason, detail) in rep.bailout_samples.iter().take(35) {
+            println!("  [{kind:?}] patch_rva={patch_rva:#x} @ {bip:#x} [{reason}] => {detail}");
         }
     }
 
@@ -147,6 +168,7 @@ fn main() {
     let mut dump_path: Option<String> = None;
     let mut devirt_pe_path: Option<String> = None;
     let mut max_entries: usize = usize::MAX;
+    let mut diagnose_bailouts = false;
     let mut positional: Vec<String> = Vec::new();
     let mut i = 1;
     while i < args.len() {
@@ -177,6 +199,9 @@ fn main() {
                     process::exit(2);
                 };
                 max_entries = val;
+            }
+            "--diagnose-bailouts" => {
+                diagnose_bailouts = true;
             }
             _ => positional.push(args[i].clone()),
         }
@@ -233,7 +258,9 @@ fn main() {
         }
     }
 
-    let only_binary_devirt = devirt_pe_path.is_some() && dump_path.is_none() && rva_override.is_none();
+    let only_binary_devirt = (devirt_pe_path.is_some() || diagnose_bailouts)
+        && dump_path.is_none()
+        && rva_override.is_none();
     if !only_binary_devirt {
         let sample = match Sample::from_bytes(&bytes) {
             Ok(s) => s,
@@ -347,12 +374,12 @@ fn main() {
         }
     }
 
-    if let Some(out_devirt) = devirt_pe_path.as_deref() {
+    if devirt_pe_path.is_some() || diagnose_bailouts {
         let input_for_devirt = if let Some(dp) = dump_path.as_deref() {
             fs::read(dp).unwrap_or(bytes)
         } else {
             bytes
         };
-        run_binary_devirt(&input_for_devirt, out_devirt, max_entries);
+        run_binary_devirt(&input_for_devirt, devirt_pe_path.as_deref(), max_entries, diagnose_bailouts);
     }
 }
