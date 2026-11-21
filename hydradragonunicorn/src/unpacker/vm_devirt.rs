@@ -4410,34 +4410,36 @@ pub fn lift_vm_entry_cfg(
                             cr8_ver_after: state.cr8_ver,
                         });
                     } else {
+                        // An operand it does not model (a control or debug register, ...):
+                        // nothing is changed yet, so the original runs this instruction.
                         let Some(val) = read_operand(view, &mut state, &mut arena, &ins, next_ip, 1) else {
-                            break IrTerm::Bailout("mov_src".into());
+                            break exit_to_vm_or_bailout(cfg, &state, &mut arena, view, cur_ip, "mov_src".into());
                         };
                         if !write_operand(&mut state, &mut arena, &mut effects, view.bitness, &ins, next_ip, 0, val) {
-                            break IrTerm::Bailout("mov_dst".into());
+                            break exit_to_vm_or_bailout(cfg, &state, &mut arena, view, cur_ip, "mov_dst".into());
                         }
                     }
                 }
                 Mnemonic::Movzx => {
                     let src_w = op_width_bytes(&ins, view.bitness, 1);
                     let Some(val) = read_operand(view, &mut state, &mut arena, &ins, next_ip, 1) else {
-                        break IrTerm::Bailout("movzx_src".into());
+                        break exit_to_vm_or_bailout(cfg, &state, &mut arena, view, cur_ip, "movzx_src".into());
                     };
                     let masked = arena.zext_mask(val, src_w);
                     if !write_operand(&mut state, &mut arena, &mut effects, view.bitness, &ins, next_ip, 0, masked) {
-                        break IrTerm::Bailout("movzx_dst".into());
+                        break exit_to_vm_or_bailout(cfg, &state, &mut arena, view, cur_ip, "movzx_dst".into());
                     }
                 }
                 Mnemonic::Movsx | Mnemonic::Movsxd => {
                     let src_w = op_width_bytes(&ins, view.bitness, 1);
                     let dst_w = op_width_bytes(&ins, view.bitness, 0);
                     let Some(val) = read_operand(view, &mut state, &mut arena, &ins, next_ip, 1) else {
-                        break IrTerm::Bailout("movsx_src".into());
+                        break exit_to_vm_or_bailout(cfg, &state, &mut arena, view, cur_ip, "movsx_src".into());
                     };
                     let ext = arena.sext(val, src_w * 8);
                     let final_v = arena.zext_mask(ext, dst_w);
                     if !write_operand(&mut state, &mut arena, &mut effects, view.bitness, &ins, next_ip, 0, final_v) {
-                        break IrTerm::Bailout("movsx_dst".into());
+                        break exit_to_vm_or_bailout(cfg, &state, &mut arena, view, cur_ip, "movsx_dst".into());
                     }
                 }
                 Mnemonic::Cdqe => {
@@ -11773,6 +11775,46 @@ mod tests {
         ] {
             let want = run(&orig_pe, c, lock_word, counter, bits);
             assert_eq!(run(&devirt_pe, c, lock_word, counter, bits), want, "{c:#x} {lock_word:#x} {counter:#x} {bits:#x}");
+        }
+    }
+
+    #[test]
+    fn mov_with_an_unmodelled_register_exits_back_to_vm_e2e() {
+        use gpr64::*;
+        use iced_x86::code_asm::registers::segment::ds;
+        let base = 0x1_4000_0000u64;
+        let mut text_sec = vec![0xCCu8; 0x200];
+        let fn0 = assemble_at(64, base + 0x1000, |a| a.jmp(base + 0x2000));
+        text_sec[..fn0.len()].copy_from_slice(&fn0);
+        let exit_ret = assemble_at(64, base + 0x1040, |a| a.ret());
+        text_sec[0x40..0x40 + exit_ret.len()].copy_from_slice(&exit_ret);
+        let mut vmp_sec = vec![0xCCu8; 0x400];
+        // A segment register read mid-way (a control register in a driver): the
+        // original runs it and the rest.
+        let stub = assemble_at(64, base + 0x2000, |a| {
+            a.push(rbx)?;
+            a.push(rbp)?;
+            a.mov(rax, rcx)?;
+            for k in 0..40i32 {
+                a.add(rax, k + 3)?;
+                a.sub(rax, k + 3)?;
+            }
+            a.add(rax, rdx)?;
+            a.mov(gpr16::r9w, ds)?;
+            a.movzx(gpr32::r9d, gpr16::r9w)?;
+            a.add(rax, r9)?;
+            a.pop(rbp)?;
+            a.pop(rbx)?;
+            a.jmp(base + 0x1040)
+        });
+        vmp_sec[..stub.len()].copy_from_slice(&stub);
+        let orig_pe = build_two_exec_pe64(&text_sec, &vmp_sec, 0x1000);
+        let (devirt_pe, report) = devirtualize_pe_bytes(&orig_pe, BinaryDevirtConfig::default()).unwrap();
+        assert_eq!(report.devirtualized_total, 1, "bailouts: {:?}", report.bailout_reasons);
+        assert_eq!(report.hybrid_vm_exits, 1);
+        for (c, d) in [(5u64, 7u64), (u64::MAX, 2)] {
+            let want = run_with_flags(&orig_pe, base + 0x1000, c, d, 0, 0);
+            assert_eq!(run_with_flags(&devirt_pe, base + 0x1000, c, d, 0, 0), want);
         }
     }
 
