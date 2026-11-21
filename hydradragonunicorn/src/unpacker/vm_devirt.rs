@@ -1864,6 +1864,12 @@ fn composed_rflags(state: &SymState, arena: &mut ExprArena) -> Option<ExprId> {
         }
         return Some(*v);
     }
+    if let FlagState::Rflags(v) = &state.flags {
+        if !state.system_flags_changed {
+            return Some(*v);
+        }
+        return None;
+    }
     let sys_base = if !state.system_flags_changed {
         arena.entry_rflags()
     } else if let Some(sr) = state.system_rflags {
@@ -1871,25 +1877,12 @@ fn composed_rflags(state: &SymState, arena: &mut ExprArena) -> Option<ExprId> {
     } else {
         return None;
     };
-    const STATUS: u64 = 0x8D5; // CF PF AF ZF SF OF
     match &state.flags {
         FlagState::Entry => {
             if !state.system_flags_changed {
                 Some(arena.entry_rflags())
             } else {
-                let entry_st = arena.entry_rflags();
-                let st_bits = arena.and_const(entry_st, STATUS);
-                let sys_bits = arena.and_const(sys_base, !STATUS);
-                Some(arena.or(sys_bits, st_bits))
-            }
-        }
-        FlagState::Rflags(v) => {
-            if !state.system_flags_changed {
-                Some(*v)
-            } else {
-                let st_bits = arena.and_const(*v, STATUS);
-                let sys_bits = arena.and_const(sys_base, !STATUS);
-                Some(arena.or(sys_bits, st_bits))
+                None
             }
         }
         FlagState::TestBitwise { val, width } => {
@@ -3398,8 +3391,7 @@ struct StateDedupKey {
     xmms: [(ExprId, ExprId); 16],
     stack_slots: Vec<((StackSpace, i64), ExprId)>,
     flags: FlagState,
-    saved_rflags: Vec<(ExprId, FlagState, bool, Option<ExprId>)>,
-    known_rflags_bits: Option<(ExprId, u64, u64)>,
+    saved_rflags: Vec<ExprId>,
     cum_rsp_offset: i64,
     inline_depth: usize,
     entry_flags_clobbered: bool,
@@ -3443,8 +3435,7 @@ fn make_state_dedup_key(s: &SymState) -> StateDedupKey {
         xmms: s.xmms,
         stack_slots,
         flags: s.flags.clone(),
-        saved_rflags: s.saved_rflags.clone(),
-        known_rflags_bits: s.known_rflags_bits,
+        saved_rflags: s.saved_rflags.iter().map(|&(r, _, _, _)| r).collect(),
         cum_rsp_offset: s.cum_rsp_offset,
         inline_depth: s.inline_depth,
         entry_flags_clobbered: s.entry_flags_clobbered,
@@ -4811,28 +4802,15 @@ fn lift_vm_entry_cfg_inner(
                     }
                 }
                 Mnemonic::Cld => {
-                    let base = if !state.system_flags_changed {
-                        Some(arena.entry_rflags())
-                    } else {
-                        state.system_rflags
-                    };
                     state.system_flags_changed = true;
-                    state.system_rflags = base.map(|b| arena.and_const(b, !0x400u64));
+                    state.system_rflags = None;
                     if let FlagState::PoppedRflags(v) = state.flags {
                         state.flags = FlagState::PoppedRflags(arena.and_const(v, !0x400u64));
                     }
                 }
                 Mnemonic::Std => {
-                    let base = if !state.system_flags_changed {
-                        Some(arena.entry_rflags())
-                    } else {
-                        state.system_rflags
-                    };
                     state.system_flags_changed = true;
-                    state.system_rflags = base.map(|b| {
-                        let df = arena.const_u64(0x400u64);
-                        arena.or(b, df)
-                    });
+                    state.system_rflags = None;
                     if let FlagState::PoppedRflags(v) = state.flags {
                         let df = arena.const_u64(0x400u64);
                         state.flags = FlagState::PoppedRflags(arena.or(v, df));
@@ -5064,7 +5042,9 @@ fn lift_vm_entry_cfg_inner(
                         .find(|(id, _, _, _)| *id == val)
                         .map(|(_, fl, sys_ch, sys_rf)| (fl.clone(), *sys_ch, *sys_rf));
                     // A value this frame pushed (or its entry RFLAGS) keeps its system bits;
-                    // anything else sets `system_rflags` to the popped word if clean & canonical.
+                    // anything else sets `system_rflags` to the popped word if it is a direct
+                    // caller-stack slot or canonical constant and the entry is still on its
+                    // initial straight-line block (`blocks.len() == 1`).
                     if *arena.get(val) == ExprNode::EntryRflags {
                         state.system_flags_changed = false;
                         state.system_rflags = None;
@@ -5073,10 +5053,18 @@ fn lift_vm_entry_cfg_inner(
                         state.system_rflags = sys_rf;
                     } else {
                         state.system_flags_changed = true;
-                        let is_noncanon_const = arena
-                            .as_const(val)
-                            .is_some_and(|c| (c & !0x0024_4DD5u64) != 0x202u64);
-                        if view.bitness == 64 && !arena.contains_opaque(val) && !is_noncanon_const {
+                        let is_clean_sys_base = blocks.len() == 1
+                            && match arena.get(val) {
+                                ExprNode::Const(c) => (*c & !0x0024_4DD5u64) == 0x202u64,
+                                ExprNode::EntryRflags | ExprNode::RegIn(_) => true,
+                                ExprNode::Load { addr, .. } => {
+                                    arena.as_stack_offset(*addr).is_some_and(|(sp, off)| {
+                                        sp == StackSpace::CallerStack && off >= 0
+                                    })
+                                }
+                                _ => false,
+                            };
+                        if view.bitness == 64 && is_clean_sys_base {
                             state.system_rflags = Some(val);
                         } else {
                             state.system_rflags = None;
@@ -9666,6 +9654,10 @@ pub fn devirtualize_pe_bytes(
 
     // Re-assemble all sound stubs cleanly into one shared `.devirt` section so internal jumps stay compact
     let mut out_pe = working_pe.to_vec();
+    if unpacked_owned.is_some() {
+        let (_dos, _pe, opt, _secs) = parse_pe_bytes(&out_pe)?;
+        imagedump::fix_sections(&mut out_pe, opt.section_alignment)?;
+    }
     let mut devirt_section_rva = None;
     let mut devirt_section_size = 0usize;
     let mut patched_sites = Vec::new();
