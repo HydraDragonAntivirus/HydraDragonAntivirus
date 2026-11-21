@@ -28,7 +28,7 @@ fn kind_label(kind: SectionVmKind) -> &'static str {
 
 fn print_usage(prog: &str) {
     eprintln!(
-        "Usage: {prog} <pe_path> [start_rva_hex] [max_insns] [--dump <out_path>] [--devirt-pe <out_path>] [--max-entries <N>] [--max-blocks <N>] [--max-entry-insns <N>] [--diagnose-bailouts]"
+        "Usage: {prog} <pe_path> [start_rva_hex] [max_insns] [--dump <out_path>] [--devirt-pe <out_path>] [--max-entries <N>] [--max-blocks <N>] [--max-entry-insns <N>] [--max-code-growth <N>] [--min-vm-insns <N>] [--diagnose-bailouts]"
     );
 }
 
@@ -39,6 +39,8 @@ fn run_binary_devirt(
     diagnose_bailouts: bool,
     max_blocks: Option<usize>,
     max_entry_insns: Option<usize>,
+    max_code_growth: Option<usize>,
+    min_vm_insns: Option<usize>,
 ) {
     let label = out_path.unwrap_or("<diagnostics-only>");
     println!("\n=== Binary-Wide Symbolic CFG Devirtualization -> {label} ===");
@@ -48,11 +50,13 @@ fn run_binary_devirt(
         collect_diagnostics: diagnose_bailouts,
         max_blocks_per_entry: max_blocks.unwrap_or(defaults.max_blocks_per_entry),
         max_total_insns_per_entry: max_entry_insns.unwrap_or(defaults.max_total_insns_per_entry),
+        max_code_growth_percent: max_code_growth.unwrap_or(defaults.max_code_growth_percent),
+        min_vm_insns_replaced: min_vm_insns.unwrap_or(defaults.min_vm_insns_replaced),
         ..defaults
     };
     println!(
-        "Limits: max_blocks_per_entry={} max_total_insns_per_entry={}",
-        dcfg.max_blocks_per_entry, dcfg.max_total_insns_per_entry
+        "Limits: max_blocks_per_entry={} max_total_insns_per_entry={} max_code_growth_percent={} min_vm_insns_replaced={}",
+        dcfg.max_blocks_per_entry, dcfg.max_total_insns_per_entry, dcfg.max_code_growth_percent, dcfg.min_vm_insns_replaced
     );
     let (devirt_pe, rep) = match devirtualize_pe_bytes(pe_bytes, dcfg) {
         Ok(r) => r,
@@ -186,6 +190,8 @@ fn main() {
     let mut diagnose_bailouts = false;
     let mut max_blocks: Option<usize> = None;
     let mut max_entry_insns: Option<usize> = None;
+    let mut max_code_growth: Option<usize> = None;
+    let mut min_vm_insns: Option<usize> = None;
     let mut positional: Vec<String> = Vec::new();
     let mut i = 1;
     while i < args.len() {
@@ -220,7 +226,7 @@ fn main() {
             "--diagnose-bailouts" => {
                 diagnose_bailouts = true;
             }
-            "--max-blocks" | "--max-entry-insns" => {
+            "--max-blocks" | "--max-entry-insns" | "--max-code-growth" | "--min-vm-insns" => {
                 let flag = args[i].clone();
                 i += 1;
                 let Some(val) = args.get(i).and_then(|v| v.parse::<usize>().ok()) else {
@@ -228,10 +234,11 @@ fn main() {
                     print_usage(prog);
                     process::exit(2);
                 };
-                if flag == "--max-blocks" {
-                    max_blocks = Some(val);
-                } else {
-                    max_entry_insns = Some(val);
+                match flag.as_str() {
+                    "--max-blocks" => max_blocks = Some(val),
+                    "--max-entry-insns" => max_entry_insns = Some(val),
+                    "--max-code-growth" => max_code_growth = Some(val),
+                    _ => min_vm_insns = Some(val),
                 }
             }
             _ => positional.push(args[i].clone()),
@@ -256,8 +263,28 @@ fn main() {
         }
     };
 
+    let static_pe_owned: Option<Vec<u8>> = if !bytes.is_empty() && vmpunpacker::detect(&bytes) {
+        match vmpunpacker::unpack(&bytes) {
+            Ok(unpacked) => {
+                println!(
+                    "[vmpunpacker] Statically unpacked VMProtect LZMA image in memory: {} -> {} bytes",
+                    bytes.len(),
+                    unpacked.len()
+                );
+                Some(unpacked)
+            }
+            Err(e) => {
+                eprintln!("[vmpunpacker] static unpack failed, classifying packed image: {e}");
+                None
+            }
+        }
+    } else {
+        None
+    };
+    let static_bytes = static_pe_owned.as_deref().unwrap_or(&bytes);
+
     println!("=== Static VM / Mutation Classification: {path} ===");
-    match detect_vm_sections(&bytes) {
+    match detect_vm_sections(static_bytes) {
         Ok(prof) => {
             println!(
                 "Arch: {} | Executable sections: {} | Max VM score: {:.2} | Virtualized: {} | Mutated: {}",
@@ -418,6 +445,8 @@ fn main() {
             diagnose_bailouts,
             max_blocks,
             max_entry_insns,
+            max_code_growth,
+            min_vm_insns,
         );
     }
 }

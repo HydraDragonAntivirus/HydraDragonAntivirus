@@ -73,7 +73,7 @@ impl Default for BinaryDevirtConfig {
             max_blocks_per_entry: 64,
             max_insns_per_block: 4_000,
             max_total_insns_per_entry: 25_000,
-            max_inline_depth: 8,
+            max_inline_depth: 512,
             include_trampolines: true,
             include_vmenters: true,
             extra_entry_rvas: Vec::new(),
@@ -216,24 +216,42 @@ impl PeImageView {
         let vm_prof = detect_vm_sections(pe_bytes)?;
         let exec_count = vm_prof.executable_sections.len();
 
-        // Pick primary host section: prefer section containing OEP, else `.text`/`.code`
-        let primary_va = raw_secs
+        // Pick primary host section: use the OEP section if it is `.text`/`.code` or
+        // classified Normal; otherwise (e.g. VMProtect OEP redirected into a VM/packer
+        // section), prefer an executable `.text`/`.code` section with raw data.
+        let oep_sec = raw_secs.iter().find(|s| {
+            (s.characteristics & 0x2000_0000) != 0
+                && opt.address_of_entry_point >= s.virtual_address
+                && opt.address_of_entry_point
+                    < s.virtual_address.saturating_add(s.virtual_size.max(s.size_of_raw_data))
+        });
+        let oep_prof_kind = oep_sec.and_then(|s| {
+            vm_prof
+                .executable_sections
+                .iter()
+                .find(|v| v.virtual_address == s.virtual_address)
+                .map(|v| v.kind)
+        });
+        let text_sec_va = vm_prof
+            .executable_sections
             .iter()
             .find(|s| {
-                (s.characteristics & 0x2000_0000) != 0
-                    && opt.address_of_entry_point >= s.virtual_address
-                    && opt.address_of_entry_point
-                        < s.virtual_address.saturating_add(s.virtual_size.max(s.size_of_raw_data))
+                s.raw_size > 0
+                    && (s.name.eq_ignore_ascii_case(".text") || s.name.eq_ignore_ascii_case(".code"))
             })
-            .map(|s| s.virtual_address)
-            .or_else(|| {
-                vm_prof
-                    .executable_sections
-                    .iter()
-                    .find(|s| s.name.eq_ignore_ascii_case(".text") || s.name.eq_ignore_ascii_case(".code"))
-                    .map(|s| s.virtual_address)
-            })
-            .or_else(|| vm_prof.executable_sections.first().map(|s| s.virtual_address));
+            .map(|s| s.virtual_address);
+        let primary_va = match oep_sec {
+            Some(s)
+                if s.name.trim().eq_ignore_ascii_case(".text")
+                    || s.name.trim().eq_ignore_ascii_case(".code")
+                    || oep_prof_kind == Some(SectionVmKind::Normal) =>
+            {
+                Some(s.virtual_address)
+            }
+            _ => text_sec_va
+                .or_else(|| oep_sec.map(|s| s.virtual_address))
+                .or_else(|| vm_prof.executable_sections.first().map(|s| s.virtual_address)),
+        };
 
         let mut total_vm_section_bytes = 0usize;
         let sections: Vec<SectionMeta> = raw_secs
@@ -347,6 +365,11 @@ impl PeImageView {
     }
 
     #[inline]
+    pub fn is_in_primary_host(&self, va: u64) -> bool {
+        self.section_at_va(va).is_some_and(|s| s.is_primary_host)
+    }
+
+    #[inline]
     pub fn is_executable_va(&self, va: u64) -> bool {
         self.section_at_va(va).is_some_and(|s| s.is_exec)
     }
@@ -371,6 +394,22 @@ impl PeImageView {
         } else {
             None
         }
+    }
+
+    pub fn add_mutable_ro_va(&mut self, va: u64, len: u32) -> bool {
+        let Some(rva) = self.va_to_rva(va).and_then(|r| u32::try_from(r).ok()) else {
+            return false;
+        };
+        let end = rva.saturating_add(len);
+        if self
+            .mutable_ro_ranges
+            .iter()
+            .any(|&(lo, hi)| lo <= rva && hi >= end)
+        {
+            return false;
+        }
+        self.mutable_ro_ranges.push((rva, end));
+        true
     }
 
     pub fn read_exec_slice(&self, va: u64, max_len: usize) -> Option<&[u8]> {
@@ -441,8 +480,9 @@ enum StubClassify {
 fn classify_vm_target(view: &PeImageView, target_va: u64) -> StubClassify {
     let mut va = target_va;
     let mut visited = HashSet::new();
-    let mut insns = Vec::with_capacity(24);
-    for _ in 0..24 {
+    let mut insns = Vec::with_capacity(40);
+    let mut in_vm_calls = 0usize;
+    for _ in 0..40 {
         if !visited.insert(va) {
             break;
         }
@@ -455,7 +495,19 @@ fn classify_vm_target(view: &PeImageView, target_va: u64) -> StubClassify {
         match flow {
             FlowControl::UnconditionalBranch => {
                 let t = ins.near_branch_target();
-                if t != 0 && view.is_in_vm_section(t) && insns.len() < 16 {
+                if t != 0 && view.is_in_vm_section(t) && insns.len() < 32 {
+                    va = t;
+                    continue;
+                }
+                if t != 0 && view.is_in_primary_host(t) && insns.len() <= 16 {
+                    return StubClassify::Trampoline;
+                }
+                break;
+            }
+            FlowControl::Call => {
+                let t = ins.near_branch_target();
+                if t != 0 && view.is_in_vm_section(t) && insns.len() < 32 {
+                    in_vm_calls += 1;
                     va = t;
                     continue;
                 }
@@ -465,13 +517,13 @@ fn classify_vm_target(view: &PeImageView, target_va: u64) -> StubClassify {
                 va = next_va;
             }
             FlowControl::IndirectBranch => {
-                if insns.len() <= 14 && is_short_trampoline_sequence(&insns) {
+                if insns.len() <= 14 && in_vm_calls == 0 && is_short_trampoline_sequence(&insns) {
                     return StubClassify::Trampoline;
                 }
                 return StubClassify::VmEnter;
             }
             FlowControl::Return if insns.len() <= 8 => {
-                if insns.iter().any(|i| i.mnemonic() == Mnemonic::Push) {
+                if in_vm_calls == 0 && insns.iter().any(|i| i.mnemonic() == Mnemonic::Push) {
                     return StubClassify::Trampoline;
                 }
                 return StubClassify::VmEnter;
@@ -480,10 +532,8 @@ fn classify_vm_target(view: &PeImageView, target_va: u64) -> StubClassify {
         }
     }
 
-    if let Some(first) = insns.first() {
-        if looks_like_vmenter_prologue(first, &insns) {
-            return StubClassify::VmEnter;
-        }
+    if !insns.is_empty() && looks_like_vmenter_prologue(&insns, in_vm_calls) {
+        return StubClassify::VmEnter;
     }
     StubClassify::Unknown
 }
@@ -496,16 +546,31 @@ fn is_short_trampoline_sequence(insns: &[Instruction]) -> bool {
     !has_big_alloc && insns.len() <= 12
 }
 
-fn looks_like_vmenter_prologue(first: &Instruction, insns: &[Instruction]) -> bool {
-    if (first.mnemonic() == Mnemonic::Lea || first.mnemonic() == Mnemonic::Sub)
-        && matches!(first.op0_register(), Register::RSP | Register::ESP)
+fn looks_like_vmenter_prologue(insns: &[Instruction], in_vm_calls: usize) -> bool {
+    if insns.iter().any(|i| {
+        ((i.mnemonic() == Mnemonic::Lea || i.mnemonic() == Mnemonic::Sub)
+            && matches!(i.op0_register(), Register::RSP | Register::ESP))
+            || matches!(
+                i.mnemonic(),
+                Mnemonic::Pushfq | Mnemonic::Pushfd | Mnemonic::Pushad
+            )
+    }) {
+        return true;
+    }
+    if insns.iter().filter(|i| i.mnemonic() == Mnemonic::Push).count() >= 2 {
+        return true;
+    }
+    if in_vm_calls >= 1
+        && insns.iter().any(|i| {
+            matches!(i.mnemonic(), Mnemonic::Push | Mnemonic::Pop)
+                || (i.mnemonic() == Mnemonic::Xchg
+                    && (i.op0_kind() == OpKind::Memory || i.op1_kind() == OpKind::Memory))
+                || (matches!(
+                    i.mnemonic(),
+                    Mnemonic::Add | Mnemonic::Sub | Mnemonic::Lea | Mnemonic::Mov
+                ) && matches!(i.op0_register(), Register::RSP | Register::ESP))
+        })
     {
-        return true;
-    }
-    if first.mnemonic() == Mnemonic::Pushfq || first.mnemonic() == Mnemonic::Pushfd || first.mnemonic() == Mnemonic::Pushad {
-        return true;
-    }
-    if first.mnemonic() == Mnemonic::Push && insns.iter().filter(|i| i.mnemonic() == Mnemonic::Push).count() >= 2 {
         return true;
     }
     false
@@ -922,6 +987,13 @@ pub enum IrTerm {
         final_xmms: [(ExprId, ExprId); 16],
         pending_caller_stores: Vec<(i64, ExprId)>,
     },
+    ExitComputedJmp {
+        target: ExprId,
+        rsp_delta: i64,
+        final_regs: [ExprId; 16],
+        final_xmms: [(ExprId, ExprId); 16],
+        pending_caller_stores: Vec<(i64, ExprId)>,
+    },
     /// Hand control back to the original code at `va` with the state the original
     /// had there: every register, the written stack slots (the VM's aligned frame
     /// included, see `VmExit`), RSP and - when the code at `va` can read them - the
@@ -1024,6 +1096,7 @@ pub struct LiftedFunction {
     pub raw_vm_insns: usize,
     pub opaque_branches_folded: usize,
     pub visited_byte_addrs: HashSet<u64>,
+    pub folded_vm_qword_addrs: Vec<u64>,
     pub first_bailout: Option<String>,
     pub bailout_detail: Option<(u64, String)>,
 }
@@ -1323,16 +1396,18 @@ fn entry_cc_to_u8(cc: ConditionCode) -> Option<u8> {
         ConditionCode::g => Some(11),
         ConditionCode::o => Some(12),
         ConditionCode::no => Some(13),
+        ConditionCode::p => Some(14),
+        ConditionCode::np => Some(15),
         _ => None,
     }
 }
 
 fn as_direct_entry_flag(arena: &ExprArena, id: ExprId) -> Option<u8> {
     match arena.get(id) {
-        ExprNode::EntryFlag(c) if *c <= 13 => Some(*c),
+        ExprNode::EntryFlag(c) if *c <= 15 => Some(*c),
         ExprNode::Cmp { pred: CondPred::Ne, lhs, rhs } if arena.as_const(*rhs) == Some(0) => {
             if let ExprNode::EntryFlag(c) = arena.get(*lhs) {
-                if *c <= 13 {
+                if *c <= 15 {
                     return Some(*c);
                 }
             }
@@ -1340,7 +1415,7 @@ fn as_direct_entry_flag(arena: &ExprArena, id: ExprId) -> Option<u8> {
         }
         ExprNode::Cmp { pred: CondPred::Eq, lhs, rhs } if arena.as_const(*rhs) == Some(0) => {
             if let ExprNode::EntryFlag(c) = arena.get(*lhs) {
-                if *c <= 13 {
+                if *c <= 15 {
                     return Some(*c ^ 1);
                 }
             }
@@ -1348,7 +1423,7 @@ fn as_direct_entry_flag(arena: &ExprArena, id: ExprId) -> Option<u8> {
         }
         ExprNode::Xor(a, b) if arena.as_const(*b) == Some(1) => {
             if let ExprNode::EntryFlag(c) = arena.get(*a) {
-                if *c <= 13 {
+                if *c <= 15 {
                     return Some(*c ^ 1);
                 }
             }
@@ -1369,6 +1444,10 @@ enum FlagState {
     /// The flags are the bits of this RFLAGS value (captured at run time after an
     /// atomic operation: `ExprNode::EffectOut`).
     Rflags(ExprId),
+    /// Full RFLAGS word restored via `popfq` from a non-frame-saved value (e.g. a
+    /// caller-saved RFLAGS stack slot). Carries its own system bits (unlike `Rflags`,
+    /// which comes from an in-stub `EffectOut` inheriting the frame's entry system bits).
+    PoppedRflags(ExprId),
     CarryExpr(ExprId),
 }
 
@@ -1401,6 +1480,7 @@ struct SymState {
     inline_depth: usize,
     cum_rsp_offset: i64,
     entry_caller_slot_versions: HashMap<i64, ExprId>,
+    folded_vm_qword_addrs: HashSet<u64>,
 }
 
 impl SymState {
@@ -1443,6 +1523,7 @@ impl SymState {
                 inline_depth: 0,
                 cum_rsp_offset: 0,
                 entry_caller_slot_versions,
+                folded_vm_qword_addrs: HashSet::new(),
             };
         }
         Self {
@@ -1464,6 +1545,7 @@ impl SymState {
             inline_depth: 0,
             cum_rsp_offset: 0,
             entry_caller_slot_versions,
+            folded_vm_qword_addrs: HashSet::new(),
         }
     }
 
@@ -1527,6 +1609,11 @@ impl SymState {
                         let pred = if cc == ConditionCode::o { CondPred::Ne } else { CondPred::Eq };
                         Some(arena.cmp(pred, ov, zero))
                     }
+                    ConditionCode::p | ConditionCode::np => {
+                        let diff = arena.sub(la, rb);
+                        let pf = parity_flag(arena, diff);
+                        Some(if cc == ConditionCode::p { pf } else { arena.xor_const(pf, 1) })
+                    }
                     _ => None,
                 }
             }
@@ -1547,6 +1634,10 @@ impl SymState {
                     ConditionCode::g => Some(arena.cmp(CondPred::Sgt, sv, zero)),
                     ConditionCode::o => Some(arena.const_u64(0)),
                     ConditionCode::no => Some(arena.const_u64(1)),
+                    ConditionCode::p | ConditionCode::np => {
+                        let pf = parity_flag(arena, zv);
+                        Some(if cc == ConditionCode::p { pf } else { arena.xor_const(pf, 1) })
+                    }
                     _ => None,
                 }
             }
@@ -1562,6 +1653,7 @@ impl SymState {
                     let cf = (sum >> (w * 8)) != 0;
                     let r_val = (sum as u64) & mask;
                     let zf = r_val == 0;
+                    let pf = ((r_val as u8).count_ones() & 1) == 0;
                     let sign_bit = 1u64 << (w * 8 - 1);
                     let sf = (r_val & sign_bit) != 0;
                     let of = (((a ^ r_val) & (b ^ r_val)) & sign_bit) != 0;
@@ -1580,6 +1672,8 @@ impl SymState {
                         ConditionCode::g => !zf && (sf == of),
                         ConditionCode::o => of,
                         ConditionCode::no => !of,
+                        ConditionCode::p => pf,
+                        ConditionCode::np => !pf,
                         _ => return None,
                     };
                     return Some(arena.const_u64(if taken { 1 } else { 0 }));
@@ -1609,6 +1703,10 @@ impl SymState {
                         let ov = arena.and_const(ov_raw, sign_bit);
                         let pred = if cc == ConditionCode::o { CondPred::Ne } else { CondPred::Eq };
                         Some(arena.cmp(pred, ov, zero))
+                    }
+                    ConditionCode::p | ConditionCode::np => {
+                        let pf = parity_flag(arena, zr);
+                        Some(if cc == ConditionCode::p { pf } else { arena.xor_const(pf, 1) })
                     }
                     ConditionCode::l | ConditionCode::ge | ConditionCode::le | ConditionCode::g => {
                         let sign_bit = 1u64 << (w * 8 - 1);
@@ -1648,10 +1746,14 @@ impl SymState {
                     ConditionCode::ns => Some(arena.cmp(CondPred::Sge, sr, zero)),
                     ConditionCode::b => cf.map(|v| arena.const_u64(u64::from(v))),
                     ConditionCode::ae => cf.map(|v| arena.const_u64(u64::from(!v))),
+                    ConditionCode::p | ConditionCode::np => {
+                        let pf = parity_flag(arena, zr);
+                        Some(if cc == ConditionCode::p { pf } else { arena.xor_const(pf, 1) })
+                    }
                     _ => None,
                 }
             }
-            FlagState::Rflags(v) => rflags_cond(arena, *v, cc),
+            FlagState::Rflags(v) | FlagState::PoppedRflags(v) => rflags_cond(arena, *v, cc),
             FlagState::CarryExpr(bit) => match cc {
                 ConditionCode::b => Some(*bit),
                 ConditionCode::ae => Some(arena.xor_const(*bit, 1)),
@@ -1706,6 +1808,17 @@ impl SymState {
 /// After the logical operations AF is architecturally undefined: it is taken as 0, what
 /// Intel and AMD processors (and the emulators) produce.
 fn composed_rflags(state: &SymState, arena: &mut ExprArena) -> Option<ExprId> {
+    if let FlagState::PoppedRflags(v) = &state.flags {
+        // Non-canonical constants (e.g. `push 0; popfq; pushfq`) have hardware-masked
+        // reserved/privilege bits that depend on CPL; reject them conservatively, while
+        // forwarding canonical constants and symbolic caller-saved RFLAGS slots.
+        if let Some(c) = arena.as_const(*v) {
+            if (c & !0x0024_4DD5u64) != 0x202u64 {
+                return None;
+            }
+        }
+        return Some(*v);
+    }
     // The system bits in a value taken at run time are the recompiled code's, which
     // are the frame's entry ones: right only while the VM did not change them.
     if state.system_flags_changed {
@@ -2091,6 +2204,9 @@ fn read_memory_expr_depth(
     }
     if let Some(va) = arena.as_const(addr) {
         if let Some(ro_val) = view.read_ro_scalar(va, width) {
+            if width == 8 && view.is_in_vm_section(va) {
+                state.folded_vm_qword_addrs.insert(va);
+            }
             return arena.const_u64(ro_val);
         }
     }
@@ -2330,6 +2446,8 @@ fn eval_cond_for_mnemonic_as(state: &SymState, arena: &mut ExprArena, m: Mnemoni
         Mnemonic::Cmovns | Mnemonic::Setns | Mnemonic::Jns => ConditionCode::ns,
         Mnemonic::Cmovo | Mnemonic::Seto | Mnemonic::Jo => ConditionCode::o,
         Mnemonic::Cmovno | Mnemonic::Setno | Mnemonic::Jno => ConditionCode::no,
+        Mnemonic::Cmovp | Mnemonic::Setp | Mnemonic::Jp => ConditionCode::p,
+        Mnemonic::Cmovnp | Mnemonic::Setnp | Mnemonic::Jnp => ConditionCode::np,
         _ => return None,
     };
     if as_value {
@@ -2657,7 +2775,7 @@ fn plan_vm_exit(state: &SymState, arena: &mut ExprArena, view: &PeImageView, va:
                 flag_vals = vec![arena.entry_rflags()];
                 flags_kind = Some((3, 8));
             }
-            FlagState::Rflags(v) => {
+            FlagState::Rflags(v) | FlagState::PoppedRflags(v) => {
                 flag_vals = vec![*v];
                 flags_kind = Some((3, 8));
             }
@@ -2667,8 +2785,12 @@ fn plan_vm_exit(state: &SymState, arena: &mut ExprArena, view: &PeImageView, va:
             return None;
         }
         // `popfq` puts back every bit: the system ones are the frame's entry ones, wrong
-        // once the VM changed them (`cld` / `std`, ...).
-        if matches!(flags_kind, Some((3, _))) && state.system_flags_changed {
+        // once the VM changed them (`cld` / `std`, ...), unless `PoppedRflags` carries
+        // the popped value's own system bits explicitly.
+        if matches!(flags_kind, Some((3, _)))
+            && state.system_flags_changed
+            && !matches!(state.flags, FlagState::PoppedRflags(_))
+        {
             return None;
         }
     }
@@ -3316,7 +3438,7 @@ fn subst_flag_state(
         FlagState::IncDec { res, .. } => {
             *res = arena.substitute_memo(*res, from, to, memo);
         }
-        FlagState::CarryExpr(e) | FlagState::Rflags(e) => {
+        FlagState::CarryExpr(e) | FlagState::Rflags(e) | FlagState::PoppedRflags(e) => {
             *e = arena.substitute_memo(*e, from, to, memo);
         }
         FlagState::Entry | FlagState::Unknown => {}
@@ -3659,6 +3781,61 @@ fn check_pure_rsp_delta(arena: &ExprArena, rsp: ExprId) -> Option<i64> {
     }
 }
 
+/// Computes exact `(width*8 + 1)`-bit rotate-through-carry (`rcl`/`rcr`).
+fn eval_rotate_through_carry(
+    is_rcl: bool,
+    width_bytes: u8,
+    lhs: u64,
+    count_masked: u64,
+    cf_in: bool,
+) -> (u64, bool) {
+    let bits = (width_bytes as u32) * 8;
+    let val_mask = width_mask(width_bytes);
+    let masked_lhs = lhs & val_mask;
+    let rem = (count_masked as u32) % (bits + 1);
+    if rem == 0 {
+        return (masked_lhs, cf_in);
+    }
+    let total_bits = bits + 1;
+    let wide_mask = (1u128 << total_bits) - 1;
+    let w_val = (masked_lhs as u128) | ((u128::from(cf_in)) << bits);
+    let rotated = if is_rcl {
+        ((w_val << rem) | (w_val >> (total_bits - rem))) & wide_mask
+    } else {
+        ((w_val >> rem) | (w_val << (total_bits - rem))) & wide_mask
+    };
+    let res = (rotated & (val_mask as u128)) as u64;
+    let cf_out = ((rotated >> bits) & 1) != 0;
+    (res, cf_out)
+}
+
+/// Symbolic byte-swap for 32-bit or 64-bit values when constant folding is unavailable.
+fn symbolic_bswap(arena: &mut ExprArena, v: ExprId, width: u8) -> ExprId {
+    match width {
+        4 => {
+            let b0 = arena.and_const(v, 0xFF);
+            let b1 = arena.and_const(v, 0xFF00);
+            let b2s = arena.shr_const(v, 8);
+            let b2 = arena.and_const(b2s, 0xFF00);
+            let b3s = arena.shr_const(v, 24);
+            let b3 = arena.and_const(b3s, 0xFF);
+            let p0 = arena.shl_const(b0, 24);
+            let p1 = arena.shl_const(b1, 8);
+            let lo = arena.or(p0, p1);
+            let hi = arena.or(b2, b3);
+            arena.or(lo, hi)
+        }
+        8 => {
+            let lo32 = symbolic_bswap(arena, v, 4);
+            let hi_raw = arena.shr_const(v, 32);
+            let hi32 = symbolic_bswap(arena, hi_raw, 4);
+            let lo_up = arena.shl_const(lo32, 32);
+            arena.or(lo_up, hi32)
+        }
+        _ => arena.opaque(),
+    }
+}
+
 /// Symbolically lifts an entire VM entry CFG (supporting multiple conditional paths).
 pub fn lift_vm_entry_cfg(
     view: &PeImageView,
@@ -3678,6 +3855,7 @@ pub fn lift_vm_entry_cfg(
     let mut raw_vm_insns = 0usize;
     let mut opaque_branches_folded = 0usize;
     let mut visited_byte_addrs = HashSet::new();
+    let mut folded_vm_qword_set = HashSet::new();
     let mut first_bailout = None;
     let mut bailout_detail: Option<(u64, String)> = None;
     let mut state_block_cache: HashMap<StateDedupKey, usize> = HashMap::new();
@@ -3897,8 +4075,9 @@ pub fn lift_vm_entry_cfg(
                         break exit_to_vm_or_bailout(cfg, &state, &mut arena, view, cur_ip, "max_blocks_exceeded".into());
                     }
 
+                    folded_vm_qword_set.extend(state.folded_vm_qword_addrs.drain());
                     let taken_state = state.clone();
-                    let fall_state = state;
+                    let fall_state = state.clone();
 
                     let mut spawn_branch_arm = |mut b_state: SymState, bva: u64, in_vm: bool, is_taken: bool| -> usize {
                         b_state.ip = bva;
@@ -4211,10 +4390,12 @@ pub fn lift_vm_entry_cfg(
                         if state.inline_depth > 0 {
                             state.inline_depth -= 1;
                         }
-                        if entry.is_call && ret_va == fake_ret_va && imm_pop == 0 {
-                            let Some(rsp_delta) = check_pure_rsp_delta(&arena, new_rsp) else {
-                                break IrTerm::Bailout("ret_dirty_rsp".into());
-                            };
+                        if entry.is_call
+                            && ret_va == fake_ret_va
+                            && imm_pop == 0
+                            && check_pure_rsp_delta(&arena, new_rsp) == Some(word_bytes as i64)
+                        {
+                            let rsp_delta = word_bytes as i64;
                             let pending = state.collect_pending_caller_stores(rsp_delta);
                             break IrTerm::ExitRet {
                                 rsp_delta,
@@ -4243,7 +4424,7 @@ pub fn lift_vm_entry_cfg(
                             break IrTerm::Bailout("ret_exit_dirty_rsp".into());
                         }
                     }
-                    if imm_pop == 0 && state.inline_depth == 0 {
+                    if imm_pop == 0 {
                         if let (Some(rsp_delta), ExprNode::Load { addr, width, .. }) =
                             (check_pure_rsp_delta(&arena, new_rsp), arena.get(ret_val))
                         {
@@ -4258,6 +4439,18 @@ pub fn lift_vm_entry_cfg(
                             {
                                 let pending = state.collect_pending_caller_stores(rsp_delta);
                                 break IrTerm::ExitRet {
+                                    rsp_delta,
+                                    final_regs: state.regs,
+                                    final_xmms: state.xmms,
+                                    pending_caller_stores: pending,
+                                };
+                            }
+                        }
+                        if !arena.contains_opaque(ret_val) {
+                            if let Some(rsp_delta) = check_pure_rsp_delta(&arena, new_rsp) {
+                                let pending = state.collect_pending_caller_stores(rsp_delta);
+                                break IrTerm::ExitComputedJmp {
+                                    target: ret_val,
                                     rsp_delta,
                                     final_regs: state.regs,
                                     final_xmms: state.xmms,
@@ -4377,7 +4570,28 @@ pub fn lift_vm_entry_cfg(
                 Mnemonic::Nop | Mnemonic::Pause | Mnemonic::Endbr64 | Mnemonic::Endbr32 => {}
                 Mnemonic::Clc => state.set_flags(FlagState::CarryExpr(arena.const_u64(0))),
                 Mnemonic::Stc => state.set_flags(FlagState::CarryExpr(arena.const_u64(1))),
-                Mnemonic::Cld | Mnemonic::Std => state.system_flags_changed = true,
+                Mnemonic::Cmc => {
+                    if let Some(cf) = state.cond_value(&mut arena, ConditionCode::b) {
+                        let inv = arena.xor_const(cf, 1);
+                        let bit = arena.and_const(inv, 1);
+                        state.set_flags(FlagState::CarryExpr(bit));
+                    } else {
+                        state.set_flags(FlagState::Unknown);
+                    }
+                }
+                Mnemonic::Cld => {
+                    state.system_flags_changed = true;
+                    if let FlagState::PoppedRflags(v) = state.flags {
+                        state.flags = FlagState::PoppedRflags(arena.and_const(v, !0x400u64));
+                    }
+                }
+                Mnemonic::Std => {
+                    state.system_flags_changed = true;
+                    if let FlagState::PoppedRflags(v) = state.flags {
+                        let df = arena.const_u64(0x400u64);
+                        state.flags = FlagState::PoppedRflags(arena.or(v, df));
+                    }
+                }
 
                 Mnemonic::Mov => {
                     if view.bitness == 64
@@ -4452,6 +4666,13 @@ pub fn lift_vm_entry_cfg(
                     let r = arena.sext(ax_v, 16);
                     state.write_reg(&mut arena, ArchReg::Rax, RegSlice::Low32, r);
                 }
+                Mnemonic::Cwd => {
+                    let ax_v = state.read_reg(&mut arena, view.bitness, ArchReg::Rax, RegSlice::Low16);
+                    let s = arena.sext(ax_v, 16);
+                    let sign = arena.shr_const(s, 16);
+                    let mask = arena.zext_mask(sign, 2);
+                    state.write_reg(&mut arena, ArchReg::Rdx, RegSlice::Low16, mask);
+                }
                 Mnemonic::Cdq => {
                     let eax = state.read_reg(&mut arena, view.bitness, ArchReg::Rax, RegSlice::Low32);
                     let s = arena.sext(eax, 32);
@@ -4475,6 +4696,8 @@ pub fn lift_vm_entry_cfg(
                     let res = match (arena.as_const(v), sl) {
                         (Some(c), RegSlice::Low32) => arena.const_u64((c as u32).swap_bytes() as u64),
                         (Some(c), RegSlice::Full64) => arena.const_u64(c.swap_bytes()),
+                        (None, RegSlice::Low32) => symbolic_bswap(&mut arena, v, 4),
+                        (None, RegSlice::Full64) => symbolic_bswap(&mut arena, v, 8),
                         _ => arena.opaque(),
                     };
                     state.write_reg(&mut arena, ar, sl, res);
@@ -4500,6 +4723,34 @@ pub fn lift_vm_entry_cfg(
                     {
                         break IrTerm::Bailout("xchg_write".into());
                     }
+                }
+                Mnemonic::Xadd => {
+                    let w = op_width_bytes(&ins, view.bitness, 0);
+                    let Some(v0) = read_operand(view, &mut state, &mut arena, &ins, next_ip, 0) else {
+                        break IrTerm::Bailout("xadd_op0".into());
+                    };
+                    let Some(v1) = read_operand(view, &mut state, &mut arena, &ins, next_ip, 1) else {
+                        break IrTerm::Bailout("xadd_op1".into());
+                    };
+                    let m0 = arena.zext_mask(v0, w);
+                    let m1 = arena.zext_mask(v1, w);
+                    let sum = arena.add(m0, m1);
+                    let res = arena.zext_mask(sum, w);
+                    // Intel SDM XADD order: TEMP = DST + SRC; SRC = DST; DST = TEMP.
+                    // Writing op1 (SRC) before op0 (DST) preserves self-aliasing `xadd r, r` (`r = 2*r`),
+                    // and computing a memory op0's EA beforehand prevents op1 writes from shifting the EA.
+                    if ins.op0_kind() == OpKind::Memory {
+                        let ea = eval_mem_ea(&state, &mut arena, view.bitness, &ins, next_ip);
+                        if !write_operand(&mut state, &mut arena, &mut effects, view.bitness, &ins, next_ip, 1, m0) {
+                            break IrTerm::Bailout("xadd_write".into());
+                        }
+                        write_memory_expr(&mut state, &mut arena, &mut effects, ea, w, res);
+                    } else if !write_operand(&mut state, &mut arena, &mut effects, view.bitness, &ins, next_ip, 1, m0)
+                        || !write_operand(&mut state, &mut arena, &mut effects, view.bitness, &ins, next_ip, 0, res)
+                    {
+                        break IrTerm::Bailout("xadd_write".into());
+                    }
+                    state.set_flags(FlagState::Add { lhs: m0, rhs: m1, res, width: w });
                 }
                 Mnemonic::Push => {
                     let w = if ins.op0_kind() == OpKind::Register {
@@ -4577,6 +4828,9 @@ pub fn lift_vm_entry_cfg(
                         Some(fl) if !matches!(fl, FlagState::Entry) => {
                             state.set_flags(fl);
                         }
+                        _ if view.bitness == 64 && !arena.contains_opaque(val) => {
+                            state.set_flags(FlagState::PoppedRflags(val));
+                        }
                         _ => {
                             state.set_flags(FlagState::Unknown);
                         }
@@ -4597,10 +4851,9 @@ pub fn lift_vm_entry_cfg(
                 | Mnemonic::Cmovs
                 | Mnemonic::Cmovns
                 | Mnemonic::Cmovo
-                | Mnemonic::Cmovno => {
-                    let Some(cond) = eval_cond_for_mnemonic_as(&state, &mut arena, m, true) else {
-                        break IrTerm::Bailout(format!("cmov_unknown_flags_{m:?}"));
-                    };
+                | Mnemonic::Cmovno
+                | Mnemonic::Cmovp
+                | Mnemonic::Cmovnp => {
                     let w = op_width_bytes(&ins, view.bitness, 0);
                     let Some(dst_v) = read_operand(view, &mut state, &mut arena, &ins, next_ip, 0) else {
                         break IrTerm::Bailout("cmov_dst_read".into());
@@ -4610,7 +4863,13 @@ pub fn lift_vm_entry_cfg(
                     };
                     let m_src = arena.zext_mask(src_v, w);
                     let m_dst = arena.zext_mask(dst_v, w);
-                    let sel = arena.select(cond, m_src, m_dst);
+                    let sel = if let Some(cond) = eval_cond_for_mnemonic_as(&state, &mut arena, m, true) {
+                        arena.select(cond, m_src, m_dst)
+                    } else if m_src == m_dst {
+                        m_dst
+                    } else {
+                        arena.opaque()
+                    };
                     if !write_operand(&mut state, &mut arena, &mut effects, view.bitness, &ins, next_ip, 0, sel) {
                         break IrTerm::Bailout("cmov_write".into());
                     }
@@ -4628,10 +4887,11 @@ pub fn lift_vm_entry_cfg(
                 | Mnemonic::Sets
                 | Mnemonic::Setns
                 | Mnemonic::Seto
-                | Mnemonic::Setno => {
-                    let Some(cond) = eval_cond_for_mnemonic_as(&state, &mut arena, m, true) else {
-                        break IrTerm::Bailout(format!("setcc_unknown_flags_{m:?}"));
-                    };
+                | Mnemonic::Setno
+                | Mnemonic::Setp
+                | Mnemonic::Setnp => {
+                    let cond = eval_cond_for_mnemonic_as(&state, &mut arena, m, true)
+                        .unwrap_or_else(|| arena.opaque());
                     if !write_operand(&mut state, &mut arena, &mut effects, view.bitness, &ins, next_ip, 0, cond) {
                         break IrTerm::Bailout("setcc_write".into());
                     }
@@ -5068,6 +5328,42 @@ pub fn lift_vm_entry_cfg(
                                 let sv = arena.sar(sl, cnt_masked);
                                 arena.zext_mask(sv, w)
                             }
+                            Mnemonic::Rol | Mnemonic::Ror => {
+                                let bits_u64 = bits as u64;
+                                let ml = arena.zext_mask(lhs, w);
+                                let c = arena.and_const(cnt_raw, bits_u64 - 1);
+                                if let Some(cv) = arena.as_const(c) {
+                                    if cv == 0 {
+                                        ml
+                                    } else if m == Mnemonic::Rol {
+                                        let hi = arena.shl_const(ml, cv);
+                                        let lo = arena.shr_const(ml, bits_u64 - cv);
+                                        let comb = arena.or(hi, lo);
+                                        arena.zext_mask(comb, w)
+                                    } else {
+                                        let lo = arena.shr_const(ml, cv);
+                                        let hi = arena.shl_const(ml, bits_u64 - cv);
+                                        let comb = arena.or(lo, hi);
+                                        arena.zext_mask(comb, w)
+                                    }
+                                } else {
+                                    let bm1 = arena.const_u64(bits_u64 - 1);
+                                    let inv_m1 = arena.sub(bm1, c);
+                                    if m == Mnemonic::Rol {
+                                        let hi = arena.shl(ml, c);
+                                        let ml1 = arena.shr_const(ml, 1);
+                                        let lo = arena.shr(ml1, inv_m1);
+                                        let comb = arena.or(hi, lo);
+                                        arena.zext_mask(comb, w)
+                                    } else {
+                                        let lo = arena.shr(ml, c);
+                                        let ml1 = arena.shl_const(ml, 1);
+                                        let hi = arena.shl(ml1, inv_m1);
+                                        let comb = arena.or(lo, hi);
+                                        arena.zext_mask(comb, w)
+                                    }
+                                }
+                            }
                             _ => arena.opaque(),
                         }
                     };
@@ -5075,6 +5371,85 @@ pub fn lift_vm_entry_cfg(
                         break IrTerm::Bailout("shift_write".into());
                     }
                     state.set_flags(FlagState::TestBitwise { val: res, width: w });
+                }
+                Mnemonic::Rcl | Mnemonic::Rcr => {
+                    let w = op_width_bytes(&ins, view.bitness, 0);
+                    let mask_cnt = if w == 8 { 63u64 } else { 31u64 };
+                    let Some(lhs) = read_operand(view, &mut state, &mut arena, &ins, next_ip, 0) else {
+                        break IrTerm::Bailout("rc_lhs".into());
+                    };
+                    let cnt_raw = if ins.op_count() == 1 {
+                        arena.const_u64(1)
+                    } else {
+                        match read_operand(view, &mut state, &mut arena, &ins, next_ip, 1) {
+                            Some(c) => c,
+                            None => break IrTerm::Bailout("rc_cnt".into()),
+                        }
+                    };
+                    let cnt_masked = arena.and_const(cnt_raw, mask_cnt);
+                    if arena.as_const(cnt_masked) == Some(0) {
+                        continue;
+                    }
+                    if let (Some(lv), Some(cv), Some(cf_in)) = (
+                        arena.as_const(lhs),
+                        arena.as_const(cnt_masked),
+                        state.known_cf(&mut arena),
+                    ) {
+                        let (res_u64, cf_out) =
+                            eval_rotate_through_carry(m == Mnemonic::Rcl, w, lv, cv, cf_in);
+                        let res = arena.const_u64(res_u64);
+                        if !write_operand(&mut state, &mut arena, &mut effects, view.bitness, &ins, next_ip, 0, res) {
+                            break IrTerm::Bailout("rc_write".into());
+                        }
+                        state.set_flags(FlagState::CarryExpr(arena.const_u64(u64::from(cf_out))));
+                    } else if let (Some(cv), Some(cf_in)) = (
+                        arena.as_const(cnt_masked),
+                        state.cond_value(&mut arena, ConditionCode::b),
+                    ) {
+                        let bits = (w as u64) * 8;
+                        let r = cv % (bits + 1);
+                        let ml = arena.zext_mask(lhs, w);
+                        let cf1 = arena.and_const(cf_in, 1);
+                        let (res, cf_out) = if r == 0 {
+                            (ml, cf1)
+                        } else if m == Mnemonic::Rcl {
+                            let cf_s = arena.shr_const(ml, bits - r);
+                            let cf_out = arena.and_const(cf_s, 1);
+                            let mut acc = arena.shl_const(cf1, r - 1);
+                            if r < bits {
+                                let hi = arena.shl_const(ml, r);
+                                acc = arena.or(acc, hi);
+                            }
+                            if r > 1 {
+                                let lo = arena.shr_const(ml, bits + 1 - r);
+                                acc = arena.or(acc, lo);
+                            }
+                            (arena.zext_mask(acc, w), cf_out)
+                        } else {
+                            let cf_s = arena.shr_const(ml, r - 1);
+                            let cf_out = arena.and_const(cf_s, 1);
+                            let mut acc = arena.shl_const(cf1, bits - r);
+                            if r < bits {
+                                let lo = arena.shr_const(ml, r);
+                                acc = arena.or(acc, lo);
+                            }
+                            if r > 1 {
+                                let hi = arena.shl_const(ml, bits + 1 - r);
+                                acc = arena.or(acc, hi);
+                            }
+                            (arena.zext_mask(acc, w), cf_out)
+                        };
+                        if !write_operand(&mut state, &mut arena, &mut effects, view.bitness, &ins, next_ip, 0, res) {
+                            break IrTerm::Bailout("rc_write".into());
+                        }
+                        state.set_flags(FlagState::CarryExpr(cf_out));
+                    } else {
+                        let opq = arena.opaque();
+                        if !write_operand(&mut state, &mut arena, &mut effects, view.bitness, &ins, next_ip, 0, opq) {
+                            break IrTerm::Bailout("rc_write".into());
+                        }
+                        state.set_flags(FlagState::Unknown);
+                    }
                 }
 
                 // Bit test/scan & modify
@@ -5169,7 +5544,14 @@ pub fn lift_vm_entry_cfg(
                         continue;
                     }
                     if w == 2 && c > 16 {
-                        break IrTerm::Bailout("shld_cnt16".into());
+                        // Architecturally undefined on 16-bit operands when count > 16; emit opaque so dead
+                        // VMProtect junk vanishes while any live use is still rejected by soundness validation.
+                        let opq = arena.opaque();
+                        if !write_operand(&mut state, &mut arena, &mut effects, view.bitness, &ins, next_ip, 0, opq) {
+                            break IrTerm::Bailout("shld_write".into());
+                        }
+                        state.set_flags(FlagState::Unknown);
+                        continue;
                     }
                     let Some(dst_v) = read_operand(view, &mut state, &mut arena, &ins, next_ip, 0) else {
                         break IrTerm::Bailout("shld_dst".into());
@@ -5452,6 +5834,7 @@ pub fn lift_vm_entry_cfg(
                 }
             }
         }
+        folded_vm_qword_set.extend(&state.folded_vm_qword_addrs);
         blocks[block_id] = Some(LiftedBlock {
             id: block_id,
             entry_va,
@@ -5480,6 +5863,9 @@ pub fn lift_vm_entry_cfg(
         })
         .collect();
 
+    let mut folded_vm_qword_addrs: Vec<u64> = folded_vm_qword_set.into_iter().collect();
+    folded_vm_qword_addrs.sort_unstable();
+
     LiftedFunction {
         entry: entry.clone(),
         is_entry_call: entry.is_call,
@@ -5488,6 +5874,7 @@ pub fn lift_vm_entry_cfg(
         raw_vm_insns,
         opaque_branches_folded,
         visited_byte_addrs,
+        folded_vm_qword_addrs,
         first_bailout,
         bailout_detail,
     }
@@ -5656,6 +6043,10 @@ fn block_root_exprs(b: &LiftedBlock) -> Vec<ExprId> {
             | IrTerm::ExitJmp { final_regs, final_xmms, pending_caller_stores, .. }
             | IrTerm::ExitCall { final_regs, final_xmms, pending_caller_stores, .. }
             | IrTerm::ExitIndirectMem { final_regs, final_xmms, pending_caller_stores, .. } => {
+                (Some(final_regs), Some(final_xmms), pending_caller_stores.as_slice())
+            }
+            IrTerm::ExitComputedJmp { target, final_regs, final_xmms, pending_caller_stores, .. } => {
+                roots.push(*target);
                 (Some(final_regs), Some(final_xmms), pending_caller_stores.as_slice())
             }
             IrTerm::ExitAddJmp { final_regs, final_xmms, .. } => (Some(final_regs), Some(final_xmms), &[]),
@@ -5920,6 +6311,18 @@ fn validate_function_soundness(func: &LiftedFunction, view: &PeImageView) -> Res
             }
             IrTerm::ExitRet { final_regs, final_xmms, pending_caller_stores, .. }
             | IrTerm::ExitIndirectMem { final_regs, final_xmms, pending_caller_stores, .. } => {
+                check_exit_state(
+                    final_xmms,
+                    pending_caller_stores,
+                    final_regs,
+                    &cur_stores,
+                    cur_all_aliasing,
+                    cur_max_ver,
+                    cur_cr8_ver,
+                )?;
+            }
+            IrTerm::ExitComputedJmp { target, final_regs, final_xmms, pending_caller_stores, .. } => {
+                check_expr_clean(*target, "jmp_target", &cur_stores, cur_all_aliasing, cur_max_ver, cur_cr8_ver)?;
                 check_exit_state(
                     final_xmms,
                     pending_caller_stores,
@@ -8465,7 +8868,9 @@ fn compile_function_into_asm(
                             10 => a.jle(t_lbl),
                             11 => a.jg(t_lbl),
                             12 => a.jo(t_lbl),
-                            _ => a.jno(t_lbl),
+                            13 => a.jno(t_lbl),
+                            14 => a.jp(t_lbl),
+                            _ => a.jnp(t_lbl),
                         }
                         .map_err(|e| e.to_string())?;
                         a.jmp(f_lbl).map_err(|e| e.to_string())?;
@@ -8710,6 +9115,26 @@ fn compile_function_into_asm(
                     },
                 )?;
             }
+            IrTerm::ExitComputedJmp { target, rsp_delta, final_regs, final_xmms, pending_caller_stores } => {
+                let word_bytes = if bitness == 64 { 8i64 } else { 4i64 };
+                let mut pending_with_target = Vec::with_capacity(pending_caller_stores.len() + 1);
+                pending_with_target.push((*rsp_delta - word_bytes, *target));
+                pending_with_target.extend_from_slice(pending_caller_stores);
+                emit_block_outputs_and_jump(
+                    a,
+                    bitness,
+                    &frame,
+                    &func.arena,
+                    &block.effects,
+                    &pending_with_target,
+                    final_regs,
+                    final_xmms,
+                    *rsp_delta,
+                    true,
+                    None,
+                    |asm, _| asm.ret().map_err(|e| e.to_string()),
+                )?;
+            }
             IrTerm::MidCall { target, rsp_delta, final_regs, final_xmms, pending_caller_stores, cont_block, .. } => {
                 let target = *target;
                 let c_lbl = block_lbls[*cont_block];
@@ -8775,11 +9200,63 @@ fn compile_function_into_asm(
 // Top-Level Binary Devirtualization Pipeline
 // ---------------------------------------------------------------------------
 
+fn test_compile_entry(
+    view: &PeImageView,
+    lifted: &LiftedFunction,
+    cfg: &BinaryDevirtConfig,
+    devirt_base_va: u64,
+) -> UnpackerResult<Result<Vec<u8>, String>> {
+    let mut test_asm = CodeAssembler::new(view.bitness)
+        .map_err(|e| UnpackerError::General(format!("CodeAssembler: {e}")))?;
+    let mut test_lbl = test_asm.create_label();
+    if let Err(err) = compile_function_into_asm(&mut test_asm, view.bitness, lifted, view, &mut test_lbl) {
+        return Ok(Err(format!("codegen_{err}")));
+    }
+    let Ok(test_res) = test_asm.assemble_options(devirt_base_va, BlockEncoderOptions::RETURN_NEW_INSTRUCTION_OFFSETS) else {
+        return Ok(Err("asm_encode_failed".into()));
+    };
+
+    let buf = test_res.inner.code_buffer;
+    let mut dec = Decoder::with_ip(view.bitness, &buf, devirt_base_va, DecoderOptions::NONE);
+    let mut native_insns = 0usize;
+    let mut invalid = false;
+    while dec.can_decode() {
+        let ins = dec.decode();
+        if ins.is_invalid() {
+            invalid = true;
+            break;
+        }
+        native_insns += 1;
+    }
+    if invalid || native_insns == 0 {
+        return Ok(Err("invalid_emitted_insn".into()));
+    }
+
+    let has_vm_exit = lifted.blocks.iter().any(|b| matches!(b.term, IrTerm::ExitToVm { .. }));
+    if lifted.entry.kind == VmEntryKind::CrossSectionVmEnter || has_vm_exit {
+        if lifted.raw_vm_insns < cfg.min_vm_insns_replaced {
+            return Ok(Err("too_little_vm_code".into()));
+        }
+        if native_insns.saturating_mul(100) > lifted.raw_vm_insns.saturating_mul(cfg.max_code_growth_percent) {
+            return Ok(Err("code_growth_limit".into()));
+        }
+    }
+
+    Ok(Ok(buf))
+}
+
 pub fn devirtualize_pe_bytes(
     pe_bytes: &[u8],
     cfg: BinaryDevirtConfig,
 ) -> UnpackerResult<(Vec<u8>, BinaryDevirtReport)> {
-    let view = PeImageView::from_pe_bytes(pe_bytes)?;
+    let unpacked_owned: Option<Vec<u8>> = if !pe_bytes.is_empty() && vmpunpacker::detect(pe_bytes) {
+        vmpunpacker::unpack(pe_bytes).ok()
+    } else {
+        None
+    };
+    let working_pe: &[u8] = unpacked_owned.as_deref().unwrap_or(pe_bytes);
+
+    let mut view = PeImageView::from_pe_bytes(working_pe)?;
     let discovered = discover_vm_entries(&view, &cfg);
 
     let discovered_total = discovered.len();
@@ -8806,110 +9283,117 @@ pub fn devirtualize_pe_bytes(
     let mut failed = 0usize;
 
     let mut compiled_funcs: Vec<(LiftedFunction, Vec<u8>)> = Vec::new();
-    let (next_rva, _) = imagedump::next_section_rva(pe_bytes)?;
+    let (next_rva, _) = imagedump::next_section_rva(working_pe)?;
     let devirt_base_va = view.image_base + next_rva as u64;
+    let collect_diagnostics = cfg.collect_diagnostics;
 
-    for entry in &discovered {
-        let lifted = lift_vm_entry_cfg(&view, entry, &cfg);
-        visited_vm_bytes.extend(&lifted.visited_byte_addrs);
-
-        let mut record_bailout = |reason: String, lifted_ref: &LiftedFunction, post_lift: bool| {
-            if post_lift || lifted_ref.raw_vm_insns > 0 {
-                partially_lifted += 1;
-            } else {
-                failed += 1;
-            }
-            *bailout_counts.entry(reason.clone()).or_insert(0) += 1;
-            *bailout_kind_counts.entry((entry.kind, reason.clone())).or_insert(0) += 1;
-            if cfg.collect_diagnostics {
-                let (bip, detail) = lifted_ref.bailout_detail.as_ref().map_or_else(
-                    || {
-                        (
-                            view.image_base + entry.target_rva as u64,
-                            format!(
-                                "post_lift({reason}) blks={} insns={}",
-                                lifted_ref.blocks.len(),
-                                lifted_ref.raw_vm_insns
-                            ),
-                        )
-                    },
-                    |(ip, d)| (*ip, d.clone()),
-                );
-                if reason == "unresolved_indirect_jmp" {
-                    let mut parts = detail.splitn(3, " | ");
-                    let p0 = parts.next().unwrap_or("");
-                    let p1 = parts.next().unwrap_or("");
-                    let tag_and_insn = if p1.is_empty() {
-                        p0.to_string()
-                    } else {
-                        format!("{p0} | {p1}")
-                    };
-                    *ij_clusters.entry((entry.kind, bip, tag_and_insn)).or_insert(0) += 1;
-                }
-                let sc = bailout_sample_counts.entry((entry.kind, reason.clone())).or_insert(0);
-                if *sc < 4 && bailout_samples.len() < 60 {
-                    *sc += 1;
-                    bailout_samples.push((entry.kind, entry.patch_rva, bip, reason, detail));
-                }
-            }
-        };
-
-        if let Err(reason) = validate_function_soundness(&lifted, &view) {
-            record_bailout(reason, &lifted, false);
-            continue;
+    let mut record_bailout = |entry: &DiscoveredEntry, reason: String, lifted_ref: &LiftedFunction, post_lift: bool, image_base: u64| {
+        if post_lift || lifted_ref.raw_vm_insns > 0 {
+            partially_lifted += 1;
+        } else {
+            failed += 1;
         }
-
-        // Compile standalone test snippet first to verify encodability and check instruction reduction
-        let mut test_asm = CodeAssembler::new(view.bitness)
-            .map_err(|e| UnpackerError::General(format!("CodeAssembler: {e}")))?;
-        let mut test_lbl = test_asm.create_label();
-        if let Err(err) = compile_function_into_asm(&mut test_asm, view.bitness, &lifted, &view, &mut test_lbl) {
-            record_bailout(format!("codegen_{err}"), &lifted, true);
-            continue;
+        *bailout_counts.entry(reason.clone()).or_insert(0) += 1;
+        *bailout_kind_counts.entry((entry.kind, reason.clone())).or_insert(0) += 1;
+        if collect_diagnostics {
+            let (bip, detail) = lifted_ref.bailout_detail.as_ref().map_or_else(
+                || {
+                    (
+                        image_base + entry.target_rva as u64,
+                        format!(
+                            "post_lift({reason}) blks={} insns={}",
+                            lifted_ref.blocks.len(),
+                            lifted_ref.raw_vm_insns
+                        ),
+                    )
+                },
+                |(ip, d)| (*ip, d.clone()),
+            );
+            if reason == "unresolved_indirect_jmp" {
+                let mut parts = detail.splitn(3, " | ");
+                let p0 = parts.next().unwrap_or("");
+                let p1 = parts.next().unwrap_or("");
+                let tag_and_insn = if p1.is_empty() {
+                    p0.to_string()
+                } else {
+                    format!("{p0} | {p1}")
+                };
+                *ij_clusters.entry((entry.kind, bip, tag_and_insn)).or_insert(0) += 1;
+            }
+            let sc = bailout_sample_counts.entry((entry.kind, reason.clone())).or_insert(0);
+            if *sc < 4 && bailout_samples.len() < 60 {
+                *sc += 1;
+                bailout_samples.push((entry.kind, entry.patch_rva, bip, reason, detail));
+            }
         }
-        let Ok(test_res) = test_asm.assemble_options(devirt_base_va, BlockEncoderOptions::RETURN_NEW_INSTRUCTION_OFFSETS) else {
-            record_bailout("asm_encode_failed".into(), &lifted, true);
-            continue;
-        };
+    };
 
-        // Decode emitted bytes to ensure 100% valid instructions & count native instruction count
-        let buf = test_res.inner.code_buffer;
-        let mut dec = Decoder::with_ip(view.bitness, &buf, devirt_base_va, DecoderOptions::NONE);
-        let mut native_insns = 0usize;
-        let mut invalid = false;
-        while dec.can_decode() {
-            let ins = dec.decode();
-            if ins.is_invalid() {
-                invalid = true;
+    let mut dynamic_vm_slots: HashSet<u64> = HashSet::new();
+
+    let lift_with_dynamic_slots = |view: &mut PeImageView,
+                                   entry: &DiscoveredEntry,
+                                   dyn_slots: &mut HashSet<u64>,
+                                   visited: &mut HashSet<u64>|
+     -> (LiftedFunction, Result<(), String>) {
+        let mut lifted = lift_vm_entry_cfg(view, entry, &cfg);
+        visited.extend(&lifted.visited_byte_addrs);
+        let mut sound = validate_function_soundness(&lifted, view);
+        for _ in 0..8 {
+            if sound.as_ref().err().map(String::as_str) != Some("exit_target_not_executable")
+                || lifted.folded_vm_qword_addrs.is_empty()
+            {
                 break;
             }
-            native_insns += 1;
+            let mut added = false;
+            for &va in &lifted.folded_vm_qword_addrs {
+                if view.add_mutable_ro_va(va, 8) {
+                    dyn_slots.insert(va);
+                    added = true;
+                }
+            }
+            if !added {
+                break;
+            }
+            lifted = lift_vm_entry_cfg(view, entry, &cfg);
+            visited.extend(&lifted.visited_byte_addrs);
+            sound = validate_function_soundness(&lifted, view);
         }
-        if invalid || native_insns == 0 {
-            record_bailout("invalid_emitted_insn".into(), &lifted, true);
+        (lifted, sound)
+    };
+
+    for entry in &discovered {
+        let (lifted, sound) = lift_with_dynamic_slots(&mut view, entry, &mut dynamic_vm_slots, &mut visited_vm_bytes);
+        if let Err(reason) = sound {
+            record_bailout(entry, reason, &lifted, false, view.image_base);
             continue;
         }
+        match test_compile_entry(&view, &lifted, &cfg, devirt_base_va)? {
+            Ok(buf) => compiled_funcs.push((lifted, buf)),
+            Err(reason) => record_bailout(entry, reason, &lifted, true, view.image_base),
+        }
+    }
 
-        // VM enters, and anything that hands control back to the VM, must replace a
-        // real piece of VM code (a stub that only re-enters the VM is no gain) and not
-        // grow it past `max_code_growth_percent`.
-        let has_vm_exit = lifted.blocks.iter().any(|b| matches!(b.term, IrTerm::ExitToVm { .. }));
-        if entry.kind == VmEntryKind::CrossSectionVmEnter || has_vm_exit {
-            if lifted.raw_vm_insns < cfg.min_vm_insns_replaced {
-                record_bailout("too_little_vm_code".into(), &lifted, true);
+    if !dynamic_vm_slots.is_empty() {
+        for (lifted, buf) in std::mem::take(&mut compiled_funcs) {
+            if !lifted.folded_vm_qword_addrs.iter().any(|va| dynamic_vm_slots.contains(va)) {
+                compiled_funcs.push((lifted, buf));
                 continue;
             }
-            if native_insns.saturating_mul(100) > lifted.raw_vm_insns.saturating_mul(cfg.max_code_growth_percent) {
-                record_bailout("code_growth_limit".into(), &lifted, true);
+            let entry = lifted.entry.clone();
+            let (relifted, sound) = lift_with_dynamic_slots(&mut view, &entry, &mut dynamic_vm_slots, &mut visited_vm_bytes);
+            if let Err(reason) = sound {
+                record_bailout(&entry, reason, &relifted, false, view.image_base);
                 continue;
+            }
+            match test_compile_entry(&view, &relifted, &cfg, devirt_base_va)? {
+                Ok(new_buf) => compiled_funcs.push((relifted, new_buf)),
+                Err(reason) => record_bailout(&entry, reason, &relifted, true, view.image_base),
             }
         }
-
-        compiled_funcs.push((lifted, buf));
     }
 
     // Re-assemble all sound stubs cleanly into one shared `.devirt` section so internal jumps stay compact
-    let mut out_pe = pe_bytes.to_vec();
+    let mut out_pe = working_pe.to_vec();
     let mut devirt_section_rva = None;
     let mut devirt_section_size = 0usize;
     let mut patched_sites = Vec::new();
@@ -12321,5 +12805,398 @@ mod tests {
         let expected = (expected_rax, x1_bytes, x0_bytes, [0u8; 16]);
         assert_eq!(run_case(&orig_pe), expected);
         assert_eq!(run_case(&devirt_pe), expected);
+    }
+
+    #[test]
+    fn redirected_oep_in_vm_section_and_chained_call_vmenter_e2e() {
+        use gpr32::*;
+        use gpr64::*;
+        let base = 0x1_4000_0000u64;
+
+        let mut text_sec = vec![0xCCu8; 0x200];
+        let fn0 = assemble_at(64, base + 0x1000, |a| {
+            a.mov(rax, rcx)?;
+            a.push(rsi)?;
+            a.call(base + 0x2000)?;
+            a.add(rax, 100)?;
+            a.ret()
+        });
+        text_sec[..fn0.len()].copy_from_slice(&fn0);
+
+        // Chained call VM entry inside `.vmp0` + dummy OEP at 0x2400 so PE OEP
+        // points into `.vmp0` instead of `.text`.
+        let mut vmp_sec = vec![0xCCu8; 0x600];
+        let stub_entry = assemble_at(64, base + 0x2000, |a| {
+            a.pop(rsi)?;
+            a.call(base + 0x2080)
+        });
+        vmp_sec[..stub_entry.len()].copy_from_slice(&stub_entry);
+
+        let stub_body = assemble_at(64, base + 0x2080, |a| {
+            a.pushfq()?;
+            a.push(r10)?;
+            a.xchg(qword_ptr(rsp + 24), rsi)?;
+            for _ in 0..8 {
+                a.lea(r10, ptr(rcx) - 1)?;
+                a.imul_2(r10, rcx)?;
+                a.and(r10, 1)?;
+                a.add(rax, r10)?;
+            }
+            a.add(rax, 42)?;
+            a.pop(r10)?;
+            a.popfq()?;
+            a.lea(rsp, ptr(rsp + 8))?;
+            a.ret()
+        });
+        vmp_sec[0x80..0x80 + stub_body.len()].copy_from_slice(&stub_body);
+
+        let fake_oep = assemble_at(64, base + 0x2400, |a| {
+            a.xor(eax, eax)?;
+            a.ret()
+        });
+        vmp_sec[0x400..0x400 + fake_oep.len()].copy_from_slice(&fake_oep);
+
+        let orig_pe = build_two_exec_pe64(&text_sec, &vmp_sec, 0x2400);
+        let view = PeImageView::from_pe_bytes(&orig_pe).unwrap();
+        assert!(view.is_in_primary_host(base + 0x1000), ".text must be primary host even when OEP is in .vmp0");
+        assert!(view.is_in_vm_section(base + 0x2000), ".vmp0 must be VM section");
+
+        let cfg = BinaryDevirtConfig::default();
+        let entries = discover_vm_entries(&view, &cfg);
+        assert_eq!(entries.len(), 1, "expected 1 chained-call VM entry, got {entries:?}");
+        assert_eq!(entries[0].kind, VmEntryKind::CrossSectionVmEnter);
+
+        let (devirt_pe, report) = devirtualize_pe_bytes(&orig_pe, cfg).unwrap();
+        assert_eq!(report.discovered_vmenters, 1, "got {report:?}");
+        assert_eq!(
+            report.devirtualized_vmenters, 1,
+            "expected chained-call VM entry devirtualized, bailouts: {:?}",
+            report.bailout_reasons
+        );
+
+        let run_case = |pe_bytes: &[u8], arg: u64| -> u64 {
+            let s = Sample::from_bytes(pe_bytes).unwrap();
+            let mut eng = UnpackerEngine::new(s, "mem");
+            eng.init_uc().unwrap();
+            eng.call_function(base + 0x1000, &[arg], 100_000, 2_000).unwrap()
+        };
+
+        for x in [0u64, 7, 123, 0xdead_beef] {
+            let expected = x.wrapping_add(42 + 100);
+            assert_eq!(run_case(&orig_pe, x), expected);
+            assert_eq!(run_case(&devirt_pe, x), expected);
+        }
+    }
+
+    #[test]
+    fn vmp_import_slot_dynamic_relift_and_computed_jmp_e2e() {
+        use gpr64::*;
+        let base = 0x1_4000_0000u64;
+        let import_key = 0x3c6b_36e8u64;
+        let slot_va = base + 0x2300;
+        let api_va = base + 0x1080;
+
+        let mut text_sec = vec![0xCCu8; 0x200];
+        let fn0 = assemble_at(64, base + 0x1000, |a| {
+            a.call(base + 0x2000)?;
+            a.db(&[0xCC])?;
+            a.add(rax, 100)?;
+            a.ret()
+        });
+        text_sec[..fn0.len()].copy_from_slice(&fn0);
+
+        let api_fn = assemble_at(64, api_va, |a| {
+            a.lea(rax, ptr(rcx + 77))?;
+            a.ret()
+        });
+        text_sec[0x80..0x80 + api_fn.len()].copy_from_slice(&api_fn);
+
+        let mut vmp_sec = vec![0xCCu8; 0x600];
+        // Pre-loader garbage non-executable slot inside `.vmp0`
+        vmp_sec[0x300..0x308].copy_from_slice(&0x1a52_768e_5881_4227u64.to_le_bytes());
+
+        let stub = assemble_at(64, base + 0x2000, |a| {
+            a.push(rdx)?;
+            a.pushfq()?;
+            a.add(qword_ptr(rsp + 16), 1)?;
+            a.lea(rdx, ptr(rcx) - 1)?;
+            a.imul_2(rdx, rcx)?;
+            a.and(rdx, 1)?;
+            a.mov(rdx, slot_va)?;
+            a.mov(rdx, qword_ptr(rdx))?;
+            a.add(rdx, import_key as i32)?;
+            a.not(rdx)?;
+            a.not(rdx)?;
+            a.neg(rdx)?;
+            a.neg(rdx)?;
+            a.xchg(qword_ptr(rsp + 8), rdx)?;
+            a.popfq()?;
+            a.ret()
+        });
+        vmp_sec[..stub.len()].copy_from_slice(&stub);
+
+        let orig_pe = build_two_exec_pe64(&text_sec, &vmp_sec, 0x1000);
+        let (devirt_pe, report) = devirtualize_pe_bytes(&orig_pe, BinaryDevirtConfig::default()).unwrap();
+        assert_eq!(report.discovered_vmenters, 1, "got {report:?}");
+        assert_eq!(
+            report.devirtualized_vmenters, 1,
+            "expected VM import slot entry devirtualized, bailouts: {:?}",
+            report.bailout_reasons
+        );
+        assert_eq!(report.hybrid_vm_exits, 0, "got {report:?}");
+
+        let patched_slot = api_va.wrapping_sub(import_key);
+        let sentinel_rdx = 0x55AA_1234_5678_9ABCu64;
+
+        let run_case = |pe_bytes: &[u8], arg: u64| -> (u64, u64) {
+            let s = Sample::from_bytes(pe_bytes).unwrap();
+            let mut eng = UnpackerEngine::new(s, "mem");
+            eng.init_uc().unwrap();
+            eng.unicorn_mut()
+                .unwrap()
+                .mem_write(slot_va, &patched_slot.to_le_bytes())
+                .unwrap();
+            let ret = eng
+                .call_function(base + 0x1000, &[arg, sentinel_rdx], 100_000, 2_000)
+                .unwrap();
+            let rdx_after = eng.unicorn_mut().unwrap().reg_read(RegisterX86::RDX as i32).unwrap();
+            (ret, rdx_after)
+        };
+
+        for x in [0u64, 5, 1234] {
+            let expected = (x.wrapping_add(77 + 100), sentinel_rdx);
+            assert_eq!(run_case(&orig_pe, x), expected);
+            assert_eq!(run_case(&devirt_pe, x), expected);
+        }
+    }
+
+    #[test]
+    fn dead_setcc_cmov_cmc_rcr_junk_eliminated_e2e() {
+        use gpr16::*;
+        use gpr32::*;
+        use gpr64::*;
+        use gpr8::*;
+        let base = 0x1_4000_0000u64;
+
+        let mut text_sec = vec![0xCCu8; 0x200];
+        let fn0 = assemble_at(64, base + 0x1000, |a| {
+            a.call(base + 0x2000)?;
+            a.ret()
+        });
+        text_sec[..fn0.len()].copy_from_slice(&fn0);
+
+        let mut vmp_sec = vec![0xCCu8; 0x400];
+        let stub = assemble_at(64, base + 0x2000, |a| {
+            a.push(rdx)?;
+            a.push(r11)?;
+            a.bt(rax, rcx)?;
+            a.setle(dl)?;
+            a.cmovl(r11w, r10w)?;
+            a.cmc()?;
+            a.rcr(r11, cl)?;
+            a.mov(r11d, 0x81)?;
+            a.stc()?;
+            a.cmc()?;
+            a.cmc()?;
+            a.rcl(r11b, 1)?;
+            a.movzx(r11d, r11b)?;
+            a.adc(r11d, 10)?;
+            a.lea(rax, ptr(rcx + r11 + 41))?;
+            a.pop(r11)?;
+            a.pop(rdx)?;
+            a.ret()
+        });
+        vmp_sec[..stub.len()].copy_from_slice(&stub);
+
+        let orig_pe = build_two_exec_pe64(&text_sec, &vmp_sec, 0x1000);
+        let (devirt_pe, report) = devirtualize_pe_bytes(&orig_pe, BinaryDevirtConfig::default()).unwrap();
+        assert_eq!(report.discovered_vmenters, 1, "got {report:?}");
+        assert_eq!(
+            report.devirtualized_vmenters, 1,
+            "expected dead setcc/cmov/cmc/rcr stub devirtualized, bailouts: {:?}",
+            report.bailout_reasons
+        );
+
+        let run_case = |pe_bytes: &[u8], arg: u64| -> u64 {
+            let s = Sample::from_bytes(pe_bytes).unwrap();
+            let mut eng = UnpackerEngine::new(s, "mem");
+            eng.init_uc().unwrap();
+            eng.call_function(base + 0x1000, &[arg], 100_000, 2_000).unwrap()
+        };
+
+        for x in [0u64, 1, 7, 42] {
+            let expected = x.wrapping_add(55);
+            assert_eq!(run_case(&orig_pe, x), expected);
+            assert_eq!(run_case(&devirt_pe, x), expected);
+        }
+    }
+
+    #[test]
+    fn popfq_caller_slot_to_pushfq_and_bswap_rol_cwd_shrd16_cmovnp_e2e() {
+        use gpr16::*;
+        use gpr32::*;
+        use gpr64::*;
+        let base = 0x1_4000_0000u64;
+
+        let mut text_sec = vec![0xCCu8; 0x200];
+        let fn0 = assemble_at(64, base + 0x1000, |a| {
+            a.cmp(ecx, 10)?;
+            a.std()?;
+            a.pushfq()?;
+            a.cld()?;
+            a.call(base + 0x2000)?;
+            a.pop(r9)?;
+            a.add(rax, r9)?;
+            a.add(rax, rsi)?;
+            a.add(rax, rdx)?;
+            a.add(rax, r8)?;
+            a.ret()
+        });
+        text_sec[..fn0.len()].copy_from_slice(&fn0);
+
+        let mut vmp_sec = vec![0xCCu8; 0x400];
+        let stub = assemble_at(64, base + 0x2000, |a| {
+            a.push(rbx)?;
+            a.push(r10)?;
+            a.push(r11)?;
+            a.push(qword_ptr(rsp + 32))?;
+            a.popfq()?;
+            a.cld()?;
+            a.pushfq()?;
+            a.pop(rax)?;
+            a.mov(qword_ptr(rsp + 32), rax)?;
+            a.mov(r10d, 0xAA01)?;
+            a.mov(r11d, 0xBB02)?;
+            a.cmovnp(r10w, r11w)?;
+            a.shl(r10, 16)?;
+            a.rcr(r8, 1)?;
+            a.add(r10, r8)?;
+            a.shrd(bx, di, 0x1B)?;
+            a.mov(eax, ecx)?;
+            a.ror(ax, 5)?;
+            a.rol(ax, 0x11)?;
+            a.mov(edx, 0x1234_5678)?;
+            a.cwd()?;
+            a.mov(esi, ecx)?;
+            a.add(esi, 0x1122_3344)?;
+            a.bswap(esi)?;
+            a.shl(rsi, 32)?;
+            a.or(rsi, rcx)?;
+            a.bswap(rsi)?;
+            a.shl(rax, 32)?;
+            a.or(rax, rdx)?;
+            a.xor(rax, r10)?;
+            a.pop(r11)?;
+            a.pop(r10)?;
+            a.pop(rbx)?;
+            a.ret()
+        });
+        vmp_sec[..stub.len()].copy_from_slice(&stub);
+
+        let orig_pe = build_two_exec_pe64(&text_sec, &vmp_sec, 0x1000);
+        let cfg = BinaryDevirtConfig {
+            max_code_growth_percent: 1500,
+            ..BinaryDevirtConfig::default()
+        };
+        let (devirt_pe, report) = devirtualize_pe_bytes(&orig_pe, cfg).unwrap();
+        assert_eq!(report.discovered_vmenters, 1, "got {report:?}");
+        assert_eq!(
+            report.devirtualized_vmenters, 1,
+            "expected Stage 3 patterns stub devirtualized, bailouts: {:?}",
+            report.bailout_reasons
+        );
+        assert!(report.bailout_reasons.is_empty(), "{:?}", report.bailout_reasons);
+
+        let run_case = |pe_bytes: &[u8], x: u64, r8_seed: u64| -> u64 {
+            let s = Sample::from_bytes(pe_bytes).unwrap();
+            let mut eng = UnpackerEngine::new(s, "mem");
+            eng.init_uc().unwrap();
+            eng.call_function(base + 0x1000, &[x, 0, r8_seed], 100_000, 2_000)
+                .unwrap()
+        };
+
+        for (x, r8_seed) in [
+            (5u64, 0x0123_4567_89AB_CDEFu64),
+            (12u64, 0xFEDC_BA98_7654_3210u64),
+            (0x0008_0008u64, 1u64),
+            (0x0001_0010u64, 0x8000_0000_0000_0000u64),
+        ] {
+            let want = run_case(&orig_pe, x, r8_seed);
+            let got = run_case(&devirt_pe, x, r8_seed);
+            assert_eq!(got, want, "mismatch for x={x:#x} r8_seed={r8_seed:#x}");
+        }
+    }
+
+    #[test]
+    fn xadd_reg_self_alias_and_mem_flags_e2e() {
+        use gpr16::*;
+        use gpr32::*;
+        use gpr64::*;
+        let base = 0x1_4000_0000u64;
+
+        let mut text_sec = vec![0xCCu8; 0x200];
+        let fn0 = assemble_at(64, base + 0x1000, |a| {
+            a.call(base + 0x2000)?;
+            a.ret()
+        });
+        text_sec[..fn0.len()].copy_from_slice(&fn0);
+
+        let mut vmp_sec = vec![0xCCu8; 0x400];
+        let stub = assemble_at(64, base + 0x2000, |a| {
+            a.push(rbx)?;
+            a.push(r10)?;
+            a.push(r11)?;
+            a.sub(rsp, 0x20)?;
+            a.mov(r11d, ecx)?;
+            a.mov(ebx, edx)?;
+            a.xadd(r11d, ebx)?;
+            a.mov(r10d, 0)?;
+            a.adc(r10, 0)?;
+            a.shl(r11, 1)?;
+            a.xor(r11, rbx)?;
+            a.shl(r10, 33)?;
+            a.xor(r10, r11)?;
+            a.xadd(r8w, r8w)?;
+            a.xor(r10, r8)?;
+            a.mov(qword_ptr(rsp + 8), rcx)?;
+            a.lea(rax, ptr(rdx + 0x1234))?;
+            a.xadd(qword_ptr(rsp + 8), rax)?;
+            a.adc(rax, qword_ptr(rsp + 8))?;
+            a.xor(rax, r10)?;
+            a.add(rsp, 0x20)?;
+            a.pop(r11)?;
+            a.pop(r10)?;
+            a.pop(rbx)?;
+            a.ret()
+        });
+        vmp_sec[..stub.len()].copy_from_slice(&stub);
+
+        let orig_pe = build_two_exec_pe64(&text_sec, &vmp_sec, 0x1000);
+        let (devirt_pe, report) = devirtualize_pe_bytes(&orig_pe, BinaryDevirtConfig::default()).unwrap();
+        assert_eq!(report.discovered_vmenters, 1, "got {report:?}");
+        assert_eq!(
+            report.devirtualized_vmenters, 1,
+            "expected xadd stub devirtualized, bailouts: {:?}",
+            report.bailout_reasons
+        );
+        assert!(report.bailout_reasons.is_empty(), "{:?}", report.bailout_reasons);
+
+        let run_case = |pe_bytes: &[u8], x: u64, y: u64, z: u64| -> u64 {
+            let s = Sample::from_bytes(pe_bytes).unwrap();
+            let mut eng = UnpackerEngine::new(s, "mem");
+            eng.init_uc().unwrap();
+            eng.call_function(base + 0x1000, &[x, y, z], 100_000, 2_000)
+                .unwrap()
+        };
+
+        for (x, y, z) in [
+            (0x10u64, 0x20u64, 0xABCD_0001_0002_0003u64),
+            (0xFFFF_FFF0u64, 0x20u64, 0x1234_5678_9ABC_8001u64),
+            (u64::MAX - 5, 10u64, 0xFFFF_FFFF_FFFF_FFFFu64),
+        ] {
+            let want = run_case(&orig_pe, x, y, z);
+            let got = run_case(&devirt_pe, x, y, z);
+            assert_eq!(got, want, "mismatch for x={x:#x} y={y:#x} z={z:#x}");
+        }
     }
 }
