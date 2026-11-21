@@ -5756,9 +5756,8 @@ fn validate_function_soundness(func: &LiftedFunction, view: &PeImageView) -> Res
         // that follows it on the path, in its own block (`CodegenCtx::spills`) or for
         // later blocks into the frame's pinned slots (`plan_pinned_loads`).
         let _ = (stores, all_aliasing, max_ver, &block_start);
-        if expr_has_stale_cr8(&func.arena, e, max_cr8_ver) {
-            return Err("cr8_stale_read".into());
-        }
+        // CR8 reads: read before a later CR8 write, like loads (`emit_block_effects`).
+        let _ = max_cr8_ver;
         Ok(())
     };
 
@@ -6146,27 +6145,6 @@ fn expr_contains_entry_flag(arena: &ExprArena, root: ExprId) -> bool {
         let node = arena.get(id);
         if matches!(node, ExprNode::EntryFlag(_)) {
             return true;
-        }
-        push_expr_children(node, &mut st);
-    }
-    false
-}
-
-fn expr_has_stale_cr8(arena: &ExprArena, root: ExprId, max_cr8_ver: u32) -> bool {
-    if max_cr8_ver == 0 {
-        return false;
-    }
-    let mut seen = HashSet::new();
-    let mut st = vec![root];
-    while let Some(id) = st.pop() {
-        if !seen.insert(id) {
-            continue;
-        }
-        let node = arena.get(id);
-        if let ExprNode::Cr8Read(v) = node {
-            if *v < max_cr8_ver {
-                return true;
-            }
         }
         push_expr_children(node, &mut st);
     }
@@ -7032,6 +7010,8 @@ struct BlockFrame<'p> {
     pin_slots: &'p HashMap<ExprId, i64>,
     /// `mem_ver` after the last memory-writing effect before the block, on its paths.
     start_ver: u32,
+    /// `cr8_ver` after the last CR8 write before the block.
+    start_cr8_ver: u32,
     /// Loads read by the blocks reachable from this one.
     succ_loads: &'p [ExprId],
     /// Values computed into their slots at the end of this block (`plan_hoisted`).
@@ -7049,7 +7029,11 @@ impl BlockFrame<'_> {
         let mut m: HashMap<ExprId, i64> = self
             .pin_slots
             .iter()
-            .filter(|&(&l, _)| matches!(arena.get(l), ExprNode::Load { mem_ver, .. } if *mem_ver < self.start_ver))
+            .filter(|&(&l, _)| match arena.get(l) {
+                ExprNode::Load { mem_ver, .. } => *mem_ver < self.start_ver,
+                ExprNode::Cr8Read(v) => *v < self.start_cr8_ver,
+                _ => false,
+            })
             .map(|(&l, &d)| (l, d))
             .collect();
         for h in self.hoist_active {
@@ -7068,6 +7052,8 @@ struct PinPlan {
     slots: HashMap<ExprId, i64>,
     /// Per block: `mem_ver` after the last memory-writing effect before it.
     start_ver: Vec<u32>,
+    /// Per block: `cr8_ver` after the last CR8 write before it.
+    start_cr8_ver: Vec<u32>,
     /// Per block: every load the blocks reachable from it read.
     succ_loads: Vec<Vec<ExprId>>,
     /// Per block: values to compute into their slots at its end, ascending ids.
@@ -7115,7 +7101,7 @@ fn plan_pinned_loads(func: &LiftedFunction, view: &PeImageView, base0: i64) -> R
                     continue;
                 }
                 let node = func.arena.get(id);
-                if matches!(node, ExprNode::Load { .. }) {
+                if matches!(node, ExprNode::Load { .. } | ExprNode::Cr8Read(_)) {
                     out.insert(id);
                 }
                 push_expr_children(node, &mut st);
@@ -7166,6 +7152,18 @@ fn plan_pinned_loads(func: &LiftedFunction, view: &PeImageView, base0: i64) -> R
             }
         }
     }
+    // CR8 reads a later CR8 write of the way could change.
+    for (bi, b) in func.blocks.iter().enumerate() {
+        for eff in &b.effects {
+            if let IrEffect::WriteCr8 { cr8_ver_after, .. } = eff {
+                for &l in &succ_loads[bi] {
+                    if matches!(func.arena.get(l), ExprNode::Cr8Read(v) if *v < *cr8_ver_after) && is_pinned.insert(l) {
+                        pinned.push(l);
+                    }
+                }
+            }
+        }
+    }
     if pinned.len() > MAX_PINNED_LOADS {
         return Err("pinned_limit".into());
     }
@@ -7176,37 +7174,16 @@ fn plan_pinned_loads(func: &LiftedFunction, view: &PeImageView, base0: i64) -> R
         .map(|(i, &l)| (l, base0 + 8 * (i as i64 + 1)))
         .collect();
 
-    // Version after the last store before each block.
-    let mut start_ver: Vec<Option<u32>> = vec![None; n];
-    if n > 0 {
-        start_ver[0] = Some(0);
-    }
-    for (bi, b) in func.blocks.iter().enumerate() {
-        if let IrTerm::MidCall { cont_block, .. } = &b.term {
-            // A new frame: nothing of the old one is read there.
-            let _ = bi;
-            start_ver[*cont_block] = Some(0);
-        }
-    }
-    let mut work: VecDeque<usize> = (0..n).filter(|&i| start_ver[i].is_some()).collect();
-    while let Some(bi) = work.pop_front() {
-        let Some(mut v) = start_ver[bi] else { continue };
-        for eff in &func.blocks[bi].effects {
-            if let Some(w) = effect_store_ver(eff) {
-                v = w;
-            }
-        }
-        for sx in succs(&func.blocks[bi]) {
-            match start_ver[sx] {
-                None => {
-                    start_ver[sx] = Some(v);
-                    work.push_back(sx);
-                }
-                Some(old) if old != v && !slots.is_empty() => return Err("pinned_ver_merge".into()),
-                Some(_) => {}
-            }
-        }
-    }
+    // Version after the last store (CR8 write) before each block.
+    let start_ver = start_versions(func, effect_store_ver, !slots.is_empty())?;
+    let start_cr8_ver = start_versions(
+        func,
+        |e| match e {
+            IrEffect::WriteCr8 { cr8_ver_after, .. } => Some(*cr8_ver_after),
+            _ => None,
+        },
+        !slots.is_empty(),
+    )?;
     let mut slots = slots;
     // Atomic effects' outputs something reads (`ExprNode::EffectOut`): a slot each,
     // stored by the effect, read below it (its block's later part and the blocks it
@@ -7252,7 +7229,8 @@ fn plan_pinned_loads(func: &LiftedFunction, view: &PeImageView, base0: i64) -> R
     add_dominated(func, &outs_at, &mut hoist_active);
     Ok(PinPlan {
         slots,
-        start_ver: start_ver.into_iter().map(|v| v.unwrap_or(0)).collect(),
+        start_ver,
+        start_cr8_ver,
         succ_loads,
         hoist_at,
         hoist_active,
@@ -7332,6 +7310,48 @@ fn dominator_sets(func: &LiftedFunction) -> Vec<HashSet<usize>> {
 /// Only values that read no memory and nothing a native call changes: they are computed
 /// on every path through that block, also on those that would not need them. No
 /// aligned-frame addresses either: blocks further down may give an id another frame.
+/// Per block: the version `write` gives after the last such effect on the way to it
+/// (0 at a frame's start); `strict`: different versions on two ways are an error.
+fn start_versions(func: &LiftedFunction, write: impl Fn(&IrEffect) -> Option<u32>, strict: bool) -> Result<Vec<u32>, String> {
+    let n = func.blocks.len();
+    let succs = |b: &LiftedBlock| -> Vec<usize> {
+        match &b.term {
+            IrTerm::CondBranch { taken_block, fallthrough_block, .. } => vec![*taken_block, *fallthrough_block],
+            _ => Vec::new(),
+        }
+    };
+    let mut start: Vec<Option<u32>> = vec![None; n];
+    if n > 0 {
+        start[0] = Some(0);
+    }
+    for b in &func.blocks {
+        if let IrTerm::MidCall { cont_block, .. } = &b.term {
+            // A new frame: nothing of the old one is read there.
+            start[*cont_block] = Some(0);
+        }
+    }
+    let mut work: VecDeque<usize> = (0..n).filter(|&i| start[i].is_some()).collect();
+    while let Some(bi) = work.pop_front() {
+        let Some(mut v) = start[bi] else { continue };
+        for eff in &func.blocks[bi].effects {
+            if let Some(w) = write(eff) {
+                v = w;
+            }
+        }
+        for sx in succs(&func.blocks[bi]) {
+            match start[sx] {
+                None => {
+                    start[sx] = Some(v);
+                    work.push_back(sx);
+                }
+                Some(old) if old != v && strict => return Err("pinned_ver_merge".into()),
+                Some(_) => {}
+            }
+        }
+    }
+    Ok(start.into_iter().map(|v| v.unwrap_or(0)).collect())
+}
+
 fn plan_hoisted(func: &LiftedFunction, base0: i64, slots: &mut HashMap<ExprId, i64>) -> (Vec<Vec<ExprId>>, Vec<Vec<ExprId>>) {
     const MIN_COST: u32 = 4;
     let n = func.blocks.len();
@@ -7580,14 +7600,24 @@ fn emit_block_effects(
 ) -> Result<(), String> {
     let [w0, w1, w2] = ctx.scratch;
     for (i, eff) in effects.iter().enumerate() {
-        if let Some(ver) = effect_store_ver(eff) {
+        // A memory write makes older loads stale, a CR8 write older CR8 reads.
+        let writes = match eff {
+            IrEffect::WriteCr8 { cr8_ver_after, .. } => Some((true, *cr8_ver_after)),
+            _ => effect_store_ver(eff).map(|v| (false, v)),
+        };
+        if let Some((cr8, ver)) = writes {
+            let stale = |node: &ExprNode| match (cr8, node) {
+                (false, ExprNode::Load { mem_ver, .. }) => *mem_ver < ver,
+                (true, ExprNode::Cr8Read(v)) => *v < ver,
+                _ => false,
+            };
             let mut roots: Vec<ExprId> = effects[i + 1..].iter().flat_map(effect_exprs).collect();
             roots.extend_from_slice(later);
             let mut loads: Vec<ExprId> = Vec::new();
-            // Loads of the blocks this one can reach that a store on the way may change.
+            // Reads of the blocks this one can reach that this write may change.
             for &l in frame.succ_loads {
                 if frame.pin_slots.contains_key(&l) && !ctx.pinned.contains_key(&l) && !ctx.spills.contains_key(&l) {
-                    if matches!(ctx.arena.get(l), ExprNode::Load { mem_ver, .. } if *mem_ver < ver) {
+                    if stale(ctx.arena.get(l)) {
                         loads.push(l);
                     }
                 }
@@ -7598,11 +7628,9 @@ fn emit_block_effects(
                     continue;
                 }
                 let node = ctx.arena.get(id);
-                if let ExprNode::Load { mem_ver, .. } = node {
-                    if *mem_ver < ver {
-                        loads.push(id);
-                        continue; // its address is evaluated with it
-                    }
+                if stale(node) {
+                    loads.push(id);
+                    continue; // its address is evaluated with it
                 }
                 push_expr_children(node, &mut roots);
             }
@@ -8410,6 +8438,7 @@ fn compile_function_into_asm(
             rflags_saved: saves_rflags,
             pin_slots: &plan.slots,
             start_ver: plan.start_ver[bi],
+            start_cr8_ver: plan.start_cr8_ver[bi],
             succ_loads: &plan.succ_loads[bi],
             hoist_here: &plan.hoist_at[bi],
             hoist_active: &plan.hoist_active[bi],
@@ -11816,6 +11845,82 @@ mod tests {
             let want = run_with_flags(&orig_pe, base + 0x1000, c, d, 0, 0);
             assert_eq!(run_with_flags(&devirt_pe, base + 0x1000, c, d, 0, 0), want);
         }
+    }
+
+    #[test]
+    fn cr8_read_before_a_later_cr8_write_keeps_its_value_e2e() {
+        use gpr64::*;
+        use iced_x86::code_asm::registers::cr::cr8;
+        let base = 0x1_4000_0000u64;
+        let mut text_sec = vec![0xCCu8; 0x200];
+        let fn0 = assemble_at(64, base + 0x1000, |a| a.jmp(base + 0x2000));
+        text_sec[..fn0.len()].copy_from_slice(&fn0);
+        let exit_ret = assemble_at(64, base + 0x1040, |a| a.ret());
+        text_sec[0x40..0x40 + exit_ret.len()].copy_from_slice(&exit_ret);
+        let mut vmp_sec = vec![0xCCu8; 0x400];
+        // The old IRQL read first, used after a raise in this block and after another
+        // in a later block: it must be the value from before both.
+        let stub = assemble_at(64, base + 0x2000, |a| {
+            let mut skip = a.create_label();
+            a.push(rbx)?;
+            a.push(rbp)?;
+            a.mov(r10, rcx)?;
+            for k in 0..40i32 {
+                a.add(r10, k + 3)?;
+                a.sub(r10, k + 3)?;
+            }
+            a.mov(r8, cr8)?;
+            a.mov(r9, 2u64)?;
+            a.mov(cr8, r9)?;
+            a.test(gpr8::dl, 1)?;
+            a.jz(skip)?;
+            a.mov(r9, 13u64)?;
+            a.mov(cr8, r9)?;
+            a.set_label(&mut skip)?;
+            a.mov(rax, cr8)?;
+            a.shl(rax, 8)?;
+            a.add(rax, r8)?;
+            a.mov(cr8, r8)?;
+            a.pop(rbp)?;
+            a.pop(rbx)?;
+            a.jmp(base + 0x1040)
+        });
+        vmp_sec[..stub.len()].copy_from_slice(&stub);
+        let orig_pe = build_two_exec_pe64(&text_sec, &vmp_sec, 0x1000);
+        let (devirt_pe, report) = devirtualize_pe_bytes(&orig_pe, BinaryDevirtConfig::default()).unwrap();
+        assert_eq!(report.devirtualized_total, 1, "bailouts: {:?}", report.bailout_reasons);
+        for d in [0u64, 1] {
+            let want = run_with_flags(&orig_pe, base + 0x1000, 7, d, 0, 0);
+            assert_eq!(run_with_flags(&devirt_pe, base + 0x1000, 7, d, 0, 0), want, "{d}");
+        }
+        // The emulator does not keep CR8 (reads give 0), so check the order in the code
+        // itself: the old value is read before the first write.
+        let site = &report.patched_sites[0];
+        let s2 = Sample::from_bytes(&devirt_pe).unwrap();
+        let mut eng = UnpackerEngine::new(s2, "mem");
+        eng.init_uc().unwrap();
+        // As much of the stub as is mapped.
+        let mut len = 0x2000usize;
+        let mut code = vec![0u8; len];
+        while eng.unicorn_mut().unwrap().mem_read(base + site.stub_rva as u64, &mut code[..len]).is_err() {
+            len /= 2;
+            assert!(len >= 0x40, "stub not mapped");
+        }
+        code.truncate(len);
+        let mut dec = Decoder::with_ip(64, &code, base + site.stub_rva as u64, DecoderOptions::NONE);
+        let (mut first_read, mut first_write) = (None, None);
+        for (i, ins) in (&mut dec).into_iter().take(2000).enumerate() {
+            if ins.mnemonic() == Mnemonic::Mov && ins.op1_kind() == OpKind::Register && ins.op1_register() == Register::CR8 {
+                first_read.get_or_insert(i);
+            }
+            if ins.mnemonic() == Mnemonic::Mov && ins.op0_kind() == OpKind::Register && ins.op0_register() == Register::CR8 {
+                first_write.get_or_insert(i);
+            }
+        }
+        assert!(
+            matches!((first_read, first_write), (Some(r), Some(w)) if r < w),
+            "read {first_read:?} write {first_write:?}"
+        );
     }
 
     #[test]
