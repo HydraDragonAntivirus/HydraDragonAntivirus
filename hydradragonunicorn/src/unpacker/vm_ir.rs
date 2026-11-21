@@ -284,6 +284,10 @@ pub enum ExprNode {
     XmmIn(u8, bool),
     StackBase,
     AlignedBase(u32),
+    /// `AlignedBase(id)` of a frame aligned from a stack address plus a run-time value
+    /// (`(parent + off + dyn) & mask`, `dyn` the child): the frame's base, with `dyn`
+    /// a real operand so every analysis sees what it reads.
+    AlignedDyn(u32, ExprId),
     /// RFLAGS as they were when the lifted code was entered (what a `pushfq` stores
     /// before anything changed the flags). The recompiled code saves them on entry.
     EntryRflags,
@@ -424,6 +428,10 @@ impl ExprArena {
 
     pub fn aligned_base(&mut self, id: u32) -> ExprId {
         self.intern_node(ExprNode::AlignedBase(id))
+    }
+
+    pub fn aligned_dyn(&mut self, id: u32, dyn_off: ExprId) -> ExprId {
+        self.intern_node(ExprNode::AlignedDyn(id, dyn_off))
     }
 
     pub fn entry_flag(&mut self, cc: u8) -> ExprId {
@@ -1693,12 +1701,12 @@ impl ExprArena {
     pub fn as_stack_offset(&self, id: ExprId) -> Option<(StackSpace, i64)> {
         match self.get(id) {
             ExprNode::StackBase => Some((StackSpace::CallerStack, 0)),
-            ExprNode::AlignedBase(bid) => Some((StackSpace::AlignedScratch(*bid), 0)),
+            ExprNode::AlignedBase(bid) | ExprNode::AlignedDyn(bid, _) => Some((StackSpace::AlignedScratch(*bid), 0)),
             ExprNode::Add(base, off_id) => {
                 let k = self.as_const(*off_id)? as i64;
                 match self.get(*base) {
                     ExprNode::StackBase => Some((StackSpace::CallerStack, k)),
-                    ExprNode::AlignedBase(bid) => Some((StackSpace::AlignedScratch(*bid), k)),
+                    ExprNode::AlignedBase(bid) | ExprNode::AlignedDyn(bid, _) => Some((StackSpace::AlignedScratch(*bid), k)),
                     _ => None,
                 }
             }
@@ -1706,7 +1714,7 @@ impl ExprArena {
                 let k = self.as_const(*off_id)? as i64;
                 match self.get(*base) {
                     ExprNode::StackBase => Some((StackSpace::CallerStack, k.wrapping_neg())),
-                    ExprNode::AlignedBase(bid) => Some((StackSpace::AlignedScratch(*bid), k.wrapping_neg())),
+                    ExprNode::AlignedBase(bid) | ExprNode::AlignedDyn(bid, _) => Some((StackSpace::AlignedScratch(*bid), k.wrapping_neg())),
                     _ => None,
                 }
             }
@@ -1732,7 +1740,11 @@ impl ExprArena {
                 | ExprNode::CallRet { .. }
                 | ExprNode::EntryFlag(_)
                 | ExprNode::Cr8Read(_) => {}
-                ExprNode::Load { addr, .. } | ExprNode::Not(addr) | ExprNode::Neg(addr) | ExprNode::SExt { val: addr, .. } => {
+                ExprNode::Load { addr, .. }
+                | ExprNode::Not(addr)
+                | ExprNode::Neg(addr)
+                | ExprNode::SExt { val: addr, .. }
+                | ExprNode::AlignedDyn(_, addr) => {
                     stack.push(*addr);
                 }
                 ExprNode::Add(a, b)
@@ -1802,6 +1814,10 @@ impl ExprArena {
             ExprNode::Not(a) => {
                 let na = self.substitute_memo(a, from, to, memo);
                 if na == a { id } else { self.not(na) }
+            }
+            ExprNode::AlignedDyn(k, a) => {
+                let na = self.substitute_memo(a, from, to, memo);
+                if na == a { id } else { self.aligned_dyn(k, na) }
             }
             ExprNode::Neg(a) => {
                 let na = self.substitute_memo(a, from, to, memo);

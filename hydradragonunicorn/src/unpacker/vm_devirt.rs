@@ -964,6 +964,9 @@ pub struct VmExit {
     /// offset from that base, value)` - a constant, or a register that holds the value
     /// as its final one.
     pub direct_stores: Vec<(u32, i64, DirectVal)>,
+    /// Per base: the temporary offset of its run-time part (`ExprNode::AlignedDyn`),
+    /// computed with the other values and added before the `and`.
+    pub base_dyn: Vec<Option<i64>>,
     /// `AlignedBase(i)` = `(parent + off) & mask`, parent the caller stack or an
     /// earlier aligned base.
     pub bases: Vec<(StackSpace, i64, u64)>,
@@ -1045,6 +1048,11 @@ fn expr_brief(arena: &ExprArena, id: ExprId, depth: u8) -> String {
             ExprNode::StackBase => out.push_str("StackBase"),
             ExprNode::EntryRflags => out.push_str("EntryRflags"),
             ExprNode::AlignedBase(n) => out.push_str(&format!("AlignedBase({n})")),
+            ExprNode::AlignedDyn(n, x) => {
+                out.push_str(&format!("AlignedDyn({n},"));
+                rec(arena, *x, d, out);
+                out.push(')');
+            }
             ExprNode::CallRet { call_id, reg } => out.push_str(&format!("CallRet({call_id},{})", reg.as_str())),
             ExprNode::Load { addr, width, mem_ver } => {
                 out.push_str(&format!("Load{width}@v{mem_ver}("));
@@ -1188,6 +1196,7 @@ fn expr_flags_tag(arena: &ExprArena, id: ExprId) -> String {
         ExprNode::StackBase => "StackBase",
         ExprNode::EntryRflags => "EntryRflags",
         ExprNode::AlignedBase(_) => "AlignedBase",
+        ExprNode::AlignedDyn(..) => "AlignedDyn",
         ExprNode::CallRet { .. } => "CallRet",
         ExprNode::Load { .. } => "Load",
         ExprNode::Add(..) => "Add",
@@ -1231,6 +1240,10 @@ fn expr_flags_tag(arena: &ExprArena, id: ExprId) -> String {
         match arena.get(cur) {
             ExprNode::Opaque(_) => op = true,
             ExprNode::AlignedBase(_) => ab = true,
+            ExprNode::AlignedDyn(_, x) => {
+                ab = true;
+                stack.push(*x);
+            }
             ExprNode::RegIn(_) => reg = true,
             ExprNode::XmmIn(..) => xm = true,
             ExprNode::StackBase => sb = true,
@@ -1367,6 +1380,15 @@ struct SymState {
     /// `and rsp, mask` aligned it. Lets an exit rebuild the aligned frame at run time
     /// (`IrTerm::ExitToVm`), where the alignment padding is only known then.
     aligned_defs: Vec<(StackSpace, i64, u64)>,
+    /// The run-time part of each aligned frame's base (`ExprNode::AlignedDyn`), by id.
+    aligned_dyn: Vec<Option<ExprId>>,
+    /// `stack address & mask` values memory was read or written through as plain
+    /// memory (`note_stack_mask_access`): such a value becomes an aligned frame only
+    /// while nothing went through it that way (`adopt_rsp_alignment`).
+    stack_masks_accessed: HashSet<ExprId>,
+    /// RFLAGS bits other than the status flags (DF, IF, TF, ...) may differ from the
+    /// frame's entry RFLAGS (`cld` / `std`, a `popfq` of a value not saved here).
+    system_flags_changed: bool,
     inline_depth: usize,
     cum_rsp_offset: i64,
     entry_caller_slot_versions: HashMap<i64, ExprId>,
@@ -1406,6 +1428,9 @@ impl SymState {
                 mem_cache: HashMap::new(),
                 next_aligned_id: 0,
                 aligned_defs: Vec::new(),
+                aligned_dyn: Vec::new(),
+                stack_masks_accessed: HashSet::new(),
+                system_flags_changed: false,
                 inline_depth: 0,
                 cum_rsp_offset: 0,
                 entry_caller_slot_versions,
@@ -1424,6 +1449,9 @@ impl SymState {
             mem_cache: HashMap::new(),
             next_aligned_id: 0,
             aligned_defs: Vec::new(),
+            aligned_dyn: Vec::new(),
+            stack_masks_accessed: HashSet::new(),
+            system_flags_changed: false,
             inline_depth: 0,
             cum_rsp_offset: 0,
             entry_caller_slot_versions,
@@ -1662,6 +1690,61 @@ impl SymState {
     }
 }
 
+/// RFLAGS after the last status-flag operation, for `pushfq`: the status flags from
+/// that operation, every other bit from the frame's entry RFLAGS (unless those may have
+/// changed). Only where all six status flags are defined: `cmp` / `sub` / `neg` and
+/// `add` (AF is undefined after the logical operations).
+fn composed_rflags(state: &SymState, arena: &mut ExprArena) -> Option<ExprId> {
+    if state.system_flags_changed {
+        return None;
+    }
+    let (l, r, res, w) = match &state.flags {
+        FlagState::SubCmp { lhs, rhs, width } => {
+            let la = arena.zext_mask(*lhs, *width);
+            let rb = arena.zext_mask(*rhs, *width);
+            let d = arena.sub(la, rb);
+            let res = arena.zext_mask(d, *width);
+            (la, rb, res, *width)
+        }
+        FlagState::Add { lhs, rhs, res, width } => {
+            let la = arena.zext_mask(*lhs, *width);
+            let rb = arena.zext_mask(*rhs, *width);
+            let rr = arena.zext_mask(*res, *width);
+            (la, rb, rr, *width)
+        }
+        _ => return None,
+    };
+    let _ = w;
+    let cf = state.eval_cond_code(arena, ConditionCode::b)?;
+    // PF: even number of set bits in the result's low byte.
+    let lo = arena.and_const(res, 0xFF);
+    let f4 = arena.shr_const(lo, 4);
+    let x4 = arena.xor(lo, f4);
+    let f2 = arena.shr_const(x4, 2);
+    let x2 = arena.xor(x4, f2);
+    let f1 = arena.shr_const(x2, 1);
+    let x1 = arena.xor(x2, f1);
+    let odd = arena.and_const(x1, 1);
+    let pf = arena.xor_const(odd, 1);
+    let zf = state.eval_cond_code(arena, ConditionCode::e)?;
+    let sf = state.eval_cond_code(arena, ConditionCode::s)?;
+    let of = state.eval_cond_code(arena, ConditionCode::o)?;
+    // AF: the carry out of bit 3 = bit 4 of lhs ^ rhs ^ result.
+    let x1 = arena.xor(l, r);
+    let x2 = arena.xor(x1, res);
+    let x3 = arena.shr_const(x2, 4);
+    let af = arena.and_const(x3, 1);
+    const STATUS: u64 = 0x8D5; // CF PF AF ZF SF OF
+    let entry = arena.entry_rflags();
+    let mut v = arena.and_const(entry, !STATUS);
+    for (bit, f) in [(0u64, cf), (2, pf), (4, af), (6, zf), (7, sf), (11, of)] {
+        let b = arena.and_const(f, 1);
+        let sh = arena.shl_const(b, bit);
+        v = arena.or(v, sh);
+    }
+    Some(v)
+}
+
 /// A condition code read from the frame's saved entry RFLAGS (`ExprNode::EntryRflags`):
 /// CF bit 0, PF bit 2, ZF bit 6, SF bit 7, OF bit 11.
 fn entry_rflags_cond(arena: &mut ExprArena, cc: ConditionCode) -> Option<ExprId> {
@@ -1772,6 +1855,173 @@ fn eval_mem_ea(state: &SymState, arena: &mut ExprArena, bitness: u32, ins: &Inst
     }
 }
 
+/// The `stack address & -2^k` subexpressions of `addr` (`SymState::stack_masks_accessed`).
+fn note_stack_mask_access(state: &mut SymState, arena: &ExprArena, addr: ExprId) {
+    let mut st = vec![(addr, 0u8)];
+    while let Some((id, d)) = st.pop() {
+        if d > 8 {
+            continue;
+        }
+        let frame_like = as_stack_mask(arena, id).is_some()
+            || matches!(arena.get(id), ExprNode::And(_, m) if arena.as_const(*m).is_some_and(is_frame_mask));
+        if frame_like {
+            state.stack_masks_accessed.insert(id);
+            continue;
+        }
+        let mut ch = Vec::new();
+        push_expr_children(arena.get(id), &mut ch);
+        st.extend(ch.into_iter().map(|c| (c, d + 1)));
+    }
+}
+
+/// `x & mask` with `x` a stack address and `mask` a negative power of two (at most 256
+/// in size): an aligned frame base, as `and rsp, mask` makes one.
+fn as_stack_mask(arena: &ExprArena, id: ExprId) -> Option<((StackSpace, i64), u64)> {
+    let ExprNode::And(x, m) = arena.get(id) else { return None };
+    let mask = arena.as_const(*m)?;
+    if !is_frame_mask(mask) {
+        return None;
+    }
+    Some((arena.as_stack_offset(*x)?, mask))
+}
+
+fn is_frame_mask(mask: u64) -> bool {
+    let sm = mask as i64;
+    sm < 0 && sm >= -256 && sm.abs().count_ones() == 1
+}
+
+/// A stack address plus a run-time value: `(space, off)` and the value. Only a value
+/// that reads no memory and nothing unknown (it is evaluated wherever the frame's base
+/// is, and by a VM exit), on the caller stack or a frame of fixed position.
+fn split_dynamic_stack_addr(state: &SymState, arena: &mut ExprArena, x: ExprId) -> Option<((StackSpace, i64), ExprId)> {
+    // `x` as a sum: exactly one stack base (added), constants, and the rest.
+    fn terms(arena: &ExprArena, id: ExprId, neg: bool, depth: u8, out: &mut Vec<(bool, ExprId)>, k: &mut i64) -> bool {
+        if depth > 16 || out.len() > 32 {
+            return false;
+        }
+        if let Some(c) = arena.as_const(id) {
+            *k = if neg { k.wrapping_sub(c as i64) } else { k.wrapping_add(c as i64) };
+            return true;
+        }
+        match arena.get(id) {
+            ExprNode::Add(a, b) => terms(arena, *a, neg, depth + 1, out, k) && terms(arena, *b, neg, depth + 1, out, k),
+            ExprNode::Sub(a, b) => terms(arena, *a, neg, depth + 1, out, k) && terms(arena, *b, !neg, depth + 1, out, k),
+            ExprNode::Neg(a) => terms(arena, *a, !neg, depth + 1, out, k),
+            _ => {
+                out.push((neg, id));
+                true
+            }
+        }
+    }
+    let mut parts = Vec::new();
+    let mut k = 0i64;
+    if !terms(arena, x, false, 0, &mut parts, &mut k) {
+        return None;
+    }
+    let is_base = |arena: &ExprArena, id: ExprId| matches!(arena.get(id), ExprNode::StackBase | ExprNode::AlignedBase(_));
+    let mut bases = parts.iter().filter(|&&(_, id)| is_base(arena, id));
+    let &(base_neg, base) = bases.next()?;
+    if base_neg || bases.next().is_some() {
+        return None;
+    }
+    let mut dyn_off: Option<ExprId> = None;
+    for &(neg, id) in parts.iter().filter(|&&(_, id)| id != base) {
+        let t = if neg { arena.neg(id) } else { id };
+        dyn_off = Some(match dyn_off {
+            None => t,
+            Some(acc) => arena.add(acc, t),
+        });
+    }
+    let dyn_off = dyn_off?;
+    let (space, off0) = arena.as_stack_offset(base)?;
+    let off = off0.wrapping_add(k);
+    if let StackSpace::AlignedScratch(p) = space {
+        if state.aligned_dyn.get(p as usize).copied().flatten().is_some() {
+            return None;
+        }
+    }
+    if arena.as_const(dyn_off).is_some() || !dynamic_part_ok(arena, dyn_off) {
+        return None;
+    }
+    Some(((space, off), dyn_off))
+}
+
+/// No load, unknown, call result, flags or frame base inside.
+fn dynamic_part_ok(arena: &ExprArena, root: ExprId) -> bool {
+    let mut seen = HashSet::new();
+    let mut st = vec![root];
+    while let Some(id) = st.pop() {
+        if !seen.insert(id) {
+            continue;
+        }
+        let node = arena.get(id);
+        if matches!(
+            node,
+            ExprNode::Load { .. }
+                | ExprNode::Opaque(_)
+                | ExprNode::CallRet { .. }
+                | ExprNode::Cr8Read(_)
+                | ExprNode::EntryFlag(_)
+                | ExprNode::AlignedBase(_)
+                | ExprNode::AlignedDyn(..)
+                | ExprNode::StackBase
+        ) {
+            return false;
+        }
+        push_expr_children(node, &mut st);
+    }
+    seen.len() <= 256
+}
+
+/// RSP became `(stack address & mask) + c` through a copy (`mov rax, rsp; and rax,
+/// -16; mov rsp, rax`): the same frame alignment as `and rsp, mask`. The masked value
+/// becomes a new `AlignedBase` everywhere in the state, unless memory was already
+/// accessed through it as plain memory (those accesses would not be in the frame's
+/// slots).
+fn adopt_rsp_alignment(state: &mut SymState, arena: &mut ExprArena) -> bool {
+    let rsp = state.regs[ArchReg::Rsp.idx()];
+    if arena.as_stack_offset(rsp).is_some() {
+        return false;
+    }
+    let masked = match arena.get(rsp).clone() {
+        ExprNode::Add(a, b) if arena.as_const(b).is_some() => a,
+        ExprNode::Add(a, b) if arena.as_const(a).is_some() => b,
+        _ => rsp,
+    };
+    let (parent, poff, mask, dyn_off) = match as_stack_mask(arena, masked) {
+        Some(((p, o), m)) => (p, o, m, None),
+        None => {
+            let ExprNode::And(x, m) = arena.get(masked).clone() else { return false };
+            let Some(mask) = arena.as_const(m).filter(|&mk| is_frame_mask(mk)) else { return false };
+            let Some(((p, o), d)) = split_dynamic_stack_addr(state, arena, x) else { return false };
+            (p, o, mask, Some(d))
+        }
+    };
+    if state.stack_masks_accessed.contains(&masked) || state.aligned_defs.len() != state.next_aligned_id as usize {
+        return false;
+    }
+    if let StackSpace::AlignedScratch(p) = parent {
+        if p as usize >= state.aligned_defs.len() {
+            return false;
+        }
+    }
+    let aid = state.next_aligned_id;
+    state.next_aligned_id += 1;
+    state.aligned_defs.push((parent, poff, mask));
+    state.aligned_dyn.push(dyn_off);
+    // A run-time base has no known place below the entry RSP: its unwritten slots stay
+    // unknown.
+    if parent == StackSpace::CallerStack && dyn_off.is_none() {
+        state.stack.note_aligned_frame(aid, poff);
+    }
+    let abase = match dyn_off {
+        Some(d) => arena.aligned_dyn(aid, d),
+        None => arena.aligned_base(aid),
+    };
+    substitute_in_state(arena, state, masked, abase);
+    true
+}
+
 fn read_memory_expr(
     view: &PeImageView,
     state: &mut SymState,
@@ -1793,6 +2043,7 @@ fn read_memory_expr_depth(
     if let Some((space, off)) = stack_slot_addr(arena, addr) {
         return state.stack.read_scalar(arena, space, off, width, state.mem_ver);
     }
+    note_stack_mask_access(state, arena, addr);
     if let Some(&(cached_w, cached_v)) = state.mem_cache.get(&addr) {
         if cached_w == width {
             return cached_v;
@@ -1868,6 +2119,7 @@ fn write_memory_expr(
         }
     }
 
+    note_stack_mask_access(state, arena, addr);
     state.mem_ver += 1;
     // Conservatively invalidate cached non-const mem loads on write to unknown/alias addresses
     if arena.as_const(addr).is_some() {
@@ -2190,6 +2442,40 @@ fn split_partly_written_slot(arena: &mut ExprArena, val: ExprId) -> Option<(Expr
 /// `IrTerm::ExitToVm` to `va` for the current state, or `None` when the state cannot
 /// be rebuilt there (RSP is neither a fixed entry offset nor on an aligned frame,
 /// the frame cannot be described, live flags of a kind that cannot be replayed).
+/// Signed range a value can take, for the shapes a run-time stack shift has (a masked
+/// or shifted amount, its negation, sums); `None` when it is not bounded that way.
+fn value_range(arena: &ExprArena, id: ExprId, depth: u8) -> Option<(i64, i64)> {
+    if depth > 12 {
+        return None;
+    }
+    if let Some(c) = arena.as_const(id) {
+        return Some((c as i64, c as i64));
+    }
+    // Known-zero high bits: a non-negative amount below 2^n.
+    let (zeros, _) = arena.known_bits(id);
+    let top = 64 - zeros.leading_ones();
+    if top < 40 {
+        return Some((0, ((1u128 << top) - 1) as i64));
+    }
+    match arena.get(id) {
+        ExprNode::Neg(x) => {
+            let (lo, hi) = value_range(arena, *x, depth + 1)?;
+            Some((hi.checked_neg()?, lo.checked_neg()?))
+        }
+        ExprNode::Add(a, b) => {
+            let (al, ah) = value_range(arena, *a, depth + 1)?;
+            let (bl, bh) = value_range(arena, *b, depth + 1)?;
+            Some((al.checked_add(bl)?, ah.checked_add(bh)?))
+        }
+        ExprNode::Sub(a, b) => {
+            let (al, ah) = value_range(arena, *a, depth + 1)?;
+            let (bl, bh) = value_range(arena, *b, depth + 1)?;
+            Some((al.checked_sub(bh)?, ah.checked_sub(bl)?))
+        }
+        _ => None,
+    }
+}
+
 fn plan_vm_exit(state: &SymState, arena: &mut ExprArena, view: &PeImageView, va: u64) -> Option<VmExit> {
     const GAP: i64 = 64;
     if view.bitness != 64 || !view.is_executable_va(va) {
@@ -2203,9 +2489,13 @@ fn plan_vm_exit(state: &SymState, arena: &mut ExprArena, view: &PeImageView, va:
     if bases.len() != state.next_aligned_id as usize || final_base.is_some_and(|k| k as usize >= bases.len()) {
         return None;
     }
-    // Lowest address (from the entry RSP) each aligned base can have.
+    if state.aligned_dyn.len() != bases.len() {
+        return None;
+    }
+    // Lowest address (from the entry RSP) each aligned base can have; a run-time part
+    // counts with the lowest value it can take (`value_range`).
     let mut lower: Vec<i64> = Vec::with_capacity(bases.len());
-    for &(parent, off, mask) in &bases {
+    for (k, &(parent, off, mask)) in bases.iter().enumerate() {
         let align = (!mask).checked_add(1)? as i64;
         if !(2..=256).contains(&align) {
             return None;
@@ -2214,7 +2504,17 @@ fn plan_vm_exit(state: &SymState, arena: &mut ExprArena, view: &PeImageView, va:
             StackSpace::CallerStack => 0,
             StackSpace::AlignedScratch(p) => *lower.get(p as usize)?,
         };
-        lower.push(parent_lower.checked_add(off)?.checked_sub(align - 1)?);
+        let dyn_lo = match state.aligned_dyn[k] {
+            Some(d) => {
+                let (lo, _) = value_range(arena, d, 0)?;
+                if lo < -(1 << 24) {
+                    return None;
+                }
+                lo
+            }
+            None => 0,
+        };
+        lower.push(parent_lower.checked_add(off)?.checked_add(dyn_lo)?.checked_sub(align - 1)?);
     }
 
     let mut caller: Vec<(i64, ExprId)> = Vec::new();
@@ -2286,7 +2586,8 @@ fn plan_vm_exit(state: &SymState, arena: &mut ExprArena, view: &PeImageView, va:
     };
     lowest = lowest.min(final_lower.checked_sub(GAP)?);
     let temp_end = lowest.checked_sub(GAP)?;
-    let temp_start = temp_end.checked_sub(8 * (aligned.len() + flag_vals.len()) as i64)?;
+    let n_dyn = state.aligned_dyn.iter().filter(|d| d.is_some()).count();
+    let temp_start = temp_end.checked_sub(8 * (aligned.len() + flag_vals.len() + n_dyn) as i64)?;
     let rsp_delta = (temp_start - 16).div_euclid(16) * 16;
     if rsp_delta < -0x4000_0000 {
         return None;
@@ -2321,13 +2622,24 @@ fn plan_vm_exit(state: &SymState, arena: &mut ExprArena, view: &PeImageView, va:
         flag_offs.push(t);
         t += 8;
     }
+    let mut base_dyn = Vec::with_capacity(bases.len());
+    for d in &state.aligned_dyn {
+        base_dyn.push(match *d {
+            Some(v) => {
+                pending.push((t, v));
+                t += 8;
+                Some(t - 8)
+            }
+            None => None,
+        });
+    }
     let flags = flags_kind.map(|(kind, width)| match kind {
         0 => FlagsReplay::Cmp { a: flag_offs[0], b: flag_offs[1], width },
         1 => FlagsReplay::Test { a: flag_offs[0], width },
         2 => FlagsReplay::Add { a: flag_offs[0], b: flag_offs[1], width },
         _ => FlagsReplay::Popf { a: flag_offs[0] },
     });
-    Some(VmExit { rsp_delta, pending, temp_stores, direct_stores, bases, final_base, final_off, flags })
+    Some(VmExit { rsp_delta, pending, temp_stores, direct_stores, base_dyn, bases, final_base, final_off, flags })
 }
 
 /// `ExitToVm` to `va` when VM exits are on and the state can be rebuilt there,
@@ -2343,12 +2655,6 @@ fn exit_to_vm_or_bailout(
     if cfg.allow_vm_exits {
         if let Some(exit) = plan_vm_exit(state, arena, view, va) {
             return IrTerm::ExitToVm { va, exit: Box::new(exit), final_regs: state.regs, final_xmms: state.xmms };
-        }
-        if std::env::var("DBGTMP_PX").is_ok() {
-            let rsp_ok = arena.as_stack_offset(state.regs[ArchReg::Rsp.idx()]).is_some();
-            let bases_ok = state.aligned_defs.len() == state.next_aligned_id as usize;
-            let fk = match &state.flags { FlagState::Entry => "entry", FlagState::Unknown => "unknown", FlagState::SubCmp{..} => "subcmp", FlagState::TestBitwise{..} => "test", FlagState::Add{..} => "add", FlagState::IncDec{..} => "incdec", FlagState::CarryExpr(_) => "carry" };
-            eprintln!("DBGTMP_PX {reason} exec={} rsp_ok={rsp_ok} bases_ok={bases_ok} flags={fk} dead={}", view.is_executable_va(va), flags_dead_at(view, va));
         }
     }
     IrTerm::Bailout(reason)
@@ -2812,6 +3118,11 @@ struct StateDedupKey {
     mem_cache: Vec<(ExprId, (u8, ExprId))>,
     entry_caller_slots: Vec<(i64, ExprId)>,
     aligned_defs: Vec<(StackSpace, i64, u64)>,
+    aligned_dyn: Vec<Option<ExprId>>,
+    system_flags_changed: bool,
+    /// Paths that differ in these read the same slot differently later on.
+    fresh_aligned: Vec<(u32, i64)>,
+    stack_masks_accessed: Vec<ExprId>,
 }
 
 fn make_state_dedup_key(s: &SymState) -> StateDedupKey {
@@ -2848,6 +3159,18 @@ fn make_state_dedup_key(s: &SymState) -> StateDedupKey {
         mem_ver: s.mem_ver,
         cr8_ver: s.cr8_ver,
         aligned_defs: s.aligned_defs.clone(),
+        aligned_dyn: s.aligned_dyn.clone(),
+        system_flags_changed: s.system_flags_changed,
+        fresh_aligned: {
+            let mut v: Vec<(u32, i64)> = s.stack.fresh_aligned.iter().map(|(&k, &o)| (k, o)).collect();
+            v.sort_unstable();
+            v
+        },
+        stack_masks_accessed: {
+            let mut v: Vec<ExprId> = s.stack_masks_accessed.iter().copied().collect();
+            v.sort_unstable();
+            v
+        },
         mem_cache,
         entry_caller_slots,
     }
@@ -2946,6 +3269,13 @@ fn specialize_sym_state(arena: &mut ExprArena, state: &mut SymState, cond: ExprI
         if from == to {
             continue;
         }
+        substitute_in_state(arena, state, from, to);
+    }
+}
+
+/// Replaces `from` by `to` in every value of the state.
+fn substitute_in_state(arena: &mut ExprArena, state: &mut SymState, from: ExprId, to: ExprId) {
+    {
         let mut memo = HashMap::new();
         for r in &mut state.regs {
             *r = arena.substitute_memo(*r, from, to, &mut memo);
@@ -3265,6 +3595,9 @@ pub fn lift_vm_entry_cfg(
 
         let term = loop {
             last_cur_ip = state.ip;
+            if view.bitness == 64 && adopt_rsp_alignment(&mut state, &mut arena) {
+                block_aligned = state.aligned_defs.clone();
+            }
             if block_insns >= cfg.max_insns_per_block || raw_vm_insns >= cfg.max_total_insns_per_entry {
                 last_ins = None;
                 break exit_to_vm_or_bailout(cfg, &state, &mut arena, view, state.ip, "insn_budget_exceeded".into());
@@ -3917,7 +4250,7 @@ pub fn lift_vm_entry_cfg(
                 Mnemonic::Nop | Mnemonic::Pause | Mnemonic::Endbr64 | Mnemonic::Endbr32 => {}
                 Mnemonic::Clc => state.set_flags(FlagState::CarryExpr(arena.const_u64(0))),
                 Mnemonic::Stc => state.set_flags(FlagState::CarryExpr(arena.const_u64(1))),
-                Mnemonic::Cld | Mnemonic::Std => {}
+                Mnemonic::Cld | Mnemonic::Std => state.system_flags_changed = true,
 
                 Mnemonic::Mov => {
                     if view.bitness == 64
@@ -4071,6 +4404,8 @@ pub fn lift_vm_entry_cfg(
                     // not about the value, so it does not matter here.
                     let rfl = if view.bitness == 64 && matches!(state.flags, FlagState::Entry) {
                         arena.entry_rflags()
+                    } else if let Some(v) = (view.bitness == 64).then(|| composed_rflags(&state, &mut arena)).flatten() {
+                        v
                     } else {
                         arena.opaque()
                     };
@@ -4097,6 +4432,11 @@ pub fn lift_vm_entry_cfg(
                         .rev()
                         .find(|(id, _)| *id == val)
                         .map(|(_, fl)| fl.clone());
+                    // A value this frame pushed (or its entry RFLAGS) keeps the system bits;
+                    // anything else may change them.
+                    if restored.is_none() && *arena.get(val) != ExprNode::EntryRflags {
+                        state.system_flags_changed = true;
+                    }
                     match restored {
                         _ if *arena.get(val) == ExprNode::EntryRflags => {
                             // The frame's saved entry RFLAGS put back.
@@ -4361,7 +4701,8 @@ pub fn lift_vm_entry_cfg(
                     let Some(rhs) = read_operand(view, &mut state, &mut arena, &ins, next_ip, 1) else {
                         break IrTerm::Bailout("and_rhs".into());
                     };
-                    // Detect `and rsp, -16` stack frame alignment!
+                    // Detect `and rsp, -16` stack frame alignment! (Done on a copy that
+                    // becomes RSP later: `adopt_rsp_alignment`.)
                     if ins.op0_kind() == OpKind::Register
                         && ArchReg::from_iced(ins.op0_register()).is_some_and(|(r, _)| r == ArchReg::Rsp)
                         && arena.as_const(rhs).is_some_and(|m_val| {
@@ -4378,7 +4719,8 @@ pub fn lift_vm_entry_cfg(
                             (arena.as_stack_offset(lhs), arena.as_const(rhs))
                         {
                             let parent_mask = state.aligned_defs.get(p as usize).map(|d| d.2 as i64);
-                            if parent_mask.is_some_and(|pm| pm <= mask as i64) {
+                            let parent_fixed = state.aligned_dyn.get(p as usize).copied().flatten().is_none();
+                            if parent_fixed && parent_mask.is_some_and(|pm| pm <= mask as i64) {
                                 let pb = arena.aligned_base(p);
                                 let off = arena.const_u64((poff & mask as i64) as u64);
                                 let nb = arena.add(pb, off);
@@ -4392,6 +4734,7 @@ pub fn lift_vm_entry_cfg(
                         if let (Some((parent, poff)), Some(mask)) = (arena.as_stack_offset(lhs), arena.as_const(rhs)) {
                             debug_assert_eq!(state.aligned_defs.len(), aid as usize);
                             state.aligned_defs.push((parent, poff, mask));
+                            state.aligned_dyn.push(None);
                             block_aligned = state.aligned_defs.clone();
                             if parent == StackSpace::CallerStack {
                                 state.stack.note_aligned_frame(aid, poff);
@@ -5648,7 +5991,7 @@ fn addrs_may_alias(arena: &ExprArena, view: &PeImageView, a: ExprId, aw: u8, b: 
 
 fn push_expr_children(node: &ExprNode, st: &mut Vec<ExprId>) {
     match node {
-        ExprNode::Load { addr, .. } | ExprNode::Not(addr) | ExprNode::Neg(addr) | ExprNode::SExt { val: addr, .. } => {
+        ExprNode::Load { addr, .. } | ExprNode::Not(addr) | ExprNode::Neg(addr) | ExprNode::SExt { val: addr, .. } | ExprNode::AlignedDyn(_, addr) => {
             st.push(*addr);
         }
         ExprNode::Add(a, b)
@@ -5685,7 +6028,7 @@ fn expr_contains_aligned_base(arena: &ExprArena, root: ExprId) -> bool {
             continue;
         }
         let node = arena.get(id);
-        if matches!(node, ExprNode::AlignedBase(_)) {
+        if matches!(node, ExprNode::AlignedBase(_) | ExprNode::AlignedDyn(..)) {
             return true;
         }
         push_expr_children(node, &mut st);
@@ -5889,6 +6232,7 @@ impl<'a> CodegenCtx<'a> {
         &mut self,
         a: &mut CodeAssembler,
         k: u32,
+        dyn_off: Option<ExprId>,
         dst: ArchReg,
         spill_reg: ArchReg,
         depth: u8,
@@ -5899,14 +6243,24 @@ impl<'a> CodegenCtx<'a> {
         let Some(&(parent, off, mask)) = self.aligned.get(k as usize) else {
             return Err("unlowerable_aligned_base".into());
         };
+        // `(parent + off + dyn) & mask`; the run-time part first, kept on the stack.
+        if let Some(x) = dyn_off {
+            self.eval_expr_into(a, x, dst, spill_reg)?;
+            self.emit_push(a, dst)?;
+        }
         match parent {
             StackSpace::CallerStack => self.emit_stack_base_addr(a, dst, off, Some(spill_reg))?,
             StackSpace::AlignedScratch(p) => {
-                self.emit_aligned_base(a, p, dst, spill_reg, depth + 1)?;
+                // A frame aligned on a run-time frame is not made (`aligned_frame_def`).
+                self.emit_aligned_base(a, p, None, dst, spill_reg, depth + 1)?;
                 if off != 0 {
                     self.emit_alu_imm(a, AluOp::Add, dst, off as u64, Some(spill_reg))?;
                 }
             }
+        }
+        if dyn_off.is_some() {
+            self.emit_pop(a, spill_reg)?;
+            self.emit_alu_reg(a, AluOp::Add, dst, spill_reg)?;
         }
         self.emit_alu_imm(a, AluOp::And, dst, mask, Some(spill_reg))
     }
@@ -6318,7 +6672,8 @@ impl<'a> CodegenCtx<'a> {
                 }
             }
             ExprNode::Opaque(_) => Err("unlowerable_opaque".into()),
-            ExprNode::AlignedBase(k) => self.emit_aligned_base(a, k, dst, spill_reg, 0),
+            ExprNode::AlignedBase(k) => self.emit_aligned_base(a, k, None, dst, spill_reg, 0),
+            ExprNode::AlignedDyn(k, x) => self.emit_aligned_base(a, k, Some(x), dst, spill_reg, 0),
             ExprNode::CallRet { .. } => Err("unlowerable_call_ret".into()),
         }
     }
@@ -6464,7 +6819,7 @@ fn collect_read_regs_into(arena: &ExprArena, expr: ExprId, out: &mut HashSet<Arc
             ExprNode::RegIn(r) => {
                 out.insert(*r);
             }
-            ExprNode::Load { addr, .. } | ExprNode::Not(addr) | ExprNode::Neg(addr) | ExprNode::SExt { val: addr, .. } => {
+            ExprNode::Load { addr, .. } | ExprNode::Not(addr) | ExprNode::Neg(addr) | ExprNode::SExt { val: addr, .. } | ExprNode::AlignedDyn(_, addr) => {
                 st.push(*addr);
             }
             ExprNode::Add(a, b)
@@ -6817,6 +7172,7 @@ fn plan_hoisted(func: &LiftedFunction, base0: i64, slots: &mut HashMap<ExprId, i
                 | ExprNode::EntryFlag(_)
                 | ExprNode::Opaque(_)
                 | ExprNode::AlignedBase(_)
+                | ExprNode::AlignedDyn(..)
         );
         if ok {
             let mut ch = Vec::new();
@@ -7315,6 +7671,10 @@ fn emit_vm_exit(a: &mut CodeAssembler, exit: &VmExit, target: u64) -> Result<(),
                 a.mov(rax, qword_ptr(rsp + d32(at)?)).map_err(err)?;
                 a.lea(rax, ptr(rax) + d32(off)?).map_err(err)?;
             }
+        }
+        // The run-time part, computed with the other values (`VmExit::base_dyn`).
+        if let Some(t) = exit.base_dyn.get(k).copied().flatten() {
+            a.add(rax, qword_ptr(rsp + d32(depth + t - exit.rsp_delta)?)).map_err(err)?;
         }
         let m32 = i32::try_from(mask as i64).map_err(|_| "vm_exit_mask".to_string())?;
         a.and(rax, m32).map_err(err)?;
@@ -10804,6 +11164,203 @@ mod tests {
         for c in [5u64, 0xdead_beef] {
             assert_eq!(run_with_flags(&orig_pe, base + 0x1000, c, 0, 0, 0), c);
             assert_eq!(run_with_flags(&devirt_pe, base + 0x1000, c, 0, 0, 0), c);
+        }
+    }
+
+    #[test]
+    fn frame_aligned_on_a_copy_then_moved_into_rsp_e2e() {
+        use gpr64::*;
+        let base = 0x1_4000_0000u64;
+        let mut text_sec = vec![0xCCu8; 0x200];
+        let fn0 = assemble_at(64, base + 0x1000, |a| a.jmp(base + 0x2000));
+        text_sec[..fn0.len()].copy_from_slice(&fn0);
+        let exit_ret = assemble_at(64, base + 0x1040, |a| a.ret());
+        text_sec[0x40..0x40 + exit_ret.len()].copy_from_slice(&exit_ret);
+        let fn1 = assemble_at(64, base + 0x1080, |a| {
+            a.call(base + 0x1000)?;
+            a.ret()
+        });
+        text_sec[0x80..0x80 + fn1.len()].copy_from_slice(&fn1);
+        let mut vmp_sec = vec![0xCCu8; 0x400];
+        // `mov rax, rsp; and rax, -16; mov rsp, rax` instead of `and rsp, -16`, then
+        // a VM exit that must rebuild the frame.
+        let stub = assemble_at(64, base + 0x2000, |a| {
+            a.push(rbx)?;
+            a.push(rbp)?;
+            a.mov(rbp, rsp)?;
+            a.lea(rax, ptr(rsp) - 0x40)?;
+            a.and(rax, -16)?;
+            a.mov(rsp, rax)?;
+            a.mov(qword_ptr(rsp + 0x10), rcx)?;
+            a.mov(qword_ptr(rsp + 0x18), 0x77)?;
+            a.mov(rax, rcx)?;
+            for k in 0..40i32 {
+                a.add(rax, k + 3)?;
+                a.sub(rax, k + 3)?;
+            }
+            a.mov(r8, rdx)?;
+            a.and(r8, 0x20)?;
+            a.mov(r10, base + 0x2300)?;
+            a.add(r10, r8)?;
+            a.jmp(r10)
+        });
+        assert!(stub.len() < 0x300);
+        vmp_sec[..stub.len()].copy_from_slice(&stub);
+        for (off, add) in [(0x300usize, 1i32), (0x320, 2)] {
+            let h = assemble_at(64, base + 0x2000 + off as u64, |a| {
+                a.mov(rax, qword_ptr(rsp + 0x10))?;
+                a.add(rax, qword_ptr(rsp + 0x18))?;
+                a.add(rax, add)?;
+                a.mov(rsp, rbp)?;
+                a.pop(rbp)?;
+                a.pop(rbx)?;
+                a.jmp(base + 0x1040)
+            });
+            vmp_sec[off..off + h.len()].copy_from_slice(&h);
+        }
+        let orig_pe = build_two_exec_pe64(&text_sec, &vmp_sec, 0x1000);
+        let (devirt_pe, report) = devirtualize_pe_bytes(&orig_pe, BinaryDevirtConfig::default()).unwrap();
+        assert_eq!(report.devirtualized_total, 1, "bailouts: {:?}", report.bailout_reasons);
+        assert_eq!(report.hybrid_vm_exits, 1);
+        for entry in [base + 0x1000, base + 0x1080] {
+            for (c, d) in [(5u64, 0u64), (5, 0x20), (0xdead_beef_0000_0001, 0x20)] {
+                let run = |pe: &[u8]| {
+                    let s = Sample::from_bytes(pe).unwrap();
+                    let mut eng = UnpackerEngine::new(s, "mem");
+                    eng.init_uc().unwrap();
+                    eng.call_function(entry, &[c, d], 100_000, 2_000).unwrap()
+                };
+                let want = c.wrapping_add(0x77).wrapping_add(if d & 0x20 != 0 { 2 } else { 1 });
+                assert_eq!(run(&orig_pe), want, "original {entry:#x} {c:#x} {d:#x}");
+                assert_eq!(run(&devirt_pe), want, "devirtualized {entry:#x} {c:#x} {d:#x}");
+            }
+        }
+    }
+
+    #[test]
+    fn pushfq_after_cmp_and_add_is_computed_e2e() {
+        use gpr64::*;
+        let base = 0x1_4000_0000u64;
+        let mut text_sec = vec![0xCCu8; 0x200];
+        let fn0 = assemble_at(64, base + 0x1000, |a| a.jmp(base + 0x2000));
+        text_sec[..fn0.len()].copy_from_slice(&fn0);
+        let exit_ret = assemble_at(64, base + 0x1040, |a| a.ret());
+        text_sec[0x40..0x40 + exit_ret.len()].copy_from_slice(&exit_ret);
+        let mut vmp_sec = vec![0xCCu8; 0x400];
+        // RFLAGS after `cmp ecx, edx` and after `add cl, dl`, whole (system bits too),
+        // combined into rax.
+        let stub = assemble_at(64, base + 0x2000, |a| {
+            a.push(rbx)?;
+            a.push(rbp)?;
+            a.mov(r11, rcx)?;
+            for k in 0..40i32 {
+                a.add(r11, k + 3)?;
+                a.sub(r11, k + 3)?;
+            }
+            a.cmp(gpr32::ecx, gpr32::edx)?;
+            a.pushfq()?;
+            a.pop(rax)?;
+            a.mov(r8, rcx)?;
+            a.add(gpr8::r8b, gpr8::dl)?;
+            a.pushfq()?;
+            a.pop(r9)?;
+            a.shl(r9, 32)?;
+            a.xor(rax, r9)?;
+            a.pop(rbp)?;
+            a.pop(rbx)?;
+            a.jmp(base + 0x1040)
+        });
+        vmp_sec[..stub.len()].copy_from_slice(&stub);
+        let orig_pe = build_two_exec_pe64(&text_sec, &vmp_sec, 0x1000);
+        let (devirt_pe, report) = devirtualize_pe_bytes(&orig_pe, BinaryDevirtConfig::default()).unwrap();
+        assert_eq!(report.devirtualized_total, 1, "bailouts: {:?}", report.bailout_reasons);
+        for (c, d) in [
+            (5u64, 5u64),
+            (5, 6),
+            (0x8000_0000, 1),
+            (0x7fff_ffff, 0xffff_ffff),
+            (0x0f, 0x01),
+            (0x10, 0x01),
+            (0xff, 0x01),
+            (0x7f, 0x01),
+            (0x80, 0x80),
+        ] {
+            let want = run_with_flags(&orig_pe, base + 0x1000, c, d, 0, 0);
+            assert_eq!(run_with_flags(&devirt_pe, base + 0x1000, c, d, 0, 0), want, "{c:#x} {d:#x}");
+        }
+    }
+
+    #[test]
+    fn frame_shifted_by_a_run_time_amount_e2e() {
+        use gpr64::*;
+        let base = 0x1_4000_0000u64;
+        let mut text_sec = vec![0xCCu8; 0x200];
+        let fn0 = assemble_at(64, base + 0x1000, |a| a.jmp(base + 0x2000));
+        text_sec[..fn0.len()].copy_from_slice(&fn0);
+        let exit_ret = assemble_at(64, base + 0x1040, |a| a.ret());
+        text_sec[0x40..0x40 + exit_ret.len()].copy_from_slice(&exit_ret);
+        let fn1 = assemble_at(64, base + 0x1080, |a| {
+            a.call(base + 0x1000)?;
+            a.ret()
+        });
+        text_sec[0x80..0x80 + fn1.len()].copy_from_slice(&fn1);
+        let mut vmp_sec = vec![0xCCu8; 0x400];
+        // The frame goes `rdx & 0xf0` further down before the alignment, so its place
+        // is known only at run time; then a VM exit has to rebuild it.
+        let stub = assemble_at(64, base + 0x2000, |a| {
+            a.push(rbx)?;
+            a.push(rbp)?;
+            a.mov(rbp, rsp)?;
+            a.mov(r9, rdx)?;
+            a.and(r9, 0xf0)?;
+            a.mov(rax, rsp)?;
+            a.sub(rax, r9)?;
+            a.sub(rax, 0x40)?;
+            a.and(rax, -16)?;
+            a.mov(rsp, rax)?;
+            a.mov(qword_ptr(rsp + 0x10), rcx)?;
+            a.mov(qword_ptr(rsp + 0x18), 0x77)?;
+            a.mov(rax, rcx)?;
+            for k in 0..40i32 {
+                a.add(rax, k + 3)?;
+                a.sub(rax, k + 3)?;
+            }
+            a.mov(r8, rdx)?;
+            a.and(r8, 0x20)?;
+            a.mov(r10, base + 0x2300)?;
+            a.add(r10, r8)?;
+            a.jmp(r10)
+        });
+        assert!(stub.len() < 0x300);
+        vmp_sec[..stub.len()].copy_from_slice(&stub);
+        for (off, add) in [(0x300usize, 1i32), (0x320, 2)] {
+            let h = assemble_at(64, base + 0x2000 + off as u64, |a| {
+                a.mov(rax, qword_ptr(rsp + 0x10))?;
+                a.add(rax, qword_ptr(rsp + 0x18))?;
+                a.add(rax, add)?;
+                a.mov(rsp, rbp)?;
+                a.pop(rbp)?;
+                a.pop(rbx)?;
+                a.jmp(base + 0x1040)
+            });
+            vmp_sec[off..off + h.len()].copy_from_slice(&h);
+        }
+        let orig_pe = build_two_exec_pe64(&text_sec, &vmp_sec, 0x1000);
+        let (devirt_pe, report) = devirtualize_pe_bytes(&orig_pe, BinaryDevirtConfig::default()).unwrap();
+        assert_eq!(report.devirtualized_total, 1, "bailouts: {:?}", report.bailout_reasons);
+        assert_eq!(report.hybrid_vm_exits, 1);
+        for entry in [base + 0x1000, base + 0x1080] {
+            for (c, d) in [(5u64, 0u64), (5, 0x20), (9, 0xf0), (0xdead_beef_0000_0001, 0x7f)] {
+                let run = |pe: &[u8]| {
+                    let s = Sample::from_bytes(pe).unwrap();
+                    let mut eng = UnpackerEngine::new(s, "mem");
+                    eng.init_uc().unwrap();
+                    eng.call_function(entry, &[c, d], 100_000, 2_000).unwrap()
+                };
+                let want = c.wrapping_add(0x77).wrapping_add(if d & 0x20 != 0 { 2 } else { 1 });
+                assert_eq!(run(&orig_pe), want, "original {entry:#x} {c:#x} {d:#x}");
+                assert_eq!(run(&devirt_pe), want, "devirtualized {entry:#x} {c:#x} {d:#x}");
+            }
         }
     }
 
