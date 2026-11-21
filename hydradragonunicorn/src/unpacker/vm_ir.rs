@@ -288,6 +288,10 @@ pub enum ExprNode {
     /// (`(parent + off + dyn) & mask`, `dyn` the child): the frame's base, with `dyn`
     /// a real operand so every analysis sees what it reads.
     AlignedDyn(u32, ExprId),
+    /// A value an atomic effect produces when it runs (`what`: 0 = RFLAGS after it,
+    /// 1 = RAX after `cmpxchg`, which holds the old memory value either way). The
+    /// recompiled code stores it right after the effect; nothing can compute it.
+    EffectOut { id: u32, what: u8 },
     /// RFLAGS as they were when the lifted code was entered (what a `pushfq` stores
     /// before anything changed the flags). The recompiled code saves them on entry.
     EntryRflags,
@@ -323,6 +327,7 @@ pub struct ExprArena {
     nodes: Vec<ExprNode>,
     intern: HashMap<ExprNode, ExprId>,
     next_opaque: u32,
+    next_effect_out: u32,
     max_nodes: usize,
     select_dist_depth: u8,
 }
@@ -358,6 +363,7 @@ impl ExprArena {
             nodes: Vec::with_capacity(256),
             intern: HashMap::with_capacity(256),
             next_opaque: 0,
+            next_effect_out: 0,
             max_nodes: max_nodes.max(256),
             select_dist_depth: 0,
         }
@@ -428,6 +434,21 @@ impl ExprArena {
 
     pub fn aligned_base(&mut self, id: u32) -> ExprId {
         self.intern_node(ExprNode::AlignedBase(id))
+    }
+
+    /// A fresh id for an atomic effect's outputs (`ExprNode::EffectOut`).
+    pub fn new_effect_id(&mut self) -> u32 {
+        self.next_effect_out += 1;
+        self.next_effect_out
+    }
+
+    pub fn effect_out(&mut self, id: u32, what: u8) -> ExprId {
+        self.intern_node(ExprNode::EffectOut { id, what })
+    }
+
+    /// The node for `node`, when it was ever made.
+    pub fn find(&self, node: &ExprNode) -> Option<ExprId> {
+        self.intern.get(node).copied()
     }
 
     pub fn aligned_dyn(&mut self, id: u32, dyn_off: ExprId) -> ExprId {
@@ -1738,6 +1759,7 @@ impl ExprArena {
                 | ExprNode::EntryRflags
                 | ExprNode::AlignedBase(_)
                 | ExprNode::CallRet { .. }
+                | ExprNode::EffectOut { .. }
                 | ExprNode::EntryFlag(_)
                 | ExprNode::Cr8Read(_) => {}
                 ExprNode::Load { addr, .. }
@@ -1808,6 +1830,7 @@ impl ExprArena {
             | ExprNode::EntryRflags
             | ExprNode::AlignedBase(_)
             | ExprNode::CallRet { .. }
+            | ExprNode::EffectOut { .. }
             | ExprNode::EntryFlag(_)
             | ExprNode::Cr8Read(_)
             | ExprNode::Opaque(_) => id,

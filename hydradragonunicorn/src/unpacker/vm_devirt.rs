@@ -829,6 +829,8 @@ pub enum IrEffect {
         expected_rax: ExprId,
         desired: ExprId,
         mem_ver_after: u32,
+        /// Its outputs (`ExprNode::EffectOut`): RFLAGS and RAX after it.
+        out_id: u32,
     },
     AtomicRmw {
         lock: bool,
@@ -837,6 +839,8 @@ pub enum IrEffect {
         width: u8,
         src: ExprId,
         mem_ver_after: u32,
+        /// Its output (`ExprNode::EffectOut`): RFLAGS after it.
+        out_id: u32,
     },
     WriteCr8 {
         val: ExprId,
@@ -1048,6 +1052,7 @@ fn expr_brief(arena: &ExprArena, id: ExprId, depth: u8) -> String {
             ExprNode::StackBase => out.push_str("StackBase"),
             ExprNode::EntryRflags => out.push_str("EntryRflags"),
             ExprNode::AlignedBase(n) => out.push_str(&format!("AlignedBase({n})")),
+            ExprNode::EffectOut { id, what } => out.push_str(&format!("EffectOut({id},{what})")),
             ExprNode::AlignedDyn(n, x) => {
                 out.push_str(&format!("AlignedDyn({n},"));
                 rec(arena, *x, d, out);
@@ -1197,6 +1202,7 @@ fn expr_flags_tag(arena: &ExprArena, id: ExprId) -> String {
         ExprNode::EntryRflags => "EntryRflags",
         ExprNode::AlignedBase(_) => "AlignedBase",
         ExprNode::AlignedDyn(..) => "AlignedDyn",
+        ExprNode::EffectOut { .. } => "EffectOut",
         ExprNode::CallRet { .. } => "CallRet",
         ExprNode::Load { .. } => "Load",
         ExprNode::Add(..) => "Add",
@@ -1360,6 +1366,9 @@ enum FlagState {
     TestBitwise { val: ExprId, width: u8 },
     Add { lhs: ExprId, rhs: ExprId, res: ExprId, width: u8 },
     IncDec { res: ExprId, cf: Option<bool>, width: u8 },
+    /// The flags are the bits of this RFLAGS value (captured at run time after an
+    /// atomic operation: `ExprNode::EffectOut`).
+    Rflags(ExprId),
     CarryExpr(ExprId),
 }
 
@@ -1642,6 +1651,7 @@ impl SymState {
                     _ => None,
                 }
             }
+            FlagState::Rflags(v) => rflags_cond(arena, *v, cc),
             FlagState::CarryExpr(bit) => match cc {
                 ConditionCode::b => Some(*bit),
                 ConditionCode::ae => Some(arena.xor_const(*bit, 1)),
@@ -1696,8 +1706,13 @@ impl SymState {
 /// After the logical operations AF is architecturally undefined: it is taken as 0, what
 /// Intel and AMD processors (and the emulators) produce.
 fn composed_rflags(state: &SymState, arena: &mut ExprArena) -> Option<ExprId> {
+    // The system bits in a value taken at run time are the recompiled code's, which
+    // are the frame's entry ones: right only while the VM did not change them.
     if state.system_flags_changed {
         return None;
+    }
+    if let FlagState::Rflags(v) = &state.flags {
+        return Some(*v);
     }
     if let FlagState::TestBitwise { val, width } = &state.flags {
         let res = arena.zext_mask(*val, *width);
@@ -1769,6 +1784,11 @@ fn rflags_from_status(arena: &mut ExprArena, flags: [Option<ExprId>; 6]) -> Expr
 /// CF bit 0, PF bit 2, ZF bit 6, SF bit 7, OF bit 11.
 fn entry_rflags_cond(arena: &mut ExprArena, cc: ConditionCode) -> Option<ExprId> {
     let rf = arena.entry_rflags();
+    rflags_cond(arena, rf, cc)
+}
+
+/// A condition code read from the bits of an RFLAGS value.
+fn rflags_cond(arena: &mut ExprArena, rf: ExprId, cc: ConditionCode) -> Option<ExprId> {
     let bit = |arena: &mut ExprArena, n: u64| {
         let s = arena.shr_const(rf, n);
         arena.and_const(s, 1)
@@ -2637,9 +2657,18 @@ fn plan_vm_exit(state: &SymState, arena: &mut ExprArena, view: &PeImageView, va:
                 flag_vals = vec![arena.entry_rflags()];
                 flags_kind = Some((3, 8));
             }
+            FlagState::Rflags(v) => {
+                flag_vals = vec![*v];
+                flags_kind = Some((3, 8));
+            }
             _ => return None,
         }
         if !matches!(flags_kind, Some((_, 1 | 2 | 4 | 8))) {
+            return None;
+        }
+        // `popfq` puts back every bit: the system ones are the frame's entry ones, wrong
+        // once the VM changed them (`cld` / `std`, ...).
+        if matches!(flags_kind, Some((3, _))) && state.system_flags_changed {
             return None;
         }
     }
@@ -3287,7 +3316,7 @@ fn subst_flag_state(
         FlagState::IncDec { res, .. } => {
             *res = arena.substitute_memo(*res, from, to, memo);
         }
-        FlagState::CarryExpr(e) => {
+        FlagState::CarryExpr(e) | FlagState::Rflags(e) => {
             *e = arena.substitute_memo(*e, from, to, memo);
         }
         FlagState::Entry | FlagState::Unknown => {}
@@ -3721,6 +3750,7 @@ pub fn lift_vm_entry_cfg(
                         let expected_rax = state.read_reg(&mut arena, view.bitness, ArchReg::Rax, RegSlice::Full64);
                         state.mem_ver += 1;
                         state.mem_cache.clear();
+                        let out_id = arena.new_effect_id();
                         effects.push(IrEffect::AtomicCmpXchg {
                             lock: true,
                             addr: ea,
@@ -3728,11 +3758,18 @@ pub fn lift_vm_entry_cfg(
                             expected_rax,
                             desired: arena.zext_mask(src, w),
                             mem_ver_after: state.mem_ver,
+                            out_id,
                         });
-                        let new_rax = arena.opaque();
-                        let sl = if w == 8 { RegSlice::Full64 } else if w == 4 { RegSlice::Low32 } else if w == 2 { RegSlice::Low16 } else { RegSlice::Low8 };
-                        state.write_reg(&mut arena, ArchReg::Rax, sl, new_rax);
-                        state.set_flags(FlagState::Unknown);
+                        // RAX and the flags as the instruction left them, taken from it
+                        // (a separate read of the memory could see another value).
+                        let new_rax = if view.bitness == 64 { arena.effect_out(out_id, 1) } else { arena.opaque() };
+                        state.write_reg(&mut arena, ArchReg::Rax, RegSlice::Full64, new_rax);
+                        if view.bitness == 64 {
+                            let rf = arena.effect_out(out_id, 0);
+                            state.set_flags(FlagState::Rflags(rf));
+                        } else {
+                            state.set_flags(FlagState::Unknown);
+                        }
                         continue;
                     }
                     Mnemonic::Inc | Mnemonic::Dec => {
@@ -3743,6 +3780,10 @@ pub fn lift_vm_entry_cfg(
                         };
                         state.mem_ver += 1;
                         state.mem_cache.clear();
+                        // `inc` / `dec` keep CF: the one before them, not what the
+                        // recompiled code happens to have in the flags then.
+                        let prev_cf = state.eval_cond_code(&mut arena, ConditionCode::b);
+                        let out_id = arena.new_effect_id();
                         effects.push(IrEffect::AtomicRmw {
                             lock: true,
                             op: aop,
@@ -3750,8 +3791,17 @@ pub fn lift_vm_entry_cfg(
                             width: w,
                             src: arena.const_u64(1),
                             mem_ver_after: state.mem_ver,
+                            out_id,
                         });
-                        state.set_flags(FlagState::Unknown);
+                        state.set_flags(if view.bitness == 64 {
+                            let rf = arena.effect_out(out_id, 0);
+                            let no_cf = arena.and_const(rf, !1u64);
+                            let cf = prev_cf.unwrap_or_else(|| arena.opaque());
+                            let cf1 = arena.and_const(cf, 1);
+                            FlagState::Rflags(arena.or(no_cf, cf1))
+                        } else {
+                            FlagState::Unknown
+                        });
                         continue;
                     }
                     Mnemonic::Add | Mnemonic::Sub | Mnemonic::And | Mnemonic::Or | Mnemonic::Xor => {
@@ -3767,6 +3817,7 @@ pub fn lift_vm_entry_cfg(
                         };
                         state.mem_ver += 1;
                         state.mem_cache.clear();
+                        let out_id = arena.new_effect_id();
                         effects.push(IrEffect::AtomicRmw {
                             lock: true,
                             op: aop,
@@ -3774,8 +3825,13 @@ pub fn lift_vm_entry_cfg(
                             width: w,
                             src: arena.zext_mask(src, w),
                             mem_ver_after: state.mem_ver,
+                            out_id,
                         });
-                        state.set_flags(FlagState::Unknown);
+                        state.set_flags(if view.bitness == 64 {
+                            FlagState::Rflags(arena.effect_out(out_id, 0))
+                        } else {
+                            FlagState::Unknown
+                        });
                         continue;
                     }
                     _ => break exit_to_vm_or_bailout(cfg, &state, &mut arena, view, cur_ip, format!("unsupported_lock_{m:?}")),
@@ -6697,6 +6753,8 @@ impl<'a> CodegenCtx<'a> {
             ExprNode::Opaque(_) => Err("unlowerable_opaque".into()),
             ExprNode::AlignedBase(k) => self.emit_aligned_base(a, k, None, dst, spill_reg, 0),
             ExprNode::AlignedDyn(k, x) => self.emit_aligned_base(a, k, Some(x), dst, spill_reg, 0),
+            // Stored by its effect (`emit_block_effects`) and read from there.
+            ExprNode::EffectOut { .. } => Err("effect_out_unavailable".into()),
             ExprNode::CallRet { .. } => Err("unlowerable_call_ret".into()),
         }
     }
@@ -6903,6 +6961,42 @@ fn pick_three_scratch_regs(bitness: u32, avoid: &HashSet<ArchReg>) -> [ArchReg; 
         }
     }
     [picked[0], picked[1], picked[2]]
+}
+
+/// Right after an atomic instruction: its outputs that something reads
+/// (`ExprNode::EffectOut`) into their pinned slots - RFLAGS (through `tmp`), and RAX
+/// after `cmpxchg` (`with_rax`). Only `mov` / `pushfq` / `pop`: the flags stay.
+fn store_effect_outputs(
+    a: &mut CodeAssembler,
+    ctx: &mut CodegenCtx<'_>,
+    frame: &BlockFrame<'_>,
+    out_id: u32,
+    tmp: ArchReg,
+    with_rax: bool,
+) -> Result<(), String> {
+    let slot = |what: u8| {
+        ctx.arena
+            .find(&ExprNode::EffectOut { id: out_id, what })
+            .and_then(|n| frame.pin_slots.get(&n).map(|&d| (n, d)))
+    };
+    let rflags = slot(0);
+    let rax = if with_rax { slot(1) } else { None };
+    if (rflags.is_some() || rax.is_some()) && ctx.bitness != 64 {
+        return Err("effect_out_32bit".into());
+    }
+    if let Some((n, d)) = rax {
+        let m = mem_disp(64, ArchReg::Rsp, ctx.rsp_depth - d, 8);
+        ctx.emit_store_to_mem(a, m, ArchReg::Rax, 8)?;
+        ctx.pinned.insert(n, d);
+    }
+    if let Some((n, d)) = rflags {
+        a.pushfq().map_err(|e| e.to_string())?;
+        a.pop(to_asm64(tmp)).map_err(|e| e.to_string())?;
+        let m = mem_disp(64, ArchReg::Rsp, ctx.rsp_depth - d, 8);
+        ctx.emit_store_to_mem(a, m, tmp, 8)?;
+        ctx.pinned.insert(n, d);
+    }
+    Ok(())
 }
 
 /// Expressions an effect evaluates.
@@ -7112,7 +7206,48 @@ fn plan_pinned_loads(func: &LiftedFunction, view: &PeImageView, base0: i64) -> R
         }
     }
     let mut slots = slots;
-    let (hoist_at, hoist_active) = plan_hoisted(func, base0, &mut slots);
+    // Atomic effects' outputs something reads (`ExprNode::EffectOut`): a slot each,
+    // stored by the effect, read below it (its block's later part and the blocks it
+    // dominates, `plan_hoisted`).
+    let mut used_outs: HashSet<ExprId> = HashSet::new();
+    for b in &func.blocks {
+        let mut seen = HashSet::new();
+        let mut st = block_root_exprs(b);
+        while let Some(id) = st.pop() {
+            if !seen.insert(id) {
+                continue;
+            }
+            let node = func.arena.get(id);
+            if matches!(node, ExprNode::EffectOut { .. }) {
+                used_outs.insert(id);
+            }
+            push_expr_children(node, &mut st);
+        }
+    }
+    let mut outs_at: Vec<Vec<ExprId>> = vec![Vec::new(); n];
+    for (bi, b) in func.blocks.iter().enumerate() {
+        for eff in &b.effects {
+            let out_id = match eff {
+                IrEffect::AtomicCmpXchg { out_id, .. } | IrEffect::AtomicRmw { out_id, .. } => *out_id,
+                _ => continue,
+            };
+            for what in [0u8, 1] {
+                if let Some(nd) = func.arena.find(&ExprNode::EffectOut { id: out_id, what }) {
+                    if used_outs.contains(&nd) && !slots.contains_key(&nd) {
+                        let depth = base0 + 8 * (slots.len() as i64 + 1);
+                        slots.insert(nd, depth);
+                        outs_at[bi].push(nd);
+                    }
+                }
+            }
+        }
+    }
+    if slots.len() > MAX_PINNED_LOADS {
+        return Err("pinned_limit".into());
+    }
+    let (hoist_at, mut hoist_active) = plan_hoisted(func, base0, &mut slots);
+    // Outputs of a strict dominator's effects are in their slots.
+    add_dominated(func, &outs_at, &mut hoist_active);
     Ok(PinPlan {
         slots,
         start_ver: start_ver.into_iter().map(|v| v.unwrap_or(0)).collect(),
@@ -7120,6 +7255,70 @@ fn plan_pinned_loads(func: &LiftedFunction, view: &PeImageView, base0: i64) -> R
         hoist_at,
         hoist_active,
     })
+}
+
+/// `hoist_active[x]` += `at[d]` for every strict dominator `d` of `x`.
+fn add_dominated(func: &LiftedFunction, at: &[Vec<ExprId>], hoist_active: &mut [Vec<ExprId>]) {
+    if at.iter().all(|v| v.is_empty()) {
+        return;
+    }
+    let dom = dominator_sets(func);
+    for (x, d) in dom.iter().enumerate() {
+        for &y in d {
+            if y != x {
+                hoist_active[x].extend(at[y].iter().copied());
+            }
+        }
+        hoist_active[x].sort_unstable();
+        hoist_active[x].dedup();
+    }
+}
+
+/// Dominator sets over the branch edges (each frame rooted where nothing enters by a
+/// branch). Empty sets for a CFG with a cycle.
+fn dominator_sets(func: &LiftedFunction) -> Vec<HashSet<usize>> {
+    let n = func.blocks.len();
+    let succs = |b: &LiftedBlock| -> Vec<usize> {
+        match &b.term {
+            IrTerm::CondBranch { taken_block, fallthrough_block, .. } => vec![*taken_block, *fallthrough_block],
+            _ => Vec::new(),
+        }
+    };
+    let mut preds: Vec<Vec<usize>> = vec![Vec::new(); n];
+    for (bi, b) in func.blocks.iter().enumerate() {
+        for sx in succs(b) {
+            preds[sx].push(bi);
+        }
+    }
+    let mut indeg: Vec<usize> = preds.iter().map(|p| p.len()).collect();
+    let mut order: Vec<usize> = Vec::with_capacity(n);
+    let mut q: VecDeque<usize> = (0..n).filter(|&i| indeg[i] == 0).collect();
+    while let Some(x) = q.pop_front() {
+        order.push(x);
+        for sx in succs(&func.blocks[x]) {
+            indeg[sx] -= 1;
+            if indeg[sx] == 0 {
+                q.push_back(sx);
+            }
+        }
+    }
+    let mut dom: Vec<HashSet<usize>> = vec![HashSet::new(); n];
+    if order.len() != n {
+        return dom;
+    }
+    for &x in &order {
+        let mut d: Option<HashSet<usize>> = None;
+        for &p in &preds[x] {
+            d = Some(match d {
+                None => dom[p].clone(),
+                Some(cur) => cur.intersection(&dom[p]).copied().collect(),
+            });
+        }
+        let mut d = d.unwrap_or_default();
+        d.insert(x);
+        dom[x] = d;
+    }
+    dom
 }
 
 /// Values worth computing once for several blocks: every block evaluates from the entry
@@ -7140,47 +7339,9 @@ fn plan_hoisted(func: &LiftedFunction, base0: i64, slots: &mut HashMap<ExprId, i
         return empty();
     }
     let arena = &func.arena;
-    let succs = |b: &LiftedBlock| -> Vec<usize> {
-        match &b.term {
-            IrTerm::CondBranch { taken_block, fallthrough_block, .. } => vec![*taken_block, *fallthrough_block],
-            _ => Vec::new(),
-        }
-    };
-    // Dominator sets over the branch edges; each frame is rooted where nothing enters
-    // by a branch (block 0, a native call's continuation).
-    let mut preds: Vec<Vec<usize>> = vec![Vec::new(); n];
-    for (bi, b) in func.blocks.iter().enumerate() {
-        for sx in succs(b) {
-            preds[sx].push(bi);
-        }
-    }
-    let mut indeg: Vec<usize> = preds.iter().map(|p| p.len()).collect();
-    let mut order: Vec<usize> = Vec::with_capacity(n);
-    let mut q: VecDeque<usize> = (0..n).filter(|&i| indeg[i] == 0).collect();
-    while let Some(x) = q.pop_front() {
-        order.push(x);
-        for sx in succs(&func.blocks[x]) {
-            indeg[sx] -= 1;
-            if indeg[sx] == 0 {
-                q.push_back(sx);
-            }
-        }
-    }
-    if order.len() != n {
+    let dom = dominator_sets(func);
+    if dom.iter().all(|d| d.is_empty()) {
         return empty(); // a cycle
-    }
-    let mut dom: Vec<HashSet<usize>> = vec![HashSet::new(); n];
-    for &x in &order {
-        let mut d: Option<HashSet<usize>> = None;
-        for &p in &preds[x] {
-            d = Some(match d {
-                None => dom[p].clone(),
-                Some(cur) => cur.intersection(&dom[p]).copied().collect(),
-            });
-        }
-        let mut d = d.unwrap_or_default();
-        d.insert(x);
-        dom[x] = d;
     }
     fn pure(arena: &ExprArena, id: ExprId, memo: &mut HashMap<ExprId, bool>) -> bool {
         if let Some(&v) = memo.get(&id) {
@@ -7481,16 +7642,23 @@ fn emit_block_effects(
                     ctx.emit_store_to_mem(a, m, w0, *width)?;
                 }
             }
-            IrEffect::AtomicCmpXchg { lock, addr, width, expected_rax, desired, .. } => {
+            IrEffect::AtomicCmpXchg { lock, addr, width, expected_rax, desired, out_id, .. } => {
+                // `RAX` must hold `expected_rax` for `cmpxchg [w1], w0`
+                let need_save_rax = w0 == ArchReg::Rax || w1 == ArchReg::Rax || w2 == ArchReg::Rax;
+                if need_save_rax {
+                    return Err("cmpxchg_scratch_conflict".into());
+                }
+                // RAX keeps its value for the rest of the block (it is an input).
+                if ctx.bitness == 64 {
+                    a.push(gpr64::rax).map_err(|e| e.to_string())?;
+                } else {
+                    a.push(gpr32::eax).map_err(|e| e.to_string())?;
+                }
+                ctx.rsp_depth += ctx.word_bytes;
                 ctx.eval_expr_into(a, *addr, w1, w2)?;
                 ctx.emit_push(a, w1)?;
                 ctx.eval_expr_into(a, *desired, w0, w2)?;
                 ctx.emit_push(a, w0)?;
-                // `RAX` must hold `expected_rax` for `cmpxchg [w1], w0`
-                let need_save_rax = w0 == ArchReg::Rax || w1 == ArchReg::Rax;
-                if need_save_rax {
-                    return Err("cmpxchg_scratch_conflict".into());
-                }
                 ctx.eval_expr_into(a, *expected_rax, ArchReg::Rax, w2)?;
                 ctx.emit_pop(a, w0)?;
                 ctx.emit_pop(a, w1)?;
@@ -7514,8 +7682,15 @@ fn emit_block_effects(
                     }
                     .map_err(|e| e.to_string())?;
                 }
+                store_effect_outputs(a, ctx, frame, *out_id, w1, true)?;
+                if ctx.bitness == 64 {
+                    a.pop(gpr64::rax).map_err(|e| e.to_string())?;
+                } else {
+                    a.pop(gpr32::eax).map_err(|e| e.to_string())?;
+                }
+                ctx.rsp_depth -= ctx.word_bytes;
             }
-            IrEffect::AtomicRmw { lock, op, addr, width, src, .. } => {
+            IrEffect::AtomicRmw { lock, op, addr, width, src, out_id, .. } => {
                 if !matches!((ctx.bitness, *width), (64, 8) | (_, 4) | (_, 2) | (_, 1)) {
                     return Err("atomic_width".into());
                 }
@@ -7568,6 +7743,7 @@ fn emit_block_effects(
                         .map_err(|e| e.to_string())?;
                     }
                 }
+                store_effect_outputs(a, ctx, frame, *out_id, w1, false)?;
             }
             IrEffect::WriteCr8 { val, .. } => {
                 if ctx.bitness != 64 {
@@ -11509,6 +11685,94 @@ mod tests {
                 let want = run_with_flags(&orig_pe, base + 0x1000, 7, d, set, clear);
                 assert_eq!(run_with_flags(&devirt_pe, base + 0x1000, 7, d, set, clear), want, "{set:#x} {clear:#x} {d:#x}");
             }
+        }
+    }
+
+    #[test]
+    fn atomic_results_and_flags_come_from_the_instruction_e2e() {
+        use gpr64::*;
+        let base = 0x1_4000_0000u64;
+        let mut text_sec = vec![0xCCu8; 0x200];
+        let fn0 = assemble_at(64, base + 0x1000, |a| a.jmp(base + 0x2000));
+        text_sec[..fn0.len()].copy_from_slice(&fn0);
+        let exit_ret = assemble_at(64, base + 0x1040, |a| a.ret());
+        text_sec[0x40..0x40 + exit_ret.len()].copy_from_slice(&exit_ret);
+        let mut vmp_sec = vec![0xCCu8; 0x400];
+        // [rdx] is a lock word: `lock cmpxchg` with rcx expected, a branch on ZF, the
+        // old value from RAX; then `lock inc` / `lock or` and their flags via pushfq.
+        // r12 = the entry RAX afterwards (it must survive the cmpxchg).
+        let stub = assemble_at(64, base + 0x2000, |a| {
+            let mut taken = a.create_label();
+            let mut done = a.create_label();
+            a.push(rbx)?;
+            a.push(rbp)?;
+            a.mov(r12, rax)?;
+            for k in 0..40i32 {
+                a.add(r12, k + 3)?;
+                a.sub(r12, k + 3)?;
+            }
+            a.mov(r11, rax)?;
+            a.mov(rax, rcx)?;
+            a.mov(rbx, 0x77u64)?;
+            a.lock().cmpxchg(qword_ptr(rdx), rbx)?;
+            a.mov(r9, rax)?; // old value
+            a.jz(taken)?;
+            a.mov(r10, 1000u64)?;
+            a.jmp(done)?;
+            a.set_label(&mut taken)?;
+            a.mov(r10, 2000u64)?;
+            a.set_label(&mut done)?;
+            a.lock().inc(dword_ptr(rdx + 8))?;
+            a.pushfq()?;
+            a.pop(r8)?;
+            a.and(r8, 0x8d5)?;
+            a.lock().or(qword_ptr(rdx + 16), rcx)?;
+            a.pushfq()?;
+            a.pop(rbx)?;
+            a.and(rbx, 0x8d5)?;
+            a.shl(rbx, 12)?;
+            // rax = old + r10 + (inc flags << 32) + (or flags << 44) + r11 * 0 (kept)
+            a.mov(rax, r8)?;
+            a.shl(rax, 32)?;
+            a.add(rax, r9)?;
+            a.add(rax, r10)?;
+            a.shl(rbx, 32)?;
+            a.add(rax, rbx)?;
+            a.sub(r11, r12)?; // 0 if RAX survived
+            a.add(rax, r11)?;
+            a.pop(rbp)?;
+            a.pop(rbx)?;
+            a.jmp(base + 0x1040)
+        });
+        vmp_sec[..stub.len()].copy_from_slice(&stub);
+        let orig_pe = build_two_exec_pe64(&text_sec, &vmp_sec, 0x1000);
+        let (devirt_pe, report) = devirtualize_pe_bytes(&orig_pe, BinaryDevirtConfig::default()).unwrap();
+        assert_eq!(report.devirtualized_total, 1, "bailouts: {:?}", report.bailout_reasons);
+        let run = |pe: &[u8], c: u64, lock_word: u64, counter: u32, bits: u64| -> (u64, [u8; 24]) {
+            let s = Sample::from_bytes(pe).unwrap();
+            let mut eng = UnpackerEngine::new(s, "mem");
+            eng.init_uc().unwrap();
+            let p = base + 0x3000;
+            {
+                let uc = eng.unicorn_mut().unwrap();
+                uc.mem_write(p, &lock_word.to_le_bytes()).unwrap();
+                uc.mem_write(p + 8, &(counter as u64).to_le_bytes()).unwrap();
+                uc.mem_write(p + 16, &bits.to_le_bytes()).unwrap();
+                uc.reg_write(RegisterX86::RAX as i32, 0x5555).unwrap();
+            }
+            let r = eng.call_function(base + 0x1000, &[c, p], 100_000, 2_000).unwrap();
+            let mut m = [0u8; 24];
+            eng.unicorn_mut().unwrap().mem_read(p, &mut m).unwrap();
+            (r, m)
+        };
+        for (c, lock_word, counter, bits) in [
+            (0u64, 0u64, 0u32, 0u64),
+            (0, 1, 0xffff_ffff, 0),
+            (5, 5, 0x7fff_ffff, 0x8000_0000_0000_0000),
+            (9, 5, 0x0f, 0),
+        ] {
+            let want = run(&orig_pe, c, lock_word, counter, bits);
+            assert_eq!(run(&devirt_pe, c, lock_word, counter, bits), want, "{c:#x} {lock_word:#x} {counter:#x} {bits:#x}");
         }
     }
 
