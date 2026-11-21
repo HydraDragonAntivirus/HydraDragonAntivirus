@@ -581,6 +581,20 @@ impl ExprArena {
                 let (zf, of) = self.known_bits_depth(*if_false, d, budget);
                 (zt & zf, ot & of)
             }
+            ExprNode::SExt { val, from_bits } => {
+                let fb = *from_bits;
+                let (zv, ov) = self.known_bits_depth(*val, d, budget);
+                if fb == 0 || fb >= 64 {
+                    (zv, ov)
+                } else {
+                    let lo_mask = (1u64 << fb) - 1;
+                    let hi_mask = !lo_mask;
+                    let sign_bit = 1u64 << (fb - 1);
+                    let z_hi = if (zv & sign_bit) != 0 { hi_mask } else { 0 };
+                    let o_hi = if (ov & sign_bit) != 0 { hi_mask } else { 0 };
+                    ((zv & lo_mask) | z_hi, (ov & lo_mask) | o_hi)
+                }
+            }
             _ => (0, 0),
         }
     }
@@ -1050,9 +1064,12 @@ impl ExprArena {
             if m == u64::MAX {
                 return a;
             }
-            let (za, _) = self.known_bits(a);
+            let (za, oa) = self.known_bits(a);
             if (za & m) == m {
                 return self.const_u64(0);
+            }
+            if (oa & m) == m {
+                return self.const_u64(m);
             }
             if (!m & za) == !m {
                 return a;
@@ -1634,16 +1651,57 @@ impl ExprArena {
             }
         }
 
-        // Known-bits proof on unsigned zero/sign comparisons when possible
+        // Known-bits proof on equality, unsigned bounds, and zero/sign comparisons when possible
         let (zl, ol) = self.known_bits(lhs);
+        if matches!(
+            pred,
+            CondPred::Eq | CondPred::Ne | CondPred::Ult | CondPred::Ule | CondPred::Ugt | CondPred::Uge
+        ) {
+            let (zr, or) = self.known_bits(rhs);
+            match pred {
+                CondPred::Eq | CondPred::Ne => {
+                    if ((zl & or) | (ol & zr)) != 0 {
+                        return self.const_u64(u64::from(pred == CondPred::Ne));
+                    }
+                }
+                CondPred::Ult | CondPred::Ule | CondPred::Ugt | CondPred::Uge => {
+                    let (l_min, l_max) = (ol, !zl);
+                    let (r_min, r_max) = (or, !zr);
+                    let folded = match pred {
+                        CondPred::Ult if l_max < r_min => Some(true),
+                        CondPred::Ult if l_min >= r_max => Some(false),
+                        CondPred::Ule if l_max <= r_min => Some(true),
+                        CondPred::Ule if l_min > r_max => Some(false),
+                        CondPred::Ugt if l_min > r_max => Some(true),
+                        CondPred::Ugt if l_max <= r_min => Some(false),
+                        CondPred::Uge if l_min >= r_max => Some(true),
+                        CondPred::Uge if l_max < r_min => Some(false),
+                        _ => None,
+                    };
+                    if let Some(res) = folded {
+                        return self.const_u64(u64::from(res));
+                    }
+                }
+                _ => {}
+            }
+        }
         if let Some(0) = self.as_const(rhs) {
-            if ol != 0 && pred == CondPred::Eq {
-                return self.const_u64(0);
+            const SIGN: u64 = 1u64 << 63;
+            if (ol & SIGN) != 0 {
+                match pred {
+                    CondPred::Slt | CondPred::Sle => return self.const_u64(1),
+                    CondPred::Sge | CondPred::Sgt => return self.const_u64(0),
+                    _ => {}
+                }
+            } else if (zl & SIGN) != 0 {
+                match pred {
+                    CondPred::Slt => return self.const_u64(0),
+                    CondPred::Sge => return self.const_u64(1),
+                    CondPred::Sgt if ol != 0 => return self.const_u64(1),
+                    CondPred::Sle if ol != 0 => return self.const_u64(0),
+                    _ => {}
+                }
             }
-            if ol != 0 && pred == CondPred::Ne {
-                return self.const_u64(1);
-            }
-            let _ = zl;
         }
 
         self.intern_node(ExprNode::Cmp { pred, lhs, rhs })
@@ -2440,5 +2498,84 @@ mod tests {
                 assert_eq!(got, val, "unaligned offset rem={rem} failed round-trip: {:?}", a.get(got));
             }
         }
+    }
+
+    #[test]
+    fn sext_known_bits_folds_signed_zero_comparisons() {
+        let mut a = ExprArena::default();
+        let rax = a.reg_in(ArchReg::Rax);
+        let zero = a.const_u64(0);
+        let c = a.cmp(CondPred::Eq, rax, zero);
+
+        // `sete cl; xor cl, 0xA3` -> bit 7 guaranteed 1, so `sext(..., 8)` is always negative.
+        let xored = a.xor_const(c, 0xA3);
+        let neg8 = a.sext(xored, 8);
+        assert_ne!(a.known_bits(neg8).1 & (1u64 << 63), 0);
+        let n_sge = a.cmp(CondPred::Sge, neg8, zero);
+        let n_sgt = a.cmp(CondPred::Sgt, neg8, zero);
+        let n_slt = a.cmp(CondPred::Slt, neg8, zero);
+        let n_sle = a.cmp(CondPred::Sle, neg8, zero);
+        assert_eq!(a.as_const(n_sge), Some(0));
+        assert_eq!(a.as_const(n_sgt), Some(0));
+        assert_eq!(a.as_const(n_slt), Some(1));
+        assert_eq!(a.as_const(n_sle), Some(1));
+
+        // `or cl, 0x04` -> bit 7 guaranteed 0 and bit 2 guaranteed 1, so `sext(..., 8)` is > 0.
+        let four = a.const_u64(0x04);
+        let ored = a.or(c, four);
+        let pos8 = a.sext(ored, 8);
+        assert_ne!(a.known_bits(pos8).0 & (1u64 << 63), 0);
+        let p_slt = a.cmp(CondPred::Slt, pos8, zero);
+        let p_sge = a.cmp(CondPred::Sge, pos8, zero);
+        let p_sgt = a.cmp(CondPred::Sgt, pos8, zero);
+        let p_sle = a.cmp(CondPred::Sle, pos8, zero);
+        assert_eq!(a.as_const(p_slt), Some(0));
+        assert_eq!(a.as_const(p_sge), Some(1));
+        assert_eq!(a.as_const(p_sgt), Some(1));
+        assert_eq!(a.as_const(p_sle), Some(0));
+    }
+
+    #[test]
+    fn known_bits_folds_and_all_ones_and_general_cmp() {
+        let mut a = ExprArena::default();
+        let rax = a.reg_in(ArchReg::Rax);
+        let rbx = a.reg_in(ArchReg::Rbx);
+        let zero = a.const_u64(0);
+        let entry_rf = a.entry_rflags();
+
+        // `and_const` folds to `m` when `(known_ones(x) & m) == m`, and to `0` when `(known_zeros(x) & m) == m`.
+        let or_c0 = a.or_const(entry_rf, 0xC0);
+        let shr_zf1 = a.shr_const(or_c0, 6);
+        let bit_zf1 = a.and_const(shr_zf1, 1);
+        assert_eq!(a.as_const(bit_zf1), Some(1));
+
+        let and_no40 = a.and_const(entry_rf, !0x40u64);
+        let shr_zf0 = a.shr_const(and_no40, 6);
+        let bit_zf0 = a.and_const(shr_zf0, 1);
+        assert_eq!(a.as_const(bit_zf0), Some(0));
+
+        // `cmp` folds `Eq`/`Ne` via bit conflict (`Cmp(...) ^ 0xA3 == 0` -> `Cmp(...) == 0xA3` -> 0).
+        let c = a.cmp(CondPred::Eq, rax, zero);
+        let xored = a.xor_const(c, 0xA3);
+        let eq0 = a.cmp(CondPred::Eq, xored, zero);
+        let ne0 = a.cmp(CondPred::Ne, xored, zero);
+        assert_eq!(a.as_const(eq0), Some(0));
+        assert_eq!(a.as_const(ne0), Some(1));
+
+        // Unsigned interval comparisons fold when known_bits ranges are disjoint, while ambiguous stays symbolic.
+        let two = a.const_u64(2);
+        let ult2 = a.cmp(CondPred::Ult, c, two);
+        assert_eq!(a.as_const(ult2), Some(1));
+
+        let lhs_hi = a.or_const(rax, 0x100);
+        let rhs_lo = a.and_const(rbx, 0xFF);
+        let ugt_hi_lo = a.cmp(CondPred::Ugt, lhs_hi, rhs_lo);
+        let ule_hi_lo = a.cmp(CondPred::Ule, lhs_hi, rhs_lo);
+        assert_eq!(a.as_const(ugt_hi_lo), Some(1));
+        assert_eq!(a.as_const(ule_hi_lo), Some(0));
+
+        let one = a.const_u64(1);
+        let ambig = a.cmp(CondPred::Eq, c, one);
+        assert_eq!(a.as_const(ambig), None);
     }
 }

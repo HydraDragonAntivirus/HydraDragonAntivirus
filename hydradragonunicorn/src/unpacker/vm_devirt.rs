@@ -1477,6 +1477,9 @@ struct SymState {
     /// RFLAGS bits other than the status flags (DF, IF, TF, ...) may differ from the
     /// frame's entry RFLAGS (`cld` / `std`, a `popfq` of a value not saved here).
     system_flags_changed: bool,
+    /// Full RFLAGS expression supplying non-status (`!0x8D5`) bits when `system_flags_changed`
+    /// is true (`None` = unknown system bits).
+    system_rflags: Option<ExprId>,
     inline_depth: usize,
     cum_rsp_offset: i64,
     entry_caller_slot_versions: HashMap<i64, ExprId>,
@@ -1520,6 +1523,7 @@ impl SymState {
                 aligned_dyn: Vec::new(),
                 stack_masks_accessed: HashSet::new(),
                 system_flags_changed: false,
+                system_rflags: None,
                 inline_depth: 0,
                 cum_rsp_offset: 0,
                 entry_caller_slot_versions,
@@ -1542,6 +1546,7 @@ impl SymState {
             aligned_dyn: Vec::new(),
             stack_masks_accessed: HashSet::new(),
             system_flags_changed: false,
+            system_rflags: None,
             inline_depth: 0,
             cum_rsp_offset: 0,
             entry_caller_slot_versions,
@@ -1819,50 +1824,73 @@ fn composed_rflags(state: &SymState, arena: &mut ExprArena) -> Option<ExprId> {
         }
         return Some(*v);
     }
-    // The system bits in a value taken at run time are the recompiled code's, which
-    // are the frame's entry ones: right only while the VM did not change them.
-    if state.system_flags_changed {
+    let sys_base = if !state.system_flags_changed {
+        arena.entry_rflags()
+    } else if let Some(sr) = state.system_rflags {
+        sr
+    } else {
         return None;
-    }
-    if let FlagState::Rflags(v) = &state.flags {
-        return Some(*v);
-    }
-    if let FlagState::TestBitwise { val, width } = &state.flags {
-        let res = arena.zext_mask(*val, *width);
-        let zf = state.eval_cond_code(arena, ConditionCode::e)?;
-        let sf = state.eval_cond_code(arena, ConditionCode::s)?;
-        let pf = parity_flag(arena, res);
-        // CF = OF = 0; AF = 0 (see above).
-        return Some(rflags_from_status(arena, [None, Some(pf), None, Some(zf), Some(sf), None]));
-    }
-    let (l, r, res, w) = match &state.flags {
-        FlagState::SubCmp { lhs, rhs, width } => {
-            let la = arena.zext_mask(*lhs, *width);
-            let rb = arena.zext_mask(*rhs, *width);
-            let d = arena.sub(la, rb);
-            let res = arena.zext_mask(d, *width);
-            (la, rb, res, *width)
-        }
-        FlagState::Add { lhs, rhs, res, width } => {
-            let la = arena.zext_mask(*lhs, *width);
-            let rb = arena.zext_mask(*rhs, *width);
-            let rr = arena.zext_mask(*res, *width);
-            (la, rb, rr, *width)
-        }
-        _ => return None,
     };
-    let _ = w;
-    let cf = state.eval_cond_code(arena, ConditionCode::b)?;
-    let pf = parity_flag(arena, res);
-    let zf = state.eval_cond_code(arena, ConditionCode::e)?;
-    let sf = state.eval_cond_code(arena, ConditionCode::s)?;
-    let of = state.eval_cond_code(arena, ConditionCode::o)?;
-    // AF: the carry out of bit 3 = bit 4 of lhs ^ rhs ^ result.
-    let x1 = arena.xor(l, r);
-    let x2 = arena.xor(x1, res);
-    let x3 = arena.shr_const(x2, 4);
-    let af = arena.and_const(x3, 1);
-    Some(rflags_from_status(arena, [Some(cf), Some(pf), Some(af), Some(zf), Some(sf), Some(of)]))
+    const STATUS: u64 = 0x8D5; // CF PF AF ZF SF OF
+    match &state.flags {
+        FlagState::Entry => {
+            if !state.system_flags_changed {
+                Some(arena.entry_rflags())
+            } else {
+                let entry_st = arena.entry_rflags();
+                let st_bits = arena.and_const(entry_st, STATUS);
+                let sys_bits = arena.and_const(sys_base, !STATUS);
+                Some(arena.or(sys_bits, st_bits))
+            }
+        }
+        FlagState::Rflags(v) => {
+            if !state.system_flags_changed {
+                Some(*v)
+            } else {
+                let st_bits = arena.and_const(*v, STATUS);
+                let sys_bits = arena.and_const(sys_base, !STATUS);
+                Some(arena.or(sys_bits, st_bits))
+            }
+        }
+        FlagState::TestBitwise { val, width } => {
+            let res = arena.zext_mask(*val, *width);
+            let zf = state.eval_cond_code(arena, ConditionCode::e)?;
+            let sf = state.eval_cond_code(arena, ConditionCode::s)?;
+            let pf = parity_flag(arena, res);
+            // CF = OF = 0; AF = 0 (see above).
+            Some(rflags_from_status(arena, sys_base, [None, Some(pf), None, Some(zf), Some(sf), None]))
+        }
+        FlagState::SubCmp { .. } | FlagState::Add { .. } => {
+            let (l, r, res) = match &state.flags {
+                FlagState::SubCmp { lhs, rhs, width } => {
+                    let la = arena.zext_mask(*lhs, *width);
+                    let rb = arena.zext_mask(*rhs, *width);
+                    let d = arena.sub(la, rb);
+                    let res = arena.zext_mask(d, *width);
+                    (la, rb, res)
+                }
+                FlagState::Add { lhs, rhs, res, width } => {
+                    let la = arena.zext_mask(*lhs, *width);
+                    let rb = arena.zext_mask(*rhs, *width);
+                    let rr = arena.zext_mask(*res, *width);
+                    (la, rb, rr)
+                }
+                _ => unreachable!(),
+            };
+            let cf = state.eval_cond_code(arena, ConditionCode::b)?;
+            let pf = parity_flag(arena, res);
+            let zf = state.eval_cond_code(arena, ConditionCode::e)?;
+            let sf = state.eval_cond_code(arena, ConditionCode::s)?;
+            let of = state.eval_cond_code(arena, ConditionCode::o)?;
+            // AF: the carry out of bit 3 = bit 4 of lhs ^ rhs ^ result.
+            let x1 = arena.xor(l, r);
+            let x2 = arena.xor(x1, res);
+            let x3 = arena.shr_const(x2, 4);
+            let af = arena.and_const(x3, 1);
+            Some(rflags_from_status(arena, sys_base, [Some(cf), Some(pf), Some(af), Some(zf), Some(sf), Some(of)]))
+        }
+        _ => None,
+    }
 }
 
 /// PF: an even number of set bits in the low byte of `res`.
@@ -1878,11 +1906,10 @@ fn parity_flag(arena: &mut ExprArena, res: ExprId) -> ExprId {
     arena.xor_const(odd, 1)
 }
 
-/// The frame's entry RFLAGS with CF, PF, AF, ZF, SF, OF replaced (`None`: 0).
-fn rflags_from_status(arena: &mut ExprArena, flags: [Option<ExprId>; 6]) -> ExprId {
+/// `base_rflags` with CF, PF, AF, ZF, SF, OF replaced (`None`: 0).
+fn rflags_from_status(arena: &mut ExprArena, base_rflags: ExprId, flags: [Option<ExprId>; 6]) -> ExprId {
     const STATUS: u64 = 0x8D5; // CF PF AF ZF SF OF
-    let entry = arena.entry_rflags();
-    let mut v = arena.and_const(entry, !STATUS);
+    let mut v = arena.and_const(base_rflags, !STATUS);
     for (bit, f) in [0u64, 2, 4, 6, 7, 11].into_iter().zip(flags) {
         if let Some(f) = f {
             let b = arena.and_const(f, 1);
@@ -3342,6 +3369,7 @@ struct StateDedupKey {
     aligned_defs: Vec<(StackSpace, i64, u64)>,
     aligned_dyn: Vec<Option<ExprId>>,
     system_flags_changed: bool,
+    system_rflags: Option<ExprId>,
     /// Paths that differ in these read the same slot differently later on.
     fresh_aligned: Vec<(u32, i64)>,
     stack_masks_accessed: Vec<ExprId>,
@@ -3383,6 +3411,7 @@ fn make_state_dedup_key(s: &SymState) -> StateDedupKey {
         aligned_defs: s.aligned_defs.clone(),
         aligned_dyn: s.aligned_dyn.clone(),
         system_flags_changed: s.system_flags_changed,
+        system_rflags: s.system_rflags,
         fresh_aligned: {
             let mut v: Vec<(u32, i64)> = s.stack.fresh_aligned.iter().map(|(&k, &o)| (k, o)).collect();
             v.sort_unstable();
@@ -3445,9 +3474,142 @@ fn subst_flag_state(
     }
 }
 
+fn as_rflags_bit(arena: &ExprArena, id: ExprId) -> Option<(ExprId, u64)> {
+    let ExprNode::And(inner, m) = arena.get(id) else {
+        return None;
+    };
+    if arena.as_const(*m) != Some(1) {
+        return None;
+    }
+    if let ExprNode::Shr(rf, sh) = arena.get(*inner) {
+        if let Some(n) = arena.as_const(*sh) {
+            if n < 64 {
+                return Some((*rf, n));
+            }
+        }
+        return None;
+    }
+    Some((*inner, 0))
+}
+
+fn unwrap_masked_rflags_base(arena: &ExprArena, mut id: ExprId) -> ExprId {
+    for _ in 0..8 {
+        match arena.get(id) {
+            ExprNode::And(a, b) | ExprNode::Or(a, b) => {
+                if arena.as_const(*b).is_some() {
+                    id = *a;
+                } else if arena.as_const(*a).is_some() {
+                    id = *b;
+                } else {
+                    break;
+                }
+            }
+            _ => break,
+        }
+    }
+    id
+}
+
+/// Extracts `(target_rflags, known_zero_mask, known_one_mask)` implied by taking or
+/// falling through `cond`. `target_rflags == None` means the frame's entry RFLAGS.
+fn extract_rflags_bit_constraints(
+    arena: &ExprArena,
+    cond: ExprId,
+    taken: bool,
+) -> Option<(Option<ExprId>, u64, u64)> {
+    if let Some(cc) = as_direct_entry_flag(arena, cond) {
+        let eff_cc = if taken { cc } else { cc ^ 1 };
+        let (kz, ko) = match eff_cc {
+            0 => (0, 1u64 << 6),                   // e: ZF=1
+            1 => (1u64 << 6, 0),                   // ne: ZF=0
+            2 => (0, 1u64 << 0),                   // b: CF=1
+            3 => (1u64 << 0, 0),                   // ae: CF=0
+            5 => ((1u64 << 0) | (1u64 << 6), 0),   // a: CF=0 & ZF=0
+            6 => (0, 1u64 << 7),                   // s: SF=1
+            7 => (1u64 << 7, 0),                   // ns: SF=0
+            11 => (1u64 << 6, 0),                  // g: ZF=0 & SF==OF
+            12 => (0, 1u64 << 11),                 // o: OF=1
+            13 => (1u64 << 11, 0),                 // no: OF=0
+            14 => (0, 1u64 << 2),                  // p: PF=1
+            15 => (1u64 << 2, 0),                  // np: PF=0
+            _ => return None,
+        };
+        return Some((None, kz, ko));
+    }
+
+    let mut cur = cond;
+    let mut truth = taken;
+    for _ in 0..4 {
+        match arena.get(cur) {
+            ExprNode::Xor(x, k) if arena.as_const(*k) == Some(1) => {
+                cur = *x;
+                truth = !truth;
+            }
+            ExprNode::Cmp { pred: CondPred::Eq, lhs, rhs } if arena.as_const(*rhs) == Some(0) => {
+                cur = *lhs;
+                truth = !truth;
+            }
+            ExprNode::Cmp { pred: CondPred::Ne, lhs, rhs } if arena.as_const(*rhs) == Some(0) => {
+                cur = *lhs;
+            }
+            _ => break,
+        }
+    }
+
+    if let Some((rf, bit)) = as_rflags_bit(arena, cur) {
+        let mask = 1u64 << bit;
+        return Some((Some(rf), if truth { 0 } else { mask }, if truth { mask } else { 0 }));
+    }
+
+    if !truth {
+        if let ExprNode::Or(a, b) = arena.get(cur) {
+            match (as_rflags_bit(arena, *a), as_rflags_bit(arena, *b)) {
+                (Some((rf1, b1)), Some((rf2, b2))) if rf1 == rf2 => {
+                    return Some((Some(rf1), (1u64 << b1) | (1u64 << b2), 0));
+                }
+                (Some((rf1, b1)), _) => return Some((Some(rf1), 1u64 << b1, 0)),
+                (_, Some((rf2, b2))) => return Some((Some(rf2), 1u64 << b2, 0)),
+                _ => {}
+            }
+        }
+    }
+
+    None
+}
+
 fn specialize_sym_state(arena: &mut ExprArena, state: &mut SymState, cond: ExprId, taken: bool) {
     state.entry_flags_clobbered = true;
     state.saved_rflags.retain(|(_, fl)| !matches!(fl, FlagState::Entry));
+    if let Some((rf_opt, kz, ko)) = extract_rflags_bit_constraints(arena, cond, taken) {
+        if (kz | ko) != 0 {
+            let apply_bits = |arena: &mut ExprArena, mut rf: ExprId| -> ExprId {
+                if kz != 0 {
+                    rf = arena.and_const(rf, !kz);
+                }
+                if ko != 0 {
+                    rf = arena.or_const(rf, ko);
+                }
+                rf
+            };
+            let entry_rf = arena.entry_rflags();
+            let target_base = rf_opt
+                .map(|r| unwrap_masked_rflags_base(arena, r))
+                .unwrap_or(entry_rf);
+            match &mut state.flags {
+                FlagState::Entry => {
+                    if target_base == entry_rf {
+                        state.flags = FlagState::Rflags(apply_bits(arena, entry_rf));
+                    }
+                }
+                FlagState::Rflags(rf) | FlagState::PoppedRflags(rf) => {
+                    if unwrap_masked_rflags_base(arena, *rf) == target_base {
+                        *rf = apply_bits(arena, *rf);
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
     let repl = arena.const_u64(u64::from(taken));
     let mut pairs = vec![(cond, repl)];
     if let Some(cc) = as_direct_entry_flag(arena, cond) {
@@ -3518,6 +3680,9 @@ fn substitute_in_state(arena: &mut ExprArena, state: &mut SymState, from: ExprId
         subst_flag_state(arena, &mut state.flags, from, to, &mut memo);
         for (_, fl) in &mut state.saved_rflags {
             subst_flag_state(arena, fl, from, to, &mut memo);
+        }
+        if let Some(ref mut sr) = state.system_rflags {
+            *sr = arena.substitute_memo(*sr, from, to, &mut memo);
         }
     }
 }
@@ -3841,6 +4006,15 @@ pub fn lift_vm_entry_cfg(
     view: &PeImageView,
     entry: &DiscoveredEntry,
     cfg: &BinaryDevirtConfig,
+) -> LiftedFunction {
+    lift_vm_entry_cfg_inner(view, entry, cfg, false)
+}
+
+fn lift_vm_entry_cfg_inner(
+    view: &PeImageView,
+    entry: &DiscoveredEntry,
+    cfg: &BinaryDevirtConfig,
+    fallback_nonexec_ret_to_vm: bool,
 ) -> LiftedFunction {
     let mut arena = ExprArena::default();
     let start_va = view.image_base + entry.lift_start_rva as u64;
@@ -4409,6 +4583,19 @@ pub fn lift_vm_entry_cfg(
                             continue;
                         }
                         if let Some(rsp_delta) = check_pure_rsp_delta(&arena, new_rsp) {
+                            if fallback_nonexec_ret_to_vm && !view.is_executable_va(ret_va) {
+                                // Restore pre-ret RSP so jumping back to `cur_ip` (`ret`) executes the
+                                // original `ret` with identical machine state.
+                                state.write_reg(&mut arena, ArchReg::Rsp, RegSlice::Full64, rsp);
+                                break exit_to_vm_or_bailout(
+                                    cfg,
+                                    &state,
+                                    &mut arena,
+                                    view,
+                                    cur_ip,
+                                    "exit_target_not_executable".into(),
+                                );
+                            }
                             let pending = state.collect_pending_caller_stores(rsp_delta);
                             break IrTerm::ExitJmp {
                                 target_va: ret_va,
@@ -4580,13 +4767,28 @@ pub fn lift_vm_entry_cfg(
                     }
                 }
                 Mnemonic::Cld => {
+                    let base = if !state.system_flags_changed {
+                        Some(arena.entry_rflags())
+                    } else {
+                        state.system_rflags
+                    };
                     state.system_flags_changed = true;
+                    state.system_rflags = base.map(|b| arena.and_const(b, !0x400u64));
                     if let FlagState::PoppedRflags(v) = state.flags {
                         state.flags = FlagState::PoppedRflags(arena.and_const(v, !0x400u64));
                     }
                 }
                 Mnemonic::Std => {
+                    let base = if !state.system_flags_changed {
+                        Some(arena.entry_rflags())
+                    } else {
+                        state.system_rflags
+                    };
                     state.system_flags_changed = true;
+                    state.system_rflags = base.map(|b| {
+                        let df = arena.const_u64(0x400u64);
+                        arena.or(b, df)
+                    });
                     if let FlagState::PoppedRflags(v) = state.flags {
                         let df = arena.const_u64(0x400u64);
                         state.flags = FlagState::PoppedRflags(arena.or(v, df));
@@ -4782,7 +4984,7 @@ pub fn lift_vm_entry_cfg(
                     // unknown value, every exit that writes the VM context was rejected).
                     // `entry_flags_clobbered` is about the hardware flags in later blocks,
                     // not about the value, so it does not matter here.
-                    let rfl = if view.bitness == 64 && matches!(state.flags, FlagState::Entry) {
+                    let rfl = if view.bitness == 64 && matches!(state.flags, FlagState::Entry) && !state.system_flags_changed {
                         arena.entry_rflags()
                     } else if let Some(v) = (view.bitness == 64).then(|| composed_rflags(&state, &mut arena)).flatten() {
                         v
@@ -4812,10 +5014,23 @@ pub fn lift_vm_entry_cfg(
                         .rev()
                         .find(|(id, _)| *id == val)
                         .map(|(_, fl)| fl.clone());
-                    // A value this frame pushed (or its entry RFLAGS) keeps the system bits;
-                    // anything else may change them.
-                    if restored.is_none() && *arena.get(val) != ExprNode::EntryRflags {
+                    // A value this frame pushed (or its entry RFLAGS) keeps its system bits;
+                    // anything else sets `system_rflags` to the popped word if clean & canonical.
+                    if *arena.get(val) == ExprNode::EntryRflags {
+                        state.system_flags_changed = false;
+                        state.system_rflags = None;
+                    } else if restored.is_none() {
                         state.system_flags_changed = true;
+                        let is_noncanon_const = arena
+                            .as_const(val)
+                            .is_some_and(|c| (c & !0x0024_4DD5u64) != 0x202u64);
+                        if view.bitness == 64 && !arena.contains_opaque(val) && !is_noncanon_const {
+                            state.system_rflags = Some(val);
+                        } else {
+                            state.system_rflags = None;
+                        }
+                    } else if state.system_flags_changed {
+                        state.system_rflags = Some(val);
                     }
                     match restored {
                         _ if *arena.get(val) == ExprNode::EntryRflags => {
@@ -9358,6 +9573,13 @@ pub fn devirtualize_pe_bytes(
             visited.extend(&lifted.visited_byte_addrs);
             sound = validate_function_soundness(&lifted, view);
         }
+        if sound.as_ref().err().map(String::as_str) == Some("exit_target_not_executable")
+            && cfg.allow_vm_exits
+        {
+            lifted = lift_vm_entry_cfg_inner(view, entry, &cfg, true);
+            visited.extend(&lifted.visited_byte_addrs);
+            sound = validate_function_soundness(&lifted, view);
+        }
         (lifted, sound)
     };
 
@@ -13197,6 +13419,277 @@ mod tests {
             let want = run_case(&orig_pe, x, y, z);
             let got = run_case(&devirt_pe, x, y, z);
             assert_eq!(got, want, "mismatch for x={x:#x} y={y:#x} z={z:#x}");
+        }
+    }
+
+    #[test]
+    fn popfq_then_add_pushfq_preserves_caller_system_rflags_e2e() {
+        use gpr32::*;
+        use gpr64::*;
+        let base = 0x1_4000_0000u64;
+
+        let mut text_sec = vec![0xCCu8; 0x200];
+        let fn0 = assemble_at(64, base + 0x1000, |a| {
+            a.cmp(ecx, 10)?;
+            a.std()?;
+            a.pushfq()?;
+            a.cld()?;
+            a.sub(rsp, 8)?;
+            a.call(base + 0x2000)?;
+            a.pop(r9)?;
+            a.pop(r8)?;
+            a.shl(rax, 32)?;
+            a.mov(ecx, r9d)?;
+            a.or(rax, rcx)?;
+            a.ret()
+        });
+        text_sec[..fn0.len()].copy_from_slice(&fn0);
+
+        let mut vmp_sec = vec![0xCCu8; 0x400];
+        let stub = assemble_at(64, base + 0x2000, |a| {
+            a.push(rbx)?;
+            a.push(r10)?;
+            a.push(r11)?;
+            a.push(qword_ptr(rsp + 40))?;
+            a.popfq()?;
+            a.add(ecx, 0x25)?;
+            a.and(ecx, 0xFF)?;
+            a.pushfq()?;
+            a.pop(rax)?;
+            a.mov(qword_ptr(rsp + 32), rax)?;
+            a.cld()?;
+            a.mov(eax, ecx)?;
+            a.add(eax, 0x100)?;
+            a.pop(r11)?;
+            a.pop(r10)?;
+            a.pop(rbx)?;
+            a.ret()
+        });
+        vmp_sec[..stub.len()].copy_from_slice(&stub);
+
+        let orig_pe = build_two_exec_pe64(&text_sec, &vmp_sec, 0x1000);
+        let cfg = BinaryDevirtConfig {
+            max_code_growth_percent: 1500,
+            ..BinaryDevirtConfig::default()
+        };
+        let (devirt_pe, report) = devirtualize_pe_bytes(&orig_pe, cfg).unwrap();
+        assert_eq!(report.discovered_vmenters, 1, "got {report:?}");
+        assert_eq!(
+            report.devirtualized_vmenters, 1,
+            "expected popfq+add+pushfq stub devirtualized, bailouts: {:?}",
+            report.bailout_reasons
+        );
+        assert!(report.bailout_reasons.is_empty(), "{:?}", report.bailout_reasons);
+
+        let run_case = |pe_bytes: &[u8], x: u64| -> u64 {
+            let s = Sample::from_bytes(pe_bytes).unwrap();
+            let mut eng = UnpackerEngine::new(s, "mem");
+            eng.init_uc().unwrap();
+            eng.call_function(base + 0x1000, &[x], 100_000, 2_000).unwrap()
+        };
+
+        for x in [5u64, 10, 0xDB, 0xFFFF_FFFF] {
+            let want = run_case(&orig_pe, x);
+            let got = run_case(&devirt_pe, x);
+            assert_ne!(want & 0x400, 0, "expected DF=1 in composed RFLAGS for x={x:#x}");
+            assert_eq!(got, want, "mismatch for x={x:#x}");
+        }
+    }
+
+    #[test]
+    fn dead_nonexec_ret_branch_falls_back_to_vm_exit_e2e() {
+        use gpr32::*;
+        use gpr64::*;
+        let base = 0x1_4000_0000u64;
+        let slot_va = base + 0x2300;
+        let api_va = base + 0x1080;
+        let import_key = 0x12A_1180u64;
+
+        let mut text_sec = vec![0xCCu8; 0x200];
+        let fn0 = assemble_at(64, base + 0x1000, |a| {
+            a.call(base + 0x2000)?;
+            a.add(rax, 100)?;
+            a.ret()
+        });
+        text_sec[..fn0.len()].copy_from_slice(&fn0);
+        let api_fn = assemble_at(64, api_va, |a| {
+            a.lea(rax, ptr(rcx + 77))?;
+            a.ret()
+        });
+        text_sec[0x80..0x80 + api_fn.len()].copy_from_slice(&api_fn);
+
+        let mut vmp_sec = vec![0xCCu8; 0x600];
+        vmp_sec[0x300..0x308].copy_from_slice(&0x1a52_768e_5881_4227u64.to_le_bytes());
+
+        let stub = assemble_at(64, base + 0x2000, |a| {
+            let mut dead_lbl = a.create_label();
+            a.push(rdx)?;
+            a.pushfq()?;
+            a.cmp(ecx, 0xDEAD)?;
+            a.je(dead_lbl)?;
+            for _ in 0..4 {
+                a.lea(rdx, ptr(rcx) - 1)?;
+                a.imul_2(rdx, rcx)?;
+                a.and(rdx, 1)?;
+            }
+            a.mov(rdx, slot_va)?;
+            a.mov(rdx, qword_ptr(rdx))?;
+            a.add(rdx, import_key as i32)?;
+            a.xchg(qword_ptr(rsp + 8), rdx)?;
+            a.popfq()?;
+            a.ret()?;
+            a.set_label(&mut dead_lbl)?;
+            a.zero_bytes()?;
+            a.mov(rdx, 0x13FF0_0000u64)?;
+            a.xchg(qword_ptr(rsp + 8), rdx)?;
+            a.popfq()?;
+            a.ret()
+        });
+        vmp_sec[..stub.len()].copy_from_slice(&stub);
+
+        let orig_pe = build_two_exec_pe64(&text_sec, &vmp_sec, 0x1000);
+        let (devirt_pe, report) = devirtualize_pe_bytes(&orig_pe, BinaryDevirtConfig::default()).unwrap();
+        assert_eq!(report.discovered_vmenters, 1, "got {report:?}");
+        assert_eq!(
+            report.devirtualized_vmenters, 1,
+            "expected dead nonexec-ret stub devirtualized with ExitToVm fallback, bailouts: {:?}",
+            report.bailout_reasons
+        );
+        assert_eq!(report.hybrid_vm_exits, 1, "expected 1 hybrid VM exit arm, got {report:?}");
+
+        let patched_slot = api_va.wrapping_sub(import_key);
+        let sentinel_rdx = 0x55AA_1234_5678_9ABCu64;
+
+        let run_case = |pe_bytes: &[u8], arg: u64| -> (u64, u64) {
+            let s = Sample::from_bytes(pe_bytes).unwrap();
+            let mut eng = UnpackerEngine::new(s, "mem");
+            eng.init_uc().unwrap();
+            eng.unicorn_mut()
+                .unwrap()
+                .mem_write(slot_va, &patched_slot.to_le_bytes())
+                .unwrap();
+            let ret = eng
+                .call_function(base + 0x1000, &[arg, sentinel_rdx], 100_000, 2_000)
+                .unwrap();
+            let rdx_after = eng.unicorn_mut().unwrap().reg_read(RegisterX86::RDX as i32).unwrap();
+            (ret, rdx_after)
+        };
+
+        for x in [0u64, 5, 1234] {
+            let expected = (x.wrapping_add(77 + 100), sentinel_rdx);
+            assert_eq!(run_case(&orig_pe, x), expected);
+            assert_eq!(run_case(&devirt_pe, x), expected);
+        }
+    }
+
+    #[test]
+    fn entry_rflags_branch_refines_flags_for_repeated_jcc_e2e() {
+        use gpr32::*;
+        use gpr64::*;
+        let base = 0x1_4000_0000u64;
+
+        let mut text_sec = vec![0xCCu8; 0x200];
+        let fn0 = assemble_at(64, base + 0x1000, |a| {
+            a.push(rdx)?;
+            a.popfq()?;
+            a.call(base + 0x2000)?;
+            a.ret()
+        });
+        text_sec[..fn0.len()].copy_from_slice(&fn0);
+
+        let mut vmp_sec = vec![0xCCu8; 0x400];
+        let stub = assemble_at(64, base + 0x2000, |a| {
+            let mut live_arm = a.create_label();
+            let mut zf_arm = a.create_label();
+            let mut zf_done = a.create_label();
+
+            a.push(rbx)?;
+            a.push(r10)?;
+            a.mov(ebx, ecx)?;
+            for _ in 0..6 {
+                a.lea(rbx, ptr(rbx) + 1)?;
+            }
+            a.jns(live_arm)?;
+
+            a.je(zf_arm)?;
+
+            // SF == 1 && ZF == 0
+            a.lea(eax, ptr(rcx) + 0x200)?;
+            a.pop(r10)?;
+            a.pop(rbx)?;
+            a.ret()?;
+
+            // SF == 1 && ZF == 1: redundant `je zf_done` must fold via path-refined ZF=1.
+            a.set_label(&mut zf_arm)?;
+            a.zero_bytes()?;
+            a.not(rbx)?;
+            a.not(rbx)?;
+            a.je(zf_done)?;
+
+            // Impossible fallthrough: would fail validation with `opaque_in_caller_store` if not folded.
+            a.mov(rbx, 0x14000_1000u64)?;
+            a.push(rbx)?;
+            a.popfq()?;
+            a.pushfq()?;
+            a.pop(rbx)?;
+            a.mov(qword_ptr(rsp + 16), rbx)?;
+            a.pop(r10)?;
+            a.pop(rbx)?;
+            a.ret()?;
+
+            a.set_label(&mut zf_done)?;
+            a.zero_bytes()?;
+            a.lea(eax, ptr(rcx) + 0x300)?;
+            a.pop(r10)?;
+            a.pop(rbx)?;
+            a.ret()?;
+
+            // SF == 0
+            a.set_label(&mut live_arm)?;
+            a.zero_bytes()?;
+            a.lea(eax, ptr(rcx) + 0x100)?;
+            a.pop(r10)?;
+            a.pop(rbx)?;
+            a.ret()
+        });
+        vmp_sec[..stub.len()].copy_from_slice(&stub);
+
+        let orig_pe = build_two_exec_pe64(&text_sec, &vmp_sec, 0x1000);
+        let dcfg = BinaryDevirtConfig {
+            collect_diagnostics: true,
+            ..BinaryDevirtConfig::default()
+        };
+        let (devirt_pe, report) = devirtualize_pe_bytes(&orig_pe, dcfg).unwrap();
+        assert_eq!(report.discovered_vmenters, 1, "got {report:?}");
+        assert_eq!(
+            report.devirtualized_vmenters, 1,
+            "expected repeated entry-flag branch stub devirtualized, bailouts: {:?}, samples: {:?}",
+            report.bailout_reasons,
+            report.bailout_samples
+        );
+        assert!(report.bailout_reasons.is_empty(), "{:?}", report.bailout_reasons);
+        assert!(
+            report.opaque_branches_folded >= 1,
+            "expected redundant je folded, got {:?}",
+            report.opaque_branches_folded
+        );
+
+        let run_case = |pe_bytes: &[u8], ecx_val: u64, rflags_val: u64| -> u64 {
+            let s = Sample::from_bytes(pe_bytes).unwrap();
+            let mut eng = UnpackerEngine::new(s, "mem");
+            eng.init_uc().unwrap();
+            eng.call_function(base + 0x1000, &[ecx_val, rflags_val], 100_000, 2_000)
+                .unwrap()
+        };
+
+        for (x, rflags, want) in [
+            (5u64, 0x202u64, 0x105u64), // SF=0, ZF=0
+            (5u64, 0x242u64, 0x105u64), // SF=0, ZF=1
+            (5u64, 0x282u64, 0x205u64), // SF=1, ZF=0
+            (5u64, 0x2C2u64, 0x305u64), // SF=1, ZF=1
+        ] {
+            assert_eq!(run_case(&orig_pe, x, rflags), want, "orig mismatch for rflags={rflags:#x}");
+            assert_eq!(run_case(&devirt_pe, x, rflags), want, "devirt mismatch for rflags={rflags:#x}");
         }
     }
 }
