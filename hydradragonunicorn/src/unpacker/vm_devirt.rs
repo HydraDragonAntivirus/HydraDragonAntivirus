@@ -1692,11 +1692,20 @@ impl SymState {
 
 /// RFLAGS after the last status-flag operation, for `pushfq`: the status flags from
 /// that operation, every other bit from the frame's entry RFLAGS (unless those may have
-/// changed). Only where all six status flags are defined: `cmp` / `sub` / `neg` and
-/// `add` (AF is undefined after the logical operations).
+/// changed). After `cmp` / `sub` / `neg` and `add` all six status flags are defined.
+/// After the logical operations AF is architecturally undefined: it is taken as 0, what
+/// Intel and AMD processors (and the emulators) produce.
 fn composed_rflags(state: &SymState, arena: &mut ExprArena) -> Option<ExprId> {
     if state.system_flags_changed {
         return None;
+    }
+    if let FlagState::TestBitwise { val, width } = &state.flags {
+        let res = arena.zext_mask(*val, *width);
+        let zf = state.eval_cond_code(arena, ConditionCode::e)?;
+        let sf = state.eval_cond_code(arena, ConditionCode::s)?;
+        let pf = parity_flag(arena, res);
+        // CF = OF = 0; AF = 0 (see above).
+        return Some(rflags_from_status(arena, [None, Some(pf), None, Some(zf), Some(sf), None]));
     }
     let (l, r, res, w) = match &state.flags {
         FlagState::SubCmp { lhs, rhs, width } => {
@@ -1716,16 +1725,7 @@ fn composed_rflags(state: &SymState, arena: &mut ExprArena) -> Option<ExprId> {
     };
     let _ = w;
     let cf = state.eval_cond_code(arena, ConditionCode::b)?;
-    // PF: even number of set bits in the result's low byte.
-    let lo = arena.and_const(res, 0xFF);
-    let f4 = arena.shr_const(lo, 4);
-    let x4 = arena.xor(lo, f4);
-    let f2 = arena.shr_const(x4, 2);
-    let x2 = arena.xor(x4, f2);
-    let f1 = arena.shr_const(x2, 1);
-    let x1 = arena.xor(x2, f1);
-    let odd = arena.and_const(x1, 1);
-    let pf = arena.xor_const(odd, 1);
+    let pf = parity_flag(arena, res);
     let zf = state.eval_cond_code(arena, ConditionCode::e)?;
     let sf = state.eval_cond_code(arena, ConditionCode::s)?;
     let of = state.eval_cond_code(arena, ConditionCode::o)?;
@@ -1734,15 +1734,35 @@ fn composed_rflags(state: &SymState, arena: &mut ExprArena) -> Option<ExprId> {
     let x2 = arena.xor(x1, res);
     let x3 = arena.shr_const(x2, 4);
     let af = arena.and_const(x3, 1);
+    Some(rflags_from_status(arena, [Some(cf), Some(pf), Some(af), Some(zf), Some(sf), Some(of)]))
+}
+
+/// PF: an even number of set bits in the low byte of `res`.
+fn parity_flag(arena: &mut ExprArena, res: ExprId) -> ExprId {
+    let lo = arena.and_const(res, 0xFF);
+    let f4 = arena.shr_const(lo, 4);
+    let x4 = arena.xor(lo, f4);
+    let f2 = arena.shr_const(x4, 2);
+    let x2 = arena.xor(x4, f2);
+    let f1 = arena.shr_const(x2, 1);
+    let x1 = arena.xor(x2, f1);
+    let odd = arena.and_const(x1, 1);
+    arena.xor_const(odd, 1)
+}
+
+/// The frame's entry RFLAGS with CF, PF, AF, ZF, SF, OF replaced (`None`: 0).
+fn rflags_from_status(arena: &mut ExprArena, flags: [Option<ExprId>; 6]) -> ExprId {
     const STATUS: u64 = 0x8D5; // CF PF AF ZF SF OF
     let entry = arena.entry_rflags();
     let mut v = arena.and_const(entry, !STATUS);
-    for (bit, f) in [(0u64, cf), (2, pf), (4, af), (6, zf), (7, sf), (11, of)] {
-        let b = arena.and_const(f, 1);
-        let sh = arena.shl_const(b, bit);
-        v = arena.or(v, sh);
+    for (bit, f) in [0u64, 2, 4, 6, 7, 11].into_iter().zip(flags) {
+        if let Some(f) = f {
+            let b = arena.and_const(f, 1);
+            let sh = arena.shl_const(b, bit);
+            v = arena.or(v, sh);
+        }
     }
-    Some(v)
+    v
 }
 
 /// A condition code read from the frame's saved entry RFLAGS (`ExprNode::EntryRflags`):
@@ -2198,7 +2218,7 @@ fn read_xmm_pair(
         }
         OpKind::Memory => {
             let ea = eval_mem_ea(state, arena, view.bitness, ins, next_ip);
-            if let Some((space, off)) = arena.as_stack_offset(ea) {
+            if let Some((space, off)) = stack_slot_addr(arena, ea) {
                 Some(state.stack.read_xmm(arena, space, off, state.mem_ver))
             } else {
                 let lo = read_memory_expr(view, state, arena, ea, 8);
@@ -2451,11 +2471,17 @@ fn value_range(arena: &ExprArena, id: ExprId, depth: u8) -> Option<(i64, i64)> {
     if let Some(c) = arena.as_const(id) {
         return Some((c as i64, c as i64));
     }
-    // Known-zero high bits: a non-negative amount below 2^n.
+    // Non-negative and bounded: known-zero high bits, or an upper bound through the
+    // bit operations a shift amount is built from.
     let (zeros, _) = arena.known_bits(id);
     let top = 64 - zeros.leading_ones();
     if top < 40 {
         return Some((0, ((1u128 << top) - 1) as i64));
+    }
+    if let Some(ub) = unsigned_bound(arena, id, depth) {
+        if ub < 1 << 40 {
+            return Some((0, ub as i64));
+        }
     }
     match arena.get(id) {
         ExprNode::Neg(x) => {
@@ -2473,6 +2499,51 @@ fn value_range(arena: &ExprArena, id: ExprId, depth: u8) -> Option<(i64, i64)> {
             Some((al.checked_sub(bh)?, ah.checked_sub(bl)?))
         }
         _ => None,
+    }
+}
+
+/// An upper bound of a value read as unsigned, through masks, shifts, bit operations,
+/// sums and selections; `None` when there is none short of 2^64.
+fn unsigned_bound(arena: &ExprArena, id: ExprId, depth: u8) -> Option<u64> {
+    if depth > 16 {
+        return None;
+    }
+    if let Some(c) = arena.as_const(id) {
+        return Some(c);
+    }
+    let (zeros, _) = arena.known_bits(id);
+    let from_bits = if zeros.leading_ones() > 0 { Some(u64::MAX >> zeros.leading_ones()) } else { None };
+    let fill = |x: u64| if x == 0 { 0 } else { u64::MAX >> x.leading_zeros() };
+    let b = |x: ExprId| unsigned_bound(arena, x, depth + 1);
+    let r = match arena.get(id) {
+        ExprNode::And(x, y) => match (b(*x), b(*y)) {
+            (Some(p), Some(q)) => Some(p.min(q)),
+            (Some(p), None) | (None, Some(p)) => Some(p),
+            (None, None) => None,
+        },
+        ExprNode::Or(x, y) | ExprNode::Xor(x, y) => Some(fill(b(*x)?.max(b(*y)?))),
+        ExprNode::Add(x, y) => b(*x)?.checked_add(b(*y)?),
+        ExprNode::Shl(x, c) => {
+            let s = arena.as_const(*c)?;
+            let v = b(*x)?;
+            if s >= 64 || v.leading_zeros() < s as u32 {
+                None
+            } else {
+                Some(v << s)
+            }
+        }
+        ExprNode::Shr(x, c) => {
+            let s = arena.as_const(*c)?;
+            Some(if s >= 64 { 0 } else { b(*x)? >> s })
+        }
+        ExprNode::Mul(x, y) => b(*x)?.checked_mul(b(*y)?),
+        ExprNode::Cmp { .. } => Some(1),
+        ExprNode::Select { if_true, if_false, .. } => Some(b(*if_true)?.max(b(*if_false)?)),
+        _ => None,
+    };
+    match (r, from_bits) {
+        (Some(p), Some(q)) => Some(p.min(q)),
+        (r, q) => r.or(q),
     }
 }
 
@@ -5112,7 +5183,7 @@ pub fn lift_vm_entry_cfg(
                             };
                             let xval = state.xmms[s as usize];
                             let ea = eval_mem_ea(&state, &mut arena, view.bitness, &ins, next_ip);
-                            if let Some((space, off)) = arena.as_stack_offset(ea) {
+                            if let Some((space, off)) = stack_slot_addr(&arena, ea) {
                                 state.stack.write_xmm(&mut arena, space, off, xval, state.mem_ver);
                                 if space == StackSpace::CallerStack && off >= 0 {
                                     state.mem_ver += 1;
@@ -5573,61 +5644,13 @@ fn function_uses_entry_rflags(func: &LiftedFunction) -> bool {
 
 fn validate_function_soundness(func: &LiftedFunction, view: &PeImageView) -> Result<(), String> {
     let bitness = view.bitness;
-    let word_bytes: u8 = if bitness == 64 { 8 } else { 4 };
     if let Some(ref b) = func.first_bailout {
         return Err(b.clone());
     }
-    // A frame's entry RFLAGS live at `StackBase - 8` (see `compile_function_into_asm`).
-    // An exit's stores over `[-16, 0)` could overwrite them before a register or
-    // memory store that reads them is computed (those stores are ordered last, but
-    // registers and effects come after them).
-    if function_uses_entry_rflags(func) {
-        if bitness != 64 {
-            return Err("entry_rflags_32bit".into());
-        }
-        let reads = |e: ExprId| expr_contains_node(&func.arena, e, &ExprNode::EntryRflags);
-        for b in &func.blocks {
-            let pending: &[(i64, ExprId)] = match &b.term {
-                IrTerm::ExitRet { pending_caller_stores, .. }
-                | IrTerm::ExitJmp { pending_caller_stores, .. }
-                | IrTerm::ExitCall { pending_caller_stores, .. }
-                | IrTerm::ExitIndirectMem { pending_caller_stores, .. } => pending_caller_stores,
-                IrTerm::ExitToVm { exit, .. } => &exit.pending,
-                _ => &[],
-            };
-            if !pending.iter().any(|&(o, _)| o > -16 - word_bytes as i64 && o < 0) {
-                continue;
-            }
-            let mut later: Vec<ExprId> = Vec::new();
-            for e in &b.effects {
-                match e {
-                    IrEffect::Store { addr, value, .. } => later.extend([*addr, *value]),
-                    IrEffect::AtomicCmpXchg { addr, expected_rax, desired, .. } => later.extend([*addr, *expected_rax, *desired]),
-                    IrEffect::AtomicRmw { addr, src, .. } => later.extend([*addr, *src]),
-                    IrEffect::WriteCr8 { val, .. } => later.push(*val),
-                    IrEffect::CallNative { .. } => {}
-                }
-            }
-            let (regs, xmms): (Option<&[ExprId; 16]>, Option<&[(ExprId, ExprId); 16]>) = match &b.term {
-                IrTerm::ExitRet { final_regs, final_xmms, .. }
-                | IrTerm::ExitJmp { final_regs, final_xmms, .. }
-                | IrTerm::ExitCall { final_regs, final_xmms, .. }
-                | IrTerm::ExitIndirectMem { final_regs, final_xmms, .. }
-                | IrTerm::ExitToVm { final_regs, final_xmms, .. } => (Some(final_regs), Some(final_xmms)),
-                _ => (None, None),
-            };
-            if let Some(r) = regs {
-                later.extend(r.iter().copied());
-            }
-            if let Some(x) = xmms {
-                for &(lo, hi) in x {
-                    later.extend([lo, hi]);
-                }
-            }
-            if later.into_iter().any(reads) {
-                return Err("entry_rflags_overwritten".into());
-            }
-        }
+    // A frame's entry RFLAGS live at `StackBase - 8` (see `compile_function_into_asm`);
+    // an exit whose stores overwrite them reads them first (`emit_block_outputs_and_jump`).
+    if function_uses_entry_rflags(func) && bitness != 64 {
+        return Err("entry_rflags_32bit".into());
     }
 
     // The VM's aligned frames (`AlignedBase`) live only as symbolic slots: their
@@ -7989,6 +8012,31 @@ fn emit_block_outputs_and_jump(
         ctx.pinned.remove(&l);
         ctx.spills.insert(l, ctx.rsp_depth);
     }
+    // The frame's saved entry RFLAGS (`StackBase - 8`) under a pending store: read
+    // them now for every value still to be computed.
+    if frame.rflags_saved && pending_caller_stores.iter().any(|&(o, _)| o > -16 - word_bytes && o < 0) {
+        let mut st: Vec<ExprId> = later.clone();
+        let mut seen = HashSet::new();
+        let mut found = None;
+        while let Some(id) = st.pop() {
+            if !seen.insert(id) || ctx.spills.contains_key(&id) || ctx.pinned.contains_key(&id) {
+                continue;
+            }
+            let node = ctx.arena.get(id);
+            if *node == ExprNode::EntryRflags {
+                found = Some(id);
+                break;
+            }
+            push_expr_children(node, &mut st);
+        }
+        if let Some(id) = found {
+            let [w0, _, w2] = ctx.scratch;
+            ctx.eval_expr_into(a, id, w0, w2)?;
+            ctx.emit_push(a, w0)?;
+            ctx.spills.insert(id, ctx.rsp_depth);
+        }
+    }
+
     // Caller-frame slots the pending stores below overwrite: every value still to be
     // computed (other stores, registers, XMMs) that reads one reads it now, before
     // the first of them. All effects are done, so these reads see what they should.
@@ -11360,6 +11408,106 @@ mod tests {
                 let want = c.wrapping_add(0x77).wrapping_add(if d & 0x20 != 0 { 2 } else { 1 });
                 assert_eq!(run(&orig_pe), want, "original {entry:#x} {c:#x} {d:#x}");
                 assert_eq!(run(&devirt_pe), want, "devirtualized {entry:#x} {c:#x} {d:#x}");
+            }
+        }
+    }
+
+    #[test]
+    fn pushfq_after_logical_ops_is_computed_e2e() {
+        use gpr64::*;
+        let base = 0x1_4000_0000u64;
+        let mut text_sec = vec![0xCCu8; 0x200];
+        let fn0 = assemble_at(64, base + 0x1000, |a| a.jmp(base + 0x2000));
+        text_sec[..fn0.len()].copy_from_slice(&fn0);
+        let exit_ret = assemble_at(64, base + 0x1040, |a| a.ret());
+        text_sec[0x40..0x40 + exit_ret.len()].copy_from_slice(&exit_ret);
+        let mut vmp_sec = vec![0xCCu8; 0x400];
+        // RFLAGS after `test rcx, rdx` and after `xor r8b, dl`, combined into rax.
+        let stub = assemble_at(64, base + 0x2000, |a| {
+            a.push(rbx)?;
+            a.push(rbp)?;
+            a.mov(r11, rcx)?;
+            for k in 0..40i32 {
+                a.add(r11, k + 3)?;
+                a.sub(r11, k + 3)?;
+            }
+            a.test(rcx, rdx)?;
+            a.pushfq()?;
+            a.pop(rax)?;
+            a.mov(r8, rcx)?;
+            a.xor(gpr8::r8b, gpr8::dl)?;
+            a.pushfq()?;
+            a.pop(r9)?;
+            a.shl(r9, 32)?;
+            a.xor(rax, r9)?;
+            a.pop(rbp)?;
+            a.pop(rbx)?;
+            a.jmp(base + 0x1040)
+        });
+        vmp_sec[..stub.len()].copy_from_slice(&stub);
+        let orig_pe = build_two_exec_pe64(&text_sec, &vmp_sec, 0x1000);
+        let (devirt_pe, report) = devirtualize_pe_bytes(&orig_pe, BinaryDevirtConfig::default()).unwrap();
+        assert_eq!(report.devirtualized_total, 1, "bailouts: {:?}", report.bailout_reasons);
+        for (c, d) in [(5u64, 5u64), (5, 2), (0x8000_0000_0000_0000, u64::MAX), (0, 7), (0x81, 0x80), (0xff, 0x0f)] {
+            let want = run_with_flags(&orig_pe, base + 0x1000, c, d, 0, 0);
+            assert_eq!(run_with_flags(&devirt_pe, base + 0x1000, c, d, 0, 0), want, "{c:#x} {d:#x}");
+        }
+    }
+
+    #[test]
+    fn entry_rflags_read_by_an_exit_that_overwrites_their_slot_e2e() {
+        use gpr64::*;
+        let base = 0x1_4000_0000u64;
+        let mut text_sec = vec![0xCCu8; 0x200];
+        let fn0 = assemble_at(64, base + 0x1000, |a| a.jmp(base + 0x2000));
+        text_sec[..fn0.len()].copy_from_slice(&fn0);
+        let exit_ret = assemble_at(64, base + 0x1040, |a| a.ret());
+        text_sec[0x40..0x40 + exit_ret.len()].copy_from_slice(&exit_ret);
+        let mut vmp_sec = vec![0xCCu8; 0x400];
+        // r9 = the entry RFLAGS; the VM's own pushes sit where the recompiled code keeps
+        // them (`StackBase - 8`), and the exit back to the VM writes those pushes.
+        let stub = assemble_at(64, base + 0x2000, |a| {
+            a.pushfq()?;
+            a.pop(r9)?;
+            a.push(rbx)?;
+            a.push(rbp)?;
+            a.mov(rbp, rsp)?;
+            a.and(rsp, -16)?;
+            a.sub(rsp, 0x40)?;
+            a.mov(rax, rcx)?;
+            for k in 0..40i32 {
+                a.lea(rax, ptr(rax) + (k + 3))?;
+                a.lea(rax, ptr(rax) - (k + 3))?;
+            }
+            a.mov(r8, rdx)?;
+            a.and(r8, 0x20)?;
+            a.mov(r10, base + 0x2300)?;
+            a.add(r10, r8)?;
+            a.jmp(r10)
+        });
+        assert!(stub.len() < 0x300);
+        vmp_sec[..stub.len()].copy_from_slice(&stub);
+        for (off, add) in [(0x300usize, 1i32), (0x320, 2)] {
+            let h = assemble_at(64, base + 0x2000 + off as u64, |a| {
+                a.mov(rax, r9)?;
+                a.and(rax, 0x8d5)?;
+                a.add(rax, add)?;
+                a.mov(rsp, rbp)?;
+                a.pop(rbp)?;
+                a.pop(rbx)?;
+                a.jmp(base + 0x1040)
+            });
+            vmp_sec[off..off + h.len()].copy_from_slice(&h);
+        }
+        let orig_pe = build_two_exec_pe64(&text_sec, &vmp_sec, 0x1000);
+        let (devirt_pe, report) = devirtualize_pe_bytes(&orig_pe, BinaryDevirtConfig::default()).unwrap();
+        assert_eq!(report.devirtualized_total, 1, "bailouts: {:?}", report.bailout_reasons);
+        const CF: u64 = 1;
+        const ZF: u64 = 1 << 6;
+        for (set, clear) in [(CF, ZF), (ZF, CF), (CF | ZF, 0), (0, CF | ZF)] {
+            for d in [0u64, 0x20] {
+                let want = run_with_flags(&orig_pe, base + 0x1000, 7, d, set, clear);
+                assert_eq!(run_with_flags(&devirt_pe, base + 0x1000, 7, d, set, clear), want, "{set:#x} {clear:#x} {d:#x}");
             }
         }
     }
