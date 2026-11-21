@@ -1549,16 +1549,25 @@ byte[] rawdump = new byte[totalrawsize];
                                                             virtualsize = sections[l].virtual_size;
                                                             virtualAddress = sections[l].virtual_address;
 
-                                                            // Memory dumper always produces a "fixed" dump (Raw layout = Virtual layout)
-                                                            // to prevent corruption and fragmentation.
+                                                            // Memory dumper produces a fixed-layout image (raw offsets = RVAs).
+                                                            // SizeOfRawData still has to satisfy PE FileAlignment even though the
+                                                            // captured virtual bytes are only VirtualSize long; otherwise the loader
+                                                            // can reject the dump or read the next section at the wrong boundary.
                                                             rawsize = virtualsize;
                                                             rawAddress = virtualAddress;
+                                                            int alignedRawSize = virtualsize;
+                                                            if (virtualsize > 0 && filealignment > 0)
+                                                            {
+                                                                long rounded = ((long)virtualsize + filealignment - 1) / filealignment * filealignment;
+                                                                if (rounded <= int.MaxValue)
+                                                                    alignedRawSize = (int)rounded;
+                                                            }
 
                                                             using (BinaryWriter sectionWriter = new(new MemoryStream(virtualdump)))
                                                             {
                                                                 // Fix section header in memory buffer
                                                                 sectionWriter.BaseStream.Position = PEOffset + 24 + sizeofoptionalheader + (0x28 * l) + 16;
-                                                                sectionWriter.Write(virtualsize);   // SizeOfRawData
+                                                                sectionWriter.Write(alignedRawSize); // SizeOfRawData
                                                                 sectionWriter.BaseStream.Position = PEOffset + 24 + sizeofoptionalheader + (0x28 * l) + 20;
                                                                 sectionWriter.Write(virtualAddress); // PointerToRawData
                                                             }

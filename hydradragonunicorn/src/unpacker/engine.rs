@@ -2892,7 +2892,7 @@ impl UnpackerEngine {
                 jump.extend_from_slice(&hook_addr.to_le_bytes());
                 jump.extend_from_slice(&[0xFF, 0xE0]);
                 if uc.mem_write(at, &jump).is_ok() {
-                    self.sample.dllname_to_functionlist.entry(name.to_ascii_lowercase()).or_default().push((func.to_ascii_lowercase(), hook_addr));
+                    self.sample.dllname_to_functionlist.entry(name.to_ascii_lowercase()).or_default().push((func.clone(), hook_addr));
                     hook_addr += 8;
                 }
             }
@@ -2996,12 +2996,11 @@ impl UnpackerEngine {
                     format!("Ordinal{}", ordinal_val)
                 };
 
-                let name_lower = func_name.to_lowercase();
                 if !dll_name.is_empty() {
                     dllname_to_functionlist
                         .entry(dll_name.clone())
                         .or_default()
-                        .push((name_lower.clone(), hook_addr));
+                            .push((func_name.clone(), hook_addr));
 
                     import_descriptors
                         .entry(dll_name.clone())
@@ -3015,7 +3014,7 @@ impl UnpackerEngine {
                             imports: Vec::new(),
                         })
                         .imports
-                        .push(name_lower.clone());
+                        .push(func_name.clone());
 
                     all_imports.push(format!("{}.{}", dll_name, func_name));
 
@@ -3052,7 +3051,7 @@ impl UnpackerEngine {
                 continue;
             }
             let dll = "msvcrt.dll".to_string();
-            dllname_to_functionlist.entry(dll.clone()).or_default().push((name.to_lowercase(), hook_addr));
+            dllname_to_functionlist.entry(dll.clone()).or_default().push((name.clone(), hook_addr));
             all_imports.push(format!("{dll}.{name}"));
             let bytes = hook_addr.to_le_bytes();
             let _ = uc.mem_write(iat_addr, &bytes[..thunk_size as usize]);
@@ -3363,11 +3362,22 @@ impl UnpackerEngine {
     }
 
     fn dump_context(&self) -> crate::unpacker::imagedump::DumpContext {
+        // The map also holds system-DLL exports redirected for emulation. These
+        // are hook targets, not sample imports; rebuilding from that map creates
+        // thousands of spurious imports. Keep only the sample's actual imports,
+        // preserving their exact case because PE import names are case-sensitive.
+        let dump_imports = if self.sample.original_imports.is_empty() {
+            self.sample.dllname_to_functionlist.clone()
+        } else {
+            self.sample.original_imports.iter().map(|id| {
+                (id.dll_name.clone(), id.imports.iter().map(|name| (name.clone(), 0)).collect())
+            }).collect()
+        };
         crate::unpacker::imagedump::DumpContext {
             virtualmemorysize: self.sample.virtualmemorysize,
             hook_addr: self.hook_addr,
             ntp: HashMap::new(),
-            dllname_to_functionlist: self.sample.dllname_to_functionlist.clone(),
+            dllname_to_functionlist: dump_imports,
             allocated_chunks: self.sample.allocated_chunks.clone(),
             original_imports: self.sample.original_imports.iter().map(|id| {
                 crate::unpacker::imagedump::ImportDescriptor {
