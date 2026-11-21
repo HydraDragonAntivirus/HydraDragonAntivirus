@@ -1458,7 +1458,8 @@ struct SymState {
     xmms: [(ExprId, ExprId); 16],
     stack: SymStack,
     flags: FlagState,
-    saved_rflags: Vec<(ExprId, FlagState)>,
+    saved_rflags: Vec<(ExprId, FlagState, bool, Option<ExprId>)>,
+    known_rflags_bits: Option<(ExprId, u64, u64)>,
     entry_flags_clobbered: bool,
     mem_ver: u32,
     cr8_ver: u32,
@@ -1514,6 +1515,7 @@ impl SymState {
                 stack: st,
                 flags: FlagState::Entry,
                 saved_rflags: Vec::new(),
+                known_rflags_bits: None,
                 entry_flags_clobbered: false,
                 mem_ver: 0,
                 cr8_ver: 0,
@@ -1537,6 +1539,7 @@ impl SymState {
             stack,
             flags: FlagState::Entry,
             saved_rflags: Vec::new(),
+            known_rflags_bits: None,
             entry_flags_clobbered: false,
             mem_ver: 0,
             cr8_ver: 0,
@@ -1557,6 +1560,7 @@ impl SymState {
     #[inline]
     fn set_flags(&mut self, flags: FlagState) {
         self.flags = flags;
+        self.known_rflags_bits = None;
     }
 
     #[inline]
@@ -1758,7 +1762,26 @@ impl SymState {
                     _ => None,
                 }
             }
-            FlagState::Rflags(v) | FlagState::PoppedRflags(v) => rflags_cond(arena, *v, cc),
+            FlagState::Rflags(v) | FlagState::PoppedRflags(v) => {
+                let rf = *v;
+                if let Some((base_rf, kz, ko)) = self.known_rflags_bits {
+                    if (kz | ko) != 0 && unwrap_masked_rflags_base(arena, rf) == base_rf {
+                        let mut masked = rf;
+                        if kz != 0 {
+                            masked = arena.and_const(masked, !kz);
+                        }
+                        if ko != 0 {
+                            masked = arena.or_const(masked, ko);
+                        }
+                        if let Some(c) = rflags_cond(arena, masked, cc) {
+                            if arena.as_const(c).is_some() {
+                                return Some(c);
+                            }
+                        }
+                    }
+                }
+                rflags_cond(arena, rf, cc)
+            }
             FlagState::CarryExpr(bit) => match cc {
                 ConditionCode::b => Some(*bit),
                 ConditionCode::ae => Some(arena.xor_const(*bit, 1)),
@@ -1770,6 +1793,23 @@ impl SymState {
                     entry_cc_to_u8(cc).map(|c| arena.entry_flag(c))
                 } else {
                     // Anywhere else: the bits of the frame's saved entry RFLAGS.
+                    let entry_rf = arena.entry_rflags();
+                    if let Some((base_rf, kz, ko)) = self.known_rflags_bits {
+                        if (kz | ko) != 0 && base_rf == entry_rf {
+                            let mut masked = entry_rf;
+                            if kz != 0 {
+                                masked = arena.and_const(masked, !kz);
+                            }
+                            if ko != 0 {
+                                masked = arena.or_const(masked, ko);
+                            }
+                            if let Some(c) = rflags_cond(arena, masked, cc) {
+                                if arena.as_const(c).is_some() {
+                                    return Some(c);
+                                }
+                            }
+                        }
+                    }
                     entry_rflags_cond(arena, cc)
                 }
             }
@@ -3358,7 +3398,8 @@ struct StateDedupKey {
     xmms: [(ExprId, ExprId); 16],
     stack_slots: Vec<((StackSpace, i64), ExprId)>,
     flags: FlagState,
-    saved_rflags: Vec<(ExprId, FlagState)>,
+    saved_rflags: Vec<(ExprId, FlagState, bool, Option<ExprId>)>,
+    known_rflags_bits: Option<(ExprId, u64, u64)>,
     cum_rsp_offset: i64,
     inline_depth: usize,
     entry_flags_clobbered: bool,
@@ -3403,6 +3444,7 @@ fn make_state_dedup_key(s: &SymState) -> StateDedupKey {
         stack_slots,
         flags: s.flags.clone(),
         saved_rflags: s.saved_rflags.clone(),
+        known_rflags_bits: s.known_rflags_bits,
         cum_rsp_offset: s.cum_rsp_offset,
         inline_depth: s.inline_depth,
         entry_flags_clobbered: s.entry_flags_clobbered,
@@ -3579,34 +3621,30 @@ fn extract_rflags_bit_constraints(
 
 fn specialize_sym_state(arena: &mut ExprArena, state: &mut SymState, cond: ExprId, taken: bool) {
     state.entry_flags_clobbered = true;
-    state.saved_rflags.retain(|(_, fl)| !matches!(fl, FlagState::Entry));
+    state.saved_rflags.retain(|(_, fl, _, _)| !matches!(fl, FlagState::Entry));
     if let Some((rf_opt, kz, ko)) = extract_rflags_bit_constraints(arena, cond, taken) {
         if (kz | ko) != 0 {
-            let apply_bits = |arena: &mut ExprArena, mut rf: ExprId| -> ExprId {
-                if kz != 0 {
-                    rf = arena.and_const(rf, !kz);
-                }
-                if ko != 0 {
-                    rf = arena.or_const(rf, ko);
-                }
-                rf
-            };
             let entry_rf = arena.entry_rflags();
             let target_base = rf_opt
                 .map(|r| unwrap_masked_rflags_base(arena, r))
                 .unwrap_or(entry_rf);
-            match &mut state.flags {
-                FlagState::Entry => {
-                    if target_base == entry_rf {
-                        state.flags = FlagState::Rflags(apply_bits(arena, entry_rf));
-                    }
-                }
+            let matches_cur_flags = match &state.flags {
+                FlagState::Entry => target_base == entry_rf,
                 FlagState::Rflags(rf) | FlagState::PoppedRflags(rf) => {
-                    if unwrap_masked_rflags_base(arena, *rf) == target_base {
-                        *rf = apply_bits(arena, *rf);
+                    unwrap_masked_rflags_base(arena, *rf) == target_base
+                }
+                _ => false,
+            };
+            if matches_cur_flags {
+                match &mut state.known_rflags_bits {
+                    Some((base, prev_kz, prev_ko)) if *base == target_base => {
+                        *prev_kz = (*prev_kz & !ko) | kz;
+                        *prev_ko = (*prev_ko & !kz) | ko;
+                    }
+                    _ => {
+                        state.known_rflags_bits = Some((target_base, kz, ko));
                     }
                 }
-                _ => {}
             }
         }
     }
@@ -3678,8 +3716,14 @@ fn substitute_in_state(arena: &mut ExprArena, state: &mut SymState, from: ExprId
             state.mem_cache.insert(nk, (w, nv));
         }
         subst_flag_state(arena, &mut state.flags, from, to, &mut memo);
-        for (_, fl) in &mut state.saved_rflags {
+        for (_, fl, _, sys_rf) in &mut state.saved_rflags {
             subst_flag_state(arena, fl, from, to, &mut memo);
+            if let Some(sr) = sys_rf {
+                *sr = arena.substitute_memo(*sr, from, to, &mut memo);
+            }
+        }
+        if let Some((ref mut base_rf, _, _)) = state.known_rflags_bits {
+            *base_rf = arena.substitute_memo(*base_rf, from, to, &mut memo);
         }
         if let Some(ref mut sr) = state.system_rflags {
             *sr = arena.substitute_memo(*sr, from, to, &mut memo);
@@ -4997,7 +5041,12 @@ fn lift_vm_entry_cfg_inner(
                         if state.saved_rflags.len() >= 8 {
                             state.saved_rflags.remove(0);
                         }
-                        state.saved_rflags.push((rfl, state.flags.clone()));
+                        state.saved_rflags.push((
+                            rfl,
+                            state.flags.clone(),
+                            state.system_flags_changed,
+                            state.system_rflags,
+                        ));
                     }
                     let new_rsp = arena.sub_const(state.reg_full(ArchReg::Rsp), word_bytes as u64);
                     state.write_reg(&mut arena, ArchReg::Rsp, RegSlice::Full64, new_rsp);
@@ -5012,14 +5061,17 @@ fn lift_vm_entry_cfg_inner(
                         .saved_rflags
                         .iter()
                         .rev()
-                        .find(|(id, _)| *id == val)
-                        .map(|(_, fl)| fl.clone());
+                        .find(|(id, _, _, _)| *id == val)
+                        .map(|(_, fl, sys_ch, sys_rf)| (fl.clone(), *sys_ch, *sys_rf));
                     // A value this frame pushed (or its entry RFLAGS) keeps its system bits;
                     // anything else sets `system_rflags` to the popped word if clean & canonical.
                     if *arena.get(val) == ExprNode::EntryRflags {
                         state.system_flags_changed = false;
                         state.system_rflags = None;
-                    } else if restored.is_none() {
+                    } else if let Some((_, sys_ch, sys_rf)) = restored {
+                        state.system_flags_changed = sys_ch;
+                        state.system_rflags = sys_rf;
+                    } else {
                         state.system_flags_changed = true;
                         let is_noncanon_const = arena
                             .as_const(val)
@@ -5029,10 +5081,8 @@ fn lift_vm_entry_cfg_inner(
                         } else {
                             state.system_rflags = None;
                         }
-                    } else if state.system_flags_changed {
-                        state.system_rflags = Some(val);
                     }
-                    match restored {
+                    match restored.map(|(fl, _, _)| fl) {
                         _ if *arena.get(val) == ExprNode::EntryRflags => {
                             // The frame's saved entry RFLAGS put back.
                             state.set_flags(FlagState::Entry);
