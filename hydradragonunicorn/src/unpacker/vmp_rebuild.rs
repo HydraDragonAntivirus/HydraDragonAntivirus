@@ -518,7 +518,7 @@ fn find_vmp_import_tables(
             let op_mov = 0xB8 + reg;
             let rol_start = if rex_b { i - 2 } else { i - 1 };
             let win_start = rol_start.saturating_sub(64);
-            if rol_start >= 6 {
+            if rol_start >= 5 {
                 for j in win_start..=(rol_start - 5) {
                     if rex_b {
                         if j >= 1 && l_bytes[j - 1] == 0x41 && l_bytes[j] == op_mov {
@@ -1148,7 +1148,6 @@ struct LoadedDll {
     size: u64,
     by_name: HashMap<String, u64>,
     by_ord: HashMap<u16, u64>,
-    addr_to_name: HashMap<u64, String>,
     forwarders_by_name: HashMap<String, String>,
     forwarders_by_ord: HashMap<u16, String>,
 }
@@ -1259,7 +1258,6 @@ fn parse_and_map_system_dll(
 
     let mut by_name = HashMap::new();
     let mut by_ord = HashMap::new();
-    let mut addr_to_name = HashMap::new();
     let mut forwarders_by_name = HashMap::new();
     let mut forwarders_by_ord = HashMap::new();
     let mut ssns = HashMap::new();
@@ -1309,7 +1307,6 @@ fn parse_and_map_system_dll(
                     by_ord.insert(ord, va);
                     if let Some(nm) = ord_to_name.get(&idx) {
                         by_name.insert(nm.clone(), va);
-                        addr_to_name.entry(va).or_insert_with(|| nm.clone());
                         if frva + 8 <= img.len() && img[frva..frva + 4] == [0x4C, 0x8B, 0xD1, 0xB8] {
                             if let Some(ssn) = rd_u32(&img, frva + 4) {
                                 ssns.insert(ssn, nm.clone());
@@ -1327,7 +1324,6 @@ fn parse_and_map_system_dll(
             size: sz,
             by_name,
             by_ord,
-            addr_to_name,
             forwarders_by_name,
             forwarders_by_ord,
         },
@@ -1477,7 +1473,6 @@ fn load_loader_dll_by_name(
             size: 0x1000,
             by_name: HashMap::new(),
             by_ord: HashMap::new(),
-            addr_to_name: HashMap::new(),
             forwarders_by_name: HashMap::new(),
             forwarders_by_ord: HashMap::new(),
         };
@@ -1638,7 +1633,7 @@ fn handle_loader_api(
         "IsDebuggerPresent" => 0,
         "ExitProcess" => {
             s.aborted = true;
-            uc.emu_stop();
+            let _ = uc.emu_stop();
             0
         }
         _ => 1,
@@ -2268,7 +2263,7 @@ fn run_packed_loader_capture(
             let _ = uc.mem_write(a4, &mbi);
         } else if fn_name.contains("RaiseHardError") || fn_name.contains("TerminateProcess") {
             st_sys.borrow_mut().aborted = true;
-            uc.emu_stop();
+            let _ = uc.emu_stop();
         }
         let _ = uc.reg_write(RegisterX86::RAX as i32, ret);
     });
@@ -2292,7 +2287,7 @@ fn run_packed_loader_capture(
             }
         }
         st_intr.borrow_mut().aborted = true;
-        uc.emu_stop();
+        let _ = uc.emu_stop();
     });
 
     // 5. Stop hooks on VMProtectRuntime candidates and OEP
@@ -2308,7 +2303,7 @@ fn run_packed_loader_capture(
             if s.hit_rva.is_none() {
                 s.hit_rva = Some((addr - img_base) as u32);
                 s.hit_r8 = uc.reg_read(RegisterX86::R8 as i32).unwrap_or(0);
-                uc.emu_stop();
+                let _ = uc.emu_stop();
             }
         });
     }
