@@ -799,7 +799,12 @@ fn find_vmp_runtime_candidates(
     rfs.sort_unstable();
 
     // Locate a non-primary, non-loader executable section containing `__DllMainCRTStartup`:
-    // checks `edx == 1` (`83 fa 01` or `83 f8 01`) near prologue + stack frame setup `48 83 ec`.
+    // Tier 1: checks BOTH `cmp edx, 1` (83 FA 01) AND `cmp edx, 2` (83 FA 02) + adjacent <= 0x100 VM wrapper.
+    // Tier 2: checks BOTH `83 FA 01` AND `83 FA 02`.
+    // Tier 3: fallback checking `83 FA 01`.
+    let mut tier1 = Vec::new();
+    let mut tier2 = Vec::new();
+    let mut tier3 = Vec::new();
     for idx in 0..rfs.len() {
         let (b, e) = rfs[idx];
         let sec = sections.iter().find(|s| {
@@ -823,19 +828,32 @@ fn find_vmp_runtime_candidates(
         let Some(bytes) = pe.get(raw..raw + fn_len.min(pe.len() - raw)) else {
             continue;
         };
-        // Must have `cmp edx, 1` (83 fa 01) or `test edx, edx` and multiple `call rel32` (CRT_INIT + DllMain)
         let has_cmp_edx_1 = bytes.windows(3).any(|w| w == [0x83, 0xFA, 0x01]);
+        let has_cmp_edx_2 = bytes.windows(3).any(|w| w == [0x83, 0xFA, 0x02]);
         let call_count = bytes.iter().filter(|&&x| x == 0xE8).count();
         if has_cmp_edx_1 && call_count >= 2 {
-            // Check if the immediately following adjacent RF is a small virtualized `DllMainCRTStartup` wrapper (`jmp vm_enter` / mutated entry)
-            if idx + 1 < rfs.len() && rfs[idx + 1].0 == e && (rfs[idx + 1].1 - rfs[idx + 1].0) <= 0x100 {
-                cands.push(rfs[idx + 1].0);
+            let adj_wrapper = (idx + 1 < rfs.len() && rfs[idx + 1].0 == e && (rfs[idx + 1].1 - rfs[idx + 1].0) <= 0x100)
+                .then_some(rfs[idx + 1].0);
+            if has_cmp_edx_2 {
+                if let Some(w) = adj_wrapper {
+                    tier1.push(w);
+                    tier1.push(b);
+                } else {
+                    tier2.push(b);
+                }
+            } else {
+                tier3.push(b);
             }
-            cands.push(b);
-            break;
         }
     }
-    cands
+    if !tier1.is_empty() {
+        return tier1;
+    }
+    if !tier2.is_empty() {
+        return tier2;
+    }
+    let _ = &mut cands;
+    tier3
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -1335,7 +1353,7 @@ fn lookup_seh_target(
     pe: &[u8],
     opt: &OptionalHeader,
     secs: &[Section],
-    mut rip_rva: u32,
+    rip_rva: u32,
 ) -> Option<u32> {
     let exc = opt.data_directory.get(IMAGE_DIRECTORY_ENTRY_EXCEPTION)?;
     if exc.virtual_address == 0 || exc.size < 12 {
@@ -1364,8 +1382,7 @@ fn lookup_seh_target(
         off += 4 + ((cnt_codes + 1) & !1) * 2;
 
         if (flags & 0x04) != 0 {
-            // UNW_FLAG_CHAININFO: next RUNTIME_FUNCTION sits right after codes.
-            rip_rva = rd_u32(pe, off)?;
+            // UNW_FLAG_CHAININFO: advance unwind chain while keeping original `rip_rva`.
             cur_unwind_rva = rd_u32(pe, off + 8);
             continue;
         }
@@ -1438,6 +1455,7 @@ struct CaptureState {
     hit_rva: Option<u32>,
     hit_r8: u64,
     aborted: bool,
+    abort_reason: Option<String>,
     lzma_entry_va: Option<u64>,
 }
 
@@ -1633,6 +1651,9 @@ fn handle_loader_api(
         "IsDebuggerPresent" => 0,
         "ExitProcess" => {
             s.aborted = true;
+            if s.abort_reason.is_none() {
+                s.abort_reason = Some(format!("ExitProcess({rcx:#x}) called by packed loader"));
+            }
             let _ = uc.emu_stop();
             0
         }
@@ -1654,13 +1675,15 @@ fn run_packed_loader_capture(
     heap_base: u64,
     os_build: u16,
     lzma_hint: Option<u64>,
-) -> Option<LoaderCaptureRun> {
+) -> Result<LoaderCaptureRun, String> {
     let img_base = packed_opt.image_base;
     let map_size = ((packed_opt.size_of_image as u64 + 0xFFF) & !0xFFF).max(0x2000);
     let img_end = (img_base + map_size + 0xFF_FFFF) & !0xFF_FFFF;
 
-    let mut uc = Unicorn::new(Arch::X86, Mode::MODE_64).ok()?;
-    uc.mem_map(img_base, map_size, Prot::ALL).ok()?;
+    let mut uc = Unicorn::new(Arch::X86, Mode::MODE_64)
+        .map_err(|e| format!("Unicorn init failed: {e:?}"))?;
+    uc.mem_map(img_base, map_size, Prot::ALL)
+        .map_err(|e| format!("mem_map(img_base={img_base:#x}, {map_size:#x}) failed: {e:?}"))?;
 
     // Populate initial packed image as OS loader maps it.
     let mut init_img = vec![0u8; map_size as usize];
@@ -1679,7 +1702,8 @@ fn run_packed_loader_capture(
             }
         }
     }
-    uc.mem_write(img_base, &init_img).ok()?;
+    uc.mem_write(img_base, &init_img)
+        .map_err(|e| format!("mem_write(img) failed: {e:?}"))?;
 
     // Choose low fixed addresses when ImageBase allows it, otherwise place above image.
     let low_free = img_base >= 0x4000_0000;
@@ -1690,9 +1714,12 @@ fn run_packed_loader_capture(
     let file_map_base = if low_free { 0x2000_0000u64 } else { img_end + 0x1000_0000 };
     let ntdll_map_base = if low_free { 0x2800_0000u64 } else { img_end + 0x2000_0000 };
 
-    uc.mem_map(sys_base, 0x3_0000, Prot::ALL).ok()?;
-    uc.mem_map(stack_base, stack_size, Prot::ALL).ok()?;
-    uc.mem_map(heap_base, heap_size, Prot::ALL).ok()?;
+    uc.mem_map(sys_base, 0x3_0000, Prot::ALL)
+        .map_err(|e| format!("mem_map(sys_base) failed: {e:?}"))?;
+    uc.mem_map(stack_base, stack_size, Prot::ALL)
+        .map_err(|e| format!("mem_map(stack) failed: {e:?}"))?;
+    uc.mem_map(heap_base, heap_size, Prot::ALL)
+        .map_err(|e| format!("mem_map(heap={heap_base:#x}) failed: {e:?}"))?;
     let _ = uc.mem_map(0x7FFE_0000, 0x1000, Prot::READ);
 
     let teb_addr = sys_base;
@@ -1709,9 +1736,12 @@ fn run_packed_loader_capture(
     const K32_BASE: u64 = 0x7FF8_0000_0000;
     const KBASE_BASE: u64 = 0x7FF7_0000_0000;
 
-    let (nt_dll, nt_ssns) = parse_and_map_system_dll(&mut uc, &sys32.join("ntdll.dll"), NTDLL_BASE)?;
-    let (k32_dll, _) = parse_and_map_system_dll(&mut uc, &sys32.join("kernel32.dll"), K32_BASE)?;
-    let (kb_dll, _) = parse_and_map_system_dll(&mut uc, &sys32.join("kernelbase.dll"), KBASE_BASE)?;
+    let (nt_dll, nt_ssns) = parse_and_map_system_dll(&mut uc, &sys32.join("ntdll.dll"), NTDLL_BASE)
+        .ok_or_else(|| "failed to load System32 ntdll.dll".to_string())?;
+    let (k32_dll, _) = parse_and_map_system_dll(&mut uc, &sys32.join("kernel32.dll"), K32_BASE)
+        .ok_or_else(|| "failed to load System32 kernel32.dll".to_string())?;
+    let (kb_dll, _) = parse_and_map_system_dll(&mut uc, &sys32.join("kernelbase.dll"), KBASE_BASE)
+        .ok_or_else(|| "failed to load System32 kernelbase.dll".to_string())?;
 
     let mut loaded_dlls: HashMap<String, LoadedDll> = HashMap::new();
     let nt_size = nt_dll.size;
@@ -1836,6 +1866,7 @@ fn run_packed_loader_capture(
         hit_rva: None,
         hit_r8: 0,
         aborted: false,
+        abort_reason: None,
         lzma_entry_va: lzma_hint,
     }));
 
@@ -2059,7 +2090,7 @@ fn run_packed_loader_capture(
                 let h = 0x1234u64;
                 st_sys.borrow_mut().open_handles.insert(h);
                 let _ = uc.mem_write(a1, &h.to_le_bytes());
-            } else if name.contains("sample") || name.ends_with(".exe") || name.ends_with(".dll") {
+            } else if name.contains("sample.exe") {
                 let h = 0x1235u64;
                 st_sys.borrow_mut().open_handles.insert(h);
                 let _ = uc.mem_write(a1, &h.to_le_bytes());
@@ -2262,7 +2293,12 @@ fn run_packed_loader_capture(
             mbi[40..44].copy_from_slice(&0x0100_0000u32.to_le_bytes()); // MEM_IMAGE
             let _ = uc.mem_write(a4, &mbi);
         } else if fn_name.contains("RaiseHardError") || fn_name.contains("TerminateProcess") {
-            st_sys.borrow_mut().aborted = true;
+            let rip = uc.reg_read(RegisterX86::RIP as i32).unwrap_or(0);
+            let mut s = st_sys.borrow_mut();
+            s.aborted = true;
+            if s.abort_reason.is_none() {
+                s.abort_reason = Some(format!("{fn_name}(status={a1:#x}) at rip={rip:#x}"));
+            }
             let _ = uc.emu_stop();
         }
         let _ = uc.reg_write(RegisterX86::RAX as i32, ret);
@@ -2274,10 +2310,10 @@ fn run_packed_loader_capture(
     let packed_secs_seh = packed_secs.to_vec();
     let st_intr = Rc::clone(&state);
     let _ = uc.add_intr_hook(move |uc, intno| {
+        let rip = uc.reg_read(RegisterX86::RIP as i32).unwrap_or(0);
         if intno == 1 {
             let eflags = uc.reg_read(RegisterX86::EFLAGS as i32).unwrap_or(0);
             let _ = uc.reg_write(RegisterX86::EFLAGS as i32, eflags & !0x100);
-            let rip = uc.reg_read(RegisterX86::RIP as i32).unwrap_or(0);
             if rip >= img_base {
                 let rip_rva = (rip - img_base) as u32;
                 if let Some(target_rva) = lookup_seh_target(&packed_pe_seh, &packed_opt_seh, &packed_secs_seh, rip_rva) {
@@ -2286,7 +2322,11 @@ fn run_packed_loader_capture(
                 }
             }
         }
-        st_intr.borrow_mut().aborted = true;
+        let mut s = st_intr.borrow_mut();
+        s.aborted = true;
+        if s.abort_reason.is_none() {
+            s.abort_reason = Some(format!("unhandled INTR #{intno} at rip={rip:#x}"));
+        }
         let _ = uc.emu_stop();
     });
 
@@ -2314,20 +2354,33 @@ fn run_packed_loader_capture(
         UcHookType::MEM_READ_UNMAPPED | UcHookType::MEM_WRITE_UNMAPPED | UcHookType::MEM_FETCH_UNMAPPED,
         1,
         0,
-        move |_uc, _t, _a, _s, _v| {
-            st_unm.borrow_mut().aborted = true;
+        move |uc, t, addr, sz, _v| {
+            let rip = uc.reg_read(RegisterX86::RIP as i32).unwrap_or(0);
+            let mut s = st_unm.borrow_mut();
+            s.aborted = true;
+            if s.abort_reason.is_none() {
+                s.abort_reason = Some(format!("unmapped mem ({t:?}) addr={addr:#x} sz={sz} at rip={rip:#x}"));
+            }
             false
         },
     );
 
     let ep_va = img_base + packed_opt.address_of_entry_point as u64;
-    let _ = uc.emu_start(ep_va, stop_addr, 60_000_000, 0);
+    let emu_res = uc.emu_start(ep_va, stop_addr, 60_000_000, 0);
 
     let s = state.borrow();
     if s.aborted {
-        return None;
+        return Err(s
+            .abort_reason
+            .clone()
+            .unwrap_or_else(|| format!("packed loader aborted: {emu_res:?}")));
     }
-    let hit_rva = s.hit_rva?;
+    let Some(hit_rva) = s.hit_rva else {
+        let rip = uc.reg_read(RegisterX86::RIP as i32).unwrap_or(0);
+        return Err(format!(
+            "packed loader stopped without reaching runtime/OEP (rip={rip:#x}, emu_res={emu_res:?})"
+        ));
+    };
     let hit_r8 = s.hit_r8;
     let lzma_found = s.lzma_entry_va;
 
@@ -2352,14 +2405,15 @@ fn run_packed_loader_capture(
 
     if ld_ptr == 0 && !alloc_map.is_empty() {
         // Scan all non-loader sections of the unpacked image for an 8-byte aligned pointer to any tracked heap alloc.
-        // Prefer writable non-exec data sections (.data/.rdata) first, then unpacked code/VM sections.
+        // Prefer candidate with richest non-zero LoaderData content (`>= 0x100` bytes / most non-zero dwords).
         let mut scan_secs: Vec<&Section> = packed_secs
             .iter()
             .filter(|sec| Some(sec.virtual_address) != loader_sec_va && sec.virtual_size.max(sec.size_of_raw_data) >= 8)
             .collect();
         scan_secs.sort_by_key(|sec| ((sec.characteristics & IMAGE_SCN_MEM_EXECUTE) != 0) as u8);
 
-        'sec_scan: for sec in scan_secs {
+        let mut best_score = 0usize;
+        for sec in scan_secs {
             let va_start = sec.virtual_address as usize;
             let va_len = sec.virtual_size.max(sec.size_of_raw_data) as usize;
             let mut off = 0usize;
@@ -2370,10 +2424,20 @@ fn run_packed_loader_capture(
                     for qoff in (0..=to_read.saturating_sub(8)).step_by(8) {
                         let q = u64::from_le_bytes(chunk[qoff..qoff + 8].try_into().unwrap());
                         if let Some(&sz) = alloc_map.get(&q) {
-                            ld_ptr = q;
-                            ld_sz = sz;
-                            g_loader_data_rva = Some((va_start + off + qoff) as u32);
-                            break 'sec_scan;
+                            let mut probe = vec![0u8; sz];
+                            if uc.mem_read(q, &mut probe).is_ok() {
+                                let nz_dwords = probe
+                                    .chunks_exact(4)
+                                    .filter(|c| *c != [0, 0, 0, 0])
+                                    .count();
+                                let score = nz_dwords * 1000 + sz + usize::from(sz >= 0x100) * 10000;
+                                if score > best_score {
+                                    best_score = score;
+                                    ld_ptr = q;
+                                    ld_sz = sz;
+                                    g_loader_data_rva = Some((va_start + off + qoff) as u32);
+                                }
+                            }
                         }
                     }
                 }
@@ -2383,13 +2447,17 @@ fn run_packed_loader_capture(
     }
 
     if ld_ptr == 0 || ld_sz == 0 {
-        return None;
+        return Err(format!(
+            "hit {hit_rva:#x} (r8={hit_r8:#x}), but no populated LoaderData heap buffer found among {} tracked allocs",
+            alloc_map.len()
+        ));
     }
     let mut ld_bytes = vec![0u8; ld_sz];
-    uc.mem_read(ld_ptr, &mut ld_bytes).ok()?;
+    uc.mem_read(ld_ptr, &mut ld_bytes)
+        .map_err(|e| format!("failed reading LoaderData @ {ld_ptr:#x}: {e:?}"))?;
     let env_val = probe_live_cpuid_env(ld_ptr, os_build);
 
-    Some(LoaderCaptureRun {
+    Ok(LoaderCaptureRun {
         hit_rva,
         pass_in_r8,
         g_loader_data_rva,
@@ -2408,6 +2476,7 @@ fn capture_loader_data_via_packed_loader(
     rt_cands: &[u32],
     oep_rva: u32,
     loader_sec_va: Option<u32>,
+    warnings: &mut Vec<String>,
 ) -> Option<(Option<u32>, LoaderDataPlan)> {
     let (_dos, pe_hdr, packed_opt, packed_secs) = parse_pe_bytes(packed_pe).ok()?;
     if pe_hdr.machine != 0x8664 && packed_opt.magic != 0x20B {
@@ -2436,7 +2505,7 @@ fn capture_loader_data_via_packed_loader(
         })
         .unwrap_or_default();
 
-    let run1 = run_packed_loader_capture(
+    let run1 = match run_packed_loader_capture(
         packed_pe,
         &packed_opt,
         &packed_secs,
@@ -2448,7 +2517,13 @@ fn capture_loader_data_via_packed_loader(
         heap1,
         26100,
         None,
-    )?;
+    ) {
+        Ok(r) => r,
+        Err(msg) => {
+            warnings.push(format!("packed-loader capture run 1: {msg}"));
+            return None;
+        }
+    };
 
     let run2 = run_packed_loader_capture(
         packed_pe,
@@ -2462,7 +2537,8 @@ fn capture_loader_data_via_packed_loader(
         heap2,
         19045,
         run1.lzma_entry_va,
-    );
+    )
+    .ok();
 
     let mut template = run1.ld_bytes.clone();
     let mut env_xor_patches = Vec::new();
@@ -2983,10 +3059,10 @@ pub fn rebuild_vmp_pe(
     let (_d2, _p2, opt2, secs2) = parse_pe_bytes(pe_bytes)?;
     let rt_cands = find_vmp_runtime_candidates(pe_bytes, &opt2, &secs2, loader_sec_va);
     let (runtime_entry_rva, ld_plan) =
-        capture_loader_data_via_packed_loader(packed_pe_bytes, &rt_cands, oep_rva, loader_sec_va)
+        capture_loader_data_via_packed_loader(packed_pe_bytes, &rt_cands, oep_rva, loader_sec_va, &mut warnings)
             .map(|(rt, plan)| (rt, Some(plan)))
             .or_else(|| probe_loader_data(pe_bytes, &opt2, &secs2, &fixups, &rt_cands, Some(oep_rva)))
-            .unwrap_or((rt_cands.last().copied(), None));
+            .unwrap_or((rt_cands.first().copied(), None));
 
     let g_ld_rva = ld_plan.as_ref().and_then(|p| p.g_loader_data_rva);
     if let Some(g_rva) = g_ld_rva {
