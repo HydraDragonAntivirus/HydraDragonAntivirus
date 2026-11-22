@@ -2782,6 +2782,7 @@ fn emit_vmpinit_section(
     runtime_entry_rva: Option<u32>,
     ld_plan: Option<&LoaderDataPlan>,
     oep_rva: u32,
+    detect_overrides: &[(u32, i32, bool)],
 ) -> UnpackerResult<u32> {
     let (vmpinit_rva, _) = imagedump::next_section_rva(pe)?;
     let vmpinit_va = image_base + vmpinit_rva as u64;
@@ -2791,6 +2792,8 @@ fn emit_vmpinit_section(
     let mut lbl_fixup_loop = a.create_label();
     let mut lbl_fixup_table = a.create_label();
     let mut lbl_loader_data = a.create_label();
+    let mut lbl_stub_invalid = a.create_label();
+    let mut lbl_stub_zero = a.create_label();
 
     // Entry: RSP % 16 == 8. Push 3 callee-saved regs + sub 0x20 shadow -> RSP % 16 == 0!
     {
@@ -2827,6 +2830,28 @@ fn emit_vmpinit_section(
             a.add(rsi, 12).map_err(|e| UnpackerError::General(e.to_string()))?;
             a.dec(ecx).map_err(|e| UnpackerError::General(e.to_string()))?;
             a.jnz(lbl_fixup_loop)
+                .map_err(|e| UnpackerError::General(e.to_string()))?;
+        }
+
+        // 1b. Generic anti-tamper neutralization: after the real imports are resolved,
+        // repoint the detection APIs' protected slots at no-op stubs so the sample's own
+        // process/window/debugger enumeration finds nothing. `true` -> return
+        // INVALID_HANDLE_VALUE (-1), so e.g. CreateToolhelp32Snapshot yields an empty
+        // snapshot; `false` -> return 0 (FindWindow / IsDebuggerPresent report "none").
+        // The VM reads `[slot]` and adds the (sign-extended) key before calling, so the
+        // slot must hold `stub_va - key` for the add to land on the stub.
+        for &(dst_rva, key, ret_invalid) in detect_overrides {
+            if ret_invalid {
+                a.lea(rcx, qword_ptr(lbl_stub_invalid))
+                    .map_err(|e| UnpackerError::General(e.to_string()))?;
+            } else {
+                a.lea(rcx, qword_ptr(lbl_stub_zero))
+                    .map_err(|e| UnpackerError::General(e.to_string()))?;
+            }
+            if key != 0 {
+                a.sub(rcx, key).map_err(|e| UnpackerError::General(e.to_string()))?;
+            }
+            a.mov(qword_ptr(r11 + dst_rva as i64), rcx)
                 .map_err(|e| UnpackerError::General(e.to_string()))?;
         }
 
@@ -2927,6 +2952,16 @@ fn emit_vmpinit_section(
             .map_err(|e| UnpackerError::General(e.to_string()))?;
         let ld_bytes = ld_plan.map(|p| p.template.clone()).unwrap_or_else(|| vec![0u8; 0x200]);
         a.db(&ld_bytes).map_err(|e| UnpackerError::General(e.to_string()))?;
+
+        // No-op detection stubs (reached only by the repointed slots above).
+        a.set_label(&mut lbl_stub_invalid)
+            .map_err(|e| UnpackerError::General(e.to_string()))?;
+        a.db(&[0x48, 0xC7, 0xC0, 0xFF, 0xFF, 0xFF, 0xFF, 0xC3]) // mov rax, -1 ; ret
+            .map_err(|e| UnpackerError::General(e.to_string()))?;
+        a.set_label(&mut lbl_stub_zero)
+            .map_err(|e| UnpackerError::General(e.to_string()))?;
+        a.db(&[0x31, 0xC0, 0xC3]) // xor eax, eax ; ret
+            .map_err(|e| UnpackerError::General(e.to_string()))?;
     }
 
     let res = a
@@ -3074,6 +3109,18 @@ pub fn rebuild_vmp_pe(
     }
 
     // 5. Emit `.vmpinit` bootstrap and update EP + ASLR + checksum.
+    // Detection APIs whose protected slots are repointed at no-op stubs so the sample's
+    // own anti-tamper (process/window/debugger enumeration) finds nothing.
+    let detect_overrides: Vec<(u32, i32, bool)> = all_records
+        .iter()
+        .filter_map(|r| match r.func_name.as_str() {
+            "CreateToolhelp32Snapshot" => Some((r.dst_slot_rva, r.key_i32, true)),
+            "FindWindowA" | "FindWindowW" | "FindWindowExA" | "FindWindowExW"
+            | "IsDebuggerPresent" => Some((r.dst_slot_rva, r.key_i32, false)),
+            _ => None,
+        })
+        .collect();
+
     let init_stub_rva = emit_vmpinit_section(
         pe_bytes,
         opt2.image_base,
@@ -3081,6 +3128,7 @@ pub fn rebuild_vmp_pe(
         runtime_entry_rva,
         ld_plan.as_ref(),
         oep_rva,
+        &detect_overrides,
     )?;
 
     Ok(VmpRebuildReport {
@@ -3381,7 +3429,7 @@ mod tests {
             image_rel_qwords: Vec::new(),
         };
 
-        let init_rva = emit_vmpinit_section(&mut pe, image_base, &[], Some(0x1040), Some(&plan), 0x1000).unwrap();
+        let init_rva = emit_vmpinit_section(&mut pe, image_base, &[], Some(0x1040), Some(&plan), 0x1000, &[]).unwrap();
         assert_eq!(init_rva, 0x3000);
 
         let (_d, _p, opt_out, _) = parse_pe_bytes(&pe).unwrap();
