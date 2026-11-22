@@ -28,10 +28,11 @@ fn kind_label(kind: SectionVmKind) -> &'static str {
 
 fn print_usage(prog: &str) {
     eprintln!(
-        "Usage: {prog} <pe_path> [start_rva_hex] [max_insns] [--dump <out_path>] [--devirt-pe <out_path>] [--max-entries <N>] [--max-blocks <N>] [--max-entry-insns <N>] [--max-code-growth <N>] [--min-vm-insns <N>] [--diagnose-bailouts]"
+        "Usage: {prog} <pe_path> [start_rva_hex] [max_insns] [--dump <out_path>] [--devirt-pe <out_path>] [--max-entries <N>] [--max-blocks <N>] [--max-entry-insns <N>] [--max-code-growth <N>] [--min-vm-insns <N>] [--no-rebuild] [--oep <hex>] [--diagnose-bailouts]"
     );
 }
 
+#[allow(clippy::too_many_arguments)]
 fn run_binary_devirt(
     pe_bytes: &[u8],
     out_path: Option<&str>,
@@ -41,6 +42,8 @@ fn run_binary_devirt(
     max_entry_insns: Option<usize>,
     max_code_growth: Option<usize>,
     min_vm_insns: Option<usize>,
+    rebuild_runnable_pe: bool,
+    oep_rva: Option<u32>,
 ) {
     let label = out_path.unwrap_or("<diagnostics-only>");
     println!("\n=== Binary-Wide Symbolic CFG Devirtualization -> {label} ===");
@@ -52,6 +55,8 @@ fn run_binary_devirt(
         max_total_insns_per_entry: max_entry_insns.unwrap_or(defaults.max_total_insns_per_entry),
         max_code_growth_percent: max_code_growth.unwrap_or(defaults.max_code_growth_percent),
         min_vm_insns_replaced: min_vm_insns.unwrap_or(defaults.min_vm_insns_replaced),
+        rebuild_runnable_pe,
+        oep_rva,
         ..defaults
     };
     println!(
@@ -106,6 +111,25 @@ fn run_binary_devirt(
         rep.devirt_section_rva.map(|r| format!("{r:#x}")),
         rep.devirt_section_size
     );
+    if let Some(ref vr) = rep.vmp_rebuild {
+        println!(
+            "VMP runnable PE rebuild: rebuilt={} OEP={:?} .vmpinit={:?} .import={:?} key32={:?} (DLLs={}, entries={}, fixups={}) | runtime={:?} loader_data={:?} mode={:?}",
+            vr.rebuilt,
+            vr.oep_rva.map(|r| format!("{r:#x}")),
+            vr.init_stub_rva.map(|r| format!("{r:#x}")),
+            vr.import_section_rva.map(|r| format!("{r:#x}")),
+            vr.key32.map(|k| format!("{k:#x}")),
+            vr.import_dlls,
+            vr.import_entries,
+            vr.fixup_records,
+            vr.runtime_entry_rva.map(|r| format!("{r:#x}")),
+            vr.loader_data_ptr_rva.map(|r| format!("{r:#x}")),
+            vr.loader_data_mode,
+        );
+        for w in &vr.warnings {
+            println!("  [vmp_rebuild warning] {w}");
+        }
+    }
 
     if !rep.bailout_reasons.is_empty() {
         println!("\nTop bailout reasons:");
@@ -192,6 +216,8 @@ fn main() {
     let mut max_entry_insns: Option<usize> = None;
     let mut max_code_growth: Option<usize> = None;
     let mut min_vm_insns: Option<usize> = None;
+    let mut rebuild_runnable_pe = true;
+    let mut oep_rva: Option<u32> = None;
     let mut positional: Vec<String> = Vec::new();
     let mut i = 1;
     while i < args.len() {
@@ -225,6 +251,18 @@ fn main() {
             }
             "--diagnose-bailouts" => {
                 diagnose_bailouts = true;
+            }
+            "--no-rebuild" => {
+                rebuild_runnable_pe = false;
+            }
+            "--oep" => {
+                i += 1;
+                let Some(val) = args.get(i).and_then(|v| parse_hex_u64(v).ok()).and_then(|v| u32::try_from(v).ok()) else {
+                    eprintln!("--oep requires a 32-bit hex RVA");
+                    print_usage(prog);
+                    process::exit(2);
+                };
+                oep_rva = Some(val);
             }
             "--max-blocks" | "--max-entry-insns" | "--max-code-growth" | "--min-vm-insns" => {
                 let flag = args[i].clone();
@@ -447,6 +485,8 @@ fn main() {
             max_entry_insns,
             max_code_growth,
             min_vm_insns,
+            rebuild_runnable_pe,
+            oep_rva,
         );
     }
 }

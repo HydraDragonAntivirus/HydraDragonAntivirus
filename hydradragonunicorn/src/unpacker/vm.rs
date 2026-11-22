@@ -122,8 +122,89 @@ fn is_context_save_insn(ins: &Instruction) -> bool {
     }
 }
 
+fn score_vm_window(
+    sec: &crate::unpacker::engine::Section,
+    sample: &[u8],
+    base_ip: u64,
+    bitness: u32,
+    name_bonus: Option<f64>,
+    unnamed_large_bonus: Option<f64>,
+    protector_name_hint: bool,
+) -> SectionVmInfo {
+    let entropy = shannon_entropy(sample);
+    let mut decoder = Decoder::with_ip(bitness, sample, base_ip, DecoderOptions::NONE);
+    let mut control_flow_insns = 0usize;
+    let mut indirect_branches = 0usize;
+    let mut context_save_markers = 0usize;
+    let mut save_run = 0usize;
+
+    while decoder.can_decode() {
+        let ins = decoder.decode();
+        match ins.flow_control() {
+            FlowControl::Next => {}
+            FlowControl::IndirectBranch | FlowControl::IndirectCall => {
+                control_flow_insns += 1;
+                indirect_branches += 1;
+            }
+            _ => {
+                control_flow_insns += 1;
+            }
+        }
+
+        if matches!(ins.mnemonic(), Mnemonic::Pushfd | Mnemonic::Pushfq | Mnemonic::Pushad) {
+            context_save_markers += 1;
+            save_run = 0;
+        } else if is_context_save_insn(&ins) {
+            save_run += 1;
+            if save_run == 4 {
+                context_save_markers += 1;
+            }
+        } else {
+            save_run = 0;
+        }
+    }
+
+    let indirect_branch_ratio = if control_flow_insns > 0 {
+        indirect_branches as f64 / control_flow_insns as f64
+    } else {
+        0.0
+    };
+
+    let mut score = name_bonus.or(unnamed_large_bonus).unwrap_or(0.0);
+    score += (indirect_branch_ratio * 2.5).min(0.45);
+    score += (context_save_markers as f64 / 20.0).min(0.20);
+    if entropy >= 6.4 {
+        score += 0.10;
+    }
+    let vm_score = score.clamp(0.0, 1.0);
+
+    let kind = if vm_score >= 0.55 {
+        SectionVmKind::Virtualized
+    } else if vm_score >= 0.30 {
+        SectionVmKind::Mutated
+    } else {
+        SectionVmKind::Normal
+    };
+
+    SectionVmInfo {
+        name: sec.name.clone(),
+        virtual_address: sec.virtual_address,
+        raw_size: sec.size_of_raw_data,
+        entropy,
+        indirect_branch_ratio,
+        control_flow_insns,
+        indirect_branches,
+        context_save_markers,
+        protector_name_hint,
+        vm_score,
+        kind,
+    }
+}
+
 /// Statically inspects executable PE sections and scores each one for code mutation
-/// or threaded-VM virtualization. Samples up to 256 KiB per section to remain O(1) on huge binaries.
+/// or threaded-VM virtualization. For sections larger than 256 KiB, samples head,
+/// midpoint, and tail windows and takes the highest-scoring window so sections that
+/// start with CRT/data (e.g. VMP 3.8+ `L3G0`) are still classified accurately.
 pub fn detect_vm_sections(pe_bytes: &[u8]) -> UnpackerResult<VmProfile> {
     const IMAGE_SCN_MEM_EXECUTE: u32 = 0x2000_0000;
     let (_dos, pe, opt, sections) = parse_pe_bytes(pe_bytes)?;
@@ -145,9 +226,7 @@ pub fn detect_vm_sections(pe_bytes: &[u8]) -> UnpackerResult<VmProfile> {
         }
         let raw_end = raw_start.saturating_add(sec.size_of_raw_data as usize).min(pe_bytes.len());
         let sec_bytes = &pe_bytes[raw_start..raw_end];
-        let sample = &sec_bytes[..sec_bytes.len().min(MAX_STATIC_SAMPLE_BYTES)];
 
-        let entropy = shannon_entropy(sample);
         let name_bonus = is_protector_section_name(&sec.name);
         let unnamed_large_bonus = if sec.name.trim().is_empty() && sec.size_of_raw_data > 128 * 1024 {
             Some(0.25)
@@ -157,79 +236,63 @@ pub fn detect_vm_sections(pe_bytes: &[u8]) -> UnpackerResult<VmProfile> {
         let protector_name_hint = name_bonus.is_some() || unnamed_large_bonus.is_some();
 
         let base_ip = opt.image_base + sec.virtual_address as u64;
-        let mut decoder = Decoder::with_ip(bitness, sample, base_ip, DecoderOptions::NONE);
-        let mut control_flow_insns = 0usize;
-        let mut indirect_branches = 0usize;
-        let mut context_save_markers = 0usize;
-        let mut save_run = 0usize;
-
-        while decoder.can_decode() {
-            let ins = decoder.decode();
-            match ins.flow_control() {
-                FlowControl::Next => {}
-                FlowControl::IndirectBranch | FlowControl::IndirectCall => {
-                    control_flow_insns += 1;
-                    indirect_branches += 1;
-                }
-                _ => {
-                    control_flow_insns += 1;
-                }
-            }
-
-            if matches!(ins.mnemonic(), Mnemonic::Pushfd | Mnemonic::Pushfq | Mnemonic::Pushad) {
-                context_save_markers += 1;
-                save_run = 0;
-            } else if is_context_save_insn(&ins) {
-                save_run += 1;
-                if save_run == 4 {
-                    context_save_markers += 1;
-                }
-            } else {
-                save_run = 0;
-            }
-        }
-
-        let indirect_branch_ratio = if control_flow_insns > 0 {
-            indirect_branches as f64 / control_flow_insns as f64
+        let info = if sec_bytes.len() <= MAX_STATIC_SAMPLE_BYTES {
+            score_vm_window(
+                sec,
+                sec_bytes,
+                base_ip,
+                bitness,
+                name_bonus,
+                unnamed_large_bonus,
+                protector_name_hint,
+            )
         } else {
-            0.0
+            let head_end = (96 * 1024).min(sec_bytes.len());
+            let mid_start = (sec_bytes.len() / 2).saturating_sub(48 * 1024);
+            let mid_end = (mid_start + 96 * 1024).min(sec_bytes.len());
+            let tail_start = sec_bytes.len().saturating_sub(64 * 1024);
+            let windows = [
+                (0usize, head_end),
+                (mid_start, mid_end),
+                (tail_start, sec_bytes.len()),
+            ];
+            windows
+                .into_iter()
+                .filter(|(a, b)| b > a)
+                .map(|(a, b)| {
+                    score_vm_window(
+                        sec,
+                        &sec_bytes[a..b],
+                        base_ip + a as u64,
+                        bitness,
+                        name_bonus,
+                        unnamed_large_bonus,
+                        protector_name_hint,
+                    )
+                })
+                .max_by(|a, b| a.vm_score.total_cmp(&b.vm_score))
+                .unwrap_or_else(|| {
+                    score_vm_window(
+                        sec,
+                        sec_bytes,
+                        base_ip,
+                        bitness,
+                        name_bonus,
+                        unnamed_large_bonus,
+                        protector_name_hint,
+                    )
+                })
         };
 
-        let mut score = name_bonus.or(unnamed_large_bonus).unwrap_or(0.0);
-        score += (indirect_branch_ratio * 2.5).min(0.45);
-        score += (context_save_markers as f64 / 20.0).min(0.20);
-        if entropy >= 6.4 {
-            score += 0.10;
+        match info.kind {
+            SectionVmKind::Virtualized => has_virtualized = true,
+            SectionVmKind::Mutated => has_mutated = true,
+            SectionVmKind::Normal => {}
         }
-        let vm_score = score.clamp(0.0, 1.0);
-
-        let kind = if vm_score >= 0.55 {
-            has_virtualized = true;
-            SectionVmKind::Virtualized
-        } else if vm_score >= 0.30 {
-            has_mutated = true;
-            SectionVmKind::Mutated
-        } else {
-            SectionVmKind::Normal
-        };
-
-        if vm_score > max_vm_score {
-            max_vm_score = vm_score;
+        if info.vm_score > max_vm_score {
+            max_vm_score = info.vm_score;
         }
-
-        executable_sections.push(SectionVmInfo {
-            name: sec.name.clone(),
-            virtual_address: sec.virtual_address,
-            raw_size: sec.size_of_raw_data,
-            entropy,
-            indirect_branch_ratio,
-            control_flow_insns,
-            indirect_branches,
-            context_save_markers,
-            protector_name_hint,
-            vm_score,
-            kind,
-        });
+        executable_sections.push(info);
     }
 
     Ok(VmProfile {

@@ -977,17 +977,15 @@ pub fn next_section_rva(data: &[u8]) -> UnpackerResult<(u32, u32)> {
     Ok((align_up(max_end.max(section_alignment), section_alignment), section_alignment))
 }
 
-/// Appends an executable, readable code section (e.g. `.devirt`) to `data`, updates
+/// Appends a section with explicit `characteristics` to `data`, updates
 /// `SizeOfImage` and section headers, clears stale Authenticode signature directory if
 /// present, recomputes the PE checksum, and returns the new section's RVA.
-pub fn append_code_section(
+pub fn append_section_with_chars(
     data: &mut Vec<u8>,
     name: &str,
-    code_bytes: &[u8],
+    section_bytes: &[u8],
+    characteristics: u32,
 ) -> UnpackerResult<u32> {
-    const IMAGE_SCN_CNT_CODE: u32 = 0x0000_0020;
-    const IMAGE_SCN_MEM_EXECUTE: u32 = 0x2000_0000;
-
     let (opt_hdr_off, is_pe64, num_sections, _, section_hdr_offset) =
         parse_pe_headers(data).ok_or_else(|| UnpackerError::InvalidPeFile("cannot parse PE headers".into()))?;
     let section_alignment = read_u32(data, opt_hdr_off + 32).max(0x200);
@@ -1012,7 +1010,7 @@ pub fn append_code_section(
     }
 
     let (va, _) = next_section_rva(data)?;
-    let virtual_size = code_bytes.len().max(1) as u32;
+    let virtual_size = section_bytes.len().max(1) as u32;
     let raw_size = align_up(virtual_size, file_alignment);
     let raw_ptr = if file_alignment == section_alignment {
         va
@@ -1052,9 +1050,9 @@ pub fn append_code_section(
     if data.len() < needed {
         data.resize(needed, 0);
     }
-    data[raw_ptr as usize..raw_ptr as usize + code_bytes.len()].copy_from_slice(code_bytes);
-    if raw_size as usize > code_bytes.len() {
-        data[raw_ptr as usize + code_bytes.len()..needed].fill(0);
+    data[raw_ptr as usize..raw_ptr as usize + section_bytes.len()].copy_from_slice(section_bytes);
+    if raw_size as usize > section_bytes.len() {
+        data[raw_ptr as usize + section_bytes.len()..needed].fill(0);
     }
 
     add_section(
@@ -1064,7 +1062,7 @@ pub fn append_code_section(
         va,
         raw_size,
         raw_ptr,
-        IMAGE_SCN_CNT_CODE | IMAGE_SCN_MEM_EXECUTE | IMAGE_SCN_MEM_READ,
+        characteristics,
     )?;
 
     let new_image_size = align_up(va.saturating_add(virtual_size), section_alignment);
@@ -1072,6 +1070,289 @@ pub fn append_code_section(
 
     fix_checksum(data)?;
     Ok(va)
+}
+
+/// Appends an executable, readable code section (e.g. `.devirt`) to `data`, updates
+/// `SizeOfImage` and section headers, clears stale Authenticode signature directory if
+/// present, recomputes the PE checksum, and returns the new section's RVA.
+pub fn append_code_section(
+    data: &mut Vec<u8>,
+    name: &str,
+    code_bytes: &[u8],
+) -> UnpackerResult<u32> {
+    const IMAGE_SCN_CNT_CODE: u32 = 0x0000_0020;
+    const IMAGE_SCN_MEM_EXECUTE: u32 = 0x2000_0000;
+    append_section_with_chars(
+        data,
+        name,
+        code_bytes,
+        IMAGE_SCN_CNT_CODE | IMAGE_SCN_MEM_EXECUTE | IMAGE_SCN_MEM_READ,
+    )
+}
+
+/// Builds a fresh `.import` section from deduplicated `(dll_name, functions)` pairs,
+/// updates `IMAGE_DIRECTORY_ENTRY_IMPORT` and `IMAGE_DIRECTORY_ENTRY_IAT`, and returns
+/// `(import_section_rva, slot_map)` mapping `(dll_lower, func_name)` -> `.import` IAT RVA.
+pub fn rebuild_import_section_with_map(
+    data: &mut Vec<u8>,
+    imports: &[(String, Vec<String>)],
+) -> UnpackerResult<(u32, HashMap<(String, String), u32>)> {
+    let (_, is_pe64, _, _, _) =
+        parse_pe_headers(data).ok_or_else(|| UnpackerError::InvalidPeFile("cannot parse PE headers".into()))?;
+    let (import_section_rva, _) = next_section_rva(data)?;
+
+    // Merge duplicate DLLs case-insensitively while preserving first original casing.
+    let mut merged: HashMap<String, (String, Vec<String>, std::collections::HashSet<String>)> = HashMap::new();
+    let mut dll_order: Vec<String> = Vec::new();
+    for (dll_name, funcs) in imports {
+        if funcs.is_empty() {
+            continue;
+        }
+        let key = dll_name.to_ascii_lowercase();
+        let entry = merged.entry(key.clone()).or_insert_with(|| {
+            dll_order.push(key);
+            (dll_name.clone(), Vec::new(), std::collections::HashSet::new())
+        });
+        for f in funcs {
+            if entry.2.insert(f.clone()) {
+                entry.1.push(f.clone());
+            }
+        }
+    }
+    dll_order.sort();
+
+    if dll_order.is_empty() {
+        return Ok((0, HashMap::new()));
+    }
+
+    #[derive(Clone, Copy)]
+    enum ThunkSpec {
+        Ordinal(u16),
+        Named(u32),
+    }
+
+    struct DllData {
+        dll_lower: String,
+        dll_name_bytes: Vec<u8>,
+        hint_name_data: Vec<u8>,
+        func_names: Vec<String>,
+        thunk_specs: Vec<ThunkSpec>,
+    }
+
+    let mut dll_entries = Vec::with_capacity(dll_order.len());
+    for dll_lower in dll_order {
+        let (orig_name, funcs, _) = merged.remove(&dll_lower).unwrap();
+        if funcs.is_empty() {
+            continue;
+        }
+        let mut dll_name_bytes = orig_name.into_bytes();
+        dll_name_bytes.push(0);
+        if dll_name_bytes.len() % 2 != 0 {
+            dll_name_bytes.push(0);
+        }
+        let mut hint_name_data = Vec::new();
+        let mut thunk_specs = Vec::with_capacity(funcs.len());
+        let mut func_names = Vec::with_capacity(funcs.len());
+        for f in funcs {
+            if let Some(rest) = f.strip_prefix("ord_") {
+                if let Ok(ord) = rest.parse::<u16>() {
+                    thunk_specs.push(ThunkSpec::Ordinal(ord));
+                    func_names.push(f);
+                    continue;
+                }
+            }
+            let rel_off = hint_name_data.len() as u32;
+            let _ = hint_name_data.write_u16::<LittleEndian>(0);
+            hint_name_data.extend_from_slice(f.as_bytes());
+            hint_name_data.push(0);
+            if hint_name_data.len() % 2 != 0 {
+                hint_name_data.push(0);
+            }
+            thunk_specs.push(ThunkSpec::Named(rel_off));
+            func_names.push(f);
+        }
+        dll_entries.push(DllData {
+            dll_lower,
+            dll_name_bytes,
+            hint_name_data,
+            func_names,
+            thunk_specs,
+        });
+    }
+
+    let num_dlls = dll_entries.len();
+    let ptr_size: u32 = if is_pe64 { 8 } else { 4 };
+    let descriptors_size = (num_dlls + 1) * 20;
+    let mut cur = align_up(descriptors_size as u32, ptr_size);
+    let iat_block_start = cur;
+    let mut iat_offsets = Vec::with_capacity(num_dlls);
+    for dll in &dll_entries {
+        iat_offsets.push(cur);
+        cur += ((dll.thunk_specs.len() as u32) + 1) * ptr_size;
+    }
+    let iat_block_size = cur - iat_block_start;
+
+    let mut oft_offsets = Vec::with_capacity(num_dlls);
+    for dll in &dll_entries {
+        oft_offsets.push(cur);
+        cur += ((dll.thunk_specs.len() as u32) + 1) * ptr_size;
+    }
+
+    let mut name_offsets = Vec::with_capacity(num_dlls);
+    let mut hint_offsets = Vec::with_capacity(num_dlls);
+    for dll in &dll_entries {
+        name_offsets.push(cur);
+        cur += dll.dll_name_bytes.len() as u32;
+        hint_offsets.push(cur);
+        cur += dll.hint_name_data.len() as u32;
+    }
+
+    let mut section_data = vec![0u8; cur as usize];
+    let mut slot_map: HashMap<(String, String), u32> = HashMap::new();
+
+    for (idx, dll) in dll_entries.iter().enumerate() {
+        let desc_off = idx * 20;
+        let oft_rva = import_section_rva + oft_offsets[idx];
+        let name_rva = import_section_rva + name_offsets[idx];
+        let iat_rva = import_section_rva + iat_offsets[idx];
+
+        write_u32(&mut section_data, desc_off, oft_rva);
+        write_u32(&mut section_data, desc_off + 12, name_rva);
+        write_u32(&mut section_data, desc_off + 16, iat_rva);
+
+        let n_off = name_offsets[idx] as usize;
+        section_data[n_off..n_off + dll.dll_name_bytes.len()].copy_from_slice(&dll.dll_name_bytes);
+        let h_off = hint_offsets[idx] as usize;
+        section_data[h_off..h_off + dll.hint_name_data.len()].copy_from_slice(&dll.hint_name_data);
+
+        let hint_rva_base = import_section_rva + hint_offsets[idx];
+        let mut oft_cur = oft_offsets[idx] as usize;
+        let mut iat_cur = iat_offsets[idx] as usize;
+        for (f_idx, spec) in dll.thunk_specs.iter().enumerate() {
+            slot_map.insert(
+                (dll.dll_lower.clone(), dll.func_names[f_idx].clone()),
+                import_section_rva + iat_cur as u32,
+            );
+            if is_pe64 {
+                let val64 = match *spec {
+                    ThunkSpec::Ordinal(ord) => 0x8000_0000_0000_0000u64 | ord as u64,
+                    ThunkSpec::Named(rel) => (hint_rva_base + rel) as u64,
+                };
+                (&mut section_data[oft_cur..oft_cur + 8]).write_u64::<LittleEndian>(val64).ok();
+                (&mut section_data[iat_cur..iat_cur + 8]).write_u64::<LittleEndian>(val64).ok();
+                oft_cur += 8;
+                iat_cur += 8;
+            } else {
+                let val32 = match *spec {
+                    ThunkSpec::Ordinal(ord) => IMAGE_SNAP_BY_ORDINAL | ord as u32,
+                    ThunkSpec::Named(rel) => hint_rva_base + rel,
+                };
+                write_u32(&mut section_data, oft_cur, val32);
+                write_u32(&mut section_data, iat_cur, val32);
+                oft_cur += 4;
+                iat_cur += 4;
+            }
+        }
+    }
+
+    let appended_rva = append_section_with_chars(
+        data,
+        ".import",
+        &section_data,
+        IMAGE_SCN_MEM_READ | IMAGE_SCN_MEM_WRITE | IMAGE_SCN_CNT_INITIALIZED_DATA,
+    )?;
+    if appended_rva != import_section_rva {
+        return Err(UnpackerError::General(format!(
+            ".import RVA mismatch: predicted {import_section_rva:#x}, got {appended_rva:#x}"
+        )));
+    }
+
+    let (opt_hdr_off2, is_pe64_2, _, _, _) =
+        parse_pe_headers(data).ok_or_else(|| UnpackerError::InvalidPeFile("cannot parse PE headers".into()))?;
+    let data_dir_offset = if is_pe64_2 { opt_hdr_off2 + 112 } else { opt_hdr_off2 + 96 };
+    let import_dir_offset = data_dir_offset + IMAGE_DIRECTORY_ENTRY_IMPORT * 8;
+    let iat_dir_offset = data_dir_offset + IMAGE_DIRECTORY_ENTRY_IAT * 8;
+    if iat_dir_offset + 8 <= data.len() {
+        write_u32(data, import_dir_offset, import_section_rva);
+        write_u32(data, import_dir_offset + 4, descriptors_size as u32);
+        write_u32(data, iat_dir_offset, import_section_rva + iat_block_start);
+        write_u32(data, iat_dir_offset + 4, iat_block_size);
+    }
+    fix_checksum(data)?;
+
+    Ok((import_section_rva, slot_map))
+}
+
+/// Disables ASLR (`DYNAMIC_BASE` | `HIGH_ENTROPY_VA`), marks relocations stripped, and
+/// clears `BASERELOC` + `SECURITY` data directories while preserving `RESOURCE`, `EXCEPTION`,
+/// `TLS`, and `LOAD_CONFIG`.
+pub fn disable_aslr_and_strip_relocs(data: &mut Vec<u8>) -> UnpackerResult<()> {
+    let (opt_hdr_off, is_pe64, _, _, _) =
+        parse_pe_headers(data).ok_or_else(|| UnpackerError::InvalidPeFile("cannot parse PE headers".into()))?;
+    let sig_offset = pe_signature_offset(data)
+        .ok_or_else(|| UnpackerError::InvalidPeFile("no PE signature".into()))?;
+    let coff_offset = sig_offset + 4;
+
+    if opt_hdr_off + 72 <= data.len() {
+        let dll_chars = read_u16(data, opt_hdr_off + 70);
+        write_u16(data, opt_hdr_off + 70, dll_chars & !0x0060u16);
+    }
+    if coff_offset + 20 <= data.len() {
+        let file_chars = read_u16(data, coff_offset + 18);
+        write_u16(data, coff_offset + 18, file_chars | IMAGE_FILE_RELOCS_STRIPPED);
+    }
+    let data_dir_offset = if is_pe64 { opt_hdr_off + 112 } else { opt_hdr_off + 96 };
+    for dir_idx in [IMAGE_DIRECTORY_ENTRY_SECURITY, IMAGE_DIRECTORY_ENTRY_BASERELOC] {
+        let off = data_dir_offset + dir_idx * 8;
+        if off + 8 <= data.len() {
+            write_u32(data, off, 0);
+            write_u32(data, off + 4, 0);
+        }
+    }
+    fix_checksum(data)
+}
+
+/// Ensures every section containing any RVA in `rvas` has `IMAGE_SCN_MEM_WRITE`.
+/// Returns how many section headers were modified.
+pub fn mark_sections_writable_for_rvas(data: &mut [u8], rvas: &[u32]) -> UnpackerResult<usize> {
+    if rvas.is_empty() {
+        return Ok(0);
+    }
+    let (_, _, num_sections, _, section_hdr_offset) =
+        parse_pe_headers(data).ok_or_else(|| UnpackerError::InvalidPeFile("cannot parse PE headers".into()))?;
+    let mut modified = 0usize;
+    for i in 0..num_sections as usize {
+        let off = section_hdr_offset + i * IMAGE_SIZEOF_SECTION_HEADER;
+        if off + IMAGE_SIZEOF_SECTION_HEADER > data.len() {
+            break;
+        }
+        let vs = read_u32(data, off + 8);
+        let va = read_u32(data, off + 12);
+        let rsz = read_u32(data, off + 16);
+        let span = vs.max(rsz);
+        if span == 0 {
+            continue;
+        }
+        if rvas.iter().any(|&rva| rva >= va && rva < va.saturating_add(span)) {
+            let chars = read_u32(data, off + 36);
+            if (chars & IMAGE_SCN_MEM_WRITE) == 0 {
+                write_u32(data, off + 36, chars | IMAGE_SCN_MEM_WRITE);
+                modified += 1;
+            }
+        }
+    }
+    Ok(modified)
+}
+
+/// Sets `OptionalHeader.AddressOfEntryPoint` to `ep_rva`.
+pub fn set_entry_point(data: &mut [u8], ep_rva: u32) -> UnpackerResult<()> {
+    let (opt_hdr_off, _, _, _, _) =
+        parse_pe_headers(data).ok_or_else(|| UnpackerError::InvalidPeFile("cannot parse PE headers".into()))?;
+    if opt_hdr_off + 20 > data.len() {
+        return Err(UnpackerError::InvalidPeFile("optional header too short for entry point".into()));
+    }
+    write_u32(data, opt_hdr_off + 16, ep_rva);
+    Ok(())
 }
 
 /// A PE file from a memory image (offset = RVA) that a static unpacker rebuilt (UPX):
@@ -1356,5 +1637,53 @@ mod tests {
         assert_eq!(read_u32(&pe_signed, sec_dir_off), 0);
         assert_eq!(read_u32(&pe_signed, sec_dir_off + 4), 0);
         assert_eq!(pe_signed.len(), cert_off as usize + 0x200);
+    }
+
+    #[test]
+    fn rebuild_import_section_with_map_and_reloc_helpers_work() {
+        let mut pe = build_minimal_pe(true);
+        let (opt_off, _, _, _, sec_off) = parse_pe_headers(&pe).unwrap();
+        write_u32(&mut pe, opt_off + 36, 0x1000);
+        fix_sections(&mut pe, 0x1000).unwrap();
+        // Simulate ASLR + Exception/TLS/Basereloc dirs
+        write_u16(&mut pe, opt_off + 70, 0x8160);
+        let dd_off = opt_off + 112;
+        write_u32(&mut pe, dd_off + 3 * 8, 0x2100); // EXCEPTION
+        write_u32(&mut pe, dd_off + 3 * 8 + 4, 0x24);
+        write_u32(&mut pe, dd_off + 5 * 8, 0x2200); // BASERELOC
+        write_u32(&mut pe, dd_off + 5 * 8 + 4, 0x10);
+        write_u32(&mut pe, dd_off + 9 * 8, 0x2300); // TLS
+        write_u32(&mut pe, dd_off + 9 * 8 + 4, 0x28);
+
+        let imports = vec![
+            (
+                "KERNEL32.dll".to_string(),
+                vec!["GetProcAddress".to_string(), "ExitProcess".to_string()],
+            ),
+            (
+                "kernel32.dll".to_string(),
+                vec!["GetProcAddress".to_string(), "ord_12".to_string()],
+            ),
+        ];
+        let (imp_rva, slot_map) = rebuild_import_section_with_map(&mut pe, &imports).unwrap();
+        assert_eq!(imp_rva, 0x3000);
+        assert_eq!(slot_map.len(), 3);
+        let gp_slot = slot_map[&("kernel32.dll".into(), "GetProcAddress".into())];
+        let ep_slot = slot_map[&("kernel32.dll".into(), "ExitProcess".into())];
+        let ord_slot = slot_map[&("kernel32.dll".into(), "ord_12".into())];
+        assert!(gp_slot > imp_rva && ep_slot > imp_rva && ord_slot > imp_rva);
+
+        disable_aslr_and_strip_relocs(&mut pe).unwrap();
+        assert_eq!(read_u16(&pe, opt_off + 70) & 0x0060, 0);
+        assert_eq!(read_u32(&pe, dd_off + 5 * 8), 0); // BASERELOC cleared
+        assert_eq!(read_u32(&pe, dd_off + 3 * 8), 0x2100); // EXCEPTION preserved
+        assert_eq!(read_u32(&pe, dd_off + 9 * 8), 0x2300); // TLS preserved
+
+        let modified = mark_sections_writable_for_rvas(&mut pe, &[0x1010]).unwrap();
+        assert_eq!(modified, 1);
+        assert_ne!(read_u32(&pe, sec_off + 36) & IMAGE_SCN_MEM_WRITE, 0);
+
+        set_entry_point(&mut pe, 0x1234).unwrap();
+        assert_eq!(read_u32(&pe, opt_off + 16), 0x1234);
     }
 }

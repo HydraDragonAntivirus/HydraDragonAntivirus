@@ -64,6 +64,11 @@ pub struct BinaryDevirtConfig {
     /// this only stops pathological growth.
     pub max_code_growth_percent: usize,
     pub collect_diagnostics: bool,
+    /// Reconstruct a directly runnable PE after devirtualization (`.import`, CRT OEP,
+    /// `VMProtectRuntime` + `LoaderData` init, `.vmpinit` bootstrap, ASLR disabled).
+    pub rebuild_runnable_pe: bool,
+    /// Optional explicit OEP RVA override when rebuilding a runnable PE.
+    pub oep_rva: Option<u32>,
 }
 
 impl Default for BinaryDevirtConfig {
@@ -81,6 +86,8 @@ impl Default for BinaryDevirtConfig {
             min_vm_insns_replaced: 8,
             max_code_growth_percent: 400,
             collect_diagnostics: false,
+            rebuild_runnable_pe: true,
+            oep_rva: None,
         }
     }
 }
@@ -143,6 +150,7 @@ pub struct BinaryDevirtReport {
     pub bailout_samples: Vec<(VmEntryKind, u32, u64, String, String)>,
     pub indirect_jmp_ip_clusters: Vec<(VmEntryKind, u64, String, usize)>,
     pub patched_sites: Vec<PatchedSiteInfo>,
+    pub vmp_rebuild: Option<crate::unpacker::vmp_rebuild::VmpRebuildReport>,
 }
 
 // ---------------------------------------------------------------------------
@@ -9752,6 +9760,14 @@ pub fn devirtualize_pe_bytes(
         imagedump::fix_checksum(&mut out_pe)?;
     }
 
+    let vmp_rebuild = if cfg.rebuild_runnable_pe && (unpacked_owned.is_some() || cfg.oep_rva.is_some()) {
+        let rep = crate::unpacker::vmp_rebuild::rebuild_vmp_pe(&mut out_pe, pe_bytes, cfg.oep_rva)?;
+        imagedump::fix_checksum(&mut out_pe)?;
+        Some(rep)
+    } else {
+        None
+    };
+
     let devirtualized_total = patched_sites.len();
     let entry_devirt_pct = if discovered_total > 0 {
         100.0 * (devirtualized_total as f64) / (discovered_total as f64)
@@ -9815,6 +9831,7 @@ pub fn devirtualize_pe_bytes(
             bailout_samples,
             indirect_jmp_ip_clusters,
             patched_sites,
+            vmp_rebuild,
         },
     ))
 }
