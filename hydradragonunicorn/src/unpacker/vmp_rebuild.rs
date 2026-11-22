@@ -3111,15 +3111,10 @@ pub fn rebuild_vmp_pe(
     // 5. Emit `.vmpinit` bootstrap and update EP + ASLR + checksum.
     // Detection APIs whose protected slots are repointed at no-op stubs so the sample's
     // own anti-tamper (process/window/debugger enumeration) finds nothing.
-    let detect_overrides: Vec<(u32, i32, bool)> = all_records
-        .iter()
-        .filter_map(|r| match r.func_name.as_str() {
-            "CreateToolhelp32Snapshot" => Some((r.dst_slot_rva, r.key_i32, true)),
-            "FindWindowA" | "FindWindowW" | "FindWindowExA" | "FindWindowExW"
-            | "IsDebuggerPresent" => Some((r.dst_slot_rva, r.key_i32, false)),
-            _ => None,
-        })
-        .collect();
+    // Detection-API neutralization is disabled: blanket-redirecting these imports
+    // breaks the sample's normal startup (they are shared with legitimate code paths),
+    // so the target must be identified precisely before anything is repointed.
+    let detect_overrides: Vec<(u32, i32, bool)> = Vec::new();
 
     let init_stub_rva = emit_vmpinit_section(
         pe_bytes,
