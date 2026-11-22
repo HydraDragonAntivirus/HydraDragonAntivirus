@@ -2631,7 +2631,11 @@ fn probe_loader_data(
         }
     }
 
-    if let Some(&native_rt) = rt_cands.last() {
+    // Tier1 candidates are emitted as [wrapper, DllMainCRTStartup] pairs; the real
+    // VMProtect init is the wrapper (it tail-calls into the VM to build the context),
+    // not the CRT DllMain. When every probe fails, fall back to the first candidate
+    // (the wrapper) rather than the last (DllMain).
+    if let Some(&native_rt) = rt_cands.first() {
         return Some((Some(native_rt), None));
     }
     None
