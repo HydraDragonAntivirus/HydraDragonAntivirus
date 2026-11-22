@@ -2366,7 +2366,7 @@ fn run_packed_loader_capture(
     );
 
     let ep_va = img_base + packed_opt.address_of_entry_point as u64;
-    let emu_res = uc.emu_start(ep_va, stop_addr, 60_000_000, 0);
+    let emu_res = uc.emu_start(ep_va, stop_addr, 240_000_000, 0);
 
     let s = state.borrow();
     if s.aborted {
