@@ -1347,7 +1347,8 @@ namespace {
 		}
 	}
 
-	static void AsyncRescanAndQuarantine(std::string dos, uint32_t nPid, bool fHighPriority = false);
+	static void AsyncRescanAndQuarantine(std::string dos, uint32_t nPid, bool fHighPriority = false, bool fIsProcess = false);
+	static void EnqueueUntrustedProcessDump(uint32_t nPid, const std::string& sImage, const char* szReason);
 
 	namespace DriverPortHips
 	{
@@ -2497,9 +2498,9 @@ namespace {
 			}
 			if (nVerdict == 1 || nVerdict == 2 || nVerdict == 3)
 				return nVerdict;
-			// Unknown: an answer only if VirusKov gave one ("Error" = it did not
-			// answer; with FLS unknown too, nobody has).
-			return detail.sViruskov == "Error" ? -1 : 0;
+			// Unknown: an answer only if VirusKov gave one ("Error"/"Deferred" = no
+			// answer yet, so let the firewall retry instead of caching Unknown).
+			return (detail.sViruskov == "Error" || detail.sViruskov == "Deferred") ? -1 : 0;
 		}
 		catch (...)
 		{
@@ -4015,8 +4016,9 @@ namespace RescanQueue {
 // Delays before each further try of an undecided scan (cloud answers that
 // arrive late are cached by both clients, so a later try reads them).
 static const std::chrono::milliseconds c_retryDelays[] = {
-	std::chrono::milliseconds(500), std::chrono::milliseconds(1000), std::chrono::milliseconds(2000),
-	std::chrono::milliseconds(3000), std::chrono::milliseconds(5000), std::chrono::milliseconds(10000) };
+	std::chrono::milliseconds(1000), std::chrono::milliseconds(2000), std::chrono::milliseconds(3000),
+	std::chrono::milliseconds(5000), std::chrono::milliseconds(10000), std::chrono::milliseconds(15000),
+	std::chrono::milliseconds(20000) };
 
 // Checks of a file written through a mapped section (LLE_FILE_MAP_WRITE). The
 // event comes when the section is created, before anything is written, and
@@ -4027,7 +4029,8 @@ static const std::chrono::seconds c_watchDelays[] = {
 	std::chrono::seconds(2), std::chrono::seconds(5), std::chrono::seconds(15), std::chrono::seconds(30),
 	std::chrono::seconds(60), std::chrono::seconds(120), std::chrono::seconds(300) };
 
-constexpr int c_nWorkers = 4;
+constexpr int c_nWorkers = 6;
+constexpr int c_nHighOnlyWorkers = 2;
 constexpr auto c_sameContentWindow = std::chrono::seconds(60);
 constexpr size_t c_nWarnPending = 100000;
 
@@ -4039,6 +4042,7 @@ struct Item
 	std::chrono::steady_clock::time_point due;
 	size_t nAttempt = 0; // 0 = first look; >0 = retry of an undecided scan
 	bool fWatch = false; // mapped-write content watch (see c_watchDelays)
+	bool fIsProcess = false; // true when triggered from process creation/execution
 	uint64_t nSeenSize = 0;
 	uint64_t nSeenMtime = 0;
 };
@@ -4054,7 +4058,8 @@ struct State
 {
 	std::mutex mtx;
 	std::condition_variable cv;
-	std::deque<Item> queue;
+	std::deque<Item> hiQueue;
+	std::deque<Item> loQueue;
 	std::unordered_set<std::string> pending;
 	std::unordered_map<std::string, Scanned> scanned;
 	std::multimap<std::chrono::steady_clock::time_point, Item> delayed; // retries, watches
@@ -4098,7 +4103,7 @@ static void forgetScanned(const std::string& sDos)
 
 // True when the scan reached a verdict (or there is nothing left to scan);
 // false when it should be tried again later.
-static bool rescanOne(const std::string& dos, uint32_t nPid)
+static bool rescanOne(const std::string& dos, uint32_t nPid, bool fIsRetry, bool fIsProcess)
 {
 	if (dos.empty())
 		return true;
@@ -4116,7 +4121,7 @@ static bool rescanOne(const std::string& dos, uint32_t nPid)
 		return true; // training: keep the sample, and don't re-alert every event
 	std::string sThreat;
 	DetectionNotifier::CloudScanDetail detail;
-	const int nScan = DetectionNotifier::scanFileWithLocalEngines(dos, sThreat, &detail);
+	const int nScan = DetectionNotifier::scanFileWithLocalEngines(dos, sThreat, &detail, fIsRetry);
 	RecordScanResultForKillChain(dos, nPid, nScan, detail, "queued");
 	const int nClean = DetectionNotifier::s_cleanVerdict.load(std::memory_order_relaxed);
 	if (bKnownPath)
@@ -4133,12 +4138,35 @@ static bool rescanOne(const std::string& dos, uint32_t nPid)
 	// Suspicious (3) goes on like Malicious, as on the sync path.
 	else if (nScan != 2 && nScan != 3)
 	{
+		auto maybeDumpUntrusted = [&]()
+		{
+			if (!fIsProcess || nPid <= 4 || !DriverPortHips::s_dumpUntrusted.load(std::memory_order_relaxed))
+				return;
+			std::string sLowerDos = dos;
+			for (auto& c : sLowerDos)
+				c = static_cast<char>(::tolower(static_cast<unsigned char>(c)));
+			if (IsWindowsOsComponentPath(sLowerDos) || IsPathUnderOwnInstallDir(sLowerDos))
+				return;
+			const int trustMode = DriverPortHips::s_configuredTrustMode.load(std::memory_order_relaxed);
+			const bool isFlsClean = (detail.sFls == "Safe");
+			const bool isVkClean = (detail.sViruskov == "Clean") || (detail.sFls.empty() && nScan == nClean);
+			const bool isSelfTrusted = (trustMode == 1) ? isFlsClean
+				: (trustMode == 2) ? isVkClean
+				: (isFlsClean && isVkClean);
+			if (!isSelfTrusted)
+				EnqueueUntrustedProcessDump(nPid, dos, "untrusted process (post-scan)");
+		};
+
 		// Already confirmed Clean (e.g. Comodo FLS Safe) - finish immediately
 		// without looping even if VirusKov timed out (Deferred).
 		if (nScan == nClean)
+		{
+			maybeDumpUntrusted();
 			return true;
+		}
 		if (DriverPortHips::s_configuredTrustMode.load(std::memory_order_relaxed) != 1 && detail.sViruskov == "Deferred")
 			return false;
+		maybeDumpUntrusted();
 		// Decided when VirusKov answered "unknown" (it looked and cannot tell;
 		// asking again gets the same answer). Only a scan that got no answer
 		// (deferred: connection error, timeout, locked file) is tried again.
@@ -4246,8 +4274,8 @@ static void retryPump()
 				if (st.pending.insert(item.sKey).second)
 				{
 					Item scan{ item.sKey, item.sDos, item.nPid, std::chrono::steady_clock::now() };
-					st.queue.push_back(std::move(scan));
-					st.cv.notify_one();
+					st.loQueue.push_back(std::move(scan));
+					st.cv.notify_all();
 				}
 			}
 			if (item.nAttempt >= std::size(c_watchDelays))
@@ -4263,8 +4291,11 @@ static void retryPump()
 		if (!st.pending.insert(item.sKey).second)
 			continue; // a new event already queued this path
 		item.due = std::chrono::steady_clock::now();
-		st.queue.push_back(std::move(item));
-		st.cv.notify_one();
+		if (item.fIsProcess)
+			st.hiQueue.push_back(std::move(item));
+		else
+			st.loQueue.push_back(std::move(item));
+		st.cv.notify_all();
 	}
 }
 
@@ -4289,7 +4320,7 @@ static void scheduleRetry(Item item)
 	st.cvDelayed.notify_one();
 }
 
-static void worker()
+static void worker(bool fHighOnly)
 {
 	auto& st = state();
 	for (;;)
@@ -4297,9 +4328,19 @@ static void worker()
 		Item item;
 		{
 			std::unique_lock lock(st.mtx);
-			st.cv.wait(lock, [&st] { return !st.queue.empty(); });
-			item = std::move(st.queue.front());
-			st.queue.pop_front();
+			st.cv.wait(lock, [&st, fHighOnly] {
+				return !st.hiQueue.empty() || (!fHighOnly && !st.loQueue.empty());
+			});
+			if (!st.hiQueue.empty())
+			{
+				item = std::move(st.hiQueue.front());
+				st.hiQueue.pop_front();
+			}
+			else
+			{
+				item = std::move(st.loQueue.front());
+				st.loQueue.pop_front();
+			}
 		}
 		// Items are queued in time order, so the head is always the next due.
 		std::this_thread::sleep_until(item.due);
@@ -4337,7 +4378,7 @@ static void worker()
 		bool fDecided = true;
 		try
 		{
-			fDecided = rescanOne(item.sDos, item.nPid);
+			fDecided = rescanOne(item.sDos, item.nPid, item.nAttempt > 0, item.fIsProcess);
 		}
 		catch (...)
 		{
@@ -4347,7 +4388,7 @@ static void worker()
 	}
 }
 
-static void enqueue(std::string dos, uint32_t nPid, bool fHighPriority = false)
+static void enqueue(std::string dos, uint32_t nPid, bool fHighPriority = false, bool fIsProcess = false)
 {
 	if (dos.empty())
 		return;
@@ -4360,27 +4401,51 @@ static void enqueue(std::string dos, uint32_t nPid, bool fHighPriority = false)
 		if (!st.fStarted)
 		{
 			st.fStarted = true;
+			static_assert(c_nHighOnlyWorkers <= c_nWorkers, "high-only workers must fit in pool");
 			for (int i = 0; i < c_nWorkers; ++i)
-				std::thread(worker).detach();
+				std::thread(worker, i < c_nHighOnlyWorkers).detach();
 			std::thread(retryPump).detach();
 		}
 		if (!st.pending.insert(key).second)
 		{
 			if (fHighPriority)
 			{
-				for (auto it = st.queue.begin(); it != st.queue.end(); ++it)
+				bool fFoundHi = false;
+				for (auto it = st.hiQueue.begin(); it != st.hiQueue.end(); ++it)
 				{
 					if (it->sKey == key)
 					{
-						if (it != st.queue.begin())
+						fFoundHi = true;
+						it->fIsProcess = it->fIsProcess || fIsProcess;
+						if (nPid > 0)
+							it->nPid = nPid;
+						if (it != st.hiQueue.begin())
 						{
 							Item promoted = std::move(*it);
-							st.queue.erase(it);
+							st.hiQueue.erase(it);
 							promoted.due = std::chrono::steady_clock::now();
-							st.queue.push_front(std::move(promoted));
-							st.cv.notify_one();
+							st.hiQueue.push_front(std::move(promoted));
+							st.cv.notify_all();
 						}
 						break;
+					}
+				}
+				if (!fFoundHi)
+				{
+					for (auto it = st.loQueue.begin(); it != st.loQueue.end(); ++it)
+					{
+						if (it->sKey == key)
+						{
+							Item promoted = std::move(*it);
+							st.loQueue.erase(it);
+							promoted.fIsProcess = promoted.fIsProcess || fIsProcess;
+							if (nPid > 0)
+								promoted.nPid = nPid;
+							promoted.due = std::chrono::steady_clock::now();
+							st.hiQueue.push_front(std::move(promoted));
+							st.cv.notify_all();
+							break;
+						}
 					}
 				}
 			}
@@ -4390,19 +4455,19 @@ static void enqueue(std::string dos, uint32_t nPid, bool fHighPriority = false)
 		// No wait before the scan: a file still being written raises
 		// FileDataChange / WriteFull again at its handle cleanup and is
 		// queued again with its final content.
-		Item item{ std::move(key), std::move(dos), nPid, now };
+		Item item{ std::move(key), std::move(dos), nPid, now, 0, false, fIsProcess };
 		if (fHighPriority)
-			st.queue.push_front(std::move(item));
+			st.hiQueue.push_front(std::move(item));
 		else
-			st.queue.push_back(std::move(item));
-		nPending = st.queue.size();
+			st.loQueue.push_back(std::move(item));
+		nPending = st.hiQueue.size() + st.loQueue.size();
 		if (nPending >= c_nWarnPending && now - st.lastWarn > std::chrono::seconds(60))
 		{
 			st.lastWarn = now;
 			fWarn = true;
 		}
 	}
-	st.cv.notify_one();
+	st.cv.notify_all();
 	if (fWarn)
 		LOGWRN(FMT("enricher: rescan queue is long (" << nPending << " paths waiting); files are scanned late, none are dropped"));
 }
@@ -4435,9 +4500,9 @@ static void enqueueWatch(std::string dos, uint32_t nPid)
 
 } // namespace RescanQueue
 
-static void AsyncRescanAndQuarantine(std::string dos, uint32_t nPid, bool fHighPriority)
+static void AsyncRescanAndQuarantine(std::string dos, uint32_t nPid, bool fHighPriority, bool fIsProcess)
 {
-	RescanQueue::enqueue(std::move(dos), nPid, fHighPriority);
+	RescanQueue::enqueue(std::move(dos), nPid, fHighPriority, fIsProcess);
 }
 
 static void SendThreatAlertToGui(const std::string& sThreat, const std::string& sWhere)
@@ -4786,12 +4851,13 @@ static bool dumpFileAddress(const std::wstring& sName, uint64_t& nAddr)
 // version info, raw executable regions, and modules from other directories.
 // (The dumper's own System folder sorted by the image's version info, which
 // any payload can fill in with "Microsoft Corporation".)
-static int scanDump(const std::filesystem::path& dir, const Item& item, std::string& sFirstThreat)
+static int scanDump(const std::filesystem::path& dir, const Item& item, std::string& sFirstThreat, bool& fKilledOut)
 {
+	fKilledOut = false;
 	const bool fScanSystem = DriverPortHips::s_dumpScanSystemModules.load(std::memory_order_relaxed);
 	const auto systemModules = fScanSystem ? std::unordered_map<uint64_t, std::wstring>{} : loadedSystemModules(item.nPid);
-	int nMalicious = 0;
 	size_t nSkipped = 0;
+	std::vector<std::string> vFiles;
 	std::error_code ec;
 	for (auto it = std::filesystem::recursive_directory_iterator(dir, ec);
 		!ec && it != std::filesystem::recursive_directory_iterator(); it.increment(ec))
@@ -4799,7 +4865,6 @@ static int scanDump(const std::filesystem::path& dir, const Item& item, std::str
 		if (!it->is_regular_file(ec))
 			continue;
 		uint64_t nAddr = 0;
-		std::wstring sModule;
 		if (dumpFileAddress(it->path().filename().wstring(), nAddr))
 		{
 			auto itMod = systemModules.find(nAddr);
@@ -4809,28 +4874,74 @@ static int scanDump(const std::filesystem::path& dir, const Item& item, std::str
 				continue;
 			}
 		}
-		std::string sFile;
-		try { sFile = string::convertWCharToUtf8(it->path().wstring()); } catch (...) { continue; }
-		std::string sThreat;
-		DetectionNotifier::CloudScanDetail detail;
-		const int r = DetectionNotifier::scanFileWithLocalEngines(sFile, sThreat, &detail);
-		RecordScanResultForKillChain(sFile, item.nPid, r, detail, "dump");
-		if (r == 2 || r == 3)
-		{
-			if (sThreat.empty())
-				sThreat = r == 2 ? "Malware.DumpDetection" : "Suspicious.DumpDetection";
-			LOGLVL(Critical, FMT("enricher: [DUMP] " << (r == 2 ? "MALICIOUS" : "SUSPICIOUS") << " <" << sThreat
-				<< "> in the memory of PID " << item.nPid << " <" << item.sImage << ">: " << sFile));
-			SendThreatAlertToGui(sThreat, "pid:" + std::to_string(item.nPid) + " " + item.sImage);
-			// Suspicious stops the process too, like Malicious.
-			if (sFirstThreat.empty())
-				sFirstThreat = sThreat;
-			++nMalicious;
-		}
+		try { vFiles.push_back(string::convertWCharToUtf8(it->path().wstring())); } catch (...) {}
 	}
+
+	std::atomic<int> nMalicious{ 0 };
+	std::atomic<bool> fAlreadyKilled{ false };
+	std::atomic<size_t> nextIdx{ 0 };
+	std::mutex mtxThreat;
+	const bool fPaused = DetectionNotifier::isProtectionPaused();
+
+	if (!vFiles.empty())
+	{
+		const size_t nThreads = (std::min<size_t>)(vFiles.size(), 4);
+		std::vector<std::thread> vWorkers;
+		vWorkers.reserve(nThreads);
+		for (size_t t = 0; t < nThreads; ++t)
+		{
+			vWorkers.emplace_back([&]()
+			{
+				for (;;)
+				{
+					if (!fPaused && nMalicious.load(std::memory_order_relaxed) > 0)
+						break;
+					const size_t idx = nextIdx.fetch_add(1, std::memory_order_relaxed);
+					if (idx >= vFiles.size())
+						break;
+
+					const std::string& sFile = vFiles[idx];
+					std::string sThreat;
+					DetectionNotifier::CloudScanDetail detail;
+					const int r = DetectionNotifier::scanFileWithLocalEngines(sFile, sThreat, &detail);
+					RecordScanResultForKillChain(sFile, item.nPid, r, detail, "dump");
+					if (r == 2 || r == 3)
+					{
+						if (sThreat.empty())
+							sThreat = r == 2 ? "Malware.DumpDetection" : "Suspicious.DumpDetection";
+						LOGLVL(Critical, FMT("enricher: [DUMP] " << (r == 2 ? "MALICIOUS" : "SUSPICIOUS") << " <" << sThreat
+							<< "> in the memory of PID " << item.nPid << " <" << item.sImage << ">: " << sFile));
+						SendThreatAlertToGui(sThreat, "pid:" + std::to_string(item.nPid) + " " + item.sImage);
+						{
+							std::scoped_lock lk(mtxThreat);
+							if (sFirstThreat.empty())
+								sFirstThreat = sThreat;
+						}
+						nMalicious.fetch_add(1, std::memory_order_relaxed);
+						if (!fPaused && !fAlreadyKilled.exchange(true))
+						{
+							ZeroTrust::recordThreatDetection();
+							HANDLE hProc = ::OpenProcess(PROCESS_TERMINATE, FALSE, item.nPid);
+							if (hProc != nullptr)
+							{
+								const BOOL fKilled = ::TerminateProcess(hProc, 1);
+								::CloseHandle(hProc);
+								LOGLVL(Critical, FMT("enricher: [DUMP] " << (fKilled ? "terminated" : "could not terminate")
+									<< " PID " << item.nPid << " (" << sThreat << ")"));
+							}
+						}
+					}
+				}
+			});
+		}
+		for (auto& w : vWorkers)
+			w.join();
+	}
+
+	fKilledOut = fAlreadyKilled.load(std::memory_order_relaxed);
 	LOGLVL(Detailed, FMT("enricher: [DUMP] PID " << item.nPid << ": " << nSkipped
-		<< " loaded Windows module(s) skipped, the rest scanned"));
-	return nMalicious;
+		<< " loaded Windows module(s) skipped, " << vFiles.size() << " scanned"));
+	return nMalicious.load(std::memory_order_relaxed);
 }
 
 static void dumpOne(const Item& item)
@@ -4863,21 +4974,25 @@ static void dumpOne(const Item& item)
 	}
 
 	std::string sThreat;
-	const int nMalicious = scanDump(dir, item, sThreat);
+	bool fKilledInScan = false;
+	const int nMalicious = scanDump(dir, item, sThreat, fKilledInScan);
 	if (nMalicious > 0)
 	{
 		LOGLVL(Critical, FMT("enricher: [DUMP] " << nMalicious << " malicious image(s) in PID " << item.nPid
 			<< " <" << item.sImage << ">; dump kept in " << string::convertWCharToUtf8(dir.wstring())));
-		ZeroTrust::recordThreatDetection();
-		if (!DetectionNotifier::isProtectionPaused())
+		if (!fKilledInScan)
 		{
-			HANDLE hProc = ::OpenProcess(PROCESS_TERMINATE, FALSE, item.nPid);
-			if (hProc != nullptr)
+			ZeroTrust::recordThreatDetection();
+			if (!DetectionNotifier::isProtectionPaused())
 			{
-				const BOOL fKilled = ::TerminateProcess(hProc, 1);
-				::CloseHandle(hProc);
-				LOGLVL(Critical, FMT("enricher: [DUMP] " << (fKilled ? "terminated" : "could not terminate")
-					<< " PID " << item.nPid << " (" << sThreat << ")"));
+				HANDLE hProc = ::OpenProcess(PROCESS_TERMINATE, FALSE, item.nPid);
+				if (hProc != nullptr)
+				{
+					const BOOL fKilled = ::TerminateProcess(hProc, 1);
+					::CloseHandle(hProc);
+					LOGLVL(Critical, FMT("enricher: [DUMP] " << (fKilled ? "terminated" : "could not terminate")
+						<< " PID " << item.nPid << " (" << sThreat << ")"));
+				}
 			}
 		}
 		return;
@@ -4930,7 +5045,9 @@ static void enqueue(uint32_t nPid, const std::string& sImage, const char* szReas
 		if (!st.fStarted)
 		{
 			st.fStarted = true;
-			std::thread(worker).detach();
+			constexpr int c_nDumpWorkers = 2;
+			for (int i = 0; i < c_nDumpWorkers; ++i)
+				std::thread(worker).detach();
 		}
 		st.queue.push_back(Item{ nPid, sImage, szReason });
 	}
@@ -4938,6 +5055,11 @@ static void enqueue(uint32_t nPid, const std::string& sImage, const char* szReas
 }
 
 } // namespace DumpQueue
+
+static void EnqueueUntrustedProcessDump(uint32_t nPid, const std::string& sImage, const char* szReason)
+{
+	DumpQueue::enqueue(nPid, sImage, szReason);
+}
 } // namespace
 
 void EventEnricher::executeUnfilteredLocalScan(Variant& vEvent, Variant& vProcess, Event eEventType, const std::string& sProcPath)
@@ -5270,7 +5392,7 @@ void EventEnricher::executeUnfilteredLocalScan(Variant& vEvent, Variant& vProces
 			if (!IsWindowsOsComponentPath(lowerDos) && cachedVerdict == 0)
 			{
 				StageTimer _stQ(c_stScanAsyncQueue);
-				AsyncRescanAndQuarantine(dos, nPid, true);
+				AsyncRescanAndQuarantine(dos, nPid, true, true);
 			}
 			continue;
 		}
@@ -5290,7 +5412,7 @@ void EventEnricher::executeUnfilteredLocalScan(Variant& vEvent, Variant& vProces
 			 eEventType == Event::LLE_FILE_MAP_READ ||
 			 eEventType == Event::LLE_FILE_MAP_WRITE);
 		const bool bDeferScan = bDeferredFileEvent ||
-			(isProc && eEventType == Event::LLE_PROCESS_CREATE && IsWindowsOsComponentPath(lowerDos));
+			(isProc && eEventType == Event::LLE_PROCESS_CREATE);
 
 		std::string sThreat;
 		int r = 0;
@@ -5325,7 +5447,7 @@ void EventEnricher::executeUnfilteredLocalScan(Variant& vEvent, Variant& vProces
 					eEventType == Event::LLE_FILE_DATA_WRITE_FULL ||
 					eEventType == Event::LLE_FILE_DATA_CHANGE ||
 					eEventType == Event::LLE_FILE_RENAME;
-				AsyncRescanAndQuarantine(dos, nPid, bHighPriority);
+				AsyncRescanAndQuarantine(dos, nPid, bHighPriority, isProc);
 			}
 		}
 

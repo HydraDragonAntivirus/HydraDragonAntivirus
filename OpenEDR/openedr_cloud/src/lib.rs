@@ -38,6 +38,13 @@ pub extern "C" fn openedr_static_init(base_rules_dir: *const c_char) -> i32 {
     openedr_cloud_init(base_rules_dir)
 }
 
+fn serialize_file_scan_report(report: cloud_client::FileScanReport) -> *mut c_char {
+    match serde_json::to_string_pretty(&report) {
+        Ok(json) => to_c_string(json),
+        Err(e) => error_json(&format!("JSON serialization error: {}", e)),
+    }
+}
+
 #[unsafe(no_mangle)]
 pub extern "C" fn openedr_cloud_scan_file(file_path: *const c_char) -> *mut c_char {
     if file_path.is_null() {
@@ -49,16 +56,51 @@ pub extern "C" fn openedr_cloud_scan_file(file_path: *const c_char) -> *mut c_ch
         Err(_) => return error_json("Invalid UTF-8 in file_path"),
     };
 
-    let report = cloud_client::scan_file(Path::new(&path_str));
-    match serde_json::to_string_pretty(&report) {
-        Ok(json) => to_c_string(json),
-        Err(e) => error_json(&format!("JSON serialization error: {}", e)),
-    }
+    serialize_file_scan_report(cloud_client::scan_file(Path::new(&path_str)))
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn openedr_static_scan_file(file_path: *const c_char) -> *mut c_char {
     openedr_cloud_scan_file(file_path)
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn openedr_cloud_scan_file_with_hash(
+    file_path: *const c_char,
+    sha256_hex: *const c_char,
+    file_size: u64,
+) -> *mut c_char {
+    if file_path.is_null() {
+        return error_json("file_path pointer is null");
+    }
+
+    let path_str = match unsafe { CStr::from_ptr(file_path) }.to_str() {
+        Ok(s) => s.to_string(),
+        Err(_) => return error_json("Invalid UTF-8 in file_path"),
+    };
+
+    let precomputed = if sha256_hex.is_null() {
+        None
+    } else {
+        unsafe { CStr::from_ptr(sha256_hex) }
+            .to_str()
+            .ok()
+            .map(|s| (s, file_size))
+    };
+
+    serialize_file_scan_report(cloud_client::scan_file_with_hash(
+        Path::new(&path_str),
+        precomputed,
+    ))
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn openedr_static_scan_file_with_hash(
+    file_path: *const c_char,
+    sha256_hex: *const c_char,
+    file_size: u64,
+) -> *mut c_char {
+    openedr_cloud_scan_file_with_hash(file_path, sha256_hex, file_size)
 }
 
 #[unsafe(no_mangle)]

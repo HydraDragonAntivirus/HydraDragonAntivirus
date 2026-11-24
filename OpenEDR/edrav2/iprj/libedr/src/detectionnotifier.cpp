@@ -26,6 +26,7 @@
 #include <string>
 #include <algorithm>
 #include <cctype>
+#include <memory>
 #include <mutex>
 #include <condition_variable>
 #include <thread>
@@ -1250,17 +1251,18 @@ static bool readFileChunksUtf8(const std::string& sUtf8Path,
 		std::ifstream f(ws, std::ios::binary);
 		if (!f)
 			return false;
-		char buf[65536];
+		constexpr size_t c_nReadChunk = 262144;
+		std::unique_ptr<char[]> buf(new char[c_nReadChunk]);
 		while (f)
 		{
 			const auto tRead0 = std::chrono::steady_clock::now();
-			f.read(buf, sizeof(buf));
+			f.read(buf.get(), c_nReadChunk);
 			if (pReadUs)
 				*pReadUs += static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::microseconds>(
 					std::chrono::steady_clock::now() - tRead0).count());
 			std::streamsize n = f.gcount();
 			if (n > 0)
-				fnChunk(buf, static_cast<size_t>(n));
+				fnChunk(buf.get(), static_cast<size_t>(n));
 		}
 		return !f.bad();
 	}
@@ -1302,21 +1304,24 @@ static std::string hashFileHexUtf8(const std::string& sUtf8Path)
 // pReadUs / pSha1Us / pSha256Us (optional) get the disk-read time and each
 // digest's own time, so a slow hash step shows whether the disk or the CPU was slow.
 static bool sha1AndSha256HexOfFileUtf8(const std::string& sUtf8Path, std::string& sSha1Out, std::string& sSha256Out,
-	uint64_t* pReadUs = nullptr, uint64_t* pSha1Us = nullptr, uint64_t* pSha256Us = nullptr)
+	uint64_t* pReadUs = nullptr, uint64_t* pSha1Us = nullptr, uint64_t* pSha256Us = nullptr, uint64_t* pBytesOut = nullptr)
 {
 	sSha1Out.clear();
 	sSha256Out.clear();
+	if (pBytesOut)
+		*pBytesOut = 0;
 	try
 	{
 		using Clock = std::chrono::steady_clock;
 		auto usSince = [](Clock::time_point t0) {
 			return static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::microseconds>(Clock::now() - t0).count());
 		};
-		uint64_t nSha1Us = 0, nSha256Us = 0;
+		uint64_t nSha1Us = 0, nSha256Us = 0, nTotalBytes = 0;
 		crypt::sha1::Hasher h1;
 		crypt::sha256::Hasher h256;
 		if (!readFileChunksUtf8(sUtf8Path, [&](const char* p, size_t n)
 			{
+				nTotalBytes += static_cast<uint64_t>(n);
 				auto t0 = Clock::now();
 				h1.update(p, n);
 				nSha1Us += usSince(t0);
@@ -1333,6 +1338,7 @@ static bool sha1AndSha256HexOfFileUtf8(const std::string& sUtf8Path, std::string
 		nSha256Us += usSince(t0);
 		if (pSha1Us) *pSha1Us += nSha1Us;
 		if (pSha256Us) *pSha256Us += nSha256Us;
+		if (pBytesOut) *pBytesOut = nTotalBytes;
 		return true;
 	}
 	catch (...) { return false; }
@@ -1388,6 +1394,7 @@ static bool bulkHashOverBudget(const std::string& sUtf8Path)
 namespace {
 
 typedef char* (*OpenedrScanFileFn)(const char*);
+typedef char* (*OpenedrScanFileWithHashFn)(const char*, const char*, uint64_t);
 typedef char* (*OpenedrScanBytesFn)(const uint8_t*, size_t, const char*);
 typedef void (*OpenedrFreeStringFn)(char*);
 // 1 once the engine has finished loading, 0 while it is still loading. Never
@@ -1401,6 +1408,7 @@ typedef char* (*OpenedrScanSystemEventsFn)();
 struct OpenedrStaticBinding {
 	HMODULE hDll = nullptr;
 	OpenedrScanFileFn fnScanFile = nullptr;
+	OpenedrScanFileWithHashFn fnScanFileWithHash = nullptr; // optional: skip second disk read in openedr_cloud
 	OpenedrScanBytesFn fnScanBytes = nullptr; // optional (older DLLs lack it)
 	OpenedrFreeStringFn fnFreeString = nullptr;
 	OpenedrIsReadyFn fnIsReady = nullptr;
@@ -1431,6 +1439,11 @@ static void InitOpenedrStatic()
 		return;
 	}
 	auto fnScan = reinterpret_cast<OpenedrScanFileFn>(::GetProcAddress(hDll, "openedr_static_scan_file"));
+	auto fnScanWithHash = reinterpret_cast<OpenedrScanFileWithHashFn>(
+		::GetProcAddress(hDll, "openedr_cloud_scan_file_with_hash"));
+	if (!fnScanWithHash)
+		fnScanWithHash = reinterpret_cast<OpenedrScanFileWithHashFn>(
+			::GetProcAddress(hDll, "openedr_static_scan_file_with_hash"));
 	auto fnScanBytes = reinterpret_cast<OpenedrScanBytesFn>(::GetProcAddress(hDll, "openedr_static_scan_bytes"));
 	auto fnFree = reinterpret_cast<OpenedrFreeStringFn>(::GetProcAddress(hDll, "openedr_static_free_string"));
 	auto fnReady = reinterpret_cast<OpenedrIsReadyFn>(
@@ -1448,6 +1461,7 @@ static void InitOpenedrStatic()
 	}
 	s_openedr.hDll = hDll;
 	s_openedr.fnScanFile = fnScan;
+	s_openedr.fnScanFileWithHash = fnScanWithHash;
 	s_openedr.fnScanBytes = fnScanBytes;
 	if (!fnScanBytes)
 	{
@@ -1691,7 +1705,8 @@ static std::atomic<bool> s_rescanWatcherStarted{ false };
 // Bounded so a burst of events during a long load cannot grow this without end.
 static constexpr size_t kMaxPendingRescan = 4096;
 
-static int staticScanVerdictName(const std::string& sUtf8Path, std::string& sNameOut);
+static int staticScanVerdictName(const std::string& sUtf8Path, std::string& sNameOut,
+	const std::string& sPrecomputedSha256 = {}, uint64_t nPrecomputedSize = 0, bool fHasPrecomputed = false);
 static void EngineRescanWatcher();
 
 static bool openedrEngineReady()
@@ -1784,7 +1799,8 @@ static void EngineRescanWatcher()
 // Static-engine verdict with human-readable cause (first detection name).
 // Display-only (reputation screen): 1 clean, 2 malicious, 3 suspicious,
 // 4 scanned/unknown, 0 unavailable or scan error. No cloud, no execution.
-static int staticScanVerdictName(const std::string& sUtf8Path, std::string& sNameOut)
+static int staticScanVerdictName(const std::string& sUtf8Path, std::string& sNameOut,
+	const std::string& sPrecomputedSha256, uint64_t nPrecomputedSize, bool fHasPrecomputed)
 {
 	sNameOut.clear();
 	if (sUtf8Path.empty())
@@ -1826,7 +1842,9 @@ static int staticScanVerdictName(const std::string& sUtf8Path, std::string& sNam
 
 			openedr_static::WriteLog("scan-start", "file=" + sUtf8Path +
 				(attempt > 1 ? "; attempt=" + std::to_string(attempt) + "/3" : ""));
-			char* json = s_openedr.fnScanFile(sUtf8Path.c_str());
+			char* json = (fHasPrecomputed && s_openedr.fnScanFileWithHash && sPrecomputedSha256.size() == 64)
+				? s_openedr.fnScanFileWithHash(sUtf8Path.c_str(), sPrecomputedSha256.c_str(), nPrecomputedSize)
+				: s_openedr.fnScanFile(sUtf8Path.c_str());
 			if (!json)
 			{
 				const DWORD error = ::GetLastError();
@@ -1956,6 +1974,12 @@ struct CachedFileVerdict {
 	// avoid hammering disk stat on every event for unchanged active binaries.
 	std::chrono::steady_clock::time_point lastStatCheck{};
 };
+
+static bool isDeferredCacheEntry(const CachedFileVerdict& entry)
+{
+	return entry.unknownUntil != std::chrono::steady_clock::time_point{} &&
+		(entry.detail.sViruskov == "Deferred" || entry.detail.sViruskov == "Error");
+}
 
 static std::mutex s_mtxVerdictCache;
 static std::unordered_map<std::string, CachedFileVerdict> s_verdictCache;
@@ -2182,7 +2206,7 @@ int DetectionNotifier::scanBufferWithLocalEngines(const std::string& sData, cons
 
 int DetectionNotifier::scanFileWithLocalEngines(const std::string& sUtf8Path, std::string& sThreatNameOut)
 {
-	return scanFileWithLocalEngines(sUtf8Path, sThreatNameOut, nullptr);
+	return scanFileWithLocalEngines(sUtf8Path, sThreatNameOut, nullptr, false);
 }
 
 static const char* FlsVerdictName(int nCv)
@@ -2197,6 +2221,103 @@ static const char* FlsVerdictName(int nCv)
 	default: return "Other";
 	}
 }
+
+namespace {
+	struct FlsResult
+	{
+		std::mutex mtx;
+		std::condition_variable cv;
+		bool done = false;
+		bool ok = false;
+		int nCv = -1;
+		uint64_t elapsedUs = 0;
+	};
+
+	// Offloads Comodo FLS UDP queries so VirusKov Cloud runs concurrently on the calling thread.
+	namespace FlsAsyncPool {
+		constexpr int c_nWorkers = 4;
+
+		struct Task
+		{
+			ObjPtr<cmd::cloud::fls::IFlsClient> pFls;
+			std::string sHash;
+			std::shared_ptr<FlsResult> res;
+		};
+
+		struct State
+		{
+			std::mutex mtx;
+			std::condition_variable cv;
+			std::deque<Task> queue;
+			bool fStarted = false;
+		};
+
+		// Never destroyed: workers are detached and may still be running at process exit.
+		static State& state()
+		{
+			static State* s_p = new State();
+			return *s_p;
+		}
+
+		static void worker()
+		{
+			auto& st = state();
+			for (;;)
+			{
+				Task task;
+				{
+					std::unique_lock<std::mutex> lock(st.mtx);
+					st.cv.wait(lock, [&st] { return !st.queue.empty(); });
+					task = std::move(st.queue.front());
+					st.queue.pop_front();
+				}
+
+				int nCv = -1;
+				bool ok = false;
+				const auto t0 = std::chrono::steady_clock::now();
+				try
+				{
+					if (task.pFls)
+					{
+						nCv = static_cast<int>(task.pFls->getFileVerdict(task.sHash));
+						ok = true;
+					}
+				}
+				catch (...) {}
+				const uint64_t elapsedUs = static_cast<uint64_t>(
+					std::chrono::duration_cast<std::chrono::microseconds>(
+						std::chrono::steady_clock::now() - t0).count());
+
+				{
+					std::lock_guard<std::mutex> lk(task.res->mtx);
+					task.res->nCv = nCv;
+					task.res->elapsedUs = elapsedUs;
+					task.res->ok = ok;
+					task.res->done = true;
+				}
+				task.res->cv.notify_all();
+			}
+		}
+
+		static std::shared_ptr<FlsResult> submit(ObjPtr<cmd::cloud::fls::IFlsClient> pFls, const std::string& sHash)
+		{
+			auto res = std::make_shared<FlsResult>();
+			auto& st = state();
+			{
+				std::lock_guard<std::mutex> lock(st.mtx);
+				if (!st.fStarted)
+				{
+					st.fStarted = true;
+					for (int i = 0; i < c_nWorkers; ++i)
+						std::thread(worker).detach();
+				}
+				st.queue.push_back(Task{ std::move(pFls), sHash, res });
+			}
+			st.cv.notify_one();
+			return res;
+		}
+	} // namespace FlsAsyncPool
+} // namespace
 
 // staticScanVerdictName's codes (the shipped engine answers from VirusKov).
 static const char* ViruskovVerdictName(int nVerdict)
@@ -2291,7 +2412,7 @@ namespace {
 }
 
 int DetectionNotifier::scanFileWithLocalEngines(const std::string& sUtf8Path, std::string& sThreatNameOut,
-	CloudScanDetail* pDetail)
+	CloudScanDetail* pDetail, bool fBypassDeferredCache)
 {
 	if (sUtf8Path.empty())
 		return 0;
@@ -2303,11 +2424,11 @@ int DetectionNotifier::scanFileWithLocalEngines(const std::string& sUtf8Path, st
 	// answer in s_verdictCache, or scans if it was not cacheable.
 	ScanSlot pathSlot;
 	pathSlot.acquire(s_inFlightByPath, lowerPath);
-	return scanFileWithLocalEnginesOnce(sUtf8Path, sThreatNameOut, pDetail);
+	return scanFileWithLocalEnginesOnce(sUtf8Path, sThreatNameOut, pDetail, fBypassDeferredCache);
 }
 
 int DetectionNotifier::scanFileWithLocalEnginesOnce(const std::string& sUtf8Path, std::string& sThreatNameOut,
-	CloudScanDetail* pDetail)
+	CloudScanDetail* pDetail, bool fBypassDeferredCache)
 {
 	CloudScanDetail detail;
 	if (sUtf8Path.empty())
@@ -2326,7 +2447,8 @@ int DetectionNotifier::scanFileWithLocalEnginesOnce(const std::string& sUtf8Path
 		const bool fUnknownExpired = it != s_verdictCache.end() &&
 			it->second.unknownUntil != std::chrono::steady_clock::time_point{} &&
 			std::chrono::steady_clock::now() >= it->second.unknownUntil;
-		if (it != s_verdictCache.end() && it->second.size == size && it->second.mtime == mtime && !fUnknownExpired)
+		const bool fBypass = fBypassDeferredCache && it != s_verdictCache.end() && isDeferredCacheEntry(it->second);
+		if (it != s_verdictCache.end() && it->second.size == size && it->second.mtime == mtime && !fUnknownExpired && !fBypass)
 		{
 			sThreatNameOut = it->second.threatName;
 			if (pDetail)
@@ -2361,11 +2483,12 @@ int DetectionNotifier::scanFileWithLocalEnginesOnce(const std::string& sUtf8Path
 	}
 	else if (preferCloud)
 	{
-		// 1. Check Comodo Cloud FLS first
+		// 1. Hash once (SHA-1 for Comodo FLS, SHA-256 + byte size for cache and openedr_cloud)
 		const auto tHash0 = std::chrono::steady_clock::now();
 		std::string sHash, sSha256;
-		sha1AndSha256HexOfFileUtf8(sUtf8Path, sHash, sSha256,
-			&detail.nHashReadUs, &detail.nSha1HashUs, &detail.nSha256HashUs);
+		uint64_t nHashedBytes = 0;
+		const bool fHashed = sha1AndSha256HexOfFileUtf8(sUtf8Path, sHash, sSha256,
+			&detail.nHashReadUs, &detail.nSha1HashUs, &detail.nSha256HashUs, &nHashedBytes);
 		detail.nSha1Us += static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::microseconds>(
 			std::chrono::steady_clock::now() - tHash0).count());
 		detail.sSha1 = sHash;
@@ -2385,7 +2508,8 @@ int DetectionNotifier::scanFileWithLocalEnginesOnce(const std::string& sUtf8Path
 			{
 				const bool fUnknownExpired = it->second.unknownUntil != std::chrono::steady_clock::time_point{} &&
 					std::chrono::steady_clock::now() >= it->second.unknownUntil;
-				if (!fUnknownExpired)
+				const bool fBypass = fBypassDeferredCache && isDeferredCacheEntry(it->second);
+				if (!fUnknownExpired && !fBypass)
 				{
 					const CloudScanDetail hashTimes = detail;
 					detail = it->second.detail;
@@ -2404,59 +2528,124 @@ int DetectionNotifier::scanFileWithLocalEnginesOnce(const std::string& sUtf8Path
 			}
 		}
 
-		if (!fContentHit && !sHash.empty())
+		if (!fContentHit)
 		{
-			try
+			auto applyFlsVerdict = [&](int nCv)
 			{
-				auto pFls = queryInterface<cmd::cloud::fls::IFlsClient>(queryService("flsService"));
-				if (pFls)
+				detail.sFls = FlsVerdictName(nCv);
+				detail.nFlsVerdict = nCv;
+				if (nCv == cleanCode)
+				{
+					verdict = cleanCode;
+					sThreatNameOut = "Cloud.FLS.Clean";
+				}
+				else if (nCv == malCode)
+				{
+					verdict = malCode;
+					sThreatNameOut = "Cloud.FLS.Malware";
+				}
+			};
+			auto applyViruskovVerdict = [&](int vVk, const std::string& sVkThreat, uint64_t nVkUs)
+			{
+				detail.nStaticUs += nVkUs;
+				detail.sViruskov = ViruskovVerdictName(vVk);
+				if (vVk == 2 || vVk == 3)
+				{
+					verdict = vVk;
+					sThreatNameOut = sVkThreat;
+					detail.sViruskovName = sVkThreat;
+				}
+				else if (vVk == cleanCode && verdict == 0)
+				{
+					verdict = cleanCode;
+					sThreatNameOut = sVkThreat.empty() ? "Static.Clean" : sVkThreat;
+				}
+				else if (verdict == 0)
+				{
+					verdict = vVk;
+				}
+			};
+
+			ObjPtr<cmd::cloud::fls::IFlsClient> pFls;
+			if (!sHash.empty())
+			{
+				try
+				{
+					pFls = queryInterface<cmd::cloud::fls::IFlsClient>(queryService("flsService"));
+				}
+				catch (...) {}
+			}
+
+			bool fFlsReady = false;
+			if (pFls)
+			{
+				try { fFlsReady = pFls->isFileVerdictReady(sHash); } catch (...) {}
+			}
+
+			if (pFls && fFlsReady)
+			{
+				try
 				{
 					const auto tFls0 = std::chrono::steady_clock::now();
 					auto cv = pFls->getFileVerdict(sHash);
 					detail.nFlsUs += static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::microseconds>(
 						std::chrono::steady_clock::now() - tFls0).count());
-					int nCv = static_cast<int>(cv);
-					detail.sFls = FlsVerdictName(nCv);
-					detail.nFlsVerdict = nCv;
-					if (nCv == cleanCode)
-					{
-						verdict = cleanCode;
-						sThreatNameOut = "Cloud.FLS.Clean";
-					}
-					else if (nCv == malCode)
-					{
-						verdict = malCode;
-						sThreatNameOut = "Cloud.FLS.Malware";
-					}
+					applyFlsVerdict(static_cast<int>(cv));
+				}
+				catch (...) {}
+
+				if (verdict != malCode)
+				{
+					const auto tStat0 = std::chrono::steady_clock::now();
+					std::string sVkThreat;
+					const int vVk = staticScanVerdictName(sUtf8Path, sVkThreat, sSha256, nHashedBytes, fHashed);
+					const uint64_t nVkUs = static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::microseconds>(
+						std::chrono::steady_clock::now() - tStat0).count());
+					applyViruskovVerdict(vVk, sVkThreat, nVkUs);
 				}
 			}
-			catch (...) {}
-		}
+			else
+			{
+				// FLS misses network cache: dispatch FLS onto FlsAsyncPool and query VirusKov concurrently.
+				std::shared_ptr<FlsResult> pFlsRes;
+				if (pFls)
+					pFlsRes = FlsAsyncPool::submit(pFls, sHash);
 
-		// 2. Also query VirusKov Cloud unless FLS already convicted as Malware,
-		//    so VIRUSKOV_CLOUD (mode 2) and BOTH (mode 3) always have VirusKov status.
-		if (!fContentHit && verdict != malCode)
-		{
-			const auto tStat0 = std::chrono::steady_clock::now();
-			std::string sVkThreat;
-			const int vVk = staticScanVerdictName(sUtf8Path, sVkThreat);
-			detail.nStaticUs += static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::microseconds>(
-				std::chrono::steady_clock::now() - tStat0).count());
-			detail.sViruskov = ViruskovVerdictName(vVk);
-			if (vVk == 2 || vVk == 3)
-			{
-				verdict = vVk;
-				sThreatNameOut = sVkThreat;
-				detail.sViruskovName = sVkThreat;
-			}
-			else if (vVk == cleanCode && verdict == 0)
-			{
-				verdict = cleanCode;
-				sThreatNameOut = sVkThreat.empty() ? "Static.Clean" : sVkThreat;
-			}
-			else if (verdict == 0)
-			{
-				verdict = vVk;
+				const auto tStat0 = std::chrono::steady_clock::now();
+				std::string sVkThreat;
+				const int vVk = staticScanVerdictName(sUtf8Path, sVkThreat, sSha256, nHashedBytes, fHashed);
+				const uint64_t nVkUs = static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::microseconds>(
+					std::chrono::steady_clock::now() - tStat0).count());
+
+				if (vVk == 2 || vVk == 3)
+				{
+					// Already convicted: capture FLS metadata only if already finished without stalling remediation.
+					if (pFlsRes)
+					{
+						std::lock_guard<std::mutex> lk(pFlsRes->mtx);
+						if (pFlsRes->done && pFlsRes->ok)
+						{
+							detail.nFlsUs += pFlsRes->elapsedUs;
+							detail.sFls = FlsVerdictName(pFlsRes->nCv);
+							detail.nFlsVerdict = pFlsRes->nCv;
+						}
+					}
+					applyViruskovVerdict(vVk, sVkThreat, nVkUs);
+				}
+				else
+				{
+					if (pFlsRes)
+					{
+						std::unique_lock<std::mutex> lk(pFlsRes->mtx);
+						pFlsRes->cv.wait(lk, [&pFlsRes] { return pFlsRes->done; });
+						if (pFlsRes->ok)
+						{
+							detail.nFlsUs += pFlsRes->elapsedUs;
+							applyFlsVerdict(pFlsRes->nCv);
+						}
+					}
+					applyViruskovVerdict(vVk, sVkThreat, nVkUs);
+				}
 			}
 		}
 	}
@@ -2554,7 +2743,7 @@ int DetectionNotifier::scanFileWithLocalEnginesOnce(const std::string& sUtf8Path
 			const auto now = std::chrono::steady_clock::now();
 			CachedFileVerdict entry{ nUnknown, std::string(), size, mtime, detail,
 				now + std::chrono::seconds(nTtl), now };
-			if (!detail.fFromCache) // a content hit keeps its first expiry
+			if (!detail.fFromCache && detail.sViruskov != "Deferred" && detail.sViruskov != "Error") // never poison SHA-256 cache with transient timeouts
 				rememberVerdictBySha256(detail.sSha256, entry);
 			s_verdictCache[lowerPath] = std::move(entry);
 		}

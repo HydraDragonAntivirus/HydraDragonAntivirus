@@ -245,16 +245,41 @@ static BROTLI_UPLOAD: AtomicBool = AtomicBool::new(false);
 /// Below this an upload goes raw: the saving is a few bytes.
 const BROTLI_MIN_UPLOAD_BYTES: usize = 1024;
 
+/// Returns true if the payload starts with an already-compressed or
+/// high-entropy container magic so we don't burn endpoint CPU trying to Brotli it.
+fn is_already_compressed_magic(data: &[u8]) -> bool {
+    data.starts_with(b"PK\x03\x04")
+        || data.starts_with(b"7z\xBC\xAF\x27\x1C")
+        || data.starts_with(b"Rar!\x1A\x07")
+        || data.starts_with(&[0x1F, 0x8B])
+        || data.starts_with(b"\xFD7zXZ\x00")
+        || data.starts_with(&[0x28, 0xB5, 0x2F, 0xFD])
+        || data.starts_with(b"MSCF")
+        || data.starts_with(b"\x89PNG\r\n\x1A\n")
+        || data.starts_with(&[0xFF, 0xD8, 0xFF])
+}
+
 /// The bytes to put on the wire for an upload: Brotli-compressed when the server
 /// takes it and it comes out smaller (the server rejects a `csize` >= `size`);
 /// otherwise `None` and the raw bytes go.
 fn pack_upload(data: &[u8]) -> Option<Vec<u8>> {
-    if !BROTLI_UPLOAD.load(Ordering::Relaxed) || data.len() < BROTLI_MIN_UPLOAD_BYTES {
+    if !BROTLI_UPLOAD.load(Ordering::Relaxed)
+        || data.len() < BROTLI_MIN_UPLOAD_BYTES
+        || is_already_compressed_magic(data)
+    {
         return None;
     }
-    // Quality 5: most of the ratio of the slow levels at a speed that keeps a
-    // 100 MB upload in seconds on the agent.
-    let params = brotli::enc::BrotliEncoderParams { quality: 5, lgwin: 22, ..Default::default() };
+    // Adaptive fast Brotli: much lower endpoint CPU than quality 5 while still shrinking PEs/scripts.
+    let (quality, lgwin) = if data.len() > 4 * 1024 * 1024 {
+        (1, 18)
+    } else {
+        (2, 20)
+    };
+    let params = brotli::enc::BrotliEncoderParams {
+        quality,
+        lgwin,
+        ..Default::default()
+    };
     let mut out = Vec::with_capacity(data.len() / 2);
     brotli::BrotliCompress(&mut &data[..], &mut out, &params).ok()?;
     (out.len() < data.len()).then_some(out)
@@ -300,7 +325,7 @@ fn upload_timeout_for_size(size_bytes: u64) -> Duration {
 const CLIENT_POOL_SIZE: usize = 8;
 const MAX_CLOUD_UPLOAD_BYTES: u64 = 100 * 1024 * 1024;
 const LARGE_UPLOAD_BUFFER_RESET_BYTES: u64 = 4 * 1024 * 1024;
-const SERIALIZE_UPLOAD_THRESHOLD_BYTES: u64 = 8 * 1024 * 1024;
+const SERIALIZE_UPLOAD_THRESHOLD_BYTES: u64 = 16 * 1024 * 1024;
 static LARGE_UPLOAD_MUTEX: Mutex<()> = Mutex::new(());
 static CLIENT_POOL: [Mutex<Option<CloudSession>>; CLIENT_POOL_SIZE] = [
     Mutex::new(None),
@@ -473,41 +498,69 @@ fn parse_result_verdict(val: &serde_json::Value) -> (String, Vec<DetectionItem>)
     (title_verdict.to_string(), detections)
 }
 
+fn gone_report(path_str: &str) -> FileScanReport {
+    FileScanReport {
+        file_path: path_str.to_string(),
+        verdict: "Error(gone)".to_string(),
+        detections: Vec::new(),
+        sha256: String::new(),
+        file_size: 0,
+        scanned_at: chrono_now_iso(),
+        sha256_ms: 0,
+        note: Some("File not found or unreadable".to_string()),
+    }
+}
+
+fn hash_file_on_disk(path: &Path, path_str: &str) -> Result<(String, u64, u64), FileScanReport> {
+    let file = std::fs::File::open(path).map_err(|_| gone_report(path_str))?;
+    let t_sha256 = Instant::now();
+    match compute_sha256(file) {
+        Ok((hex, sz)) => Ok((hex, sz, t_sha256.elapsed().as_millis() as u64)),
+        Err(_) => Err(FileScanReport {
+            file_path: path_str.to_string(),
+            verdict: "Error(locked_or_gone)".to_string(),
+            detections: Vec::new(),
+            sha256: String::new(),
+            file_size: 0,
+            scanned_at: chrono_now_iso(),
+            sha256_ms: t_sha256.elapsed().as_millis() as u64,
+            note: Some("Failed to read file contents for hashing".to_string()),
+        }),
+    }
+}
+
 /// Scans a file on disk via viruskov.com cloud WebSocket.
 pub fn scan_file(path: &Path) -> FileScanReport {
-    let path_str = path.to_string_lossy().to_string();
-    let file = match std::fs::File::open(path) {
-        Ok(f) => f,
-        Err(_) => {
-            return FileScanReport {
-                file_path: path_str,
-                verdict: "Error(gone)".to_string(),
-                detections: Vec::new(),
-                sha256: String::new(),
-                file_size: 0,
-                scanned_at: chrono_now_iso(),
-                sha256_ms: 0,
-                note: Some("File not found or unreadable".to_string()),
-            };
-        }
-    };
+    scan_file_with_hash(path, None)
+}
 
-    let t_sha256 = Instant::now();
-    let hashed = compute_sha256(file);
-    let sha256_ms = t_sha256.elapsed().as_millis() as u64;
-    let (sha256_hex, file_size) = match hashed {
-        Ok(res) => res,
-        Err(_) => {
-            return FileScanReport {
-                file_path: path_str,
-                verdict: "Error(locked_or_gone)".to_string(),
-                detections: Vec::new(),
-                sha256: String::new(),
-                file_size: 0,
-                scanned_at: chrono_now_iso(),
-                sha256_ms,
-                note: Some("Failed to read file contents for hashing".to_string()),
-            };
+/// Scans a file on disk via viruskov.com cloud WebSocket, reusing a
+/// caller-computed `(sha256_hex, file_size)` when disk metadata confirms the
+/// size matches so the file is not read and hashed twice.
+pub fn scan_file_with_hash(path: &Path, precomputed: Option<(&str, u64)>) -> FileScanReport {
+    let path_str = path.to_string_lossy().to_string();
+    let precomputed_valid = precomputed.and_then(|(hex, sz)| {
+        (hex.len() == 64 && hex.bytes().all(|b| b.is_ascii_hexdigit()))
+            .then(|| (hex.to_ascii_lowercase(), sz))
+    });
+
+    let (sha256_hex, file_size, sha256_ms) = if let Some((hex, expected_size)) = precomputed_valid {
+        let meta = match std::fs::metadata(path) {
+            Ok(m) => m,
+            Err(_) => return gone_report(&path_str),
+        };
+        if meta.len() == expected_size {
+            (hex, expected_size, 0u64)
+        } else {
+            match hash_file_on_disk(path, &path_str) {
+                Ok(v) => v,
+                Err(rep) => return rep,
+            }
+        }
+    } else {
+        match hash_file_on_disk(path, &path_str) {
+            Ok(v) => v,
+            Err(rep) => return rep,
         }
     };
 
@@ -1368,8 +1421,11 @@ pub fn scan_system_events() -> String {
 mod brotli_upload_tests {
     use super::*;
 
+    static BROTLI_TEST_GUARD: Mutex<()> = Mutex::new(());
+
     #[test]
     fn packed_upload_decodes_to_the_original_and_is_raw_when_not_offered() {
+        let _guard = BROTLI_TEST_GUARD.lock().unwrap();
         let data: Vec<u8> = (0..200_000u32).flat_map(|i| (i % 251).to_le_bytes()).collect();
         BROTLI_UPLOAD.store(false, Ordering::Relaxed);
         assert!(pack_upload(&data).is_none());
@@ -1385,5 +1441,43 @@ mod brotli_upload_tests {
         assert_eq!(req["encoding"], "br");
         assert_eq!(req["csize"], packed.len());
         BROTLI_UPLOAD.store(false, Ordering::Relaxed);
+    }
+
+    #[test]
+    fn is_already_compressed_magic_filters_compressed_containers() {
+        assert!(is_already_compressed_magic(b"PK\x03\x04\x14\x00"));
+        assert!(is_already_compressed_magic(b"7z\xBC\xAF\x27\x1C\x00"));
+        assert!(is_already_compressed_magic(b"Rar!\x1A\x07\x01"));
+        assert!(is_already_compressed_magic(&[0x1F, 0x8B, 0x08, 0x00]));
+        assert!(is_already_compressed_magic(b"\xFD7zXZ\x00\x00"));
+        assert!(is_already_compressed_magic(&[0x28, 0xB5, 0x2F, 0xFD, 0x00]));
+        assert!(is_already_compressed_magic(b"MSCF\x00\x00"));
+        assert!(is_already_compressed_magic(b"\x89PNG\r\n\x1A\n\x00"));
+        assert!(is_already_compressed_magic(&[0xFF, 0xD8, 0xFF, 0xE0]));
+        assert!(!is_already_compressed_magic(b"MZ\x90\x00\x03\x00"));
+        assert!(!is_already_compressed_magic(b"Write-Host 'hello'"));
+    }
+
+    #[test]
+    fn pack_upload_skips_compressed_magic_and_compresses_repetitive_pe_when_enabled() {
+        let _guard = BROTLI_TEST_GUARD.lock().unwrap();
+        BROTLI_UPLOAD.store(true, Ordering::Relaxed);
+        let mut fake_zip = b"PK\x03\x04".to_vec();
+        fake_zip.extend(std::iter::repeat_n(0x41u8, 4096));
+        assert!(pack_upload(&fake_zip).is_none());
+
+        let mut fake_pe = b"MZ\x90\x00".to_vec();
+        fake_pe.extend(std::iter::repeat_n(0x41u8, 4096));
+        assert!(pack_upload(&fake_pe).is_some());
+        BROTLI_UPLOAD.store(false, Ordering::Relaxed);
+    }
+
+    #[test]
+    fn scan_file_with_hash_reports_gone_for_missing_path() {
+        let missing = Path::new("definitely_nonexistent_openedr_cloud_sample_123456.bin");
+        let sha = "a".repeat(64);
+        let rep = scan_file_with_hash(missing, Some((&sha, 1234)));
+        assert_eq!(rep.verdict, "Error(gone)");
+        assert_eq!(rep.sha256_ms, 0);
     }
 }

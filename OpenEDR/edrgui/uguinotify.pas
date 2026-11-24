@@ -24,7 +24,7 @@ uses
 const
   GUI_RPC_HOST = '127.0.0.1';
   GUI_RPC_PORT = 5890;
-  GUI_RPC_POLL_INTERVAL_MS = 2000;
+  GUI_RPC_POLL_INTERVAL_MS = 400;
   // Socket bounds for a single HttpPostJson call. Without these a stalled
   // server blocks the scan thread forever (and Cancel cannot break a blocked
   // recv). Recv covers a whole 50-file batch, hence generous.

@@ -102,7 +102,7 @@ public:
 		uint64_t nCloudSha256Ms = 0;
 	};
 	static int scanFileWithLocalEngines(const std::string& sUtf8Path, std::string& sThreatNameOut,
-		CloudScanDetail* pDetail);
+		CloudScanDetail* pDetail, bool fBypassDeferredCache = false);
 
 private:
 	///
@@ -110,7 +110,7 @@ private:
 	/// wraps it so a file is scanned by one thread at a time.
 	///
 	static int scanFileWithLocalEnginesOnce(const std::string& sUtf8Path, std::string& sThreatNameOut,
-		CloudScanDetail* pDetail);
+		CloudScanDetail* pDetail, bool fBypassDeferredCache = false);
 
 public:
 
