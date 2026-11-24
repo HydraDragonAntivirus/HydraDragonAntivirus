@@ -408,4 +408,39 @@ rules:
         assert!(m.match_detail(r"HKLM\Software\FlatPua").is_none(), "flat patterns carry no detail");
         assert!(!m.matches(r"HKLM\Software\Shipped\x").is_empty(), "shipped patterns kept");
     }
+
+    #[test]
+    fn shipped_pua_registry_rules_avoid_explorer_and_windows_fps() {
+        let p = Path::new(env!("CARGO_MANIFEST_DIR")).join("registry_rules/pua_registry_rules.yaml");
+        let m = PuaRegistryMatcher::load_from_file(&p);
+        assert!(m.pattern_count() > 1000, "loaded pattern count: {}", m.pattern_count());
+
+        for fp_key in [
+            r"HKCU\Software\Microsoft\Internet Explorer\Toolbar\ShellBrowser",
+            r"HKCU\Software\Microsoft\Internet Explorer\Toolbar\WebBrowser",
+            r"HKLM\Software\BitLocker",
+            r"HKCU\Software\IME",
+            r"HKCU\Software\StoreApps",
+            r"HKLM\Software\Classes\Android",
+            r"HKLM\Software\APNs",
+        ] {
+            assert!(
+                m.matches(fp_key).is_empty(),
+                "false positive match on {fp_key}: {:?}",
+                m.matches(fp_key)
+            );
+        }
+
+        for pua_key in [
+            r"HKCU\Software\BabylonToolbar\Prefs",
+            r"HKCU\Software\BI",
+            r"HKCU\Software\BI\Config",
+            r"HKLM\SOFTWARE\Classes\AppID\abengine.exe",
+        ] {
+            assert!(
+                !m.matches(pua_key).is_empty(),
+                "expected PUA match missing on {pua_key}"
+            );
+        }
+    }
 }

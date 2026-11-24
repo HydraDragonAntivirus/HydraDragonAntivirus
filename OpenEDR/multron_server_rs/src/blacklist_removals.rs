@@ -81,7 +81,7 @@ fn append(v: &serde_json::Value) -> std::io::Result<()> {
 }
 
 /// Unix seconds of the last remove / restore since start (0: none). Verdicts cached
-/// before it that the XOR filter decided are stale: see `Engine::stale_for_signer_lists`.
+/// before it that the XOR filter decided are stale: see `EngineAdapter::stale_for_blacklist_overrides`.
 static CHANGED_AT: AtomicI64 = AtomicI64::new(0);
 
 pub fn changed_at() -> i64 {

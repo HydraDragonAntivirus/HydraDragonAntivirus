@@ -1063,40 +1063,26 @@ impl EngineAdapter {
 
         // 3. Malicious XOR filter (respects override removals)
         if self.is_blacklisted(&clean) {
-            // A trusted signer (`signer_rules/trusted_signers.yaml` with a valid
-            // signature) or an allow-listed company wins over the hash filter, but the
-            // signer is only in the file (Authenticode): the file is always scanned,
-            // and the full scan gives the same XOR-filter verdict unless its signer is
-            // trusted or allowed (`apply_xorfilter`, `scan_blocking_inner`).
+            // A trusted signer (`signer_rules/*.yaml` with verdict: trusted and a valid
+            // signature) wins over the hash filter, but the signer is only in the file
+            // (Authenticode): the file is always scanned, and the full scan gives the same
+            // XOR-filter verdict unless its signer is trusted (`apply_xorfilter`).
             return None;
         }
 
         None
     }
 
-    /// A cached verdict that the signer lists decide (an XOR-filter hit, an
-    /// allow-listed or block-listed company), cached before they last changed: it has
-    /// to be scanned again.
-    /// Same for a blacklist override (remove / restore from the dashboard): an
-    /// XOR-filter hit cached before it, or a non-malicious verdict whose SHA-256 is on
-    /// the blacklist again.
-    pub fn stale_for_signer_lists(&self, sha_hex: &str, v: &crate::cache::CachedVerdict) -> bool {
-        let threat = v.threat.as_deref().unwrap_or("");
-        let xorfilter_hit = threat == "Malware.Hash.XorFilter";
+    /// A cached verdict affected by a dashboard blacklist override (remove / restore):
+    /// an XOR-filter hit cached before the change, or a non-malicious verdict whose
+    /// SHA-256 is on the blacklist again.
+    pub fn stale_for_blacklist_overrides(&self, sha_hex: &str, v: &crate::cache::CachedVerdict) -> bool {
         let overrides = crate::blacklist_removals::changed_at();
-        if overrides != 0
-            && v.at <= overrides
-            && (xorfilter_hit || (v.verdict != "malicious" && self.is_blacklisted(sha_hex)))
-        {
-            return true;
-        }
-        let changed = self.analyst.companies_changed_at();
-        if changed == 0 || v.at > changed {
+        if overrides == 0 || v.at > overrides {
             return false;
         }
-        xorfilter_hit
-            || threat.starts_with("Riskware.Multi.BlockedSigner")
-            || v.detail.as_deref().is_some_and(|d| d.starts_with("Trusted company (analyst allow-list)"))
+        let xorfilter_hit = v.threat.as_deref() == Some("Malware.Hash.XorFilter");
+        xorfilter_hit || (v.verdict != "malicious" && self.is_blacklisted(sha_hex))
     }
 
     /// An XOR-filter hit whose file is not kept yet: ask for the upload until it is kept
@@ -1320,39 +1306,8 @@ impl EngineAdapter {
                 let _t = openedr_static::memtrack::stage("server:xorfilter");
                 self.apply_xorfilter(&engine, &mut res, sha, Some(data));
             }
-            // Analyst company lists (Authenticode signer): allow -> clean, block -> malicious.
-            // Matched against the publisher, the issuing CA, the countersigning
-            // authority and the leaf thumbprint, not the publisher alone.
-            {
-                let _t = openedr_static::memtrack::stage("server:company_list");
-                match report
-                    .signer_info
-                    .as_ref()
-                    .and_then(|s| self.analyst.company_decision_for(s))
-                {
-                    Some(crate::analyst_engine::CompanyDecision::Block(company, reason, family)) => {
-                        apply_analyst_hit(
-                            &mut res,
-                            &crate::analyst_engine::AnalystHit {
-                                engine: "company_blocklist",
-                                name: if family.is_empty() {
-                                    format!("Riskware.Multi.BlockedSigner ({company})")
-                                } else {
-                                    family
-                                },
-                                verdict: "malicious",
-                            },
-                        );
-                        append_company_reason(&mut res, &reason);
-                    }
-                    Some(crate::analyst_engine::CompanyDecision::Allow(company, reason)) => {
-                        apply_company_allow(&mut res, &company, &reason)
-                    }
-                    None => {}
-                }
-            }
             // Analyst ClamAV / HydraDragonSig signatures can only raise the verdict, and
-            // never over an allow-listed signer (see `apply_analyst_hit`).
+            // never over a trusted signer (see `apply_analyst_hit`).
             let analyst_hits = {
                 let _t = openedr_static::memtrack::stage("server:analyst_signatures");
                 self.analyst.scan(data, name)
@@ -1825,20 +1780,19 @@ pub fn apply_analyst_hit(res: &mut ResultMessage, hit: &crate::analyst_engine::A
         "tlsh_blacklist" => "TLSH blacklist".to_string(),
         "analyst_tlsh" => "Analyst TLSH".to_string(),
         "analyst_imphash" => "Analyst imphash".to_string(),
-        "company_blocklist" => "Analyst company block-list".to_string(),
         e => format!("Analyst {e}"),
     };
     let d = crate::threat_intel::DetectionRef { layer, name: hit.name.clone() };
     if !res.detections.contains(&d) {
         res.detections.insert(0, d);
     }
-    // A file validly signed by a trusted signer stays as the engine judged it: an
-    // allow-listed company (analyst list) or a publisher of `signer_rules/
-    // trusted_signers.yaml` with a valid signature (`SignerSummary::trusted`). No analyst
-    // layer (signatures, TLSH, imphash) overrides that; the match is still listed above.
-    // Only the company block-list and a human verdict on the hash decide otherwise.
-    let trusted_signer = is_company_allowed(res) || res.signer.as_ref().is_some_and(|s| s.trusted);
-    if (trusted_signer && hit.engine != "company_blocklist") || verdict_rank(hit.verdict) <= verdict_rank(&res.verdict) {
+    // A file validly signed by a trusted signer (publisher in `signer_rules/` with
+    // `verdict: trusted`, valid signature, and no adverse `SignerRule` hit:
+    // `SignerSummary::trusted`) stays clean against secondary analyst heuristics
+    // (ClamAV, HydraDragonSig, TLSH, imphash); the match is still listed above.
+    // Only signer rules inside the static engine and human verdicts decide otherwise.
+    let trusted_signer = res.signer.as_ref().is_some_and(|s| s.trusted);
+    if trusted_signer || verdict_rank(hit.verdict) <= verdict_rank(&res.verdict) {
         return;
     }
     let detail = format!("Analyst signature ({}): {}", hit.engine, hit.name);
@@ -1872,44 +1826,6 @@ pub fn apply_analyst_hit(res: &mut ResultMessage, hit: &crate::analyst_engine::A
     if let Some(ev) = res.event.as_mut().and_then(|e| e.as_object_mut()) {
         ev.insert("kind".into(), serde_json::json!("alert"));
     }
-}
-
-/// Allow-listed, validly signed company: the engine verdict becomes clean. Analyst
-/// ClamAV/HydraDragonSig hits are applied afterwards and can still raise it again.
-fn apply_company_allow(res: &mut ResultMessage, company: &str, reason: &str) {
-    // Marked even when the engine already said clean: the analyst layers after it
-    // (`apply_analyst_hit`) must see that the signer is trusted.
-    let mut detail = format!("Trusted company (analyst allow-list): {company}");
-    if !reason.is_empty() {
-        detail.push_str(&format!(" — {reason}"));
-    }
-    if res.verdict != "clean" {
-        detail.push_str(&format!("; engine said {}", res.verdict));
-    }
-    mark_clean(res, detail, COMPANY_ALLOW_RULESET);
-}
-
-/// The analyst's reason for a block-listed company, after the detection detail
-/// (kept in `antivirus.detail` too, which is what the clients read).
-fn append_company_reason(res: &mut ResultMessage, reason: &str) {
-    if reason.is_empty() {
-        return;
-    }
-    let detail = match res.detail.take() {
-        Some(d) if !d.is_empty() => format!("{d} — {reason}"),
-        _ => reason.to_string(),
-    };
-    res.detail = Some(detail.clone());
-    if let Some(o) = res.antivirus.as_mut().and_then(|a| a.as_object_mut()) {
-        o.insert("detail".into(), serde_json::json!(detail));
-    }
-}
-
-const COMPANY_ALLOW_RULESET: &str = "analyst/company_allowlist";
-
-/// Clean because the file is validly signed by a company on the analyst allow-list.
-pub fn is_company_allowed(res: &ResultMessage) -> bool {
-    res.rule.as_ref().and_then(|r| r["ruleset"].as_str()) == Some(COMPANY_ALLOW_RULESET)
 }
 
 /// Rewrites a result as clean (keeps the ECS fields the clients read in sync).
@@ -2503,6 +2419,7 @@ fn analyst_yaml_files(folder: &str) -> Vec<PathBuf> {
 /// `reload_all`); the signature room triggers a full reload after every change.
 /// A broken file is logged and skipped, it never stops the engine from loading.
 fn load_analyst_rules_into(engine: &mut StaticEngine) {
+    crate::analyst_engine::migrate_legacy_company_lists();
     type AddFn = fn(&mut StaticEngine, &str) -> Result<usize, String>;
     let kinds: [(&str, &str, AddFn); 3] = [
         ("signer_rules", "signer", StaticEngine::add_signer_rules_yaml),

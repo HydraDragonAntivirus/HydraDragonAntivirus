@@ -3041,9 +3041,8 @@ Variant DetectionNotifier::execute(Variant vCommand, Variant vParams){
 					}
 					else
 					{
-						LOGLVL(Critical, FMT("detnotif: Trust check ACTIVE (ViruskovCloud=" << bIsTrustedByViruskovCloud << ", FlsCloud=" << bIsTrustedByFlsCloud << "). Suppressing quarantine/kill for SAFE process <" << sPath << ">"));
-						sPath.clear();
-						nGid = 0;
+						LOGLVL(Critical, FMT("detnotif: Trust check ACTIVE (ViruskovCloud=" << bIsTrustedByViruskovCloud << ", FlsCloud=" << bIsTrustedByFlsCloud << "). Suppressing alert, registry cleanup, quarantine/kill, and telemetry for SAFE process <" << sPath << ">"));
+						return {};
 					}
 				}
 				else if (bShouldTrustFlsCloud && nVerdict == 4)
@@ -3211,7 +3210,8 @@ Variant DetectionNotifier::execute(Variant vCommand, Variant vParams){
 			// "registryDeleteTarget" event field, falling back to
 			// "registryDeleteTargetRaw" when abstractPath is empty;
 			// independent of file quarantine.
-			if (vEvent.has("registryDeleteTarget") || vEvent.has("registryDeleteTargetRaw"))
+			if ((nGid > 0 || !sPath.empty())
+				&& (vEvent.has("registryDeleteTarget") || vEvent.has("registryDeleteTargetRaw")))
 			{
 				try
 				{

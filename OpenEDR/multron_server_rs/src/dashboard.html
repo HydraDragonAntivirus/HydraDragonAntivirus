@@ -280,7 +280,7 @@
   .rb .rb-acts { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; align-items: center; }
   .rb .rb-q { display: flex; gap: 8px; align-items: center; font-size: 12px; padding: 4px 0; border-bottom: 1px solid var(--border); }
   .rb .rb-q span:first-child { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  #askDlg input[type="text"] { box-sizing: border-box; }
+  #askDlg input[type="text"], #askDlg select { width: 100%; box-sizing: border-box; }
 </style>
 <script>
   // Analyst key (analyst_keys.txt on the server): sent with every dashboard API call,
@@ -686,14 +686,6 @@
       <button class="primary" id="ycSave" style="margin-top:8px">Set rule class</button>
       <div id="ycMsg" class="error"></div>
       <div id="ycList" style="margin-top:8px"></div>
-      <h2 style="margin-top:22px">Company (signer) lists</h2>
-      <div class="hint" style="margin-top:0">One Authenticode signer name per line, exactly as in the certificate. <b>Allow</b> makes validly signed files clean (a broken or untrusted signature is ignored). <b>Block</b> marks the signer's files malicious. Nothing overrides an allowed signer, nor a valid signature of a publisher in signer_rules/trusted_signers.yaml: analyst ClamAV / HydraDragonSig, TLSH and imphash matches are listed but do not change the verdict. Only the block-list and a human hash verdict decide otherwise. To add a file's signer with a reason, right-click the file and choose <b>Signer: allow-list…</b> or <b>Signer: block-list…</b>.</div>
-      <div class="row2" style="margin-top:8px">
-        <div><label for="coAllow">Allow-list</label><textarea id="coAllow" spellcheck="false" placeholder="Microsoft Corporation" style="min-height:140px; font-family:Consolas, monospace; font-size:12px;"></textarea></div>
-        <div><label for="coBlock">Block-list</label><textarea id="coBlock" spellcheck="false" placeholder="Shady Software Ltd" style="min-height:140px; font-family:Consolas, monospace; font-size:12px;"></textarea></div>
-      </div>
-      <button class="primary" id="coSave">Save company lists</button>
-      <div id="coMsg" class="error"></div>
     </section>
 
     <section class="card">
@@ -3218,6 +3210,8 @@ window.sigKey = (list) => list && list.length ? `${list[0].layer}: ${list[0].nam
         </div>`).join("") : `<div class="ha-item">No analyst rules yet.</div>`;
     } catch (_) {}
   };
+  // Right-click signer quick-add refreshes the Signature Room list afterwards.
+  window.sigLoad = sigLoad;
   window.sigEdit = (i) => {
     const it = sigItems[i]; if (!it) return;
     if (sigIsPlain(it.kind)) $("sigFileName").value = it.name;
@@ -4298,25 +4292,6 @@ window.sigKey = (list) => list && list.length ? `${list[0].layer}: ${list[0].nam
   };
   rhLoad();
 
-  const coLoad = async () => {
-    try {
-      const d = await (await fetch("/api/companies", { cache: "no-store" })).json();
-      $("coAllow").value = (d.lists.allow || []).join("\n");
-      $("coBlock").value = (d.lists.block || []).join("\n");
-    } catch (_) {}
-  };
-  // The file right-click menu adds signers; it refreshes these lists afterwards.
-  window.coLoad = coLoad;
-  $("coSave").onclick = async () => {
-    $("coMsg").style.color = ""; $("coMsg").textContent = "";
-    const lines = id => $(id).value.split("\n").map(l => l.trim()).filter(Boolean);
-    try {
-      const r = await post("/api/companies", { allow: lines("coAllow"), block: lines("coBlock"), analyst: haAnalystName() });
-      $("coMsg").style.color = "var(--green)"; $("coMsg").textContent = r.note; coLoad();
-    } catch (err) { $("coMsg").textContent = err.message; }
-  };
-  coLoad();
-
   poll();
 })();
 </script>
@@ -4501,8 +4476,9 @@ window.sigKey = (list) => list && list.length ? `${list[0].layer}: ${list[0].nam
       ["rescan", "&#8635;", "Rescan"],
       ["alyzer", "&#128269;", "Open in VirusKovAlyzer"],
       ["fp", "&#9888;", "False positive: turn off a signature…"],
-      ["sg-allow", "&#10003;", "Signer: allow-list…"],
-      ["sg-block", "&#10007;", "Signer: block-list…"],
+      ["sg-trusted", "&#10003;", "Signer rule: trust…"],
+      ["sg-malware", "&#10007;", "Signer rule: block (malware)…"],
+      ["sg-pua", "!", "Signer rule: flag PUA…"],
       ["sep"],
       ["private", "&#128274;", "Private: hide report and strings…"],
       ["delete", "&#128465;", "Delete sample (with reason)…"],
@@ -4543,23 +4519,45 @@ window.sigKey = (list) => list && list.length ? `${list[0].layer}: ${list[0].nam
         else if (act === "fp") { if (typeof window.fpOpen === "function") window.fpOpen(sha, name); }
         else if (act === "rescan") { if (typeof window.rescanSha === "function") { window.rescanSha(sha); toast("Rescanning…"); } }
         else if (act.startsWith("sg-")) {
-          const list = act.slice(3);
-          const d = await api("/api/companies/lookup-signer?sha256=" + sha);
+          const verdict = act.slice(3);
+          const d = await api("/api/signer-rules/lookup?sha256=" + sha);
           if (!d.found) { toast(d.note || "No Authenticode signer known for this file."); return; }
-          const block = list === "block";
-          // Title and (block-list only) detection name go with the signer; the dialog body stays in the DOM until the next question.
-          const extra = `<label class="ask-l" for="sgAddTitle">Title (optional)</label><input id="sgAddTitle" type="text" maxlength="200" autocomplete="off" placeholder="Display title, e.g. the company's name">` +
-            (block ? `<label class="ask-l" for="sgAddFamily">Detection name (optional)</label><input id="sgAddFamily" type="text" maxlength="120" autocomplete="off" spellcheck="false" placeholder="PUA.Win32.VendorName" aria-describedby="sgAddFamilyHint">` +
-              `<div class="hint" id="sgAddFamilyHint" style="margin-top:4px">Threat name reported for files signed by this signer (block-list only).</div>` : "");
-          const reason = await window.askDlg({ title: `Add signer to the ${list}-list`, sha: sha, html: `<div><b>Signer:</b> ${window.askEsc(d.signer)}</div>` + extra, label: "Reason", required: true, ok: block ? "Block-list signer" : "Allow-list signer", danger: block });
+          const targets = [];
+          if (d.signer) targets.push({ type: "signature_signer_equals", label: "Publisher", value: d.signer });
+          if (verdict === "malware") {
+            if (d.thumbprint) targets.push({ type: "signature_thumbprint_equals", label: "Leaf thumbprint (SHA-1)", value: d.thumbprint });
+            if (d.issuer) targets.push({ type: "signature_issuer_equals", label: "Issuing CA", value: d.issuer });
+            if (d.timestamp_signer) targets.push({ type: "signature_timestamp_signer_equals", label: "Timestamp authority", value: d.timestamp_signer });
+          } else if (verdict === "pua") {
+            if (d.issuer) targets.push({ type: "signature_issuer_equals", label: "Issuing CA", value: d.issuer });
+          }
+          if (!targets.length) {
+            toast("No certificate publisher name recorded for a trusted signer rule.");
+            return;
+          }
+          const isThreat = verdict !== "trusted";
+          const targetHtml = targets.length > 1
+            ? `<label class="ask-l" for="sgAddTarget">Certificate target</label><select id="sgAddTarget">` +
+              targets.map((t, i) => `<option value="${i}">${window.askEsc(`${t.label}: ${t.value}`)}</option>`).join("") +
+              `</select>`
+            : `<div><b>${window.askEsc(targets[0].label)}:</b> ${window.askEsc(targets[0].value)}</div>`;
+          const extra = targetHtml +
+            `<label class="ask-l" for="sgAddTitle">Rule title (optional)</label><input id="sgAddTitle" type="text" maxlength="200" autocomplete="off" placeholder="${verdict === "trusted" ? "Trusted publisher: ..." : "Abusive / unwanted signer"}">` +
+            (isThreat ? `<label class="ask-l" for="sgAddFamily">Detection name (optional)</label><input id="sgAddFamily" type="text" maxlength="120" autocomplete="off" spellcheck="false" placeholder="${verdict === "pua" ? "PUA.Win32.VendorName" : "Trojan.Win32.VendorName"}">` : "") +
+            `<div class="hint" style="margin-top:6px">Saved into <code>analyst_signatures/signer_rules/analyst_signers.yaml</code> (editable in Signature Room) and triggers an engine reload.</div>`;
+          const actionTitle = verdict === "trusted" ? "Add trusted signer rule" : verdict === "pua" ? "Add PUA signer rule" : "Add malware signer rule";
+          const okLabel = verdict === "trusted" ? "Trust signer" : verdict === "pua" ? "Flag as PUA" : "Block as malware";
+          const reason = await window.askDlg({ title: actionTitle, sha: sha, html: extra, label: "Reason", required: true, ok: okLabel, danger: verdict === "malware" });
           if (reason === null) return;
           const fieldVal = (id) => { const e = document.getElementById(id); return e ? e.value.trim() : ""; };
-          const title = fieldVal("sgAddTitle"), family = block ? fieldVal("sgAddFamily") : "";
+          const idx = targets.length > 1 ? parseInt(fieldVal("sgAddTarget") || "0", 10) || 0 : 0;
+          const chosen = targets[idx] || targets[0];
+          const title = fieldVal("sgAddTitle"), family = isThreat ? fieldVal("sgAddFamily") : "";
           let analyst = "";
           try { analyst = localStorage.getItem("multron_analyst") || ""; } catch (_) {}
-          const r = await api("/api/companies/add", { name: d.signer, list, reason, sha256: sha, sample_name: name || d.sample_name || "", analyst, title, family });
-          toast(r.note || "Signer added");
-          if (typeof window.coLoad === "function") window.coLoad();
+          const r = await api("/api/signer-rules/quick-add", { verdict, condition_type: chosen.type, value: chosen.value, reason, sha256: sha, sample_name: name || d.sample_name || "", analyst, title, family });
+          toast(r.note || "Signer rule added");
+          if (typeof window.sigLoad === "function") window.sigLoad();
         }
         // The same as the controls under a hash lookup (Threat Insights card).
         else if (act === "private") {

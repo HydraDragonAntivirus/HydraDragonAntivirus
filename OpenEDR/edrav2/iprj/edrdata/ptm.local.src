@@ -1981,7 +1981,8 @@
 			"*software\\allgenius*",
 			"*software\\anyprotect*",
 			"*software\\apn pip*",
-			"*software\\apn*",
+			"*\\software\\apn",
+			"*\\software\\apn\\*",
 			"*software\\apndtx*",
 			"*software\\appdatalow\\software\\asktoolbar*",
 			"*software\\appdatalow\\software\\blockandsurf*",
@@ -2018,8 +2019,10 @@
 			"*software\\babylon*",
 			"*software\\babylontoolbar*",
 			"*software\\bead739c11b6815884fb1a13a48ced96*",
-			"*software\\bench*",
-			"*software\\bi*",
+			"*\\software\\bench",
+			"*\\software\\bench\\*",
+			"*\\software\\bi",
+			"*\\software\\bi\\*",
 			"*software\\bonanzadealslive*",
 			"*software\\browsermngr*",
 			"*software\\c1c0ebc7-10b6-4f9e-9575-f3a316f5b7c4*",
@@ -2045,7 +2048,8 @@
 			"*software\\classes\\abenginelib.readonlymanager.1*",
 			"*software\\classes\\addressbarsearch.searchhook*",
 			"*software\\classes\\addressbarsearch.searchhook.1*",
-			"*software\\classes\\and*",
+			"*\\software\\classes\\and",
+			"*\\software\\classes\\and\\*",
 			"*software\\classes\\appid\\abengine.exe*",
 			"*software\\classes\\appid\\babylonhelper.exe*",
 			"*software\\classes\\appid\\babyloniepi.dll*",
@@ -2987,7 +2991,8 @@
 			"*software\\dealply*",
 			"*software\\dealplylive*",
 			"*software\\delta ltd*",
-			"*software\\delta*",
+			"*\\software\\delta",
+			"*\\software\\delta\\*",
 			"*software\\delta-homessoftware*",
 			"*software\\desksvc*",
 			"*software\\devicevm*",
@@ -3013,7 +3018,8 @@
 			"*software\\freesofttoday*",
 			"*software\\gameo*",
 			"*software\\gamesdesktop*",
-			"*software\\genesis*",
+			"*\\software\\genesis",
+			"*\\software\\genesis\\*",
 			"*software\\globalupdate*",
 			"*software\\goobzo*",
 			"*software\\google\\chrome\\extensions\\blbkdnmdcafmfhinpmnlhhddbepgkeaa*",
@@ -3058,7 +3064,8 @@
 			"*software\\ieplugin*",
 			"*software\\ihprotect*",
 			"*software\\ilivid*",
-			"*software\\im*",
+			"*\\software\\im",
+			"*\\software\\im\\*",
 			"*software\\iminent*",
 			"*software\\iminstaller*",
 			"*software\\incredibar.com*",
@@ -3817,7 +3824,8 @@
 			"*software\\myfree codec*",
 			"*software\\mystartsearchsoftware*",
 			"*software\\nuevos-programas.com*",
-			"*software\\ocs*",
+			"*\\software\\ocs",
+			"*\\software\\ocs\\*",
 			"*software\\omiga-plussoftware*",
 			"*software\\onet pliki*",
 			"*software\\optimizer pro*",
@@ -3827,7 +3835,8 @@
 			"*software\\pc speed maximizer*",
 			"*software\\pcprivacydocklanguage*",
 			"*software\\pdfforge*",
-			"*software\\pip*",
+			"*\\software\\pip",
+			"*\\software\\pip\\*",
 			"*software\\podoweb*",
 			"*software\\popajar*",
 			"*software\\portaldositessoftware*",
@@ -3852,7 +3861,8 @@
 			"*software\\search settings*",
 			"*software\\searchprotect*",
 			"*software\\searchprotectws*",
-			"*software\\sense*",
+			"*\\software\\sense",
+			"*\\software\\sense\\*",
 			"*software\\shopperpro*",
 			"*software\\shopperreports3*",
 			"*software\\simplefiles*",
@@ -3874,7 +3884,8 @@
 			"*software\\sppdcom*",
 			"*software\\sprotector*",
 			"*software\\startsearch*",
-			"*software\\store*",
+			"*\\software\\store",
+			"*\\software\\store\\*",
 			"*software\\strongsignal*",
 			"*software\\supdp*",
 			"*software\\super optimizer*",
@@ -3902,7 +3913,8 @@
 			"*software\\uniblue*",
 			"*software\\uniblue\\driverscanner*",
 			"*software\\updatestar*",
-			"*software\\v9*",
+			"*\\software\\v9",
+			"*\\software\\v9\\*",
 			"*software\\v9software*",
 			"*software\\vb and vba program settings\\srvid*",
 			"*software\\videodownloadconverter_4z*",
@@ -3996,7 +4008,8 @@
 			"*software\\wow6432node\\uniprotectorpackage_rasapi32*",
 			"*software\\wow6432node\\uniprotectorpackage_rasmancs*",
 			"*software\\wow6432node\\vittalia\\axtaninstaller*",
-			"*software\\wpm*",
+			"*\\software\\wpm",
+			"*\\software\\wpm\\*",
 			"*software\\wtools*",
 			"*software\\yahoopartnertoolbar*",
 			"*software\\yorknewcin*",
@@ -4061,13 +4074,16 @@
 			"*system\\currentcontrolset\\services\\eventlog\\application\\wpm*",
 			"*system\\currentcontrolset\\services\\eventlog\\application\\wsyssvc*",
 			"*system\\currentcontrolset\\services\\eventlog\\application\\yahooauservice*",
-			"*toolbar*",
 			"*typelib\\{44444444-4444-4444-4444-440444414450}*",
 			"*typelib\\{a0ee0278-2986-4e5a-884e-a3bf0357e476}*"
 		],
 		"puaRegEventBaseType": {
 			"MLE_PUA_REGISTRY_WRITE": 1000015
 		},
+		"puaTrustedShellWriters": [
+			"%systemroot%\\explorer.exe",
+			"*\\windows\\explorer.exe"
+		],
 		"godmodeCmdlines": [
 			" -e* aqblahga",
 			" -e* awv4i",
@@ -7494,19 +7510,54 @@
 			"eventType": "LLE_REGISTRY_KEY_CREATE",
 			"rule": {
 				"condition": {
-						"$operation": "or",
-						"args": [
-							{
-								"$operation": "imatch",
-								"pattern": "@const.puaRegPaths",
-								"args": [ "@event.registry.abstractPath" ]
-							},
-							{
-								"$operation": "imatch",
-								"pattern": "@const.puaRegPaths",
-								"args": [ "@event.registry.rawPath" ]
-							}
-						]
+					"$operation": "and",
+					"args": [
+						{
+							"$operation": "or",
+							"args": [
+								{
+									"$operation": "imatch",
+									"pattern": "@const.puaRegPaths",
+									"args": [ "@event.registry.abstractPath" ]
+								},
+								{
+									"$operation": "imatch",
+									"pattern": "@const.puaRegPaths",
+									"args": [ "@event.registry.rawPath" ]
+								}
+							]
+						},
+						{
+							"$operation": "or",
+							"args": [
+								{
+									"$operation": "and",
+									"args": [
+										{
+											"$operation": "!imatch",
+											"pattern": "@const.trustedSecurityCallers",
+											"args": [ "@event.process.imageFile.abstractPath" ]
+										},
+										{
+											"$operation": "!imatch",
+											"pattern": "@const.puaTrustedShellWriters",
+											"args": [ "@event.process.imageFile.abstractPath" ]
+										}
+									]
+								},
+								{
+									"$operation": "imatch",
+									"pattern": "@const.untrustedSecurityCallers",
+									"args": [ "@event.process.imageFile.abstractPath" ]
+								},
+								{
+									"$operation": "imatch",
+									"pattern": "@const.pumScriptedWriters",
+									"args": [ "@event.process.imageFile.abstractPath" ]
+								}
+							]
+						}
+					]
 				},
 				"createEvent": {
 					"eventType": "MLE_PUA_REGISTRY_WRITE",
@@ -7532,19 +7583,54 @@
 			"eventType": "LLE_REGISTRY_VALUE_SET",
 			"rule": {
 				"condition": {
-						"$operation": "or",
-						"args": [
-							{
-								"$operation": "imatch",
-								"pattern": "@const.puaRegPaths",
-								"args": [ "@event.registry.abstractPath" ]
-							},
-							{
-								"$operation": "imatch",
-								"pattern": "@const.puaRegPaths",
-								"args": [ "@event.registry.rawPath" ]
-							}
-						]
+					"$operation": "and",
+					"args": [
+						{
+							"$operation": "or",
+							"args": [
+								{
+									"$operation": "imatch",
+									"pattern": "@const.puaRegPaths",
+									"args": [ "@event.registry.abstractPath" ]
+								},
+								{
+									"$operation": "imatch",
+									"pattern": "@const.puaRegPaths",
+									"args": [ "@event.registry.rawPath" ]
+								}
+							]
+						},
+						{
+							"$operation": "or",
+							"args": [
+								{
+									"$operation": "and",
+									"args": [
+										{
+											"$operation": "!imatch",
+											"pattern": "@const.trustedSecurityCallers",
+											"args": [ "@event.process.imageFile.abstractPath" ]
+										},
+										{
+											"$operation": "!imatch",
+											"pattern": "@const.puaTrustedShellWriters",
+											"args": [ "@event.process.imageFile.abstractPath" ]
+										}
+									]
+								},
+								{
+									"$operation": "imatch",
+									"pattern": "@const.untrustedSecurityCallers",
+									"args": [ "@event.process.imageFile.abstractPath" ]
+								},
+								{
+									"$operation": "imatch",
+									"pattern": "@const.pumScriptedWriters",
+									"args": [ "@event.process.imageFile.abstractPath" ]
+								}
+							]
+						}
+					]
 				},
 				"createEvent": {
 					"eventType": "MLE_PUA_REGISTRY_WRITE",

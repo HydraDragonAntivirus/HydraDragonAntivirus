@@ -12,7 +12,7 @@ Every endpoint is listed in the [reference](#reference) below, generated from th
 ## Dashboard API: access rules
 
 - **Only from this computer.** The connection must come from a loopback address (127.0.0.1 / ::1) *and* the `Host` header must name this computer (`localhost`, `127.0.0.1`, `[::1]`, with or without a port); a missing `Host` header is refused too. Anything else gets `403 dashboard is only available on this computer`. The server refuses to start with a non-loopback `--ui` address.
-- **Analyst keys.** When `analyst_keys.txt` next to `multron_server.exe` has keys (one `<key> <analyst name>` per line, keys of 16+ characters, `#` comments), the calls that write human verdicts or change what decides a verdict — `/api/review`, `/api/review/start`, `/api/review/release`, `/api/review/delete`, `/api/reviews/bulk`, `/api/reviews/requeue`, `/api/signatures`, `/api/signatures/delete`, `/api/fp/ignore`, `/api/fp/unignore`, `/api/companies`, `/api/rules`, `/api/bans/add`, `/api/bans/remove`, `/api/ml-thresholds` — need `X-Multron-Analyst-Key: <key>` (else `401`). The analyst name stored with a verdict is then the key's owner; an `analyst` field in the body is ignored. Without the file (or with no keys) these calls stay open, as before. The dashboard has an "Analyst key" field in Human analysis (kept in that browser profile only); `GET /api/analyst/whoami` says whether keys are on and whose key was sent. Keep the file readable only by the Windows account that runs the server.
+- **Analyst keys.** When `analyst_keys.txt` next to `multron_server.exe` has keys (one `<key> <analyst name>` per line, keys of 16+ characters, `#` comments), the calls that write human verdicts or change what decides a verdict — `/api/review`, `/api/review/start`, `/api/review/release`, `/api/review/delete`, `/api/reviews/bulk`, `/api/reviews/requeue`, `/api/signatures`, `/api/signatures/delete`, `/api/imphash-signatures`, `/api/imphash-signatures/delete`, `/api/yara-rule-classes`, `/api/yara-rule-classes/delete`, `/api/fp/ignore`, `/api/fp/unignore`, `/api/signer-rules/quick-add`, `/api/rules`, `/api/bans/add`, `/api/bans/remove`, `/api/ml-thresholds` — need `X-Multron-Analyst-Key: <key>` (else `401`). The analyst name stored with a verdict is then the key's owner; an `analyst` field in the body is ignored. Without the file (or with no keys) these calls stay open, as before. The dashboard has an "Analyst key" field in Human analysis (kept in that browser profile only); `GET /api/analyst/whoami` says whether keys are on and whose key was sent. Keep the file readable only by the Windows account that runs the server.
 - **POST needs `X-Multron-Dashboard: 1`.** Every state-changing call (all `POST`s) must send this header, otherwise `403 forbidden`. `GET`s need nothing. This keeps a web page in a browser from changing the server.
 - **Archive server (read-only mode):** on the archive copy only `GET`s and a few calls (`/api/start`, `/api/stop`, `/api/maintenance`, `/api/limits`, the alyzer viewer, retrohunt on the archive, …) are allowed; the rest answer `403` with `{"ok": false, "error": "archive server: read-only …"}`.
 - **Bodies are JSON** (`Content-Type: application/json`). Answers are JSON: `{"ok": true, …}` on success, `{"error": "…"}` (sometimes with `"ok": false`) and a 4xx/5xx status on failure.
@@ -1128,28 +1128,40 @@ Query parameters:
 
 <sub>Handler: `src/dashboard.rs` → `handle_naming_check`</sub>
 
-#### `GET /api/companies`
+#### `GET /api/signer-rules/lookup`
 
-(No doc comment on the handler yet.)
+Looks up stored Authenticode certificate fields (`signer`, `issuer`, `timestamp_signer`, `thumbprint`, `status`, `sample_name`, `trusted`, `threat`) for a sample SHA-256.
 
-<sub>Handler: `src/dashboard.rs` → `handle_companies_get`</sub>
+Query parameters:
 
-#### `POST /api/companies`
+| Name | Type | Required | Description |
+|---|---|---|---|
+| `sha256` | `string` | yes | Sample SHA-256 hex digest |
 
-Replaces the company allow / block lists (a name may not be in both). Active at once; cached verdicts are cleared.
+<sub>Handler: `src/dashboard.rs` → `handle_signer_rules_lookup`</sub>
+
+#### `POST /api/signer-rules/quick-add`
+
+Appends one Authenticode signer rule (`trusted`, `malware`, or `pua`) to `analyst_signatures/signer_rules/analyst_signers.yaml` and triggers a full engine rebuild (cached verdicts drop once the rebuilt engine is live).
 
 JSON body:
 
 | Name | Type | Required | Description |
 |---|---|---|---|
-| `allow` | `array of string` | no |  |
-| `block` | `array of string` | no |  |
+| `verdict` | `string` | yes | `"trusted"`, `"malware"`, or `"pua"` |
+| `condition_type` | `string` | no | Defaults to `"signature_signer_equals"` (`trusted` supports publisher types only; `pua` supports publisher and issuer types) |
+| `value` | `string` | yes | Certificate field value (or 40-hex SHA-1 leaf thumbprint) |
+| `reason` | `string` | yes | Analyst justification saved in rule `description` (min 3 chars) |
+| `title` | `string` | no | Optional rule display title |
+| `family` | `string` | no | Optional threat / PUA detection name (`malware` / `pua` only) |
+| `sha256` | `string` | no | Optional sample SHA-256 for audit logging |
+| `sample_name` | `string` | no | Optional sample file name for audit logging |
 
-<sub>Handler: `src/dashboard.rs` → `handle_companies_save`</sub>
+<sub>Handler: `src/dashboard.rs` → `handle_signer_rules_quick_add`</sub>
 
 #### `GET /api/analyst/whoami`
 
-The company (signer) allow and block lists. Who the dashboard is talking to: `enforced` = `analyst_keys.txt` has keys (verdicts then need `X-Multron-Analyst-Key`), `analyst` = owner of the key sent, if valid.
+Who the dashboard is talking to: `enforced` = `analyst_keys.txt` has keys (verdicts then need `X-Multron-Analyst-Key`), `analyst` = owner of the key sent, if valid.
 
 <sub>Handler: `src/dashboard.rs` → `handle_analyst_whoami`</sub>
 

@@ -17,10 +17,11 @@
 //! Every signature name / rule family must follow `naming.rs`
 //! (`Category.Platform.Family[.Variant]`).
 
-use std::collections::HashMap;
-use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
-use std::sync::RwLock;
+use std::collections::{HashMap, HashSet};
+use std::path::{Path, PathBuf};
+use std::sync::{Mutex, RwLock};
+
+use serde::{Deserialize, Serialize};
 
 use hydradragonclamav::scanner::{Engine as ClamEngine, ScanOptions as ClamScanOptions};
 use hydradragonsig::models::{MemoryScanContext, Verdict as SigVerdict};
@@ -155,61 +156,627 @@ pub struct AnalystHit {
 pub struct AnalystEngine {
     clam: RwLock<Option<ClamEngine>>,
     sig: RwLock<Option<RuleSet>>,
-    companies: RwLock<CompanyLists>,
-    /// The company lists were loaded once (the first load is not a change).
-    companies_loaded: AtomicBool,
-    /// Unix seconds of the last change to the company lists (0: none since start).
-    /// Verdicts cached before it that depend on them (XOR-filter hits, allow-listed
-    /// signers) are stale: see `ScanServer::known_opts`.
-    companies_changed_at: AtomicI64,
 }
 
-/// Analyst company (Authenticode signer) lists: `analyst_signatures/companies_allow.txt`
-/// and `companies_block.txt`, one signer name per line, matched case-insensitively.
-#[derive(Debug, Clone, Default, PartialEq, serde::Serialize)]
-pub struct CompanyLists {
-    pub allow: Vec<String>,
-    pub block: Vec<String>,
-    /// The analyst's reason for each entry: the `# ...` after the name in the
-    /// list file, keyed by `(lowercased name, "allow"|"block")`. Shown in the
-    /// verdict detail, like other analyst signatures show theirs.
-    #[serde(skip)]
-    pub reasons: std::collections::HashMap<(String, &'static str), String>,
-    /// Block list: detection name per entry (`family` in the YAML), same keys.
-    #[serde(skip)]
-    pub families: std::collections::HashMap<(String, &'static str), String>,
+// ------------------------------------------------------------------ signer_rules helpers
+
+/// Default file stem inside `analyst_signatures/signer_rules/` for quick-added
+/// Authenticode signer rules from the dashboard right-click menu.
+pub const ANALYST_SIGNERS_FILE: &str = "analyst_signers";
+
+/// One-time migration target inside `analyst_signatures/signer_rules/` for legacy
+/// `company_signers.yaml` / `company_signers.jsonl` / `companies_*.txt` entries.
+pub const MIGRATED_COMPANY_SIGNERS_FILE: &str = "migrated_company_signers";
+
+static SIGNER_RULES_LOCK: Mutex<()> = Mutex::new(());
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+struct SignerRuleDoc {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    version: Option<String>,
+    #[serde(default)]
+    rules: Vec<SignerRuleEntry>,
 }
 
-/// Decision from the company lists for one file: the matched list entry, the
-/// analyst's reason for it (empty when none was written) and, for the block
-/// list, the detection name to report (empty: the default name).
-pub enum CompanyDecision {
-    /// Signer is allow-listed and the signature is cryptographically valid.
-    Allow(String, String),
-    /// Signer is block-listed (valid signature or not).
-    Block(String, String, String),
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct SignerRuleEntry {
+    #[serde(default)]
+    id: String,
+    #[serde(default)]
+    title: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    description: String,
+    #[serde(default)]
+    verdict: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    family: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    severity: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    confidence: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    score: Option<u32>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    tags: Vec<String>,
+    #[serde(default)]
+    conditions: Vec<SignerRuleCond>,
 }
 
-/// Every distinct name a signed file answers to, in the order an analyst is
-/// most likely to have written it: the publisher first, then the things behind
-/// it. Matching stays whole-line and case-insensitive, exactly as it always was;
-/// only the set of candidate strings grew.
-fn identity_labels(s: &openedr_static::report::SignerDetails) -> Vec<String> {
-    let mut out: Vec<String> = Vec::new();
-    for v in [
-        s.signer_name.as_deref(),
-        s.issuer.as_deref(),
-        s.timestamp_signer.as_deref(),
-        s.thumbprint.as_deref(),
-    ] {
-        let v = v.map(str::trim).filter(|v| !v.is_empty());
-        if let Some(v) = v {
-            if !out.iter().any(|e| e.eq_ignore_ascii_case(v)) {
-                out.push(v.to_string());
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct SignerRuleCond {
+    #[serde(rename = "type")]
+    cond_type: String,
+    #[serde(default)]
+    value: String,
+    #[serde(default = "default_true")]
+    nocase: bool,
+}
+
+fn default_true() -> bool {
+    true
+}
+
+/// Request parameters for adding one quick signer rule from the dashboard.
+#[derive(Debug, Clone)]
+pub struct QuickSignerRuleInput {
+    pub verdict: String,
+    pub condition_type: String,
+    pub value: String,
+    pub reason: String,
+    pub title: String,
+    pub family: String,
+}
+
+/// Summary returned after appending a quick signer rule.
+#[derive(Debug, Clone)]
+pub struct QuickSignerRuleResult {
+    pub file_name: String,
+    pub path: PathBuf,
+    pub rule_id: String,
+    pub rule_count: usize,
+}
+
+fn normalize_thumbprint_hex(value: &str) -> Result<String, String> {
+    let mut hex = String::with_capacity(40);
+    for c in value.trim().chars() {
+        if c.is_ascii_hexdigit() {
+            hex.push(c.to_ascii_lowercase());
+        } else if !matches!(c, ':' | ' ' | '-') {
+            return Err(format!("thumbprint contains invalid character {c:?}"));
+        }
+    }
+    if hex.len() != 40 {
+        return Err(format!("thumbprint must be 40 hex chars (SHA-1), got {}", hex.len()));
+    }
+    Ok(hex)
+}
+
+fn slugify_rule_id(prefix: &str, raw: &str, used: &HashSet<String>) -> String {
+    let raw_slug: String = raw
+        .to_ascii_lowercase()
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
+        .collect();
+    let slug = raw_slug
+        .split('-')
+        .filter(|s| !s.is_empty())
+        .take(8)
+        .collect::<Vec<_>>()
+        .join("-");
+    let base = format!(
+        "{prefix}-{}",
+        if slug.is_empty() { "rule" } else { slug.as_str() }
+    );
+    if !used.contains(&base) {
+        return base;
+    }
+    let mut n = 2usize;
+    loop {
+        let candidate = format!("{base}-{n}");
+        if !used.contains(&candidate) {
+            return candidate;
+        }
+        n += 1;
+    }
+}
+
+fn default_signer_rule_title(verdict: &str, cond_type: &str, value: &str) -> String {
+    let target = if cond_type.starts_with("signature_issuer_") {
+        "issuing CA"
+    } else if cond_type.starts_with("signature_timestamp_signer_") {
+        "TSA"
+    } else if cond_type.starts_with("signature_thumbprint_") {
+        "certificate"
+    } else {
+        "publisher"
+    };
+    match verdict {
+        "trusted" => format!("Trusted {target}: {value}"),
+        "pua" => format!("PUA {target}: {value}"),
+        _ => format!("Malicious {target}: {value}"),
+    }
+}
+
+fn canonical_verdict(v: &str) -> Option<&'static str> {
+    match v.trim().to_ascii_lowercase().as_str() {
+        "trusted" => Some("trusted"),
+        "malware" | "malicious" => Some("malware"),
+        "pua" => Some("pua"),
+        _ => None,
+    }
+}
+
+fn write_signer_rules_doc(path: &Path, doc: &SignerRuleDoc, header: &str) -> Result<usize, String> {
+    let yaml_body = yaml_serde::to_string(doc).map_err(|e| format!("failed to serialize signer rules YAML: {e}"))?;
+    let full = format!("{header}{yaml_body}");
+    let count = validate_signer_rules(&full)?;
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| format!("failed to create {}: {e}", parent.display()))?;
+    }
+    let tmp = path.with_extension("yaml.tmp");
+    std::fs::write(&tmp, &full).map_err(|e| format!("failed to write {}: {e}", tmp.display()))?;
+    std::fs::rename(&tmp, path).map_err(|e| format!("failed to save {}: {e}", path.display()))?;
+    Ok(count)
+}
+
+/// Appends one validated Authenticode signer rule into
+/// `analyst_signatures/signer_rules/analyst_signers.yaml`.
+pub fn append_quick_signer_rule(input: QuickSignerRuleInput) -> Result<QuickSignerRuleResult, String> {
+    append_quick_signer_rule_in(&crate::human_review::analyst_dir(), input)
+}
+
+fn append_quick_signer_rule_in(analyst_root: &Path, input: QuickSignerRuleInput) -> Result<QuickSignerRuleResult, String> {
+    let verdict = canonical_verdict(&input.verdict)
+        .ok_or_else(|| "verdict must be 'trusted', 'malware', or 'pua'".to_string())?;
+    let raw_cond = input.condition_type.trim();
+    let cond_type = if raw_cond.is_empty() {
+        "signature_signer_equals"
+    } else {
+        raw_cond
+    };
+    if !SIGNER_CONDITION_TYPES.contains(&cond_type) {
+        return Err(format!(
+            "unsupported signer condition type {cond_type:?} (supported: {})",
+            SIGNER_CONDITION_TYPES.join(", ")
+        ));
+    }
+    if verdict == "trusted" && !cond_type.starts_with("signature_signer_") {
+        return Err("trusted rules only support publisher conditions (signature_signer_equals / signature_signer_contains)".into());
+    }
+    if verdict == "pua" && !cond_type.starts_with("signature_signer_") && !cond_type.starts_with("signature_issuer_") {
+        return Err("PUA signer rules only support publisher or issuing CA conditions".into());
+    }
+
+    let raw_val = input.value.trim();
+    if raw_val.is_empty() {
+        return Err("certificate field value cannot be empty".into());
+    }
+    if raw_val.chars().count() > 256 {
+        return Err("certificate field value is too long (max 256 chars)".into());
+    }
+    let value = if cond_type.starts_with("signature_thumbprint_") {
+        normalize_thumbprint_hex(raw_val)?
+    } else {
+        raw_val.to_string()
+    };
+
+    let reason = input.reason.trim().to_string();
+    if reason.chars().count() < 3 {
+        return Err("Reason is mandatory (at least 3 characters)".into());
+    }
+
+    let family = if verdict == "trusted" {
+        String::new()
+    } else {
+        input.family.trim().to_string()
+    };
+    let title = {
+        let t = input.title.trim();
+        if t.is_empty() {
+            default_signer_rule_title(verdict, cond_type, &value)
+        } else {
+            t.to_string()
+        }
+    };
+    let severity = match verdict {
+        "trusted" => "info",
+        "pua" => "medium",
+        _ => "high",
+    }
+    .to_string();
+
+    let _guard = SIGNER_RULES_LOCK.lock().unwrap();
+    let path = analyst_root.join("signer_rules").join(format!("{ANALYST_SIGNERS_FILE}.yaml"));
+    let mut doc = if path.is_file() {
+        let src = std::fs::read_to_string(&path).map_err(|e| format!("failed to read {}: {e}", path.display()))?;
+        yaml_serde::from_str::<SignerRuleDoc>(&src)
+            .map_err(|e| format!("existing {ANALYST_SIGNERS_FILE}.yaml is invalid ({e}); fix it in Signature Room first"))?
+    } else {
+        SignerRuleDoc {
+            name: Some("Analyst Signer Rules".to_string()),
+            version: Some("1".to_string()),
+            rules: Vec::new(),
+        }
+    };
+    if doc.name.is_none() {
+        doc.name = Some("Analyst Signer Rules".to_string());
+    }
+    if doc.version.is_none() {
+        doc.version = Some("1".to_string());
+    }
+
+    let val_lower = value.to_ascii_lowercase();
+    for existing in &doc.rules {
+        let ex_verdict = canonical_verdict(&existing.verdict).unwrap_or("");
+        for cond in &existing.conditions {
+            if cond.cond_type == cond_type && cond.value.trim().to_ascii_lowercase() == val_lower {
+                if ex_verdict == verdict {
+                    return Err(format!(
+                        "A {verdict} rule for {cond_type} = \"{value}\" already exists in {ANALYST_SIGNERS_FILE}.yaml (id: {}).",
+                        existing.id
+                    ));
+                }
+                return Err(format!(
+                    "{cond_type} = \"{value}\" already has verdict \"{ex_verdict}\" in {ANALYST_SIGNERS_FILE}.yaml (id: {}); edit or remove it in Signature Room first.",
+                    existing.id
+                ));
             }
         }
     }
-    out
+
+    let used_ids: HashSet<String> = doc.rules.iter().map(|r| r.id.trim().to_string()).collect();
+    let rule_id = slugify_rule_id(&format!("analyst-{verdict}"), &value, &used_ids);
+    doc.rules.push(SignerRuleEntry {
+        id: rule_id.clone(),
+        title,
+        description: reason,
+        verdict: verdict.to_string(),
+        family,
+        severity,
+        confidence: None,
+        score: None,
+        tags: Vec::new(),
+        conditions: vec![SignerRuleCond {
+            cond_type: cond_type.to_string(),
+            value,
+            nocase: true,
+        }],
+    });
+
+    const HEADER: &str = "# Analyst Authenticode signer rules managed via quick-add & Signature Room.\n# Loaded into StaticEngine (`openedr_static::signers`).\n";
+    let count = write_signer_rules_doc(&path, &doc, HEADER)?;
+    Ok(QuickSignerRuleResult {
+        file_name: ANALYST_SIGNERS_FILE.to_string(),
+        path,
+        rule_id,
+        rule_count: count,
+    })
+}
+
+// ------------------------------------------------------------------ legacy company-list migration
+
+#[derive(Debug, Deserialize)]
+struct LegacyCompanyYamlFile {
+    #[serde(default)]
+    rules: Vec<LegacyCompanyYamlRule>,
+}
+
+#[derive(Debug, Deserialize)]
+struct LegacyCompanyYamlRule {
+    #[serde(default)]
+    title: String,
+    #[serde(default)]
+    description: String,
+    #[serde(default)]
+    verdict: String,
+    #[serde(default)]
+    family: String,
+    #[serde(default)]
+    conditions: Vec<LegacyCompanyYamlCond>,
+}
+
+#[derive(Debug, Deserialize)]
+struct LegacyCompanyYamlCond {
+    #[serde(rename = "type", default)]
+    cond_type: String,
+    #[serde(default)]
+    value: String,
+    #[serde(default = "default_true")]
+    nocase: bool,
+}
+
+#[derive(Debug, Deserialize)]
+struct LegacyCompanyJsonEntry {
+    name: String,
+    list: String,
+    #[serde(default)]
+    reason: String,
+    #[serde(default)]
+    title: String,
+    #[serde(default)]
+    family: String,
+    #[serde(default)]
+    aliases: Vec<String>,
+}
+
+fn legacy_verdict(raw: &str) -> Option<&'static str> {
+    match raw.trim().to_ascii_lowercase().as_str() {
+        "trusted" | "allow" | "clean" => Some("trusted"),
+        "malware" | "malicious" | "block" => Some("malware"),
+        "pua" => Some("pua"),
+        _ => None,
+    }
+}
+
+fn map_legacy_condition(verdict: &str, raw_type: &str, raw_value: &str, nocase: bool) -> Option<SignerRuleCond> {
+    let trimmed = raw_value.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    let t = raw_type.trim();
+    if verdict == "trusted" {
+        let cond_type = if t == "signature_signer_contains" {
+            "signature_signer_contains"
+        } else {
+            "signature_signer_equals"
+        };
+        return Some(SignerRuleCond {
+            cond_type: cond_type.to_string(),
+            value: trimmed.to_string(),
+            nocase,
+        });
+    }
+    if t == "signature_thumbprint_equals" || t == "signature_thumbprint_any" {
+        if let Ok(hex) = normalize_thumbprint_hex(trimmed) {
+            return Some(SignerRuleCond {
+                cond_type: t.to_string(),
+                value: hex,
+                nocase: true,
+            });
+        }
+        return Some(SignerRuleCond {
+            cond_type: "signature_signer_equals".to_string(),
+            value: trimmed.to_string(),
+            nocase,
+        });
+    }
+    if SIGNER_CONDITION_TYPES.contains(&t) {
+        return Some(SignerRuleCond {
+            cond_type: t.to_string(),
+            value: trimmed.to_string(),
+            nocase,
+        });
+    }
+    if let Ok(hex) = normalize_thumbprint_hex(trimmed) {
+        return Some(SignerRuleCond {
+            cond_type: "signature_thumbprint_equals".to_string(),
+            value: hex,
+            nocase: true,
+        });
+    }
+    Some(SignerRuleCond {
+        cond_type: "signature_signer_equals".to_string(),
+        value: trimmed.to_string(),
+        nocase,
+    })
+}
+
+fn backup_legacy_path(src: &Path) -> PathBuf {
+    let base_name = src
+        .file_name()
+        .map(|n| format!("{}.migrated", n.to_string_lossy()))
+        .unwrap_or_else(|| "legacy.migrated".to_string());
+    let first = src.with_file_name(&base_name);
+    if !first.exists() {
+        return first;
+    }
+    let mut n = 2usize;
+    loop {
+        let candidate = src.with_file_name(format!("{base_name}.{n}"));
+        if !candidate.exists() {
+            return candidate;
+        }
+        n += 1;
+    }
+}
+
+/// One-time migration from legacy `company_signers.yaml`, `company_signers.jsonl`,
+/// `companies_allow.txt`, and `companies_block.txt` into
+/// `analyst_signatures/signer_rules/migrated_company_signers.yaml`.
+/// Runs at engine startup / reload before reading `signer_rules/*.yaml`.
+pub fn migrate_legacy_company_lists() {
+    migrate_legacy_company_lists_in(&crate::human_review::analyst_dir());
+}
+
+fn migrate_legacy_company_lists_in(analyst_root: &Path) {
+    use std::io::{BufRead, BufReader};
+
+    let _guard = SIGNER_RULES_LOCK.lock().unwrap();
+    let legacy_names = [
+        "company_signers.yaml",
+        "company_signers.jsonl",
+        "companies_allow.txt",
+        "companies_block.txt",
+    ];
+    let present: Vec<PathBuf> = legacy_names
+        .iter()
+        .map(|n| analyst_root.join(n))
+        .filter(|p| p.is_file())
+        .collect();
+    if present.is_empty() {
+        return;
+    }
+
+    let mut migrated_rules: Vec<SignerRuleEntry> = Vec::new();
+    let mut used_ids: HashSet<String> = HashSet::new();
+    let mut seen_keys: HashSet<(String, String, String)> = HashSet::new();
+
+    let dest = analyst_root
+        .join("signer_rules")
+        .join(format!("{MIGRATED_COMPANY_SIGNERS_FILE}.yaml"));
+    let mut doc = if dest.is_file() {
+        match std::fs::read_to_string(&dest)
+            .map_err(|e| e.to_string())
+            .and_then(|s| yaml_serde::from_str::<SignerRuleDoc>(&s).map_err(|e| e.to_string()))
+        {
+            Ok(existing) => existing,
+            Err(e) => {
+                eprintln!("[engine] existing {} is invalid ({e}); skipping legacy company migration", dest.display());
+                return;
+            }
+        }
+    } else {
+        SignerRuleDoc {
+            name: Some("Migrated Company Signer Rules".to_string()),
+            version: Some("1".to_string()),
+            rules: Vec::new(),
+        }
+    };
+    if doc.name.is_none() {
+        doc.name = Some("Migrated Company Signer Rules".to_string());
+    }
+    if doc.version.is_none() {
+        doc.version = Some("1".to_string());
+    }
+    for r in &doc.rules {
+        used_ids.insert(r.id.trim().to_string());
+        if let Some(v) = canonical_verdict(&r.verdict) {
+            for c in &r.conditions {
+                seen_keys.insert((v.to_string(), c.cond_type.clone(), c.value.trim().to_ascii_lowercase()));
+            }
+        }
+    }
+
+    let mut push_rule = |verdict: &str, title: String, description: String, family: String, conditions: Vec<SignerRuleCond>| {
+        let filtered: Vec<SignerRuleCond> = conditions
+            .into_iter()
+            .filter(|c| seen_keys.insert((verdict.to_string(), c.cond_type.clone(), c.value.to_ascii_lowercase())))
+            .collect();
+        if filtered.is_empty() {
+            return;
+        }
+        let primary = &filtered[0];
+        let final_title = if title.trim().is_empty() {
+            default_signer_rule_title(verdict, &primary.cond_type, &primary.value)
+        } else {
+            title.trim().to_string()
+        };
+        let id = slugify_rule_id(&format!("migrated-{verdict}"), &primary.value, &used_ids);
+        used_ids.insert(id.clone());
+        migrated_rules.push(SignerRuleEntry {
+            id,
+            title: final_title,
+            description: if description.trim().is_empty() {
+                "Migrated from legacy company list.".to_string()
+            } else {
+                description.trim().to_string()
+            },
+            verdict: verdict.to_string(),
+            family: if verdict == "trusted" { String::new() } else { family.trim().to_string() },
+            severity: if verdict == "trusted" { "info" } else { "high" }.to_string(),
+            confidence: None,
+            score: None,
+            tags: Vec::new(),
+            conditions: filtered,
+        });
+    };
+
+    let yaml_path = analyst_root.join("company_signers.yaml");
+    if yaml_path.is_file() {
+        let raw = match std::fs::read_to_string(&yaml_path) {
+            Ok(s) => s,
+            Err(e) => {
+                eprintln!("[engine] could not read {}: {e}; leaving legacy files untouched", yaml_path.display());
+                return;
+            }
+        };
+        let parsed: LegacyCompanyYamlFile = match yaml_serde::from_str(&raw) {
+            Ok(f) => f,
+            Err(e) => {
+                eprintln!("[engine] legacy company_signers.yaml parse error ({e}); leaving legacy files untouched");
+                return;
+            }
+        };
+        for r in parsed.rules {
+            let Some(verdict) = legacy_verdict(&r.verdict) else { continue };
+            let conds: Vec<SignerRuleCond> = r
+                .conditions
+                .into_iter()
+                .filter_map(|c| map_legacy_condition(verdict, &c.cond_type, &c.value, c.nocase))
+                .collect();
+            push_rule(verdict, r.title, r.description, r.family, conds);
+        }
+    } else {
+        let jsonl_path = analyst_root.join("company_signers.jsonl");
+        let mut legacy_entries: HashMap<(String, String), LegacyCompanyJsonEntry> = HashMap::new();
+        if let Ok(f) = std::fs::File::open(&jsonl_path) {
+            for line in BufReader::new(f).lines().map_while(Result::ok) {
+                let Ok(v) = serde_json::from_str::<serde_json::Value>(&line) else { continue };
+                let Some(name) = v["name"].as_str().map(|s| s.trim().to_string()).filter(|s| !s.is_empty()) else { continue };
+                let Some(list) = v["list"].as_str().and_then(legacy_verdict) else { continue };
+                let key = (name.to_ascii_lowercase(), list.to_string());
+                if v["removed"].as_bool() == Some(true) {
+                    legacy_entries.remove(&key);
+                } else if let Ok(mut e) = serde_json::from_value::<LegacyCompanyJsonEntry>(v) {
+                    e.name = name;
+                    e.list = list.to_string();
+                    legacy_entries.insert(key, e);
+                }
+            }
+        }
+        for (file_name, verdict) in [("companies_allow.txt", "trusted"), ("companies_block.txt", "malware")] {
+            if let Ok(text) = std::fs::read_to_string(analyst_root.join(file_name)) {
+                for line in text.lines() {
+                    let mut parts = line.splitn(2, '#');
+                    let clean = parts.next().unwrap_or("").trim();
+                    let comment = parts.next().unwrap_or("").trim();
+                    if clean.is_empty() {
+                        continue;
+                    }
+                    let key = (clean.to_ascii_lowercase(), verdict.to_string());
+                    legacy_entries.entry(key).or_insert_with(|| LegacyCompanyJsonEntry {
+                        name: clean.to_string(),
+                        list: verdict.to_string(),
+                        reason: comment.to_string(),
+                        title: String::new(),
+                        family: String::new(),
+                        aliases: Vec::new(),
+                    });
+                }
+            }
+        }
+        let mut entries: Vec<LegacyCompanyJsonEntry> = legacy_entries.into_values().collect();
+        entries.sort_by(|a, b| (a.list.as_str(), a.name.to_ascii_lowercase()).cmp(&(b.list.as_str(), b.name.to_ascii_lowercase())));
+        for e in entries {
+            let conds: Vec<SignerRuleCond> = std::iter::once(e.name)
+                .chain(e.aliases)
+                .filter_map(|val| map_legacy_condition(&e.list, "", &val, true))
+                .collect();
+            push_rule(&e.list, e.title, e.reason, e.family, conds);
+        }
+    }
+
+    let added_count = migrated_rules.len();
+    if added_count > 0 {
+        doc.rules.extend(migrated_rules);
+        const HEADER: &str = "# Automatically migrated from legacy company signer lists into signer_rules/*.yaml.\n";
+        if let Err(e) = write_signer_rules_doc(&dest, &doc, HEADER) {
+            eprintln!("[engine] failed to write {}: {e}; leaving legacy files untouched", dest.display());
+            return;
+        }
+        eprintln!(
+            "[engine] migrated {added_count} legacy company signer rule(s) into signer_rules/{MIGRATED_COMPANY_SIGNERS_FILE}.yaml"
+        );
+    }
+
+    for src in present {
+        let bak = backup_legacy_path(&src);
+        if let Err(e) = std::fs::rename(&src, &bak) {
+            eprintln!("[engine] warning: could not archive legacy file {}: {e}", src.display());
+        }
+    }
 }
 
 
@@ -709,103 +1276,12 @@ impl AnalystEngine {
         let sig_rules = set.as_ref().map(|s| s.rules().len()).unwrap_or(0);
         *self.sig.write().unwrap() = set.filter(|s| !s.rules().is_empty());
 
-        // Company lists: `company_signers.yaml` (hand edits picked up here).
-        let companies_error = crate::company_signers::reload_from_disk();
-        let mut companies = CompanyLists::default();
-        for e in crate::company_signers::list() {
-            let list: &'static str = if e.list == "allow" { "allow" } else { "block" };
-            for n in std::iter::once(&e.name).chain(e.aliases.iter()) {
-                let k = (n.to_ascii_lowercase(), list);
-                if list == "allow" {
-                    companies.allow.push(n.clone());
-                } else {
-                    companies.block.push(n.clone());
-                }
-                let detail = match (e.title.trim(), e.reason.trim()) {
-                    ("", r) => r.to_string(),
-                    (t, "") => t.to_string(),
-                    (t, r) => format!("{t}: {r}"),
-                };
-                if !detail.is_empty() {
-                    companies.reasons.insert(k.clone(), detail);
-                }
-                if !e.family.trim().is_empty() {
-                    companies.families.insert(k, e.family.trim().to_string());
-                }
-            }
-        }
-        companies.allow.sort_by_key(|n| n.to_ascii_lowercase());
-        companies.block.sort_by_key(|n| n.to_ascii_lowercase());
-        let (n_allow, n_block) = (companies.allow.len(), companies.block.len());
-        {
-            let mut cur = self.companies.write().unwrap();
-            if *cur != companies && self.companies_loaded.load(Ordering::Relaxed) {
-                self.companies_changed_at.store(crate::cache::now_secs(), Ordering::Relaxed);
-            }
-            *cur = companies;
-        }
-        self.companies_loaded.store(true, Ordering::Relaxed);
-
         let msg = format!(
-            "companies {n_allow} allowed / {n_block} blocked{}, analyst signatures: clamav {clam_loaded} sigs from {clam_count} files ({clam_errors} errors), hydradragonsig {sig_rules} rules ({} files failed)",
-            companies_error.map(|e| format!(" (YAML NOT LOADED: {e})")).unwrap_or_default(),
+            "analyst signatures: clamav {clam_loaded} sigs from {clam_count} files ({clam_errors} errors), hydradragonsig {sig_rules} rules ({} files failed)",
             sig_failed.len()
         );
         eprintln!("[engine] {msg}");
         msg
-    }
-
-    /// Unix seconds of the last change to the company lists (0: none since start).
-    pub fn companies_changed_at(&self) -> i64 {
-        self.companies_changed_at.load(Ordering::Relaxed)
-    }
-
-    pub fn company_lists(&self) -> CompanyLists {
-        self.companies.read().unwrap().clone()
-    }
-
-    /// Block wins over allow, over everything a signed file can be named by:
-    /// publisher, issuing CA, the countersigning authority and the leaf
-    /// thumbprint. A compromised CA signs for whatever subject it is asked for,
-    /// and a revoked-but-still-trusted leaf has an ordinary-looking publisher,
-    /// so matching the publisher alone misses both.
-    ///
-    /// Allow needs a cryptographically valid signature (`status == "trusted"`:
-    /// WinVerifyTrust / catalog passed): a name alone (or a broken signature)
-    /// never makes a file clean. Not `is_trusted`: the engine sets that only
-    /// when the publisher is also in `signer_rules/trusted_signers.yaml`, so
-    /// every company an analyst added that the YAML does not list (Gen Digital
-    /// Inc., ...) was never allowed.
-    ///
-    /// This stays the server's own layer: it does not consult `signer_rules/`
-    /// and does not duplicate the engine's `SignerRule` detections.
-    pub fn company_decision_for(
-        &self,
-        s: &openedr_static::report::SignerDetails,
-    ) -> Option<CompanyDecision> {
-        let labels = identity_labels(s);
-        if labels.is_empty() {
-            return None;
-        }
-        let lists = self.companies.read().unwrap();
-        let reason = |l: &str, list: &'static str| {
-            lists.reasons.get(&(l.to_ascii_lowercase(), list)).cloned().unwrap_or_default()
-        };
-        for l in &labels {
-            if lists.block.iter().any(|c| c.eq_ignore_ascii_case(l)) {
-                let family = lists.families.get(&(l.to_ascii_lowercase(), "block")).cloned().unwrap_or_default();
-                return Some(CompanyDecision::Block(l.clone(), reason(l, "block"), family));
-            }
-        }
-        let signature_valid = s.is_signed && s.status == "trusted";
-        if signature_valid {
-            for l in &labels {
-                if lists.allow.iter().any(|c| c.eq_ignore_ascii_case(l)) {
-                    return Some(CompanyDecision::Allow(l.clone(), reason(l, "allow")));
-                }
-            }
-        }
-        None
     }
 
     /// Runs the analyst signatures over a file and, when it is a container the
@@ -964,5 +1440,202 @@ impl AnalystEngine {
         }
         out.truncate(limit);
         out
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    static SEQ: AtomicU64 = AtomicU64::new(1);
+
+    fn temp_analyst_dir(tag: &str) -> PathBuf {
+        let id = SEQ.fetch_add(1, Ordering::Relaxed);
+        let dir = std::env::temp_dir().join(format!("multron_signer_{tag}_{}_{id}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    fn quick_add_validates_and_appends_signer_rules() {
+        let dir = temp_analyst_dir("quick");
+
+        // 1. Trusted publisher succeeds
+        let r1 = append_quick_signer_rule_in(
+            &dir,
+            QuickSignerRuleInput {
+                verdict: "trusted".into(),
+                condition_type: "signature_signer_equals".into(),
+                value: "Contoso Software Ltd.".into(),
+                reason: "Verified clean developer build".into(),
+                title: String::new(),
+                family: String::new(),
+            },
+        )
+        .expect("trusted rule succeeds");
+        assert_eq!(r1.rule_count, 1);
+
+        // 2. Trusted + issuer is rejected
+        let err_trust_issuer = append_quick_signer_rule_in(
+            &dir,
+            QuickSignerRuleInput {
+                verdict: "trusted".into(),
+                condition_type: "signature_issuer_equals".into(),
+                value: "Some Root CA".into(),
+                reason: "Bad idea to trust entire CA".into(),
+                title: String::new(),
+                family: String::new(),
+            },
+        )
+        .unwrap_err();
+        assert!(err_trust_issuer.contains("publisher conditions"));
+
+        // 3. PUA + thumbprint is rejected (SignerDb only checks PUA publishers & issuers)
+        let err_pua_tp = append_quick_signer_rule_in(
+            &dir,
+            QuickSignerRuleInput {
+                verdict: "pua".into(),
+                condition_type: "signature_thumbprint_equals".into(),
+                value: "00112233445566778899aabbccddeeff00112233".into(),
+                reason: "Unsupported PUA thumbprint".into(),
+                title: String::new(),
+                family: String::new(),
+            },
+        )
+        .unwrap_err();
+        assert!(err_pua_tp.contains("PUA signer rules only support"));
+
+        // 4. Conflicting verdict for same publisher is rejected
+        let err_conflict = append_quick_signer_rule_in(
+            &dir,
+            QuickSignerRuleInput {
+                verdict: "malware".into(),
+                condition_type: "signature_signer_equals".into(),
+                value: "contoso software ltd.".into(),
+                reason: "Conflict check".into(),
+                title: String::new(),
+                family: String::new(),
+            },
+        )
+        .unwrap_err();
+        assert!(err_conflict.contains("already has verdict"));
+
+        // 5. Malware thumbprint (colon format normalized to 40 lowercase hex) + PUA issuer
+        let r2 = append_quick_signer_rule_in(
+            &dir,
+            QuickSignerRuleInput {
+                verdict: "malware".into(),
+                condition_type: "signature_thumbprint_equals".into(),
+                value: "AA:BB:CC:DD:EE:FF:00:11:22:33:44:55:66:77:88:99:AA:BB:CC:DD".into(),
+                reason: "Stolen leaf cert".into(),
+                title: "Revoked leaf".into(),
+                family: "Trojan.Win32.StolenCert".into(),
+            },
+        )
+        .expect("malware thumbprint succeeds");
+        assert_eq!(r2.rule_count, 2);
+
+        let r3 = append_quick_signer_rule_in(
+            &dir,
+            QuickSignerRuleInput {
+                verdict: "pua".into(),
+                condition_type: "signature_issuer_contains".into(),
+                value: "Adware Intermediate".into(),
+                reason: "Adware bundler CA".into(),
+                title: String::new(),
+                family: "PUA.Win32.Bundler".into(),
+            },
+        )
+        .expect("pua issuer succeeds");
+        assert_eq!(r3.rule_count, 3);
+
+        let saved = std::fs::read_to_string(&r3.path).unwrap();
+        assert_eq!(validate_signer_rules(&saved), Ok(3));
+        assert!(saved.contains("aabbccddeeff00112233445566778899aabbccdd"));
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn migrate_legacy_txt_and_yaml_into_signer_rules() {
+        let dir = temp_analyst_dir("mig_txt");
+        std::fs::write(
+            dir.join("companies_allow.txt"),
+            "Beijing Huorong Network Technology Co., Ltd. # Huorong AV\n",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.join("companies_block.txt"),
+            "Evil Signer Corp # Fake updater\n00112233445566778899aabbccddeeff00112233 # Leaked leaf\n",
+        )
+        .unwrap();
+
+        migrate_legacy_company_lists_in(&dir);
+
+        let migrated = dir.join("signer_rules").join(format!("{MIGRATED_COMPANY_SIGNERS_FILE}.yaml"));
+        assert!(migrated.is_file());
+        let yaml = std::fs::read_to_string(&migrated).unwrap();
+        assert_eq!(validate_signer_rules(&yaml), Ok(3));
+        assert!(yaml.contains("Beijing Huorong Network Technology Co., Ltd."));
+        assert!(yaml.contains("signature_thumbprint_equals"));
+        assert!(!dir.join("companies_allow.txt").exists());
+        assert!(!dir.join("companies_block.txt").exists());
+        assert!(dir.join("companies_allow.txt.migrated").is_file());
+        assert!(dir.join("companies_block.txt.migrated").is_file());
+
+        // Second run is a clean no-op
+        migrate_legacy_company_lists_in(&dir);
+        assert_eq!(validate_signer_rules(&std::fs::read_to_string(&migrated).unwrap()), Ok(3));
+        let _ = std::fs::remove_dir_all(&dir);
+
+        // Legacy YAML with family, aliases & invalid-for-trusted condition is normalized safely
+        let dir_yaml = temp_analyst_dir("mig_yaml");
+        std::fs::write(
+            dir_yaml.join("company_signers.yaml"),
+            r#"
+name: Analyst Company Signer Rules
+version: "1"
+rules:
+  - id: company-block-shady
+    title: "Blocked company: Shady Software"
+    description: "Bundled adware"
+    verdict: malware
+    family: "PUA.Win32.Shady"
+    conditions:
+      - type: signature_signer_equals
+        value: "Shady Software Ltd"
+        nocase: true
+      - type: signature_signer_equals
+        value: "Shady Alias LLC"
+        nocase: true
+"#,
+        )
+        .unwrap();
+        migrate_legacy_company_lists_in(&dir_yaml);
+        let out_yaml = dir_yaml.join("signer_rules").join(format!("{MIGRATED_COMPANY_SIGNERS_FILE}.yaml"));
+        assert_eq!(validate_signer_rules(&std::fs::read_to_string(&out_yaml).unwrap()), Ok(1));
+        assert!(dir_yaml.join("company_signers.yaml.migrated").is_file());
+        let _ = std::fs::remove_dir_all(&dir_yaml);
+    }
+
+    #[test]
+    fn migrate_skips_and_preserves_broken_legacy_yaml() {
+        let dir = temp_analyst_dir("mig_broken");
+        std::fs::write(dir.join("company_signers.yaml"), "rules: [broken: yaml: :").unwrap();
+        migrate_legacy_company_lists_in(&dir);
+        assert!(dir.join("company_signers.yaml").is_file());
+        assert!(!dir.join("company_signers.yaml.migrated").exists());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn repo_trusted_signers_yaml_validates() {
+        let p = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../analyst_signatures/signer_rules/trusted_signers.yaml");
+        let src = std::fs::read_to_string(&p).expect("read trusted_signers.yaml");
+        assert_eq!(validate_signer_rules(&src), Ok(1));
+        assert!(src.contains("Beijing Huorong Network Technology Co., Ltd."));
     }
 }

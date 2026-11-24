@@ -1,0 +1,13 @@
+# Analyst trusted Authenticode signer rules (loaded into StaticEngine).
+name: Analyst Trusted Signers
+version: "1"
+rules:
+  - id: analyst-trusted-beijing-huorong
+    title: "Trusted publisher: Beijing Huorong Network Technology Co., Ltd."
+    description: "Migrated from legacy companies_allow.txt (Huorong Security signed binaries)."
+    severity: info
+    verdict: trusted
+    conditions:
+      - type: signature_signer_equals
+        value: "Beijing Huorong Network Technology Co., Ltd."
+        nocase: true

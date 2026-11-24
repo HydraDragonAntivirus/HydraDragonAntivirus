@@ -1836,7 +1836,6 @@ impl StaticEngine {
         }
 
         // 1. Authenticode & Signer Check
-        let mut signer_details = None;
         let auth_info = if let Some(p) = disk_path {
             let _t = crate::memtrack::stage("scan:authenticode");
             Some(verify_authenticode(p))
@@ -1844,128 +1843,8 @@ impl StaticEngine {
             let _t = crate::memtrack::stage("scan:authenticode");
             crate::signers::verify_authenticode_bytes(data)
         };
-        if let Some(info) = auth_info {
-            let mut trusted_by_yaml = false;
-            let mut trusted_rule = None;
-
-            if let Some(ref signer) = info.signer_name {
-                if let Some(hit) = self.signers.malicious_match(signer) {
-                    detections.push(DetectionItem {
-                        layer: "SignerRule".to_string(),
-                        name: signer_rule_name(hit, || format!("MaliciousSigner: {signer}")),
-                        score: Some(1.0),
-                        details: Some(signer_rule_details(hit, "Matched malicious_vendors.yaml")),
-                    });
-                    max_score = max_score.max(1.0);
-                } else if let Some(hit) = self.signers.pua_match(signer) {
-                    // PUA vendor: Suspicious / PUA, not Malicious (0.85 is the
-                    // Malicious cut-off, so the old 0.85 made every PUA signer malicious).
-                    detections.push(DetectionItem {
-                        layer: "SignerRule".to_string(),
-                        name: signer_rule_name(hit, || format!("PuaSigner: {signer}")),
-                        score: Some(CLAM_PUA_SCORE),
-                        details: Some(signer_rule_details(hit, "Matched pua_vendors.yaml")),
-                    });
-                    max_score = max_score.max(CLAM_PUA_SCORE);
-                } else if info.is_trusted {
-                    if let Some(hit) = self.signers.trusted_match(signer) {
-                        trusted_by_yaml = true;
-                        trusted_rule = hit.meta.as_deref().and_then(|m| m.summary());
-                    }
-                }
-            }
-
-            // A certificate is abused by its issuing CA, not by the publisher
-            // name it happens to carry: one compromised CA mints certificates
-            // for arbitrary subjects, so a publisher-substring rule never sees
-            // them. These two checks run on top of the publisher list rather
-            // than instead of it.
-            if let Some(ref issuer) = info.issuer {
-                if let Some(hit) = self.signers.malicious_issuer_match(issuer) {
-                    detections.push(DetectionItem {
-                        layer: "SignerRule".to_string(),
-                        name: signer_rule_name(hit, || format!("MaliciousCertIssuer: {issuer}")),
-                        score: Some(1.0),
-                        details: Some(signer_rule_details(
-                            hit,
-                            "Matched malicious_vendors.yaml (signature_issuer_*)",
-                        )),
-                    });
-                    max_score = max_score.max(1.0);
-                } else if let Some(hit) = self.signers.pua_issuer_match(issuer) {
-                    detections.push(DetectionItem {
-                        layer: "SignerRule".to_string(),
-                        name: signer_rule_name(hit, || format!("PuaCertIssuer: {issuer}")),
-                        score: Some(CLAM_PUA_SCORE),
-                        details: Some(signer_rule_details(
-                            hit,
-                            "Matched pua_vendors.yaml (signature_issuer_*)",
-                        )),
-                    });
-                    max_score = max_score.max(CLAM_PUA_SCORE);
-                }
-            }
-
-            if let Some(ref tp) = info.thumbprint {
-                if let Some(hit) = self.signers.pinned_thumbprint_match(tp) {
-                    detections.push(DetectionItem {
-                        layer: "SignerRule".to_string(),
-                        name: signer_rule_name(hit, || format!("PinnedCertificate: {tp}")),
-                        score: Some(1.0),
-                        details: Some(signer_rule_details(
-                            hit,
-                            "Matched malicious_vendors.yaml (signature_thumbprint_any)",
-                        )),
-                    });
-                    max_score = max_score.max(1.0);
-                }
-            }
-
-            // Certificate validity (expired / not yet valid) and missing
-            // countersignatures are NOT detections: legitimately signed scripts
-            // (Python venv Activate.ps1, PSF / DigiCert, no timestamp) hit them.
-            // The dashboard still shows the validity window as information.
-
-            // A binary is ONLY treated as trusted if:
-            // 1. Its cryptographic signature passed WinVerifyTrust / Catalog verification (is_trusted == true).
-            // 2. AND its signer is explicitly verified against trusted_signers.yaml (trusted_by_yaml == true).
-            let is_fully_trusted = info.is_trusted && trusted_by_yaml;
-
-            // A timestamp authority the rules name as abusive is the
-            // certificate-abuse case one layer down from the code signer.
-            if let Some(ref tsa) = info.timestamp_signer {
-                if let Some(hit) = self.signers.malicious_tsa_match(tsa) {
-                    detections.push(DetectionItem {
-                        layer: "SignerRule".to_string(),
-                        name: signer_rule_name(hit, || format!("MaliciousTimestampSigner: {tsa}")),
-                        score: Some(1.0),
-                        details: Some(signer_rule_details(
-                            hit,
-                            "Matched malicious_vendors.yaml (signature_timestamp_signer_*)",
-                        )),
-                    });
-                    max_score = max_score.max(1.0);
-                }
-            }
-
-            signer_details = Some(SignerDetails {
-                is_signed: info.is_signed,
-                is_trusted: is_fully_trusted,
-                signer_name: info.signer_name,
-                status: info.status,
-                is_catalog_signed: info.is_catalog_signed,
-                issuer: info.issuer,
-                chain_len: info.chain_len,
-                thumbprint: info.thumbprint,
-                not_before: info.not_before,
-                not_after: info.not_after,
-                timestamped: info.timestamped,
-                timestamp_kind: info.timestamp_kind,
-                timestamp_signer: info.timestamp_signer,
-                timestamp_time: info.timestamp_time,
-                trusted_rule: if is_fully_trusted { trusted_rule } else { None },
-            });
-        }
+        let signer_details = auth_info
+            .map(|info| evaluate_authenticode(&self.signers, info, &mut detections, &mut max_score));
 
         // 0.2 SHA-256 benign whitelist (NSRL / Tranco `.xf`, BinaryFuse32; web parity).
         // Gated on an empty detection list, so a malicious/PUA signer or an EICAR
@@ -3051,5 +2930,255 @@ fn is_js_content(bytes: &[u8]) -> bool {
         s.contains("function") || s.contains("var ") || s.contains("const ") || s.contains("let ")
     } else {
         false
+    }
+}
+
+/// Evaluates extracted Authenticode metadata against `SignerDb`, pushing any
+/// `SignerRule` detections and computing final `is_trusted` after all publisher,
+/// issuer, pinned thumbprint, and TSA checks complete.
+fn evaluate_authenticode(
+    signers: &SignerDb,
+    info: crate::signers::AuthenticodeInfo,
+    detections: &mut Vec<DetectionItem>,
+    max_score: &mut f32,
+) -> SignerDetails {
+    let mut trusted_by_yaml = false;
+    let mut trusted_rule = None;
+
+    if let Some(ref signer) = info.signer_name {
+        if let Some(hit) = signers.malicious_match(signer) {
+            detections.push(DetectionItem {
+                layer: "SignerRule".to_string(),
+                name: signer_rule_name(hit, || format!("MaliciousSigner: {signer}")),
+                score: Some(1.0),
+                details: Some(signer_rule_details(hit, "Matched malicious_vendors.yaml")),
+            });
+            *max_score = max_score.max(1.0);
+        } else if let Some(hit) = signers.pua_match(signer) {
+            // PUA vendor: Suspicious / PUA, not Malicious (0.85 is the
+            // Malicious cut-off, so the old 0.85 made every PUA signer malicious).
+            detections.push(DetectionItem {
+                layer: "SignerRule".to_string(),
+                name: signer_rule_name(hit, || format!("PuaSigner: {signer}")),
+                score: Some(CLAM_PUA_SCORE),
+                details: Some(signer_rule_details(hit, "Matched pua_vendors.yaml")),
+            });
+            *max_score = max_score.max(CLAM_PUA_SCORE);
+        } else if info.is_trusted {
+            if let Some(hit) = signers.trusted_match(signer) {
+                trusted_by_yaml = true;
+                trusted_rule = hit.meta.as_deref().and_then(|m| m.summary());
+            }
+        }
+    }
+
+    // A certificate is abused by its issuing CA, not by the publisher
+    // name it happens to carry: one compromised CA mints certificates
+    // for arbitrary subjects, so a publisher-substring rule never sees
+    // them. These two checks run on top of the publisher list rather
+    // than instead of it.
+    if let Some(ref issuer) = info.issuer {
+        if let Some(hit) = signers.malicious_issuer_match(issuer) {
+            detections.push(DetectionItem {
+                layer: "SignerRule".to_string(),
+                name: signer_rule_name(hit, || format!("MaliciousCertIssuer: {issuer}")),
+                score: Some(1.0),
+                details: Some(signer_rule_details(
+                    hit,
+                    "Matched malicious_vendors.yaml (signature_issuer_*)",
+                )),
+            });
+            *max_score = max_score.max(1.0);
+        } else if let Some(hit) = signers.pua_issuer_match(issuer) {
+            detections.push(DetectionItem {
+                layer: "SignerRule".to_string(),
+                name: signer_rule_name(hit, || format!("PuaCertIssuer: {issuer}")),
+                score: Some(CLAM_PUA_SCORE),
+                details: Some(signer_rule_details(
+                    hit,
+                    "Matched pua_vendors.yaml (signature_issuer_*)",
+                )),
+            });
+            *max_score = max_score.max(CLAM_PUA_SCORE);
+        }
+    }
+
+    if let Some(ref tp) = info.thumbprint {
+        if let Some(hit) = signers.pinned_thumbprint_match(tp) {
+            detections.push(DetectionItem {
+                layer: "SignerRule".to_string(),
+                name: signer_rule_name(hit, || format!("PinnedCertificate: {tp}")),
+                score: Some(1.0),
+                details: Some(signer_rule_details(
+                    hit,
+                    "Matched malicious_vendors.yaml (signature_thumbprint_any)",
+                )),
+            });
+            *max_score = max_score.max(1.0);
+        }
+    }
+
+    // A timestamp authority the rules name as abusive is the
+    // certificate-abuse case one layer down from the code signer.
+    if let Some(ref tsa) = info.timestamp_signer {
+        if let Some(hit) = signers.malicious_tsa_match(tsa) {
+            detections.push(DetectionItem {
+                layer: "SignerRule".to_string(),
+                name: signer_rule_name(hit, || format!("MaliciousTimestampSigner: {tsa}")),
+                score: Some(1.0),
+                details: Some(signer_rule_details(
+                    hit,
+                    "Matched malicious_vendors.yaml (signature_timestamp_signer_*)",
+                )),
+            });
+            *max_score = max_score.max(1.0);
+        }
+    }
+
+    // Certificate validity (expired / not yet valid) and missing
+    // countersignatures are NOT detections: legitimately signed scripts
+    // (Python venv Activate.ps1, PSF / DigiCert, no timestamp) hit them.
+    // The dashboard still shows the validity window as information.
+    //
+    // A binary is ONLY treated as trusted if:
+    // 1. Its cryptographic signature passed WinVerifyTrust / Catalog verification (is_trusted == true).
+    // 2. Its signer is explicitly verified against trusted signer rules (trusted_by_yaml == true).
+    // 3. AND no malicious / PUA SignerRule (issuer, pinned thumbprint, TSA, etc.) matched.
+    let has_signer_rule_hit = detections.iter().any(|d| d.layer == "SignerRule");
+    let is_fully_trusted = info.is_trusted && trusted_by_yaml && !has_signer_rule_hit;
+
+    SignerDetails {
+        is_signed: info.is_signed,
+        is_trusted: is_fully_trusted,
+        signer_name: info.signer_name,
+        status: info.status,
+        is_catalog_signed: info.is_catalog_signed,
+        issuer: info.issuer,
+        chain_len: info.chain_len,
+        thumbprint: info.thumbprint,
+        not_before: info.not_before,
+        not_after: info.not_after,
+        timestamped: info.timestamped,
+        timestamp_kind: info.timestamp_kind,
+        timestamp_signer: info.timestamp_signer,
+        timestamp_time: info.timestamp_time,
+        trusted_rule: if is_fully_trusted { trusted_rule } else { None },
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::signers::AuthenticodeInfo;
+
+    fn base_trusted_info() -> AuthenticodeInfo {
+        AuthenticodeInfo {
+            is_signed: true,
+            is_trusted: true,
+            signer_name: Some("Trusted Vendor Corp".to_string()),
+            issuer: Some("Good Root CA".to_string()),
+            status: "trusted".to_string(),
+            thumbprint: Some("0123456789abcdef0123456789abcdef01234567".to_string()),
+            timestamped: true,
+            timestamp_signer: Some("Good TSA".to_string()),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn malicious_signer_rules_cancel_is_fully_trusted() {
+        let mut db = SignerDb::default();
+        db.add_rules_yaml(
+            r#"
+rules:
+  - id: t1
+    title: "Trusted Vendor"
+    verdict: trusted
+    conditions:
+      - type: signature_signer_equals
+        value: "Trusted Vendor Corp"
+  - id: bad-issuer
+    title: "Compromised CA"
+    verdict: malware
+    family: "Trojan.CompromisedCA"
+    conditions:
+      - type: signature_issuer_equals
+        value: "Bad Intermediate CA"
+  - id: pua-issuer
+    title: "PUA CA"
+    verdict: pua
+    family: "PUA.BadCA"
+    conditions:
+      - type: signature_issuer_equals
+        value: "Shady PUA CA"
+  - id: bad-tp
+    title: "Leaked Cert"
+    verdict: malware
+    family: "Trojan.LeakedCert"
+    conditions:
+      - type: signature_thumbprint_equals
+        value: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  - id: bad-tsa
+    title: "Abusive TSA"
+    verdict: malware
+    family: "Trojan.AbusiveTSA"
+    conditions:
+      - type: signature_timestamp_signer_equals
+        value: "Evil TSA"
+"#,
+        )
+        .expect("valid analyst signer rules");
+
+        // 1. Clean trusted publisher with no adverse SignerRule hit
+        let mut detections = Vec::new();
+        let mut score = 0.0f32;
+        let clean = evaluate_authenticode(&db, base_trusted_info(), &mut detections, &mut score);
+        assert!(clean.is_trusted);
+        assert_eq!(clean.trusted_rule.as_deref(), Some("Trusted Vendor"));
+        assert!(detections.is_empty());
+
+        // 2. Malicious issuer overrides trusted publisher
+        let mut bad_issuer = base_trusted_info();
+        bad_issuer.issuer = Some("Bad Intermediate CA".to_string());
+        detections.clear();
+        score = 0.0;
+        let res = evaluate_authenticode(&db, bad_issuer, &mut detections, &mut score);
+        assert!(!res.is_trusted);
+        assert!(res.trusted_rule.is_none());
+        assert_eq!(detections.len(), 1);
+        assert_eq!(detections[0].name, "Trojan.CompromisedCA");
+
+        // 3. PUA issuer overrides trusted publisher
+        let mut pua_issuer = base_trusted_info();
+        pua_issuer.issuer = Some("Shady PUA CA".to_string());
+        detections.clear();
+        score = 0.0;
+        let res = evaluate_authenticode(&db, pua_issuer, &mut detections, &mut score);
+        assert!(!res.is_trusted);
+        assert!(res.trusted_rule.is_none());
+        assert_eq!(detections.len(), 1);
+        assert_eq!(detections[0].name, "PUA.BadCA");
+
+        // 4. Pinned thumbprint overrides trusted publisher
+        let mut bad_tp = base_trusted_info();
+        bad_tp.thumbprint = Some("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".to_string());
+        detections.clear();
+        score = 0.0;
+        let res = evaluate_authenticode(&db, bad_tp, &mut detections, &mut score);
+        assert!(!res.is_trusted);
+        assert!(res.trusted_rule.is_none());
+        assert_eq!(detections.len(), 1);
+        assert_eq!(detections[0].name, "Trojan.LeakedCert");
+
+        // 5. Malicious TSA overrides trusted publisher
+        let mut bad_tsa = base_trusted_info();
+        bad_tsa.timestamp_signer = Some("Evil TSA".to_string());
+        detections.clear();
+        score = 0.0;
+        let res = evaluate_authenticode(&db, bad_tsa, &mut detections, &mut score);
+        assert!(!res.is_trusted);
+        assert!(res.trusted_rule.is_none());
+        assert_eq!(detections.len(), 1);
+        assert_eq!(detections[0].name, "Trojan.AbusiveTSA");
     }
 }

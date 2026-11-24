@@ -827,7 +827,7 @@ pub async fn handle_download(Query(q): Query<TokenQuery>) -> Response {
 /// telemetry are not touched) and returns verdict, threat, engines and signer. Same
 /// verdict as a live scan: analyst TLSH / imphash signatures, the TLSH blacklist and
 /// the smart whitelist are applied too (the analyst ClamAV / HydraDragonSig / YARA
-/// signatures and company lists are part of the engine scan itself).
+/// signatures and signer rules are part of the engine scan itself).
 pub async fn handle_scan(State(app): State<Arc<AppState>>, Json(b): Json<TokenBody>) -> Response {
     let Some((name, data)) = doc(&b.token) else { return err(StatusCode::NOT_FOUND, "file is not open any more, open it again") };
     let eng = Arc::clone(&app.engine);

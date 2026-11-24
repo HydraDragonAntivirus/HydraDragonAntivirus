@@ -38,7 +38,7 @@ Aynı VDS'te farklı bir makineden (başka bir VM'den) bağlanılamaz. Gerekirse
 - Anahtar gerektiren uç noktalar: `/api/review`, `/api/review/start`, `/api/review/release`,
   `/api/review/delete`, `/api/reviews/bulk`, `/api/reviews/requeue`, `/api/signatures`,
   `/api/signatures/delete`, `/api/imphash-signatures`, `/api/imphash-signatures/delete`,
-  `/api/fp/ignore`, `/api/fp/unignore`, `/api/companies`, `/api/rules`, `/api/bans/add`,
+  `/api/fp/ignore`, `/api/fp/unignore`, `/api/signer-rules/quick-add`, `/api/rules`, `/api/bans/add`,
   `/api/bans/remove`, `/api/ml-thresholds`.
 
 Anahtarın çalıştığını doğrula:
@@ -256,7 +256,7 @@ gösterir. Bilinen FP kalıpları:
 - İmzası geçerli ve yayıncısı `signer_rules/trusted_signers.yaml`'de olan dosyalar ML'e gitmeden
   temiz sayılır. Meşru bir yayıncının dosyaları sürekli FP alıyorsa yayıncıyı bu listeye eklemeyi
   öner (listeyi kendin değiştirme; ana analist onaylar).
-- Şirket izin/engel listeleri: `GET /api/companies`, `POST /api/companies`.
+- İmzacı kuralları (trusted/malware/pua): Signature Room (`kind: "signer"` -> `signer_rules/*.yaml`) veya hızlı ekleme `POST /api/signer-rules/quick-add` (`GET /api/signer-rules/lookup`).
 
 ### 3.5 Kendi imzanı yazmak (zararlı için)
 

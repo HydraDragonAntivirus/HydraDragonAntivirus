@@ -2226,4 +2226,52 @@ rules:
         assert!(db.add_rules_yaml("rules:\n  - id: x\n    title: T\n    verdict: nope\n    conditions: []\n").is_err());
         assert_eq!(db.pattern_counts(), (1, 1, 0));
     }
+
+    #[test]
+    fn add_rules_yaml_malicious_overrides_trusted_and_tracks_issuer_tsa() {
+        let yaml = r#"
+rules:
+  - id: analyst-trust-huorong
+    title: "Trusted publisher: Beijing Huorong Network Technology Co., Ltd."
+    description: "Migrated from legacy companies_allow.txt"
+    severity: info
+    verdict: trusted
+    conditions:
+      - type: signature_signer_equals
+        value: "Beijing Huorong Network Technology Co., Ltd."
+        nocase: true
+  - id: analyst-mal-override
+    title: "Revoked Contoso cert"
+    verdict: malware
+    family: "Trojan.Win32.RevokedCert"
+    conditions:
+      - type: signature_signer_equals
+        value: "Contoso Build"
+      - type: signature_issuer_equals
+        value: "Compromised CA"
+      - type: signature_timestamp_signer_equals
+        value: "Evil TSA"
+      - type: signature_thumbprint_equals
+        value: "00112233445566778899aabbccddeeff00112233"
+  - id: analyst-pua-issuer
+    title: "Adware bundler issuer"
+    verdict: pua
+    family: "PUA.Win32.Bundler"
+    conditions:
+      - type: signature_issuer_contains
+        value: "Bundler Intermediate"
+"#;
+        let mut db = SignerDb::default();
+        // Pre-seed Contoso Build as trusted first; malware rule added later still takes precedence.
+        assert_eq!(db.add_rules_yaml(ANALYST_SIGNERS), Ok(2));
+        assert_eq!(db.add_rules_yaml(yaml), Ok(3));
+
+        assert!(db.trusted_match("beijing huorong network technology co., ltd.").is_some());
+        assert!(db.is_malicious("Contoso Build"));
+        assert!(db.trusted_match("Contoso Build").is_none());
+        assert!(db.malicious_issuer_match("Compromised CA").is_some());
+        assert!(db.malicious_tsa_match("Evil TSA").is_some());
+        assert!(db.pinned_thumbprint_match("00112233445566778899AABBCCDDEEFF00112233").is_some());
+        assert!(db.pua_issuer_match("Bundler Intermediate CA").is_some());
+    }
 }

@@ -672,10 +672,10 @@ async fn handle_health(State(server): State<Arc<ScanServer>>) -> impl IntoRespon
         }
         if self.cfg.cache() && !skip_cache {
             if let Some(v) = self.cache.get(sha) {
-                // Stale: the telemetry says the file has to be scanned again, or the
-                // verdict depends on the signer lists and they changed since.
+                // Stale: the telemetry says the file has to be scanned again, or a
+                // dashboard blacklist override (remove / restore) happened since.
                 if (v.verdict != "unknown" && self.threat_intel.needs_new_scan(sha))
-                    || self.engine.stale_for_signer_lists(sha_hex, &v)
+                    || self.engine.stale_for_blacklist_overrides(sha_hex, &v)
                 {
                     self.cache.forget(&[*sha].into_iter().collect());
                 } else {

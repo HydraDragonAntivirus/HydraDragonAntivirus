@@ -10,8 +10,9 @@ name = "hydradragonunicorn"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-# CPU emulation (Unicorn submodule)
-unicorn-engine = { path = "unicorn-engine-rs/bindings/rust/unicorn-engine", features = ["dynamic_linkage"] }
+# CPU emulation: links directly to our shipped unicorn.dll (OpenMalwareScannerPortable/unicorn.dll)
+# without invoking CMake/Ninja/bindgen on the unicorn-engine-rs C submodule.
+unicorn-engine = { path = "unicorn-prebuilt" }
 
 # Bitfield flags for VFS object flags (FsFlags)
 bitflags = "2.13.0"
