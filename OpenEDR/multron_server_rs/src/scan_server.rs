@@ -1741,11 +1741,13 @@ fn enqueue_post_scan_report(job: PostScanReportJob) {
         let _ = std::thread::Builder::new()
             .name("report-builder".into())
             .spawn(move || {
+                crate::scheduler::lower_thread_priority();
                 while let Ok(job) = rx.recv() {
                     if crate::reports::exists(&job.sha) {
                         continue;
                     }
                     let report = job.report.or_else(|| {
+                        let _slot = hydradragonclamav::cpu_budget::worker();
                         std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                             crate::analyzer::analyze(&job.data, &job.name)
                         }))
@@ -2382,7 +2384,7 @@ pub fn apply_threat_intel(
     apply_analyst_tlsh(ti, data, &query, &trace, res);
     apply_tlsh_blacklist(ti, data, &query, &trace, res);
     apply_imphash_sigs(ti, data, &trace, res);
-    let report = apply_smart_whitelist(ti, data, name, &trace, res);
+    let report = apply_smart_whitelist(ti, data, name, &query, &trace, res);
     trace.log_if_slow(name, data.len(), res);
     trace.record(name, data.len(), res);
     report
@@ -2485,6 +2487,7 @@ pub fn apply_smart_whitelist(
     ti: &crate::threat_intel::ThreatIntelStore,
     data: &[u8],
     name: &str,
+    query: &std::cell::OnceCell<Option<crate::similarity::TlshQuery>>,
     trace: &TiTrace,
     res: &mut ResultMessage,
 ) -> Option<crate::analyzer::FileReport> {
@@ -2501,8 +2504,13 @@ pub fn apply_smart_whitelist(
         );
         return None;
     }
+    let pre_tlsh = query.get().and_then(|o| o.as_ref()).and_then(|q| q.full_file_digest());
+    let pre_sha256 = (!res.sha256.is_empty()).then_some(res.sha256.as_str());
     let rep = trace.step("server:ti_static_report", |_| {
-        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| crate::analyzer::analyze(data, name))).ok()
+        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            crate::analyzer::analyze_with_hashes(data, name, pre_sha256, pre_tlsh)
+        }))
+        .ok()
     })?;
     if let Ok(cand) = trace.step("server:ti_report_json", |_| serde_json::to_value(&rep)) {
         let reviews = &ti.reviews;

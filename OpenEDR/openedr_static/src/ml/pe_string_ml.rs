@@ -430,10 +430,17 @@ fn collect_all_inner_strings(
 
     // Disassembler / Decompiler-Lite pass (CodeRef + StackStrings + OpcodePatterns)
     let mut decomp_count = 0usize;
-    // Shared with HydraSig's strings of the same bytes: one disassembly for both
-    // (`decompiled_strings::string_ml_options`: code refs, stack strings, opcodes).
-    let decompiled = { let _t = crate::memtrack::stage("ml:decompile_strings"); crate::decompiled_strings::string_ml(data) };
-    for s in decompiled.string_ml.iter().cloned() {
+    // Shared with HydraSig's strings only when HydraSig may scan these same bytes;
+    // for non-unpacked memory dumps (`extra_raw.is_some()`), extract string_ml only.
+    let decompiled_strings = {
+        let _t = crate::memtrack::stage("ml:decompile_strings");
+        if extra_raw.is_some() {
+            crate::decompiled_strings::string_ml_only(data)
+        } else {
+            crate::decompiled_strings::string_ml(data).string_ml.clone()
+        }
+    };
+    for s in decompiled_strings {
         if matches!(
             s.kind,
             StringKind::CodeRef | StringKind::StackString | StringKind::OpcodePattern

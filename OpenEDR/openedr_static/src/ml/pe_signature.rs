@@ -101,15 +101,11 @@ pub fn signature_tampered(data: &[u8]) -> bool {
         }
         h.finalize().to_vec()
     }
-    let found = [
-        digest_of::<Sha256>(&pieces),
-        digest_of::<Sha1>(&pieces),
-        digest_of::<Md5>(&pieces),
-        digest_of::<Sha384>(&pieces),
-        digest_of::<Sha512>(&pieces),
-    ]
-    .iter()
-    .any(|d| contains(blob, d));
+    let found = contains(blob, &digest_of::<Sha256>(&pieces))
+        || contains(blob, &digest_of::<Sha1>(&pieces))
+        || contains(blob, &digest_of::<Md5>(&pieces))
+        || contains(blob, &digest_of::<Sha384>(&pieces))
+        || contains(blob, &digest_of::<Sha512>(&pieces));
     !found
 }
 

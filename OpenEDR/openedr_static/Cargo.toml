@@ -26,9 +26,9 @@ oxc_ast = "0.153.0"
 oxc_allocator = "0.153.0"
 oxc_span = "0.153.0"
 oxc_ast_visit = "0.153.0"
-yara-x = "1.21"
+yara-x = "1.24"
 # Syntax-only parse to recognise YARA rule files (no compilation).
-yara-x-parser = "1.21"
+yara-x-parser = "1.24"
 url = "2.5"
 daachorse = "5.0.0"
 
@@ -46,6 +46,7 @@ evtx = { git = "https://github.com/Yamato-Security/hayabusa-evtx.git", rev = "17
 nested = "0.1"
 tokio = { version = "1", features = ["rt", "macros"] }
 compact_str = "0.10"
+memchr = "2"
 # Web parity: APK ZIP inflation (pure-Rust, no OS) + shared BinaryFuse16 .xf
 flate2 = "1"
 generic-array = "0.14.9"

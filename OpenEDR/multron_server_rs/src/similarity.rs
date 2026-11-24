@@ -153,14 +153,26 @@ impl KnownList {
 
 pub struct TlshQuery {
     tlsh: Tlsh,
+    digest: String,
     len: f64,
+    trimmed: bool,
 }
 
 impl TlshQuery {
     pub fn of(data: &[u8]) -> Option<Self> {
         let body = trim_trailing_padding(data);
-        let tlsh = crate::analyzer::tlsh_digest(body)?.parse::<Tlsh>().ok()?;
-        Some(TlshQuery { tlsh, len: body.len() as f64 })
+        let digest = crate::analyzer::tlsh_digest(body)?;
+        let tlsh = digest.parse::<Tlsh>().ok()?;
+        Some(TlshQuery {
+            tlsh,
+            digest,
+            len: body.len() as f64,
+            trimmed: body.len() != data.len(),
+        })
+    }
+
+    pub fn full_file_digest(&self) -> Option<&str> {
+        (!self.trimmed).then_some(self.digest.as_str())
     }
 }
 

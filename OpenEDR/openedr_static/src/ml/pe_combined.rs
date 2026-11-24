@@ -169,6 +169,10 @@ pub fn should_unpack(data: &[u8]) -> bool {
 /// What is inside `data`: extracted members of an archive / installer first, else the
 /// unpacked image of a packed PE.
 pub fn inner_of(data: &[u8]) -> Inner {
+    inner_of_with_features(data).0
+}
+
+fn inner_of_with_features(data: &[u8]) -> (Inner, Option<PeFeatureVector>) {
     if hydradragonextractor::detect_format(data).is_some() {
         // Extracted once per file: this file's members are kept for the engine's archive
         // step (`take_extraction`) and for the next `inner_of` of the same file.
@@ -176,7 +180,7 @@ pub fn inner_of(data: &[u8]) -> Inner {
             c.borrow().as_ref().filter(|(d, _)| d.as_slice() == data).map(|(_, entries)| inner_of_members(entries))
         });
         if let Some(inner) = cached {
-            return inner;
+            return (inner, None);
         }
         let extracted = crate::memtrack::measure("scan:archive_extract", crate::memtrack::Kind::Scan, data.len(), || {
             hydradragonextractor::extract_archive_from_bytes(data, false)
@@ -185,7 +189,7 @@ pub fn inner_of(data: &[u8]) -> Inner {
             if !entries.is_empty() {
                 let inner = inner_of_members(&entries);
                 LAST_EXTRACTION.with(|c| *c.borrow_mut() = Some((data.to_vec(), entries)));
-                return inner;
+                return (inner, None);
             }
         }
     }
@@ -193,22 +197,30 @@ pub fn inner_of(data: &[u8]) -> Inner {
         // Unpacked (ran code it had written), not packed (ran cleanly without: its own
         // image) or failed (the emulator stopped it first: unknown).
         let Some(emu) = emulate(data) else {
-            return Inner::none();
+            return (Inner::none(), None);
         };
         let Some(image) = emu.dump.clone() else {
-            return if emu.failed { Inner { source: InnerSource::UnpackFailed, ..Inner::none() } } else { Inner::none() };
+            let inner = if emu.failed { Inner { source: InnerSource::UnpackFailed, ..Inner::none() } } else { Inner::none() };
+            return (inner, None);
         };
         let d = &image[..image.len().min(INNER_MAX_BYTES)];
-        return Inner {
-            source: if emu.unpacked { InnerSource::Unpacked } else { InnerSource::Image },
-            members: 0,
-            strings: StringCounts::of(d),
-            bytes: d.len(),
-            pe: extract_pe_features(&image).is_some().then_some(image),
-            trace: Some(emu.trace.clone()),
+        let pe_feats = {
+            let _t = crate::memtrack::stage("ml:pe_header_features");
+            extract_pe_features(&image)
         };
+        return (
+            Inner {
+                source: if emu.unpacked { InnerSource::Unpacked } else { InnerSource::Image },
+                members: 0,
+                strings: StringCounts::of(d),
+                bytes: d.len(),
+                pe: pe_feats.is_some().then_some(image),
+                trace: Some(emu.trace.clone()),
+            },
+            pe_feats,
+        );
     }
-    Inner::none()
+    (Inner::none(), None)
 }
 
 /// The inner part of an archive / installer from its extracted members.
@@ -499,11 +511,14 @@ fn extract_pe_features_v2_inner(data: &[u8]) -> Option<[f32; PE_V2_FEATURE_COUNT
     // Sub-stages (own time each) so the scan timing shows where the features cost.
     let shell = { let _t = crate::memtrack::stage("ml:pe_header_features"); extract_pe_features(data)?.to_array() };
     let shell_strings = { let _t = crate::memtrack::stage("ml:string_counts"); StringCounts::of(data) };
-    let inner = inner_of(data);
-    let inner_pe = {
-        let _t = crate::memtrack::stage("ml:pe_header_features");
-        inner.pe.as_deref().and_then(extract_pe_features).map(|f| f.to_array()).unwrap_or([0.0; 65])
-    };
+    let (inner, inner_pe_cached) = inner_of_with_features(data);
+    let inner_pe = inner_pe_cached
+        .or_else(|| {
+            let _t = crate::memtrack::stage("ml:pe_header_features");
+            inner.pe.as_deref().and_then(extract_pe_features)
+        })
+        .map(|f| f.to_array())
+        .unwrap_or([0.0; 65]);
 
     let mut v = [0f32; PE_V2_FEATURE_COUNT];
     let mut i = 0;

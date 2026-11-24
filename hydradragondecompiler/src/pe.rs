@@ -10,7 +10,7 @@ use std::collections::HashSet;
 use iced_x86::{Decoder, DecoderOptions, Instruction, Mnemonic, OpKind, Register};
 use pefile_rs::PE;
 
-use crate::scan::decode_at;
+use crate::scan::{decode_at, decode_at_into};
 use crate::{ExtractOptions, ExtractedString, StringKind, is_printable_ascii};
 
 /// A single section laid out so we can map virtual addresses back to file offsets.
@@ -187,6 +187,11 @@ pub(crate) fn scan_pe_sinks(data: &[u8], sinks: &mut [Sink]) {
             }
         }
     } else {
+        let has_va_wrap = sections.iter().any(|s| s.va.checked_add(s.bytes.len() as u64).is_none());
+        let va_min = sections.iter().map(|s| s.va).min().unwrap_or(0);
+        let va_max = sections.iter().map(|s| s.va.saturating_add(s.bytes.len() as u64)).max().unwrap_or(0);
+        let mut scratch = String::new();
+
         for section in &sections {
             if !section.is_exec || section.bytes.is_empty() {
                 continue;
@@ -205,9 +210,16 @@ pub(crate) fn scan_pe_sinks(data: &[u8], sinks: &mut [Sink]) {
             while decoder.can_decode() {
                 decoder.decode_out(&mut insn);
                 if want_code_refs {
-                    for sink in sinks.iter_mut().filter(|s| s.code_refs) {
-                        code_ref_for_insn(&insn, data, &sections, sink.min_len, sink.known, &mut sink.emitted, &mut sink.out);
-                    }
+                    code_refs_for_insn_x86(
+                        &insn,
+                        data,
+                        &sections,
+                        va_min,
+                        va_max,
+                        has_va_wrap,
+                        sinks,
+                        &mut scratch,
+                    );
                 }
                 if want_stack {
                     for (sink, stack) in sinks.iter().zip(stacks.iter_mut()) {
@@ -239,15 +251,18 @@ pub(crate) fn scan_pe_sinks(data: &[u8], sinks: &mut [Sink]) {
     }
 }
 
-/// Inspect one instruction's memory operands for a reference to string data.
-fn code_ref_for_insn(
+/// Inspect one x86/x64 instruction's memory operands once for all code-ref sinks,
+/// decoding into a reusable `scratch` buffer before allocating any owned `String`.
+#[allow(clippy::too_many_arguments)]
+fn code_refs_for_insn_x86(
     insn: &Instruction,
     data: &[u8],
     sections: &[CodeSection],
-    min_len: usize,
-    known: &HashSet<&str>,
-    emitted: &mut HashSet<String>,
-    out: &mut Vec<ExtractedString>,
+    va_min: u64,
+    va_max: u64,
+    has_va_wrap: bool,
+    sinks: &mut [Sink],
+    scratch: &mut String,
 ) {
     let op_count = insn.op_count();
     for op_idx in 0..op_count {
@@ -269,21 +284,27 @@ fn code_ref_for_insn(
         };
 
         let Some(va) = target_va else { continue };
+        if !has_va_wrap && (va < va_min || va >= va_max) {
+            continue;
+        }
 
         let Some(off) = va_to_file_off(va, sections, data.len()) else {
             continue;
         };
 
-        if let Some((text, kind)) = decode_at(data, off, min_len) {
-            if known.contains(text.as_str()) || !emitted.insert(text.clone()) {
-                continue;
+        for sink in sinks.iter_mut().filter(|s| s.code_refs) {
+            if let Some(_kind) = decode_at_into(data, off, sink.min_len, scratch) {
+                if sink.known.contains(scratch.as_str()) || sink.emitted.contains(scratch.as_str()) {
+                    continue;
+                }
+                let text = scratch.clone();
+                sink.emitted.insert(text.clone());
+                sink.out.push(ExtractedString {
+                    text,
+                    kind: StringKind::CodeRef,
+                    offset: Some(off),
+                });
             }
-            let _ = kind;
-            out.push(ExtractedString {
-                text,
-                kind: StringKind::CodeRef,
-                offset: Some(off),
-            });
         }
     }
 }

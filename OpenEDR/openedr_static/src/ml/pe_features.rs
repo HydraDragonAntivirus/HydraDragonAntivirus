@@ -475,7 +475,7 @@ pub fn extract_pe_features(bytes: &[u8]) -> Option<PeFeatureVector> {
 }
 
 fn detect_rich_header(bytes: &[u8]) -> bool {
-    bytes.windows(4).any(|w| w == b"Rich")
+    memchr::memmem::find(bytes, b"Rich").is_some()
 }
 
 /// Values that contradict each other in a PE made to look ordinary (part of the v2 vector,

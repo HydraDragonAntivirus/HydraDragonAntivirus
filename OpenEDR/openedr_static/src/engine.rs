@@ -2117,16 +2117,22 @@ impl StaticEngine {
             let _t = crate::memtrack::stage("scan:unpack");
             // The same bounded run as the ML features (`pe_combined::emulate`), done once
             // per file: when the PE model already looked inside, this is a cache hit.
-            let emu_start = std::time::Instant::now();
+            static VERBOSE_UNICORN: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+            let verbose_unicorn = *VERBOSE_UNICORN.get_or_init(|| std::env::var_os("OPENEDR_VERBOSE_UNICORN").is_some());
+            let emu_start = verbose_unicorn.then(std::time::Instant::now);
             if let Some(emu) = crate::ml::pe_combined::emulate(data) {
-                eprintln!("[unicorn] emulation for {} in {} ms", target_name, emu_start.elapsed().as_millis());
+                if let Some(t) = emu_start {
+                    eprintln!("[unicorn] emulation for {} in {} ms", target_name, t.elapsed().as_millis());
+                }
                 {
                     let trace = &emu.trace;
                     // Scanned as a payload only when the program unpacked itself; a not
                     // packed program's image is the file it already is.
                     if let Some(dumped) = emu.dump.clone().filter(|_| emu.unpacked) {
                         {
-                            eprintln!("[unicorn] successfully unpacked {} bytes payload for {}", dumped.len(), target_name);
+                            if verbose_unicorn {
+                                eprintln!("[unicorn] successfully unpacked {} bytes payload for {}", dumped.len(), target_name);
+                            }
                             // The packed original is the parent: rules can see which
                             // APIs the shell hid (crypter by diff).
                             let obj = ScanObject::new(
@@ -2186,7 +2192,7 @@ impl StaticEngine {
                         }
                     }
                 }
-            } else {
+            } else if verbose_unicorn {
                 eprintln!("[unicorn] {} not emulated (no entry point, or the emulator cannot load it)", target_name);
             }
         }

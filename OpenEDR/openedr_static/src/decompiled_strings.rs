@@ -95,6 +95,16 @@ pub fn string_ml(data: &[u8]) -> Arc<Decompiled> {
     cached(key).unwrap_or_else(|| both(data, key))
 }
 
+/// Like [`string_ml`], without running HydraSig's ASCII/wide pass when the buffer
+/// will never be scanned by HydraSig (for example, a non-unpacked memory image).
+pub fn string_ml_only(data: &[u8]) -> Vec<ExtractedString> {
+    let key = (data.len(), content_hash(data));
+    if let Some(hit) = cached(key) {
+        return hit.string_ml.clone();
+    }
+    hydradragondecompiler::extract_strings(data, &string_ml_options())
+}
+
 /// `MZ` with a `PE\0\0` header where `e_lfanew` says.
 fn looks_like_pe(data: &[u8]) -> bool {
     let Some(lfanew) = data.get(0x3c..0x40) else { return false };
@@ -136,7 +146,10 @@ mod tests {
     fn same_as_separate_calls() {
         let path = std::path::Path::new(r"C:\Windows\System32\notepad.exe");
         let Ok(d) = std::fs::read(path) else { return };
+        let ml_cold = string_ml_only(&d);
         let both = of(&d);
+        assert_eq!(ml_cold, both.string_ml);
+        assert_eq!(string_ml_only(&d), both.string_ml);
         assert_eq!(both.hydrasig, hydradragondecompiler::extract_strings(&d, &hydrasig_options()));
         assert_eq!(both.string_ml, hydradragondecompiler::extract_strings(&d, &string_ml_options()));
         // A copy of the same bytes is the same entry.

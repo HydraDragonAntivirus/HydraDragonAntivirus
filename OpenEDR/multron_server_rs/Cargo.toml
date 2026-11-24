@@ -21,6 +21,8 @@ futures-util = "0.3"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 sha2 = "0.11"
+sha1 = "0.11"
+md-5 = "0.11"
 hex = "0.4"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
@@ -35,7 +37,7 @@ hydradragonclamav = { path = "../owlyshield_predict/hydradragonclamav" }
 hydradragonsig = { path = "../../hydradragonsig", default-features = false, features = ["bytecode"] }
 # Retrohunt: one saved analyst YARA document compiled on its own (same version as
 # openedr_static, so no second copy is built).
-yara-x = "1.21"
+yara-x = "1.24"
 # TLSH (Trend Micro similarity digest), output verified identical to the reference
 # C++ implementation. Pinned: the crate is pre-1.0.
 fast-tlsh = "=0.1.10"

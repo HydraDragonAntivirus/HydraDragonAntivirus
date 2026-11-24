@@ -5,6 +5,20 @@ use std::sync::{Arc, Condvar, Mutex};
 
 pub type Job = Box<dyn FnOnce() + Send + 'static>;
 
+/// Lower CPU priority on background/scan workers so HTTP pings and UI requests
+/// stay responsive while CPU-intensive scans saturate cores.
+pub fn lower_thread_priority() {
+    #[cfg(windows)]
+    unsafe {
+        const THREAD_PRIORITY_BELOW_NORMAL: i32 = -1;
+        unsafe extern "system" {
+            fn GetCurrentThread() -> isize;
+            fn SetThreadPriority(h_thread: isize, n_priority: i32) -> i32;
+        }
+        let _ = SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_BELOW_NORMAL);
+    }
+}
+
 /// Engine thread pool. Scans are CPU-bound and synchronous, so they run on their own
 /// OS threads (not tokio's blocking pool): the network side never waits for a thread,
 /// the stack is big enough for deep archive recursion, and a panic only fails one file.
@@ -45,6 +59,7 @@ impl FairScheduler {
     }
 
     fn worker_loop(&self) {
+        lower_thread_priority();
         loop {
             let job = self.next_job();
             self.busy.fetch_add(1, Ordering::Relaxed);

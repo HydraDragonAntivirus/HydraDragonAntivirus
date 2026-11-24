@@ -15,6 +15,8 @@ analyze-light = []
 # Same pinned TLSH crate as multron_server_rs, so digests match byte for byte.
 fast-tlsh = "=0.1.10"
 sha2 = "0.11"
+sha1 = "0.11"
+md-5 = "0.11"
 hex = "0.4"
 rayon = "1.10"
 walkdir = "2.5"

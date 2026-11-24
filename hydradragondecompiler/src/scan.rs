@@ -20,7 +20,7 @@ pub(crate) fn scan_ascii(data: &[u8], min_len: usize, out: &mut Vec<ExtractedStr
         }
         if i - start >= min_len {
             // Printable ASCII is always valid UTF-8.
-            let text: String = data[start..i].iter().map(|&b| b as char).collect();
+            let text = std::str::from_utf8(&data[start..i]).unwrap().to_owned();
             out.push(ExtractedString { text, kind: StringKind::Ascii, offset: Some(start) });
         }
     }
@@ -47,11 +47,16 @@ pub(crate) fn scan_wide(data: &[u8], min_len: usize, out: &mut Vec<ExtractedStri
     }
 }
 
-/// Decode the bytes starting at `data[off..]` as an ASCII or UTF-16LE string,
-/// returning the text if it reaches `min_len` printable characters before a
-/// terminator. Used by the code-ref pass to read a referenced target (most targets
-/// are not text, so the length is measured before anything is allocated).
-pub(crate) fn decode_at(data: &[u8], off: usize, min_len: usize) -> Option<(String, StringKind)> {
+/// Decode the bytes starting at `data[off..]` as an ASCII or UTF-16LE string into
+/// `buf`, returning the kind if it reaches `min_len` printable characters before a
+/// terminator. `buf` is cleared before decoding so callers can reuse one buffer.
+pub(crate) fn decode_at_into(
+    data: &[u8],
+    off: usize,
+    min_len: usize,
+    buf: &mut String,
+) -> Option<StringKind> {
+    buf.clear();
     if off >= data.len() {
         return None;
     }
@@ -60,7 +65,8 @@ pub(crate) fn decode_at(data: &[u8], off: usize, min_len: usize) -> Option<(Stri
     let tail = &data[off..];
     let n = tail.iter().position(|&b| !is_printable_ascii(b)).unwrap_or(tail.len());
     if n >= min_len {
-        return Some((tail[..n].iter().map(|&b| b as char).collect(), StringKind::Ascii));
+        buf.push_str(std::str::from_utf8(&tail[..n]).unwrap());
+        return Some(StringKind::Ascii);
     }
 
     // Try UTF-16LE.
@@ -69,8 +75,22 @@ pub(crate) fn decode_at(data: &[u8], off: usize, min_len: usize) -> Option<(Stri
         k += 2;
     }
     if k / 2 >= min_len {
-        return Some((tail[..k].iter().step_by(2).map(|&b| b as char).collect(), StringKind::Wide));
+        buf.reserve(k / 2);
+        for &b in tail[..k].iter().step_by(2) {
+            buf.push(b as char);
+        }
+        return Some(StringKind::Wide);
     }
 
     None
+}
+
+/// Decode the bytes starting at `data[off..]` as an ASCII or UTF-16LE string,
+/// returning the text if it reaches `min_len` printable characters before a
+/// terminator. Used by the code-ref pass to read a referenced target (most targets
+/// are not text, so the length is measured before anything is allocated).
+pub(crate) fn decode_at(data: &[u8], off: usize, min_len: usize) -> Option<(String, StringKind)> {
+    let mut buf = String::new();
+    let kind = decode_at_into(data, off, min_len, &mut buf)?;
+    Some((buf, kind))
 }

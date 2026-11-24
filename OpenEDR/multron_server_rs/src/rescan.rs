@@ -553,7 +553,9 @@ fn spawn_bulk(server: &Arc<ScanServer>, mut files: Vec<String>, cats: Vec<String
                     let worker = std::thread::Builder::new()
                         .name(format!("bulk-rescan-{i}"))
                         .stack_size(64 * 1024 * 1024)
-                        .spawn_scoped(s, move || loop {
+                        .spawn_scoped(s, move || {
+                            crate::scheduler::lower_thread_priority();
+                            loop {
                             if bulk.stop.load(Ordering::Relaxed) {
                                 break;
                             }
@@ -572,6 +574,7 @@ fn spawn_bulk(server: &Arc<ScanServer>, mut files: Vec<String>, cats: Vec<String
                                 }
                             }
                             bulk.done.fetch_add(1, Ordering::Relaxed);
+                            }
                         });
                     if let Err(e) = worker {
                         srv.log_info(format!("bulk rescan: cannot start worker {i}: {e}"));

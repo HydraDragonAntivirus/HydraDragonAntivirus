@@ -236,7 +236,7 @@ pub fn report() -> serde_json::Value {
     // Loaders time themselves too (startup, reloads); only the per-file stages here.
     let stages: Vec<StageTime> = memtrack::time_snapshot()
         .into_iter()
-        .filter(|t| t.name.starts_with("scan:") || t.name.starts_with("server:"))
+        .filter(|t| t.name.starts_with("scan:") || t.name.starts_with("server:") || t.name.starts_with("ml:"))
         .collect();
     let all_ns: u128 = stages.iter().map(|t| t.self_ns as u128).sum();
     serde_json::json!({
