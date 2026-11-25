@@ -203,6 +203,170 @@ pub fn is_tls_handshake(data: &[u8]) -> bool {
     data.len() >= 3 && data[0] == 0x16 && data[1] == 0x03
 }
 
+/// Checks whether a 16-bit TLS identifier is a GREASE value (RFC 8701).
+#[inline]
+fn is_grease(val: u16) -> bool {
+    (val & 0x0f0f) == 0x0a0a && ((val >> 8) == (val & 0xff))
+}
+
+/// Extracts the Handshake body slice if `data` starts with a TLS Handshake record
+/// of `expected_handshake_type` (0x01 ClientHello, 0x02 ServerHello).
+fn extract_handshake_body(data: &[u8], expected_handshake_type: u8) -> Option<&[u8]> {
+    if data.len() < 9 || data[0] != 0x16 {
+        return None;
+    }
+    let version = u16::from_be_bytes([data[1], data[2]]);
+    if version < 0x0300 || version > 0x0304 {
+        return None;
+    }
+    let record_len = u16::from_be_bytes([data[3], data[4]]) as usize;
+    let record_end = (5 + record_len).min(data.len());
+    let handshake = &data[5..record_end];
+    if handshake.len() < 4 || handshake[0] != expected_handshake_type {
+        return None;
+    }
+    let hs_len = u32::from_be_bytes([0, handshake[1], handshake[2], handshake[3]]) as usize;
+    let body_end = (4 + hs_len).min(handshake.len());
+    if body_end <= 4 {
+        return None;
+    }
+    Some(&handshake[4..body_end])
+}
+
+fn join_u16_dash(vals: &[u16]) -> String {
+    let mut out = String::new();
+    for (i, v) in vals.iter().enumerate() {
+        if i > 0 {
+            out.push('-');
+        }
+        out.push_str(&v.to_string());
+    }
+    out
+}
+
+/// Computes Salesforce JA3 fingerprint (MD5 hex) from a TLS ClientHello packet.
+pub fn extract_ja3(data: &[u8]) -> Option<String> {
+    let body = extract_handshake_body(data, 0x01)?;
+    if body.len() < 35 {
+        return None;
+    }
+    let tls_version = u16::from_be_bytes([body[0], body[1]]);
+    let mut offset = 34;
+
+    let session_id_len = *body.get(offset)? as usize;
+    offset += 1 + session_id_len;
+
+    let cipher_bytes_len = u16::from_be_bytes([*body.get(offset)?, *body.get(offset + 1)?]) as usize;
+    offset += 2;
+    if offset + cipher_bytes_len > body.len() {
+        return None;
+    }
+    let mut ciphers = Vec::new();
+    let mut ci = 0;
+    while ci + 2 <= cipher_bytes_len {
+        let cs = u16::from_be_bytes([body[offset + ci], body[offset + ci + 1]]);
+        if !is_grease(cs) {
+            ciphers.push(cs);
+        }
+        ci += 2;
+    }
+    offset += cipher_bytes_len;
+
+    let comp_len = *body.get(offset)? as usize;
+    offset += 1 + comp_len;
+
+    let mut extensions = Vec::new();
+    let mut curves = Vec::new();
+    let mut point_formats = Vec::new();
+
+    if offset + 2 <= body.len() {
+        let exts_len = u16::from_be_bytes([body[offset], body[offset + 1]]) as usize;
+        offset += 2;
+        let exts_end = (offset + exts_len).min(body.len());
+        while offset + 4 <= exts_end {
+            let ext_type = u16::from_be_bytes([body[offset], body[offset + 1]]);
+            let ext_len = u16::from_be_bytes([body[offset + 2], body[offset + 3]]) as usize;
+            offset += 4;
+            if offset + ext_len > exts_end {
+                break;
+            }
+            if !is_grease(ext_type) {
+                extensions.push(ext_type);
+            }
+            let ext_data = &body[offset..offset + ext_len];
+            if ext_type == 0x000a && ext_data.len() >= 2 {
+                let list_len = (u16::from_be_bytes([ext_data[0], ext_data[1]]) as usize)
+                    .min(ext_data.len() - 2);
+                let mut i = 2;
+                while i + 2 <= 2 + list_len {
+                    let g = u16::from_be_bytes([ext_data[i], ext_data[i + 1]]);
+                    if !is_grease(g) {
+                        curves.push(g);
+                    }
+                    i += 2;
+                }
+            } else if ext_type == 0x000b && !ext_data.is_empty() {
+                let list_len = (ext_data[0] as usize).min(ext_data.len() - 1);
+                for &pf in &ext_data[1..1 + list_len] {
+                    point_formats.push(pf as u16);
+                }
+            }
+            offset += ext_len;
+        }
+    }
+
+    let ja3_raw = format!(
+        "{},{},{},{},{}",
+        tls_version,
+        join_u16_dash(&ciphers),
+        join_u16_dash(&extensions),
+        join_u16_dash(&curves),
+        join_u16_dash(&point_formats)
+    );
+    Some(crate::pe_hashes::md5_hex(ja3_raw.as_bytes()))
+}
+
+/// Computes Salesforce JA3S fingerprint (MD5 hex) from a TLS ServerHello packet.
+pub fn extract_ja3s(data: &[u8]) -> Option<String> {
+    let body = extract_handshake_body(data, 0x02)?;
+    if body.len() < 38 {
+        return None;
+    }
+    let tls_version = u16::from_be_bytes([body[0], body[1]]);
+    let mut offset = 34;
+
+    let session_id_len = *body.get(offset)? as usize;
+    offset += 1 + session_id_len;
+
+    let cipher = u16::from_be_bytes([*body.get(offset)?, *body.get(offset + 1)?]);
+    offset += 2;
+    // Compression method (1 byte)
+    let _comp = *body.get(offset)?;
+    offset += 1;
+
+    let mut extensions = Vec::new();
+    if offset + 2 <= body.len() {
+        let exts_len = u16::from_be_bytes([body[offset], body[offset + 1]]) as usize;
+        offset += 2;
+        let exts_end = (offset + exts_len).min(body.len());
+        while offset + 4 <= exts_end {
+            let ext_type = u16::from_be_bytes([body[offset], body[offset + 1]]);
+            let ext_len = u16::from_be_bytes([body[offset + 2], body[offset + 3]]) as usize;
+            offset += 4;
+            if offset + ext_len > exts_end {
+                break;
+            }
+            if !is_grease(ext_type) {
+                extensions.push(ext_type);
+            }
+            offset += ext_len;
+        }
+    }
+
+    let ja3s_raw = format!("{},{},{}", tls_version, cipher, join_u16_dash(&extensions));
+    Some(crate::pe_hashes::md5_hex(ja3s_raw.as_bytes()))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -245,5 +409,76 @@ mod tests {
     fn test_is_tls_handshake() {
         assert!(is_tls_handshake(&[0x16, 0x03, 0x01]));
         assert!(!is_tls_handshake(&[0x17, 0x03, 0x01]));
+    }
+
+    #[test]
+    fn test_extract_ja3_filters_grease() {
+        // Construct ClientHello: version 0x0303 (771), ciphers [0x0a0a (GREASE), 0x1301 (4865), 0xc02f (49199)]
+        // extensions: [0x1a1a (GREASE), 0x000a supported_groups [0x2a2a, 0x001d (29)], 0x000b ec_point_formats [0x00]]
+        let mut exts = Vec::new();
+        // GREASE ext 0x1a1a len 0
+        exts.extend_from_slice(&0x1a1au16.to_be_bytes());
+        exts.extend_from_slice(&0u16.to_be_bytes());
+        // supported_groups 0x000a -> len 6: list_len=4, 0x2a2a, 0x001d
+        exts.extend_from_slice(&0x000au16.to_be_bytes());
+        exts.extend_from_slice(&6u16.to_be_bytes());
+        exts.extend_from_slice(&4u16.to_be_bytes());
+        exts.extend_from_slice(&0x2a2au16.to_be_bytes());
+        exts.extend_from_slice(&0x001du16.to_be_bytes());
+        // ec_point_formats 0x000b -> len 2: list_len=1, 0x00
+        exts.extend_from_slice(&0x000bu16.to_be_bytes());
+        exts.extend_from_slice(&2u16.to_be_bytes());
+        exts.push(1);
+        exts.push(0);
+
+        let mut body = Vec::new();
+        body.extend_from_slice(&0x0303u16.to_be_bytes()); // version 771
+        body.extend_from_slice(&[0u8; 32]); // random
+        body.push(0); // session id len
+        body.extend_from_slice(&6u16.to_be_bytes()); // cipher suites len (3 * 2)
+        body.extend_from_slice(&0x0a0au16.to_be_bytes()); // GREASE
+        body.extend_from_slice(&0x1301u16.to_be_bytes()); // 4865
+        body.extend_from_slice(&0xc02fu16.to_be_bytes()); // 49199
+        body.push(1); // compression len
+        body.push(0); // null compression
+        body.extend_from_slice(&(exts.len() as u16).to_be_bytes());
+        body.extend_from_slice(&exts);
+
+        let mut pkt = vec![0x16, 0x03, 0x01];
+        pkt.extend_from_slice(&((body.len() + 4) as u16).to_be_bytes());
+        pkt.push(0x01); // ClientHello
+        pkt.extend_from_slice(&(body.len() as u32).to_be_bytes()[1..4]);
+        pkt.extend_from_slice(&body);
+
+        let expected = crate::pe_hashes::md5_hex(b"771,4865-49199,10-11,29,0");
+        assert_eq!(extract_ja3(&pkt).as_deref(), Some(expected.as_str()));
+    }
+
+    #[test]
+    fn test_extract_ja3s() {
+        let mut exts = Vec::new();
+        exts.extend_from_slice(&0x002bu16.to_be_bytes()); // supported_versions (43)
+        exts.extend_from_slice(&2u16.to_be_bytes());
+        exts.extend_from_slice(&0x0304u16.to_be_bytes());
+        exts.extend_from_slice(&0x0033u16.to_be_bytes()); // key_share (51)
+        exts.extend_from_slice(&0u16.to_be_bytes());
+
+        let mut body = Vec::new();
+        body.extend_from_slice(&0x0303u16.to_be_bytes()); // 771
+        body.extend_from_slice(&[1u8; 32]); // random
+        body.push(0); // session id len
+        body.extend_from_slice(&0x1301u16.to_be_bytes()); // 4865
+        body.push(0); // compression
+        body.extend_from_slice(&(exts.len() as u16).to_be_bytes());
+        body.extend_from_slice(&exts);
+
+        let mut pkt = vec![0x16, 0x03, 0x03];
+        pkt.extend_from_slice(&((body.len() + 4) as u16).to_be_bytes());
+        pkt.push(0x02); // ServerHello
+        pkt.extend_from_slice(&(body.len() as u32).to_be_bytes()[1..4]);
+        pkt.extend_from_slice(&body);
+
+        let expected = crate::pe_hashes::md5_hex(b"771,4865,43-51");
+        assert_eq!(extract_ja3s(&pkt).as_deref(), Some(expected.as_str()));
     }
 }

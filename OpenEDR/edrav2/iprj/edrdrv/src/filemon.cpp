@@ -2672,6 +2672,36 @@ FLT_PREOP_CALLBACK_STATUS FLTAPI preAcquireForSectionSync(
 	return FLT_PREOP_SUCCESS_NO_CALLBACK;
 }
 
+//
+// IRP_MJ_CREATE_NAMED_PIPE pre-operation callback.
+// Captures server-side CreateNamedPipeW creation distinct from client opens
+// (which travel via IRP_MJ_CREATE + FO_NAMED_PIPE).
+//
+FLT_PREOP_CALLBACK_STATUS FLTAPI preCreateNamedPipe(
+	_Inout_ PFLT_CALLBACK_DATA pData,
+	_In_ PCFLT_RELATED_OBJECTS pFltObjects,
+	_Flt_CompletionContext_Outptr_ PVOID* /*pCompletionContext*/)
+{
+	if (KeGetCurrentIrql() > PASSIVE_LEVEL) return FLT_PREOP_SUCCESS_NO_CALLBACK;
+	if (IoGetTopLevelIrp()) return FLT_PREOP_SUCCESS_NO_CALLBACK;
+	if (FLT_IS_FASTIO_OPERATION(pData)) return FLT_PREOP_SUCCESS_NO_CALLBACK;
+	if (!FLT_IS_IRP_OPERATION(pData)) return FLT_PREOP_SUCCESS_NO_CALLBACK;
+	if (pData == nullptr || pData->Iopb == nullptr || pFltObjects == nullptr || pFltObjects->FileObject == nullptr)
+		return FLT_PREOP_SUCCESS_NO_CALLBACK;
+
+	ULONG nDesiredAccess = 0;
+	if (pData->Iopb->Parameters.CreatePipe.SecurityContext != nullptr)
+		nDesiredAccess = pData->Iopb->Parameters.CreatePipe.SecurityContext->DesiredAccess;
+
+	sendPathEvent(
+		SysmonEvent::NamedPipeServerCreate,
+		&pFltObjects->FileObject->FileName,
+		(ULONG_PTR)FltGetRequestorProcessId(pData),
+		nDesiredAccess);
+
+	return FLT_PREOP_SUCCESS_NO_CALLBACK;
+}
+
 
 //////////////////////////////////////////////////////////////////////////
 //
@@ -2687,6 +2717,7 @@ NTSTATUS unloadFilter(_In_ FLT_FILTER_UNLOAD_FLAGS Flags);
 CONST FLT_OPERATION_REGISTRATION c_Callbacks[] = 
 {
 	{ IRP_MJ_CREATE, 0, preCreate, postCreate },
+	{ IRP_MJ_CREATE_NAMED_PIPE, 0, preCreateNamedPipe, nullptr },
 	{ IRP_MJ_CLEANUP, 0, preCleanup, postCleanup },
 	{ IRP_MJ_SET_INFORMATION, FLTFL_OPERATION_REGISTRATION_SKIP_PAGING_IO, preSetFileInfo, postSetFileInfo },
 	{ IRP_MJ_WRITE, 0, preWrite, postWrite },

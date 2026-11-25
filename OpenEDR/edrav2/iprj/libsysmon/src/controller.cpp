@@ -346,6 +346,8 @@ const char* getOpenEdrWireEventType(edrdrv::SysmonEvent rawEvent, Event eventTyp
 			return "LLE_DEVICE_IOCTL";
 		case edrdrv::SysmonEvent::NamedPipeCreate:
 			return "LLE_NAMED_PIPE_CREATE";
+		case edrdrv::SysmonEvent::NamedPipeServerCreate:
+			return "LLE_NAMED_PIPE_SERVER_CREATE";
 		case edrdrv::SysmonEvent::SelfDefense:
 			return "LLE_SELF_DEFENSE";
 		default:
@@ -1530,6 +1532,10 @@ std::map<edrdrv::SysmonEvent, Event> mEventMap = {
 	{edrdrv::SysmonEvent::OwlyPreImageSaved, Event::LLE_FILE_PREIMAGE_SAVED},
 	{edrdrv::SysmonEvent::ThreadOpen, Event::LLE_THREAD_OPEN},
 	{edrdrv::SysmonEvent::DesktopOpen, Event::LLE_DESKTOP_OPEN},
+	{edrdrv::SysmonEvent::ImageLoad, Event::LLE_IMAGE_LOAD},
+	{edrdrv::SysmonEvent::DriverLoad, Event::LLE_DRIVER_LOAD},
+	{edrdrv::SysmonEvent::RemoteThreadCreate, Event::LLE_REMOTE_THREAD_CREATE},
+	{edrdrv::SysmonEvent::NamedPipeServerCreate, Event::LLE_NAMED_PIPE_SERVER_CREATE},
 };
 
 //

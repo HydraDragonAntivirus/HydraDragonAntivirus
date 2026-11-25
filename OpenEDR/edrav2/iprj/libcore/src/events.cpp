@@ -67,6 +67,10 @@ constexpr char c_sLleFileMapRead[] = "LLE_FILE_MAP_READ";
 constexpr char c_sLleFileMapWrite[] = "LLE_FILE_MAP_WRITE";
 constexpr char c_sLleDesktopOpen[] = "LLE_DESKTOP_OPEN";
 constexpr char c_sLleFilePreImageSaved[] = "LLE_FILE_PREIMAGE_SAVED";
+constexpr char c_sLleImageLoad[] = "LLE_IMAGE_LOAD";
+constexpr char c_sLleDriverLoad[] = "LLE_DRIVER_LOAD";
+constexpr char c_sLleRemoteThreadCreate[] = "LLE_REMOTE_THREAD_CREATE";
+constexpr char c_sLleNamedPipeServerCreate[] = "LLE_NAMED_PIPE_SERVER_CREATE";
 
 } // namespace eventtype
 
@@ -133,6 +137,10 @@ const char* getEventTypeString(Event eventType)
 		case Event::LLE_FILE_MAP_WRITE: return eventtype::c_sLleFileMapWrite;
 		case Event::LLE_DESKTOP_OPEN: return eventtype::c_sLleDesktopOpen;
 		case Event::LLE_FILE_PREIMAGE_SAVED: return eventtype::c_sLleFilePreImageSaved;
+		case Event::LLE_IMAGE_LOAD: return eventtype::c_sLleImageLoad;
+		case Event::LLE_DRIVER_LOAD: return eventtype::c_sLleDriverLoad;
+		case Event::LLE_REMOTE_THREAD_CREATE: return eventtype::c_sLleRemoteThreadCreate;
+		case Event::LLE_NAMED_PIPE_SERVER_CREATE: return eventtype::c_sLleNamedPipeServerCreate;
 	}
 	error::InvalidArgument(SL, FMT("Event type <" << (uint64_t)eventType <<
 		"> has no text string")).throwException();

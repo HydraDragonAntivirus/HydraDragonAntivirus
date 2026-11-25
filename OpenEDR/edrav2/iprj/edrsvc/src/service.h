@@ -14,6 +14,9 @@
 namespace cmd {
 namespace win {
 
+void emitViruskovAgentSysop(const char* szEventType, const std::string& sMessage,
+	const std::string& sDetailsJson = "{}", bool fSyncFlush = false);
+
 inline ObjPtr<ICommandProcessor> startElevatedInstanceWithParams(const std::wstring& params)
 {
 	const std::wstring wPath = getCatalogData("app.imageFile");

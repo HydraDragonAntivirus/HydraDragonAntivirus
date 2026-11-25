@@ -95,5 +95,8 @@ features = [
     "Win32_NetworkManagement_IpHelper",
     "Win32_Networking_WinSock",
     "Win32_Networking_WinHttp",
+    "Win32_System_Diagnostics_Etw",
+    "Win32_System_EventLog",
+    "Win32_System_Time",
     "Win32_System_Kernel"
 ]

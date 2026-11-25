@@ -1899,6 +1899,21 @@ impl SdkRule {
                                     }
                                 }
                             }
+                            if let Some(ref expected_ja3) = self.ja3_hash {
+                                let matched = packet
+                                    .ja3
+                                    .as_deref()
+                                    .map(|j| j.eq_ignore_ascii_case(expected_ja3))
+                                    .unwrap_or(false)
+                                    || packet
+                                        .ja3s
+                                        .as_deref()
+                                        .map(|j| j.eq_ignore_ascii_case(expected_ja3))
+                                        .unwrap_or(false);
+                                if !matched {
+                                    return Some(false);
+                                }
+                            }
                             if let Some(ref app) = self.app_proto {
                                 let label = packet.protocol.label().to_lowercase();
                                 if !label.contains(&app.to_lowercase()) {
@@ -2667,6 +2682,8 @@ impl SdkRegistry {
             "hostname": packet.hostname,
             "dns_query": packet.dns_query,
             "full_url": packet.full_url,
+            "ja3": packet.ja3,
+            "ja3s": packet.ja3s,
             "timestamp_ms": std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .map(|d| d.as_millis() as u64)
@@ -3418,6 +3435,8 @@ contents:
             http_request_body: None,
             http_response_body: None,
             tcp_flags: Some(0x02), // SYN flag
+            ja3: None,
+            ja3s: None,
         };
 
         let payload = b"GET /api/test HTTP/1.1\r\nHost: example.com\r\n\r\n";

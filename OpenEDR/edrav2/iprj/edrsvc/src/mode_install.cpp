@@ -106,6 +106,8 @@ public:
 			// Process uninstall
 			if (getCatalogData("app.mode", "install") == "uninstall")
 			{
+				emitViruskovAgentSysop("AGENT_UNINSTALL", "edrsvc uninstallation started",
+					"{\"phase\":\"mode_install_uninstall\"}", true);
 				uninstall(pApp, pProcessor);
 				if (m_nStep == c_nMaxSize)
 					std::cout << "Uninstallation of <" << getCatalogData("app.fullName")
@@ -118,6 +120,8 @@ public:
 				try
 				{
 					install(pApp, pProcessor);
+					emitViruskovAgentSysop("AGENT_INSTALL", "edrsvc installation completed",
+						"{\"phase\":\"mode_install_complete\"}", true);
 					if (m_nStep == c_nMaxSize)
 						std::cout << "Installation of <" << getCatalogData("app.fullName")
 						<< "> is completed successfully." << std::endl;

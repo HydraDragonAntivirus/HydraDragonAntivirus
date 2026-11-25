@@ -864,11 +864,13 @@ async fn handle_proxy_request(
         http_request_body: request_body.clone(),
         http_response_body: None,
         tcp_flags: None,
+        ja3: None,
+        ja3s: None,
     };
 
     let _mock_context = PacketContext {
         process_id: resolved_pid,
-        process_name: app_name,
+        process_name: app_name.clone(),
         process_path: app_path.clone(),
     };
 
@@ -1212,6 +1214,87 @@ async fn handle_proxy_request(
             level: LogLevel::Info,
             message,
         });
+    }
+
+    let flow_proc_name = std::path::Path::new(&app_path)
+        .file_name()
+        .and_then(|s| s.to_str())
+        .filter(|s| !s.is_empty())
+        .unwrap_or(&app_name)
+        .to_string();
+    super::engine::enqueue_network_flow(crate::edr_feedback::NetworkFlowRecord {
+        timestamp: ts,
+        pid: resolved_pid,
+        process_name: flow_proc_name,
+        src_ip: "127.0.0.1".to_string(),
+        src_port: client_port,
+        dst_ip: clean_host.to_string(),
+        dst_port: port,
+        protocol: if scheme.eq_ignore_ascii_case("https") {
+            "HTTPS".to_string()
+        } else {
+            "HTTP".to_string()
+        },
+        hostname: Some(clean_host.to_string()),
+        dns_query: None,
+        url: Some(full_url.clone()),
+        http_method: Some(method.clone()),
+        ja3: None,
+        ja3s: None,
+    });
+
+    if (200..300).contains(&status) {
+        let content_disp = response_headers
+            .get("content-disposition")
+            .cloned()
+            .unwrap_or_default();
+        let resp_ctype = response_headers
+            .get("content-type")
+            .map(|s| s.split(';').next().unwrap_or("").trim().to_ascii_lowercase())
+            .unwrap_or_default();
+        let disp_lower = content_disp.to_ascii_lowercase();
+        let path_no_q = path.split('?').next().unwrap_or(&path).to_ascii_lowercase();
+        const DOWNLOAD_CTYPES: &[&str] = &[
+            "application/octet-stream",
+            "application/x-msdownload",
+            "application/x-dosexec",
+            "application/x-msi",
+            "application/zip",
+            "application/x-zip-compressed",
+            "application/x-7z-compressed",
+            "application/x-rar-compressed",
+            "application/vnd.ms-cab-compressed",
+            "application/x-iso9660-image",
+            "application/pdf",
+            "application/hta",
+        ];
+        const DOWNLOAD_EXTS: &[&str] = &[
+            ".exe", ".dll", ".sys", ".msi", ".msp", ".ps1", ".psm1", ".bat", ".cmd", ".vbs",
+            ".vbe", ".js", ".jse", ".hta", ".scr", ".iso", ".vhd", ".vhdx", ".img", ".zip",
+            ".rar", ".7z", ".cab", ".lnk",
+        ];
+        let is_download = disp_lower.contains("attachment")
+            || disp_lower.contains("filename=")
+            || DOWNLOAD_CTYPES.iter().any(|c| resp_ctype == *c)
+            || DOWNLOAD_EXTS.iter().any(|ext| path_no_q.ends_with(ext));
+        if is_download {
+            crate::telemetry_stream::submit_structured(
+                "FILE_DOWNLOADED",
+                Some(resolved_pid),
+                Some(app_path.clone()),
+                Some(format!("{} {}", method, full_url)),
+                serde_json::json!({
+                    "url": full_url,
+                    "hostname": clean_host,
+                    "http_method": method,
+                    "status": status,
+                    "content_type": resp_ctype,
+                    "content_disposition": content_disp,
+                    "content_length": res_content_length,
+                    "source": "tls_proxy",
+                }),
+            );
+        }
     }
 
     if !app_path.is_empty() {

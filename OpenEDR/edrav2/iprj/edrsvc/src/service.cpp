@@ -12,6 +12,7 @@
 
 #include "pch.h"
 #include "service.h"
+#include <atomic>
 
 namespace cmd {
 namespace win {
@@ -19,6 +20,57 @@ namespace win {
 // Set component for logging
 #undef CMD_COMPONENT
 #define CMD_COMPONENT "winsvc"
+
+void emitViruskovAgentSysop(const char* szEventType, const std::string& sMessage,
+	const std::string& sDetailsJson, bool fSyncFlush)
+{
+	if (!szEventType || !*szEventType)
+		return;
+	try
+	{
+		typedef int32_t(*EmitSysopFn)(
+			const uint8_t* eventType, uint32_t eventTypeLen,
+			const uint8_t* message, uint32_t messageLen,
+			const uint8_t* detailsJson, uint32_t detailsJsonLen,
+			uint32_t syncFlush);
+		static std::atomic<EmitSysopFn> s_fnEmit{ nullptr };
+		auto fn = s_fnEmit.load(std::memory_order_acquire);
+		if (!fn)
+		{
+			HMODULE hDll = ::GetModuleHandleW(L"owlyshield_ransom.dll");
+			if (!hDll)
+				hDll = ::LoadLibraryW(L"owlyshield_ransom.dll");
+			if (!hDll)
+			{
+				wchar_t szSelf[MAX_PATH] = {};
+				if (::GetModuleFileNameW(NULL, szSelf, MAX_PATH) > 0)
+				{
+					auto sibling = std::filesystem::path(szSelf).parent_path() / L"owlyshield_ransom.dll";
+					hDll = ::LoadLibraryW(sibling.c_str());
+				}
+			}
+			if (!hDll)
+				hDll = ::LoadLibraryW(L"C:\\Program Files\\HydraDragonAntivirus\\OpenEDR\\owlyshield_ransom.dll");
+			if (hDll)
+			{
+				fn = reinterpret_cast<EmitSysopFn>(
+					::GetProcAddress(hDll, "owlyshield_telemetry_emit_sysop"));
+				if (fn)
+					s_fnEmit.store(fn, std::memory_order_release);
+			}
+		}
+		if (!fn)
+			return;
+		const std::string sEventType(szEventType);
+		const std::string& sDetails = sDetailsJson.empty() ? std::string("{}") : sDetailsJson;
+		fn(
+			reinterpret_cast<const uint8_t*>(sEventType.data()), static_cast<uint32_t>(sEventType.size()),
+			reinterpret_cast<const uint8_t*>(sMessage.data()), static_cast<uint32_t>(sMessage.size()),
+			reinterpret_cast<const uint8_t*>(sDetails.data()), static_cast<uint32_t>(sDetails.size()),
+			fSyncFlush ? 1u : 0u);
+	}
+	catch (...) {}
+}
 
 //
 // Constructor
@@ -155,6 +207,9 @@ void WINAPI WinService::runService(DWORD dwArgc, PTSTR* pszArgv)
 	{
 		if (pSvcApp)
 			pSvcApp->m_pCurrException = std::current_exception();
+		emitViruskovAgentSysop("AGENT_ERROR",
+			std::string("Unhandled exception in service thread: ") + ex.what(),
+			"{\"phase\":\"runService\"}", true);
 		ex.log(SL, "Unhandled exception in the service thread");
 	}
 	catch (...)
@@ -163,6 +218,7 @@ void WINAPI WinService::runService(DWORD dwArgc, PTSTR* pszArgv)
 		if (pSvcApp)
 			pSvcApp->m_pCurrException = 
 				std::make_exception_ptr(error::RuntimeError(SL, sExStr));
+		emitViruskovAgentSysop("AGENT_ERROR", sExStr, "{\"phase\":\"runService\"}", true);
 		error::RuntimeError(SL, sExStr).log();
 	}
 }
@@ -196,6 +252,23 @@ ULONG WINAPI WinService::controlService(ULONG dwControl, ULONG dwEventType,
 		}
 		case SERVICE_CONTROL_SESSIONCHANGE:
 		{
+			DWORD dwSessionId = pvEventData ? reinterpret_cast<const WTSSESSION_NOTIFICATION*>(pvEventData)->dwSessionId : 0;
+			if (dwEventType == WTS_SESSION_LOGON)
+			{
+				emitViruskovAgentSysop(
+					"ACCOUNT_LOGIN",
+					FMT("Interactive WTS session logon (sessionId=" << dwSessionId << ")"),
+					FMT("{\"session_id\":" << dwSessionId << ",\"wts_event\":" << dwEventType << ",\"source\":\"edrsvc_sessionchange\"}"),
+					false);
+			}
+			else if (dwEventType == WTS_SESSION_LOGOFF)
+			{
+				emitViruskovAgentSysop(
+					"ACCOUNT_LOGOFF",
+					FMT("Interactive WTS session logoff (sessionId=" << dwSessionId << ")"),
+					FMT("{\"session_id\":" << dwSessionId << ",\"wts_event\":" << dwEventType << ",\"source\":\"edrsvc_sessionchange\"}"),
+					false);
+			}
 			if (dwEventType == WTS_SESSION_LOGON || dwEventType == WTS_CONSOLE_CONNECT)
 			{
 				LOGINF("Interactive session change detected (" << std::hex << dwEventType << "), launching edrgui");
@@ -353,6 +426,8 @@ ErrorCode WinService::runService(bool fAppMode)
 		if (!needShutdown())
 		{
 			reportStatus(SERVICE_RUNNING);
+			emitViruskovAgentSysop("AGENT_START", "edrsvc Windows service running",
+				"{\"phase\":\"service_running\"}", false);
 			launchEdrGui();
 			ec = runMode();
 		}
@@ -368,6 +443,8 @@ ErrorCode WinService::runService(bool fAppMode)
 //
 ErrorCode WinService::doShutdown(ErrorCode errCode)
 {
+	emitViruskovAgentSysop("AGENT_STOP", "edrsvc Windows service stopping",
+		"{\"phase\":\"service_shutdown\"}", true);
 	reportStatus(SERVICE_STOP_PENDING, 10000);
 	ErrorCode ec = Application::doShutdown(errCode);
 	reportStatus(SERVICE_STOPPED, 0, errCode);
@@ -403,7 +480,7 @@ Variant WinService::install(Variant vParams)
 	Size nStartMode = (sStartMode == "auto") ? SERVICE_AUTO_START :
 		((sStartMode == "manual") ? SERVICE_DEMAND_START : SERVICE_DISABLED);
 
-	return execCommand(createObject(CLSID_WinServiceController), "create",
+	Variant vInstallRes = execCommand(createObject(CLSID_WinServiceController), "create",
 		Dictionary({
 			{ "name", c_sServiceName },
 			{ "path", sCmdLine },
@@ -416,10 +493,16 @@ Variant WinService::install(Variant vParams)
 			{ "reinstall", fReinstall}
 		})
 	);
+	emitViruskovAgentSysop("AGENT_INSTALL", "edrsvc Windows service installed",
+		"{\"phase\":\"service_install\"}", true);
+	return vInstallRes;
 }
 
 Variant WinService::uninstall(Variant vParams)
 {
+	emitViruskovAgentSysop("AGENT_UNINSTALL", "edrsvc Windows service uninstall requested",
+		"{\"phase\":\"service_uninstall\"}", true);
+
 	// 1. Run elam_installer.exe --uninstall to unprotect PPL, stop, and delete all Sanctum/ELAM services
 	try
 	{

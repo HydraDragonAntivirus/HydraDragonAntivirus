@@ -139,6 +139,30 @@ impl Logging {
     /// Log an error in the program execution
     pub fn error(message: &str) {
         Logging::log(Status::Error, message);
+
+        // Mirror genuine runtime errors to VirusKov Agent SysOps (AGENT_ERROR),
+        // skipping telemetry/HTTP logger errors and nested calls to prevent recursion.
+        let suppress = message.contains("[Telemetry Stream]")
+            || message.contains("[EDR Feedback]")
+            || message.contains("[KillChain Upload]")
+            || message.contains("WinHttp");
+        if !suppress {
+            thread_local! {
+                static IN_ERROR_EMIT: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+            }
+            IN_ERROR_EMIT.with(|busy| {
+                if !busy.get() {
+                    busy.set(true);
+                    crate::telemetry_stream::submit_sysop(
+                        "AGENT_ERROR",
+                        message,
+                        serde_json::json!({ "source": "owlyshield_logging" }),
+                        false,
+                    );
+                    busy.set(false);
+                }
+            });
+        }
     }
 
     /// Log general information

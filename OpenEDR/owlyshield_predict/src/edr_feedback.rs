@@ -20,7 +20,7 @@ use windows::core::PCWSTR;
 #[cfg(target_os = "windows")]
 use windows::Win32::Networking::WinHttp::{
     WinHttpCloseHandle, WinHttpConnect, WinHttpOpen, WinHttpOpenRequest, WinHttpQueryHeaders,
-    WinHttpReadData, WinHttpReceiveResponse, WinHttpSendRequest,
+    WinHttpReadData, WinHttpReceiveResponse, WinHttpSendRequest, WinHttpSetTimeouts,
     INTERNET_DEFAULT_HTTPS_PORT, INTERNET_DEFAULT_HTTP_PORT, WINHTTP_ACCESS_TYPE_DEFAULT_PROXY,
     WINHTTP_FLAG_SECURE, WINHTTP_OPEN_REQUEST_FLAGS, WINHTTP_QUERY_FLAG_NUMBER,
     WINHTTP_QUERY_STATUS_CODE,
@@ -64,8 +64,18 @@ pub struct NetworkFlowRecord {
     pub dst_ip: String,
     pub dst_port: u16,
     pub protocol: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub hostname: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dns_query: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub url: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub http_method: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ja3: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ja3s: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -448,6 +458,19 @@ fn winhttp_post(
     headers: &[(&str, &str)],
     body: &[u8],
 ) -> Result<(u32, Vec<u8>), String> {
+    winhttp_post_timeout(host, port, is_https, path_and_query, headers, body, None)
+}
+
+#[cfg(target_os = "windows")]
+fn winhttp_post_timeout(
+    host: &str,
+    port: u16,
+    is_https: bool,
+    path_and_query: &str,
+    headers: &[(&str, &str)],
+    body: &[u8],
+    timeout_ms: Option<u32>,
+) -> Result<(u32, Vec<u8>), String> {
     unsafe {
         let user_agent: Vec<u16> = "VirusKov-EDR-Feedback/1.0\0".encode_utf16().collect();
         let h_session = WinHttpOpen(
@@ -459,6 +482,10 @@ fn winhttp_post(
         );
         if h_session.is_null() {
             return Err("WinHttpOpen returned null session handle".into());
+        }
+        if let Some(ms) = timeout_ms {
+            let t = ms.min(i32::MAX as u32) as i32;
+            let _ = WinHttpSetTimeouts(h_session, t, t, t, t);
         }
 
         let wide_host: Vec<u16> = host.encode_utf16().chain(std::iter::once(0)).collect();
@@ -582,10 +609,45 @@ fn winhttp_post(
     Err("winhttp is only available on Windows".into())
 }
 
+#[cfg(not(target_os = "windows"))]
+fn winhttp_post_timeout(
+    _host: &str,
+    _port: u16,
+    _is_https: bool,
+    _path_and_query: &str,
+    _headers: &[(&str, &str)],
+    _body: &[u8],
+    _timeout_ms: Option<u32>,
+) -> Result<(u32, Vec<u8>), String> {
+    Err("winhttp is only available on Windows".into())
+}
+
 /// POSTs `body` to `path` (under the configured server's prefix) with the endpoint's
 /// identity headers (and the API key when one is set); blocking, for a caller that is
 /// already on its own thread. Returns (HTTP status, response body).
 pub(crate) fn post_to_server(path: &str, content_type: &str, content_encoding: Option<&str>, body: &[u8]) -> Result<(u32, Vec<u8>), String> {
+    post_to_server_opt(path, content_type, content_encoding, body, None)
+}
+
+/// Bounded-timeout variant of `post_to_server` used during shutdown / install / uninstall
+/// so synchronous `AGENT_*` telemetry cannot stall process exit.
+pub(crate) fn post_to_server_timeout(
+    path: &str,
+    content_type: &str,
+    content_encoding: Option<&str>,
+    body: &[u8],
+    timeout_ms: u32,
+) -> Result<(u32, Vec<u8>), String> {
+    post_to_server_opt(path, content_type, content_encoding, body, Some(timeout_ms))
+}
+
+fn post_to_server_opt(
+    path: &str,
+    content_type: &str,
+    content_encoding: Option<&str>,
+    body: &[u8],
+    timeout_ms: Option<u32>,
+) -> Result<(u32, Vec<u8>), String> {
     let target = resolve_server_target();
     let full_path = format!("{}{}", target.path_prefix, path);
     let machine_id = get_machine_guid();
@@ -602,7 +664,7 @@ pub(crate) fn post_to_server(path: &str, content_type: &str, content_encoding: O
     if let Some(ref key) = api_key_opt {
         headers.push(("X-API-Key", key.as_str()));
     }
-    winhttp_post(&target.host, target.port, target.is_https, &full_path, &headers, body)
+    winhttp_post_timeout(&target.host, target.port, target.is_https, &full_path, &headers, body, timeout_ms)
 }
 
 /// Dispatches threat telemetry and sample upload to VirusKov asynchronously.
@@ -1545,5 +1607,36 @@ mod tests {
         // Unknown image or root: kept.
         assert!(!is_loopback_flow_of_image_under(&lo4, &lo4, "", root));
         assert!(!is_loopback_flow_of_image_under(&lo4, &lo4, svc, std::path::Path::new("")));
+    }
+
+    #[test]
+    fn network_flow_record_serializes_dns_and_url_fields() {
+        let rec = NetworkFlowRecord {
+            timestamp: 1700000000,
+            pid: 1234,
+            process_name: "chrome.exe".to_string(),
+            src_ip: "127.0.0.1".to_string(),
+            src_port: 55000,
+            dst_ip: "1.1.1.1".to_string(),
+            dst_port: 443,
+            protocol: "HTTPS".to_string(),
+            hostname: Some("example.com".to_string()),
+            dns_query: Some("example.com".to_string()),
+            url: Some("https://example.com/test?a=1".to_string()),
+            http_method: Some("GET".to_string()),
+            ja3: Some("771,4865,10-11,29,0".to_string()),
+            ja3s: None,
+        };
+        let json = serde_json::to_string(&rec).unwrap();
+        let back: NetworkFlowRecord = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.dns_query.as_deref(), Some("example.com"));
+        assert_eq!(back.url.as_deref(), Some("https://example.com/test?a=1"));
+        assert_eq!(back.http_method.as_deref(), Some("GET"));
+
+        // Backward compatibility: older JSON without new optional fields still deserializes
+        let old = r#"{"timestamp":1,"pid":2,"process_name":"a.exe","src_ip":"10.0.0.1","src_port":1,"dst_ip":"1.1.1.1","dst_port":53,"protocol":"UDP"}"#;
+        let old_back: NetworkFlowRecord = serde_json::from_str(old).unwrap();
+        assert_eq!(old_back.dns_query, None);
+        assert_eq!(old_back.url, None);
     }
 }

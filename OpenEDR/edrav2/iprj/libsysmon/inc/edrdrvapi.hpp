@@ -66,6 +66,10 @@ enum class SysmonEvent : uint16_t
 	ThreadOpen = 0x0015,    ///< ObRegisterCallbacks thread handle open
 	DesktopOpen = 0x0016,   ///< ObRegisterCallbacks desktop handle open
 	OwlyPreImageSaved = 0x0017, ///< pre-image of an overwrite saved (RansomShield)
+	ImageLoad = 0x0018,     ///< PsSetLoadImageNotifyRoutine user-mode DLL/EXE load
+	DriverLoad = 0x0019,    ///< PsSetLoadImageNotifyRoutine kernel driver load
+	RemoteThreadCreate = 0x001A, ///< PsSetCreateThreadNotifyRoutine cross-process thread creation
+	NamedPipeServerCreate = 0x001B, ///< IRP_MJ_CREATE_NAMED_PIPE server pipe creation
 
 	_Max //< "last" event. for internal usage
 };

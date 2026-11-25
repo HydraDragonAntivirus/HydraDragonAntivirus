@@ -2357,6 +2357,49 @@ namespace {
 		}
 	}
 
+	typedef int32_t(*LosslessTelemetrySubmitFn)(
+		const uint8_t* eventType, uint32_t eventTypeLen,
+		const uint8_t* exePath, uint32_t exePathLen,
+		const uint8_t* details, uint32_t detailsLen,
+		const uint8_t* rawJson, uint32_t rawJsonLen);
+
+	static LosslessTelemetrySubmitFn GetTelemetrySubmitFn()
+	{
+		static std::atomic<LosslessTelemetrySubmitFn> s_fnTelemetry{ nullptr };
+		if (auto cached = s_fnTelemetry.load(std::memory_order_acquire))
+			return cached;
+		HMODULE hDll = ::GetModuleHandleW(L"owlyshield_ransom.dll");
+		if (!hDll)
+			hDll = ::LoadLibraryW(L"owlyshield_ransom.dll");
+		if (hDll)
+		{
+			auto fn = reinterpret_cast<LosslessTelemetrySubmitFn>(
+				::GetProcAddress(hDll, "owlyshield_telemetry_submit_event"));
+			if (fn)
+			{
+				s_fnTelemetry.store(fn, std::memory_order_release);
+				return fn;
+			}
+		}
+		return nullptr;
+	}
+
+	static void SubmitLosslessTelemetryEvent(
+		const std::string& sEventType,
+		const std::string& sExePath,
+		const std::string& sDetails,
+		const std::string& sJson)
+	{
+		if (auto fn = GetTelemetrySubmitFn())
+		{
+			fn(
+				reinterpret_cast<const uint8_t*>(sEventType.data()), static_cast<uint32_t>(sEventType.size()),
+				reinterpret_cast<const uint8_t*>(sExePath.data()), static_cast<uint32_t>(sExePath.size()),
+				reinterpret_cast<const uint8_t*>(sDetails.data()), static_cast<uint32_t>(sDetails.size()),
+				reinterpret_cast<const uint8_t*>(sJson.data()), static_cast<uint32_t>(sJson.size()));
+		}
+	}
+
 	// Save unknown process behavior killchain telemetry into training dataset
 	void AppendToTrainingDataset(const std::string& sExePath, const std::string& sEventType, const std::string& sDetails, const std::string& sJson)
 	{
@@ -3179,6 +3222,7 @@ namespace {
 				struct TrainingPipeItem
 				{
 					bool fDoTraining = false;
+					bool fDoTelemetry = false;
 					Variant vEvent;
 					std::string sPath;
 					std::string sType;
@@ -3211,7 +3255,7 @@ namespace {
 					void push(TrainingPipeItem&& item)
 					{
 						std::lock_guard<std::mutex> lk(mtx);
-						if (queue.size() >= 512)
+						if (queue.size() >= 65536)
 							queue.pop_front();
 						queue.push_back(std::move(item));
 						cv.notify_one();
@@ -3232,12 +3276,15 @@ namespace {
 								queue.pop_front();
 							}
 
-							if (item.fDoTraining)
+							if (item.fDoTraining || item.fDoTelemetry)
 							{
 								try
 								{
 									std::string sJson = variant::serializeToJson(item.vEvent, variant::JsonFormat::SingleLine);
-									AppendToTrainingDataset(item.sPath, item.sType, item.sDetails, sJson);
+									if (item.fDoTelemetry)
+										SubmitLosslessTelemetryEvent(item.sType, item.sPath, item.sDetails, sJson);
+									if (item.fDoTraining)
+										AppendToTrainingDataset(item.sPath, item.sType, item.sDetails, sJson);
 								}
 								catch (...) {}
 							}
@@ -3264,10 +3311,16 @@ namespace {
 				};
 				static TrainingPipeWorker s_worker;
 
+				std::string sLowerProc = sPath;
+				for (auto& c : sLowerProc) c = (char)::tolower((unsigned char)c);
+				const bool fIsOwnProc = IsPathUnderOwnInstallDir(sLowerProc);
+				const bool fIsMle = (sType.rfind("MLE_", 0) == 0);
+				const bool fDoTelemetry = (!fIsOwnProc || fIsMle) && (GetTelemetrySubmitFn() != nullptr);
 				const bool fDoTraining = IsTrainingModeEnabled() && IsProcessInTrainingDir(sPath) && IsApiDllInTrainingWatchDir(vEvent);
 				TrainingPipeItem item;
 				item.fDoTraining = fDoTraining;
-				if (fDoTraining)
+				item.fDoTelemetry = fDoTelemetry;
+				if (fDoTraining || fDoTelemetry)
 					item.vEvent = vEvent.clone();
 				item.sPath = std::move(sPath);
 				item.sType = std::move(sType);
@@ -7123,9 +7176,13 @@ void EventEnricher::put(const Variant& vEventRef)
 		break;
 	}
 	case Event::LLE_NAMED_PIPE_CREATE:
+	case Event::LLE_NAMED_PIPE_SERVER_CREATE:
+	case Event::LLE_IMAGE_LOAD:
+	case Event::LLE_DRIVER_LOAD:
+	case Event::LLE_REMOTE_THREAD_CREATE:
 	{
-		// Named-pipe creation event forwarded from the kernel.
-		// Pass through without further enrichment.
+		// Kernel image, driver, remote thread, and named-pipe telemetry.
+		// Pass through directly so lossless stream enriches and forwards them.
 		break;
 	}
 	}

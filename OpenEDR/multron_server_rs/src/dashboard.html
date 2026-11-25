@@ -1397,6 +1397,16 @@
           <div style="font-size:11px;color:var(--muted);text-transform:uppercase;font-weight:600">Threat Reports</div>
           <div style="font-size:20px;font-weight:700" id="edrStatThreats">0</div>
         </div>
+        <div style="background:var(--panel2);border:1px solid var(--border);border-radius:8px;padding:8px 14px;flex:1;min-width:140px" title="Lossless raw EDR events streamed to SQLite">
+          <div style="font-size:11px;color:var(--accent);text-transform:uppercase;font-weight:600">Raw EDR Events</div>
+          <div style="font-size:20px;font-weight:700;color:var(--accent)" id="edrStatEvents">0</div>
+          <div style="font-size:11px;color:var(--muted)"><a id="edrEventsExport" href="/api/v1/edr/telemetry/events/export" download>export jsonl</a></div>
+        </div>
+        <div style="background:var(--panel2);border:1px solid var(--border);border-radius:8px;padding:8px 14px;flex:1;min-width:140px" title="Agent lifecycle SysOps events (start, stop, install, uninstall, keep-alive, errors)">
+          <div style="font-size:11px;color:var(--green);text-transform:uppercase;font-weight:600">Agent SysOps</div>
+          <div style="font-size:20px;font-weight:700;color:var(--green)" id="edrStatSysops">0</div>
+          <div style="font-size:11px;color:var(--muted)"><span id="edrStatSystemReports">0</span> sys reports</div>
+        </div>
         <div style="background:var(--panel2);border:1px solid var(--border);border-radius:8px;padding:8px 14px;flex:1;min-width:150px" title="Unknown-process kill chain events uploaded by clients in training mode, merged by event shape">
           <div style="font-size:11px;color:var(--muted);text-transform:uppercase;font-weight:600">Kill Chain (training)</div>
           <div style="font-size:20px;font-weight:700" id="edrStatKcShapes">0</div>
@@ -1409,19 +1419,36 @@
 
       <!-- Subtab switch & Toolbar -->
       <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:10px">
-        <div style="display:flex;gap:6px">
+        <div style="display:flex;gap:6px;flex-wrap:wrap">
           <button class="ghost active" id="haEdrViewBehaviors" style="padding:5px 12px;font-size:12.5px;font-weight:600">Process Behaviors</button>
+          <button class="ghost" id="haEdrViewEvents" style="padding:5px 12px;font-size:12.5px;font-weight:600">Raw EDR Events</button>
           <button class="ghost" id="haEdrViewFlows" style="padding:5px 12px;font-size:12.5px;font-weight:600">WinDivert Network Flows</button>
           <button class="ghost" id="haEdrViewThreats" style="padding:5px 12px;font-size:12.5px;font-weight:600">Threat Reports</button>
+          <button class="ghost" id="haEdrViewSysops" style="padding:5px 12px;font-size:12.5px;font-weight:600">Agent SysOps &amp; System</button>
         </div>
-        <div style="display:flex;gap:8px;align-items:center;flex:1;max-width:650px;justify-content:flex-end">
+        <div style="display:flex;gap:8px;align-items:center;flex:1;max-width:680px;justify-content:flex-end">
+          <input id="haEdrEventTypeF" type="text" placeholder="Event type (e.g. LLE_FILE_CREATE)" style="width:170px;padding:5px 8px;font-size:12px" hidden>
+          <select id="haEdrEventPresetF" style="width:170px;padding:5px 8px;font-size:12px" hidden>
+            <option value="">Category: All Events</option>
+            <option value="LLE_PROCESS_CREATE,LLE_PROCESS_DELETE,LLE_PROCESS_OPEN,LLE_PROCESS_MEMORY_READ,LLE_PROCESS_MEMORY_WRITE,LLE_REMOTE_THREAD_CREATE,PROCESS_TAMPERING">Process &amp; Tampering</option>
+            <option value="LLE_IMAGE_LOAD,LLE_DRIVER_LOAD,DRIVER_LOADED,DRIVER_MODIFIED,DRIVER_UNLOADED">Image &amp; Drivers</option>
+            <option value="SCRIPT_BLOCK_ACTIVITY">Script-Block (PS 4104)</option>
+            <option value="WMI_EVENT_FILTER,WMI_EVENT_CONSUMER,WMI_EVENT_CONSUMER_TO_FILTER">WMI Subscriptions</option>
+            <option value="SCHEDULED_TASK_CREATE,SCHEDULED_TASK_MODIFY,SCHEDULED_TASK_DELETE,SERVICE_CREATE,SERVICE_MODIFY,SERVICE_DELETE,BITS_JOB_ACTIVITY">Tasks, Services &amp; BITS</option>
+            <option value="LOCAL_ACCOUNT_CREATE,LOCAL_ACCOUNT_MODIFY,LOCAL_ACCOUNT_DELETE,ACCOUNT_LOGIN,ACCOUNT_LOGOFF">Accounts &amp; Logon</option>
+            <option value="USB_DEVICE_MOUNT,USB_DEVICE_UNMOUNT,VIRTUAL_DISK_MOUNT">USB &amp; Virtual Disk</option>
+            <option value="LLE_NAMED_PIPE_CREATE,LLE_NAMED_PIPE_SERVER_CREATE">Named Pipes</option>
+            <option value="FILE_DOWNLOADED,LLE_FILE_CREATE,LLE_FILE_DATA_CHANGE,LLE_FILE_DELETE,LLE_FILE_RENAME">Files &amp; Downloads</option>
+            <option value="VSS_SHADOW_COPY_DELETED,GROUP_POLICY_MODIFY">VSS &amp; Group Policy</option>
+            <option value="AGENT_START,AGENT_STOP,AGENT_INSTALL,AGENT_UNINSTALL,AGENT_KEEPALIVE,AGENT_ERROR">Agent SysOps</option>
+          </select>
           <select id="haEdrRiskF" style="width:130px;padding:5px 8px;font-size:12px">
             <option value="all">Risk: All</option>
             <option value="malicious">Malicious only</option>
             <option value="suspicious">Suspicious only</option>
             <option value="clean">Clean only</option>
           </select>
-          <input id="haEdrSearch" type="search" placeholder="Search PID, process, command, IP, threat..." style="flex:1;padding:5px 9px;font-size:12px">
+          <input id="haEdrSearch" type="search" placeholder="Search PID, process, command, IP, DNS, URL, threat..." style="flex:1;padding:5px 9px;font-size:12px">
           <button class="ghost" id="haEdrRefresh" style="padding:5px 12px;font-size:12px">Refresh</button>
           <label style="display:flex;align-items:center;gap:4px;font-size:12px;color:var(--muted);white-space:nowrap;cursor:pointer">
             <input type="checkbox" id="haEdrAuto" checked style="width:auto;margin:0"> Live
@@ -1464,11 +1491,31 @@
                 <th>Source Address</th>
                 <th>Destination Address</th>
                 <th style="width:80px">Proto</th>
-                <th>Domain / Hostname</th>
+                <th>Domain / DNS / URL</th>
               </tr>
             </thead>
             <tbody id="haEdrFlowRows">
               <tr><td colspan="8" class="empty">No network flows ingested yet.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Raw EDR Events Table Section -->
+      <div id="haEdrSecEvents" hidden>
+        <div class="tablewrap ha-table" style="max-height:560px">
+          <table>
+            <thead>
+              <tr>
+                <th style="width:120px">Time</th>
+                <th style="width:120px">Machine / PID</th>
+                <th style="width:180px">Event Type</th>
+                <th>Process &amp; Binary</th>
+                <th>Details / Path / Raw Telemetry</th>
+              </tr>
+            </thead>
+            <tbody id="haEdrEventRows">
+              <tr><td colspan="5" class="empty">No raw EDR events ingested yet.</td></tr>
             </tbody>
           </table>
         </div>
@@ -1490,6 +1537,42 @@
             </thead>
             <tbody id="haEdrThreatRows">
               <tr><td colspan="6" class="empty">No threat reports logged yet.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Agent SysOps & System Reports Section -->
+      <div id="haEdrSecSysops" hidden>
+        <div class="tablewrap ha-table" style="max-height:320px;margin-bottom:12px">
+          <table>
+            <thead>
+              <tr>
+                <th style="width:120px">Time</th>
+                <th style="width:130px">Machine ID</th>
+                <th style="width:160px">SysOp Event</th>
+                <th style="width:90px">PID</th>
+                <th>Message &amp; Context</th>
+              </tr>
+            </thead>
+            <tbody id="haEdrSysopRows">
+              <tr><td colspan="5" class="empty">No Agent SysOps events logged yet.</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="tablewrap ha-table" style="max-height:240px">
+          <table>
+            <thead>
+              <tr>
+                <th style="width:120px">Report Time</th>
+                <th style="width:130px">Machine ID</th>
+                <th>Hostname &amp; OS</th>
+                <th style="width:120px">Processes</th>
+                <th style="width:120px">Rootkit Findings</th>
+              </tr>
+            </thead>
+            <tbody id="haEdrSysReportRows">
+              <tr><td colspan="5" class="empty">No system diagnostic reports persisted yet.</td></tr>
             </tbody>
           </table>
         </div>
@@ -5943,12 +6026,15 @@ window.sigKey = (list) => list && list.length ? `${list[0].layer}: ${list[0].nam
         const d = await res.json();
         const total = (d.total_behaviors || 0) + (d.total_threats || 0);
         if ($("haEdrCount")) $("haEdrCount").textContent = total ? `(${total})` : "";
-        if ($("edrStatBehaviors")) $("edrStatBehaviors").textContent = d.total_behaviors || 0;
-        if ($("edrStatMalicious")) $("edrStatMalicious").textContent = d.malicious_behaviors || 0;
-        if ($("edrStatSuspicious")) $("edrStatSuspicious").textContent = d.suspicious_behaviors || 0;
-        if ($("edrStatClean")) $("edrStatClean").textContent = d.clean_behaviors || 0;
-        if ($("edrStatFlows")) $("edrStatFlows").textContent = d.total_flows || 0;
-        if ($("edrStatThreats")) $("edrStatThreats").textContent = d.total_threats || 0;
+        if ($("edrStatBehaviors")) $("edrStatBehaviors").textContent = (d.total_behaviors || 0).toLocaleString();
+        if ($("edrStatMalicious")) $("edrStatMalicious").textContent = (d.malicious_behaviors || 0).toLocaleString();
+        if ($("edrStatSuspicious")) $("edrStatSuspicious").textContent = (d.suspicious_behaviors || 0).toLocaleString();
+        if ($("edrStatClean")) $("edrStatClean").textContent = (d.clean_behaviors || 0).toLocaleString();
+        if ($("edrStatFlows")) $("edrStatFlows").textContent = (d.total_flows || 0).toLocaleString();
+        if ($("edrStatThreats")) $("edrStatThreats").textContent = (d.total_threats || 0).toLocaleString();
+        if ($("edrStatEvents")) $("edrStatEvents").textContent = (d.total_events || 0).toLocaleString();
+        if ($("edrStatSysops")) $("edrStatSysops").textContent = (d.total_sysops || 0).toLocaleString();
+        if ($("edrStatSystemReports")) $("edrStatSystemReports").textContent = (d.total_system_reports || 0).toLocaleString();
       } catch (_) {}
       try {
         const kc = await fetch("/api/v1/edr/telemetry/killchain/stats", { cache: "no-store" });
@@ -6052,6 +6138,11 @@ window.sigKey = (list) => list && list.length ? `${list[0].layer}: ${list[0].nam
         }
         tbody.innerHTML = items.map(f => {
           const time = f.time_iso ? f.time_iso.slice(11, 19) : "";
+          const dnsPart = f.dns_query ? `<span class="sigc">DNS: ${edrEsc(f.dns_query)}</span>` : "";
+          const ja3Part = f.ja3 ? `<span class="sigc" style="margin-left:4px" title="TLS ClientHello JA3">JA3: ${edrEsc(f.ja3)}</span>` : "";
+          const ja3sPart = f.ja3s ? `<span class="sigc" style="margin-left:4px" title="TLS ServerHello JA3S">JA3S: ${edrEsc(f.ja3s)}</span>` : "";
+          const urlPart = f.url ? `<div style="font-family:Consolas,monospace;font-size:11px;color:var(--accent);word-break:break-all">${edrEsc((f.http_method ? f.http_method + " " : "") + f.url)}</div>` : "";
+          const hostPart = f.hostname ? `<div>${edrEsc(f.hostname)}</div>` : (!dnsPart && !ja3Part && !ja3sPart && !urlPart ? "—" : "");
           return `<tr>
             <td style="white-space:nowrap;font-size:11.5px;color:var(--muted)">${edrEsc(time)}</td>
             <td style="font-size:11px;color:var(--muted);max-width:110px;overflow:hidden;text-overflow:ellipsis" title="${edrEsc(f.machine_id)}">${edrEsc(f.machine_id)}</td>
@@ -6060,11 +6151,92 @@ window.sigKey = (list) => list && list.length ? `${list[0].layer}: ${list[0].nam
             <td style="font-family:Consolas,monospace;color:var(--muted)">${edrEsc(f.src_ip)}:${f.src_port}</td>
             <td style="font-family:Consolas,monospace;font-weight:600">${edrEsc(f.dst_ip)}:${f.dst_port}</td>
             <td><span class="tag" style="background:var(--panel2)">${edrEsc(f.protocol)}</span></td>
-            <td style="word-break:break-all">${edrEsc(f.hostname || '—')}</td>
+            <td style="word-break:break-all">${hostPart}${dnsPart}${ja3Part}${ja3sPart}${urlPart}</td>
           </tr>`;
         }).join("");
       } catch (err) {
         tbody.innerHTML = `<tr><td colspan="8" class="empty" style="color:var(--red)">Failed to load network flows: ${edrEsc(err.message)}</td></tr>`;
+      }
+    }
+
+    async function loadEdrEvents() {
+      const tbody = $("haEdrEventRows");
+      if (!tbody) return;
+      try {
+        const et = ($("haEdrEventTypeF") ? $("haEdrEventTypeF").value : "").trim();
+        const q = ($("haEdrSearch") ? $("haEdrSearch").value : "").trim();
+        const res = await fetch(`/api/v1/edr/telemetry/events?limit=250&event_type=${encodeURIComponent(et)}&q=${encodeURIComponent(q)}`, { cache: "no-store" });
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        const data = await res.json();
+        const items = data.events || [];
+        if (!items.length) {
+          tbody.innerHTML = '<tr><td colspan="5" class="empty">No raw EDR events match filter.</td></tr>';
+          return;
+        }
+        tbody.innerHTML = items.map(ev => {
+          const time = ev.time_iso ? ev.time_iso.slice(11, 23) : "";
+          const rawStr = ev.raw ? JSON.stringify(ev.raw) : "";
+          const rawClip = rawStr.length > 260 ? rawStr.slice(0, 260) + "..." : rawStr;
+          return `<tr>
+            <td style="white-space:nowrap;font-size:11.5px;color:var(--muted)">${edrEsc(time)}</td>
+            <td>
+              <div style="font-weight:600;font-family:Consolas,monospace">PID ${ev.pid}</div>
+              <div style="font-size:11px;color:var(--muted);max-width:110px;overflow:hidden;text-overflow:ellipsis" title="${edrEsc(ev.machine_id)}">${edrEsc(ev.machine_id)}</div>
+            </td>
+            <td><span class="tag" style="background:var(--panel2);font-family:Consolas,monospace;font-size:11px">${edrEsc(ev.event_type)}</span></td>
+            <td>
+              <div style="font-weight:600">${edrEsc(ev.process_name || "—")}</div>
+              <div style="font-size:11px;color:var(--muted);font-family:Consolas,monospace;word-break:break-all">${edrEsc(ev.exe_path || "")}</div>
+            </td>
+            <td>
+              <div style="font-size:12px;word-break:break-all">${edrEsc(ev.details || "")}</div>
+              <div style="font-size:11px;color:var(--muted);font-family:Consolas,monospace;word-break:break-all" title="${edrEsc(rawStr)}">${edrEsc(rawClip)}</div>
+            </td>
+          </tr>`;
+        }).join("");
+      } catch (err) {
+        tbody.innerHTML = `<tr><td colspan="5" class="empty" style="color:var(--red)">Failed to load raw EDR events: ${edrEsc(err.message)}</td></tr>`;
+      }
+    }
+
+    async function loadEdrSysops() {
+      const tbody = $("haEdrSysopRows");
+      const rbody = $("haEdrSysReportRows");
+      try {
+        const q = ($("haEdrSearch") ? $("haEdrSearch").value : "").trim();
+        const [evRes, repRes] = await Promise.all([
+          fetch(`/api/v1/edr/telemetry/events?limit=200&sysops=true&q=${encodeURIComponent(q)}`, { cache: "no-store" }),
+          fetch("/api/v1/edr/telemetry/system-reports?limit=50", { cache: "no-store" }),
+        ]);
+        if (tbody && evRes.ok) {
+          const items = (await evRes.json()).events || [];
+          tbody.innerHTML = items.length ? items.map(ev => {
+            const time = ev.time_iso ? ev.time_iso.slice(0, 19).replace("T", " ") : "";
+            const cls = ev.event_type === "AGENT_ERROR" ? "t-malicious" : ev.event_type === "AGENT_UNINSTALL" || ev.event_type === "AGENT_STOP" ? "t-suspicious" : "t-clean";
+            return `<tr>
+              <td style="white-space:nowrap;font-size:11.5px;color:var(--muted)">${edrEsc(time)}</td>
+              <td style="font-size:11px;color:var(--muted);max-width:120px;overflow:hidden;text-overflow:ellipsis" title="${edrEsc(ev.machine_id)}">${edrEsc(ev.machine_id)}</td>
+              <td><span class="tag ${cls}">${edrEsc(ev.event_type)}</span></td>
+              <td style="font-family:Consolas,monospace">PID ${ev.pid}</td>
+              <td style="word-break:break-all;font-size:12px">${edrEsc(ev.details || JSON.stringify(ev.raw || {}))}</td>
+            </tr>`;
+          }).join("") : '<tr><td colspan="5" class="empty">No Agent SysOps events logged yet.</td></tr>';
+        }
+        if (rbody && repRes.ok) {
+          const reps = (await repRes.json()).reports || [];
+          rbody.innerHTML = reps.length ? reps.map(r => {
+            const time = r.time_iso ? r.time_iso.slice(0, 19).replace("T", " ") : "";
+            return `<tr>
+              <td style="white-space:nowrap;font-size:11.5px;color:var(--muted)">${edrEsc(time)}</td>
+              <td style="font-size:11px;color:var(--muted);max-width:120px;overflow:hidden;text-overflow:ellipsis" title="${edrEsc(r.machine_id)}">${edrEsc(r.machine_id)}</td>
+              <td><b>${edrEsc(r.hostname || "—")}</b> <span style="color:var(--muted);font-size:11px">${edrEsc(r.os_version || "")}</span></td>
+              <td style="font-family:Consolas,monospace">${r.monitored_processes_count}</td>
+              <td style="font-family:Consolas,monospace">${r.rootkit_findings_count}</td>
+            </tr>`;
+          }).join("") : '<tr><td colspan="5" class="empty">No system diagnostic reports persisted yet.</td></tr>';
+        }
+      } catch (err) {
+        if (tbody) tbody.innerHTML = `<tr><td colspan="5" class="empty" style="color:var(--red)">Failed to load SysOps: ${edrEsc(err.message)}</td></tr>`;
       }
     }
 
@@ -6099,51 +6271,51 @@ window.sigKey = (list) => list && list.length ? `${list[0].layer}: ${list[0].nam
       }
     }
 
+    const edrViews = [
+      { key: "behaviors", btn: "haEdrViewBehaviors", sec: "haEdrSecBehaviors", load: loadEdrBehaviors },
+      { key: "events", btn: "haEdrViewEvents", sec: "haEdrSecEvents", load: loadEdrEvents },
+      { key: "flows", btn: "haEdrViewFlows", sec: "haEdrSecFlows", load: loadEdrFlows },
+      { key: "threats", btn: "haEdrViewThreats", sec: "haEdrSecThreats", load: loadEdrThreats },
+      { key: "sysops", btn: "haEdrViewSysops", sec: "haEdrSecSysops", load: loadEdrSysops },
+    ];
+
+    function setEdrSub(key) {
+      edrActiveSub = key;
+      for (const v of edrViews) {
+        if ($(v.btn)) $(v.btn).classList.toggle("active", v.key === key);
+        if ($(v.sec)) $(v.sec).hidden = (v.key !== key);
+      }
+      if ($("haEdrEventTypeF")) $("haEdrEventTypeF").hidden = (key !== "events");
+      if ($("haEdrEventPresetF")) $("haEdrEventPresetF").hidden = (key !== "events");
+      if ($("haEdrRiskF")) $("haEdrRiskF").hidden = (key !== "behaviors");
+    }
+
     function refreshActiveView() {
       loadEdrStats();
-      if (edrActiveSub === "behaviors") loadEdrBehaviors();
-      else if (edrActiveSub === "flows") loadEdrFlows();
-      else if (edrActiveSub === "threats") loadEdrThreats();
+      const v = edrViews.find(x => x.key === edrActiveSub);
+      if (v) v.load();
     }
 
     window.refreshEdrTelemetry = refreshActiveView;
 
-    // Subtab click handlers
-    $("haEdrViewBehaviors").onclick = () => {
-      edrActiveSub = "behaviors";
-      $("haEdrViewBehaviors").classList.add("active");
-      $("haEdrViewFlows").classList.remove("active");
-      $("haEdrViewThreats").classList.remove("active");
-      $("haEdrSecBehaviors").hidden = false;
-      $("haEdrSecFlows").hidden = true;
-      $("haEdrSecThreats").hidden = true;
-      loadEdrBehaviors();
-    };
-
-    $("haEdrViewFlows").onclick = () => {
-      edrActiveSub = "flows";
-      $("haEdrViewFlows").classList.add("active");
-      $("haEdrViewBehaviors").classList.remove("active");
-      $("haEdrViewThreats").classList.remove("active");
-      $("haEdrSecBehaviors").hidden = true;
-      $("haEdrSecFlows").hidden = false;
-      $("haEdrSecThreats").hidden = true;
-      loadEdrFlows();
-    };
-
-    $("haEdrViewThreats").onclick = () => {
-      edrActiveSub = "threats";
-      $("haEdrViewThreats").classList.add("active");
-      $("haEdrViewBehaviors").classList.remove("active");
-      $("haEdrViewFlows").classList.remove("active");
-      $("haEdrSecBehaviors").hidden = true;
-      $("haEdrSecFlows").hidden = true;
-      $("haEdrSecThreats").hidden = false;
-      loadEdrThreats();
-    };
+    for (const v of edrViews) {
+      if ($(v.btn)) $(v.btn).onclick = () => {
+        setEdrSub(v.key);
+        v.load();
+      };
+    }
+    setEdrSub(edrActiveSub);
 
     if ($("haEdrRefresh")) $("haEdrRefresh").onclick = refreshActiveView;
     if ($("haEdrRiskF")) $("haEdrRiskF").onchange = refreshActiveView;
+    if ($("haEdrEventPresetF")) $("haEdrEventPresetF").onchange = () => {
+      if ($("haEdrEventTypeF")) $("haEdrEventTypeF").value = $("haEdrEventPresetF").value;
+      refreshActiveView();
+    };
+    if ($("haEdrEventTypeF")) $("haEdrEventTypeF").oninput = () => {
+      clearTimeout(edrTimer);
+      edrTimer = setTimeout(refreshActiveView, 250);
+    };
     if ($("haEdrSearch")) $("haEdrSearch").oninput = () => {
       clearTimeout(edrTimer);
       edrTimer = setTimeout(refreshActiveView, 250);

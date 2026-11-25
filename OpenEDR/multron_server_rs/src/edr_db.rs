@@ -14,11 +14,13 @@ use std::path::Path;
 use std::sync::Mutex;
 use std::time::Duration;
 
-use rusqlite::{params, Connection, OpenFlags};
+use rusqlite::{params, params_from_iter, types::Value as SqlValue, Connection, OpenFlags};
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 
-use crate::edr_telemetry::{EdrStats, StoredBehavior, StoredFlow, StoredThreat};
+use crate::edr_telemetry::{
+    EdrStats, StoredBehavior, StoredEdrEvent, StoredFlow, StoredSystemReport, StoredThreat,
+};
 
 type Res<T> = rusqlite::Result<T>;
 
@@ -79,10 +81,119 @@ pub fn flow_search_text(f: &StoredFlow) -> String {
         f.protocol.as_str(),
         f.machine_id.as_str(),
         f.hostname.as_deref().unwrap_or(""),
+        f.dns_query.as_deref().unwrap_or(""),
+        f.url.as_deref().unwrap_or(""),
+        f.http_method.as_deref().unwrap_or(""),
+        f.ja3.as_deref().unwrap_or(""),
+        f.ja3s.as_deref().unwrap_or(""),
         &f.pid.to_string(),
     ]
     .join("\n")
     .to_lowercase()
+}
+
+fn push_json_str(parts: &mut Vec<String>, root: &serde_json::Value, path: &[&str]) {
+    let mut cur = root;
+    for seg in path {
+        let Some(next) = cur.get(*seg) else {
+            return;
+        };
+        cur = next;
+    }
+    if let Some(s) = cur.as_str() {
+        if !s.is_empty() && s != "<undefined>" {
+            parts.push(s.to_string());
+        }
+    } else if let Some(n) = cur.as_u64() {
+        parts.push(n.to_string());
+    }
+}
+
+/// The fields `EdrTelemetryStore::get_edr_events` searches, lowercased.
+pub fn edr_event_search_text(e: &StoredEdrEvent) -> String {
+    let mut parts = vec![
+        e.event_type.clone(),
+        e.machine_id.clone(),
+        e.process_name.clone(),
+        e.exe_path.clone(),
+        e.pid.to_string(),
+    ];
+    if let Some(ref d) = e.details {
+        if !d.is_empty() {
+            parts.push(d.clone());
+        }
+    }
+    const RAW_PATHS: &[&[&str]] = &[
+        &["file", "path"],
+        &["file", "rawPath"],
+        &["file", "abstractPath"],
+        &["file", "renameTarget"],
+        &["file", "newPath"],
+        &["file", "sha1"],
+        &["file", "sha256"],
+        &["file", "hash"],
+        &["file_path"],
+        &["hashes", "md5"],
+        &["hashes", "sha1"],
+        &["hashes", "sha256"],
+        &["hashes", "imphash"],
+        &["target", "pid"],
+        &["target", "path"],
+        &["target", "imageFile", "path"],
+        &["target", "cmdLine"],
+        &["childProcess", "imageFile", "path"],
+        &["childProcess", "cmdLine"],
+        &["process", "cmdLine"],
+        &["process", "imageFile", "abstractPath"],
+        &["process", "imageFile", "rawPath"],
+        &["process", "imageFile", "sha1"],
+        &["process", "imageFile", "hash"],
+        &["registry", "path"],
+        &["registry", "abstractPath"],
+        &["registry", "rawPath"],
+        &["registry", "name"],
+        &["registry", "valueName"],
+        &["registry_path"],
+        &["owlyHook", "functionName"],
+        &["network", "destinationAddress"],
+        &["pipe", "name"],
+        &["pipe_name"],
+        &["scriptContent"],
+        &["script_block"],
+        &["ScriptBlockText"],
+        &["Path"],
+        &["service_name"],
+        &["task_name"],
+        &["TaskName"],
+        &["account_name"],
+        &["TargetUserName"],
+        &["driver_path"],
+        &["device_path"],
+        &["device_object"],
+        &["shadow_id"],
+        &["url"],
+        &["hostname"],
+        &["QueryName"],
+        &["ja3"],
+        &["ja3s"],
+        &["technique"],
+        &["reason"],
+        &["binding"],
+        &["query"],
+        &["kernelStackSymbols"],
+    ];
+    for p in RAW_PATHS {
+        push_json_str(&mut parts, &e.raw, p);
+    }
+    let mut joined = parts.join("\n").to_lowercase();
+    if joined.len() > 4096 {
+        let mut end = 4096;
+        while end > 0 && !joined.is_char_boundary(end) {
+            end -= 1;
+        }
+        joined.truncate(end);
+    }
+    joined
 }
 
 /// Rows of `sql` (selecting `id, data`), newest first, decoded and given their row id.
@@ -142,7 +253,28 @@ impl EdrDb {
                  key TEXT NOT NULL,
                  machine TEXT NOT NULL,
                  PRIMARY KEY (key, machine)
-             ) WITHOUT ROWID;",
+             ) WITHOUT ROWID;
+             CREATE TABLE IF NOT EXISTS edr_events (
+                 id INTEGER PRIMARY KEY AUTOINCREMENT,
+                 timestamp INTEGER NOT NULL,
+                 time_iso TEXT NOT NULL,
+                 machine_id TEXT NOT NULL,
+                 event_type TEXT NOT NULL,
+                 pid INTEGER NOT NULL,
+                 process_name TEXT NOT NULL,
+                 exe_path TEXT NOT NULL,
+                 search TEXT NOT NULL,
+                 data TEXT NOT NULL
+             );
+             CREATE INDEX IF NOT EXISTS edr_events_type_id ON edr_events(event_type, id DESC);
+             CREATE INDEX IF NOT EXISTS edr_events_machine_id ON edr_events(machine_id, id DESC);
+             CREATE TABLE IF NOT EXISTS system_reports (
+                 id INTEGER PRIMARY KEY AUTOINCREMENT,
+                 machine_id TEXT NOT NULL,
+                 time_iso TEXT NOT NULL,
+                 data TEXT NOT NULL
+             );
+             CREATE INDEX IF NOT EXISTS system_reports_machine_id ON system_reports(machine_id, id DESC);",
         )?;
         // Per machine: how often it saw the event, when it uploaded it, and the
         // machine's own time of its first occurrence (the order of its kill
@@ -195,6 +327,44 @@ impl EdrDb {
     pub fn insert_threat(&self, t: &StoredThreat) -> Res<u64> {
         let conn = self.write.lock().unwrap_or_else(|e| e.into_inner());
         conn.prepare_cached("INSERT INTO threats (data) VALUES (?1)")?.execute(params![to_json(t)?])?;
+        Ok(conn.last_insert_rowid() as u64)
+    }
+
+    /// Writes raw lossless EDR events in a single transaction and sets each one's row id.
+    pub fn insert_edr_events(&self, events: &mut [StoredEdrEvent]) -> Res<()> {
+        if events.is_empty() {
+            return Ok(());
+        }
+        let mut conn = self.write.lock().unwrap_or_else(|e| e.into_inner());
+        let tx = conn.transaction()?;
+        {
+            let mut st = tx.prepare_cached(
+                "INSERT INTO edr_events (timestamp, time_iso, machine_id, event_type, pid, process_name, exe_path, search, data)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+            )?;
+            for ev in events.iter_mut() {
+                st.execute(params![
+                    ev.timestamp as i64,
+                    ev.time_iso,
+                    ev.machine_id,
+                    ev.event_type,
+                    ev.pid as i64,
+                    ev.process_name,
+                    ev.exe_path,
+                    edr_event_search_text(ev),
+                    to_json(ev)?,
+                ])?;
+                ev.id = tx.last_insert_rowid() as u64;
+            }
+        }
+        tx.commit()
+    }
+
+    /// Writes a system diagnostic report and returns its row id.
+    pub fn insert_system_report(&self, r: &StoredSystemReport) -> Res<u64> {
+        let conn = self.write.lock().unwrap_or_else(|e| e.into_inner());
+        conn.prepare_cached("INSERT INTO system_reports (machine_id, time_iso, data) VALUES (?1, ?2, ?3)")?
+            .execute(params![r.machine_id, r.time_iso, to_json(r)?])?;
         Ok(conn.last_insert_rowid() as u64)
     }
 
@@ -364,6 +534,13 @@ impl EdrDb {
         let total_behaviors = total("behaviors")?;
         let malicious_behaviors = count("malicious")?;
         let suspicious_behaviors = count("suspicious")?;
+        let total_sysops = conn
+            .query_row(
+                "SELECT COUNT(*) FROM edr_events WHERE event_type LIKE 'AGENT_%'",
+                [],
+                |r| r.get::<_, i64>(0),
+            )
+            .map(|n| n as u64)?;
         Ok(EdrStats {
             total_behaviors,
             malicious_behaviors,
@@ -371,6 +548,9 @@ impl EdrDb {
             clean_behaviors: total_behaviors.saturating_sub(malicious_behaviors + suspicious_behaviors),
             total_flows: total("flows")?,
             total_threats: total("threats")?,
+            total_events: total("edr_events")?,
+            total_sysops,
+            total_system_reports: total("system_reports")?,
         })
     }
 
@@ -427,5 +607,123 @@ impl EdrDb {
         query_rows(&conn, "SELECT id, data FROM threats ORDER BY id DESC LIMIT ?1", &[&limit], |t: &mut StoredThreat, id| {
             t.id = id
         })
+    }
+
+    /// Newest raw lossless EDR events first, filtered dynamically.
+    pub fn edr_events(
+        &self,
+        limit: usize,
+        event_type: Option<&str>,
+        machine_id: Option<&str>,
+        sysops_only: bool,
+        search: Option<&str>,
+    ) -> Res<Vec<StoredEdrEvent>> {
+        let conn = self.read.lock().unwrap_or_else(|e| e.into_inner());
+        let mut conds: Vec<String> = Vec::new();
+        let mut args: Vec<SqlValue> = Vec::new();
+        if let Some(et) = event_type.filter(|s| !s.is_empty()) {
+            let parts: Vec<&str> = et
+                .split(',')
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .take(32)
+                .collect();
+            if parts.len() == 1 {
+                args.push(SqlValue::Text(parts[0].to_string()));
+                conds.push(format!("event_type = ?{}", args.len()));
+            } else if !parts.is_empty() {
+                let mut placeholders = Vec::with_capacity(parts.len());
+                for p in parts {
+                    args.push(SqlValue::Text(p.to_string()));
+                    placeholders.push(format!("?{}", args.len()));
+                }
+                conds.push(format!("event_type IN ({})", placeholders.join(",")));
+            }
+        } else if sysops_only {
+            conds.push("event_type LIKE 'AGENT_%'".to_string());
+        }
+        if let Some(m) = machine_id.filter(|s| !s.is_empty()) {
+            args.push(SqlValue::Text(m.to_string()));
+            conds.push(format!("machine_id = ?{}", args.len()));
+        }
+        if let Some(q) = search.filter(|s| !s.is_empty()) {
+            args.push(SqlValue::Text(q.to_string()));
+            conds.push(format!("instr(search, ?{}) > 0", args.len()));
+        }
+        args.push(SqlValue::Integer(limit as i64));
+        let where_sql = if conds.is_empty() {
+            String::new()
+        } else {
+            format!("WHERE {}", conds.join(" AND "))
+        };
+        let sql = format!("SELECT id, data FROM edr_events {where_sql} ORDER BY id DESC LIMIT ?{}", args.len());
+        let mut st = conn.prepare(&sql)?;
+        let rows = st.query_map(params_from_iter(args), |r| Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?)))?;
+        let mut out = Vec::new();
+        for row in rows {
+            let (id, data) = row?;
+            if let Some(mut item) = from_json::<StoredEdrEvent>(&data) {
+                item.id = id as u64;
+                out.push(item);
+            }
+        }
+        Ok(out)
+    }
+
+    /// Exports the full lossless EDR event history as JSON lines (chronological).
+    pub fn export_edr_events(
+        &self,
+        event_type: Option<&str>,
+        machine_id: Option<&str>,
+        out: &mut Vec<u8>,
+    ) -> Res<u64> {
+        let conn = self.read.lock().unwrap_or_else(|e| e.into_inner());
+        let mut conds: Vec<String> = Vec::new();
+        let mut args: Vec<SqlValue> = Vec::new();
+        if let Some(et) = event_type.filter(|s| !s.is_empty()) {
+            args.push(SqlValue::Text(et.to_string()));
+            conds.push(format!("event_type = ?{}", args.len()));
+        }
+        if let Some(m) = machine_id.filter(|s| !s.is_empty()) {
+            args.push(SqlValue::Text(m.to_string()));
+            conds.push(format!("machine_id = ?{}", args.len()));
+        }
+        let where_sql = if conds.is_empty() {
+            String::new()
+        } else {
+            format!("WHERE {}", conds.join(" AND "))
+        };
+        let sql = format!("SELECT id, data FROM edr_events {where_sql} ORDER BY id ASC");
+        let mut st = conn.prepare(&sql)?;
+        let mut rows = st.query(params_from_iter(args))?;
+        let mut n = 0u64;
+        while let Some(r) = rows.next()? {
+            let id = r.get::<_, i64>(0)? as u64;
+            let data: String = r.get(1)?;
+            if let Some(mut ev) = from_json::<StoredEdrEvent>(&data) {
+                ev.id = id;
+                if serde_json::to_writer(&mut *out, &ev).is_ok() {
+                    out.push(b'\n');
+                    n += 1;
+                }
+            } else {
+                out.extend_from_slice(data.as_bytes());
+                out.push(b'\n');
+                n += 1;
+            }
+        }
+        Ok(n)
+    }
+
+    /// Newest system diagnostic reports first.
+    pub fn system_reports(&self, limit: usize) -> Res<Vec<StoredSystemReport>> {
+        let conn = self.read.lock().unwrap_or_else(|e| e.into_inner());
+        let limit = limit as i64;
+        query_rows(
+            &conn,
+            "SELECT id, data FROM system_reports ORDER BY id DESC LIMIT ?1",
+            &[&limit],
+            |r: &mut StoredSystemReport, id| r.id = id,
+        )
     }
 }

@@ -15,16 +15,19 @@ pub mod globals;
 pub mod killchain_upload;
 pub mod logging;
 pub mod notifications;
+pub mod pe_hashes;
 pub mod predictions;
 pub mod process;
 pub mod report;
 pub mod shared_def;
+pub mod telemetry_stream;
 pub mod threat_handler;
 pub mod url_rules;
 pub mod utils;
 pub mod watchlist;
 pub mod whitelist_loader;
 pub mod windows;
+pub mod windows_telemetry;
 pub mod worker;
 
 // --- Re-exports ---

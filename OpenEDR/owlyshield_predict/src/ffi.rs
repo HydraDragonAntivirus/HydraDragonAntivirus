@@ -141,8 +141,89 @@ pub extern "C" fn owlyshield_dll_start() -> i32 {
 
     // Unknown-process kill chains recorded by edrsvc (training mode) -> Multron.
     crate::killchain_upload::start();
+    // Always-on lossless EDR & SysOps telemetry stream -> Multron / VirusKov.
+    crate::telemetry_stream::start();
+    crate::windows_telemetry::start();
+    crate::telemetry_stream::submit_sysop(
+        "AGENT_START",
+        "Owlyshield EDR engine started",
+        serde_json::json!({
+            "pid": std::process::id(),
+            "version": env!("CARGO_PKG_VERSION"),
+        }),
+        false,
+    );
 
     Logging::info("[Owlyshield FFI] Engine started successfully (in-process)");
+    OWLY_OK
+}
+
+unsafe fn c_utf8_slice(ptr: *const u8, len: u32) -> Option<String> {
+    if ptr.is_null() || len == 0 {
+        return Some(String::new());
+    }
+    let b = unsafe { std::slice::from_raw_parts(ptr, len as usize) };
+    std::str::from_utf8(b).ok().map(str::to_string)
+}
+
+/// Lossless raw EDR event ingestion from OpenEDR (`edrsvc.exe` via `GetProcAddress`).
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn owlyshield_telemetry_submit_event(
+    event_type: *const u8,
+    event_type_len: u32,
+    exe_path: *const u8,
+    exe_path_len: u32,
+    details: *const u8,
+    details_len: u32,
+    raw_json: *const u8,
+    raw_json_len: u32,
+) -> i32 {
+    let Some(et) = (unsafe { c_utf8_slice(event_type, event_type_len) }).filter(|s| !s.is_empty()) else {
+        return OWLY_DESERIALIZE_ERROR;
+    };
+    let Some(exe) = (unsafe { c_utf8_slice(exe_path, exe_path_len) }) else {
+        return OWLY_DESERIALIZE_ERROR;
+    };
+    let Some(det) = (unsafe { c_utf8_slice(details, details_len) }) else {
+        return OWLY_DESERIALIZE_ERROR;
+    };
+    let raw = if raw_json.is_null() || raw_json_len == 0 {
+        serde_json::Value::Null
+    } else {
+        let b = unsafe { std::slice::from_raw_parts(raw_json, raw_json_len as usize) };
+        match serde_json::from_slice::<serde_json::Value>(b) {
+            Ok(v) => v,
+            Err(_) => return OWLY_DESERIALIZE_ERROR,
+        }
+    };
+    crate::telemetry_stream::submit_raw(&et, &exe, (!det.is_empty()).then_some(det.as_str()), raw);
+    OWLY_OK
+}
+
+/// Emit an `AGENT_*` lifecycle/SysOps telemetry event from C++ (`edrsvc.exe`).
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn owlyshield_telemetry_emit_sysop(
+    event_type: *const u8,
+    event_type_len: u32,
+    message: *const u8,
+    message_len: u32,
+    details_json: *const u8,
+    details_json_len: u32,
+    sync_flush: u32,
+) -> i32 {
+    let Some(et) = (unsafe { c_utf8_slice(event_type, event_type_len) }).filter(|s| !s.is_empty()) else {
+        return OWLY_DESERIALIZE_ERROR;
+    };
+    let Some(msg) = (unsafe { c_utf8_slice(message, message_len) }) else {
+        return OWLY_DESERIALIZE_ERROR;
+    };
+    let details = if details_json.is_null() || details_json_len == 0 {
+        serde_json::json!({})
+    } else {
+        let b = unsafe { std::slice::from_raw_parts(details_json, details_json_len as usize) };
+        serde_json::from_slice::<serde_json::Value>(b).unwrap_or_else(|_| serde_json::json!({}))
+    };
+    crate::telemetry_stream::submit_sysop(&et, &msg, details, sync_flush != 0);
     OWLY_OK
 }
 
@@ -256,6 +337,14 @@ pub unsafe extern "C" fn owlyshield_dll_ingest_firewall_packed_data(
 
 #[unsafe(no_mangle)]
 pub extern "C" fn owlyshield_dll_stop() {
+    crate::windows_telemetry::stop();
+    crate::telemetry_stream::submit_sysop(
+        "AGENT_STOP",
+        "Owlyshield EDR engine stopping",
+        serde_json::json!({ "pid": std::process::id() }),
+        true,
+    );
+    crate::telemetry_stream::flush_now(std::time::Duration::from_secs(3));
     Logging::info("[Owlyshield FFI] Stop requested — worker will exit on channel close");
 }
 

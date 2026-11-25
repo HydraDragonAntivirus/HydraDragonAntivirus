@@ -357,6 +357,14 @@ pub fn dashboard_router(state: Arc<AppState>) -> Router {
         .route("/api/v1/edr/telemetry/network-flows", post(crate::edr_telemetry::handle_edr_telemetry_network_flows))
         .route("/api/v1/edr/telemetry/threat", post(crate::edr_telemetry::handle_edr_telemetry_threat))
         .route("/api/v1/edr/telemetry/report", post(crate::edr_telemetry::handle_edr_telemetry_report))
+        .route(
+            "/api/v1/edr/telemetry/events",
+            post(crate::edr_telemetry::handle_edr_telemetry_events)
+                .get(crate::edr_telemetry::handle_get_edr_events)
+                .route_layer(DefaultBodyLimit::max(32 * 1024 * 1024)),
+        )
+        .route("/api/v1/edr/telemetry/events/export", get(crate::edr_telemetry::handle_export_edr_events))
+        .route("/api/v1/edr/telemetry/system-reports", get(crate::edr_telemetry::handle_get_system_reports))
         .route("/api/v1/edr/telemetry/stats", get(crate::edr_telemetry::handle_get_edr_stats))
         .route("/api/v1/edr/telemetry/behaviors", get(crate::edr_telemetry::handle_get_edr_behaviors))
         .route("/api/v1/edr/telemetry/flows", get(crate::edr_telemetry::handle_get_edr_flows))

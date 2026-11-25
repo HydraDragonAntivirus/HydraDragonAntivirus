@@ -15,6 +15,32 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tokio::sync::oneshot;
 use windivert::prelude::*;
 
+static GLOBAL_FLOW_TX: OnceLock<Mutex<Option<mpsc::Sender<crate::edr_feedback::NetworkFlowRecord>>>> =
+    OnceLock::new();
+
+fn global_flow_tx() -> &'static Mutex<Option<mpsc::Sender<crate::edr_feedback::NetworkFlowRecord>>> {
+    GLOBAL_FLOW_TX.get_or_init(|| Mutex::new(None))
+}
+
+/// Queues a network flow (including HTTP/HTTPS proxy URLs) onto the batched VirusKov
+/// telemetry streamer, falling back to an async one-shot post if the engine hasn't started.
+pub(crate) fn enqueue_network_flow(rec: crate::edr_feedback::NetworkFlowRecord) {
+    let mut unsent = Some(rec);
+    if let Ok(guard) = global_flow_tx().lock() {
+        if let Some(ref tx) = *guard {
+            if let Some(r) = unsent.take() {
+                match tx.send(r) {
+                    Ok(()) => return,
+                    Err(e) => unsent = Some(e.0),
+                }
+            }
+        }
+    }
+    if let Some(r) = unsent {
+        crate::edr_feedback::stream_network_flows_async(vec![r]);
+    }
+}
+
 lazy_static! {
     static ref URL_REGEX: Regex =
         Regex::new(r"(?i)https?://[A-Za-z0-9._~:/?#\\[\\]@!$&'()*+,;=%-]+")
@@ -279,6 +305,10 @@ pub struct PacketInfo {
     pub http_response_body: Option<String>,
     /// Raw TCP flags byte (SYN, ACK, FIN, RST, PSH, URG)
     pub tcp_flags: Option<u8>,
+    /// TLS ClientHello JA3 fingerprint (MD5 hex)
+    pub ja3: Option<String>,
+    /// TLS ServerHello JA3S fingerprint (MD5 hex)
+    pub ja3s: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -3469,14 +3499,17 @@ impl FirewallEngine {
         *self.hydranet_tx.lock().unwrap() = Some(net_event_tx.clone());
         let (flow_telemetry_tx, flow_telemetry_rx) =
             std::sync::mpsc::channel::<crate::edr_feedback::NetworkFlowRecord>();
+        if let Ok(mut guard) = global_flow_tx().lock() {
+            *guard = Some(flow_telemetry_tx.clone());
+        }
         {
             let stop_flow_stream = Arc::clone(&stop);
             std::thread::Builder::new()
                 .name("viruskov_flow_telemetry_streamer".to_string())
                 .spawn(move || {
-                    let mut batch: Vec<crate::edr_feedback::NetworkFlowRecord> = Vec::with_capacity(50);
+                    let mut batch: Vec<crate::edr_feedback::NetworkFlowRecord> = Vec::with_capacity(200);
                     let mut last_flush = std::time::Instant::now();
-                    const MAX_BATCH: usize = 50;
+                    const MAX_BATCH: usize = 200;
                     const FLUSH_INTERVAL: std::time::Duration = std::time::Duration::from_secs(3);
 
                     while !stop_flow_stream.load(Ordering::Relaxed) {
@@ -3711,8 +3744,8 @@ impl FirewallEngine {
                                         decision_info = Some(p_info.clone());
                                     }
 
-                                    if outbound && pid != 0 {
-                                        if let Some(ref parsed_info) = decision_info {
+                                    if let Some(ref parsed_info) = decision_info {
+                                        if outbound && pid != 0 {
                                             // NET_EVENT records observed network activity only.
                                             if !notified_pids.contains(&pid) {
                                                 let msg = format!(
@@ -3722,14 +3755,26 @@ impl FirewallEngine {
                                                 let _ = net_ev_tx.send(msg);
                                                 notified_pids.insert(pid);
                                             }
+                                        }
 
-                                            // ML Flow Telemetry: Stream remote IP, port, protocol, and domains to VirusKov
+                                        let emit_outbound_flow = outbound && pid != 0;
+                                        let emit_inbound_ja3s = !outbound && parsed_info.ja3s.is_some();
+                                        if emit_outbound_flow || emit_inbound_ja3s {
+                                            // ML Flow Telemetry: Stream remote IP, port, protocol, DNS, URL, JA3, JA3S to VirusKov
                                             if notified_flows.len() > 10000 {
                                                 notified_flows.clear();
                                             }
+                                            let has_rich_metadata = parsed_info.dns_query.is_some()
+                                                || parsed_info.full_url.is_some()
+                                                || parsed_info.ja3.is_some()
+                                                || parsed_info.ja3s.is_some();
                                             let flow_key = (pid, parsed_info.dst_ip, parsed_info.dst_port);
-                                            if notified_flows.insert(flow_key) {
-                                                let p_path = am_w.info_cache.get_info(pid).path;
+                                            if has_rich_metadata || notified_flows.insert(flow_key) {
+                                                let p_path = if pid != 0 {
+                                                    am_w.info_cache.get_info(pid).path
+                                                } else {
+                                                    String::new()
+                                                };
                                                 // The product's own loopback chatter (edrsvc.exe <->
                                                 // edrgui.exe ...) is the bulk of the flows and has no
                                                 // detection value: it is not sent.
@@ -3744,6 +3789,17 @@ impl FirewallEngine {
                                                     .unwrap_or("unknown")
                                                     .to_string();
 
+                                                let resolved_host = parsed_info.hostname.clone()
+                                                    .or_else(|| parsed_info.dns_query.clone())
+                                                    .or_else(|| {
+                                                        let lookup_ip = if outbound {
+                                                            parsed_info.dst_ip.to_string()
+                                                        } else {
+                                                            parsed_info.src_ip.to_string()
+                                                        };
+                                                        dns_w.resolve_ip(&lookup_ip)
+                                                    });
+
                                                 let rec = crate::edr_feedback::NetworkFlowRecord {
                                                     timestamp: parsed_info.timestamp,
                                                     pid,
@@ -3753,7 +3809,12 @@ impl FirewallEngine {
                                                     dst_ip: parsed_info.dst_ip.to_string(),
                                                     dst_port: parsed_info.dst_port,
                                                     protocol: format!("{:?}", parsed_info.protocol),
-                                                    hostname: parsed_info.hostname.clone().or_else(|| parsed_info.dns_query.clone()),
+                                                    hostname: resolved_host,
+                                                    dns_query: parsed_info.dns_query.clone(),
+                                                    url: parsed_info.full_url.clone(),
+                                                    http_method: parsed_info.http_method.clone(),
+                                                    ja3: parsed_info.ja3.clone(),
+                                                    ja3s: parsed_info.ja3s.clone(),
                                                 };
                                                 let _ = flow_tx.send(rec);
                                                 }
@@ -5466,6 +5527,8 @@ impl FirewallEngine {
         let mut full_url = None;
         let mut dns_query = None;
         let mut tls_handshake = false;
+        let mut ja3 = None;
+        let mut ja3s = None;
         let mut http_method = None;
         let mut http_path = None;
         let mut http_user_agent = None;
@@ -5477,20 +5540,24 @@ impl FirewallEngine {
         let mut payload_urls: Vec<String> = Vec::new();
         let mut payload_domains: Vec<String> = Vec::new();
 
-        // Extract hostname and URL from TCP payloads
+        // Extract hostname, URL, and TLS JA3/JA3S fingerprints from TCP payloads
         if matches!(protocol, Protocol::TCP) && payload_start < data.len() {
             if payload_start < data.len() {
                 let payload = &data[payload_start..];
                 payload_bytes = Some(payload);
 
-                // Check for HTTPS (port 443) - TLS SNI extraction
-                if dst_port == 443 || src_port == 443 {
-                    tls_handshake = super::tls_parser::is_tls_handshake(payload);
+                // Inspect TLS handshakes regardless of port (SNI + JA3 + JA3S)
+                if super::tls_parser::is_tls_handshake(payload) {
+                    tls_handshake = true;
                     if let Some(sni_host) = super::tls_parser::extract_sni(payload) {
                         // Treat HTTPS SNI as a URL root so downstream hostname/url
                         // checks work the same way they do for HTTP payloads.
                         full_url.get_or_insert_with(|| format!("https://{}/", sni_host));
                         hostname.get_or_insert(sni_host);
+                    }
+                    ja3 = super::tls_parser::extract_ja3(payload);
+                    if ja3.is_none() {
+                        ja3s = super::tls_parser::extract_ja3s(payload);
                     }
                 }
 
@@ -5596,6 +5663,8 @@ impl FirewallEngine {
                 http_request_body: None,
                 http_response_body: None,
                 tcp_flags: tcp_flags_byte,
+                ja3,
+                ja3s,
             },
             payload_start,
         ))

@@ -40,10 +40,11 @@ const LZMA_UPLOAD_MEM_LIMIT_KB: u32 = 64 * 1024;
 const EDR_MAX_REPORT_BYTES: usize = 10 * 1024 * 1024;
 const EDR_MAX_SAMPLE_BYTES: usize = 100 * 1024 * 1024;
 /// Body limits of the EDR telemetry posts (one behavior record; a flow batch of
-/// at most 50 flows; a system report with its process list).
+/// at most 200 flows; a system report with its process list; lossless event batch).
 const EDR_MAX_BEHAVIOR_BYTES: usize = 256 * 1024;
-const EDR_MAX_FLOWS_BYTES: usize = 1024 * 1024;
+const EDR_MAX_FLOWS_BYTES: usize = 4 * 1024 * 1024;
 const EDR_MAX_SYSTEM_BYTES: usize = 2 * 1024 * 1024;
+const EDR_MAX_EVENTS_BYTES: usize = 32 * 1024 * 1024;
 /// A compressed kill chain upload (decompressed it may reach
 /// `edr_telemetry::KILLCHAIN_MAX_JSON_BYTES`).
 const EDR_MAX_KILLCHAIN_BYTES: usize = 16 * 1024 * 1024;
@@ -57,6 +58,7 @@ enum EdrRoute {
     Flows,
     System,
     Killchain,
+    Events,
 }
 
 impl EdrRoute {
@@ -65,12 +67,14 @@ impl EdrRoute {
         match self {
             // One post per detection; bursts when a detection storm hits.
             EdrRoute::Behavior => (60.0, 1.0),
-            // The client flushes flows every 3 s (20/min).
-            EdrRoute::Flows => (30.0, 0.5),
+            // The client flushes flows every 3 s or on DNS/URL spikes.
+            EdrRoute::Flows => (120.0, 2.0),
             // Rare diagnostic reports.
             EdrRoute::System => (5.0, 0.1),
             // A round every 30 min, batches 3 s apart; a 429 only delays it.
             EdrRoute::Killchain => (30.0, 0.5),
+            // Continuous lossless EDR/SysOps stream (flushes every 2s or 500 events).
+            EdrRoute::Events => (120.0, 4.0),
         }
     }
 }
@@ -563,6 +567,10 @@ impl ScanServer {
             .route(
                 "/api/v1/edr/telemetry/killchain",
                 post(handle_public_edr_killchain).route_layer(DefaultBodyLimit::max(EDR_MAX_KILLCHAIN_BYTES)),
+            )
+            .route(
+                "/api/v1/edr/telemetry/events",
+                post(handle_public_edr_events).route_layer(DefaultBodyLimit::max(EDR_MAX_EVENTS_BYTES)),
             )
             .layer(axum::middleware::from_fn_with_state(Arc::clone(self), ban_guard))
             .layer(cors)
@@ -3449,6 +3457,45 @@ async fn handle_public_edr_killchain(
     }
 }
 
+/// POST /api/v1/edr/telemetry/events (public): lossless batch of raw EDR & SysOps events.
+async fn handle_public_edr_events(
+    ConnectInfo(addr): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
+    State(server): State<Arc<ScanServer>>,
+    body: axum::body::Bytes,
+) -> Response {
+    let client_ip = extract_client_ip(addr, &headers);
+    if let Some(r) = edr_telemetry_refused(&server, &client_ip, EdrRoute::Events) {
+        return r;
+    }
+    let brotli = headers
+        .get("content-encoding")
+        .and_then(|v| v.to_str().ok())
+        .is_some_and(|v| v.eq_ignore_ascii_case("br") || v.eq_ignore_ascii_case("brotli"));
+    let store = Arc::clone(&server.edr_telemetry);
+    let events = Arc::clone(&server.events);
+    let result = tokio::task::spawn_blocking(move || {
+        let json = crate::edr_telemetry::decode_events_body(&body, brotli)
+            .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
+        let batch: crate::edr_telemetry::EdrEventBatch =
+            serde_json::from_slice(&json).map_err(|e| (StatusCode::BAD_REQUEST, format!("bad JSON: {e}")))?;
+        let resp = crate::edr_telemetry::ingest_edr_events(&store, &events, &batch);
+        Ok::<_, (StatusCode, String)>(resp)
+    })
+    .await;
+    match result {
+        Ok(Ok(resp)) => json_response(StatusCode::OK, resp, "no-store"),
+        Ok(Err((status, e))) => {
+            json_response(status, serde_json::json!({"status": "error", "error": e}), "no-store")
+        }
+        Err(e) => json_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            serde_json::json!({"status": "error", "error": e.to_string()}),
+            "no-store",
+        ),
+    }
+}
+
 /// POST /api/v1/edr/telemetry/system (public): a system diagnostic report.
 async fn handle_public_edr_system(
     ConnectInfo(addr): ConnectInfo<SocketAddr>,
@@ -3460,7 +3507,7 @@ async fn handle_public_edr_system(
     if let Some(r) = edr_telemetry_refused(&server, &client_ip, EdrRoute::System) {
         return r;
     }
-    let body = crate::edr_telemetry::ingest_system_report(&server.events, &payload);
+    let body = crate::edr_telemetry::ingest_system_report(&server.edr_telemetry, &server.events, &payload);
     json_response(StatusCode::OK, body, "no-store")
 }
 
