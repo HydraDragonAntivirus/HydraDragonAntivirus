@@ -1524,7 +1524,7 @@ std::map<edrdrv::SysmonEvent, Event> mEventMap = {
 	{edrdrv::SysmonEvent::FileDataWriteFull, Event::LLE_FILE_DATA_WRITE_FULL},
 	{edrdrv::SysmonEvent::ProcessOpen, Event::LLE_PROCESS_OPEN},
 	{edrdrv::SysmonEvent::DeviceIoControl, Event::LLE_DEVICE_RAW_WRITE_ACCESS},
-	{edrdrv::SysmonEvent::NamedPipeCreate, Event::LLE_DEVICE_LINK_CREATE},
+	{edrdrv::SysmonEvent::NamedPipeCreate, Event::LLE_NAMED_PIPE_CREATE},
 	{edrdrv::SysmonEvent::SelfDefense, Event::LLE_PROCESS_OPEN},
 	{edrdrv::SysmonEvent::FileMapRead, Event::LLE_FILE_MAP_READ},
 	{edrdrv::SysmonEvent::FileMapWrite, Event::LLE_FILE_MAP_WRITE},

@@ -7,6 +7,7 @@ pub mod actions_on_kill;
 pub mod cidr;
 pub mod config;
 pub mod edr_feedback;
+pub mod edr_rules;
 pub mod connectors;
 pub mod extensions;
 pub mod ffi;

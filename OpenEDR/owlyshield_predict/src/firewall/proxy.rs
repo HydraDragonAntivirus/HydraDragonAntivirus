@@ -1243,6 +1243,20 @@ async fn handle_proxy_request(
         ja3s: None,
     });
 
+    if resolved_pid != 0 {
+        let sec_flag = if scheme.eq_ignore_ascii_case("https") { 1 } else { 0 };
+        let req_line = format!(
+            "HTTP_REQ:{}|{}|{}|{}|{}|{}\n",
+            resolved_pid,
+            super::engine::sanitize_hydranet_field(clean_host).replace('|', "_"),
+            port,
+            sec_flag,
+            super::engine::sanitize_hydranet_field(&method).replace('|', "_"),
+            super::engine::sanitize_hydranet_field(&full_url),
+        );
+        super::engine::send_global_hydranet_line(req_line);
+    }
+
     if (200..300).contains(&status) {
         let content_disp = response_headers
             .get("content-disposition")

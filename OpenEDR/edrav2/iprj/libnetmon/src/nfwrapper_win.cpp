@@ -17,6 +17,7 @@
 #include <filesystem>
 #include <algorithm>
 #include <cctype>
+#include <limits>
 
 #undef CMD_COMPONENT
 #define CMD_COMPONENT "netmon"
@@ -67,6 +68,75 @@ IpProtocol convertProtocol(const Variant& vProtocol)
 		return IpProtocol::Udp;
 
 	return IpProtocol::Unknown;
+}
+
+bool parseUint32Strict(const std::string& sVal, uint32_t& nOut)
+{
+	auto sTrim = sVal;
+	boost::algorithm::trim(sTrim);
+	if (sTrim.empty() || !std::all_of(sTrim.begin(), sTrim.end(), [](unsigned char c) { return ::isdigit(c) != 0; }))
+		return false;
+	try
+	{
+		const unsigned long ulVal = std::stoul(sTrim);
+		if (ulVal > (std::numeric_limits<uint32_t>::max)())
+			return false;
+		nOut = static_cast<uint32_t>(ulVal);
+		return true;
+	}
+	catch (...)
+	{
+		return false;
+	}
+}
+
+uint16_t parsePortStrict(const std::string& sVal, uint16_t nDefault)
+{
+	uint32_t nPort = 0;
+	if (!parseUint32Strict(sVal, nPort) || nPort > 65535)
+		return nDefault;
+	return static_cast<uint16_t>(nPort);
+}
+
+void extractHostPortFromUrl(const std::string& sUrl, std::string& sHostOut, uint16_t& nPortOut, bool& fSecuredOut)
+{
+	sHostOut.clear();
+	fSecuredOut = boost::algorithm::istarts_with(sUrl, "https://");
+	nPortOut = fSecuredOut ? 443 : 80;
+
+	auto nScheme = sUrl.find("://");
+	size_t nStart = (nScheme != std::string::npos) ? (nScheme + 3) : 0;
+	auto nEnd = sUrl.find_first_of("/?#", nStart);
+	std::string sAuthority = (nEnd == std::string::npos) ? sUrl.substr(nStart) : sUrl.substr(nStart, nEnd - nStart);
+	if (sAuthority.empty())
+		return;
+
+	auto nAt = sAuthority.rfind('@');
+	if (nAt != std::string::npos)
+		sAuthority = sAuthority.substr(nAt + 1);
+
+	if (!sAuthority.empty() && sAuthority.front() == '[')
+	{
+		auto nClose = sAuthority.find(']');
+		if (nClose != std::string::npos)
+		{
+			sHostOut = sAuthority.substr(1, nClose - 1);
+			if (nClose + 1 < sAuthority.size() && sAuthority[nClose + 1] == ':')
+				nPortOut = parsePortStrict(sAuthority.substr(nClose + 2), nPortOut);
+			return;
+		}
+	}
+
+	auto nColon = sAuthority.rfind(':');
+	if (nColon != std::string::npos)
+	{
+		sHostOut = sAuthority.substr(0, nColon);
+		nPortOut = parsePortStrict(sAuthority.substr(nColon + 1), nPortOut);
+	}
+	else
+	{
+		sHostOut = sAuthority;
+	}
 }
 
 std::shared_ptr<ConnectionInfo> createConnectionInfo(
@@ -470,6 +540,25 @@ void NetFilterWrapper::processHttpBodyLine(const std::string& sPayload)
 		const auto& sUrl = vParts[2];
 
 		LOGLVL(Detailed, "HydraNetEvent - HTTP " << sMethod << " " << sUrl << " [ID:" << sId << "] Payload: " << sHexData.length() / 2 << " bytes");
+
+		if (m_pNetMonController && !sUrl.empty())
+		{
+			std::string sRemoteHost;
+			uint16_t nRemotePort = 80;
+			bool fSecured = false;
+			extractHostPortFromUrl(sUrl, sRemoteHost, nRemotePort, fSecured);
+			const auto sLocalIp = detectAddressFamily(sRemoteHost) == AddressFamily::Inet6 ? "::" : "0.0.0.0";
+			auto pInfo = createConnectionInfo(
+				m_nConnectionId.fetch_add(1),
+				0,
+				IpProtocol::Tcp,
+				Direction::Out,
+				sLocalIp,
+				0,
+				sRemoteHost.empty() ? std::string("0.0.0.0") : sRemoteHost,
+				nRemotePort);
+			m_pNetMonController->notifyDataRequest(pInfo, AppProtocol::HTTP, sMethod, sUrl, fSecured);
+		}
 	}
 	catch (const std::exception& ex)
 	{
@@ -477,8 +566,162 @@ void NetFilterWrapper::processHttpBodyLine(const std::string& sPayload)
 	}
 }
 
+void NetFilterWrapper::processDnsReqLine(const std::string& sPayload)
+{
+	if (!m_pNetMonController)
+		return;
+
+	try
+	{
+		// Format: <pid>|<dst_ip>|<dst_port>|<domain>
+		const auto n1 = sPayload.find('|');
+		const auto n2 = (n1 != std::string::npos) ? sPayload.find('|', n1 + 1) : std::string::npos;
+		const auto n3 = (n2 != std::string::npos) ? sPayload.find('|', n2 + 1) : std::string::npos;
+		if (n1 == std::string::npos || n2 == std::string::npos || n3 == std::string::npos)
+			return;
+
+		uint32_t nPid = 0;
+		if (!parseUint32Strict(sPayload.substr(0, n1), nPid))
+			nPid = 0;
+
+		auto sDstIp = sPayload.substr(n1 + 1, n2 - (n1 + 1));
+		boost::algorithm::trim(sDstIp);
+		const uint16_t nDstPort = parsePortStrict(sPayload.substr(n2 + 1, n3 - (n2 + 1)), 53);
+		auto sDomain = sPayload.substr(n3 + 1);
+		boost::algorithm::trim(sDomain);
+		if (sDomain.empty())
+			return;
+
+		const auto sLocalIp = detectAddressFamily(sDstIp) == AddressFamily::Inet6 ? "::" : "0.0.0.0";
+		auto pInfo = createConnectionInfo(
+			m_nConnectionId.fetch_add(1),
+			nPid,
+			IpProtocol::Udp,
+			Direction::Out,
+			sLocalIp,
+			0,
+			sDstIp.empty() ? std::string("0.0.0.0") : sDstIp,
+			nDstPort);
+		m_pNetMonController->notifyDnsRequest(pInfo, sDomain);
+	}
+	catch (const std::exception& ex)
+	{
+		LOGWRN("Failed to parse DNS_REQ telemetry: " << ex.what());
+	}
+}
+
+void NetFilterWrapper::processHttpReqLine(const std::string& sPayload)
+{
+	if (!m_pNetMonController)
+		return;
+
+	try
+	{
+		// Format: <pid>|<dst_ip>|<dst_port>|<secured_0_or_1>|<method>|<url>
+		const auto n1 = sPayload.find('|');
+		const auto n2 = (n1 != std::string::npos) ? sPayload.find('|', n1 + 1) : std::string::npos;
+		const auto n3 = (n2 != std::string::npos) ? sPayload.find('|', n2 + 1) : std::string::npos;
+		const auto n4 = (n3 != std::string::npos) ? sPayload.find('|', n3 + 1) : std::string::npos;
+		const auto n5 = (n4 != std::string::npos) ? sPayload.find('|', n4 + 1) : std::string::npos;
+		if (n1 == std::string::npos || n2 == std::string::npos || n3 == std::string::npos ||
+			n4 == std::string::npos || n5 == std::string::npos)
+			return;
+
+		uint32_t nPid = 0;
+		if (!parseUint32Strict(sPayload.substr(0, n1), nPid))
+			nPid = 0;
+
+		auto sDstIp = sPayload.substr(n1 + 1, n2 - (n1 + 1));
+		boost::algorithm::trim(sDstIp);
+		auto sSec = sPayload.substr(n3 + 1, n4 - (n3 + 1));
+		boost::algorithm::trim(sSec);
+		const bool fSecured = (sSec == "1" || boost::algorithm::iequals(sSec, "true"));
+		const uint16_t nDstPort = parsePortStrict(sPayload.substr(n2 + 1, n3 - (n2 + 1)), fSecured ? 443 : 80);
+		auto sMethod = sPayload.substr(n4 + 1, n5 - (n4 + 1));
+		boost::algorithm::trim(sMethod);
+		auto sUrl = sPayload.substr(n5 + 1);
+		boost::algorithm::trim(sUrl);
+		if (sUrl.empty())
+			return;
+
+		const auto sLocalIp = detectAddressFamily(sDstIp) == AddressFamily::Inet6 ? "::" : "0.0.0.0";
+		auto pInfo = createConnectionInfo(
+			m_nConnectionId.fetch_add(1),
+			nPid,
+			IpProtocol::Tcp,
+			Direction::Out,
+			sLocalIp,
+			0,
+			sDstIp.empty() ? std::string("0.0.0.0") : sDstIp,
+			nDstPort);
+		m_pNetMonController->notifyDataRequest(pInfo, AppProtocol::HTTP, sMethod, sUrl, fSecured);
+	}
+	catch (const std::exception& ex)
+	{
+		LOGWRN("Failed to parse HTTP_REQ telemetry: " << ex.what());
+	}
+}
+
+void NetFilterWrapper::processDomainNameLine(const std::string& sPayload)
+{
+	if (!m_pNetMonController)
+		return;
+
+	try
+	{
+		auto sTrim = sPayload;
+		boost::algorithm::trim(sTrim);
+		if (sTrim.empty())
+			return;
+
+		if (sTrim.find('|') != std::string::npos)
+		{
+			processDnsReqLine(sTrim);
+			return;
+		}
+
+		uint32_t nPid = 0;
+		std::string sDomain = sTrim;
+		const auto nColon = sTrim.find(':');
+		if (nColon != std::string::npos && parseUint32Strict(sTrim.substr(0, nColon), nPid))
+		{
+			sDomain = sTrim.substr(nColon + 1);
+			boost::algorithm::trim(sDomain);
+		}
+		if (sDomain.empty())
+			return;
+
+		auto pInfo = createConnectionInfo(
+			m_nConnectionId.fetch_add(1),
+			nPid,
+			IpProtocol::Udp,
+			Direction::Out,
+			"0.0.0.0",
+			0,
+			"0.0.0.0",
+			53);
+		m_pNetMonController->notifyDnsRequest(pInfo, sDomain);
+	}
+	catch (const std::exception& ex)
+	{
+		LOGWRN("Failed to parse DOMAIN_NAME telemetry: " << ex.what());
+	}
+}
+
 void NetFilterWrapper::processLine(const std::string& sLine)
 {
+	if (boost::algorithm::starts_with(sLine, "DNS_REQ:"))
+	{
+		processDnsReqLine(sLine.substr(std::strlen("DNS_REQ:")));
+		return;
+	}
+
+	if (boost::algorithm::starts_with(sLine, "HTTP_REQ:"))
+	{
+		processHttpReqLine(sLine.substr(std::strlen("HTTP_REQ:")));
+		return;
+	}
+
 	if (boost::algorithm::starts_with(sLine, "NET_EVENT:"))
 	{
 		forwardRawTelemetryToOwlyshield(sLine);
@@ -498,11 +741,18 @@ void NetFilterWrapper::processLine(const std::string& sLine)
 		return;
 	}
 
-	if (boost::algorithm::starts_with(sLine, "SSL_DATA:") ||
-		boost::algorithm::starts_with(sLine, "TCP_DATA:") ||
-		boost::algorithm::starts_with(sLine, "DOMAIN_NAME:"))
+	if (boost::algorithm::starts_with(sLine, "DOMAIN_NAME:"))
 	{
-		// Forward TLS/TCP/DNS telemetry to Owlyshield behavior engine
+		// Forward raw domain telemetry to Owlyshield AND notify OpenEDR DNS pipeline
+		forwardRawTelemetryToOwlyshield(sLine);
+		processDomainNameLine(sLine.substr(std::strlen("DOMAIN_NAME:")));
+		return;
+	}
+
+	if (boost::algorithm::starts_with(sLine, "SSL_DATA:") ||
+		boost::algorithm::starts_with(sLine, "TCP_DATA:"))
+	{
+		// Forward TLS/TCP telemetry to Owlyshield behavior engine
 		forwardRawTelemetryToOwlyshield(sLine);
 		return;
 	}

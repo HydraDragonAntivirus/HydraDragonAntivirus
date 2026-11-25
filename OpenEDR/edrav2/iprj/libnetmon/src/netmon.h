@@ -238,6 +238,25 @@ public:
 	virtual void notifyNewListen(ObjPtr<const ListenInfo> pListenInfo) = 0;
 
 	///
+	/// Callback on parsed DNS query telemetry.
+	///
+	/// @param pConnectionInfo - connection endpoint descriptor.
+	/// @param sDomain - queried DNS domain name.
+	///
+	virtual void notifyDnsRequest(std::shared_ptr<const ConnectionInfo> pConnectionInfo, const std::string& sDomain) = 0;
+
+	///
+	/// Callback on parsed HTTP/FTP application request telemetry.
+	///
+	/// @param pConnectionInfo - connection endpoint descriptor.
+	/// @param eProtocol - application protocol (HTTP/FTP/Unknown).
+	/// @param sCommand - request verb/command (e.g. GET, POST).
+	/// @param sUrl - full request URL.
+	/// @param fSecured - true when transported over TLS/HTTPS.
+	///
+	virtual void notifyDataRequest(std::shared_ptr<const ConnectionInfo> pConnectionInfo, AppProtocol eProtocol, const std::string& sCommand, const std::string& sUrl, bool fSecured) = 0;
+
+	///
 	/// Returns protocol options by name.
 	///
 	/// @param sProtocolName - a name of the protocol.

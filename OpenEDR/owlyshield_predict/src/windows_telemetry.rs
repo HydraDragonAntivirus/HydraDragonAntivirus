@@ -351,7 +351,29 @@ mod win_impl {
         path
     }
 
+    fn ensure_powershell_scriptblock_logging_enabled() {
+        if std::env::var("OWLY_DISABLE_PS_SBL_POLICY").is_ok_and(|v| {
+            let t = v.trim();
+            t == "1" || t.eq_ignore_ascii_case("true")
+        }) {
+            return;
+        }
+        use winreg::enums::HKEY_LOCAL_MACHINE;
+        use winreg::RegKey;
+        let hklm = RegKey::predef(HKEY_LOCAL_MACHINE);
+        let Ok((key, _)) = hklm.create_subkey(
+            r"SOFTWARE\Policies\Microsoft\Windows\PowerShell\ScriptBlockLogging",
+        ) else {
+            return;
+        };
+        let current: u32 = key.get_value("EnableScriptBlockLogging").unwrap_or(0);
+        if current != 1 && key.set_value("EnableScriptBlockLogging", &1u32).is_ok() {
+            Logging::info("[WindowsTelemetry] Enabled PowerShell ScriptBlockLogging policy (HKLM)");
+        }
+    }
+
     pub fn start() {
+        ensure_powershell_scriptblock_logging_enabled();
         let (tx, rx) = mpsc::sync_channel::<(u32, String)>(TAMPER_QUEUE_CAPACITY);
         let _ = TAMPER_TX.set(tx);
         let _ = EVT_SUB_HANDLES.get_or_init(|| Mutex::new(Vec::new()));

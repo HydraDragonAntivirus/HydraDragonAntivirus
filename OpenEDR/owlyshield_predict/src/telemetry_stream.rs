@@ -658,6 +658,7 @@ fn run_enricher_loop(rx: mpsc::Receiver<RawTelemetryJob>) {
             job.details.as_deref(),
             job.raw,
         );
+        crate::edr_rules::evaluate_and_dispatch_event(&rec);
         enqueue_record(rec, sz);
 
         for d in derived {
@@ -668,6 +669,7 @@ fn run_enricher_loop(rx: mpsc::Receiver<RawTelemetryJob>) {
                 d.details.as_deref(),
                 d.raw,
             );
+            crate::edr_rules::evaluate_and_dispatch_event(&d_rec);
             enqueue_record(d_rec, d_sz);
         }
     }

@@ -7177,12 +7177,100 @@ void EventEnricher::put(const Variant& vEventRef)
 	}
 	case Event::LLE_NAMED_PIPE_CREATE:
 	case Event::LLE_NAMED_PIPE_SERVER_CREATE:
+	{
+		// Named pipe open/creation: preserve raw paths without probing the pipe handle on disk.
+		if (vEvent.has("file"))
+		{
+			try
+			{
+				auto vRaw = vEvent.get("file");
+				if (vRaw.isDictionaryLike())
+				{
+					Dictionary vPipe = vRaw;
+					wsRawFilePath = vPipe.get("path", L"");
+					if (wsRawFilePath.empty()) wsRawFilePath = vPipe.get("rawPath", L"");
+					if (wsRawFilePath.empty()) wsRawFilePath = vPipe.get("abstractPath", L"");
+					if (!wsRawFilePath.empty())
+					{
+						sRawFilePathUtf8 = string::convertWCharToUtf8(wsRawFilePath);
+						if (!vPipe.has("path"))
+							vPipe.put("path", wsRawFilePath);
+						if (!vPipe.has("abstractPath"))
+							vPipe.put("abstractPath", wsRawFilePath);
+						fHasRawFileSnapshot = true;
+					}
+					vEvent.put("file", vPipe);
+				}
+			}
+			catch (...) {}
+		}
+		break;
+	}
 	case Event::LLE_IMAGE_LOAD:
 	case Event::LLE_DRIVER_LOAD:
+	{
+		// Enrich image/driver load metadata lazily so PTM rules can inspect paths/verdicts
+		// while preserving raw telemetry without blocking or dropping events.
+		if (vEvent.has("file"))
+		{
+			try
+			{
+				auto vRaw = vEvent.get("file");
+				if (vRaw.isDictionaryLike())
+				{
+					Dictionary vParams = vRaw;
+					try
+					{
+						wsRawFilePath = vParams.get("path", L"");
+						if (wsRawFilePath.empty()) wsRawFilePath = vParams.get("rawPath", L"");
+						if (wsRawFilePath.empty()) wsRawFilePath = vParams.get("uniquePath", L"");
+						if (wsRawFilePath.empty()) wsRawFilePath = vParams.get("abstractPath", L"");
+						if (!wsRawFilePath.empty())
+							sRawFilePathUtf8 = string::convertWCharToUtf8(wsRawFilePath);
+						fHasRawFileSnapshot = true;
+					}
+					catch (...) {}
+					vParams.put("security", vToken);
+					vEvent.put("file", variant::createLambdaProxy([vParams]() -> Variant
+					{
+						try
+						{
+							auto pFileInformation = queryInterface<sys::win::IFileInformation>(queryService("fileDataProvider"));
+							auto res = pFileInformation->getFileInfo(vParams);
+							if (res.isDictionaryLike() && !res.isEmpty())
+							{
+								if (!res.has("path") && vParams.has("path"))
+									res.put("path", vParams["path"]);
+								if (!res.has("rawPath") && vParams.has("rawPath"))
+									res.put("rawPath", vParams["rawPath"]);
+								if (vParams.has("kernelStack"))
+									res.put("kernelStack", vParams["kernelStack"]);
+								return res;
+							}
+						}
+						catch (...) {}
+						return vParams;
+					}, true));
+				}
+			}
+			catch (...) {}
+		}
+		break;
+	}
 	case Event::LLE_REMOTE_THREAD_CREATE:
 	{
-		// Kernel image, driver, remote thread, and named-pipe telemetry.
-		// Pass through directly so lossless stream enriches and forwards them.
+		// Best-effort target process enrichment for PTM rules; never drop if target already exited.
+		if (vEvent.has("target"))
+		{
+			try
+			{
+				auto vTarget = vEvent["target"];
+				auto vTargetInfo = m_pProcProvider->enrichProcessInfo(vTarget);
+				if (!vTargetInfo.isEmpty())
+					vEvent.put("target", vTargetInfo);
+			}
+			catch (...) {}
+		}
 		break;
 	}
 	}

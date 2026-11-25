@@ -3,8 +3,9 @@ use axum::response::IntoResponse;
 use axum::Json;
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
-use std::collections::VecDeque;
-use std::sync::{Arc, RwLock};
+use std::collections::{HashMap, VecDeque};
+use std::sync::{Arc, Mutex, OnceLock, RwLock};
+use std::time::{Duration, Instant};
 
 use crate::dashboard::AppState;
 use crate::events::{Event, EventLog};
@@ -832,7 +833,389 @@ pub async fn handle_edr_telemetry_behavior(
 /// of its own, carried in `risk_score` (Sigma level: critical 1.0, high 0.85,
 /// medium 0.6, anything lower 0.3). For every other source a detection name is
 /// a verdict the agent already acted on.
-const GRADED_DETECTION_SOURCES: &[&str] = &["sigma_event_log"];
+const GRADED_DETECTION_SOURCES: &[&str] = &[
+    "sigma_event_log",
+    "edr_telemetry_rule",
+    "server_telemetry_rule",
+];
+
+const SERVER_ALERT_DEDUP_TTL: Duration = Duration::from_secs(60);
+const SERVER_ALERT_DEDUP_CAP: usize = 8192;
+
+static SERVER_ALERT_DEDUP: OnceLock<Mutex<HashMap<(String, String, u32, String), Instant>>> =
+    OnceLock::new();
+
+const SERVER_MALICIOUS_TLS_FINGERPRINTS: &[(&str, &str)] = &[
+    ("eb88d0b3e1961a0562f006e5ce2a0b87", "CobaltStrike.MalleableC2"),
+    ("ae4edc6faf64d08308082ad26be60767", "CobaltStrike.Server.JA3S"),
+    ("aa29d305dff6e6ac9cd244a62c6ad0c2", "CobaltStrike.Server.JA3S"),
+    ("8916410db85077a5460817142dcbc8de", "Metasploit.Meterpreter"),
+    ("72a589da586844d7f0818ce684948eea", "Metasploit.Meterpreter"),
+    ("e564ee1b7bcae4467d8c759df910ed9c", "DeimosC2.Agent"),
+    ("f4febc55ea12b31ae17cfb7e614afda8", "DeimosC2.Agent"),
+    ("f6dfdd25d1522e4e1c7cd09bd37ce619", "RustyBuer.Server.JA3S"),
+    ("16f17c896273d1d098314a02e87dd4cb", "Metasploit.HttpScanner"),
+    ("950ccdd64d360a7b24c70678ac116a44", "Metasploit.CcsScanner"),
+    ("ee031b874122d97ab269e0d8740be31a", "Metasploit.HeartbleedScanner"),
+    ("6825b330bf9de50ccc8745553cb61b2f", "Metasploit.SslScanner"),
+    ("1aa7bf8b97e540ca5edd75f7b8384bfa", "AbuseCh.Trickbot"),
+    ("e62a5f4d538cbf169c2af71bec2399b4", "AbuseCh.Trickbot"),
+    ("fb00055a1196aeea8d1bc609885ba953", "AbuseCh.Trickbot"),
+    ("c50f6a8b9173676b47ba6085bd0c6cee", "AbuseCh.Trickbot"),
+    ("3cda52da4ade09f1f781ad2e82dcfa20", "AbuseCh.QakBot"),
+    ("7dd50e112cd23734a310b90f6f44a7cd", "AbuseCh.QakBot"),
+    ("51c64c77e60f3980eea90869b68c58a8", "AbuseCh.Dridex"),
+    ("cb98a24ee4b9134448ffb5714fd870ac", "AbuseCh.Dridex"),
+    ("b386946a5a44d1ddcc843bc75336dfce", "AbuseCh.Dridex"),
+    ("d6f04b5a910115f4b50ecec09d40a1df", "AbuseCh.Dridex"),
+    ("57f3642b4e37e28f5cbe3020c9331b4c", "AbuseCh.Gozi"),
+    ("c201b92f8b483fa388be174d6689f534", "AbuseCh.Gozi"),
+    ("1be3ecebe5aa9d3654e6e703d81f6928", "AbuseCh.Troldesh"),
+    ("1712287800ac91b34cadd5884ce85568", "AbuseCh.TorrentLocker"),
+    ("c5235d3a8b9934b7fbbd204d50bc058d", "AbuseCh.Gootkit"),
+    ("decfb48a53789ebe081b88aabb58ee34", "AbuseCh.Adwind"),
+];
+
+const SERVER_BYOVD_DRIVERS: &[&str] = &[
+    "iqvw64e.sys",
+    "rtcore64.sys",
+    "rtcore32.sys",
+    "dbutil_2_3.sys",
+    "dbutildrv2.sys",
+    "procexp152.sys",
+    "gdrv.sys",
+    "aswarpot.sys",
+    "mhyprot2.sys",
+    "zam64.sys",
+    "zamguard64.sys",
+    "truesight.sys",
+    "bs_def64.sys",
+    "capcom.sys",
+    "speedfan.sys",
+    "winring0x64.sys",
+    "winring0.sys",
+    "phymemx64.sys",
+    "kprocesshacker.sys",
+    "processhacker.sys",
+    "ene.sys",
+    "atszio64.sys",
+    "glckio2.sys",
+    "msio64.sys",
+    "asio64.sys",
+    "viragt64.sys",
+    "echo_driver.sys",
+    "k7rkscan.sys",
+];
+
+const SERVER_SECURITY_DRIVERS: &[&str] = &["edrdrv.sys", "wdfilter.sys", "sysmondrv.sys", "windivert"];
+
+const SERVER_MALICIOUS_PIPES: &[&str] = &[
+    "\\msagent_",
+    "\\postex_",
+    "\\psexesvc",
+    "\\remcom_",
+    "\\paexec_",
+    "\\csexecsvc",
+    "\\meterpreter",
+    "\\gruntsvc",
+    "\\sliver_",
+    "\\lsadump",
+    "\\cachedump",
+    "\\wceservicepipe",
+    "\\ahexec",
+    "\\badpotato",
+    "\\godpotato",
+    "\\juicypotato",
+    "\\sweetpotato",
+    "\\efspotato",
+    "\\printspoofer",
+];
+
+fn lookup_server_malicious_tls(hash: &str) -> Option<&'static str> {
+    let trimmed = hash.trim();
+    if trimmed.len() != 32 {
+        return None;
+    }
+    SERVER_MALICIOUS_TLS_FINGERPRINTS
+        .iter()
+        .find(|(fp, _)| fp.eq_ignore_ascii_case(trimmed))
+        .map(|(_, label)| *label)
+}
+
+fn should_emit_server_alert(machine_id: &str, rule_name: &str, pid: u32, subject: &str) -> bool {
+    let hub = SERVER_ALERT_DEDUP.get_or_init(|| Mutex::new(HashMap::new()));
+    let Ok(mut map) = hub.lock() else {
+        return true;
+    };
+    let now = Instant::now();
+    if map.len() >= SERVER_ALERT_DEDUP_CAP {
+        map.retain(|_, ts| now.duration_since(*ts) < SERVER_ALERT_DEDUP_TTL);
+        if map.len() >= SERVER_ALERT_DEDUP_CAP {
+            map.clear();
+        }
+    }
+    let key = (
+        machine_id.to_string(),
+        rule_name.to_string(),
+        pid,
+        subject.to_ascii_lowercase(),
+    );
+    if let Some(prev) = map.get(&key) {
+        if now.duration_since(*prev) < SERVER_ALERT_DEDUP_TTL {
+            return false;
+        }
+    }
+    map.insert(key, now);
+    true
+}
+
+fn emit_server_rule_alert(
+    store: &EdrTelemetryStore,
+    events: &EventLog,
+    machine_id: &str,
+    pid: u32,
+    process_name: &str,
+    exe_path: &str,
+    sha256: &str,
+    subject: &str,
+    rule_name: &str,
+    risk_score: f32,
+    indicators: Vec<String>,
+    command_line: String,
+    details: serde_json::Value,
+) {
+    if !should_emit_server_alert(machine_id, rule_name, pid, subject) {
+        return;
+    }
+    let payload = BehaviorTelemetryPayload {
+        machine_id: machine_id.to_string(),
+        timestamp: Utc::now().timestamp().max(0) as u64,
+        pid,
+        gid: pid as u64,
+        process_name: if process_name.is_empty() {
+            "unknown".to_string()
+        } else {
+            process_name.to_string()
+        },
+        exe_path: exe_path.to_string(),
+        command_line,
+        sha256: sha256.to_string(),
+        parent_pid: None,
+        parent_name: None,
+        detection: rule_name.to_string(),
+        source: "server_telemetry_rule".to_string(),
+        risk_score,
+        indicators,
+        ops_summary: None,
+        details,
+    };
+    let _ = ingest_behavior(store, events, payload);
+}
+
+fn raw_first_str<'a>(raw: &'a serde_json::Value, pointers: &[&str]) -> &'a str {
+    for ptr in pointers {
+        if let Some(s) = raw.pointer(ptr).and_then(|v| v.as_str()) {
+            let t = s.trim();
+            if !t.is_empty() && t != "<undefined>" && t != "null" {
+                return t;
+            }
+        }
+    }
+    ""
+}
+
+fn evaluate_server_edr_event(
+    store: &EdrTelemetryStore,
+    events: &EventLog,
+    machine_id: &str,
+    rec: &EdrEventRecord,
+) {
+    let sha256 = raw_first_str(
+        &rec.raw,
+        &["/hashes/sha256", "/process/imageFile/hash", "/file/hash"],
+    );
+
+    if let Some(imphash) = rec
+        .raw
+        .pointer("/hashes/imphash")
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
+        if let Some(sig) = crate::imphash_sigs::lookup(imphash) {
+            let rule_name = format!("Server.Imphash.{}", sig.threat);
+            emit_server_rule_alert(
+                store,
+                events,
+                machine_id,
+                rec.pid,
+                &rec.process_name,
+                &rec.exe_path,
+                sha256,
+                imphash,
+                &rule_name,
+                0.90,
+                vec![
+                    format!("Imphash:{imphash}"),
+                    format!("MatchedThreat:{}", sig.threat),
+                    format!("EventType:{}", rec.event_type),
+                ],
+                format!("PE imphash {imphash} matched analyst signature {}", sig.threat),
+                serde_json::json!({
+                    "imphash": imphash,
+                    "sig_sha256": sig.sha256,
+                    "event_type": rec.event_type,
+                }),
+            );
+        }
+    }
+
+    match rec.event_type.as_str() {
+        "PROCESS_TAMPERING" => {
+            let reason = raw_first_str(&rec.raw, &["/reason"]);
+            let technique = raw_first_str(&rec.raw, &["/technique"]);
+            emit_server_rule_alert(
+                store,
+                events,
+                machine_id,
+                rec.pid,
+                &rec.process_name,
+                &rec.exe_path,
+                sha256,
+                &rec.exe_path,
+                "Server.EDR.ProcessTampering",
+                1.00,
+                vec![
+                    format!("Technique:{technique}"),
+                    format!("Reason:{reason}"),
+                ],
+                format!("Process tampering reported: {} ({reason})", rec.exe_path),
+                rec.raw.clone(),
+            );
+        }
+        "SHADOW_COPY_DELETE" => {
+            let subj = rec.details.as_deref().unwrap_or(&rec.exe_path);
+            emit_server_rule_alert(
+                store,
+                events,
+                machine_id,
+                rec.pid,
+                &rec.process_name,
+                &rec.exe_path,
+                sha256,
+                subj,
+                "Server.EDR.ShadowCopyDeletion",
+                1.00,
+                vec!["MITRE:T1490".to_string(), format!("ShadowCopy:{subj}")],
+                format!("Volume Shadow Copy deletion observed: {subj}"),
+                rec.raw.clone(),
+            );
+        }
+        "DRIVER_UNLOADED" => {
+            let drv = raw_first_str(&rec.raw, &["/driver_path", "/file/rawPath", "/file/path"]);
+            let check = if drv.is_empty() {
+                rec.details.as_deref().unwrap_or("")
+            } else {
+                drv
+            };
+            let low = check.to_ascii_lowercase();
+            if SERVER_SECURITY_DRIVERS.iter().any(|d| low.contains(d)) {
+                emit_server_rule_alert(
+                    store,
+                    events,
+                    machine_id,
+                    rec.pid,
+                    &rec.process_name,
+                    &rec.exe_path,
+                    sha256,
+                    check,
+                    "Server.EDR.SecurityDriverUnloaded",
+                    1.00,
+                    vec!["MITRE:T1562.001".to_string(), format!("Driver:{check}")],
+                    format!("Security or packet filter driver unloaded: {check}"),
+                    rec.raw.clone(),
+                );
+            }
+        }
+        "DRIVER_LOADED" | "LLE_DRIVER_LOAD" | "DRIVER_MODIFIED" => {
+            let drv = raw_first_str(
+                &rec.raw,
+                &["/driver_path", "/file/rawPath", "/file/abstractPath", "/file/path"],
+            );
+            let check = if drv.is_empty() {
+                rec.details.as_deref().unwrap_or("")
+            } else {
+                drv
+            };
+            let low = check.to_ascii_lowercase();
+            let base = check
+                .rsplit(['\\', '/'])
+                .next()
+                .unwrap_or("")
+                .to_ascii_lowercase();
+            let is_byovd = SERVER_BYOVD_DRIVERS
+                .iter()
+                .any(|d| base == *d || low.contains(d));
+            let is_writable = [
+                "\\temp\\",
+                "\\appdata\\",
+                "\\users\\public\\",
+                "\\downloads\\",
+            ]
+            .iter()
+            .any(|p| low.contains(p));
+            if is_byovd || is_writable {
+                emit_server_rule_alert(
+                    store,
+                    events,
+                    machine_id,
+                    rec.pid,
+                    &rec.process_name,
+                    &rec.exe_path,
+                    sha256,
+                    check,
+                    "Server.EDR.BYOVDVulnerableDriver",
+                    0.95,
+                    vec!["MITRE:T1068".to_string(), format!("Driver:{check}")],
+                    format!("Vulnerable BYOVD or user-writable driver loaded: {check}"),
+                    rec.raw.clone(),
+                );
+            }
+        }
+        "LLE_NAMED_PIPE_SERVER_CREATE" | "LLE_NAMED_PIPE_CREATE" => {
+            let pipe = raw_first_str(
+                &rec.raw,
+                &["/file/rawPath", "/file/abstractPath", "/file/path", "/pipe_name"],
+            );
+            let check = if pipe.is_empty() {
+                rec.details.as_deref().unwrap_or("")
+            } else {
+                pipe
+            };
+            let low = check.to_ascii_lowercase();
+            if SERVER_MALICIOUS_PIPES.iter().any(|p| low.contains(p))
+                || (low.contains("\\msse-") && low.contains("-server"))
+            {
+                emit_server_rule_alert(
+                    store,
+                    events,
+                    machine_id,
+                    rec.pid,
+                    &rec.process_name,
+                    &rec.exe_path,
+                    sha256,
+                    check,
+                    "Server.EDR.MaliciousNamedPipe",
+                    0.90,
+                    vec!["MITRE:T1071".to_string(), format!("NamedPipe:{check}")],
+                    format!("Malicious C2 or exploit named pipe observed: {check}"),
+                    rec.raw.clone(),
+                );
+            }
+        }
+        _ => {}
+    }
+}
 
 const MALICIOUS_RISK_SCORE: f32 = 0.75;
 const SUSPICIOUS_RISK_SCORE: f32 = 0.40;
@@ -956,6 +1339,39 @@ pub fn ingest_flows(store: &EdrTelemetryStore, events: &EventLog, batch: &Networ
 
     // Store in structured telemetry store
     store.add_flows(&batch.machine_id, &batch.flows);
+
+    for flow in &batch.flows {
+        for (kind, val_opt) in [("JA3", flow.ja3.as_deref()), ("JA3S", flow.ja3s.as_deref())] {
+            let Some(hash) = val_opt else { continue };
+            let Some(family) = lookup_server_malicious_tls(hash) else {
+                continue;
+            };
+            let remote = format!("{}:{}", flow.dst_ip, flow.dst_port);
+            let rule_name = format!("Server.TLS.{family}");
+            emit_server_rule_alert(
+                store,
+                events,
+                &batch.machine_id,
+                flow.pid,
+                &flow.process_name,
+                &flow.process_name,
+                "",
+                &remote,
+                &rule_name,
+                0.85,
+                vec![format!("{kind}:{hash}"), format!("Dst:{remote}")],
+                format!("Matched malicious {kind} fingerprint ({family}) -> {remote}"),
+                serde_json::json!({
+                    "kind": kind,
+                    "hash": hash,
+                    "family": family,
+                    "dst_ip": flow.dst_ip,
+                    "dst_port": flow.dst_port,
+                    "hostname": flow.hostname,
+                }),
+            );
+        }
+    }
 
     // Log sample flows in EventLog (at most 5 to avoid flooding)
     for flow in batch.flows.iter().take(5) {
@@ -1264,6 +1680,9 @@ pub fn ingest_edr_events(
     batch: &EdrEventBatch,
 ) -> serde_json::Value {
     let ingested = store.add_edr_events(&batch.machine_id, &batch.events);
+    for rec in &batch.events {
+        evaluate_server_edr_event(store, events, &batch.machine_id, rec);
+    }
     for rec in batch.events.iter().filter(|r| r.event_type.starts_with("AGENT_")) {
         let msg = rec.details.as_deref().unwrap_or("");
         events.add(Event {
@@ -1861,5 +2280,107 @@ mod tests {
         assert_eq!(reports.len(), 1);
         assert_eq!(reports[0].hostname, "WS-01");
         assert_eq!(reports[0].monitored_processes_count, 42);
+    }
+
+    #[test]
+    fn graded_edr_telemetry_rule_respects_risk_score() {
+        let med = report("edr_telemetry_rule", "EDR.FileDownload.HighRiskMotwPayload", 0.60, &["MITRE:T1566.002"]);
+        assert_eq!(behavior_severity(&med), (false, true));
+
+        let high = report("edr_telemetry_rule", "EDR.NamedPipe.KnownMaliciousC2OrExploit", 0.85, &["MITRE:T1071"]);
+        assert_eq!(behavior_severity(&high), (true, true));
+
+        let srv_crit = report("server_telemetry_rule", "Server.EDR.ProcessTampering", 1.00, &[]);
+        assert_eq!(behavior_severity(&srv_crit), (true, true));
+    }
+
+    #[test]
+    fn ingest_edr_events_flags_process_tampering_shadow_delete_and_byovd() {
+        let store = EdrTelemetryStore::new();
+        let events = EventLog::new(false);
+        let batch = EdrEventBatch {
+            machine_id: "machine-srv-rules".to_string(),
+            events: vec![
+                EdrEventRecord {
+                    timestamp: 1700000100,
+                    time_iso: "2026-11-26T00:00:00Z".to_string(),
+                    event_type: "PROCESS_TAMPERING".to_string(),
+                    pid: 5100,
+                    process_name: "svchost.exe".to_string(),
+                    exe_path: r"C:\Temp\svchost.exe".to_string(),
+                    details: Some("Entrypoint mismatch".to_string()),
+                    raw: serde_json::json!({
+                        "technique": "process_hollowing",
+                        "reason": "PE header mismatch",
+                        "hashes": { "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" }
+                    }),
+                },
+                EdrEventRecord {
+                    timestamp: 1700000101,
+                    time_iso: "2026-11-26T00:00:01Z".to_string(),
+                    event_type: "SHADOW_COPY_DELETE".to_string(),
+                    pid: 5101,
+                    process_name: "vssadmin.exe".to_string(),
+                    exe_path: r"C:\Windows\System32\vssadmin.exe".to_string(),
+                    details: Some("Shadow copy ID {1} deleted".to_string()),
+                    raw: serde_json::json!({}),
+                },
+                EdrEventRecord {
+                    timestamp: 1700000102,
+                    time_iso: "2026-11-26T00:00:02Z".to_string(),
+                    event_type: "LLE_DRIVER_LOAD".to_string(),
+                    pid: 4,
+                    process_name: "System".to_string(),
+                    exe_path: "System".to_string(),
+                    details: None,
+                    raw: serde_json::json!({
+                        "file": { "rawPath": r"\SystemRoot\System32\drivers\iqvw64e.sys" }
+                    }),
+                },
+                EdrEventRecord {
+                    timestamp: 1700000103,
+                    time_iso: "2026-11-26T00:00:03Z".to_string(),
+                    event_type: "LLE_NAMED_PIPE_SERVER_CREATE".to_string(),
+                    pid: 5102,
+                    process_name: "beacon.exe".to_string(),
+                    exe_path: r"C:\Temp\beacon.exe".to_string(),
+                    details: None,
+                    raw: serde_json::json!({
+                        "file": { "rawPath": r"\Device\NamedPipe\msagent_4242" }
+                    }),
+                },
+            ],
+        };
+        let resp = ingest_edr_events(&store, &events, &batch);
+        assert_eq!(resp["ingested"], 4);
+
+        let behaviors = store.get_behaviors(20, None, None);
+        assert!(behaviors.iter().any(|b| b.detection == "Server.EDR.ProcessTampering"));
+        assert!(behaviors.iter().any(|b| b.detection == "Server.EDR.ShadowCopyDeletion"));
+        assert!(behaviors.iter().any(|b| b.detection == "Server.EDR.BYOVDVulnerableDriver"));
+        assert!(behaviors.iter().any(|b| b.detection == "Server.EDR.MaliciousNamedPipe"));
+    }
+
+    #[test]
+    fn ingest_flows_flags_malicious_ja3_and_ignores_benign_ja3() {
+        let store = EdrTelemetryStore::new();
+        let events = EventLog::new(false);
+        let mut malicious = flow("198.51.100.50");
+        malicious.ja3 = Some("eb88d0b3e1961a0562f006e5ce2a0b87".to_string());
+        let mut benign = flow("93.184.216.34");
+        benign.ja3 = Some("0123456789abcdef0123456789abcdef".to_string());
+
+        ingest_flows(
+            &store,
+            &events,
+            &NetworkFlowBatch {
+                machine_id: "machine-tls-rules".to_string(),
+                flows: vec![malicious, benign],
+            },
+        );
+        let behaviors = store.get_behaviors(20, None, None);
+        assert_eq!(behaviors.len(), 1);
+        assert_eq!(behaviors[0].detection, "Server.TLS.CobaltStrike.MalleableC2");
+        assert_eq!(behaviors[0].verdict, "malicious");
     }
 }

@@ -69,6 +69,8 @@ private:
 	void notifyNewConnectionInfo(std::shared_ptr<const ConnectionInfo> pConInfo) override;
 	void notifyUnsuccessfulConnection(std::shared_ptr<const ConnectionInfo> pConInfo) override;
 	void notifyNewListen(ObjPtr<const ListenInfo> pListenInfo) override;
+	void notifyDnsRequest(std::shared_ptr<const ConnectionInfo> pConInfo, const std::string& sDomain) override;
+	void notifyDataRequest(std::shared_ptr<const ConnectionInfo> pConInfo, AppProtocol eProtocol, const std::string& sCommand, const std::string& sUrl, bool fSecured) override;
 
 	bool isEventEnabled(netmon::RawEvent eEvent) override;
 	void sendEvent(Variant vEvent) override;

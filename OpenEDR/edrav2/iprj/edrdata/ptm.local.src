@@ -4279,7 +4279,104 @@
 		],
 		"driverEventBaseType": {
 			"MLE_DRIVER_INSTALL_TAMPER": 1000021
-		}
+		},
+		"telemetryRuleEventBaseType": {
+			"MLE_BYOVD_DRIVER_LOAD": 1000041,
+			"MLE_SUSPICIOUS_DLL_SIDELOAD": 1000042,
+			"MLE_REMOTE_THREAD_INJECTION": 1000043,
+			"MLE_MALICIOUS_NAMED_PIPE": 1000044
+		},
+		"byovdDriverNames": [
+			"*\\iqvw64e.sys",
+			"*\\rtcore64.sys",
+			"*\\rtcore32.sys",
+			"*\\dbutil_2_3.sys",
+			"*\\dbutildrv2.sys",
+			"*\\procexp152.sys",
+			"*\\gdrv.sys",
+			"*\\aswarpot.sys",
+			"*\\mhyprot2.sys",
+			"*\\zam64.sys",
+			"*\\zamguard64.sys",
+			"*\\truesight.sys",
+			"*\\bs_def64.sys",
+			"*\\capcom.sys",
+			"*\\speedfan.sys",
+			"*\\winring0x64.sys",
+			"*\\winring0.sys",
+			"*\\phymemx64.sys",
+			"*\\kprocesshacker.sys",
+			"*\\processhacker.sys",
+			"*\\ene.sys",
+			"*\\atszio64.sys",
+			"*\\glckio2.sys",
+			"*\\msio64.sys",
+			"*\\asio64.sys",
+			"*\\viragt64.sys",
+			"*\\echo_driver.sys",
+			"*\\k7rkscan.sys"
+		],
+		"maliciousNamedPipePatterns": [
+			"*\\msagent_*",
+			"*\\msse-*-server",
+			"*\\postex_*",
+			"*\\postex_ssh_*",
+			"*\\psexesvc*",
+			"*\\remcom_*",
+			"*\\paexec_*",
+			"*\\csexecsvc*",
+			"*\\meterpreter*",
+			"*\\gruntsvc*",
+			"*\\sliver_*",
+			"*\\lsadump*",
+			"*\\cachedump*",
+			"*\\wceservicepipe*",
+			"*\\ahexec*",
+			"*\\badpotato*",
+			"*\\godpotato*",
+			"*\\juicypotato*",
+			"*\\sweetpotato*",
+			"*\\efspotato*",
+			"*\\printspoofer*"
+		],
+		"suspiciousSideloadHosts": [
+			"*\\windows\\system32\\rundll32.exe",
+			"*\\windows\\syswow64\\rundll32.exe",
+			"*\\windows\\system32\\regsvr32.exe",
+			"*\\windows\\syswow64\\regsvr32.exe",
+			"*\\windows\\system32\\mshta.exe",
+			"*\\windows\\system32\\wscript.exe",
+			"*\\windows\\system32\\cscript.exe",
+			"*\\windows\\system32\\svchost.exe",
+			"*\\windows\\system32\\lsass.exe",
+			"*\\windows\\system32\\winlogon.exe",
+			"*\\windows\\system32\\spoolsv.exe",
+			"*\\windows\\system32\\dllhost.exe",
+			"*\\windows\\system32\\msiexec.exe",
+			"*\\windows\\system32\\certutil.exe",
+			"*\\windows\\system32\\installutil.exe",
+			"*\\windows\\system32\\msbuild.exe",
+			"*\\windows\\system32\\cmstp.exe",
+			"*\\windows\\system32\\odbcconf.exe",
+			"%systemroot%\\system32\\rundll32.exe",
+			"%systemroot%\\syswow64\\rundll32.exe",
+			"%systemroot%\\system32\\regsvr32.exe",
+			"%systemroot%\\syswow64\\regsvr32.exe",
+			"%systemroot%\\system32\\mshta.exe",
+			"%systemroot%\\system32\\wscript.exe",
+			"%systemroot%\\system32\\cscript.exe",
+			"%systemroot%\\system32\\svchost.exe",
+			"%systemroot%\\system32\\lsass.exe",
+			"%systemroot%\\system32\\winlogon.exe",
+			"%systemroot%\\system32\\spoolsv.exe",
+			"%systemroot%\\system32\\dllhost.exe",
+			"%systemroot%\\system32\\msiexec.exe",
+			"%systemroot%\\system32\\certutil.exe",
+			"%systemroot%\\system32\\installutil.exe",
+			"%systemroot%\\system32\\msbuild.exe",
+			"%systemroot%\\system32\\cmstp.exe",
+			"%systemroot%\\system32\\odbcconf.exe"
+		]
 	},
 
 	"variables": {
@@ -8495,21 +8592,83 @@
 			{
 				"eventType": "LLE_DRIVER_LOAD",
 				"rule": {
+					"name": "ByovdVulnerableDriverLoad",
 					"condition": {
-						"$operation": "not",
+						"$operation": "or",
+						"args": [
+							{
+								"$operation": "imatch",
+								"pattern": "@const.byovdDriverNames",
+								"args": [ "@event.file.rawPath" ]
+							},
+							{
+								"$operation": "imatch",
+								"pattern": "@const.byovdDriverNames",
+								"args": [ "@event.file.abstractPath" ]
+							}
+						]
+					},
+					"createEvent": {
+						"eventType": "MLE_BYOVD_DRIVER_LOAD",
+						"destination": "OUT",
+						"clone": false,
+						"data": [
+							{ "name": "baseType", "value": "@const.telemetryRuleEventBaseType.MLE_BYOVD_DRIVER_LOAD" },
+							{ "name": "threatName", "value": "Exploit.Win32.BYOVD.VulnerableDriver" },
+							{ "name": "threatType", "value": "BYOVD_DRIVER_LOAD" },
+							{ "name": "verdict", "value": 2 },
+							{ "name": "flsVerdict", "value": 2 },
+							{ "name": "process", "value": "@event.process" },
+							{ "name": "processes", "value": "@event.processes" },
+							{ "name": "time", "value": "@event.time" },
+							{ "name": "tickTime", "value": "@event.tickTime" },
+							{ "name": "file", "value": "@event.file" },
+							{ "name": "quarantineTarget", "value": "@event.file.rawPath" },
+							{ "name": "should_trust_viruskov_cloud", "value": false },
+							{ "name": "should_trust_comodo_fls_cloud", "value": false }
+						]
+					}
+				}
+			},
+			{
+				"eventType": "LLE_DRIVER_LOAD",
+				"rule": {
+					"name": "SuspiciousPathDriverLoad",
+					"condition": {
+						"$operation": "and",
 						"args": [
 							{
 								"$operation": "or",
 								"args": [
 									{
 										"$operation": "imatch",
-										"pattern": "@const.driverTrustedInstallers",
-										"args": [ "@event.process.imageFile.rawPath" ]
+										"pattern": "@const.driverSuspiciousPaths",
+										"args": [ "@event.file.rawPath" ]
 									},
 									{
 										"$operation": "imatch",
-										"pattern": "@const.driverTrustedInstallers",
-										"args": [ "@event.process.imageFile.abstractPath" ]
+										"pattern": "@const.driverSuspiciousPaths",
+										"args": [ "@event.file.abstractPath" ]
+									}
+								]
+							},
+							{
+								"$operation": "not",
+								"args": [
+									{
+										"$operation": "or",
+										"args": [
+											{
+												"$operation": "imatch",
+												"pattern": "@const.driverSelfPaths",
+												"args": [ "@event.file.rawPath" ]
+											},
+											{
+												"$operation": "imatch",
+												"pattern": "@const.driverSelfPaths",
+												"args": [ "@event.file.abstractPath" ]
+											}
+										]
 									}
 								]
 							}
@@ -8521,13 +8680,14 @@
 						"clone": false,
 						"data": [
 							{ "name": "baseType", "value": "@const.driverEventBaseType.MLE_DRIVER_INSTALL_TAMPER" },
+							{ "name": "threatName", "value": "Rootkit.Win32.SuspiciousPathDriverLoad" },
 							{ "name": "process", "value": "@event.process" },
 							{ "name": "processes", "value": "@event.processes" },
 							{ "name": "time", "value": "@event.time" },
 							{ "name": "tickTime", "value": "@event.tickTime" },
-							{ "name": "quarantineTarget", "value": "@event.driver.image" },
-							{ "name": "driverInfo", "value": "@event.driver" },
-							{ "name": "should_trust_viruskov_cloud", "value": false },
+							{ "name": "file", "value": "@event.file" },
+							{ "name": "quarantineTarget", "value": "@event.file.rawPath" },
+							{ "name": "should_trust_viruskov_cloud", "value": true },
 							{ "name": "should_trust_comodo_fls_cloud", "value": false }
 						]
 					}
@@ -8832,6 +8992,278 @@
 							{ "name": "dllAttackChain", "value": "@event.process.dllAttackChain" },
 							{ "name": "dllMapping", "value": "@event.process.dllMapping" },
 							{ "name": "should_trust_viruskov_cloud", "value": false },
+							{ "name": "should_trust_comodo_fls_cloud", "value": false }
+						]
+					}
+				}
+			}
+		],
+		"KERNEL_REMOTE_THREAD_INJECTION": [
+			{
+				"eventType": "LLE_REMOTE_THREAD_CREATE",
+				"rule": {
+					"name": "UntrustedRemoteThreadInjection",
+					"condition": {
+						"$operation": "and",
+						"args": [
+							{
+								"$operation": "or",
+								"args": [
+									{
+										"$operation": "imatch",
+										"pattern": "?*",
+										"args": [ "@event.process.imageFile.abstractPath" ]
+									},
+									{
+										"$operation": "imatch",
+										"pattern": "?*",
+										"args": [ "@event.process.imageFile.rawPath" ]
+									}
+								]
+							},
+							{
+								"$operation": "!equal",
+								"args": [ "@event.process.id", "@event.target.id" ]
+							},
+							{
+								"$operation": "!equal",
+								"args": [ "@event.process.isTrusted", true ]
+							},
+							{
+								"$operation": "!imatch",
+								"pattern": "@const.trustedSecurityCallers",
+								"args": [ "@event.process.imageFile.abstractPath" ]
+							},
+							{
+								"$operation": "!imatch",
+								"pattern": "@const.trustedSecurityCallers",
+								"args": [ "@event.process.imageFile.rawPath" ]
+							},
+							{
+								"$operation": "!imatch",
+								"pattern": "@const.driverSelfPaths",
+								"args": [ "@event.process.imageFile.abstractPath" ]
+							},
+							{
+								"$operation": "!imatch",
+								"pattern": "@const.driverSelfPaths",
+								"args": [ "@event.process.imageFile.rawPath" ]
+							}
+						]
+					},
+					"createEvent": {
+						"eventType": "MLE_REMOTE_THREAD_INJECTION",
+						"destination": "OUT",
+						"clone": false,
+						"data": [
+							{ "name": "baseType", "value": "@const.telemetryRuleEventBaseType.MLE_REMOTE_THREAD_INJECTION" },
+							{ "name": "threatName", "value": "Behavior.Win32.RemoteThreadInjection" },
+							{ "name": "threatType", "value": "REMOTE_THREAD_INJECTION" },
+							{ "name": "verdict", "value": 2 },
+							{ "name": "flsVerdict", "value": 2 },
+							{ "name": "process", "value": "@event.process" },
+							{ "name": "processes", "value": "@event.processes" },
+							{ "name": "target", "value": "@event.target" },
+							{ "name": "time", "value": "@event.time" },
+							{ "name": "tickTime", "value": "@event.tickTime" },
+							{ "name": "quarantineTarget", "value": "@event.process.imageFile.rawPath" },
+							{ "name": "should_trust_viruskov_cloud", "value": true },
+							{ "name": "should_trust_comodo_fls_cloud", "value": false }
+						]
+					}
+				}
+			}
+		],
+		"SUSPICIOUS_IMAGE_SIDELOAD": [
+			{
+				"eventType": "LLE_IMAGE_LOAD",
+				"rule": {
+					"name": "LolbinOrSystemDllSideload",
+					"condition": {
+						"$operation": "and",
+						"args": [
+							{
+								"$operation": "or",
+								"args": [
+									{
+										"$operation": "imatch",
+										"pattern": "@const.suspiciousSideloadHosts",
+										"args": [ "@event.process.imageFile.rawPath" ]
+									},
+									{
+										"$operation": "imatch",
+										"pattern": "@const.suspiciousSideloadHosts",
+										"args": [ "@event.process.imageFile.abstractPath" ]
+									}
+								]
+							},
+							{
+								"$operation": "or",
+								"args": [
+									{
+										"$operation": "imatch",
+										"pattern": "@const.driverSuspiciousPaths",
+										"args": [ "@event.file.rawPath" ]
+									},
+									{
+										"$operation": "imatch",
+										"pattern": "@const.driverSuspiciousPaths",
+										"args": [ "@event.file.abstractPath" ]
+									}
+								]
+							},
+							{
+								"$operation": "or",
+								"args": [
+									{
+										"$operation": "imatch",
+										"pattern": "*.dll",
+										"args": [ "@event.file.rawPath" ]
+									},
+									{
+										"$operation": "imatch",
+										"pattern": "*.dll",
+										"args": [ "@event.file.abstractPath" ]
+									}
+								]
+							},
+							{
+								"$operation": "!equal",
+								"args": [ "@event.file.verdict", "@const.verdict.SAFE" ]
+							}
+						]
+					},
+					"createEvent": {
+						"eventType": "MLE_SUSPICIOUS_DLL_SIDELOAD",
+						"destination": "OUT",
+						"clone": false,
+						"data": [
+							{ "name": "baseType", "value": "@const.telemetryRuleEventBaseType.MLE_SUSPICIOUS_DLL_SIDELOAD" },
+							{ "name": "threatName", "value": "Behavior.Win32.SuspiciousDllSideload" },
+							{ "name": "threatType", "value": "DLL_SIDELOADING" },
+							{ "name": "verdict", "value": 2 },
+							{ "name": "flsVerdict", "value": 2 },
+							{ "name": "process", "value": "@event.process" },
+							{ "name": "processes", "value": "@event.processes" },
+							{ "name": "file", "value": "@event.file" },
+							{ "name": "time", "value": "@event.time" },
+							{ "name": "tickTime", "value": "@event.tickTime" },
+							{ "name": "quarantineTarget", "value": "@event.file.rawPath" },
+							{ "name": "should_trust_viruskov_cloud", "value": true },
+							{ "name": "should_trust_comodo_fls_cloud", "value": true }
+						]
+					}
+				}
+			}
+		],
+		"MALICIOUS_NAMED_PIPE_ACTIVITY": [
+			{
+				"eventType": "LLE_NAMED_PIPE_SERVER_CREATE",
+				"rule": {
+					"name": "MaliciousNamedPipeServerCreate",
+					"condition": {
+						"$operation": "and",
+						"args": [
+							{
+								"$operation": "or",
+								"args": [
+									{
+										"$operation": "imatch",
+										"pattern": "@const.maliciousNamedPipePatterns",
+										"args": [ "@event.file.rawPath" ]
+									},
+									{
+										"$operation": "imatch",
+										"pattern": "@const.maliciousNamedPipePatterns",
+										"args": [ "@event.file.abstractPath" ]
+									}
+								]
+							},
+							{
+								"$operation": "!imatch",
+								"pattern": "@const.driverSelfPaths",
+								"args": [ "@event.process.imageFile.rawPath" ]
+							},
+							{
+								"$operation": "!imatch",
+								"pattern": "@const.driverSelfPaths",
+								"args": [ "@event.process.imageFile.abstractPath" ]
+							}
+						]
+					},
+					"createEvent": {
+						"eventType": "MLE_MALICIOUS_NAMED_PIPE",
+						"destination": "OUT",
+						"clone": false,
+						"data": [
+							{ "name": "baseType", "value": "@const.telemetryRuleEventBaseType.MLE_MALICIOUS_NAMED_PIPE" },
+							{ "name": "threatName", "value": "Behavior.Win32.MaliciousNamedPipe.C2" },
+							{ "name": "threatType", "value": "MALICIOUS_NAMED_PIPE" },
+							{ "name": "verdict", "value": 2 },
+							{ "name": "flsVerdict", "value": 2 },
+							{ "name": "process", "value": "@event.process" },
+							{ "name": "processes", "value": "@event.processes" },
+							{ "name": "file", "value": "@event.file" },
+							{ "name": "time", "value": "@event.time" },
+							{ "name": "tickTime", "value": "@event.tickTime" },
+							{ "name": "quarantineTarget", "value": "@event.process.imageFile.rawPath" },
+							{ "name": "should_trust_viruskov_cloud", "value": true },
+							{ "name": "should_trust_comodo_fls_cloud", "value": false }
+						]
+					}
+				}
+			},
+			{
+				"eventType": "LLE_NAMED_PIPE_CREATE",
+				"rule": {
+					"name": "MaliciousNamedPipeClientConnect",
+					"condition": {
+						"$operation": "and",
+						"args": [
+							{
+								"$operation": "or",
+								"args": [
+									{
+										"$operation": "imatch",
+										"pattern": "@const.maliciousNamedPipePatterns",
+										"args": [ "@event.file.rawPath" ]
+									},
+									{
+										"$operation": "imatch",
+										"pattern": "@const.maliciousNamedPipePatterns",
+										"args": [ "@event.file.abstractPath" ]
+									}
+								]
+							},
+							{
+								"$operation": "!imatch",
+								"pattern": "@const.driverSelfPaths",
+								"args": [ "@event.process.imageFile.rawPath" ]
+							},
+							{
+								"$operation": "!imatch",
+								"pattern": "@const.driverSelfPaths",
+								"args": [ "@event.process.imageFile.abstractPath" ]
+							}
+						]
+					},
+					"createEvent": {
+						"eventType": "MLE_MALICIOUS_NAMED_PIPE",
+						"destination": "OUT",
+						"clone": false,
+						"data": [
+							{ "name": "baseType", "value": "@const.telemetryRuleEventBaseType.MLE_MALICIOUS_NAMED_PIPE" },
+							{ "name": "threatName", "value": "Behavior.Win32.MaliciousNamedPipe.C2" },
+							{ "name": "threatType", "value": "MALICIOUS_NAMED_PIPE" },
+							{ "name": "verdict", "value": 2 },
+							{ "name": "flsVerdict", "value": 2 },
+							{ "name": "process", "value": "@event.process" },
+							{ "name": "processes", "value": "@event.processes" },
+							{ "name": "file", "value": "@event.file" },
+							{ "name": "time", "value": "@event.time" },
+							{ "name": "tickTime", "value": "@event.tickTime" },
+							{ "name": "quarantineTarget", "value": "@event.process.imageFile.rawPath" },
+							{ "name": "should_trust_viruskov_cloud", "value": true },
 							{ "name": "should_trust_comodo_fls_cloud", "value": false }
 						]
 					}

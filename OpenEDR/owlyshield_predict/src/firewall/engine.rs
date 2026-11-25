@@ -17,9 +17,31 @@ use windivert::prelude::*;
 
 static GLOBAL_FLOW_TX: OnceLock<Mutex<Option<mpsc::Sender<crate::edr_feedback::NetworkFlowRecord>>>> =
     OnceLock::new();
+static GLOBAL_HYDRANET_TX: OnceLock<Mutex<Option<mpsc::Sender<String>>>> = OnceLock::new();
 
 fn global_flow_tx() -> &'static Mutex<Option<mpsc::Sender<crate::edr_feedback::NetworkFlowRecord>>> {
     GLOBAL_FLOW_TX.get_or_init(|| Mutex::new(None))
+}
+
+fn global_hydranet_tx() -> &'static Mutex<Option<mpsc::Sender<String>>> {
+    GLOBAL_HYDRANET_TX.get_or_init(|| Mutex::new(None))
+}
+
+pub(crate) fn sanitize_hydranet_field(s: &str) -> String {
+    s.chars()
+        .filter(|&c| c != '\r' && c != '\n' && c != '\0')
+        .take(2048)
+        .collect()
+}
+
+/// Forwards a formatted HydraNetEvent line (such as `HTTP_REQ:` from the TLS proxy)
+/// onto the active firewall->libnetmon pipe sender when the engine is running.
+pub(crate) fn send_global_hydranet_line(msg: String) {
+    if let Ok(guard) = global_hydranet_tx().lock() {
+        if let Some(ref tx) = *guard {
+            let _ = tx.send(msg);
+        }
+    }
 }
 
 /// Queues a network flow (including HTTP/HTTPS proxy URLs) onto the batched VirusKov
@@ -3497,6 +3519,9 @@ impl FirewallEngine {
         // One message is sent per new PID per session to avoid flooding the pipe.
         let (net_event_tx, net_event_rx) = std::sync::mpsc::channel::<String>();
         *self.hydranet_tx.lock().unwrap() = Some(net_event_tx.clone());
+        if let Ok(mut guard) = global_hydranet_tx().lock() {
+            *guard = Some(net_event_tx.clone());
+        }
         let (flow_telemetry_tx, flow_telemetry_rx) =
             std::sync::mpsc::channel::<crate::edr_feedback::NetworkFlowRecord>();
         if let Ok(mut guard) = global_flow_tx().lock() {
@@ -3515,6 +3540,7 @@ impl FirewallEngine {
                     while !stop_flow_stream.load(Ordering::Relaxed) {
                         match flow_telemetry_rx.recv_timeout(std::time::Duration::from_millis(200)) {
                             Ok(rec) => {
+                                crate::edr_rules::evaluate_and_dispatch_flow(&rec);
                                 batch.push(rec);
                                 if batch.len() >= MAX_BATCH || last_flush.elapsed() >= FLUSH_INTERVAL {
                                     crate::edr_feedback::stream_network_flows_async(std::mem::take(&mut batch));
@@ -3754,6 +3780,31 @@ impl FirewallEngine {
                                                 );
                                                 let _ = net_ev_tx.send(msg);
                                                 notified_pids.insert(pid);
+                                            }
+                                            if let Some(ref dns) = parsed_info.dns_query {
+                                                let msg = format!(
+                                                    "DNS_REQ:{}|{}|{}|{}\n",
+                                                    pid,
+                                                    parsed_info.dst_ip,
+                                                    parsed_info.dst_port,
+                                                    sanitize_hydranet_field(dns).replace('|', "_"),
+                                                );
+                                                let _ = net_ev_tx.send(msg);
+                                            }
+                                            if let Some(ref url) = parsed_info.full_url {
+                                                let method = parsed_info
+                                                    .http_method
+                                                    .as_deref()
+                                                    .unwrap_or("GET");
+                                                let msg = format!(
+                                                    "HTTP_REQ:{}|{}|{}|0|{}|{}\n",
+                                                    pid,
+                                                    parsed_info.dst_ip,
+                                                    parsed_info.dst_port,
+                                                    sanitize_hydranet_field(method).replace('|', "_"),
+                                                    sanitize_hydranet_field(url),
+                                                );
+                                                let _ = net_ev_tx.send(msg);
                                             }
                                         }
 
@@ -5960,6 +6011,12 @@ impl FirewallEngine {
         // Signal all worker loops to exit after their current recv() returns.
         self.stop_signal.store(true, Ordering::SeqCst);
         *self.hydranet_tx.lock().unwrap() = None;
+        if let Ok(mut guard) = global_hydranet_tx().lock() {
+            *guard = None;
+        }
+        if let Ok(mut guard) = global_flow_tx().lock() {
+            *guard = None;
+        }
 
         // Calling shutdown() unblocks all recv() calls immediately with an error.
         // shutdown() takes &mut self but Arc only yields &T via Deref.

@@ -152,6 +152,48 @@ void NetworkMonitorController::notifyNewListen(ObjPtr<const ListenInfo> pListenI
 //
 //
 //
+void NetworkMonitorController::notifyDnsRequest(std::shared_ptr<const ConnectionInfo> pConInfo, const std::string& sDomain)
+{
+	if (!pConInfo || sDomain.empty() || !isEventEnabled(RawEvent::NETMON_REQUEST_DNS))
+		return;
+
+	Dictionary vEvent {
+		{"baseType", Event::LLE_NETWORK_REQUEST_DNS},
+		{"rawEventId", createRaw(CLSID_NetworkMonitorController, (uint32_t)RawEvent::NETMON_REQUEST_DNS)},
+		{"tickTime", pConInfo->nTickTime ? pConInfo->nTickTime : ::GetTickCount64()},
+		{"process", Dictionary {{"pid", pConInfo->nPid}} },
+		{"connection", pConInfo->vConnection },
+		{"name", sDomain},
+	};
+	sendEvent(vEvent);
+}
+
+//
+//
+//
+void NetworkMonitorController::notifyDataRequest(std::shared_ptr<const ConnectionInfo> pConInfo, AppProtocol eProtocol,
+	const std::string& sCommand, const std::string& sUrl, bool fSecured)
+{
+	if (!pConInfo || sUrl.empty() || !isEventEnabled(RawEvent::NETMON_REQUEST_DATA_HTTP))
+		return;
+
+	Dictionary vEvent {
+		{"baseType", Event::LLE_NETWORK_REQUEST_DATA},
+		{"rawEventId", createRaw(CLSID_NetworkMonitorController, (uint32_t)RawEvent::NETMON_REQUEST_DATA_HTTP)},
+		{"tickTime", pConInfo->nTickTime ? pConInfo->nTickTime : ::GetTickCount64()},
+		{"process", Dictionary {{"pid", pConInfo->nPid}} },
+		{"connection", pConInfo->vConnection },
+		{"protocol", eProtocol},
+		{"url", sUrl},
+		{"secured", fSecured},
+		{"command", sCommand.empty() ? std::string("GET") : sCommand},
+	};
+	sendEvent(vEvent);
+}
+
+//
+//
+//
 Variant NetworkMonitorController::getProtocolOptionsInt(std::string_view sProtocolName)
 {
 	Variant vProtocolOptions = m_vProtocolOptions;
