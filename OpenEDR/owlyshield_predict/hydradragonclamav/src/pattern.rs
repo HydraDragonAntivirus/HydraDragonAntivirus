@@ -136,10 +136,18 @@ pub enum Special {
     AltChar { bytes: Vec<u8>, negative: bool },
     /// `(dead|beef)` — every branch is the same multi-byte length
     /// (`AC_SPECIAL_ALT_STR_FIXED`).
-    AltStrFixed { strs: Vec<Vec<u8>>, len: usize, negative: bool },
+    AltStrFixed {
+        strs: Vec<Vec<u8>>,
+        len: usize,
+        negative: bool,
+    },
     /// `(aa|bbbb)` — branches of differing length, possibly with `??`/nibble
     /// wildcards, stored as u16 instruction streams (`AC_SPECIAL_ALT_STR`).
-    AltStr { branches: Vec<Vec<u16>>, min: usize, negative: bool },
+    AltStr {
+        branches: Vec<Vec<u16>>,
+        min: usize,
+        negative: bool,
+    },
     /// `(B)`/`(L)`/`(W)` appearing inline — approximated as a zero-width pass.
     Boundary,
     /// A variable-width gap: `*` / `{n-m}` / `{n-}` / `{-m}` — consume between
@@ -172,7 +180,11 @@ impl Special {
         match self {
             Special::AltChar { .. } => 1,
             Special::AltStrFixed { len, .. } => *len,
-            Special::AltStr { branches, negative, min } => {
+            Special::AltStr {
+                branches,
+                negative,
+                min,
+            } => {
                 if *negative {
                     *min // negated alternations match a fixed `min` width
                 } else {
@@ -220,9 +232,15 @@ impl Special {
                     })
                     .collect();
                 let len = wstrs.first().map_or(0, |s| s.len());
-                Special::AltStrFixed { strs: wstrs, len, negative: *negative }
+                Special::AltStrFixed {
+                    strs: wstrs,
+                    len,
+                    negative: *negative,
+                }
             }
-            Special::AltStr { branches, negative, .. } => {
+            Special::AltStr {
+                branches, negative, ..
+            } => {
                 let wb: Vec<Vec<u16>> = branches
                     .iter()
                     .map(|br| {
@@ -235,11 +253,18 @@ impl Special {
                     })
                     .collect();
                 let min = wb.iter().map(|b| b.len()).min().unwrap_or(0);
-                Special::AltStr { branches: wb, min, negative: *negative }
+                Special::AltStr {
+                    branches: wb,
+                    min,
+                    negative: *negative,
+                }
             }
             Special::Boundary => Special::Boundary,
             // A gap is a byte-count; widening fixed elements doesn't change it.
-            Special::Gap { min, max } => Special::Gap { min: *min, max: *max },
+            Special::Gap { min, max } => Special::Gap {
+                min: *min,
+                max: *max,
+            },
         }
     }
 }
@@ -254,14 +279,20 @@ pub const INLINE_CAP: usize = 22;
 #[derive(Clone, Debug)]
 pub enum Instructions {
     /// A pure-literal pattern of `len` bytes stored inline (no allocation).
-    Inline { buf: [u8; INLINE_CAP], len: u8 },
+    Inline {
+        buf: [u8; INLINE_CAP],
+        len: u8,
+    },
     Pure(Box<[u8]>),
     Complex(Box<[u16]>),
 }
 
 impl Default for Instructions {
     fn default() -> Self {
-        Instructions::Inline { buf: [0; INLINE_CAP], len: 0 }
+        Instructions::Inline {
+            buf: [0; INLINE_CAP],
+            len: 0,
+        }
     }
 }
 
@@ -272,7 +303,10 @@ impl Instructions {
         if bytes.len() <= INLINE_CAP {
             let mut buf = [0u8; INLINE_CAP];
             buf[..bytes.len()].copy_from_slice(&bytes);
-            Instructions::Inline { buf, len: bytes.len() as u8 }
+            Instructions::Inline {
+                buf,
+                len: bytes.len() as u8,
+            }
         } else {
             Instructions::Pure(bytes.into_boxed_slice())
         }
@@ -346,7 +380,10 @@ impl Pattern {
         if self.best_literal_offset == u16::MAX {
             None
         } else {
-            Some((self.best_literal_offset as usize, self.best_literal_len as usize))
+            Some((
+                self.best_literal_offset as usize,
+                self.best_literal_len as usize,
+            ))
         }
     }
 
@@ -359,7 +396,10 @@ impl Pattern {
     /// Converts Vecs to exact-fit Box<[T]> — eliminates overcapacity.
     pub fn from_parsed(inst: Vec<u16>, specials: Vec<Special>, fullword: bool) -> Self {
         let best_literal = Self::compute_best_literal(&inst);
-        let instructions = if inst.iter().all(|&ins| (ins & CLI_MATCH_METADATA) == CLI_MATCH_CHAR) {
+        let instructions = if inst
+            .iter()
+            .all(|&ins| (ins & CLI_MATCH_METADATA) == CLI_MATCH_CHAR)
+        {
             // Pure literal → store inline when short (no per-pattern allocation).
             Instructions::pure(inst.iter().map(|&ins| (ins & 0xff) as u8).collect())
         } else {
@@ -399,16 +439,17 @@ impl Pattern {
         let mut run_len = 0usize;
         let mut in_run = false;
 
-        let consider = |start: usize, len: usize, best: &mut Option<(usize, usize)>, best_score: &mut i32| {
-            if len < 2 {
-                return;
-            }
-            let score = Self::literal_run_score(inst, start, len);
-            if score > *best_score {
-                *best_score = score;
-                *best = Some((start, len));
-            }
-        };
+        let consider =
+            |start: usize, len: usize, best: &mut Option<(usize, usize)>, best_score: &mut i32| {
+                if len < 2 {
+                    return;
+                }
+                let score = Self::literal_run_score(inst, start, len);
+                if score > *best_score {
+                    *best_score = score;
+                    *best = Some((start, len));
+                }
+            };
 
         for (i, &ins) in inst.iter().enumerate() {
             let meta = ins & CLI_MATCH_METADATA;
@@ -692,7 +733,10 @@ impl Pattern {
                             }
                             let c = (pos, match_end);
                             if out.last().map(|m: &MatchRange| (m.start, m.end)) != Some(c) {
-                                out.push(MatchRange { start: pos, end: match_end });
+                                out.push(MatchRange {
+                                    start: pos,
+                                    end: match_end,
+                                });
                                 if out.len() >= limit {
                                     return out;
                                 }
@@ -889,7 +933,11 @@ impl Pattern {
         if min == max || max - min > 4096 {
             return None;
         }
-        Some((off..off + len).map(|i| (self.instructions.get_u16(i) & 0xff) as u8).collect())
+        Some(
+            (off..off + len)
+                .map(|i| (self.instructions.get_u16(i) & 0xff) as u8)
+                .collect(),
+        )
     }
 
     fn atom_prefix_range(&self) -> Option<(usize, usize)> {
@@ -1199,7 +1247,9 @@ impl Pattern {
                 data,
                 ranges,
                 limit,
-                hints.iter().filter_map(|&h| (h as usize).checked_sub(min_prefix)),
+                hints
+                    .iter()
+                    .filter_map(|&h| (h as usize).checked_sub(min_prefix)),
             );
         }
         // When the literal sits behind an open/wide gap the start set explodes; a
@@ -1406,7 +1456,11 @@ impl Pattern {
                         ipos += 1;
                         sidx += 1;
                     }
-                    Special::AltStrFixed { strs, len, negative } => {
+                    Special::AltStrFixed {
+                        strs,
+                        len,
+                        negative,
+                    } => {
                         if dpos + *len > data.len() {
                             return None;
                         }
@@ -1487,7 +1541,11 @@ impl Pattern {
                                         )
                                     } else if nc0 && b0_lo != b0_up {
                                         (
-                                            memchr::memchr2(b0_lo, b0_up, &data[search..=last_start]),
+                                            memchr::memchr2(
+                                                b0_lo,
+                                                b0_up,
+                                                &data[search..=last_start],
+                                            ),
                                             last_start.saturating_sub(search) + 1,
                                         )
                                     } else {
@@ -1529,14 +1587,19 @@ impl Pattern {
                             if fuel.get() == 0 {
                                 return None;
                             }
-                            if let Some(end) = self.match_rec(data, dpos + w, ipos + 1, sidx + 1, fuel)
+                            if let Some(end) =
+                                self.match_rec(data, dpos + w, ipos + 1, sidx + 1, fuel)
                             {
                                 return Some(end);
                             }
                         }
                         return None;
                     }
-                    Special::AltStr { branches, min, negative } => {
+                    Special::AltStr {
+                        branches,
+                        min,
+                        negative,
+                    } => {
                         if *negative {
                             // ClamAV negated alternations are fixed width; use min.
                             let w = *min;
@@ -1717,7 +1780,12 @@ impl MemStats {
         self.token_bytes + self.lit_bytes + self.struct_bytes
     }
     pub fn tokens(&self) -> usize {
-        self.n_byte + self.n_literal + self.n_litnocase + self.n_anybytes + self.n_boundary + self.n_alternates
+        self.n_byte
+            + self.n_literal
+            + self.n_litnocase
+            + self.n_anybytes
+            + self.n_boundary
+            + self.n_alternates
     }
 }
 
@@ -1766,8 +1834,8 @@ fn expand_fixed_alternations(raw: &str, max_variants: usize) -> Vec<String> {
                             && br.len() >= 4 // multi-byte hex (2+ bytes per branch)
                             && br.bytes().all(|c| c.is_ascii_hexdigit())
                     });
-                    let same_len = all_valid_hex
-                        && branches.windows(2).all(|w| w[0].len() == w[1].len());
+                    let same_len =
+                        all_valid_hex && branches.windows(2).all(|w| w[0].len() == w[1].len());
 
                     if same_len && branches.len() > 1 {
                         if !curr_literal.is_empty() {
@@ -1865,7 +1933,11 @@ pub fn compile_pattern_variants(raw: &str, modifiers: Modifiers) -> Result<Vec<P
 /// Parse a hex signature into (instructions, special_table), applying the
 /// nocase and wide options. `()` alternations and `[a-b]` ranges are extracted
 /// first; `{n-m}`/`*` gaps are then expanded to their minimum `??` width.
-fn parse_with_modifiers(raw: &str, nocase: bool, wide: bool) -> Result<(Vec<u16>, Vec<Special>), String> {
+fn parse_with_modifiers(
+    raw: &str,
+    nocase: bool,
+    wide: bool,
+) -> Result<(Vec<u16>, Vec<Special>), String> {
     // extract_specials handles `()` alternations, `[a-b]`, and `*`/`{n-m}` gaps,
     // leaving only hex / `??` / nibble tokens plus `()` special placeholders.
     let (extracted, specials) = extract_specials(raw)?;
@@ -1964,7 +2036,10 @@ fn extract_specials(raw: &str) -> Result<(String, Vec<Special>), String> {
                 i = close + 1;
             }
             b'*' => {
-                specials.push(Special::Gap { min: 0, max: UNBOUNDED_GAP });
+                specials.push(Special::Gap {
+                    min: 0,
+                    max: UNBOUNDED_GAP,
+                });
                 out.push_str("()");
                 i += 1;
             }
@@ -1980,7 +2055,10 @@ fn extract_specials(raw: &str) -> Result<(String, Vec<Special>), String> {
                         out.push_str("??");
                     }
                 } else {
-                    specials.push(Special::Gap { min, max: max.unwrap_or(UNBOUNDED_GAP) });
+                    specials.push(Special::Gap {
+                        min,
+                        max: max.unwrap_or(UNBOUNDED_GAP),
+                    });
                     out.push_str("()");
                 }
                 i = close + 1;
@@ -2023,7 +2101,11 @@ fn parse_alternation(content: &str, negative: bool) -> Result<Special, String> {
         for a in &alts {
             strs.push(hex_bytes(a)?);
         }
-        Ok(Special::AltStrFixed { strs, len, negative })
+        Ok(Special::AltStrFixed {
+            strs,
+            len,
+            negative,
+        })
     } else {
         // Generic branches (varying length and/or wildcards) → u16 streams.
         let mut branches = Vec::with_capacity(alts.len());
@@ -2061,8 +2143,16 @@ fn gap_range(content: &str) -> (usize, Option<usize>) {
     if let Some(dash) = content.find('-') {
         let left = content[..dash].trim();
         let right = content[dash + 1..].trim();
-        let min = if left.is_empty() { 0 } else { left.parse().unwrap_or(0) };
-        let max = if right.is_empty() { None } else { Some(right.parse().unwrap_or(min)) };
+        let min = if left.is_empty() {
+            0
+        } else {
+            left.parse().unwrap_or(0)
+        };
+        let max = if right.is_empty() {
+            None
+        } else {
+            Some(right.parse().unwrap_or(min))
+        };
         (min, max)
     } else {
         let n = content.parse().unwrap_or(0);
@@ -2247,20 +2337,35 @@ mod tests {
     fn modifiers_match_nocase_wide_and_fullword() {
         let nocase = compile_pattern_variants(
             "68656c6c6f",
-            Modifiers { nocase: true, ..Modifiers::default() },
-        ).unwrap().remove(0);
+            Modifiers {
+                nocase: true,
+                ..Modifiers::default()
+            },
+        )
+        .unwrap()
+        .remove(0);
         assert!(nocase.is_match(b"HELLO"));
 
         let wide = compile_pattern_variants(
             "6869",
-            Modifiers { wide: true, ..Modifiers::default() },
-        ).unwrap().remove(0);
+            Modifiers {
+                wide: true,
+                ..Modifiers::default()
+            },
+        )
+        .unwrap()
+        .remove(0);
         assert!(wide.is_match(b"h\0i\0"));
 
         let fullword = compile_pattern_variants(
             "6869",
-            Modifiers { fullword: true, ..Modifiers::default() },
-        ).unwrap().remove(0);
+            Modifiers {
+                fullword: true,
+                ..Modifiers::default()
+            },
+        )
+        .unwrap()
+        .remove(0);
         assert!(fullword.is_match(b" hi "));
         assert!(!fullword.is_match(b"this"));
     }
@@ -2277,19 +2382,27 @@ mod tests {
             // Exact anchored run, several occurrences.
             ("4142", b"zzABABABzz", Modifiers::default()),
             // Nocase literal — memchr2 anchoring path.
-            ("68656c6c6f", b"Hello HELLO hello xyz hello", Modifiers {
-                nocase: true,
-                ..Modifiers::default()
-            }),
+            (
+                "68656c6c6f",
+                b"Hello HELLO hello xyz hello",
+                Modifiers {
+                    nocase: true,
+                    ..Modifiers::default()
+                },
+            ),
             // Fixed byte behind a bounded gap — memchr-anchored, prefix range.
             ("41{2-5}42", b"A--BA---BA----BAxx", Modifiers::default()),
             // Open gap before the literal — prefix range too wide → brute force.
             ("{*10}4142", b"0000000000AB9999", Modifiers::default()),
             // Fullword — exercises the fullword reject branch.
-            ("6869", b"hi this chi hi hide", Modifiers {
-                fullword: true,
-                ..Modifiers::default()
-            }),
+            (
+                "6869",
+                b"hi this chi hi hide",
+                Modifiers {
+                    fullword: true,
+                    ..Modifiers::default()
+                },
+            ),
             // No occurrence at all.
             ("deadbeef", b"nothing here at all", Modifiers::default()),
         ];
@@ -2310,11 +2423,14 @@ mod tests {
     fn wide_widens_nibble_wildcard_and_nocase_bytes() {
         let wide_wild = compile_pattern_variants(
             "cafe??babe",
-            Modifiers { wide: true, ..Modifiers::default() },
-        ).unwrap().remove(0);
-        assert!(wide_wild.is_match(&[
-            0xca, 0x00, 0xfe, 0x00, 0x99, 0x00, 0xba, 0x00, 0xbe, 0x00,
-        ]));
+            Modifiers {
+                wide: true,
+                ..Modifiers::default()
+            },
+        )
+        .unwrap()
+        .remove(0);
+        assert!(wide_wild.is_match(&[0xca, 0x00, 0xfe, 0x00, 0x99, 0x00, 0xba, 0x00, 0xbe, 0x00,]));
         assert!(!wide_wild.is_match(&[0xca, 0x00, 0xfe, 0x00, 0x99, 0xba, 0x00, 0xbe, 0x00]));
     }
 
@@ -2336,7 +2452,9 @@ mod tests {
         assert_eq!(pats.len(), 8);
         // Each variant must have extracted a full 10-byte atom
         for p in &pats {
-            let atom = p.required_atom().expect("unrolled pattern must have exact atom");
+            let atom = p
+                .required_atom()
+                .expect("unrolled pattern must have exact atom");
             assert_eq!(atom.len(), 10);
         }
         // Test match against one valid combination: 3639 3630 3635 3630 3738
@@ -2349,5 +2467,4 @@ mod tests {
         let invalid = &[0x36, 0x39, 0x36, 0x30, 0x99, 0x99, 0x36, 0x30, 0x37, 0x38];
         assert!(!pats.iter().any(|p| p.is_match(invalid)));
     }
-
 }

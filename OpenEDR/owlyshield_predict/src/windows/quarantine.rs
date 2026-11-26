@@ -287,7 +287,10 @@ pub fn quarantine_file(
     // Asynchronously report detection and upload sample to VirusKov cloud if needed
     let threat_report = crate::edr_feedback::ThreatReport {
         sha256: sha256.to_string(),
-        file_name: src.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| "sample.bin".to_string()),
+        file_name: src
+            .file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_else(|| "sample.bin".to_string()),
         original_path: src.to_string_lossy().to_string(),
         detection: detection.to_string(),
         source: "quarantine".to_string(),
@@ -708,9 +711,7 @@ fn contained_container(path: &Path) -> Option<PathBuf> {
     let root = PathBuf::from(crate::shared_def::QUARANTINE_PATH);
     let root_c = std::fs::canonicalize(&root).ok()?;
     let full_c = std::fs::canonicalize(path).ok()?;
-    if full_c.starts_with(&root_c)
-        && full_c.extension().and_then(|e| e.to_str()) == Some("hqf")
-    {
+    if full_c.starts_with(&root_c) && full_c.extension().and_then(|e| e.to_str()) == Some("hqf") {
         Some(full_c)
     } else {
         None
@@ -747,7 +748,11 @@ pub extern "C" fn owlyshield_quarantine_list(out_buf: *mut u8, buf_len: u32) -> 
             }));
         }
     }
-    write_json_out(&serde_json::Value::Array(rows).to_string(), out_buf, buf_len)
+    write_json_out(
+        &serde_json::Value::Array(rows).to_string(),
+        out_buf,
+        buf_len,
+    )
 }
 
 /// Restores a container to its original path (hash-verified by
@@ -807,7 +812,10 @@ pub extern "C" fn owlyshield_quarantine_delete(
     };
     match std::fs::remove_file(&full) {
         Ok(_) => {
-            Logging::warning(&format!("[Quarantine] Deleted container {}", full.display()));
+            Logging::warning(&format!(
+                "[Quarantine] Deleted container {}",
+                full.display()
+            ));
             0
         }
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => 0,
@@ -833,7 +841,11 @@ pub extern "C" fn owlyshield_exclusion_list(out_buf: *mut u8, buf_len: u32) -> u
     for h in hv {
         rows.push(serde_json::json!({ "kind": 1, "value": h }));
     }
-    write_json_out(&serde_json::Value::Array(rows).to_string(), out_buf, buf_len)
+    write_json_out(
+        &serde_json::Value::Array(rows).to_string(),
+        out_buf,
+        buf_len,
+    )
 }
 
 /// Adds an exclusion (kind 0=path, 1=hash; value UTF-16). Returns 0 on

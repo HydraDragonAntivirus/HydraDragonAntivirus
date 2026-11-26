@@ -750,5 +750,8 @@ pub static ENTITIES: &[(&str, u16)] = &[
 
 /// Code point of an entity name (case-sensitive, as in ClamAV).
 pub fn lookup(name: &[u8]) -> Option<u16> {
-    ENTITIES.binary_search_by(|(n, _)| n.as_bytes().cmp(name)).ok().map(|i| ENTITIES[i].1)
+    ENTITIES
+        .binary_search_by(|(n, _)| n.as_bytes().cmp(name))
+        .ok()
+        .map(|i| ENTITIES[i].1)
 }

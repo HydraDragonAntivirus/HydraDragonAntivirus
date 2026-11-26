@@ -16,12 +16,15 @@ use rcgen::{
     BasicConstraints, Certificate, CertificateParams, DnType, DnValue, IsCa, KeyPair,
     KeyUsagePurpose,
 };
-use std::io::Read;
 use std::collections::HashMap;
+use std::io::Read;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::path::PathBuf;
 use std::pin::Pin;
-use std::sync::{Arc, OnceLock, RwLock, atomic::{AtomicBool, AtomicU64, Ordering}};
+use std::sync::{
+    Arc, OnceLock, RwLock,
+    atomic::{AtomicBool, AtomicU64, Ordering},
+};
 use std::task::Poll;
 use tokio::sync::oneshot;
 
@@ -59,7 +62,10 @@ lazy_static::lazy_static! {
 
 /// Mark a host or domain for automatic WFP Method A fallback.
 pub fn mark_host_as_pinning_fallback(host_or_ip: &str) {
-    let clean = host_or_ip.trim().trim_start_matches('.').to_ascii_lowercase();
+    let clean = host_or_ip
+        .trim()
+        .trim_start_matches('.')
+        .to_ascii_lowercase();
     if !clean.is_empty() {
         PINNING_FALLBACK_CACHE.insert(clean, true);
     }
@@ -67,7 +73,10 @@ pub fn mark_host_as_pinning_fallback(host_or_ip: &str) {
 
 /// Check if a host is in the dynamic WFP Method A fallback cache.
 pub fn is_host_in_pinning_fallback(host_or_ip: &str) -> bool {
-    let clean = host_or_ip.trim().trim_start_matches('.').to_ascii_lowercase();
+    let clean = host_or_ip
+        .trim()
+        .trim_start_matches('.')
+        .to_ascii_lowercase();
     if clean.is_empty() {
         return false;
     }
@@ -197,7 +206,9 @@ impl HttpBody for HeadThenStream {
 /// in a browser (e.g. http://127.0.0.1:8877/). Always English. Served
 /// locally — never forwarded upstream (forwarding to self would loop the
 /// proxy back into its own listener).
-fn proxy_status_page(listen_addr: &str) -> http_mitm_proxy::hyper::Response<BoxBody<Bytes, DynErr>> {
+fn proxy_status_page(
+    listen_addr: &str,
+) -> http_mitm_proxy::hyper::Response<BoxBody<Bytes, DynErr>> {
     let html = format!(
         "<!DOCTYPE html><html lang=\"en\"><head><meta charset=\"utf-8\">\
          <title>HydraDragon Transparent TLS Proxy</title></head><body>\
@@ -235,7 +246,9 @@ pub fn get_ca_crl() -> Option<&'static [u8]> {
 }
 
 /// Serve the signed CRL so Windows CryptoAPI/Schannel revocation check succeeds.
-fn proxy_crl_response(crl_bytes: &[u8]) -> http_mitm_proxy::hyper::Response<BoxBody<Bytes, DynErr>> {
+fn proxy_crl_response(
+    crl_bytes: &[u8],
+) -> http_mitm_proxy::hyper::Response<BoxBody<Bytes, DynErr>> {
     let body = boxed_full(Bytes::copy_from_slice(crl_bytes));
     http_mitm_proxy::hyper::Response::builder()
         .status(StatusCode::OK)
@@ -309,7 +322,11 @@ fn validate_request(
 
 /// Safely decompress gzip, brotli, or deflate payload for inspection in RAM.
 /// Caps the maximum decompressed size to prevent decompression zip-bombs.
-fn decompress_payload(data: &[u8], encoding: Option<&str>, max_decompressed_bytes: usize) -> Option<Vec<u8>> {
+fn decompress_payload(
+    data: &[u8],
+    encoding: Option<&str>,
+    max_decompressed_bytes: usize,
+) -> Option<Vec<u8>> {
     let enc = encoding?.to_ascii_lowercase();
     let enc = enc.trim();
 
@@ -367,10 +384,20 @@ pub fn generate_ca() -> Result<CaBundle, String> {
 
     // ── Try to load an existing CA ─────────────────────────────────────────
     if key_path.exists() && cert_path.exists() {
-        let key_bytes = std::fs::read(&key_path)
-            .map_err(|e| format!("Failed to read existing CA key from {}: {}", key_path.display(), e))?;
-        let cert_der = std::fs::read(&cert_path)
-            .map_err(|e| format!("Failed to read existing CA cert from {}: {}", cert_path.display(), e))?;
+        let key_bytes = std::fs::read(&key_path).map_err(|e| {
+            format!(
+                "Failed to read existing CA key from {}: {}",
+                key_path.display(),
+                e
+            )
+        })?;
+        let cert_der = std::fs::read(&cert_path).map_err(|e| {
+            format!(
+                "Failed to read existing CA cert from {}: {}",
+                cert_path.display(),
+                e
+            )
+        })?;
 
         // Attempt TryFrom (DER PKCS#8), then PEM parsing
         let key: Result<KeyPair, String> = KeyPair::try_from(key_bytes.as_slice())
@@ -381,7 +408,10 @@ pub fn generate_ca() -> Result<CaBundle, String> {
                         return Ok(k);
                     }
                 }
-                Err(format!("KeyPair::try_from(DER) failed ({}), and PEM parse failed", _der_err))
+                Err(format!(
+                    "KeyPair::try_from(DER) failed ({}), and PEM parse failed",
+                    _der_err
+                ))
             });
 
         match key {
@@ -523,15 +553,13 @@ pub async fn run_proxy(
                             id: format!("{}-proxy-accept", accept_ts),
                             timestamp: accept_ts,
                             level: LogLevel::Info,
-                            message: format!(
-                                "Proxy accept: inbound connection from {}",
-                                peer
-                            ),
+                            message: format!("Proxy accept: inbound connection from {}", peer),
                         });
 
                         async move {
                             // Wrap in generic error handler: all errors return 502
-                            match handle_proxy_request(client, sdk, settings, web_filter, req).await {
+                            match handle_proxy_request(client, sdk, settings, web_filter, req).await
+                            {
                                 Ok(res) => Ok::<_, http_mitm_proxy::default_client::Error>(res),
                                 Err(e) => {
                                     let ts = now_ts();
@@ -650,13 +678,12 @@ async fn handle_proxy_request(
     // SDK rules actually get to see (streaming tail bypasses inspection).
     let (max_body, request_timeout, response_timeout) = {
         let settings_guard = settings.read().unwrap();
-        let max = if settings_guard.log_full_bodies
-            || settings_guard.tls_proxy.inspect_full_responses
-        {
-            usize::MAX
-        } else {
-            64 * 1024
-        };
+        let max =
+            if settings_guard.log_full_bodies || settings_guard.tls_proxy.inspect_full_responses {
+                usize::MAX
+            } else {
+                64 * 1024
+            };
         let req_t = settings_guard.tls_proxy.request_timeout_secs;
         let res_t = settings_guard.tls_proxy.response_timeout_secs;
         (max, req_t, res_t)
@@ -718,10 +745,7 @@ async fn handle_proxy_request(
     {
         let (cfg_host, cfg_port) = {
             let s = settings.read().unwrap();
-            (
-                s.tls_proxy.listen_host.clone(),
-                s.tls_proxy.listen_port,
-            )
+            (s.tls_proxy.listen_host.clone(), s.tls_proxy.listen_port)
         };
         let self_host = clean_host.eq_ignore_ascii_case("127.0.0.1")
             || clean_host.eq_ignore_ascii_case("localhost")
@@ -1193,10 +1217,7 @@ async fn handle_proxy_request(
     let ts = now_ts();
     let (show_blocked_http_only, log_bodies) = {
         let s = settings.read().unwrap();
-        (
-            s.show_blocked_http_inspector_only,
-            s.log_full_bodies,
-        )
+        (s.show_blocked_http_inspector_only, s.log_full_bodies)
     };
     if !show_blocked_http_only {
         let mut message = format!("Proxy: {} {}:{}{} → {}", method, host, port, path, status);
@@ -1244,7 +1265,11 @@ async fn handle_proxy_request(
     });
 
     if resolved_pid != 0 {
-        let sec_flag = if scheme.eq_ignore_ascii_case("https") { 1 } else { 0 };
+        let sec_flag = if scheme.eq_ignore_ascii_case("https") {
+            1
+        } else {
+            0
+        };
         let req_line = format!(
             "HTTP_REQ:{}|{}|{}|{}|{}|{}\n",
             resolved_pid,
@@ -1264,7 +1289,13 @@ async fn handle_proxy_request(
             .unwrap_or_default();
         let resp_ctype = response_headers
             .get("content-type")
-            .map(|s| s.split(';').next().unwrap_or("").trim().to_ascii_lowercase())
+            .map(|s| {
+                s.split(';')
+                    .next()
+                    .unwrap_or("")
+                    .trim()
+                    .to_ascii_lowercase()
+            })
             .unwrap_or_default();
         let disp_lower = content_disp.to_ascii_lowercase();
         let path_no_q = path.split('?').next().unwrap_or(&path).to_ascii_lowercase();
@@ -1284,8 +1315,8 @@ async fn handle_proxy_request(
         ];
         const DOWNLOAD_EXTS: &[&str] = &[
             ".exe", ".dll", ".sys", ".msi", ".msp", ".ps1", ".psm1", ".bat", ".cmd", ".vbs",
-            ".vbe", ".js", ".jse", ".hta", ".scr", ".iso", ".vhd", ".vhdx", ".img", ".zip",
-            ".rar", ".7z", ".cab", ".lnk",
+            ".vbe", ".js", ".jse", ".hta", ".scr", ".iso", ".vhd", ".vhdx", ".img", ".zip", ".rar",
+            ".7z", ".cab", ".lnk",
         ];
         let is_download = disp_lower.contains("attachment")
             || disp_lower.contains("filename=")

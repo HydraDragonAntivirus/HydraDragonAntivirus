@@ -6,9 +6,9 @@
 //! - Native WMI permanent subscription + Shadow Copy diffing (ROOT\subscription + Win32_ShadowCopy)
 //! - Local account (NetUserEnum) & LSA logon session diffing + PE-header Process Tampering verifier.
 
+use std::sync::OnceLock;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, SyncSender};
-use std::sync::OnceLock;
 
 static STARTED: AtomicBool = AtomicBool::new(false);
 static STOP_FLAG: AtomicBool = AtomicBool::new(false);
@@ -181,13 +181,17 @@ pub fn compare_pe_headers(disk_bytes: &[u8], mem_bytes: &[u8]) -> Option<PeTampe
     let Some(disk) = parse_compact_pe_header(disk_bytes) else {
         return Some(PeTamperingFinding {
             technique: "pe_header_missing_on_disk".to_string(),
-            reason: "Backing file on disk lacks valid MZ/PE signature while memory holds PE".to_string(),
+            reason: "Backing file on disk lacks valid MZ/PE signature while memory holds PE"
+                .to_string(),
         });
     };
 
     let mut diffs = Vec::new();
     if mem.machine != disk.machine {
-        diffs.push(format!("machine:disk={:#x},mem={:#x}", disk.machine, mem.machine));
+        diffs.push(format!(
+            "machine:disk={:#x},mem={:#x}",
+            disk.machine, mem.machine
+        ));
     }
     if mem.entry_point != disk.entry_point {
         diffs.push(format!(
@@ -202,7 +206,10 @@ pub fn compare_pe_headers(disk_bytes: &[u8], mem_bytes: &[u8]) -> Option<PeTampe
         ));
     }
     if mem.sections != disk.sections {
-        diffs.push(format!("sections:disk={},mem={}", disk.sections, mem.sections));
+        diffs.push(format!(
+            "sections:disk={},mem={}",
+            disk.sections, mem.sections
+        ));
     }
     if mem.timestamp != disk.timestamp {
         diffs.push(format!(
@@ -236,15 +243,13 @@ mod win_impl {
     use std::thread;
     use std::time::{Duration, Instant};
     use windows::Win32::Foundation::{
-        CloseHandle, ERROR_SUCCESS, HANDLE, HMODULE, MAX_PATH, RPC_E_CHANGED_MODE,
-        RPC_E_TOO_LATE,
+        CloseHandle, ERROR_SUCCESS, HANDLE, HMODULE, MAX_PATH, RPC_E_CHANGED_MODE, RPC_E_TOO_LATE,
     };
     use windows::Win32::Security::PSECURITY_DESCRIPTOR;
     use windows::Win32::System::Com::{
         CLSCTX_INPROC_SERVER, COINIT_MULTITHREADED, CoCreateInstance, CoInitializeEx,
-        CoInitializeSecurity, CoSetProxyBlanket, CoUninitialize, EOAC_NONE,
-        RPC_C_AUTHN_LEVEL_CALL, RPC_C_AUTHN_LEVEL_DEFAULT, RPC_C_IMP_LEVEL_IMPERSONATE,
-        VARIANT, VT_BSTR,
+        CoInitializeSecurity, CoSetProxyBlanket, CoUninitialize, EOAC_NONE, RPC_C_AUTHN_LEVEL_CALL,
+        RPC_C_AUTHN_LEVEL_DEFAULT, RPC_C_IMP_LEVEL_IMPERSONATE, VARIANT, VT_BSTR,
     };
     use windows::Win32::System::Diagnostics::Debug::ReadProcessMemory;
     use windows::Win32::System::Diagnostics::Etw::{
@@ -334,7 +339,11 @@ mod win_impl {
 
     fn query_pid_image(pid: u32) -> String {
         if pid <= 4 {
-            return if pid == 4 { "System".to_string() } else { String::new() };
+            return if pid == 4 {
+                "System".to_string()
+            } else {
+                String::new()
+            };
         }
         if let Some(cached) = pid_exe_cache().get(&pid) {
             return cached;
@@ -371,12 +380,12 @@ mod win_impl {
         }) {
             return;
         }
-        use winreg::enums::HKEY_LOCAL_MACHINE;
         use winreg::RegKey;
+        use winreg::enums::HKEY_LOCAL_MACHINE;
         let hklm = RegKey::predef(HKEY_LOCAL_MACHINE);
-        let Ok((key, _)) = hklm.create_subkey(
-            r"SOFTWARE\Policies\Microsoft\Windows\PowerShell\ScriptBlockLogging",
-        ) else {
+        let Ok((key, _)) = hklm
+            .create_subkey(r"SOFTWARE\Policies\Microsoft\Windows\PowerShell\ScriptBlockLogging")
+        else {
             return;
         };
         let current: u32 = key.get_value("EnableScriptBlockLogging").unwrap_or(0);
@@ -501,7 +510,15 @@ mod win_impl {
         let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| unsafe {
             let mut used = 0u32;
             let mut count = 0u32;
-            let _ = EvtRender(None, event, EvtRenderEventXml.0, 0, None, &mut used, &mut count);
+            let _ = EvtRender(
+                None,
+                event,
+                EvtRenderEventXml.0,
+                0,
+                None,
+                &mut used,
+                &mut count,
+            );
             if used == 0 || used > 256 * 1024 {
                 return;
             }
@@ -529,7 +546,8 @@ mod win_impl {
             };
             let chan_lower = parsed.channel.to_ascii_lowercase();
             let prov_lower = parsed.provider.to_ascii_lowercase();
-            let etw_covered_overlap = (chan_lower.contains("powershell") && parsed.event_id == 4104)
+            let etw_covered_overlap = (chan_lower.contains("powershell")
+                && parsed.event_id == 4104)
                 || chan_lower.contains("taskscheduler")
                 || chan_lower.contains("bits-client")
                 || chan_lower.contains("wmi-activity")
@@ -564,10 +582,7 @@ mod win_impl {
                 .and_then(|v| v.as_str())
                 .map(str::to_string)
                 .or_else(|| pid.map(query_pid_image).filter(|s| !s.is_empty()));
-            let details = format!(
-                "{} EventID={}",
-                parsed.channel, parsed.event_id
-            );
+            let details = format!("{} EventID={}", parsed.channel, parsed.event_id);
             crate::telemetry_stream::submit_structured(
                 out_type,
                 pid,
@@ -665,10 +680,8 @@ mod win_impl {
 
     const GUID_DEVINTERFACE_USB_DEVICE: GUID =
         GUID::from_u128(0xa5dcbf10_6530_11d2_901f_00c04fb951ed);
-    const GUID_DEVINTERFACE_DISK: GUID =
-        GUID::from_u128(0x53f56307_b6bf_11d0_94f2_00a0c91efb8b);
-    const GUID_DEVINTERFACE_VOLUME: GUID =
-        GUID::from_u128(0x53f5630d_b6bf_11d0_94f2_00a0c91efb8b);
+    const GUID_DEVINTERFACE_DISK: GUID = GUID::from_u128(0x53f56307_b6bf_11d0_94f2_00a0c91efb8b);
+    const GUID_DEVINTERFACE_VOLUME: GUID = GUID::from_u128(0x53f5630d_b6bf_11d0_94f2_00a0c91efb8b);
 
     unsafe extern "system" fn pnp_notify_callback(
         _notify: usize,
@@ -749,9 +762,9 @@ mod win_impl {
         if hmod.0 == 0 {
             return;
         }
-        let Some(reg_ptr) = (unsafe {
-            GetProcAddress(hmod, PCSTR(b"CM_Register_Notification\0".as_ptr()))
-        }) else {
+        let Some(reg_ptr) =
+            (unsafe { GetProcAddress(hmod, PCSTR(b"CM_Register_Notification\0".as_ptr())) })
+        else {
             return;
         };
         let cm_reg: FnCmRegisterNotification = unsafe { std::mem::transmute(reg_ptr) };
@@ -798,7 +811,8 @@ mod win_impl {
             if let Some(unreg_ptr) =
                 unsafe { GetProcAddress(hmod, PCSTR(b"CM_Unregister_Notification\0".as_ptr())) }
             {
-                let cm_unreg: FnCmUnregisterNotification = unsafe { std::mem::transmute(unreg_ptr) };
+                let cm_unreg: FnCmUnregisterNotification =
+                    unsafe { std::mem::transmute(unreg_ptr) };
                 for h in handles.drain(..) {
                     unsafe {
                         let _ = cm_unreg(h);
@@ -1211,13 +1225,25 @@ mod win_impl {
         let mut buf: *mut u8 = null_mut();
         let mut read = 0u32;
         let mut total = 0u32;
-        let rc = unsafe { f_enum(null(), 1, 0x0002, &mut buf, u32::MAX, &mut read, &mut total, null_mut()) };
+        let rc = unsafe {
+            f_enum(
+                null(),
+                1,
+                0x0002,
+                &mut buf,
+                u32::MAX,
+                &mut read,
+                &mut total,
+                null_mut(),
+            )
+        };
         if buf.is_null() {
             return (rc == 0).then(HashMap::new);
         }
         let mut users = HashMap::new();
         if rc == 0 || rc == 234 {
-            let entries = unsafe { std::slice::from_raw_parts(buf as *const UserInfo1, read as usize) };
+            let entries =
+                unsafe { std::slice::from_raw_parts(buf as *const UserInfo1, read as usize) };
             for u in entries {
                 let name = unsafe { utf16_ptr_to_string(u.name) };
                 if !name.is_empty() {
@@ -1260,7 +1286,11 @@ mod win_impl {
                 let user = unsafe { lsa_str_to_string(&d.user_name) };
                 let dom = unsafe { lsa_str_to_string(&d.logon_domain) };
                 let pkg = unsafe { lsa_str_to_string(&d.auth_package) };
-                let full_user = if dom.is_empty() { user } else { format!("{dom}\\{user}") };
+                let full_user = if dom.is_empty() {
+                    user
+                } else {
+                    format!("{dom}\\{user}")
+                };
                 out.insert(
                     (luid.low_part, luid.high_part),
                     (full_user, pkg, d.logon_type, d.session),
@@ -1297,9 +1327,7 @@ mod win_impl {
             .flatten()
             .map(|p| unsafe { std::mem::transmute(p) });
         let lsa_get: Option<FnLsaGetSessionData> = (h_sec.0 != 0)
-            .then(|| unsafe {
-                GetProcAddress(h_sec, PCSTR(b"LsaGetLogonSessionData\0".as_ptr()))
-            })
+            .then(|| unsafe { GetProcAddress(h_sec, PCSTR(b"LsaGetLogonSessionData\0".as_ptr())) })
             .flatten()
             .map(|p| unsafe { std::mem::transmute(p) });
         let lsa_free: Option<FnLsaFreeReturnBuffer> = (h_sec.0 != 0)
@@ -1371,7 +1399,9 @@ mod win_impl {
                                 "ACCOUNT_LOGIN",
                                 None,
                                 None,
-                                Some(format!("LSA logon {user} (type={ltype}, session={sess_id})")),
+                                Some(format!(
+                                    "LSA logon {user} (type={ltype}, session={sess_id})"
+                                )),
                                 json!({
                                     "account_name": user,
                                     "auth_package": pkg,
@@ -1389,7 +1419,9 @@ mod win_impl {
                                 "ACCOUNT_LOGOFF",
                                 None,
                                 None,
-                                Some(format!("LSA logoff {user} (type={ltype}, session={sess_id})")),
+                                Some(format!(
+                                    "LSA logoff {user} (type={ltype}, session={sess_id})"
+                                )),
                                 json!({
                                     "account_name": user,
                                     "auth_package": pkg,
@@ -1422,19 +1454,16 @@ mod win_impl {
         inherited_from_unique_process_id: usize,
     }
 
-    type FnNtQueryInfoProcess = unsafe extern "system" fn(
-        HANDLE,
-        u32,
-        *mut c_void,
-        u32,
-        *mut u32,
-    ) -> i32;
+    type FnNtQueryInfoProcess =
+        unsafe extern "system" fn(HANDLE, u32, *mut c_void, u32, *mut u32) -> i32;
 
     fn process_tampering_loop(rx: mpsc::Receiver<(u32, String)>) {
         let ntdll_w = to_wide_z("ntdll.dll");
         let h_nt = unsafe { GetModuleHandleW(PCWSTR(ntdll_w.as_ptr())) }.unwrap_or_default();
         let nt_query: Option<FnNtQueryInfoProcess> = (h_nt.0 != 0)
-            .then(|| unsafe { GetProcAddress(h_nt, PCSTR(b"NtQueryInformationProcess\0".as_ptr())) })
+            .then(|| unsafe {
+                GetProcAddress(h_nt, PCSTR(b"NtQueryInformationProcess\0".as_ptr()))
+            })
             .flatten()
             .map(|p| unsafe { std::mem::transmute(p) });
         let Some(f_nt_query) = nt_query else {
@@ -1448,9 +1477,13 @@ mod win_impl {
             let Some(norm_path) = crate::pe_hashes::normalize_windows_path(&raw_path) else {
                 continue;
             };
-            let Ok(h_proc) =
-                (unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_VM_READ, false, pid) })
-            else {
+            let Ok(h_proc) = (unsafe {
+                OpenProcess(
+                    PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_VM_READ,
+                    false,
+                    pid,
+                )
+            }) else {
                 continue;
             };
 
@@ -1605,7 +1638,10 @@ mod tests {
         let mut hollowed = pe.clone();
         hollowed[opt + 16..opt + 20].copy_from_slice(&0x9999u32.to_le_bytes());
         let finding = compare_pe_headers(&pe, &hollowed).expect("should flag entrypoint mismatch");
-        assert_eq!(finding.technique, "pe_header_mismatch_hollowing_or_herpaderping");
+        assert_eq!(
+            finding.technique,
+            "pe_header_mismatch_hollowing_or_herpaderping"
+        );
         assert!(finding.reason.contains("entry_point"));
     }
 }

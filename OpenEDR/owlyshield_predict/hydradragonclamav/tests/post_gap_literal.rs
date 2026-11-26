@@ -12,10 +12,17 @@ fn post_gap_literal_uses_overlapping_occurrences() {
         b"Virut.Like:0:*:e8??000000{-50}8a8a(90|91){-15}ffe2\n".to_vec(),
     );
     let e = Engine::from_bytes_map(&files).0;
-    let names = |d: &[u8]| e.scan_bytes(d, ScanOptions::default()).into_iter().map(|m| m.name).collect::<Vec<_>>();
+    let names = |d: &[u8]| {
+        e.scan_bytes(d, ScanOptions::default())
+            .into_iter()
+            .map(|m| m.name)
+            .collect::<Vec<_>>()
+    };
 
     let mut hit = vec![0x41u8; 64];
-    hit.extend_from_slice(&[0xe8, 0x11, 0, 0, 0, 0x55, 0x8a, 0x8a, 0x8a, 0x90, 0x33, 0xff, 0xe2]);
+    hit.extend_from_slice(&[
+        0xe8, 0x11, 0, 0, 0, 0x55, 0x8a, 0x8a, 0x8a, 0x90, 0x33, 0xff, 0xe2,
+    ]);
     hit.extend_from_slice(&[0x41; 64]);
     assert_eq!(names(&hit), ["Virut.Like"]);
 
@@ -36,8 +43,15 @@ fn post_gap_literal_counts_logical_subsignatures() {
         b"Virut.Twice;Target:0;0>1;e8??000000{-50}8a8a(90|91){-15}ffe2\n".to_vec(),
     );
     let e = Engine::from_bytes_map(&files).0;
-    let names = |d: &[u8]| e.scan_bytes(d, ScanOptions::default()).into_iter().map(|m| m.name).collect::<Vec<_>>();
-    let body = [0xe8, 0x11, 0, 0, 0, 0x55, 0x8a, 0x8a, 0x8a, 0x90, 0x33, 0xff, 0xe2];
+    let names = |d: &[u8]| {
+        e.scan_bytes(d, ScanOptions::default())
+            .into_iter()
+            .map(|m| m.name)
+            .collect::<Vec<_>>()
+    };
+    let body = [
+        0xe8, 0x11, 0, 0, 0, 0x55, 0x8a, 0x8a, 0x8a, 0x90, 0x33, 0xff, 0xe2,
+    ];
 
     let mut once = vec![0x41u8; 64];
     once.extend_from_slice(&body);

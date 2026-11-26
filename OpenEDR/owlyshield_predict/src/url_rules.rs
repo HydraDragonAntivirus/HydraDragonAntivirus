@@ -3,9 +3,9 @@
 //! droppers, phishing keywords), BinaryFuse16 whitelist overrides,
 //! PyFunceble-style liveness, and ML model outputs into a final verdict.
 
-use std::collections::HashSet;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 use url::Url;
 
 pub const DEFAULT_URL_RULES_YAML: &str = include_str!("url_threat_rules.yaml");
@@ -113,8 +113,8 @@ impl UrlThreatEngine {
     }
 
     pub fn load_yaml(&mut self, yaml_str: &str) -> Result<usize, String> {
-        let file: UrlRuleFile = serde_yaml::from_str(yaml_str)
-            .map_err(|e| format!("YAML parse error: {e}"))?;
+        let file: UrlRuleFile =
+            serde_yaml::from_str(yaml_str).map_err(|e| format!("YAML parse error: {e}"))?;
 
         for sub in file.unwhitelist_subdomains {
             let clean = sub.trim().to_lowercase();
@@ -126,23 +126,33 @@ impl UrlThreatEngine {
         let mut compiled = Vec::new();
         for def in file.rules {
             let url_re = match def.conditions.url_regex {
-                Some(ref pat) => Some(Regex::new(pat).map_err(|e| format!("Regex error in {}: {e}", def.id))?),
+                Some(ref pat) => {
+                    Some(Regex::new(pat).map_err(|e| format!("Regex error in {}: {e}", def.id))?)
+                }
                 None => None,
             };
             let path_re = match def.conditions.path_regex {
-                Some(ref pat) => Some(Regex::new(pat).map_err(|e| format!("Regex error in {}: {e}", def.id))?),
+                Some(ref pat) => {
+                    Some(Regex::new(pat).map_err(|e| format!("Regex error in {}: {e}", def.id))?)
+                }
                 None => None,
             };
             let query_re = match def.conditions.query_regex {
-                Some(ref pat) => Some(Regex::new(pat).map_err(|e| format!("Regex error in {}: {e}", def.id))?),
+                Some(ref pat) => {
+                    Some(Regex::new(pat).map_err(|e| format!("Regex error in {}: {e}", def.id))?)
+                }
                 None => None,
             };
             let body_re = match def.conditions.body_regex {
-                Some(ref pat) => Some(Regex::new(pat).map_err(|e| format!("Regex error in {}: {e}", def.id))?),
+                Some(ref pat) => {
+                    Some(Regex::new(pat).map_err(|e| format!("Regex error in {}: {e}", def.id))?)
+                }
                 None => None,
             };
             let host_re = match def.conditions.host_regex {
-                Some(ref pat) => Some(Regex::new(pat).map_err(|e| format!("Regex error in {}: {e}", def.id))?),
+                Some(ref pat) => {
+                    Some(Regex::new(pat).map_err(|e| format!("Regex error in {}: {e}", def.id))?)
+                }
                 None => None,
             };
             compiled.push(CompiledUrlRule {
@@ -158,9 +168,15 @@ impl UrlThreatEngine {
                 query_re,
                 body_re,
                 host_re,
-                schemes: def.conditions.scheme.map(|v| v.into_iter().map(|s| s.to_lowercase()).collect()),
+                schemes: def
+                    .conditions
+                    .scheme
+                    .map(|v| v.into_iter().map(|s| s.to_lowercase()).collect()),
                 ports: def.conditions.ports,
-                tlds: def.conditions.tlds.map(|v| v.into_iter().map(|s| s.to_lowercase()).collect()),
+                tlds: def
+                    .conditions
+                    .tlds
+                    .map(|v| v.into_iter().map(|s| s.to_lowercase()).collect()),
                 is_ip: def.conditions.is_ip,
                 cidr_blacklisted: def.conditions.cidr_blacklisted,
             });
@@ -239,9 +255,7 @@ impl UrlThreatEngine {
         page_content: Option<&str>,
     ) -> UrlThreatReport {
         let url_str = raw_url.trim();
-        let parsed = Url::parse(url_str).or_else(|_| {
-            Url::parse(&format!("https://{}", url_str))
-        });
+        let parsed = Url::parse(url_str).or_else(|_| Url::parse(&format!("https://{}", url_str)));
 
         let (scheme, host, port, path, query, is_ip) = match parsed {
             Ok(ref u) => {
@@ -250,16 +264,29 @@ impl UrlThreatEngine {
                 let p = u.port().unwrap_or(if s == "https" { 443 } else { 80 });
                 let path = u.path().to_string();
                 let q = u.query().unwrap_or("").to_string();
-                let clean_h = h.strip_prefix('[').and_then(|x| x.strip_suffix(']')).unwrap_or(&h);
+                let clean_h = h
+                    .strip_prefix('[')
+                    .and_then(|x| x.strip_suffix(']'))
+                    .unwrap_or(&h);
                 let is_ip = clean_h.parse::<std::net::IpAddr>().is_ok();
                 (s, h, p, path, q, is_ip)
             }
             Err(_) => {
                 let parts: Vec<&str> = url_str.split('/').collect();
                 let h = parts.get(0).copied().unwrap_or("").to_lowercase();
-                let clean_h = h.strip_prefix('[').and_then(|x| x.strip_suffix(']')).unwrap_or(&h);
+                let clean_h = h
+                    .strip_prefix('[')
+                    .and_then(|x| x.strip_suffix(']'))
+                    .unwrap_or(&h);
                 let is_ip = clean_h.parse::<std::net::IpAddr>().is_ok();
-                ("unknown".to_string(), h, 80, "".to_string(), "".to_string(), is_ip)
+                (
+                    "unknown".to_string(),
+                    h,
+                    80,
+                    "".to_string(),
+                    "".to_string(),
+                    is_ip,
+                )
             }
         };
 
@@ -273,13 +300,19 @@ impl UrlThreatEngine {
             is_whitelisted = false;
             whitelist_bypassed = true;
             unwhitelisted_for_ml = true;
-            bypass_reason = Some(format!("Host '{}' is unwhitelisted for ML inspection", host));
+            bypass_reason = Some(format!(
+                "Host '{}' is unwhitelisted for ML inspection",
+                host
+            ));
             detections.push(UrlRuleHit {
                 rule_id: "UNWHITELISTED_SUBDOMAIN".to_string(),
                 title: "Unwhitelisted for ML".to_string(),
                 severity: "Informational".to_string(),
                 score: 15,
-                details: format!("Host '{}' is excluded from global whitelist to allow ML model classification.", host),
+                details: format!(
+                    "Host '{}' is excluded from global whitelist to allow ML model classification.",
+                    host
+                ),
             });
         }
 
@@ -357,7 +390,8 @@ impl UrlThreatEngine {
                 if rule.override_whitelist && is_whitelisted {
                     is_whitelisted = false;
                     whitelist_bypassed = true;
-                    bypass_reason = Some(format!("Whitelist overridden by threat rule {}", rule.id));
+                    bypass_reason =
+                        Some(format!("Whitelist overridden by threat rule {}", rule.id));
                 }
 
                 detections.push(UrlRuleHit {
@@ -376,9 +410,16 @@ impl UrlThreatEngine {
             detections.push(UrlRuleHit {
                 rule_id: "LIGHTGBM_URL_MODEL".to_string(),
                 title: "LightGBM URL Classification".to_string(),
-                severity: if ml_prob >= 0.80 { "Malicious".to_string() } else { "Suspicious".to_string() },
+                severity: if ml_prob >= 0.80 {
+                    "Malicious".to_string()
+                } else {
+                    "Suspicious".to_string()
+                },
                 score,
-                details: format!("Machine learning model malicious probability: {:.1}%", ml_prob * 100.0),
+                details: format!(
+                    "Machine learning model malicious probability: {:.1}%",
+                    ml_prob * 100.0
+                ),
             });
         }
 
@@ -397,12 +438,19 @@ impl UrlThreatEngine {
         let fp_mitigated = false;
 
         let has_malicious_rule = detections.iter().any(|d| d.severity == "Malicious");
-        let has_webhook_c2 = detections.iter().any(|d| d.rule_id == "DISCORD_WEBHOOK_ABUSE" || d.rule_id == "TELEGRAM_BOT_API_ABUSE");
+        let has_webhook_c2 = detections
+            .iter()
+            .any(|d| d.rule_id == "DISCORD_WEBHOOK_ABUSE" || d.rule_id == "TELEGRAM_BOT_API_ABUSE");
         let has_suspicious_rule = detections.iter().any(|d| d.severity == "Suspicious");
 
         if has_malicious_rule && !is_whitelisted {
             verdict = "Malicious";
-            risk_score = detections.iter().filter(|d| d.severity == "Malicious").map(|d| d.score).max().unwrap_or(90);
+            risk_score = detections
+                .iter()
+                .filter(|d| d.severity == "Malicious")
+                .map(|d| d.score)
+                .max()
+                .unwrap_or(90);
             verdict_reason = "Rule Decision (Malicious): Direct dropper payload, blacklisted CIDR, or critical threat pattern detected.".to_string();
         } else if has_webhook_c2 {
             verdict = "Suspicious";
@@ -412,25 +460,34 @@ impl UrlThreatEngine {
             verdict = "Clean";
             risk_score = 0;
             verdict_reason = "Whitelist Protection: Host matches Tranco 1M or benign CIDR subnet with no malicious override.".to_string();
-
         } else if ml_prob >= 0.80 {
             verdict = "Malicious";
             let max_score = detections.iter().map(|d| d.score).max().unwrap_or(80);
             risk_score = max_score.max((ml_prob * 100.0) as u32);
-            verdict_reason = format!("ML Decision (Malicious): Machine learning model classified URL as high-confidence malicious ({:.1}%).", ml_prob * 100.0);
+            verdict_reason = format!(
+                "ML Decision (Malicious): Machine learning model classified URL as high-confidence malicious ({:.1}%).",
+                ml_prob * 100.0
+            );
         } else if has_suspicious_rule || ml_prob >= 0.50 {
             verdict = "Suspicious";
             let max_score = detections.iter().map(|d| d.score).max().unwrap_or(50);
             risk_score = max_score.max((ml_prob * 100.0) as u32);
-            verdict_reason = format!("Rule & ML Decision (Suspicious): Suspicious indicators or elevated ML risk score ({risk_score}/100) detected.");
+            verdict_reason = format!(
+                "Rule & ML Decision (Suspicious): Suspicious indicators or elevated ML risk score ({risk_score}/100) detected."
+            );
         } else if unwhitelisted_for_ml {
             verdict = "Clean";
             risk_score = (ml_prob * 100.0) as u32;
-            verdict_reason = format!("Analysis Result (Clean): No threat indicators detected (evaluated with ML model on unwhitelisted subdomain, prob: {:.1}%).", ml_prob * 100.0);
+            verdict_reason = format!(
+                "Analysis Result (Clean): No threat indicators detected (evaluated with ML model on unwhitelisted subdomain, prob: {:.1}%).",
+                ml_prob * 100.0
+            );
         } else {
             verdict = "Clean";
             risk_score = 0;
-            verdict_reason = "Analysis Result (Clean): No threat indicators or suspicious patterns detected.".to_string();
+            verdict_reason =
+                "Analysis Result (Clean): No threat indicators or suspicious patterns detected."
+                    .to_string();
         }
 
         UrlThreatReport {

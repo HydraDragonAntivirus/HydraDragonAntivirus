@@ -1,5 +1,5 @@
-use crate::logical::{parse_logical_signature, LogicalSignature};
-use crate::pattern::{compile_pattern_variants, Modifiers, Pattern};
+use crate::logical::{LogicalSignature, parse_logical_signature};
+use crate::pattern::{Modifiers, Pattern, compile_pattern_variants};
 use crate::pe::PeInfo;
 use regex::Regex;
 use std::collections::{BTreeMap, HashSet};
@@ -22,7 +22,10 @@ pub struct NameSpan {
 pub fn intern_name(arena: &mut String, name: &str) -> NameSpan {
     let start = arena.len() as u32;
     arena.push_str(name);
-    NameSpan { start, len: name.len() as u32 }
+    NameSpan {
+        start,
+        len: name.len() as u32,
+    }
 }
 
 #[derive(Debug, Default)]
@@ -434,8 +437,14 @@ fn load_file(
     match kind {
         // Per-line text databases parsed below (`.idb` icon fingerprints and
         // `.crb` cert records included — PE detection needs both).
-        ExtKind::BodyNdb | ExtKind::BodyOldDb | ExtKind::Logical | ExtKind::Container
-        | ExtKind::FileMagic | ExtKind::Phishing | ExtKind::Icon | ExtKind::CertCrb => {}
+        ExtKind::BodyNdb
+        | ExtKind::BodyOldDb
+        | ExtKind::Logical
+        | ExtKind::Container
+        | ExtKind::FileMagic
+        | ExtKind::Phishing
+        | ExtKind::Icon
+        | ExtKind::CertCrb => {}
 
         // Hash-based databases are matched by hydradragon elsewhere, not here.
         ExtKind::Hash => {
@@ -530,31 +539,35 @@ fn load_file(
         match kind {
             // `.sdb` parses identically to `.ndb`; ClamAV's `sdb` flag only sets
             // engine->sdb and skips the sigload callback (readdb.c cli_loadndb).
-            ExtKind::BodyNdb => match parse_extended_signature(line, source.clone(), &mut database.name_arena) {
-                Ok(Some(signature)) if ignored.contains(database.ext_name(&signature)) => {
-                    report.ignored_skipped += 1;
+            ExtKind::BodyNdb => {
+                match parse_extended_signature(line, source.clone(), &mut database.name_arena) {
+                    Ok(Some(signature)) if ignored.contains(database.ext_name(&signature)) => {
+                        report.ignored_skipped += 1;
+                    }
+                    Ok(Some(signature)) => {
+                        database.extended.push(signature);
+                        report.extended_loaded += 1;
+                    }
+                    // Out of f-level range or unsupported target → skip (as ClamAV does).
+                    Ok(None) => {}
+                    Err(message) => push_error(report, source, message),
                 }
-                Ok(Some(signature)) => {
-                    database.extended.push(signature);
-                    report.extended_loaded += 1;
-                }
-                // Out of f-level range or unsupported target → skip (as ClamAV does).
-                Ok(None) => {}
-                Err(message) => push_error(report, source, message),
-            },
+            }
             // Old-format `.db`: `name=hexsig`, generic target, offset `*`
             // (readdb.c cli_loaddb -> cli_add_content_match_pattern on root[0]).
-            ExtKind::BodyOldDb => match parse_db_signature(line, source.clone(), &mut database.name_arena) {
-                Ok(Some(signature)) if ignored.contains(database.ext_name(&signature)) => {
-                    report.ignored_skipped += 1;
+            ExtKind::BodyOldDb => {
+                match parse_db_signature(line, source.clone(), &mut database.name_arena) {
+                    Ok(Some(signature)) if ignored.contains(database.ext_name(&signature)) => {
+                        report.ignored_skipped += 1;
+                    }
+                    Ok(Some(signature)) => {
+                        database.extended.push(signature);
+                        report.db_loaded += 1;
+                    }
+                    Ok(None) => {}
+                    Err(message) => push_error(report, source, message),
                 }
-                Ok(Some(signature)) => {
-                    database.extended.push(signature);
-                    report.db_loaded += 1;
-                }
-                Ok(None) => {}
-                Err(message) => push_error(report, source, message),
-            },
+            }
             ExtKind::Logical => match parse_logical_signature(line, source.clone()) {
                 Ok((signature, _)) if ignored.contains(&*signature.name) => {
                     report.ignored_skipped += 1;
@@ -922,8 +935,12 @@ mod load_tests {
         let line = "Test.Sig:0:*:4142";
         let mut an = String::new();
         let mut as_ = String::new();
-        let ndb = parse_extended_signature(line, src(), &mut an).unwrap().unwrap();
-        let sdb = parse_extended_signature(line, src(), &mut as_).unwrap().unwrap();
+        let ndb = parse_extended_signature(line, src(), &mut an)
+            .unwrap()
+            .unwrap();
+        let sdb = parse_extended_signature(line, src(), &mut as_)
+            .unwrap()
+            .unwrap();
         assert_eq!(&an[..], &as_[..]); // same interned name bytes
         assert_eq!(ndb.name, sdb.name); // identical span (both interned at offset 0)
         assert_eq!(ndb.target, sdb.target);
@@ -937,10 +954,10 @@ mod load_tests {
         // `.yar`/`.yara` are intentionally excluded: this crate delegates YARA to
         // the separate yara-x engine, so they are not handled here.
         let dispatched = [
-            "db", "cvd", "cld", "cud", "crb", "hdb", "hsb", "hdu", "hsu", "fp", "sfp",
-            "mdb", "msb", "imp", "mdu", "msu", "ndb", "ndu", "ldb", "ldu", "cbc", "sdb",
-            "zmd", "rmd", "cfg", "info", "wdb", "pdb", "gdb", "ftm", "ign", "ign2", "idb",
-            "cdb", "cat", "ioc", "pwdb",
+            "db", "cvd", "cld", "cud", "crb", "hdb", "hsb", "hdu", "hsu", "fp", "sfp", "mdb",
+            "msb", "imp", "mdu", "msu", "ndb", "ndu", "ldb", "ldu", "cbc", "sdb", "zmd", "rmd",
+            "cfg", "info", "wdb", "pdb", "gdb", "ftm", "ign", "ign2", "idb", "cdb", "cat", "ioc",
+            "pwdb",
         ];
         for ext in dispatched {
             assert_ne!(
@@ -1147,11 +1164,7 @@ fn ignored_signame(line: &str) -> Option<&str> {
         2 => tokens[0],
         _ => tokens[2],
     };
-    if name.is_empty() {
-        None
-    } else {
-        Some(name)
-    }
+    if name.is_empty() { None } else { Some(name) }
 }
 
 fn push_error(report: &mut LoadReport, source: SourceLocation, message: String) {
@@ -1165,7 +1178,9 @@ fn push_unsupported(
     reason: String,
 ) {
     report.unsupported_records += 1;
-    database.unsupported.push(UnsupportedRecord { source, reason });
+    database
+        .unsupported
+        .push(UnsupportedRecord { source, reason });
 }
 
 fn extension_key(path: &Path) -> String {
@@ -1235,7 +1250,9 @@ impl ExtKind {
             ExtKind::Ioc => format!("OpenIOC XML database '.{ext}' — not yet matched"),
             ExtKind::Config => format!("engine configuration '.{ext}' — not a detection database"),
             ExtKind::Metadata => {
-                format!("container metadata / archive passwords '.{ext}' — not a detection database")
+                format!(
+                    "container metadata / archive passwords '.{ext}' — not a detection database"
+                )
             }
             ExtKind::ContainerDb => {
                 format!("signed container / bytecode '.{ext}' — loaded by the CVD/bytecode loader")
@@ -1257,8 +1274,9 @@ fn classify_extension(ext: &str) -> ExtKind {
         "ftm" => ExtKind::FileMagic,
         "ign" | "ign2" => ExtKind::Ignore,
         // Whole-file / PE-section / PE-import / false-positive hashes (cli_loadhash).
-        "hdb" | "hdu" | "hsb" | "hsu" | "mdb" | "mdu" | "msb" | "msu" | "imp" | "fp"
-        | "sfp" => ExtKind::Hash,
+        "hdb" | "hdu" | "hsb" | "hsu" | "mdb" | "mdu" | "msb" | "msu" | "imp" | "fp" | "sfp" => {
+            ExtKind::Hash
+        }
         "pdb" | "gdb" | "wdb" => ExtKind::Phishing,
         "idb" => ExtKind::Icon,
         "crb" => ExtKind::CertCrb,
@@ -1354,19 +1372,41 @@ fn load_file_from_bytes(
     ignored: &HashSet<Box<str>>,
 ) {
     report.files_seen += 1;
-    let ext = name.rsplit('.').next().map(|e| e.to_ascii_lowercase()).unwrap_or_default();
+    let ext = name
+        .rsplit('.')
+        .next()
+        .map(|e| e.to_ascii_lowercase())
+        .unwrap_or_default();
     *report.by_extension.entry(ext.clone()).or_insert(0) += 1;
 
     let kind = classify_extension(&ext);
     match kind {
-        ExtKind::BodyNdb | ExtKind::BodyOldDb | ExtKind::Logical | ExtKind::Container
-        | ExtKind::FileMagic | ExtKind::Phishing | ExtKind::Icon | ExtKind::CertCrb => {}
-        ExtKind::Hash => { report.hash_files_skipped += 1; return; }
+        ExtKind::BodyNdb
+        | ExtKind::BodyOldDb
+        | ExtKind::Logical
+        | ExtKind::Container
+        | ExtKind::FileMagic
+        | ExtKind::Phishing
+        | ExtKind::Icon
+        | ExtKind::CertCrb => {}
+        ExtKind::Hash => {
+            report.hash_files_skipped += 1;
+            return;
+        }
         ExtKind::Ignore => return,
-        ExtKind::Config => { report.config_files += 1; return; }
-        ExtKind::Metadata => { report.metadata_files += 1; return; }
-        ExtKind::CertCat | ExtKind::Ioc | ExtKind::ContainerDb
-        | ExtKind::Deprecated | ExtKind::Unknown => {
+        ExtKind::Config => {
+            report.config_files += 1;
+            return;
+        }
+        ExtKind::Metadata => {
+            report.metadata_files += 1;
+            return;
+        }
+        ExtKind::CertCat
+        | ExtKind::Ioc
+        | ExtKind::ContainerDb
+        | ExtKind::Deprecated
+        | ExtKind::Unknown => {
             match kind {
                 ExtKind::CertCat => report.cert_files += 1,
                 ExtKind::Ioc => report.ioc_files += 1,
@@ -1379,7 +1419,10 @@ fn load_file_from_bytes(
             push_unsupported(
                 database,
                 report,
-                SourceLocation { path: Arc::from(std::path::Path::new(name)), line: 0 },
+                SourceLocation {
+                    path: Arc::from(std::path::Path::new(name)),
+                    line: 0,
+                },
                 kind.disposition(&ext),
             );
             return;
@@ -1405,7 +1448,11 @@ fn load_file_from_bytes(
         while end < bytes.len() && bytes[end] != b'\n' {
             end += 1;
         }
-        let line_end = if end < bytes.len() { end + 1 } else { bytes.len() };
+        let line_end = if end < bytes.len() {
+            end + 1
+        } else {
+            bytes.len()
+        };
         raw.clear();
         raw.extend_from_slice(&bytes[start..line_end]);
         start = line_end;
@@ -1416,30 +1463,37 @@ fn load_file_from_bytes(
             continue;
         }
         report.lines_seen += 1;
-        let source = SourceLocation { path: src_path.clone(), line: line_number };
+        let source = SourceLocation {
+            path: src_path.clone(),
+            line: line_number,
+        };
         match kind {
-            ExtKind::BodyNdb => match parse_extended_signature(line, source.clone(), &mut database.name_arena) {
-                Ok(Some(signature)) if ignored.contains(database.ext_name(&signature)) => {
-                    report.ignored_skipped += 1;
+            ExtKind::BodyNdb => {
+                match parse_extended_signature(line, source.clone(), &mut database.name_arena) {
+                    Ok(Some(signature)) if ignored.contains(database.ext_name(&signature)) => {
+                        report.ignored_skipped += 1;
+                    }
+                    Ok(Some(signature)) => {
+                        database.extended.push(signature);
+                        report.extended_loaded += 1;
+                    }
+                    Ok(None) => {}
+                    Err(message) => push_error(report, source, message),
                 }
-                Ok(Some(signature)) => {
-                    database.extended.push(signature);
-                    report.extended_loaded += 1;
+            }
+            ExtKind::BodyOldDb => {
+                match parse_db_signature(line, source.clone(), &mut database.name_arena) {
+                    Ok(Some(signature)) if ignored.contains(database.ext_name(&signature)) => {
+                        report.ignored_skipped += 1;
+                    }
+                    Ok(Some(signature)) => {
+                        database.extended.push(signature);
+                        report.db_loaded += 1;
+                    }
+                    Ok(None) => {}
+                    Err(message) => push_error(report, source, message),
                 }
-                Ok(None) => {}
-                Err(message) => push_error(report, source, message),
-            },
-            ExtKind::BodyOldDb => match parse_db_signature(line, source.clone(), &mut database.name_arena) {
-                Ok(Some(signature)) if ignored.contains(database.ext_name(&signature)) => {
-                    report.ignored_skipped += 1;
-                }
-                Ok(Some(signature)) => {
-                    database.extended.push(signature);
-                    report.db_loaded += 1;
-                }
-                Ok(None) => {}
-                Err(message) => push_error(report, source, message),
-            },
+            }
             ExtKind::Logical => match parse_logical_signature(line, source.clone()) {
                 Ok((signature, _)) if ignored.contains(&*signature.name) => {
                     report.ignored_skipped += 1;

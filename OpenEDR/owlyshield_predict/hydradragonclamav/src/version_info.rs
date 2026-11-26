@@ -76,9 +76,12 @@ fn find_version_resources(
             return leaves;
         };
         if typ == BY_TYPE && (type_offs >> 31) != 0 {
-            let Some(resdir2) =
-                cli_rawaddr(res_rva + (type_offs & 0x7fff_ffff), sections, hdr_size, fsize)
-            else {
+            let Some(resdir2) = cli_rawaddr(
+                res_rva + (type_offs & 0x7fff_ffff),
+                sections,
+                hdr_size,
+                fsize,
+            ) else {
                 return leaves;
             };
             if data.get(resdir2 as usize..resdir2 as usize + 16).is_none() {

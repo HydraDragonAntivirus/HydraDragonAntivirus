@@ -167,14 +167,21 @@ pub fn parse_ipv4(s: &str) -> Option<u32> {
     if s.contains(':') {
         return None;
     }
-    s.parse::<Ipv4Addr>().ok().map(|ip| u32::from_be_bytes(ip.octets()))
+    s.parse::<Ipv4Addr>()
+        .ok()
+        .map(|ip| u32::from_be_bytes(ip.octets()))
 }
 
 pub fn parse_ipv6(s: &str) -> Option<u128> {
     let s = s.trim();
-    let s = s.strip_prefix('[').and_then(|x| x.strip_suffix(']')).unwrap_or(s);
+    let s = s
+        .strip_prefix('[')
+        .and_then(|x| x.strip_suffix(']'))
+        .unwrap_or(s);
     if !s.contains(':') {
         return None;
     }
-    s.parse::<Ipv6Addr>().ok().map(|ip| u128::from_be_bytes(ip.octets()))
+    s.parse::<Ipv6Addr>()
+        .ok()
+        .map(|ip| u128::from_be_bytes(ip.octets()))
 }

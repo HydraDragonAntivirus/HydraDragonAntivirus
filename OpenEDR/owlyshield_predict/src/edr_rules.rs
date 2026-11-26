@@ -250,9 +250,18 @@ const MALICIOUS_PIPE_PREFIXES: &[&str] = &[
 
 /// Curated malware/C2-specific TLS JA3 & JA3S fingerprints sourced from Emerging Threats & Abuse.ch SSLBL.
 const MALICIOUS_TLS_FINGERPRINTS: &[(&str, &str)] = &[
-    ("eb88d0b3e1961a0562f006e5ce2a0b87", "CobaltStrike.MalleableC2"),
-    ("ae4edc6faf64d08308082ad26be60767", "CobaltStrike.Server.JA3S"),
-    ("aa29d305dff6e6ac9cd244a62c6ad0c2", "CobaltStrike.Server.JA3S"),
+    (
+        "eb88d0b3e1961a0562f006e5ce2a0b87",
+        "CobaltStrike.MalleableC2",
+    ),
+    (
+        "ae4edc6faf64d08308082ad26be60767",
+        "CobaltStrike.Server.JA3S",
+    ),
+    (
+        "aa29d305dff6e6ac9cd244a62c6ad0c2",
+        "CobaltStrike.Server.JA3S",
+    ),
     ("8916410db85077a5460817142dcbc8de", "Metasploit.Meterpreter"),
     ("72a589da586844d7f0818ce684948eea", "Metasploit.Meterpreter"),
     ("e564ee1b7bcae4467d8c759df910ed9c", "DeimosC2.Agent"),
@@ -260,7 +269,10 @@ const MALICIOUS_TLS_FINGERPRINTS: &[(&str, &str)] = &[
     ("f6dfdd25d1522e4e1c7cd09bd37ce619", "RustyBuer.Server.JA3S"),
     ("16f17c896273d1d098314a02e87dd4cb", "Metasploit.HttpScanner"),
     ("950ccdd64d360a7b24c70678ac116a44", "Metasploit.CcsScanner"),
-    ("ee031b874122d97ab269e0d8740be31a", "Metasploit.HeartbleedScanner"),
+    (
+        "ee031b874122d97ab269e0d8740be31a",
+        "Metasploit.HeartbleedScanner",
+    ),
     ("6825b330bf9de50ccc8745553cb61b2f", "Metasploit.SslScanner"),
     ("1aa7bf8b97e540ca5edd75f7b8384bfa", "AbuseCh.Trickbot"),
     ("e62a5f4d538cbf169c2af71bec2399b4", "AbuseCh.Trickbot"),
@@ -345,8 +357,7 @@ fn has_word_token(haystack_lower: &str, token: &str) -> bool {
     let mut start = 0usize;
     while let Some(rel) = haystack_lower[start..].find(token) {
         let idx = start + rel;
-        let before_ok = idx == 0
-            || !haystack_lower.as_bytes()[idx - 1].is_ascii_alphanumeric();
+        let before_ok = idx == 0 || !haystack_lower.as_bytes()[idx - 1].is_ascii_alphanumeric();
         let after_idx = idx + token.len();
         let after_ok = after_idx >= haystack_lower.len()
             || !haystack_lower.as_bytes()[after_idx].is_ascii_alphanumeric();
@@ -474,9 +485,7 @@ fn evaluate_powershell(rec: &EdrEventRecord, out: &mut Vec<EdrRuleHit>) {
         || ((low.contains("stop-service")
             || low.contains("sc.exe delete")
             || low.contains("sc delete"))
-            && (low.contains("edrsvc")
-                || low.contains("windefend")
-                || low.contains("edrdrv")));
+            && (low.contains("edrsvc") || low.contains("windefend") || low.contains("edrdrv")));
     if is_tamper {
         out.push(make_hit(
             rec,
@@ -520,7 +529,11 @@ fn evaluate_process_tampering(rec: &EdrEventRecord, out: &mut Vec<EdrRuleHit>) {
     let technique = first_str_by_pointers(&rec.raw, &["/technique"]);
     let reason = first_str_by_pointers(&rec.raw, &["/reason"]);
     let img = first_str_by_pointers(&rec.raw, &["/image_path"]);
-    let subject = if img.is_empty() { rec.exe_path.clone() } else { img };
+    let subject = if img.is_empty() {
+        rec.exe_path.clone()
+    } else {
+        img
+    };
     let mut indicators = Vec::new();
     if !technique.is_empty() {
         indicators.push(format!("Technique:{technique}"));
@@ -572,7 +585,8 @@ fn evaluate_wmi(rec: &EdrEventRecord, out: &mut Vec<EdrRuleHit>) {
             "T1546.003",
             RuleSeverity::High,
             first_str_by_pointers(&rec.raw, &["/consumer", "/command", "/CommandLineTemplate"]),
-            "WMI permanent event subscription references suspicious shell/script consumer".to_string(),
+            "WMI permanent event subscription references suspicious shell/script consumer"
+                .to_string(),
             vec![format!("WMI:{text}")],
         ));
     }
@@ -601,7 +615,10 @@ fn evaluate_bits(rec: &EdrEventRecord, out: &mut Vec<EdrRuleHit>) {
         ".exe", ".dll", ".ps1", ".bat", ".cmd", ".vbs", ".hta", ".msi", ".scr", ".jar",
     ];
     let has_ext = BITS_EXTS.iter().any(|ext| low.contains(ext));
-    let has_notify = contains_any(&low, &["notify", "setnotifycmdline", "bitsadmin", "powershell"]);
+    let has_notify = contains_any(
+        &low,
+        &["notify", "setnotifycmdline", "bitsadmin", "powershell"],
+    );
     if has_ext || has_notify {
         out.push(make_hit(
             rec,
@@ -610,7 +627,8 @@ fn evaluate_bits(rec: &EdrEventRecord, out: &mut Vec<EdrRuleHit>) {
             "T1197",
             RuleSeverity::High,
             first_str_by_pointers(&rec.raw, &["/url", "/RemoteName", "/LocalName"]),
-            "BITS job transferred executable/script payload or configured notification command".to_string(),
+            "BITS job transferred executable/script payload or configured notification command"
+                .to_string(),
             vec![format!("BITS:{text}")],
         ));
     }
@@ -619,7 +637,13 @@ fn evaluate_bits(rec: &EdrEventRecord, out: &mut Vec<EdrRuleHit>) {
 fn evaluate_scheduled_task(rec: &EdrEventRecord, out: &mut Vec<EdrRuleHit>) {
     let text = collect_fields_text(
         &rec.raw,
-        &["/task_name", "/TaskName", "/command", "/arguments", "/TaskContent"],
+        &[
+            "/task_name",
+            "/TaskName",
+            "/command",
+            "/arguments",
+            "/TaskContent",
+        ],
         rec.details.as_deref(),
     );
     if text.is_empty() {
@@ -649,7 +673,14 @@ fn evaluate_service(rec: &EdrEventRecord, out: &mut Vec<EdrRuleHit>) {
     let svc_name = first_str_by_pointers(&rec.raw, &["/service_name", "/ServiceName"]);
     let text = collect_fields_text(
         &rec.raw,
-        &["/service_name", "/ServiceName", "/value_data", "/ImagePath", "/image_path", "/binary_path"],
+        &[
+            "/service_name",
+            "/ServiceName",
+            "/value_data",
+            "/ImagePath",
+            "/image_path",
+            "/binary_path",
+        ],
         rec.details.as_deref(),
     );
     if text.is_empty() {
@@ -669,7 +700,8 @@ fn evaluate_service(rec: &EdrEventRecord, out: &mut Vec<EdrRuleHit>) {
             "T1543.003",
             RuleSeverity::High,
             svc_name,
-            "Windows service configured with suspicious binary path or offensive service name".to_string(),
+            "Windows service configured with suspicious binary path or offensive service name"
+                .to_string(),
             vec![format!("Service:{text}")],
         ));
     }
@@ -741,7 +773,12 @@ fn evaluate_driver(rec: &EdrEventRecord, out: &mut Vec<EdrRuleHit>) {
 fn evaluate_named_pipe(rec: &EdrEventRecord, out: &mut Vec<EdrRuleHit>) {
     let pipe_path = first_str_by_pointers(
         &rec.raw,
-        &["/file/rawPath", "/file/abstractPath", "/file/path", "/pipe_name"],
+        &[
+            "/file/rawPath",
+            "/file/abstractPath",
+            "/file/path",
+            "/pipe_name",
+        ],
     );
     let text = if pipe_path.is_empty() {
         rec.details.clone().unwrap_or_default()
@@ -827,7 +864,12 @@ fn evaluate_image_load(rec: &EdrEventRecord, out: &mut Vec<EdrRuleHit>) {
     }
     let img_path = first_str_by_pointers(
         &rec.raw,
-        &["/file/rawPath", "/file/abstractPath", "/file/path", "/image_path"],
+        &[
+            "/file/rawPath",
+            "/file/abstractPath",
+            "/file/path",
+            "/image_path",
+        ],
     );
     let low = img_path.to_ascii_lowercase();
     if low.ends_with(".dll") && contains_any(&low, USER_WRITABLE_DIRS) {
@@ -838,7 +880,9 @@ fn evaluate_image_load(rec: &EdrEventRecord, out: &mut Vec<EdrRuleHit>) {
             "T1574.002",
             RuleSeverity::High,
             img_path.clone(),
-            format!("System/LOLBin host {host_base} loaded DLL from user-writable path: {img_path}"),
+            format!(
+                "System/LOLBin host {host_base} loaded DLL from user-writable path: {img_path}"
+            ),
             vec![format!("Host:{host_base}"), format!("LoadedDll:{img_path}")],
         ));
     }
@@ -876,9 +920,12 @@ fn evaluate_file_downloaded(rec: &EdrEventRecord, out: &mut Vec<EdrRuleHit>) {
     .iter()
     .any(|doc| {
         (check_target.contains(doc) || check_url.contains(doc))
-            && [".exe", ".scr", ".com", ".bat", ".cmd", ".vbs", ".vbe", ".js", ".jse", ".hta", ".msi", ".pif", ".cpl"]
-                .iter()
-                .any(|ex| check_target.ends_with(ex) || check_url.ends_with(ex))
+            && [
+                ".exe", ".scr", ".com", ".bat", ".cmd", ".vbs", ".vbe", ".js", ".jse", ".hta",
+                ".msi", ".pif", ".cpl",
+            ]
+            .iter()
+            .any(|ex| check_target.ends_with(ex) || check_url.ends_with(ex))
     });
 
     const HIGH_RISK_EXTS: &[&str] = &[
@@ -1164,10 +1211,8 @@ fn evaluate_sanctum_etw_ti(rec: &EdrEventRecord, out: &mut Vec<EdrRuleHit>) {
         &rec.raw,
         &["/suspicious", "/data/EtwThreatIntelligence/suspicious"],
     );
-    let is_remote = extract_bool_by_pointers(
-        &rec.raw,
-        &["/remote", "/data/EtwThreatIntelligence/remote"],
-    );
+    let is_remote =
+        extract_bool_by_pointers(&rec.raw, &["/remote", "/data/EtwThreatIntelligence/remote"]);
     if !is_suspicious && !is_remote {
         return;
     }
@@ -1340,7 +1385,9 @@ fn evaluate_hypervisor(rec: &EdrEventRecord, out: &mut Vec<EdrRuleHit>) {
             "T1014",
             RuleSeverity::Critical,
             subject.clone(),
-            format!("Hypervisor trapped syscall MSR / EFER write outside System context: {subject}"),
+            format!(
+                "Hypervisor trapped syscall MSR / EFER write outside System context: {subject}"
+            ),
             vec![
                 "Hypervisor:WRMSR".to_string(),
                 format!("TargetMsr:0x{ctx:x}"),
@@ -1377,10 +1424,7 @@ pub fn evaluate_event(rec: &EdrEventRecord) -> Vec<EdrRuleHit> {
         "SCRIPT_BLOCK_ACTIVITY" => evaluate_powershell(rec, &mut hits),
         "PROCESS_TAMPERING" => evaluate_process_tampering(rec, &mut hits),
         "SHADOW_COPY_DELETE" | "VSS_SHADOW_COPY_DELETED" => {
-            let subj = rec
-                .details
-                .clone()
-                .unwrap_or_else(|| rec.exe_path.clone());
+            let subj = rec.details.clone().unwrap_or_else(|| rec.exe_path.clone());
             hits.push(make_hit(
                 rec,
                 "VSS-001",
@@ -1397,7 +1441,9 @@ pub fn evaluate_event(rec: &EdrEventRecord) -> Vec<EdrRuleHit> {
         | "WMI_EVENT_CONSUMER_TO_FILTER"
         | "WMI_EVENT_FILTER" => evaluate_wmi(rec, &mut hits),
         "BITS_JOB_ACTIVITY" => evaluate_bits(rec, &mut hits),
-        "SCHEDULED_TASK_CREATE" | "SCHEDULED_TASK_MODIFY" => evaluate_scheduled_task(rec, &mut hits),
+        "SCHEDULED_TASK_CREATE" | "SCHEDULED_TASK_MODIFY" => {
+            evaluate_scheduled_task(rec, &mut hits)
+        }
         "SERVICE_CREATE" | "SERVICE_MODIFY" => evaluate_service(rec, &mut hits),
         "DRIVER_LOADED" | "LLE_DRIVER_LOAD" | "DRIVER_MODIFIED" | "DRIVER_UNLOADED" => {
             evaluate_driver(rec, &mut hits)
@@ -1418,7 +1464,9 @@ pub fn evaluate_event(rec: &EdrEventRecord) -> Vec<EdrRuleHit> {
         "SANCTUM_HVCI_BLOCK" => evaluate_sanctum_hvci_block(rec, &mut hits),
         "SANCTUM_ETW_TI" => evaluate_sanctum_etw_ti(rec, &mut hits),
         "SANCTUM_ETW_BLINDING" => evaluate_sanctum_etw_blinding(rec, &mut hits),
-        "MBR_SECTOR0_RAW_WRITE" | "LLE_DISK_RAW_WRITE_ACCESS" => evaluate_mbr_sector0(rec, &mut hits),
+        "MBR_SECTOR0_RAW_WRITE" | "LLE_DISK_RAW_WRITE_ACCESS" => {
+            evaluate_mbr_sector0(rec, &mut hits)
+        }
         "MLE_HYPERVISOR_MSR_TAMPER" | "LLE_DEVICE_IOCTL" => evaluate_hypervisor(rec, &mut hits),
         _ => {}
     }
@@ -1579,7 +1627,12 @@ mod tests {
     use super::*;
     use serde_json::json;
 
-    fn sample_event(event_type: &str, exe_path: &str, details: Option<&str>, raw: Value) -> EdrEventRecord {
+    fn sample_event(
+        event_type: &str,
+        exe_path: &str,
+        details: Option<&str>,
+        raw: Value,
+    ) -> EdrEventRecord {
         let proc_name = exe_path
             .rsplit(['\\', '/'])
             .next()
@@ -1627,7 +1680,10 @@ mod tests {
             }),
         );
         let hits = evaluate_event(&amsi);
-        assert!(hits.iter().any(|h| h.rule_name == "EDR.PowerShell.AmsiOrEtwBypass"));
+        assert!(
+            hits.iter()
+                .any(|h| h.rule_name == "EDR.PowerShell.AmsiOrEtwBypass")
+        );
 
         let cradle = sample_event(
             "SCRIPT_BLOCK_ACTIVITY",
@@ -1638,9 +1694,11 @@ mod tests {
             }),
         );
         let cradle_hits = evaluate_event(&cradle);
-        assert!(cradle_hits
-            .iter()
-            .any(|h| h.rule_name == "EDR.PowerShell.DownloadCradleExec"));
+        assert!(
+            cradle_hits
+                .iter()
+                .any(|h| h.rule_name == "EDR.PowerShell.DownloadCradleExec")
+        );
 
         let benign = sample_event(
             "SCRIPT_BLOCK_ACTIVITY",
@@ -1673,9 +1731,11 @@ mod tests {
             Some("Shadow Copy deleted"),
             json!({}),
         );
-        assert!(evaluate_event(&vss)
-            .iter()
-            .any(|h| h.rule_name == "EDR.Ransomware.ShadowCopyDeletion"));
+        assert!(
+            evaluate_event(&vss)
+                .iter()
+                .any(|h| h.rule_name == "EDR.Ransomware.ShadowCopyDeletion")
+        );
 
         let byovd = sample_event(
             "LLE_DRIVER_LOAD",
@@ -1683,9 +1743,11 @@ mod tests {
             None,
             json!({ "file": { "rawPath": r"\SystemRoot\System32\drivers\iqvw64e.sys" } }),
         );
-        assert!(evaluate_event(&byovd)
-            .iter()
-            .any(|h| h.rule_name == "EDR.Driver.BYOVDVulnerableLoaded"));
+        assert!(
+            evaluate_event(&byovd)
+                .iter()
+                .any(|h| h.rule_name == "EDR.Driver.BYOVDVulnerableLoaded")
+        );
 
         let benign_drv = sample_event(
             "LLE_DRIVER_LOAD",
@@ -1704,9 +1766,11 @@ mod tests {
             None,
             json!({ "file": { "rawPath": r"\Device\NamedPipe\msagent_8f2a" } }),
         );
-        assert!(evaluate_event(&c2_pipe)
-            .iter()
-            .any(|h| h.rule_name == "EDR.NamedPipe.KnownMaliciousC2OrExploit"));
+        assert!(
+            evaluate_event(&c2_pipe)
+                .iter()
+                .any(|h| h.rule_name == "EDR.NamedPipe.KnownMaliciousC2OrExploit")
+        );
 
         let benign_pipe = sample_event(
             "LLE_NAMED_PIPE_SERVER_CREATE",
@@ -1727,9 +1791,11 @@ mod tests {
                 }
             }),
         );
-        assert!(evaluate_event(&inj)
-            .iter()
-            .any(|h| h.rule_name == "EDR.RemoteThread.SuspiciousInjection"));
+        assert!(
+            evaluate_event(&inj)
+                .iter()
+                .any(|h| h.rule_name == "EDR.RemoteThread.SuspiciousInjection")
+        );
 
         let sideload = sample_event(
             "LLE_IMAGE_LOAD",
@@ -1737,9 +1803,11 @@ mod tests {
             None,
             json!({ "file": { "rawPath": r"C:\Users\alice\AppData\Local\Temp\evil.dll" } }),
         );
-        assert!(evaluate_event(&sideload)
-            .iter()
-            .any(|h| h.rule_name == "EDR.ImageLoad.SuspiciousDllSideload"));
+        assert!(
+            evaluate_event(&sideload)
+                .iter()
+                .any(|h| h.rule_name == "EDR.ImageLoad.SuspiciousDllSideload")
+        );
 
         let motw_iso = sample_event(
             "FILE_DOWNLOADED",
@@ -1802,7 +1870,10 @@ mod tests {
         );
         let ghost_hits = evaluate_event(&ghost);
         assert_eq!(ghost_hits.len(), 1);
-        assert_eq!(ghost_hits[0].rule_name, "EDR.Sanctum.DirectSyscallGhostHunt");
+        assert_eq!(
+            ghost_hits[0].rule_name,
+            "EDR.Sanctum.DirectSyscallGhostHunt"
+        );
         assert_eq!(ghost_hits[0].severity, RuleSeverity::Critical);
 
         let amsi = sample_event(
@@ -1834,7 +1905,10 @@ mod tests {
         );
         let hvci_hits = evaluate_event(&hvci_direct);
         assert_eq!(hvci_hits.len(), 1);
-        assert_eq!(hvci_hits[0].rule_name, "EDR.Sanctum.HvciOrBlocklistDriverBlocked");
+        assert_eq!(
+            hvci_hits[0].rule_name,
+            "EDR.Sanctum.HvciOrBlocklistDriverBlocked"
+        );
         assert_eq!(hvci_hits[0].severity, RuleSeverity::Critical);
 
         let hvci_lle = sample_event(
@@ -1849,7 +1923,10 @@ mod tests {
         );
         let hvci_lle_hits = evaluate_event(&hvci_lle);
         assert_eq!(hvci_lle_hits.len(), 1);
-        assert_eq!(hvci_lle_hits[0].rule_name, "EDR.Sanctum.HvciOrBlocklistDriverBlocked");
+        assert_eq!(
+            hvci_lle_hits[0].rule_name,
+            "EDR.Sanctum.HvciOrBlocklistDriverBlocked"
+        );
         assert_eq!(hvci_lle_hits[0].severity, RuleSeverity::Critical);
 
         let blinding = sample_event(
@@ -1871,7 +1948,10 @@ mod tests {
         );
         let unloaded_hits = evaluate_event(&unloaded);
         assert_eq!(unloaded_hits.len(), 1);
-        assert_eq!(unloaded_hits[0].rule_name, "EDR.Driver.SecurityDriverUnloaded");
+        assert_eq!(
+            unloaded_hits[0].rule_name,
+            "EDR.Driver.SecurityDriverUnloaded"
+        );
         assert_eq!(unloaded_hits[0].severity, RuleSeverity::Critical);
 
         let ti_remote = sample_event(
@@ -1994,7 +2074,10 @@ mod tests {
             json!({ "VhdFileName": r"C:\Users\alice\Downloads\payload.iso" }),
         );
         assert_eq!(evaluate_event(&vhd_etw).len(), 1);
-        assert_eq!(evaluate_event(&vhd_etw)[0].rule_name, "EDR.VirtualDisk.MotwBypassMount");
+        assert_eq!(
+            evaluate_event(&vhd_etw)[0].rule_name,
+            "EDR.VirtualDisk.MotwBypassMount"
+        );
 
         let priv_4732 = sample_event(
             "LOCAL_ACCOUNT_MODIFY",

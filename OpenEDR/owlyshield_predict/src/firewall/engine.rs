@@ -10,16 +10,18 @@ use std::io::{BufRead, BufReader, BufWriter, Write};
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{mpsc, Arc, Mutex, OnceLock, RwLock};
+use std::sync::{Arc, Mutex, OnceLock, RwLock, mpsc};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tokio::sync::oneshot;
 use windivert::prelude::*;
 
-static GLOBAL_FLOW_TX: OnceLock<Mutex<Option<mpsc::Sender<crate::edr_feedback::NetworkFlowRecord>>>> =
-    OnceLock::new();
+static GLOBAL_FLOW_TX: OnceLock<
+    Mutex<Option<mpsc::Sender<crate::edr_feedback::NetworkFlowRecord>>>,
+> = OnceLock::new();
 static GLOBAL_HYDRANET_TX: OnceLock<Mutex<Option<mpsc::Sender<String>>>> = OnceLock::new();
 
-fn global_flow_tx() -> &'static Mutex<Option<mpsc::Sender<crate::edr_feedback::NetworkFlowRecord>>> {
+fn global_flow_tx() -> &'static Mutex<Option<mpsc::Sender<crate::edr_feedback::NetworkFlowRecord>>>
+{
     GLOBAL_FLOW_TX.get_or_init(|| Mutex::new(None))
 }
 
@@ -252,7 +254,6 @@ pub fn normalize_canonical_path(path: &str) -> String {
     }
     trimmed.replace('/', r"\").to_lowercase()
 }
-
 
 // ============================================================================
 // DATA STRUCTURES
@@ -868,7 +869,6 @@ impl FirewallRule {
     }
 }
 
-
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(default)]
 pub struct FirewallSettings {
@@ -1203,7 +1203,8 @@ pub struct SigInfo {
 /// 3 suspicious, 0 unknown, -1 no answer yet.
 pub type CloudVerdictProviderFn = unsafe extern "C" fn(*const u16, *mut u8, u32) -> i32;
 
-static CLOUD_VERDICT_PROVIDER: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+static CLOUD_VERDICT_PROVIDER: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
 
 pub fn set_cloud_verdict_provider(f: Option<CloudVerdictProviderFn>) {
     CLOUD_VERDICT_PROVIDER.store(
@@ -1238,8 +1239,7 @@ fn query_cloud_verdict(app_path: &str) -> Option<(String, String)> {
 
 /// `(path, signer_buf, signer_cap, out_catalog) -> SignStatus`
 /// (0 valid, 1 invalid, 2 unsigned, 3 untrusted, 4 undefined).
-pub type SignatureProviderFn =
-    unsafe extern "C" fn(*const u16, *mut u16, u32, *mut u32) -> i32;
+pub type SignatureProviderFn = unsafe extern "C" fn(*const u16, *mut u16, u32, *mut u32) -> i32;
 
 static SIGNATURE_PROVIDER: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 
@@ -1467,7 +1467,13 @@ impl AppManager {
         // Hard-code only the immutable OS-level identifiers.
         // Everything else — firewall, AV, proxy processes — is driven exclusively
         // by app_decisions entries in settings.json (full paths).
-        if pid == std::process::id() || pid == 0 || pid == 4 || app_name_lower == "system" || app_name_lower == "idle" || app_name_lower == "registry" {
+        if pid == std::process::id()
+            || pid == 0
+            || pid == 4
+            || app_name_lower == "system"
+            || app_name_lower == "idle"
+            || app_name_lower == "registry"
+        {
             return (AppDecision::Allow, app_name, app_path);
         }
 
@@ -1988,7 +1994,8 @@ impl FirewallEngine {
             if let Ok(content) = fs::read_to_string(path) {
                 // Try 1: Full JSON structure with "app_decisions": { "path": "Allow" }
                 if let Ok(v) = serde_json::from_str::<serde_json::Value>(&content) {
-                    if let Some(decisions_obj) = v.get("app_decisions").and_then(|d| d.as_object()) {
+                    if let Some(decisions_obj) = v.get("app_decisions").and_then(|d| d.as_object())
+                    {
                         for (app_key, dec_val) in decisions_obj {
                             if let Some(act) = dec_val.as_str() {
                                 let dec = match act {
@@ -2058,9 +2065,7 @@ impl FirewallEngine {
         out.push(PathBuf::from("json/settings.json"));
         // Deduplicate while preserving order.
         let mut seen = HashSet::new();
-        out.into_iter()
-            .filter(|p| seen.insert(p.clone()))
-            .collect()
+        out.into_iter().filter(|p| seen.insert(p.clone())).collect()
     }
 
     pub fn load_settings() -> Option<FirewallSettings> {
@@ -2192,7 +2197,10 @@ impl FirewallEngine {
     /// the list is read (`normalize_proxy_bypass_entry`: scheme, path and quotes
     /// are dropped), so a pasted URL becomes its host. Returns the normalized
     /// entry and whether it was added (`false`: the list already has it).
-    pub(crate) fn add_proxy_bypass_entry(list: &mut Vec<String>, raw: &str) -> Result<(String, bool), String> {
+    pub(crate) fn add_proxy_bypass_entry(
+        list: &mut Vec<String>,
+        raw: &str,
+    ) -> Result<(String, bool), String> {
         let entry = Self::normalize_proxy_bypass_entry(raw)
             .ok_or_else(|| "The host is empty".to_string())?
             .to_ascii_lowercase();
@@ -2200,9 +2208,9 @@ impl FirewallEngine {
         // A host name, an IP address, an optional port and the `*` wildcards the
         // matcher understands (`*.example.com`, `*example.com`). Nothing else.
         if entry.len() > 255
-            || !entry
-                .chars()
-                .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_' | ':' | '*' | '[' | ']'))
+            || !entry.chars().all(|c| {
+                c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_' | ':' | '*' | '[' | ']')
+            })
         {
             return Err(format!("Not a host name: {entry}"));
         }
@@ -2212,7 +2220,8 @@ impl FirewallEngine {
         }
 
         let exists = list.iter().any(|existing| {
-            Self::normalize_proxy_bypass_entry(existing).is_some_and(|n| n.eq_ignore_ascii_case(&entry))
+            Self::normalize_proxy_bypass_entry(existing)
+                .is_some_and(|n| n.eq_ignore_ascii_case(&entry))
         });
         if !exists {
             list.push(entry.clone());
@@ -2781,12 +2790,12 @@ impl FirewallEngine {
     /// Install a raw DER certificate into the Windows LocalMachine\Root and CurrentUser\Root trust stores.
     pub fn install_ca_der(der: &[u8]) -> Result<(), String> {
         use windows::Win32::Security::Cryptography::{
-            CERT_CONTEXT, CERT_NAME_SIMPLE_DISPLAY_TYPE,
-            CERT_STORE_ADD_REPLACE_EXISTING_INHERIT_PROPERTIES, CertAddCertificateContextToStore,
-            CertCloseStore, CertCreateCertificateContext, CertDeleteCertificateFromStore,
-            CertDuplicateCertificateContext, CertEnumCertificatesInStore, CertFreeCertificateContext,
-            CertGetNameStringW, CertOpenStore, CERT_STORE_PROV_SYSTEM_A, CERT_QUERY_ENCODING_TYPE,
-            CERT_OPEN_STORE_FLAGS, HCRYPTPROV_LEGACY,
+            CERT_CONTEXT, CERT_NAME_SIMPLE_DISPLAY_TYPE, CERT_OPEN_STORE_FLAGS,
+            CERT_QUERY_ENCODING_TYPE, CERT_STORE_ADD_REPLACE_EXISTING_INHERIT_PROPERTIES,
+            CERT_STORE_PROV_SYSTEM_A, CertAddCertificateContextToStore, CertCloseStore,
+            CertCreateCertificateContext, CertDeleteCertificateFromStore,
+            CertDuplicateCertificateContext, CertEnumCertificatesInStore,
+            CertFreeCertificateContext, CertGetNameStringW, CertOpenStore, HCRYPTPROV_LEGACY,
         };
 
         const CERT_SYSTEM_STORE_LOCAL_MACHINE: u32 = 0x00020000;
@@ -2834,18 +2843,17 @@ impl FirewallEngine {
 
                 if store.is_invalid() {
                     let _ = CertFreeCertificateContext(Some(cert));
-                    return Err(format!("CertOpenStore returned invalid store for {}", store_name));
+                    return Err(format!(
+                        "CertOpenStore returned invalid store for {}",
+                        store_name
+                    ));
                 }
 
                 // Remove old/stale "HydraDragon Firewall CA" certs that don't match the new DER bytes
                 let mut prev: Option<*const CERT_CONTEXT> = None;
                 while let Some(current) = {
                     let c = CertEnumCertificatesInStore(store, prev);
-                    if c.is_null() {
-                        None
-                    } else {
-                        Some(c)
-                    }
+                    if c.is_null() { None } else { Some(c) }
                 } {
                     let mut buf = [0u16; 256];
                     let n = CertGetNameStringW(
@@ -2910,16 +2918,19 @@ impl FirewallEngine {
 
     fn remove_firewall_ca_from_windows_stores() -> Result<(), String> {
         use windows::Win32::Security::Cryptography::{
-            CERT_CONTEXT, CERT_NAME_SIMPLE_DISPLAY_TYPE, CertCloseStore, CertDeleteCertificateFromStore,
-            CertDuplicateCertificateContext, CertEnumCertificatesInStore,
-            CertGetNameStringW, CertOpenStore, CERT_STORE_PROV_SYSTEM_A, CERT_QUERY_ENCODING_TYPE,
-            CERT_OPEN_STORE_FLAGS, HCRYPTPROV_LEGACY,
+            CERT_CONTEXT, CERT_NAME_SIMPLE_DISPLAY_TYPE, CERT_OPEN_STORE_FLAGS,
+            CERT_QUERY_ENCODING_TYPE, CERT_STORE_PROV_SYSTEM_A, CertCloseStore,
+            CertDeleteCertificateFromStore, CertDuplicateCertificateContext,
+            CertEnumCertificatesInStore, CertGetNameStringW, CertOpenStore, HCRYPTPROV_LEGACY,
         };
 
         const CERT_SYSTEM_STORE_LOCAL_MACHINE: u32 = 0x00020000;
         const CERT_SYSTEM_STORE_CURRENT_USER: u32 = 0x00010000;
 
-        let locations = [CERT_SYSTEM_STORE_LOCAL_MACHINE, CERT_SYSTEM_STORE_CURRENT_USER];
+        let locations = [
+            CERT_SYSTEM_STORE_LOCAL_MACHINE,
+            CERT_SYSTEM_STORE_CURRENT_USER,
+        ];
         let store_names = ["ROOT", "CA", "My", "TrustedPublisher"];
 
         unsafe {
@@ -2948,11 +2959,7 @@ impl FirewallEngine {
                     let mut prev: Option<*const CERT_CONTEXT> = None;
                     while let Some(current) = {
                         let c = CertEnumCertificatesInStore(store, prev);
-                        if c.is_null() {
-                            None
-                        } else {
-                            Some(c)
-                        }
+                        if c.is_null() { None } else { Some(c) }
                     } {
                         let mut buf = [0u16; 256];
                         let n = CertGetNameStringW(
@@ -3044,8 +3051,8 @@ impl FirewallEngine {
                 id: format!("{}-hydranet-nowriter", now),
                 timestamp: now,
                 level: LogLevel::Warning,
-                message:
-                    "[HydraNet] No active pipe writer available for outbound message".to_string(),
+                message: "[HydraNet] No active pipe writer available for outbound message"
+                    .to_string(),
             });
         }
     }
@@ -3401,7 +3408,9 @@ impl FirewallEngine {
                             id: format!("{}-divert-retry-ok", ts),
                             timestamp: ts,
                             level: LogLevel::Info,
-                            message: format!("WinDivert Open succeeded on attempt {attempt}/{ATTEMPTS}"),
+                            message: format!(
+                                "WinDivert Open succeeded on attempt {attempt}/{ATTEMPTS}"
+                            ),
                         });
                     }
                     return Ok(d);
@@ -3532,24 +3541,32 @@ impl FirewallEngine {
             std::thread::Builder::new()
                 .name("viruskov_flow_telemetry_streamer".to_string())
                 .spawn(move || {
-                    let mut batch: Vec<crate::edr_feedback::NetworkFlowRecord> = Vec::with_capacity(200);
+                    let mut batch: Vec<crate::edr_feedback::NetworkFlowRecord> =
+                        Vec::with_capacity(200);
                     let mut last_flush = std::time::Instant::now();
                     const MAX_BATCH: usize = 200;
                     const FLUSH_INTERVAL: std::time::Duration = std::time::Duration::from_secs(3);
 
                     while !stop_flow_stream.load(Ordering::Relaxed) {
-                        match flow_telemetry_rx.recv_timeout(std::time::Duration::from_millis(200)) {
+                        match flow_telemetry_rx.recv_timeout(std::time::Duration::from_millis(200))
+                        {
                             Ok(rec) => {
                                 crate::edr_rules::evaluate_and_dispatch_flow(&rec);
                                 batch.push(rec);
-                                if batch.len() >= MAX_BATCH || last_flush.elapsed() >= FLUSH_INTERVAL {
-                                    crate::edr_feedback::stream_network_flows_async(std::mem::take(&mut batch));
+                                if batch.len() >= MAX_BATCH
+                                    || last_flush.elapsed() >= FLUSH_INTERVAL
+                                {
+                                    crate::edr_feedback::stream_network_flows_async(
+                                        std::mem::take(&mut batch),
+                                    );
                                     last_flush = std::time::Instant::now();
                                 }
                             }
                             Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
                                 if !batch.is_empty() && last_flush.elapsed() >= FLUSH_INTERVAL {
-                                    crate::edr_feedback::stream_network_flows_async(std::mem::take(&mut batch));
+                                    crate::edr_feedback::stream_network_flows_async(
+                                        std::mem::take(&mut batch),
+                                    );
                                     last_flush = std::time::Instant::now();
                                 }
                             }
@@ -4264,8 +4281,8 @@ impl FirewallEngine {
         let mut rst_pkt = vec![0u8; 40];
         rst_pkt[0] = 0x45; // IPv4, IHL 5 (20 bytes)
         rst_pkt[2..4].copy_from_slice(&40u16.to_be_bytes()); // Total length 40
-        rst_pkt[8] = 64;   // TTL
-        rst_pkt[9] = 6;    // Protocol TCP
+        rst_pkt[8] = 64; // TTL
+        rst_pkt[9] = 6; // Protocol TCP
         rst_pkt[12..16].copy_from_slice(&dst_ip); // Source = remote
         rst_pkt[16..20].copy_from_slice(&src_ip); // Dest = client
 
@@ -4375,7 +4392,9 @@ impl FirewallEngine {
             if info.dst_port == 53 {
                 let is_wpad = info.dns_query.as_deref().map_or(false, Self::is_wpad_query);
                 if is_wpad {
-                    if let Some(resp_packet) = Self::craft_wpad_nxdomain_response(&data_vec, payload_offset) {
+                    if let Some(resp_packet) =
+                        Self::craft_wpad_nxdomain_response(&data_vec, payload_offset)
+                    {
                         stats.packets_total.fetch_add(1, Ordering::Relaxed);
                         stats.packets_allowed.fetch_add(1, Ordering::Relaxed);
                         return PacketDecision {
@@ -4384,7 +4403,8 @@ impl FirewallEngine {
                             should_forward: true,
                             recalc_checksums: true,
                             outbound_override: Some(false), // Reinject inbound to local stack in <0.1ms
-                            _reason: "WPAD synthetic NXDOMAIN response injected (<0.1ms)".to_string(),
+                            _reason: "WPAD synthetic NXDOMAIN response injected (<0.1ms)"
+                                .to_string(),
                         };
                     }
                 }
@@ -4420,7 +4440,14 @@ impl FirewallEngine {
         // Initialize decision state
         let mut should_forward = true;
         let mut reason: Option<String> = None;
-        let (late_blocking_mode, tls_proxy_cfg, log_mode, show_blocked_only, cloud_wait_mode, _unknown_hold_timeout_ms) = {
+        let (
+            late_blocking_mode,
+            tls_proxy_cfg,
+            log_mode,
+            show_blocked_only,
+            cloud_wait_mode,
+            _unknown_hold_timeout_ms,
+        ) = {
             let s = settings.read().unwrap();
             (
                 s.late_blocking_mode,
@@ -4443,16 +4470,26 @@ impl FirewallEngine {
                     address_data: address_data.to_vec(),
                     should_forward: true,
                     recalc_checksums: false,
-                        outbound_override: None,
+                    outbound_override: None,
                     _reason: "Whitelisted network".to_string(),
                 };
             }
         }
 
         // --- Cloud IP reputation (WebFilter; non-blocking, no local CIDR list) ---
-        let remote_ip = if info.outbound { info.dst_ip } else { info.src_ip };
+        let remote_ip = if info.outbound {
+            info.dst_ip
+        } else {
+            info.src_ip
+        };
         let is_private_or_local = match remote_ip {
-            IpAddr::V4(v4) => v4.is_loopback() || v4.is_private() || v4.is_link_local() || v4.is_broadcast() || v4.is_unspecified(),
+            IpAddr::V4(v4) => {
+                v4.is_loopback()
+                    || v4.is_private()
+                    || v4.is_link_local()
+                    || v4.is_broadcast()
+                    || v4.is_unspecified()
+            }
             IpAddr::V6(v6) => v6.is_loopback() || v6.is_unspecified(),
         };
         if !is_private_or_local {
@@ -4495,7 +4532,8 @@ impl FirewallEngine {
             &[]
         };
         if super::tls_parser::is_tls_handshake(tls_payload) {
-            if let Some(cert_sha1) = super::tls_parser::extract_server_certificate_sha1(tls_payload) {
+            if let Some(cert_sha1) = super::tls_parser::extract_server_certificate_sha1(tls_payload)
+            {
                 if web_filter.is_ssl_blacklisted(&cert_sha1) {
                     stats.packets_total.fetch_add(1, Ordering::Relaxed);
                     stats.packets_blocked.fetch_add(1, Ordering::Relaxed);
@@ -4764,14 +4802,26 @@ impl FirewallEngine {
         // --- 11. DEFAULT DENY & INTERACTIVE USER PROMPTING ---
         // 1. Guard critical system processes & essential network protocols (DNS, DHCP, NTP, NCSI)
         let is_dns_query = info.dst_port == 53 || info.src_port == 53;
-        let is_dhcp = info.dst_port == 67 || info.src_port == 67 || info.dst_port == 68 || info.src_port == 68;
+        let is_dhcp = info.dst_port == 67
+            || info.src_port == 67
+            || info.dst_port == 68
+            || info.src_port == 68;
         let is_ntp = info.dst_port == 123 || info.src_port == 123;
-        let is_ncsi = info.hostname.as_deref().map_or(false, |h| h.contains("msftconnecttest") || h.contains("msftncsi"))
-            || info.full_url.as_deref().map_or(false, |u| u.contains("msftconnecttest") || u.contains("msftncsi"));
+        let is_ncsi = info.hostname.as_deref().map_or(false, |h| {
+            h.contains("msftconnecttest") || h.contains("msftncsi")
+        }) || info.full_url.as_deref().map_or(false, |u| {
+            u.contains("msftconnecttest") || u.contains("msftncsi")
+        });
         let is_essential_net = is_dns_query || is_dhcp || is_ntp || is_ncsi;
 
         let default_deny = settings.read().map(|s| s.default_deny).unwrap_or(true);
-        if default_deny && should_forward && outbound && pid != 0 && pid != std::process::id() && !is_essential_net {
+        if default_deny
+            && should_forward
+            && outbound
+            && pid != 0
+            && pid != std::process::id()
+            && !is_essential_net
+        {
             let app_path = app_info.path.clone();
             let app_name = app_info.name.clone();
             let app_name_lower = app_name.to_lowercase();
@@ -4786,7 +4836,8 @@ impl FirewallEngine {
                     || app_name_lower == "lsass.exe"
                     || app_name_lower == "smss.exe"
                     || app_name_lower == "csrss.exe")
-                    && (app_path_lower.starts_with(r"c:\windows\system32") || app_path_lower.starts_with(r"c:\windows\syswow64")));
+                    && (app_path_lower.starts_with(r"c:\windows\system32")
+                        || app_path_lower.starts_with(r"c:\windows\syswow64")));
 
             if is_system_essential_proc {
                 // Inherent OS kernel/pseudo-processes and core Windows network services, allowed
@@ -4810,11 +4861,17 @@ impl FirewallEngine {
                         if cloud_wait_mode {
                             // Cloud Wait Mode: Kesmeden bekletme/izleme modu - don't sever connection while pending
                             should_forward = true;
-                            reason = Some(format!("Cloud Wait Mode: awaiting authorization for {} | traffic kept alive", app_name));
+                            reason = Some(format!(
+                                "Cloud Wait Mode: awaiting authorization for {} | traffic kept alive",
+                                app_name
+                            ));
                         } else {
                             // Strict Default Deny: block network traffic while prompt is evaluated
                             should_forward = false;
-                            reason = Some(format!("Default Deny: awaiting authorization for {}", app_name));
+                            reason = Some(format!(
+                                "Default Deny: awaiting authorization for {}",
+                                app_name
+                            ));
                         }
                     }
                     None if am.try_get_sig(&app_path).is_none() => {
@@ -4847,7 +4904,8 @@ impl FirewallEngine {
                         // It used to come from an openedr_cloud scan whose "Clean" /
                         // "Malicious" never matched the "safe" / "malicious" compared here.
                         let is_viruskov_safe = sig_info.cloud_verdict.as_deref() == Some("safe");
-                        let is_viruskov_malicious = sig_info.cloud_verdict.as_deref() == Some("malicious");
+                        let is_viruskov_malicious =
+                            sig_info.cloud_verdict.as_deref() == Some("malicious");
 
                         // Non-blocking verdict check: NEVER sleep inside the WinDivert packet worker loop!
                         // Sleeping in worker threads starves the shared WinDivert handle (max 16384 pkts) and causes dropped packets / internet cuts.
@@ -4863,11 +4921,13 @@ impl FirewallEngine {
                         };
 
                         let is_confirmed_malicious = is_comodo_malicious || is_viruskov_malicious;
-                        let is_verified_safe = !is_sig_untrusted || is_comodo_safe || is_viruskov_safe;
+                        let is_verified_safe =
+                            !is_sig_untrusted || is_comodo_safe || is_viruskov_safe;
 
                         if is_confirmed_malicious {
                             should_forward = false;
-                            reason = Some(format!("Blocked: Malicious cloud verdict for {}", app_name));
+                            reason =
+                                Some(format!("Blocked: Malicious cloud verdict for {}", app_name));
                             am.resolve_decision(&app_path_lower, AppDecision::Block);
                         } else if is_verified_safe {
                             // Verified/signed application: auto-cache as Allow
@@ -4880,7 +4940,9 @@ impl FirewallEngine {
                                 url.clone()
                             } else if let Some(ref host) = info.hostname {
                                 format!("{}:{} ({})", host, info.dst_port, info.dst_ip)
-                            } else if let Some(host) = dns_handler.resolve_ip(&info.dst_ip.to_string()) {
+                            } else if let Some(host) =
+                                dns_handler.resolve_ip(&info.dst_ip.to_string())
+                            {
                                 format!("{}:{} ({})", host, info.dst_port, info.dst_ip)
                             } else {
                                 format!("{}:{}", info.dst_ip, info.dst_port)
@@ -4915,8 +4977,17 @@ impl FirewallEngine {
                                 reason = Some(format!(
                                     "Cloud Wait Mode: Cloud verdict unknown (Cloud: {}, Viruskov: {}, Comodo: {}) for {} | Monitored, connection kept alive",
                                     sig_info.cloud_verdict.as_deref().unwrap_or("pending"),
-                                    if sig_info.viruskov.is_empty() { "-" } else { sig_info.viruskov.as_str() },
-                                    am.openedr_verdicts.read().unwrap().get(&pid).cloned().unwrap_or_else(|| "unknown".to_string()),
+                                    if sig_info.viruskov.is_empty() {
+                                        "-"
+                                    } else {
+                                        sig_info.viruskov.as_str()
+                                    },
+                                    am.openedr_verdicts
+                                        .read()
+                                        .unwrap()
+                                        .get(&pid)
+                                        .cloned()
+                                        .unwrap_or_else(|| "unknown".to_string()),
                                     app_name
                                 ));
                                 emit_log_event(LogEntry {
@@ -4931,7 +5002,10 @@ impl FirewallEngine {
                             } else {
                                 // Strict Default Deny: block network traffic while prompt is evaluated
                                 should_forward = false;
-                                reason = Some(format!("Default Deny: awaiting authorization for {}", app_name));
+                                reason = Some(format!(
+                                    "Default Deny: awaiting authorization for {}",
+                                    app_name
+                                ));
                             }
                         }
                     }
@@ -5087,7 +5161,10 @@ impl FirewallEngine {
                     id: format!("{}-logonly", now),
                     timestamp: now,
                     level: LogLevel::Warning,
-                    message: format!("Firewall log-only mode: allowed (not blocked) | {}", final_reason),
+                    message: format!(
+                        "Firewall log-only mode: allowed (not blocked) | {}",
+                        final_reason
+                    ),
                 });
             }
         }
@@ -6032,8 +6109,7 @@ impl FirewallEngine {
         }
 
         if let Some(d) = self.flow_divert_handle.lock().unwrap().take() {
-            let ptr =
-                Arc::as_ptr(&d.0) as *mut windivert::WinDivert<windivert::prelude::FlowLayer>;
+            let ptr = Arc::as_ptr(&d.0) as *mut windivert::WinDivert<windivert::prelude::FlowLayer>;
             unsafe {
                 let _ = (*ptr).shutdown(WinDivertShutdownMode::Both);
             }
@@ -6101,7 +6177,10 @@ mod bypass_host_tests {
     #[test]
     fn payload_hex_sample_is_the_first_bytes_in_lower_case_hex() {
         assert_eq!(FirewallEngine::payload_hex_sample(b"GET /"), "474554202f");
-        assert_eq!(FirewallEngine::payload_hex_sample(&[0x00, 0xff, 0x0a]), "00ff0a");
+        assert_eq!(
+            FirewallEngine::payload_hex_sample(&[0x00, 0xff, 0x0a]),
+            "00ff0a"
+        );
         assert_eq!(FirewallEngine::payload_hex_sample(&[]), "");
         // Only the first PAYLOAD_SAMPLE_BYTES bytes are kept.
         let long = vec![0xabu8; 100];
@@ -6115,21 +6194,35 @@ mod bypass_host_tests {
         let mut list = vec!["api.viruskov.com".to_string()];
 
         // A pasted URL becomes its host; the entry is stored lower-case.
-        let (entry, added) = FirewallEngine::add_proxy_bypass_entry(&mut list, " https://Bank.Example.com/login?x=1 ").unwrap();
+        let (entry, added) = FirewallEngine::add_proxy_bypass_entry(
+            &mut list,
+            " https://Bank.Example.com/login?x=1 ",
+        )
+        .unwrap();
         assert_eq!(entry, "bank.example.com");
         assert!(added);
         assert_eq!(list.last().unwrap(), "bank.example.com");
 
         // Already present (any case, any form): not added twice.
-        let (_, added) = FirewallEngine::add_proxy_bypass_entry(&mut list, "BANK.example.com").unwrap();
+        let (_, added) =
+            FirewallEngine::add_proxy_bypass_entry(&mut list, "BANK.example.com").unwrap();
         assert!(!added);
-        let (_, added) = FirewallEngine::add_proxy_bypass_entry(&mut list, "http://api.viruskov.com/").unwrap();
+        let (_, added) =
+            FirewallEngine::add_proxy_bypass_entry(&mut list, "http://api.viruskov.com/").unwrap();
         assert!(!added);
         assert_eq!(list.len(), 2);
 
         // Wildcards and host:port are the forms the matcher understands.
-        assert!(FirewallEngine::add_proxy_bypass_entry(&mut list, "*.example.org").unwrap().1);
-        assert!(FirewallEngine::add_proxy_bypass_entry(&mut list, "127.0.0.1:9440").unwrap().1);
+        assert!(
+            FirewallEngine::add_proxy_bypass_entry(&mut list, "*.example.org")
+                .unwrap()
+                .1
+        );
+        assert!(
+            FirewallEngine::add_proxy_bypass_entry(&mut list, "127.0.0.1:9440")
+                .unwrap()
+                .1
+        );
 
         // Not hosts.
         assert!(FirewallEngine::add_proxy_bypass_entry(&mut list, "").is_err());

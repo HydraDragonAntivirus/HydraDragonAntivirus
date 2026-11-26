@@ -148,7 +148,6 @@ fn parse_sni_extension(data: &[u8]) -> Option<String> {
 }
 
 /// Checks if the packet appears to be a TLS handshake (quick check)
-
 use sha1::{Digest, Sha1};
 
 /// Extracts the SHA-1 fingerprint (lowercase hex, 40 chars) of the first certificate
@@ -171,7 +170,8 @@ pub fn extract_server_certificate_sha1(data: &[u8]) -> Option<String> {
 
     while offset + 4 <= end {
         let msg_type = data[offset];
-        let msg_len = u32::from_be_bytes([0, data[offset + 1], data[offset + 2], data[offset + 3]]) as usize;
+        let msg_len =
+            u32::from_be_bytes([0, data[offset + 1], data[offset + 2], data[offset + 3]]) as usize;
         offset += 4;
         if offset + msg_len > end {
             break;
@@ -183,7 +183,12 @@ pub fn extract_server_certificate_sha1(data: &[u8]) -> Option<String> {
             }
             let mut cert_offset = offset + 3;
             if cert_offset + 3 <= offset + msg_len {
-                let first_cert_len = u32::from_be_bytes([0, data[cert_offset], data[cert_offset + 1], data[cert_offset + 2]]) as usize;
+                let first_cert_len = u32::from_be_bytes([
+                    0,
+                    data[cert_offset],
+                    data[cert_offset + 1],
+                    data[cert_offset + 2],
+                ]) as usize;
                 cert_offset += 3;
                 if cert_offset + first_cert_len <= offset + msg_len {
                     let cert_der = &data[cert_offset..cert_offset + first_cert_len];
@@ -256,7 +261,8 @@ pub fn extract_ja3(data: &[u8]) -> Option<String> {
     let session_id_len = *body.get(offset)? as usize;
     offset += 1 + session_id_len;
 
-    let cipher_bytes_len = u16::from_be_bytes([*body.get(offset)?, *body.get(offset + 1)?]) as usize;
+    let cipher_bytes_len =
+        u16::from_be_bytes([*body.get(offset)?, *body.get(offset + 1)?]) as usize;
     offset += 2;
     if offset + cipher_bytes_len > body.len() {
         return None;
@@ -370,7 +376,6 @@ pub fn extract_ja3s(data: &[u8]) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
 
     #[test]
     fn test_extract_server_certificate_sha1() {

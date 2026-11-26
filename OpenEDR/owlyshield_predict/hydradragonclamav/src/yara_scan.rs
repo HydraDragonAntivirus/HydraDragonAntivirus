@@ -2,8 +2,8 @@ use crate::scanner::ScanMatch;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 static NEXT_ENGINE_ID: AtomicU64 = AtomicU64::new(0);
 
@@ -121,8 +121,7 @@ impl YaraEngine {
                 // lifetime of the process. A `Scanner` that borrows the rules
                 // at this address with a `'static` lifetime is therefore sound.
                 let rules_ptr: *const yara_x::Rules = &*self.rules;
-                let rules_static: &'static yara_x::Rules =
-                    unsafe { &*rules_ptr };
+                let rules_static: &'static yara_x::Rules = unsafe { &*rules_ptr };
                 let mut scanner = yara_x::Scanner::new(rules_static);
                 scanner.fast_scan(true);
                 scanner
