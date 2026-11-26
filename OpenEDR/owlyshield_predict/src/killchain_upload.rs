@@ -47,8 +47,22 @@ const MAX_SEEN_KEYS: usize = 250_000;
 // The key only decides what counts as a repeat; the trainer recomputes the features
 // from the raw event it receives, so a small mismatch costs dedupe precision only.
 
-const IDENTITY_KEYS: [&str; 6] = ["imagefile", "imagepath", "cmdline", "commandline", "exepath", "appname"];
-const EXCLUDE_SUB: [&str; 6] = ["verdict", "threat", "hash", "ticktime", "creationtime", "accesstime"];
+const IDENTITY_KEYS: [&str; 6] = [
+    "imagefile",
+    "imagepath",
+    "cmdline",
+    "commandline",
+    "exepath",
+    "appname",
+];
+const EXCLUDE_SUB: [&str; 6] = [
+    "verdict",
+    "threat",
+    "hash",
+    "ticktime",
+    "creationtime",
+    "accesstime",
+];
 const EXCLUDE_SUB_LITERAL: &str = "$$";
 const EXCLUDE_EQ: [&str; 5] = ["id", "pid", "gid", "sid", "time"];
 const DATA_KEYS: [&str; 6] = ["data", "content", "blob", "script", "scripttext", "value"];
@@ -151,7 +165,11 @@ fn flatten(prefix: &str, val: &serde_json::Value, f: &mut Features, depth: usize
                         Value::String(s) => s.chars().count(),
                         other => other.to_string().chars().count(),
                     };
-                    put(f, format!("{prefix}{kl}_len~{}", logbucket(length as f64)), 1.0);
+                    put(
+                        f,
+                        format!("{prefix}{kl}_len~{}", logbucket(length as f64)),
+                        1.0,
+                    );
                     continue;
                 }
                 if IDENTITY_KEYS.iter().any(|idk| kl.contains(idk)) {
@@ -162,15 +180,29 @@ fn flatten(prefix: &str, val: &serde_json::Value, f: &mut Features, depth: usize
             }
         }
         Value::Array(items) => {
-            put(f, format!("len_{}={}", trim_prefix(prefix), logbucket(items.len() as f64)), 1.0);
+            put(
+                f,
+                format!(
+                    "len_{}={}",
+                    trim_prefix(prefix),
+                    logbucket(items.len() as f64)
+                ),
+                1.0,
+            );
             for item in items.iter().take(5) {
                 flatten(prefix, item, f, depth + 1);
             }
         }
         Value::Bool(b) => put(f, format!("{}={}", trim_prefix(prefix), u8::from(*b)), 1.0),
-        Value::Number(n) => {
-            put(f, format!("{}~{}", trim_prefix(prefix), logbucket(n.as_f64().unwrap_or(0.0))), 1.0)
-        }
+        Value::Number(n) => put(
+            f,
+            format!(
+                "{}~{}",
+                trim_prefix(prefix),
+                logbucket(n.as_f64().unwrap_or(0.0))
+            ),
+            1.0,
+        ),
         Value::String(s) => {
             if s.is_empty() || s == "<undefined>" || s == "null" {
                 return;
@@ -178,11 +210,23 @@ fn flatten(prefix: &str, val: &serde_json::Value, f: &mut Features, depth: usize
             if is_pathy(s) {
                 put(f, format!("{prefix}dir={}", dirclass(s)), 1.0);
                 put(f, format!("{prefix}ext={}", ext_of(s)), 1.0);
-                put(f, format!("{prefix}len~{}", logbucket(s.chars().count() as f64)), 1.0);
+                put(
+                    f,
+                    format!("{prefix}len~{}", logbucket(s.chars().count() as f64)),
+                    1.0,
+                );
             } else if s.chars().count() > 80 {
-                put(f, format!("{prefix}longlen~{}", logbucket(s.chars().count() as f64)), 1.0);
+                put(
+                    f,
+                    format!("{prefix}longlen~{}", logbucket(s.chars().count() as f64)),
+                    1.0,
+                );
             } else {
-                put(f, format!("{}={}", trim_prefix(prefix), s.to_lowercase()), 1.0);
+                put(
+                    f,
+                    format!("{}={}", trim_prefix(prefix), s.to_lowercase()),
+                    1.0,
+                );
             }
         }
         Value::Null => {}
@@ -190,8 +234,17 @@ fn flatten(prefix: &str, val: &serde_json::Value, f: &mut Features, depth: usize
 }
 
 fn kstack_features(raw: &serde_json::Value, f: &mut Features) {
-    for key in ["kernelStackSymbols", "kernelstacksymbols", "kernelStack", "kernelstack"] {
-        let Some(s) = raw.get(key).and_then(|v| v.as_str()).filter(|s| !s.is_empty()) else {
+    for key in [
+        "kernelStackSymbols",
+        "kernelstacksymbols",
+        "kernelStack",
+        "kernelstack",
+    ] {
+        let Some(s) = raw
+            .get(key)
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.is_empty())
+        else {
             continue;
         };
         let mut mods = std::collections::BTreeSet::new();
@@ -202,7 +255,13 @@ fn kstack_features(raw: &serde_json::Value, f: &mut Features) {
                 continue;
             }
             nframes += 1;
-            let first = p.split('+').next().unwrap_or("").split('!').next().unwrap_or("");
+            let first = p
+                .split('+')
+                .next()
+                .unwrap_or("")
+                .split('!')
+                .next()
+                .unwrap_or("");
             let first = first.replace('/', "\\");
             let base = first.rsplit('\\').next().unwrap_or("");
             if !base.is_empty() && base.chars().count() < 64 {
@@ -212,7 +271,11 @@ fn kstack_features(raw: &serde_json::Value, f: &mut Features) {
         for m in mods {
             put(f, format!("kstack_mod={m}"), 1.0);
         }
-        put(f, format!("kstack_frames~{}", logbucket(nframes as f64)), 1.0);
+        put(
+            f,
+            format!("kstack_frames~{}", logbucket(nframes as f64)),
+            1.0,
+        );
         break;
     }
 }
@@ -221,7 +284,12 @@ fn kstack_features(raw: &serde_json::Value, f: &mut Features) {
 pub fn event_features(event: &str, details: &str, raw: &serde_json::Value) -> Features {
     let mut f = Features::new();
     put(&mut f, format!("event={event}"), 1.0);
-    const TAGS: [(&str, &str); 4] = [("[File:", "File"), ("[Reg:", "Reg"), ("[API:", "API"), ("[Net:", "Net")];
+    const TAGS: [(&str, &str); 4] = [
+        ("[File:", "File"),
+        ("[Reg:", "Reg"),
+        ("[API:", "API"),
+        ("[Net:", "Net"),
+    ];
     for (tag, name) in TAGS {
         if details.starts_with(&format!(" {tag}")) || details.starts_with(tag) {
             put(&mut f, format!("det={name}"), 1.0);
@@ -247,11 +315,35 @@ pub fn event_features(event: &str, details: &str, raw: &serde_json::Value) -> Fe
     flatten("raw.", raw, &mut f, 0);
     kstack_features(raw, &mut f);
     put(&mut f, "dt_prev~none".to_string(), 1.0);
-    put(&mut f, "has_net".to_string(), if details.contains("[Net:") { 1.0 } else { 0.0 });
-    put(&mut f, "has_target".to_string(), if raw.get("target").is_some_and(|v| v.is_object()) { 1.0 } else { 0.0 });
-    put(&mut f, "has_thread".to_string(), if raw.get("thread").is_some_and(|v| v.is_object()) { 1.0 } else { 0.0 });
+    put(
+        &mut f,
+        "has_net".to_string(),
+        if details.contains("[Net:") { 1.0 } else { 0.0 },
+    );
+    put(
+        &mut f,
+        "has_target".to_string(),
+        if raw.get("target").is_some_and(|v| v.is_object()) {
+            1.0
+        } else {
+            0.0
+        },
+    );
+    put(
+        &mut f,
+        "has_thread".to_string(),
+        if raw.get("thread").is_some_and(|v| v.is_object()) {
+            1.0
+        } else {
+            0.0
+        },
+    );
     let has_stack = raw.get("kernelStackSymbols").is_some_and(|v| !v.is_null());
-    put(&mut f, "has_stack".to_string(), if has_stack { 1.0 } else { 0.0 });
+    put(
+        &mut f,
+        "has_stack".to_string(),
+        if has_stack { 1.0 } else { 0.0 },
+    );
     match raw.get("accessMask") {
         Some(acc) if !acc.is_null() => put(&mut f, format!("access={}", py_scalar(acc)), 1.0),
         _ => put(&mut f, "access=None".to_string(), 1.0),
@@ -353,9 +445,14 @@ impl State {
             }
         }
         if !bytes.is_empty() {
-            std::fs::OpenOptions::new().create(true).append(true).open(self.dir.join("seen.bin"))?.write_all(&bytes)?;
+            std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(self.dir.join("seen.bin"))?
+                .write_all(&bytes)?;
         }
-        self.offsets.extend(offsets.iter().map(|(k, v)| (k.clone(), *v)));
+        self.offsets
+            .extend(offsets.iter().map(|(k, v)| (k.clone(), *v)));
         let tmp = self.dir.join("offsets.json.tmp");
         std::fs::write(&tmp, serde_json::to_vec(&self.offsets).unwrap_or_default())?;
         std::fs::rename(&tmp, self.dir.join("offsets.json"))
@@ -422,23 +519,40 @@ fn add_line(p: &mut Pending, seen: &HashSet<u64>, date: &str, line: &str) {
     };
     let s = |k: &str| d.get(k).and_then(|v| v.as_str()).unwrap_or("").to_string();
     let (exe, event, details, time) = (s("exe"), s("event"), s("details"), s("time"));
-    let raw = d.get("raw").cloned().unwrap_or(serde_json::Value::Object(Default::default()));
-    add_structured_record(p, seen, date.to_string(), time, exe, event, details, raw, line.len());
+    let raw = d
+        .get("raw")
+        .cloned()
+        .unwrap_or(serde_json::Value::Object(Default::default()));
+    add_structured_record(
+        p,
+        seen,
+        date.to_string(),
+        time,
+        exe,
+        event,
+        details,
+        raw,
+        line.len(),
+    );
 }
 
 fn enrich_record_for_parity(rec: &mut UploadRecord) {
     if let Some(obj) = rec.raw.as_object_mut() {
         if rec.event == "LLE_NAMED_PIPE_SERVER_CREATE" {
-            obj.entry("pipe_op").or_insert_with(|| serde_json::json!("create"));
+            obj.entry("pipe_op")
+                .or_insert_with(|| serde_json::json!("create"));
         } else if rec.event == "LLE_NAMED_PIPE_CREATE" {
-            obj.entry("pipe_op").or_insert_with(|| serde_json::json!("connect"));
+            obj.entry("pipe_op")
+                .or_insert_with(|| serde_json::json!("connect"));
         }
     }
     if crate::telemetry_stream::should_hash_event(&rec.event) && rec.raw.get("hashes").is_none() {
         if let Some(path) = crate::telemetry_stream::extract_best_file_path(&rec.raw, &rec.exe) {
             if !path.to_ascii_lowercase().ends_with(":zone.identifier") {
                 if let Some(hashes) = crate::pe_hashes::compute_file_hashes_cached(&path) {
-                    if let (Some(obj), Ok(hv)) = (rec.raw.as_object_mut(), serde_json::to_value(hashes)) {
+                    if let (Some(obj), Ok(hv)) =
+                        (rec.raw.as_object_mut(), serde_json::to_value(hashes))
+                    {
                         obj.insert("hashes".to_string(), hv);
                     }
                 }
@@ -475,7 +589,12 @@ fn send(p: &mut Pending) -> bool {
         Ok(b) => b,
         Err(_) => return false,
     };
-    match crate::edr_feedback::post_to_server(KILLCHAIN_PATH, "application/json", Some("br"), &packed) {
+    match crate::edr_feedback::post_to_server(
+        KILLCHAIN_PATH,
+        "application/json",
+        Some("br"),
+        &packed,
+    ) {
         Ok((200, _)) => {
             Logging::info(&format!(
                 "[KillChain Upload] sent {} new event shapes, {} repeat counts ({} KB -> {} KB)",
@@ -510,7 +629,10 @@ fn log_files(dir: &Path) -> Vec<(PathBuf, String, String)> {
         .flatten()
         .filter_map(|e| {
             let name = e.file_name().to_string_lossy().to_string();
-            let date = name.strip_prefix("unknown_killchain_")?.strip_suffix(".jsonl")?.to_string();
+            let date = name
+                .strip_prefix("unknown_killchain_")?
+                .strip_suffix(".jsonl")?
+                .to_string();
             Some((e.path(), name, date))
         })
         .collect();
@@ -524,7 +646,9 @@ fn round(state: &mut State, log_dir: &Path) -> bool {
     let mut p = Pending::default();
     for (path, name, date) in log_files(log_dir) {
         let start = state.offsets.get(&name).copied().unwrap_or(0);
-        let Ok(mut file) = std::fs::File::open(&path) else { continue };
+        let Ok(mut file) = std::fs::File::open(&path) else {
+            continue;
+        };
         let len = file.metadata().map(|m| m.len()).unwrap_or(0);
         if len <= start || file.seek(SeekFrom::Start(start)).is_err() {
             continue;
@@ -534,10 +658,16 @@ fn round(state: &mut State, log_dir: &Path) -> bool {
             continue;
         }
         // Only whole lines: edrsvc may be writing the last one right now.
-        let Some(last_nl) = buf.iter().rposition(|&b| b == b'\n') else { continue };
+        let Some(last_nl) = buf.iter().rposition(|&b| b == b'\n') else {
+            continue;
+        };
         let mut pos = 0usize;
         while pos <= last_nl {
-            let end = pos + buf[pos..=last_nl].iter().position(|&b| b == b'\n').expect("newline");
+            let end = pos
+                + buf[pos..=last_nl]
+                    .iter()
+                    .position(|&b| b == b'\n')
+                    .expect("newline");
             if let Ok(line) = std::str::from_utf8(&buf[pos..end]) {
                 let line = line.trim_end_matches('\r');
                 if !line.is_empty() {
@@ -552,7 +682,9 @@ fn round(state: &mut State, log_dir: &Path) -> bool {
                 }
                 let keys: Vec<u64> = p.index.keys().copied().collect();
                 if let Err(e) = state.commit(&p.offsets, &keys) {
-                    Logging::warning(&format!("[KillChain Upload] could not save upload state: {e}"));
+                    Logging::warning(&format!(
+                        "[KillChain Upload] could not save upload state: {e}"
+                    ));
                 }
                 p = Pending::default();
             }
@@ -564,7 +696,9 @@ fn round(state: &mut State, log_dir: &Path) -> bool {
         }
         let keys: Vec<u64> = p.index.keys().copied().collect();
         if let Err(e) = state.commit(&p.offsets, &keys) {
-            Logging::warning(&format!("[KillChain Upload] could not save upload state: {e}"));
+            Logging::warning(&format!(
+                "[KillChain Upload] could not save upload state: {e}"
+            ));
         }
     } else if !p.offsets.is_empty() {
         // Only blank / unparsable lines: still move past them.
@@ -601,8 +735,14 @@ struct Live {
 }
 
 fn live() -> &'static (std::sync::Mutex<Live>, std::sync::Condvar) {
-    static LIVE: std::sync::OnceLock<(std::sync::Mutex<Live>, std::sync::Condvar)> = std::sync::OnceLock::new();
-    LIVE.get_or_init(|| (std::sync::Mutex::new(Live::default()), std::sync::Condvar::new()))
+    static LIVE: std::sync::OnceLock<(std::sync::Mutex<Live>, std::sync::Condvar)> =
+        std::sync::OnceLock::new();
+    LIVE.get_or_init(|| {
+        (
+            std::sync::Mutex::new(Live::default()),
+            std::sync::Condvar::new(),
+        )
+    })
 }
 
 /// One training event from edrsvc: `{"time","exe","event","details","raw"}` (the
@@ -655,8 +795,8 @@ struct TrainingConfig {
 fn read_sdk_training_config() -> (bool, String) {
     #[cfg(target_os = "windows")]
     {
-        use winreg::enums::{HKEY_LOCAL_MACHINE, KEY_READ};
         use winreg::RegKey;
+        use winreg::enums::{HKEY_LOCAL_MACHINE, KEY_READ};
         let hklm = RegKey::predef(HKEY_LOCAL_MACHINE);
         let Ok(key) = hklm.open_subkey_with_flags(r"SOFTWARE\Owlyshield\SDK", KEY_READ) else {
             return (false, String::new());
@@ -664,7 +804,11 @@ fn read_sdk_training_config() -> (bool, String) {
         let mode = key
             .get_value::<String, _>("TRAINING_MODE")
             .ok()
-            .or_else(|| key.get_value::<u32, _>("TRAINING_MODE").ok().map(|n| n.to_string()))
+            .or_else(|| {
+                key.get_value::<u32, _>("TRAINING_MODE")
+                    .ok()
+                    .map(|n| n.to_string())
+            })
             .unwrap_or_default();
         let trimmed = mode.trim_matches('\0').trim();
         let enabled = trimmed == "1" || trimmed.eq_ignore_ascii_case("true");
@@ -682,7 +826,8 @@ fn read_sdk_training_config() -> (bool, String) {
 }
 
 fn training_config() -> (bool, String) {
-    static CACHE: std::sync::OnceLock<std::sync::RwLock<Option<TrainingConfig>>> = std::sync::OnceLock::new();
+    static CACHE: std::sync::OnceLock<std::sync::RwLock<Option<TrainingConfig>>> =
+        std::sync::OnceLock::new();
     let lock = CACHE.get_or_init(|| std::sync::RwLock::new(None));
     if let Ok(g) = lock.read() {
         if let Some(cfg) = g.as_ref() {
@@ -774,7 +919,8 @@ pub fn submit_edr_event(
     } else {
         raw.clone()
     };
-    let est_bytes = 64 + exe_path.len() + event_type.len() + details_str.len() + raw_val.to_string().len();
+    let est_bytes =
+        64 + exe_path.len() + event_type.len() + details_str.len() + raw_val.to_string().len();
     let (lock, wake) = live();
     let Ok(mut g) = lock.lock() else { return };
     if g.pending.records.len() >= MAX_BATCH_RECORDS * LIVE_CAP_FACTOR
@@ -805,7 +951,10 @@ fn send_live() -> bool {
     let (lock, _) = live();
     let (mut batch, dropped) = {
         let Ok(mut g) = lock.lock() else { return false };
-        (std::mem::take(&mut g.pending), std::mem::take(&mut g.dropped))
+        (
+            std::mem::take(&mut g.pending),
+            std::mem::take(&mut g.dropped),
+        )
     };
     if dropped > 0 {
         Logging::warning(&format!(
@@ -836,32 +985,36 @@ pub fn start() {
     if STARTED.swap(true, std::sync::atomic::Ordering::SeqCst) {
         return;
     }
-    let _ = std::thread::Builder::new().name("killchain-upload".into()).spawn(move || {
-        std::thread::sleep(FIRST_ROUND_DELAY);
-        // .jsonl files edrsvc wrote before it handed events over directly: drained
-        // once more each round until nothing new is left in them.
-        let log_dir = training_data_dir();
-        let mut state = log_dir.as_ref().map(|d| State::load(d.join("upload_state")));
-        loop {
-            // Several batches when a full one woke us early.
-            while send_live() {
-                let (lock, _) = live();
-                if !lock.lock().map(|g| g.pending.full()).unwrap_or(false) {
-                    break;
+    let _ = std::thread::Builder::new()
+        .name("killchain-upload".into())
+        .spawn(move || {
+            std::thread::sleep(FIRST_ROUND_DELAY);
+            // .jsonl files edrsvc wrote before it handed events over directly: drained
+            // once more each round until nothing new is left in them.
+            let log_dir = training_data_dir();
+            let mut state = log_dir
+                .as_ref()
+                .map(|d| State::load(d.join("upload_state")));
+            loop {
+                // Several batches when a full one woke us early.
+                while send_live() {
+                    let (lock, _) = live();
+                    if !lock.lock().map(|g| g.pending.full()).unwrap_or(false) {
+                        break;
+                    }
+                }
+                if let (Some(dir), Some(st)) = (log_dir.as_ref(), state.as_mut()) {
+                    if dir.is_dir() {
+                        round(st, dir);
+                    }
+                }
+                // Sleep until the next round, or until a batch fills up.
+                let (lock, wake) = live();
+                if let Ok(g) = lock.lock() {
+                    let _ = wake.wait_timeout_while(g, ROUND_INTERVAL, |g| !g.pending.full());
                 }
             }
-            if let (Some(dir), Some(st)) = (log_dir.as_ref(), state.as_mut()) {
-                if dir.is_dir() {
-                    round(st, dir);
-                }
-            }
-            // Sleep until the next round, or until a batch fills up.
-            let (lock, wake) = live();
-            if let Ok(g) = lock.lock() {
-                let _ = wake.wait_timeout_while(g, ROUND_INTERVAL, |g| !g.pending.full());
-            }
-        }
-    });
+        });
 }
 
 #[cfg(test)]
@@ -871,7 +1024,9 @@ mod tests {
     #[test]
     fn a_failed_batch_is_requeued_ahead_of_newer_events() {
         let line = |exe: &str| {
-            format!(r#"{{"time":"10:00:00.000","exe":"{exe}","event":"LLE_FILE_CREATE","details":"","raw":{{}}}}"#)
+            format!(
+                r#"{{"time":"10:00:00.000","exe":"{exe}","event":"LLE_FILE_CREATE","details":"","raw":{{}}}}"#
+            )
         };
         let seen = HashSet::new();
         let mut failed = Pending::default();
@@ -884,8 +1039,17 @@ mod tests {
         add_line(&mut l.pending, &seen, "20261114", &line("C:\\\\a.exe"));
         add_line(&mut l.pending, &seen, "20261114", &line("C:\\\\b.exe"));
         requeue(failed, &mut l);
-        assert_eq!(l.pending.records.len(), 2, "same shape merged, new shape kept");
-        let a = l.pending.records.iter().find(|r| r.exe.ends_with("a.exe")).unwrap();
+        assert_eq!(
+            l.pending.records.len(),
+            2,
+            "same shape merged, new shape kept"
+        );
+        let a = l
+            .pending
+            .records
+            .iter()
+            .find(|r| r.exe.ends_with("a.exe"))
+            .unwrap();
         assert_eq!(a.count, 3);
         assert_eq!(l.pending.index.len(), 2);
     }
@@ -898,7 +1062,11 @@ mod tests {
             "process": {"cmdLine": "x", "pid": 4},
             "kernelStackSymbols": "ntoskrnl.exe!Foo+0x10;fltmgr.sys!Bar+0x2"
         });
-        let f = event_features("LLE_FILE_MAP_READ", " [File: C:\\Windows\\System32\\x.dll]", &raw);
+        let f = event_features(
+            "LLE_FILE_MAP_READ",
+            " [File: C:\\Windows\\System32\\x.dll]",
+            &raw,
+        );
         for k in [
             "event=LLE_FILE_MAP_READ",
             "det=File",
@@ -917,7 +1085,10 @@ mod tests {
         ] {
             assert!(f.contains_key(k), "missing {k}: {f:?}");
         }
-        assert!(!f.keys().any(|k| k.contains(".id") || k.contains("pid")), "ids are excluded");
+        assert!(
+            !f.keys().any(|k| k.contains(".id") || k.contains("pid")),
+            "ids are excluded"
+        );
         assert_eq!(f["has_stack"], 1.0);
         assert_eq!(f["has_net"], 0.0);
     }
@@ -933,7 +1104,8 @@ mod tests {
         let (mut n, mut bad) = (0, 0);
         for row in text.lines() {
             let row: serde_json::Value = serde_json::from_str(row).expect("row");
-            let d: serde_json::Value = serde_json::from_str(row["line"].as_str().expect("line")).expect("log line");
+            let d: serde_json::Value =
+                serde_json::from_str(row["line"].as_str().expect("line")).expect("log line");
             let s = |k: &str| d.get(k).and_then(|v| v.as_str()).unwrap_or("").to_string();
             let raw = d.get("raw").cloned().unwrap_or_default();
             let ours = event_features(&s("event"), &s("details"), &raw);
@@ -949,12 +1121,17 @@ mod tests {
                 if bad <= 3 {
                     let only_rust: Vec<_> = ours.keys().filter(|k| !py.contains_key(*k)).collect();
                     let only_py: Vec<_> = py.keys().filter(|k| !ours.contains_key(*k)).collect();
-                    eprintln!("line {n}: only rust {only_rust:?}
-  only python {only_py:?}");
+                    eprintln!(
+                        "line {n}: only rust {only_rust:?}
+  only python {only_py:?}"
+                    );
                 }
             }
         }
-        assert_eq!(bad, 0, "{bad} of {n} events differ from the Python features");
+        assert_eq!(
+            bad, 0,
+            "{bad} of {n} events differ from the Python features"
+        );
     }
 
     #[test]
@@ -963,7 +1140,10 @@ mod tests {
         let raw2 = serde_json::json!({"file": {"path": "C:\\Users\\b\\AppData\\y.tmp", "id": 2}});
         let k1 = shape_key("C:\\Users\\a\\app.exe", &event_features("E", "", &raw));
         let k1b = shape_key("c:/users/a/APP.exe", &event_features("E", "", &raw2));
-        assert_eq!(k1, k1b, "ids, file names under the same class, case and slashes do not split a shape");
+        assert_eq!(
+            k1, k1b,
+            "ids, file names under the same class, case and slashes do not split a shape"
+        );
         // The exe path is kept as it is, user name included.
         let k2 = shape_key("C:\\Users\\b\\app.exe", &event_features("E", "", &raw2));
         assert_ne!(k1, k2);
@@ -982,7 +1162,10 @@ mod tests {
         }
         assert_eq!(p.records.len(), 1);
         assert_eq!(p.records[0].count, 3);
-        seen.insert(shape_key("b.exe", &event_features("E", "", &serde_json::json!({"x": 1}))));
+        seen.insert(shape_key(
+            "b.exe",
+            &event_features("E", "", &serde_json::json!({"x": 1})),
+        ));
         add_line(&mut p, &seen, "20261114", other);
         add_line(&mut p, &seen, "20261114", other);
         assert_eq!(p.records.len(), 1, "a key sent before is not sent again");
@@ -1019,10 +1202,26 @@ mod tests {
     fn is_training_path_eligible_rules() {
         let own = Some(r"c:\program files\hydradragonantivirus\openedr");
         assert!(is_training_path_eligible("", own, ""));
-        assert!(is_training_path_eligible("", own, r"C:\Users\alice\Desktop\app.exe"));
-        assert!(!is_training_path_eligible("", own, r"C:\Program Files\HydraDragonAntivirus\OpenEDR\edrsvc.exe"));
-        assert!(is_training_path_eligible("*.*", own, r"C:\Program Files\HydraDragonAntivirus\OpenEDR\edrsvc.exe"));
-        assert!(is_training_path_eligible(r"C:\Samples", own, r"c:\samples\malware.exe"));
+        assert!(is_training_path_eligible(
+            "",
+            own,
+            r"C:\Users\alice\Desktop\app.exe"
+        ));
+        assert!(!is_training_path_eligible(
+            "",
+            own,
+            r"C:\Program Files\HydraDragonAntivirus\OpenEDR\edrsvc.exe"
+        ));
+        assert!(is_training_path_eligible(
+            "*.*",
+            own,
+            r"C:\Program Files\HydraDragonAntivirus\OpenEDR\edrsvc.exe"
+        ));
+        assert!(is_training_path_eligible(
+            r"C:\Samples",
+            own,
+            r"c:\samples\malware.exe"
+        ));
         assert!(!is_training_path_eligible(r"C:\Samples", own, ""));
     }
 

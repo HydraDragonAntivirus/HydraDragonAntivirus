@@ -122,10 +122,9 @@ impl WindowsThreatHandler {
         // no second feed entry, no second attack alert. The live file is still
         // neutralized and the path still blocked below. This is NOT a
         // "seen before, skip action" allowlist.
-        if let Some(existing) = crate::quarantine::find_existing_container_by_hash(
-            quarantine_dir,
-            &sha256,
-        ) {
+        if let Some(existing) =
+            crate::quarantine::find_existing_container_by_hash(quarantine_dir, &sha256)
+        {
             Logging::info(&format!(
                 "[ThreatHandler] Duplicate quarantine suppressed (already stored): {} -> {}",
                 source_path.display(),

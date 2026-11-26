@@ -88,10 +88,7 @@ fn is_disabled() -> bool {
 }
 
 fn basename_of(path: &str) -> String {
-    path.rsplit(['\\', '/'])
-        .next()
-        .unwrap_or("")
-        .to_string()
+    path.rsplit(['\\', '/']).next().unwrap_or("").to_string()
 }
 
 fn extract_pid_from_raw(raw: &serde_json::Value) -> u32 {
@@ -291,7 +288,10 @@ fn parse_zone_identifier_ini(text: &str) -> (Option<String>, Option<String>, Opt
     let mut host_url = None;
     for line in text.lines() {
         let t = line.trim();
-        if let Some(v) = t.strip_prefix("ZoneId=").or_else(|| t.strip_prefix("zoneid=")) {
+        if let Some(v) = t
+            .strip_prefix("ZoneId=")
+            .or_else(|| t.strip_prefix("zoneid="))
+        {
             zone_id = Some(v.trim().to_string());
         } else if let Some(v) = t
             .strip_prefix("ReferrerUrl=")
@@ -339,9 +339,11 @@ fn derive_high_signal_events(
 
     if let Some(obj) = raw.as_object_mut() {
         if event_type == "LLE_NAMED_PIPE_SERVER_CREATE" {
-            obj.entry("pipe_op").or_insert_with(|| serde_json::json!("create"));
+            obj.entry("pipe_op")
+                .or_insert_with(|| serde_json::json!("create"));
         } else if event_type == "LLE_NAMED_PIPE_CREATE" {
-            obj.entry("pipe_op").or_insert_with(|| serde_json::json!("connect"));
+            obj.entry("pipe_op")
+                .or_insert_with(|| serde_json::json!("connect"));
         }
     }
 
@@ -418,7 +420,9 @@ fn derive_high_signal_events(
                     hash_files: false,
                     forward_to_killchain: true,
                 });
-            } else if p.to_ascii_lowercase().contains("\\windows\\system32\\tasks\\")
+            } else if p
+                .to_ascii_lowercase()
+                .contains("\\windows\\system32\\tasks\\")
                 || p.to_ascii_lowercase().contains("\\windows\\tasks\\")
             {
                 let task_evt = match event_type {
@@ -462,7 +466,8 @@ fn derive_high_signal_events(
     if event_type == "LLE_FILE_DELETE" {
         if let Some(ref p) = file_path {
             let lower = p.to_ascii_lowercase();
-            if lower.contains("\\windows\\system32\\tasks\\") || lower.contains("\\windows\\tasks\\")
+            if lower.contains("\\windows\\system32\\tasks\\")
+                || lower.contains("\\windows\\tasks\\")
             {
                 derived.push(RawTelemetryJob {
                     event_type: "SCHEDULED_TASK_DELETE".to_string(),
@@ -537,9 +542,7 @@ fn derive_high_signal_events(
                                     event_type: "SERVICE_MODIFY".to_string(),
                                     exe_path: exe_path.to_string(),
                                     pid_override: (pid > 0).then_some(pid),
-                                    details: Some(format!(
-                                        "Service {svc_name} {val_name} changed"
-                                    )),
+                                    details: Some(format!("Service {svc_name} {val_name} changed")),
                                     raw: serde_json::json!({
                                         "service_name": svc_name,
                                         "value_name": val_name,
@@ -907,12 +910,7 @@ pub fn submit_structured(
 /// `AGENT_UNINSTALL`, `AGENT_ERROR`, `AGENT_KEEPALIVE`).
 /// When `sync_flush` is true, sends immediately with a bounded 3s WinHTTP timeout before returning
 /// (falling back to the async queue if delivery fails while the service stays alive).
-pub fn submit_sysop(
-    event_type: &str,
-    message: &str,
-    details: serde_json::Value,
-    sync_flush: bool,
-) {
+pub fn submit_sysop(event_type: &str, message: &str, details: serde_json::Value, sync_flush: bool) {
     if is_disabled() || event_type.trim().is_empty() {
         return;
     }
@@ -1016,10 +1014,19 @@ mod tests {
         st.pending.push_back((r4, s4));
         requeue_front(&mut st, taken);
 
-        let order: Vec<&str> = st.pending.iter().map(|(r, _)| r.event_type.as_str()).collect();
+        let order: Vec<&str> = st
+            .pending
+            .iter()
+            .map(|(r, _)| r.event_type.as_str())
+            .collect();
         assert_eq!(
             order,
-            ["LLE_FILE_CREATE", "LLE_FILE_CREATE", "LLE_PROCESS_CREATE", "AGENT_ERROR"]
+            [
+                "LLE_FILE_CREATE",
+                "LLE_FILE_CREATE",
+                "LLE_PROCESS_CREATE",
+                "AGENT_ERROR"
+            ]
         );
     }
 

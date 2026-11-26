@@ -128,7 +128,13 @@ impl AllowListMatcher {
     }
 
     /// True if `(real_url, display_url)` (and their hosts) are pardoned.
-    fn allows(&self, real_url: &str, display_url: &str, real_host: &str, display_host: &str) -> bool {
+    fn allows(
+        &self,
+        real_url: &str,
+        display_url: &str,
+        real_host: &str,
+        display_host: &str,
+    ) -> bool {
         // X: full-URL regex pair.
         if self
             .regex_pairs
@@ -209,7 +215,10 @@ impl PhishingDb {
         let display_host = get_host(&display);
 
         // 7-8. Allow list (X/Y/M) pardons the pair → clean.
-        if self.allow.allows(&real, &display, &real_host, &display_host) {
+        if self
+            .allow
+            .allows(&real, &display, &real_host, &display_host)
+        {
             return None;
         }
 
@@ -373,9 +382,7 @@ fn get_host(url: &str) -> String {
         }
     }
     // Authority ends at the first path/query/fragment delimiter.
-    let auth_end = s
-        .find(['/', '?', '#'])
-        .unwrap_or(s.len());
+    let auth_end = s.find(['/', '?', '#']).unwrap_or(s.len());
     let mut auth = &s[..auth_end];
     // Strip userinfo (`user:pass@host`).
     if let Some(at) = auth.rfind('@') {
@@ -392,9 +399,7 @@ fn has_userinfo(url: &str) -> bool {
     if let Some(pos) = s.find("://") {
         s = &s[pos + 3..];
     }
-    let auth_end = s
-        .find(['/', '?', '#'])
-        .unwrap_or(s.len());
+    let auth_end = s.find(['/', '?', '#']).unwrap_or(s.len());
     s[..auth_end].contains('@')
 }
 
@@ -443,9 +448,11 @@ fn host_suffix_match(host: &str, domain: &str) -> bool {
 fn is_numeric(host: &str) -> bool {
     let octets: Vec<&str> = host.split('.').collect();
     octets.len() == 4
-        && octets
-            .iter()
-            .all(|o| !o.is_empty() && o.bytes().all(|b| b.is_ascii_digit()) && o.parse::<u32>().map(|n| n <= 256).unwrap_or(false))
+        && octets.iter().all(|o| {
+            !o.is_empty()
+                && o.bytes().all(|b| b.is_ascii_digit())
+                && o.parse::<u32>().map(|n| n <= 256).unwrap_or(false)
+        })
 }
 
 /// `isSSL`: an https link.
@@ -522,7 +529,10 @@ fn extract_attr(tag: &str, attr: &str) -> Option<String> {
         let pos = from + rel;
         // Boundary before the attribute name (avoid matching inside another word).
         let before_ok = pos == 0
-            || matches!(lower.as_bytes()[pos - 1], b' ' | b'\t' | b'\n' | b'\r' | b'"' | b'\'' | b'/');
+            || matches!(
+                lower.as_bytes()[pos - 1],
+                b' ' | b'\t' | b'\n' | b'\r' | b'"' | b'\'' | b'/'
+            );
         let mut i = pos + attr.len();
         // Skip whitespace then require `=`.
         while i < lower.len() && lower.as_bytes()[i].is_ascii_whitespace() {
@@ -632,10 +642,7 @@ mod tests {
     #[test]
     fn allow_list_pardons_known_pair() {
         // M: real:display literal allow pair suppresses the spoof.
-        let db = db_with(
-            &["H:apple.com"],
-            &["M:news.apple.co.jp:images.apple.com"],
-        );
+        let db = db_with(&["H:apple.com"], &["M:news.apple.co.jp:images.apple.com"]);
         let html = br#"<a href="http://news.apple.co.jp/x">images.apple.com</a>"#;
         assert!(db.scan_html(html).is_empty());
     }
@@ -646,8 +653,7 @@ mod tests {
             &["H:commerzbank.de"],
             &[r"X:.+\.commerzbank\.com([/?].*)?:.+\.commerzbank\.de"],
         );
-        let html =
-            br#"<a href="http://secure.commerzbank.com/x">login.commerzbank.de</a>"#;
+        let html = br#"<a href="http://secure.commerzbank.com/x">login.commerzbank.de</a>"#;
         assert!(db.scan_html(html).is_empty());
     }
 

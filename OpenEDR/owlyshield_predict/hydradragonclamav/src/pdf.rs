@@ -38,10 +38,38 @@ const MAX_DEPTH: usize = 25;
 /// Names whose escaped spelling is flagged (ClamAV `pdfname_actions` with
 /// `NAMEFLAG_HEURISTIC`).
 const COMMON_NAMES: &[&str] = &[
-    "ASCIIHexDecode", "ASCII85Decode", "A85", "AHx", "EmbeddedFile", "FlateDecode", "Fl", "LZWDecode", "LZW",
-    "RunLengthDecode", "RL", "CCITTFaxDecode", "CCF", "JBIG2Decode", "DCTDecode", "DCT", "JPXDecode", "Crypt",
-    "Standard", "Sig", "V", "R", "Linearized", "Filter", "JavaScript", "Length", "S", "Type", "OpenAction",
-    "Launch", "Page", "Contents",
+    "ASCIIHexDecode",
+    "ASCII85Decode",
+    "A85",
+    "AHx",
+    "EmbeddedFile",
+    "FlateDecode",
+    "Fl",
+    "LZWDecode",
+    "LZW",
+    "RunLengthDecode",
+    "RL",
+    "CCITTFaxDecode",
+    "CCF",
+    "JBIG2Decode",
+    "DCTDecode",
+    "DCT",
+    "JPXDecode",
+    "Crypt",
+    "Standard",
+    "Sig",
+    "V",
+    "R",
+    "Linearized",
+    "Filter",
+    "JavaScript",
+    "Length",
+    "S",
+    "Type",
+    "OpenAction",
+    "Launch",
+    "Page",
+    "Contents",
 ];
 
 /// A decoded piece of the PDF for the signature scan.
@@ -105,7 +133,9 @@ fn filter_of(name: &str) -> Filter {
         "ASCIIHexDecode" | "AHx" => Filter::AsciiHex,
         "ASCII85Decode" | "A85" => Filter::Ascii85,
         "RunLengthDecode" | "RL" => Filter::RunLength,
-        "DCTDecode" | "DCT" | "JPXDecode" | "JBIG2Decode" | "CCITTFaxDecode" | "CCF" | "Crypt" => Filter::Passthrough,
+        "DCTDecode" | "DCT" | "JPXDecode" | "JBIG2Decode" | "CCITTFaxDecode" | "CCF" | "Crypt" => {
+            Filter::Passthrough
+        }
         _ => Filter::Unknown,
     }
 }
@@ -152,7 +182,10 @@ fn names(dict: &[u8]) -> Vec<(String, bool)> {
 }
 
 fn is_delim(b: u8) -> bool {
-    matches!(b, b'/' | b'[' | b']' | b'<' | b'>' | b'(' | b')' | b'{' | b'}' | b'%')
+    matches!(
+        b,
+        b'/' | b'[' | b']' | b'<' | b'>' | b'(' | b')' | b'{' | b'}' | b'%'
+    )
 }
 
 fn unescape_name(raw: &[u8]) -> String {
@@ -160,7 +193,10 @@ fn unescape_name(raw: &[u8]) -> String {
     let mut i = 0;
     while i < raw.len() {
         if raw[i] == b'#' && i + 2 < raw.len() {
-            if let (Some(h), Some(l)) = (raw.get(i + 1).and_then(|c| hex_val(*c)), raw.get(i + 2).and_then(|c| hex_val(*c))) {
+            if let (Some(h), Some(l)) = (
+                raw.get(i + 1).and_then(|c| hex_val(*c)),
+                raw.get(i + 2).and_then(|c| hex_val(*c)),
+            ) {
                 out.push(h << 4 | l);
                 i += 3;
                 continue;
@@ -267,7 +303,9 @@ fn find_objects(data: &[u8]) -> Vec<RawObj<'_>> {
         if data.get(pos + 3).is_some_and(|c| c.is_ascii_alphanumeric()) {
             continue;
         }
-        let Some((id, generation, hstart)) = parse_obj_header(data, pos) else { continue };
+        let Some((id, generation, hstart)) = parse_obj_header(data, pos) else {
+            continue;
+        };
         starts.push((id, generation, hstart, pos + 3));
     }
     let mut out = Vec::with_capacity(starts.len());
@@ -348,9 +386,19 @@ fn split_object(id: u32, generation: u32, body: &[u8]) -> RawObj<'_> {
         if e > 0 && rest[e - 1] == b'\r' {
             e -= 1;
         }
-        return RawObj { id, generation, dict: &body[..p], stream: Some(&rest[..e]) };
+        return RawObj {
+            id,
+            generation,
+            dict: &body[..p],
+            stream: Some(&rest[..e]),
+        };
     }
-    RawObj { id, generation, dict: body, stream: None }
+    RawObj {
+        id,
+        generation,
+        dict: body,
+        stream: None,
+    }
 }
 
 /// Integer after `/key` in a dictionary, if it is a direct number.
@@ -498,7 +546,10 @@ fn inflate(data: &[u8]) -> Vec<u8> {
     }
     // Leading garbage before the zlib header (BAD_FLATESTART): ClamAV skips
     // whitespace; also try raw deflate.
-    let trimmed = &data[data.iter().position(|c| !c.is_ascii_whitespace()).unwrap_or(data.len())..];
+    let trimmed = &data[data
+        .iter()
+        .position(|c| !c.is_ascii_whitespace())
+        .unwrap_or(data.len())..];
     let out = read_all(&mut flate2::read::ZlibDecoder::new(trimmed));
     if !out.is_empty() {
         return out;
@@ -514,7 +565,9 @@ fn apply_predictor(data: Vec<u8>, dict: &[u8]) -> Vec<u8> {
         return data;
     }
     let colors = dict_int(dict, b"/Colors").unwrap_or(1).clamp(1, 32) as usize;
-    let bpc = dict_int(dict, b"/BitsPerComponent").unwrap_or(8).clamp(1, 16) as usize;
+    let bpc = dict_int(dict, b"/BitsPerComponent")
+        .unwrap_or(8)
+        .clamp(1, 16) as usize;
     let columns = dict_int(dict, b"/Columns").unwrap_or(1).clamp(1, 1 << 20) as usize;
     let bpp = (colors * bpc).div_ceil(8).max(1);
     let row = (colors * bpc * columns).div_ceil(8);
@@ -541,8 +594,18 @@ fn apply_predictor(data: Vec<u8>, dict: &[u8]) -> Vec<u8> {
                 3 => line[x].wrapping_add(((a as u16 + b as u16) / 2) as u8),
                 4 => {
                     let p = a as i16 + b as i16 - c as i16;
-                    let (pa, pb, pc) = ((p - a as i16).abs(), (p - b as i16).abs(), (p - c as i16).abs());
-                    let pred = if pa <= pb && pa <= pc { a } else if pb <= pc { b } else { c };
+                    let (pa, pb, pc) = (
+                        (p - a as i16).abs(),
+                        (p - b as i16).abs(),
+                        (p - c as i16).abs(),
+                    );
+                    let pred = if pa <= pb && pa <= pc {
+                        a
+                    } else if pb <= pc {
+                        b
+                    } else {
+                        c
+                    };
                     line[x].wrapping_add(pred)
                 }
                 _ => line[x],
@@ -678,7 +741,15 @@ fn decode_lzw(data: &[u8], early: bool) -> Vec<u8> {
             }
             prev = Some(entry);
             let next = table.len() + usize::from(early);
-            width = if next >= 2048 { 12 } else if next >= 1024 { 11 } else if next >= 512 { 10 } else { 9 };
+            width = if next >= 2048 {
+                12
+            } else if next >= 1024 {
+                11
+            } else if next >= 512 {
+                10
+            } else {
+                9
+            };
         }
     }
     out
@@ -709,7 +780,9 @@ fn javascript_of(dict: &[u8]) -> Option<(Vec<u8>, bool, Option<u32>)> {
         }
         match dict.get(i) {
             Some(b'(') => return Some((read_literal(dict, i), false, None)),
-            Some(b'<') if dict.get(i + 1) != Some(&b'<') => return Some((read_hex_string(dict, i), true, None)),
+            Some(b'<') if dict.get(i + 1) != Some(&b'<') => {
+                return Some((read_hex_string(dict, i), true, None));
+            }
             Some(c) if c.is_ascii_digit() => {
                 // `12 0 R`
                 let s = i;
@@ -729,10 +802,13 @@ fn javascript_of(dict: &[u8]) -> Option<(Vec<u8>, bool, Option<u32>)> {
 /// first 1032 bytes). `budget` caps the total decoded bytes handed back.
 pub fn analyze(data: &[u8], budget: usize) -> PdfAnalysis {
     let mut a = PdfAnalysis::default();
-    let Some(hdr) = header_offset(data) else { return a };
+    let Some(hdr) = header_offset(data) else {
+        return a;
+    };
     a.bad_header_pos = hdr != 0;
     let tail = &data[data.len().saturating_sub(2048)..];
-    a.bad_trailer = memchr::memmem::rfind(tail, b"%%EOF").is_none() || memchr::memmem::rfind(tail, b"startxref").is_none();
+    a.bad_trailer = memchr::memmem::rfind(tail, b"%%EOF").is_none()
+        || memchr::memmem::rfind(tail, b"startxref").is_none();
     a.encrypted = memchr::memmem::find(data, b"/Encrypt").is_some_and(|p| {
         // The trailer key, not a word in text (`/EncryptMetadata` is a different key).
         !data.get(p + 8).is_some_and(|c| c.is_ascii_alphanumeric())
@@ -746,16 +822,24 @@ pub fn analyze(data: &[u8], budget: usize) -> PdfAnalysis {
     let mut js_refs: Vec<(u32, u32, u32)> = Vec::new(); // (referenced id, from id, from generation)
     let mut pending: Vec<(Vec<u8>, usize)> = Vec::new(); // object-stream bodies to expand, depth
 
-    let crypt = if a.encrypted { crypt::empty_password(&data[hdr..], &objs) } else { None };
+    let crypt = if a.encrypted {
+        crypt::empty_password(&data[hdr..], &objs)
+    } else {
+        None
+    };
     a.decryptable = crypt.is_some();
 
     for o in &objs {
-        let info = ObjInfo { names: names(o.dict) };
+        let info = ObjInfo {
+            names: names(o.dict),
+        };
         note_names(&mut a, &info);
         if let Some((code, hex, r)) = javascript_of(o.dict) {
             // Strings of an encrypted file are encrypted with the object key.
             let code = match &crypt {
-                Some(c) if !code.is_empty() => c.decrypt(c.string, o.id, o.generation, &code).unwrap_or(code),
+                Some(c) if !code.is_empty() => c
+                    .decrypt(c.string, o.id, o.generation, &code)
+                    .unwrap_or(code),
                 // Encrypted and no key: the string is ciphertext.
                 None if a.encrypted => Vec::new(),
                 _ => code,
@@ -764,7 +848,13 @@ pub fn analyze(data: &[u8], budget: usize) -> PdfAnalysis {
             a.hex_javascript |= hex;
             match r {
                 Some(id) => js_refs.push((id, o.id, o.generation)),
-                None if !code.is_empty() => push_child(&mut a, &mut used, budget, format!("obj {} {} js", o.id, o.generation), code),
+                None if !code.is_empty() => push_child(
+                    &mut a,
+                    &mut used,
+                    budget,
+                    format!("obj {} {} js", o.id, o.generation),
+                    code,
+                ),
                 None => {}
             }
         }
@@ -783,11 +873,16 @@ pub fn analyze(data: &[u8], budget: usize) -> PdfAnalysis {
         // they cannot be decoded. XRef streams are never encrypted, and Metadata
         // only when /EncryptMetadata is true.
         let plain: std::borrow::Cow<[u8]> = match &crypt {
-            Some(c) if Some(o.id) != c.encrypt_obj
-                && !info.has("XRef")
-                && !(info.has("Metadata") && !c.encrypt_metadata) =>
+            Some(c)
+                if Some(o.id) != c.encrypt_obj
+                    && !info.has("XRef")
+                    && !(info.has("Metadata") && !c.encrypt_metadata) =>
             {
-                let method = if info.has("EmbeddedFile") { c.embedded } else { c.stream };
+                let method = if info.has("EmbeddedFile") {
+                    c.embedded
+                } else {
+                    c.stream
+                };
                 match c.decrypt(method, o.id, o.generation, raw) {
                     Some(d) => std::borrow::Cow::Owned(d),
                     None => continue,
@@ -809,11 +904,22 @@ pub fn analyze(data: &[u8], budget: usize) -> PdfAnalysis {
         // Raw streams were already scanned with the file; non-JPEG images carry
         // no code (ClamAV dumps the same set).
         let filtered = !fl.is_empty() && decoded.as_slice() != raw;
-        let flagged = info.has("JavaScript") || info.has("JS") || info.has("EmbeddedFile") || info.has("OpenAction") || info.has("Launch");
-        let image = info.has("Image") && !fl.iter().any(|f| matches!(f.as_str(), "DCTDecode" | "DCT"));
+        let flagged = info.has("JavaScript")
+            || info.has("JS")
+            || info.has("EmbeddedFile")
+            || info.has("OpenAction")
+            || info.has("Launch");
+        let image =
+            info.has("Image") && !fl.iter().any(|f| matches!(f.as_str(), "DCTDecode" | "DCT"));
         if (filtered || flagged || is_objstm) && !image && !decoded.is_empty() {
             streams.insert(o.id, decoded.clone());
-            push_child(&mut a, &mut used, budget, format!("obj {} {}", o.id, o.generation), decoded);
+            push_child(
+                &mut a,
+                &mut used,
+                budget,
+                format!("obj {} {}", o.id, o.generation),
+                decoded,
+            );
         } else if !decoded.is_empty() {
             streams.insert(o.id, decoded);
         }
@@ -826,14 +932,18 @@ pub fn analyze(data: &[u8], budget: usize) -> PdfAnalysis {
             continue;
         }
         for (id, text) in objstm_members(&body) {
-            let info = ObjInfo { names: names(&text) };
+            let info = ObjInfo {
+                names: names(&text),
+            };
             note_names(&mut a, &info);
             if let Some((code, hex, r)) = javascript_of(&text) {
                 a.javascript += 1;
                 a.hex_javascript |= hex;
                 match r {
                     Some(rid) => js_refs.push((rid, id, 0)),
-                    None if !code.is_empty() => push_child(&mut a, &mut used, budget, format!("objstm {id} js"), code),
+                    None if !code.is_empty() => {
+                        push_child(&mut a, &mut used, budget, format!("objstm {id} js"), code)
+                    }
                     None => {}
                 }
             }
@@ -850,9 +960,14 @@ pub fn analyze(data: &[u8], budget: usize) -> PdfAnalysis {
         // Top-level objects carry their own encryption; object-stream members are
         // already plain (the object stream was decrypted).
         let top = objs.iter().find(|o| o.id == rid);
-        let text = top.map(|o| o.dict.to_vec()).or_else(|| objstm_objs.get(&rid).cloned());
+        let text = top
+            .map(|o| o.dict.to_vec())
+            .or_else(|| objstm_objs.get(&rid).cloned());
         let Some(text) = text else { continue };
-        let i = text.iter().position(|c| !c.is_ascii_whitespace()).unwrap_or(text.len());
+        let i = text
+            .iter()
+            .position(|c| !c.is_ascii_whitespace())
+            .unwrap_or(text.len());
         let code = match text.get(i) {
             Some(b'(') => read_literal(&text, i),
             Some(b'<') if text.get(i + 1) != Some(&b'<') => {
@@ -862,11 +977,19 @@ pub fn analyze(data: &[u8], budget: usize) -> PdfAnalysis {
             _ => continue,
         };
         let code = match (&crypt, top) {
-            (Some(c), Some(o)) if !code.is_empty() => c.decrypt(c.string, o.id, o.generation, &code).unwrap_or(code),
+            (Some(c), Some(o)) if !code.is_empty() => c
+                .decrypt(c.string, o.id, o.generation, &code)
+                .unwrap_or(code),
             _ => code,
         };
         if !code.is_empty() {
-            push_child(&mut a, &mut used, budget, format!("obj {from} {generation} js -> {rid}"), code);
+            push_child(
+                &mut a,
+                &mut used,
+                budget,
+                format!("obj {from} {generation} js -> {rid}"),
+                code,
+            );
         }
     }
     a
@@ -916,7 +1039,12 @@ fn objstm_members(body: &[u8]) -> Vec<(u32, Vec<u8>)> {
             header_end = s;
             break;
         }
-        let Some(v) = std::str::from_utf8(&body[s..i]).ok().and_then(|t| t.parse().ok()) else { break };
+        let Some(v) = std::str::from_utf8(&body[s..i])
+            .ok()
+            .and_then(|t| t.parse().ok())
+        else {
+            break;
+        };
         nums.push(v);
         if nums.len() > 2 * MAX_OBJECTS {
             break;
@@ -941,15 +1069,16 @@ fn objstm_members(body: &[u8]) -> Vec<(u32, Vec<u8>)> {
 /// `pdf_handle_enc`, `check_user_password`, `check_owner_password`,
 /// `compute_hash_r6`, `decrypt_any`).
 mod crypt {
-    use super::{dict_int, read_hex_string, read_literal, RawObj};
+    use super::{RawObj, dict_int, read_hex_string, read_literal};
     use aes::cipher::{BlockModeDecrypt, BlockModeEncrypt, KeyIvInit};
     use md5::{Digest as _, Md5};
     use sha2::{Sha256, Sha384, Sha512};
 
     /// PDF password padding (7.6.3.3, Algorithm 2).
     const PAD: [u8; 32] = [
-        0x28, 0xBF, 0x4E, 0x5E, 0x4E, 0x75, 0x8A, 0x41, 0x64, 0x00, 0x4E, 0x56, 0xFF, 0xFA, 0x01, 0x08, 0x2E, 0x2E, 0x00,
-        0xB6, 0xD0, 0x68, 0x3E, 0x80, 0x2F, 0x0C, 0xA9, 0xFE, 0x64, 0x53, 0x69, 0x7A,
+        0x28, 0xBF, 0x4E, 0x5E, 0x4E, 0x75, 0x8A, 0x41, 0x64, 0x00, 0x4E, 0x56, 0xFF, 0xFA, 0x01,
+        0x08, 0x2E, 0x2E, 0x00, 0xB6, 0xD0, 0x68, 0x3E, 0x80, 0x2F, 0x0C, 0xA9, 0xFE, 0x64, 0x53,
+        0x69, 0x7A,
     ];
 
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -977,7 +1106,13 @@ mod crypt {
         /// `decrypt_any`: the object key is MD5(file key, object number (3 bytes
         /// LE), generation (2 bytes LE)[, "sAlT"]) for RC4 / AES-128; AES-256
         /// uses the file key itself. None for an unknown method.
-        pub fn decrypt(&self, method: Method, id: u32, generation: u32, data: &[u8]) -> Option<Vec<u8>> {
+        pub fn decrypt(
+            &self,
+            method: Method,
+            id: u32,
+            generation: u32,
+            data: &[u8],
+        ) -> Option<Vec<u8>> {
             match method {
                 Method::Identity => Some(data.to_vec()),
                 Method::Unknown => None,
@@ -1023,7 +1158,11 @@ mod crypt {
     /// the padding is invalid: damaged data is still worth scanning).
     fn aes_cbc_decrypt(key: &[u8], data: &[u8]) -> Option<Vec<u8>> {
         if data.len() < 32 {
-            return if data.len() == 16 { Some(Vec::new()) } else { None };
+            return if data.len() == 16 {
+                Some(Vec::new())
+            } else {
+                None
+            };
         }
         let (iv, body) = data.split_at(16);
         let mut buf = body[..body.len() / 16 * 16].to_vec();
@@ -1081,8 +1220,14 @@ mod crypt {
             }
             let mut e = k1;
             let n = e.len();
-            let Ok(enc) = cbc::Encryptor::<aes::Aes128>::new_from_slices(&k[..16], &k[16..32]) else { break };
-            if enc.encrypt_padded::<aes::cipher::block_padding::NoPadding>(&mut e, n).is_err() {
+            let Ok(enc) = cbc::Encryptor::<aes::Aes128>::new_from_slices(&k[..16], &k[16..32])
+            else {
+                break;
+            };
+            if enc
+                .encrypt_padded::<aes::cipher::block_padding::NoPadding>(&mut e, n)
+                .is_err()
+            {
                 break;
             }
             let sum: u32 = e[..16].iter().map(|&b| b as u32).sum();
@@ -1134,7 +1279,10 @@ mod crypt {
         if rest[i] != b'/' {
             return None;
         }
-        let end = rest[i + 1..].iter().position(|c| !c.is_ascii_alphanumeric()).map_or(rest.len(), |e| i + 1 + e);
+        let end = rest[i + 1..]
+            .iter()
+            .position(|c| !c.is_ascii_alphanumeric())
+            .map_or(rest.len(), |e| i + 1 + e);
         Some(String::from_utf8_lossy(&rest[i + 1..end]).into_owned())
     }
 
@@ -1144,9 +1292,13 @@ mod crypt {
         if filter == "Identity" {
             return Method::Identity;
         }
-        let Some(cf) = memchr::memmem::find(dict, b"/CF").map(|p| &dict[p..]) else { return default };
+        let Some(cf) = memchr::memmem::find(dict, b"/CF").map(|p| &dict[p..]) else {
+            return default;
+        };
         let key = format!("/{filter}");
-        let Some(p) = memchr::memmem::find(cf, key.as_bytes()) else { return default };
+        let Some(p) = memchr::memmem::find(cf, key.as_bytes()) else {
+            return default;
+        };
         match name(&cf[p..], b"/CFM").as_deref() {
             Some("V2") => Method::Rc4,
             Some("AESV2") => Method::AesV2,
@@ -1169,7 +1321,11 @@ mod crypt {
             if rest[i] != b'[' {
                 continue;
             }
-            let j = i + 1 + rest[i + 1..].iter().position(|c| !c.is_ascii_whitespace())?;
+            let j = i
+                + 1
+                + rest[i + 1..]
+                    .iter()
+                    .position(|c| !c.is_ascii_whitespace())?;
             return match rest.get(j) {
                 Some(b'<') => Some(read_hex_string(rest, j)),
                 Some(b'(') => Some(read_literal(rest, j)),
@@ -1190,12 +1346,20 @@ mod crypt {
             }
             let i = rest.iter().position(|c| !c.is_ascii_whitespace())?;
             if rest[i..].starts_with(b"<<") {
-                let close = memchr::memmem::find(&rest[i..], b">>").map_or(rest.len(), |c| i + c + 2);
+                let close =
+                    memchr::memmem::find(&rest[i..], b">>").map_or(rest.len(), |c| i + c + 2);
                 return Some((&rest[i..close], None));
             }
             let digits = rest[i..].iter().take_while(|c| c.is_ascii_digit()).count();
-            let id: u32 = std::str::from_utf8(&rest[i..i + digits]).ok()?.parse().ok()?;
-            return objs.iter().rev().find(|o| o.id == id).map(|o| (o.dict, Some(id)));
+            let id: u32 = std::str::from_utf8(&rest[i..i + digits])
+                .ok()?
+                .parse()
+                .ok()?;
+            return objs
+                .iter()
+                .rev()
+                .find(|o| o.id == id)
+                .map(|o| (o.dict, Some(id)));
         }
         None
     }
@@ -1215,8 +1379,13 @@ mod crypt {
         if o.len() < oulen || u.len() < oulen {
             return None;
         }
-        let encrypt_metadata = !memchr::memmem::find(dict, b"/EncryptMetadata")
-            .is_some_and(|p| dict[p + 16..].iter().skip_while(|c| c.is_ascii_whitespace()).take(5).eq(b"false".iter()));
+        let encrypt_metadata = !memchr::memmem::find(dict, b"/EncryptMetadata").is_some_and(|p| {
+            dict[p + 16..]
+                .iter()
+                .skip_while(|c| c.is_ascii_whitespace())
+                .take(5)
+                .eq(b"false".iter())
+        });
         let (stream, string_m, embedded) = if r <= 3 {
             (Method::Rc4, Method::Rc4, Method::Rc4)
         } else {
@@ -1229,7 +1398,11 @@ mod crypt {
             2..=4 => {
                 let id = file_id(data)?;
                 let p = dict_int(dict, b"/P")? as i32;
-                let bits = if r == 4 { 128 } else { dict_int(dict, b"/Length").unwrap_or(40).clamp(40, 128) as usize };
+                let bits = if r == 4 {
+                    128
+                } else {
+                    dict_int(dict, b"/Length").unwrap_or(40).clamp(40, 128) as usize
+                };
                 // Algorithm 2: key from the padded empty password.
                 let mut h = Md5::new();
                 h.update(PAD);
@@ -1290,9 +1463,15 @@ mod crypt {
             }
             _ => return None,
         };
-        Some(Crypt { key, stream, string: string_m, embedded, encrypt_metadata, encrypt_obj })
+        Some(Crypt {
+            key,
+            stream,
+            string: string_m,
+            embedded,
+            encrypt_metadata,
+            encrypt_obj,
+        })
     }
-
 }
 
 #[cfg(test)]
@@ -1317,7 +1496,11 @@ mod tests {
     }
 
     fn stream_obj(id: u32, dict: &str, payload: &[u8]) -> Vec<u8> {
-        let mut o = format!("{id} 0 obj\n<< {dict} /Length {} >>\nstream\n", payload.len()).into_bytes();
+        let mut o = format!(
+            "{id} 0 obj\n<< {dict} /Length {} >>\nstream\n",
+            payload.len()
+        )
+        .into_bytes();
         o.extend_from_slice(payload);
         o.extend_from_slice(b"\nendstream\nendobj");
         o
@@ -1329,7 +1512,11 @@ mod tests {
         let data = pdf(&[stream_obj(4, "/Filter /FlateDecode", &deflate(body))]);
         let a = analyze(&data, 1 << 20);
         assert_eq!(a.objects, 1);
-        assert!(a.children.iter().any(|c| c.data == body), "{:?}", a.children);
+        assert!(
+            a.children.iter().any(|c| c.data == body),
+            "{:?}",
+            a.children
+        );
         assert!(!a.escaped_common_name);
     }
 
@@ -1337,7 +1524,11 @@ mod tests {
     fn filter_chain_hex_then_flate() {
         let body = b"hello from a chained stream";
         let hex: String = deflate(body).iter().map(|b| format!("{b:02x}")).collect();
-        let data = pdf(&[stream_obj(5, "/Filter [/ASCIIHexDecode /FlateDecode]", format!("{hex}>").as_bytes())]);
+        let data = pdf(&[stream_obj(
+            5,
+            "/Filter [/ASCIIHexDecode /FlateDecode]",
+            format!("{hex}>").as_bytes(),
+        )]);
         let a = analyze(&data, 1 << 20);
         assert!(a.children.iter().any(|c| c.data == body));
     }
@@ -1348,7 +1539,10 @@ mod tests {
         let data = pdf(&[stream_obj(6, "/Filter /Fl#61te#44ecode", &deflate(body))]);
         let a = analyze(&data, 1 << 20);
         assert!(a.escaped_common_name);
-        assert!(a.children.iter().any(|c| c.data == body), "the unescaped filter is used");
+        assert!(
+            a.children.iter().any(|c| c.data == body),
+            "the unescaped filter is used"
+        );
     }
 
     #[test]
@@ -1359,7 +1553,8 @@ mod tests {
 
     #[test]
     fn javascript_literal_hex_and_reference() {
-        let lit = b"2 0 obj\n<< /S /JavaScript /JS (app.alert\\(1\\);\\nvar a=1;) >>\nendobj".to_vec();
+        let lit =
+            b"2 0 obj\n<< /S /JavaScript /JS (app.alert\\(1\\);\\nvar a=1;) >>\nendobj".to_vec();
         let hex = b"3 0 obj\n<< /S /JavaScript /JS <6170702e616c657274283229> >>\nendobj".to_vec();
         let reff = b"4 0 obj\n<< /S /JavaScript /JS 9 0 R >>\nendobj".to_vec();
         let target = stream_obj(9, "/Filter /FlateDecode", &deflate(b"eval('x')"));
@@ -1378,18 +1573,39 @@ mod tests {
         let header = b"11 0 12 52 ";
         let mut body = header.to_vec();
         body.extend_from_slice(inner);
-        let data = pdf(&[stream_obj(10, &format!("/Type /ObjStm /N 2 /First {} /Filter /FlateDecode", header.len()), &deflate(&body))]);
+        let data = pdf(&[stream_obj(
+            10,
+            &format!(
+                "/Type /ObjStm /N 2 /First {} /Filter /FlateDecode",
+                header.len()
+            ),
+            &deflate(&body),
+        )]);
         let a = analyze(&data, 1 << 20);
-        assert!(a.children.iter().any(|c| c.data == b"this.exportDataObject()"), "{:?}", a.children.iter().map(|c| &c.name).collect::<Vec<_>>());
+        assert!(
+            a.children
+                .iter()
+                .any(|c| c.data == b"this.exportDataObject()"),
+            "{:?}",
+            a.children.iter().map(|c| &c.name).collect::<Vec<_>>()
+        );
     }
 
     #[test]
     fn png_predictor_up() {
         // Two rows of 3 bytes, filter 2 (Up).
         let rows = [2u8, 1, 2, 3, 2, 1, 1, 1];
-        let data = pdf(&[stream_obj(7, "/Filter /FlateDecode /DecodeParms << /Predictor 12 /Columns 3 >>", &deflate(&rows))]);
+        let data = pdf(&[stream_obj(
+            7,
+            "/Filter /FlateDecode /DecodeParms << /Predictor 12 /Columns 3 >>",
+            &deflate(&rows),
+        )]);
         let a = analyze(&data, 1 << 20);
-        assert!(a.children.iter().any(|c| c.data == [1, 2, 3, 2, 3, 4]), "{:?}", a.children);
+        assert!(
+            a.children.iter().any(|c| c.data == [1, 2, 3, 2, 3, 4]),
+            "{:?}",
+            a.children
+        );
     }
 
     #[test]
@@ -1398,7 +1614,10 @@ mod tests {
         let lzw = [0x80, 0x0B, 0x60, 0x50, 0x22, 0x0C, 0x0C, 0x85, 0x01];
         assert_eq!(decode_lzw(&lzw, true), b"-----A---B");
         assert_eq!(decode_ascii85(b"<~87cURD]i,\"Ebo80~>"), b"Hello World!");
-        assert_eq!(decode_run_length(&[2, b'a', b'b', b'c', 254, b'x', 128]), b"abcxxx");
+        assert_eq!(
+            decode_run_length(&[2, b'a', b'b', b'c', 254, b'x', 128]),
+            b"abcxxx"
+        );
     }
 
     #[test]
@@ -1425,8 +1644,14 @@ mod tests {
     #[test]
     fn budget_caps_children() {
         let big = vec![b'A'; 10_000];
-        let data = pdf(&[stream_obj(1, "/Filter /FlateDecode", &deflate(&big)), stream_obj(2, "/Filter /FlateDecode", &deflate(&big))]);
+        let data = pdf(&[
+            stream_obj(1, "/Filter /FlateDecode", &deflate(&big)),
+            stream_obj(2, "/Filter /FlateDecode", &deflate(&big)),
+        ]);
         let a = analyze(&data, 12_000);
-        assert_eq!(a.children.iter().map(|c| c.data.len()).sum::<usize>(), 12_000);
+        assert_eq!(
+            a.children.iter().map(|c| c.data.len()).sum::<usize>(),
+            12_000
+        );
     }
 }

@@ -34,7 +34,10 @@ pub fn cores() -> usize {
     if cached != 0 {
         return cached;
     }
-    let n = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4).max(1);
+    let n = std::thread::available_parallelism()
+        .map(|n| n.get())
+        .unwrap_or(4)
+        .max(1);
     CACHED.store(n, Ordering::Relaxed);
     n
 }
@@ -86,10 +89,18 @@ pub fn helpers(want: usize) -> Helpers {
     loop {
         let n = want.min(limit.saturating_sub(cur));
         if n == 0 {
-            return Helpers { n: 0, cpu_ns: AtomicU64::new(0) };
+            return Helpers {
+                n: 0,
+                cpu_ns: AtomicU64::new(0),
+            };
         }
         match BUSY.compare_exchange_weak(cur, cur + n, Ordering::Relaxed, Ordering::Relaxed) {
-            Ok(_) => return Helpers { n, cpu_ns: AtomicU64::new(0) },
+            Ok(_) => {
+                return Helpers {
+                    n,
+                    cpu_ns: AtomicU64::new(0),
+                };
+            }
             Err(now) => cur = now,
         }
     }
@@ -105,7 +116,8 @@ impl Helpers {
     pub fn run<T>(&self, f: impl FnOnce() -> T) -> T {
         let start = thread_cpu_ns();
         let v = f();
-        self.cpu_ns.fetch_add(thread_cpu_ns().saturating_sub(start), Ordering::Relaxed);
+        self.cpu_ns
+            .fetch_add(thread_cpu_ns().saturating_sub(start), Ordering::Relaxed);
         v
     }
 }
@@ -134,7 +146,13 @@ pub fn thread_cpu_ns() -> u64 {
     #[link(name = "kernel32")]
     unsafe extern "system" {
         fn GetCurrentThread() -> isize;
-        fn GetThreadTimes(thread: isize, creation: *mut u64, exit: *mut u64, kernel: *mut u64, user: *mut u64) -> i32;
+        fn GetThreadTimes(
+            thread: isize,
+            creation: *mut u64,
+            exit: *mut u64,
+            kernel: *mut u64,
+            user: *mut u64,
+        ) -> i32;
     }
     let (mut c, mut e, mut k, mut u) = (0u64, 0u64, 0u64, 0u64);
     // SAFETY: the pseudo handle of the current thread and four valid out pointers.

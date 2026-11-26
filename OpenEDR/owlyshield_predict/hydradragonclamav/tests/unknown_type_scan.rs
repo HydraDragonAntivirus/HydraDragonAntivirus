@@ -14,7 +14,11 @@ fn engine() -> Engine {
 }
 
 fn names(e: &Engine, data: &[u8]) -> Vec<String> {
-    let mut n: Vec<String> = e.scan_bytes(data, ScanOptions::default()).into_iter().map(|m| m.name).collect();
+    let mut n: Vec<String> = e
+        .scan_bytes(data, ScanOptions::default())
+        .into_iter()
+        .map(|m| m.name)
+        .collect();
     n.sort();
     n
 }
@@ -34,11 +38,23 @@ fn unknown_binary_gets_target_zero_only() {
 #[test]
 fn ole2_macho_java_are_typed() {
     let e = engine();
-    assert_eq!(names(&e, &with(&[0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1])), ["Any.T0", "Ole.T2"]);
-    assert_eq!(names(&e, &with(&[0xcf, 0xfa, 0xed, 0xfe, 7, 0, 0, 1])), ["Any.T0", "Macho.T9"]);
-    assert_eq!(names(&e, &with(&[0xca, 0xfe, 0xba, 0xbe, 0, 0, 0, 52])), ["Any.T0", "Java.T12"]);
+    assert_eq!(
+        names(&e, &with(&[0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1])),
+        ["Any.T0", "Ole.T2"]
+    );
+    assert_eq!(
+        names(&e, &with(&[0xcf, 0xfa, 0xed, 0xfe, 7, 0, 0, 1])),
+        ["Any.T0", "Macho.T9"]
+    );
+    assert_eq!(
+        names(&e, &with(&[0xca, 0xfe, 0xba, 0xbe, 0, 0, 0, 52])),
+        ["Any.T0", "Java.T12"]
+    );
     // CAFEBABE with a small arch count is a Mach-O universal binary: a container, untyped.
-    assert_eq!(names(&e, &with(&[0xca, 0xfe, 0xba, 0xbe, 0, 0, 0, 2])), ["Any.T0"]);
+    assert_eq!(
+        names(&e, &with(&[0xca, 0xfe, 0xba, 0xbe, 0, 0, 0, 2])),
+        ["Any.T0"]
+    );
 }
 
 #[test]

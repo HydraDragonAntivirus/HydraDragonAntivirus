@@ -153,7 +153,10 @@ impl IconMatcher {
             return Err("malformed icon signature (bad spread data)".to_string());
         }
 
-        let group = [self.intern_group(0, tokens[1]), self.intern_group(1, tokens[2])];
+        let group = [
+            self.intern_group(0, tokens[1]),
+            self.intern_group(1, tokens[2]),
+        ];
         self.icons[enginesize].push(IconMetric {
             name: tokens[0].to_string(),
             group,

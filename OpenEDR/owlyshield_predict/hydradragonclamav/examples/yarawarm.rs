@@ -37,13 +37,27 @@ fn main() {
     let tiny = b"hello".to_vec();
     for name in &names {
         let t0 = Instant::now();
-        let _ = c.scan_bytes_named(&tiny, "test", hydradragonclamav::ScanOptions::default(), &[]);
+        let _ = c.scan_bytes_named(
+            &tiny,
+            "test",
+            hydradragonclamav::ScanOptions::default(),
+            &[],
+        );
         println!("warm {}: {}ms", name, t0.elapsed().as_millis());
     }
 
     // Now scan the FULL APK as a single buffer with all rulesets — this is the
     // per-buffer cost the device pays for each of its 16 extracted buffers.
     let t0 = Instant::now();
-    let r = c.scan_bytes_named(&apk, &args[2], hydradragonclamav::ScanOptions::default(), &[]);
-    println!("full-apk 1-buffer scan: {}ms ({} matches)", t0.elapsed().as_millis(), r.len());
+    let r = c.scan_bytes_named(
+        &apk,
+        &args[2],
+        hydradragonclamav::ScanOptions::default(),
+        &[],
+    );
+    println!(
+        "full-apk 1-buffer scan: {}ms ({} matches)",
+        t0.elapsed().as_millis(),
+        r.len()
+    );
 }

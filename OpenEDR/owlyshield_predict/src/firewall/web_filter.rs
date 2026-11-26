@@ -160,8 +160,8 @@ impl WebFilter {
     fn get_threat_intel_path() -> PathBuf {
         #[cfg(target_os = "windows")]
         {
-            use winreg::enums::HKEY_LOCAL_MACHINE;
             use winreg::RegKey;
+            use winreg::enums::HKEY_LOCAL_MACHINE;
             let hklm = RegKey::predef(HKEY_LOCAL_MACHINE);
             if let Ok(key) = hklm.open_subkey(r"SOFTWARE\Owlyshield\SDK") {
                 if let Ok(p) = key.get_value::<String, _>("THREAT_INTEL_PATH") {
@@ -205,8 +205,10 @@ impl WebFilter {
 pub fn query_cloud_threat_target(target: &str) -> Option<WebThreatMatch> {
     #[cfg(target_os = "windows")]
     {
+        use windows::Win32::System::LibraryLoader::{
+            GetModuleHandleW, GetProcAddress, LoadLibraryW,
+        };
         use windows::core::{PCSTR, PCWSTR};
-        use windows::Win32::System::LibraryLoader::{GetModuleHandleW, GetProcAddress, LoadLibraryW};
 
         if target.is_empty() || target == "127.0.0.1" || target == "localhost" || target == "::1" {
             return None;
@@ -237,10 +239,12 @@ pub fn query_cloud_threat_target(target: &str) -> Option<WebThreatMatch> {
             });
         }
 
-        type ScanUrlFn = unsafe extern "C" fn(*const std::os::raw::c_char) -> *mut std::os::raw::c_char;
+        type ScanUrlFn =
+            unsafe extern "C" fn(*const std::os::raw::c_char) -> *mut std::os::raw::c_char;
         type FreeFn = unsafe extern "C" fn(*mut std::os::raw::c_char);
 
-        static SCAN_PAIR: std::sync::OnceLock<Option<(ScanUrlFn, FreeFn)>> = std::sync::OnceLock::new();
+        static SCAN_PAIR: std::sync::OnceLock<Option<(ScanUrlFn, FreeFn)>> =
+            std::sync::OnceLock::new();
         let pair = SCAN_PAIR.get_or_init(|| unsafe {
             for name in &["openedr_cloud.dll\0", "openedr_static.dll\0"] {
                 let wide: Vec<u16> = name.encode_utf16().collect();
@@ -248,10 +252,22 @@ pub fn query_cloud_threat_target(target: &str) -> Option<WebThreatMatch> {
                     .or_else(|_| LoadLibraryW(PCWSTR(wide.as_ptr())))
                     .ok();
                 if let Some(mod_handle) = h {
-                    let scan_proc = GetProcAddress(mod_handle, PCSTR(b"openedr_cloud_scan_url\0".as_ptr()))
-                        .or_else(|| GetProcAddress(mod_handle, PCSTR(b"openedr_static_scan_url\0".as_ptr())));
-                    let free_proc = GetProcAddress(mod_handle, PCSTR(b"openedr_cloud_free_string\0".as_ptr()))
-                        .or_else(|| GetProcAddress(mod_handle, PCSTR(b"openedr_static_free_string\0".as_ptr())));
+                    let scan_proc =
+                        GetProcAddress(mod_handle, PCSTR(b"openedr_cloud_scan_url\0".as_ptr()))
+                            .or_else(|| {
+                                GetProcAddress(
+                                    mod_handle,
+                                    PCSTR(b"openedr_static_scan_url\0".as_ptr()),
+                                )
+                            });
+                    let free_proc =
+                        GetProcAddress(mod_handle, PCSTR(b"openedr_cloud_free_string\0".as_ptr()))
+                            .or_else(|| {
+                                GetProcAddress(
+                                    mod_handle,
+                                    PCSTR(b"openedr_static_free_string\0".as_ptr()),
+                                )
+                            });
                     if let (Some(s_proc), Some(f_proc)) = (scan_proc, free_proc) {
                         return Some((std::mem::transmute(s_proc), std::mem::transmute(f_proc)));
                     }
@@ -273,8 +289,14 @@ pub fn query_cloud_threat_target(target: &str) -> Option<WebThreatMatch> {
         };
 
         if let Ok(val) = serde_json::from_str::<serde_json::Value>(&json_str) {
-            let is_mal = val.get("is_malicious").and_then(|v| v.as_bool()).unwrap_or(false);
-            let is_black = val.get("blacklisted").and_then(|v| v.as_bool()).unwrap_or(false);
+            let is_mal = val
+                .get("is_malicious")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
+            let is_black = val
+                .get("blacklisted")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
             let verdict = val.get("verdict").and_then(|v| v.as_str()).unwrap_or("");
             if is_mal || is_black || verdict.eq_ignore_ascii_case("malicious") {
                 return Some(WebThreatMatch::ip(
@@ -321,8 +343,12 @@ impl WebThreatMatch {
     pub fn decision_key(&self) -> String {
         match self.kind {
             WebThreatTargetKind::Ip => format!("website:ip:{}", self.target.trim().to_lowercase()),
-            WebThreatTargetKind::Url => format!("website:url:{}", self.target.trim().to_lowercase()),
-            WebThreatTargetKind::Hostname => format!("website:host:{}", self.target.trim().to_lowercase()),
+            WebThreatTargetKind::Url => {
+                format!("website:url:{}", self.target.trim().to_lowercase())
+            }
+            WebThreatTargetKind::Hostname => {
+                format!("website:host:{}", self.target.trim().to_lowercase())
+            }
         }
     }
 }

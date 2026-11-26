@@ -2,8 +2,8 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
-use hydradragonclamav::scanner::Engine;
 use hydradragonclamav::ScanOptions;
+use hydradragonclamav::scanner::Engine;
 
 /// How many APKs from each dataset category to sample.
 const SAMPLE_SIZE: usize = 10;
@@ -237,7 +237,11 @@ fn signature_timing_appears_in_stderr() {
         .args(["--nocapture", "real_database_detects_eicar"])
         .output()
         .expect("subprocess failed");
-    assert!(output.status.success(), "subprocess exited with {}", output.status);
+    assert!(
+        output.status.success(),
+        "subprocess exited with {}",
+        output.status
+    );
     let err = String::from_utf8_lossy(&output.stderr);
 
     // Database loading timing must appear.
@@ -247,9 +251,8 @@ fn signature_timing_appears_in_stderr() {
     );
 
     // At least one per-signature timing marker or total timing must be present.
-    let has_timing = err.contains("[SLOW-EXT]")
-        || err.contains("[SLOW-LOG]")
-        || err.contains("TOTAL=");
+    let has_timing =
+        err.contains("[SLOW-EXT]") || err.contains("[SLOW-LOG]") || err.contains("TOTAL=");
     assert!(
         has_timing,
         "No [SLOW-EXT], [SLOW-LOG], or TOTAL= timing found in stderr.\nstderr:\n{err}"

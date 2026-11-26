@@ -72,7 +72,8 @@ fn can_still_match_never_under_approximates() {
     for seed in seeds {
         let mut rng = Rng(seed);
         for _ in 0..30_000 {
-            let d = 1 + rng.below(3); let expr = gen_expr(&mut rng, d);
+            let d = 1 + rng.below(3);
+            let expr = gen_expr(&mut rng, d);
             let line = format!("T;Target:0;{expr};41;42;43;44");
             let sig = match parse_logical_signature(&line, src.clone()) {
                 Ok((s, _)) => s,
@@ -134,7 +135,8 @@ fn can_still_match_over_approximates_eval_when_fully_evaluated() {
     let mut rng = Rng(0x5eed_1234);
     let evaluated = [true; N];
     for _ in 0..40_000 {
-        let d = 1 + rng.below(3); let expr = gen_expr(&mut rng, d);
+        let d = 1 + rng.below(3);
+        let expr = gen_expr(&mut rng, d);
         let line = format!("T;Target:0;{expr};41;42;43;44");
         let sig = match parse_logical_signature(&line, src.clone()) {
             Ok((s, _)) => s,

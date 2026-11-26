@@ -118,7 +118,10 @@ impl CertTrustDb {
         let cert_sign = parse_bool(tokens[8], "cert sign")?;
         let not_before = match tokens.get(9).map(|s| s.trim()).unwrap_or("") {
             "" => None,
-            s => Some(s.parse::<i64>().map_err(|_| "invalid notbefore".to_string())?),
+            s => Some(
+                s.parse::<i64>()
+                    .map_err(|_| "invalid notbefore".to_string())?,
+            ),
         };
 
         self.certs.push(CertEntry {
@@ -149,7 +152,9 @@ fn parse_bool(tok: &str, what: &str) -> Result<bool, String> {
 /// Parse a 40-char (20-byte) ASCII SHA-1, validating length like `set_sha1`.
 fn parse_sha1(token: &str, what: &str) -> Result<[u8; SHA1_LEN], String> {
     if token.len() != 2 * SHA1_LEN {
-        return Err(format!("{what} is not the appropriate length for a SHA1 Hash"));
+        return Err(format!(
+            "{what} is not the appropriate length for a SHA1 Hash"
+        ));
     }
     let bytes = hex_bytes(token).map_err(|_| format!("cannot convert {what} to binary"))?;
     let mut out = [0u8; SHA1_LEN];
@@ -190,7 +195,8 @@ mod tests {
     // A blocked cert (trusted=0) from daily.crb, trimmed pubkey for brevity.
     const BLOCKED: &str = "25f222ab-1;0;4a532974c46ae5048824c6da8cfb8e163705b693;1d80f656104b69a763a5d40db6abe01546b88861;ABCD;010001;1;0;0;;aeroscantov_sample";
     // A trusted CA with empty serial (ignore_serial).
-    const TRUSTED: &str = "Trusted.CA-1;1;9a02278e9cb12876c47ab0bc75dd694e72d1b2bc;;00d62b;010001;0;1;1;;";
+    const TRUSTED: &str =
+        "Trusted.CA-1;1;9a02278e9cb12876c47ab0bc75dd694e72d1b2bc;;00d62b;010001;0;1;1;;";
 
     #[test]
     fn parses_blocked_cert() {

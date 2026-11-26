@@ -34,13 +34,19 @@ pub(crate) const MAX_SCAN_THREADS: usize = 4;
 /// Helper threads for one sweep over `len` bytes (none below 256 KB, where spawning
 /// costs more than it saves), from the process-wide budget (`cpu_budget`).
 fn sweep_helpers(len: usize) -> crate::cpu_budget::Helpers {
-    crate::cpu_budget::helpers(if len >= 256 * 1024 { MAX_SCAN_THREADS - 1 } else { 0 })
+    crate::cpu_budget::helpers(if len >= 256 * 1024 {
+        MAX_SCAN_THREADS - 1
+    } else {
+        0
+    })
 }
 
 const LITERAL_HIT_LIMIT: u32 = 256;
 
 fn anywhere(offset: Option<&crate::database::OffsetSpec>) -> bool {
-    offset.is_none_or(|spec| matches!(spec.anchor, crate::database::OffsetAnchor::Any) && spec.max_shift.is_none())
+    offset.is_none_or(|spec| {
+        matches!(spec.anchor, crate::database::OffsetAnchor::Any) && spec.max_shift.is_none()
+    })
 }
 
 fn only_literals(patterns: &[crate::pattern::Pattern]) -> bool {
@@ -55,12 +61,17 @@ pub(crate) fn literal_slots(slots: &[SlotDef], db: &crate::database::Database) -
                 .extended
                 .get(sig_index as usize)
                 .is_some_and(|sig| anywhere(Some(&sig.offset)) && only_literals(&sig.patterns)),
-            crate::atomfilter::SlotTarget::LogicalSubsig { sig_index, subsig_index } => db
+            crate::atomfilter::SlotTarget::LogicalSubsig {
+                sig_index,
+                subsig_index,
+            } => db
                 .logical
                 .get(sig_index as usize)
                 .and_then(|sig| sig.subsignatures.get(subsig_index as usize))
                 .is_some_and(|sub| match sub {
-                    crate::logical::Subsignature::Body { offset, patterns } => anywhere(offset.as_deref()) && only_literals(patterns),
+                    crate::logical::Subsignature::Body { offset, patterns } => {
+                        anywhere(offset.as_deref()) && only_literals(patterns)
+                    }
                     _ => false,
                 }),
         })
@@ -174,14 +185,25 @@ impl InlineVerifyCtx<'_, '_> {
     }
 
     fn verify_literal(&self, slot_id: SlotId, start: usize, atom: &[u8]) -> bool {
-        let Some(slot) = self.slots.get(slot_id as usize) else { return false };
+        let Some(slot) = self.slots.get(slot_id as usize) else {
+            return false;
+        };
         let patterns: &[crate::pattern::Pattern] = match slot.target {
-            crate::atomfilter::SlotTarget::Extended { sig_index } => match self.extended.get(sig_index as usize) {
-                Some(sig) => &sig.patterns,
-                None => return false,
-            },
-            crate::atomfilter::SlotTarget::LogicalSubsig { sig_index, subsig_index } => {
-                match self.logical.get(sig_index as usize).and_then(|sig| sig.subsignatures.get(subsig_index as usize)) {
+            crate::atomfilter::SlotTarget::Extended { sig_index } => {
+                match self.extended.get(sig_index as usize) {
+                    Some(sig) => &sig.patterns,
+                    None => return false,
+                }
+            }
+            crate::atomfilter::SlotTarget::LogicalSubsig {
+                sig_index,
+                subsig_index,
+            } => {
+                match self
+                    .logical
+                    .get(sig_index as usize)
+                    .and_then(|sig| sig.subsignatures.get(subsig_index as usize))
+                {
                     Some(crate::logical::Subsignature::Body { patterns, .. }) => patterns,
                     _ => return false,
                 }
@@ -190,15 +212,20 @@ impl InlineVerifyCtx<'_, '_> {
         if atom.is_empty() {
             return false;
         }
-        patterns.iter().filter_map(|p| p.pure_literal()).any(|literal| {
-            literal.windows(atom.len()).enumerate().any(|(off, window)| {
-                window == atom
-                    && start
-                        .checked_sub(off)
-                        .and_then(|from| self.hay.get(from..from.checked_add(literal.len())?))
-                        == Some(literal)
+        patterns
+            .iter()
+            .filter_map(|p| p.pure_literal())
+            .any(|literal| {
+                literal
+                    .windows(atom.len())
+                    .enumerate()
+                    .any(|(off, window)| {
+                        window == atom
+                            && start.checked_sub(off).and_then(|from| {
+                                self.hay.get(from..from.checked_add(literal.len())?)
+                            }) == Some(literal)
+                    })
             })
-        })
     }
 
     /// Try to verify a pattern at the given position. Returns true if ANY
@@ -208,10 +235,22 @@ impl InlineVerifyCtx<'_, '_> {
         if already {
             return true;
         }
-        let Some(slot) = self.slots.get(slot_id as usize) else { return false };
-        let crate::atomfilter::SlotTarget::LogicalSubsig { sig_index, subsig_index } = slot.target else { return false };
-        let Some(sig) = self.logical.get(sig_index as usize) else { return false };
-        let Some(crate::logical::Subsignature::Body { patterns, .. }) = sig.subsignatures.get(subsig_index as usize) else {
+        let Some(slot) = self.slots.get(slot_id as usize) else {
+            return false;
+        };
+        let crate::atomfilter::SlotTarget::LogicalSubsig {
+            sig_index,
+            subsig_index,
+        } = slot.target
+        else {
+            return false;
+        };
+        let Some(sig) = self.logical.get(sig_index as usize) else {
+            return false;
+        };
+        let Some(crate::logical::Subsignature::Body { patterns, .. }) =
+            sig.subsignatures.get(subsig_index as usize)
+        else {
             return false;
         };
         for p in patterns {
@@ -241,7 +280,10 @@ impl AtomScratch {
 
     /// Counts of the last scan.
     pub fn counts(&self) -> SlotCounts<'_> {
-        SlotCounts { counts: &self.counts, saturated: &self.saturated }
+        SlotCounts {
+            counts: &self.counts,
+            saturated: &self.saturated,
+        }
     }
 
     /// Every slot whose count the last scan changed (may repeat), or None before
@@ -344,7 +386,11 @@ impl AtomScratch {
                     if let Some(vctx) = verify_ctx {
                         if st < verify_results.len() && !verify_results[st] {
                             let verified = if literal && exact {
-                                vctx.verify_literal(slot_id, data_offset + start, &hay[start..m.end()])
+                                vctx.verify_literal(
+                                    slot_id,
+                                    data_offset + start,
+                                    &hay[start..m.end()],
+                                )
                             } else {
                                 vctx.try_verify(slot_id, data_offset + start, false)
                             };
@@ -403,7 +449,10 @@ impl AtomScratch {
     }
 
     /// Resolve the scanner for a target (exact or nocase).
-    fn resolve_scanner<'b>(pt: &'b PerTarget, exact: bool) -> Option<&'b DoubleArrayAhoCorasick<u32>> {
+    fn resolve_scanner<'b>(
+        pt: &'b PerTarget,
+        exact: bool,
+    ) -> Option<&'b DoubleArrayAhoCorasick<u32>> {
         if exact {
             pt.exact.as_ref()
         } else {
@@ -447,35 +496,45 @@ impl AtomScratch {
         };
         let has_verify = verify_ctx.is_some();
         let mut workers = take_sweep_workers(n_chunks - 1);
-        let mut stats: Vec<AutomatonStats> = (0..n_chunks).map(|_| AutomatonStats::default()).collect();
+        let mut stats: Vec<AutomatonStats> =
+            (0..n_chunks).map(|_| AutomatonStats::default()).collect();
         let (first_stats, worker_stats) = stats.split_first_mut().expect("at least one chunk");
 
         std::thread::scope(|s| {
             for (i, (worker, st)) in workers.iter_mut().zip(worker_stats.iter_mut()).enumerate() {
                 let (start, end) = chunk_at(i + 1);
                 let chunk = &hay[start..end];
-                s.spawn(move || helpers.run(|| {
-                    worker.prepare(db, pt);
-                    let AtomScratch { saturated, value_remaining, counts, verify, touched, .. } = worker;
-                    let verify: &mut [bool] = if has_verify { verify } else { &mut [] };
-                    Self::run_dense_chunk(
-                        pma,
-                        exact,
-                        &pt.atom_to_slots,
-                        &pt.slot_to_values,
-                        &db.slots,
-                        saturated,
-                        value_remaining,
-                        chunk,
-                        file_type_target,
-                        counts,
-                        st,
-                        verify_ctx,
-                        verify,
-                        data_offset + start,
-                        touched,
-                    );
-                }));
+                s.spawn(move || {
+                    helpers.run(|| {
+                        worker.prepare(db, pt);
+                        let AtomScratch {
+                            saturated,
+                            value_remaining,
+                            counts,
+                            verify,
+                            touched,
+                            ..
+                        } = worker;
+                        let verify: &mut [bool] = if has_verify { verify } else { &mut [] };
+                        Self::run_dense_chunk(
+                            pma,
+                            exact,
+                            &pt.atom_to_slots,
+                            &pt.slot_to_values,
+                            &db.slots,
+                            saturated,
+                            value_remaining,
+                            chunk,
+                            file_type_target,
+                            counts,
+                            st,
+                            verify_ctx,
+                            verify,
+                            data_offset + start,
+                            touched,
+                        );
+                    })
+                });
             }
             let (start, end) = chunk_at(0);
             Self::run_dense_chunk(
@@ -550,7 +609,9 @@ impl AtomScratch {
                 if same_target && (self.saturated[st >> 6] >> (st & 63)) & 1 == 1 {
                     for &v in pt.slot_to_values.get(st).map_or(&[][..], |b| &b[..]) {
                         let v = v as usize;
-                        if let (Some(slot), Some(atoms)) = (self.value_remaining.get_mut(v), pt.atom_to_slots.get(v)) {
+                        if let (Some(slot), Some(atoms)) =
+                            (self.value_remaining.get_mut(v), pt.atom_to_slots.get(v))
+                        {
                             *slot = atoms.len() as u32;
                         }
                     }
@@ -564,7 +625,8 @@ impl AtomScratch {
             }
         }
         self.touched.clear();
-        if self.vr_target != Some(pt.target) || self.value_remaining.len() != pt.atom_to_slots.len() {
+        if self.vr_target != Some(pt.target) || self.value_remaining.len() != pt.atom_to_slots.len()
+        {
             self.value_remaining.clear();
             for slots in pt.atom_to_slots.iter() {
                 self.value_remaining.push(slots.len() as u32);
@@ -584,7 +646,11 @@ impl AtomScratch {
         self.prepare(db, pt);
         let mut touched = std::mem::take(&mut self.touched);
         let mut verify = std::mem::take(&mut self.verify);
-        let verify_results: &mut [bool] = if verify_ctx.is_some() { &mut verify } else { &mut [] };
+        let verify_results: &mut [bool] = if verify_ctx.is_some() {
+            &mut verify
+        } else {
+            &mut []
+        };
 
         let mut exact_stats = AutomatonStats::default();
         let mut nocase_stats = AutomatonStats::default();
@@ -740,7 +806,10 @@ impl AtomScratch {
 
         self.touched = touched;
         self.verify = verify;
-        SlotCounts { counts: &self.counts, saturated: &self.saturated }
+        SlotCounts {
+            counts: &self.counts,
+            saturated: &self.saturated,
+        }
     }
 
     /// Run the atom sweep only (no inline verification).

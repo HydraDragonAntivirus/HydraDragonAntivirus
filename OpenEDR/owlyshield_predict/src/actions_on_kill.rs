@@ -761,7 +761,6 @@ pub fn notify_firewall_threat_alert(threat_name: &str, file_path: &str, reboot_r
     let _ = crate::edr_feedback::send_threat_alert(threat_name, file_path, reboot_required);
 }
 
-
 /// File-operation counters of a process record, as sent with a behavior report.
 pub fn process_ops_summary(proc: &ProcessRecord) -> crate::edr_feedback::OpsSummary {
     crate::edr_feedback::OpsSummary {
@@ -791,11 +790,21 @@ pub fn process_killchain_trace(proc: &ProcessRecord) -> serde_json::Map<String, 
         killchain_trace.insert("files_updated".to_string(), serde_json::json!(sample));
     }
     if !proc.dirs_with_files_created.is_empty() {
-        let sample: Vec<String> = proc.dirs_with_files_created.iter().take(20).cloned().collect();
+        let sample: Vec<String> = proc
+            .dirs_with_files_created
+            .iter()
+            .take(20)
+            .cloned()
+            .collect();
         killchain_trace.insert("dirs_created".to_string(), serde_json::json!(sample));
     }
     if !proc.dirs_with_files_updated.is_empty() {
-        let sample: Vec<String> = proc.dirs_with_files_updated.iter().take(20).cloned().collect();
+        let sample: Vec<String> = proc
+            .dirs_with_files_updated
+            .iter()
+            .take(20)
+            .cloned()
+            .collect();
         killchain_trace.insert("dirs_updated".to_string(), serde_json::json!(sample));
     }
     if !proc.extensions_written.categories_set.is_empty() {
@@ -806,15 +815,27 @@ pub fn process_killchain_trace(proc: &ProcessRecord) -> serde_json::Map<String, 
             }
         }
         if !ext_map.is_empty() {
-            killchain_trace.insert("extensions_written_categories".to_string(), serde_json::Value::Object(ext_map));
+            killchain_trace.insert(
+                "extensions_written_categories".to_string(),
+                serde_json::Value::Object(ext_map),
+            );
         }
     }
     if let Some(ref feat) = proc.fast_detection_features {
         killchain_trace.insert("ml_features".to_string(), serde_json::json!(feat));
     }
-    killchain_trace.insert("driver_msg_count".to_string(), serde_json::json!(proc.driver_msg_count));
-    killchain_trace.insert("files_renamed_count".to_string(), serde_json::json!(proc.files_renamed.len()));
-    killchain_trace.insert("files_deleted_count".to_string(), serde_json::json!(proc.files_deleted.len()));
+    killchain_trace.insert(
+        "driver_msg_count".to_string(),
+        serde_json::json!(proc.driver_msg_count),
+    );
+    killchain_trace.insert(
+        "files_renamed_count".to_string(),
+        serde_json::json!(proc.files_renamed.len()),
+    );
+    killchain_trace.insert(
+        "files_deleted_count".to_string(),
+        serde_json::json!(proc.files_deleted.len()),
+    );
     killchain_trace
 }
 
@@ -855,7 +876,9 @@ impl ActionOnKill for VirusKovCloudFeedbackAction {
         let mut sha256 = String::new();
         let path_to_read = if !display_path.is_empty() && display_path != "UNKNOWN" {
             Some(std::path::PathBuf::from(&display_path))
-        } else if !proc.exepath.as_os_str().is_empty() && proc.exepath.to_string_lossy() != "UNKNOWN" {
+        } else if !proc.exepath.as_os_str().is_empty()
+            && proc.exepath.to_string_lossy() != "UNKNOWN"
+        {
             Some(proc.exepath.clone())
         } else {
             None

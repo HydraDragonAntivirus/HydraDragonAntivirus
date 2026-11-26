@@ -68,9 +68,12 @@ fn find_resources(
             return leaves;
         };
         if typ == by_type && (type_offs >> 31) != 0 {
-            let Some(rd2) =
-                cli_rawaddr(res_rva + (type_offs & 0x7fff_ffff), sections, hdr_size, fsize)
-            else {
+            let Some(rd2) = cli_rawaddr(
+                res_rva + (type_offs & 0x7fff_ffff),
+                sections,
+                hdr_size,
+                fsize,
+            ) else {
                 return leaves;
             };
             if data.get(rd2 as usize..rd2 as usize + 16).is_none() {
@@ -78,10 +81,16 @@ fn find_resources(
             }
             let named = ru16(data, rd2 + 12).unwrap_or(0);
             let (mut name_entry, mut name_cnt) = if by_name == 0xffff_ffff {
-                (rd2 + 16, named as u32 + ru16(data, rd2 + 14).unwrap_or(0) as u32)
+                (
+                    rd2 + 16,
+                    named as u32 + ru16(data, rd2 + 14).unwrap_or(0) as u32,
+                )
             } else {
                 // skip named, iterate id entries only
-                (rd2 + 16 + named as u32 * 8, ru16(data, rd2 + 14).unwrap_or(0) as u32)
+                (
+                    rd2 + 16 + named as u32 * 8,
+                    ru16(data, rd2 + 14).unwrap_or(0) as u32,
+                )
             };
             while name_cnt > 0 {
                 name_cnt -= 1;
@@ -159,7 +168,13 @@ fn lab(r: f64, g: f64, b: f64) -> (f64, f64, f64) {
     let mut x = (r * 0.4124 + g * 0.3576 + b * 0.1805) / 95.047;
     let mut y = (r * 0.2126 + g * 0.7152 + b * 0.0722) / 100.000;
     let mut z = (r * 0.0193 + g * 0.1192 + b * 0.9505) / 108.883;
-    let f = |t: f64| if t > 0.008856 { t.powf(1.0 / 3.0) } else { 7.787 * t + 16.0 / 116.0 };
+    let f = |t: f64| {
+        if t > 0.008856 {
+            t.powf(1.0 / 3.0)
+        } else {
+            7.787 * t + 16.0 / 116.0
+        }
+    };
     x = f(x);
     y = f(y);
     z = f(z);
@@ -347,12 +362,14 @@ fn getmetrics(side: u32, imagedata: &mut [u32]) -> Metrics {
     let mut imax = 0u32;
     for y in 1..side - 1 {
         for x in 1..side - 1 {
-            let gx = sobel[(y - 1) * side + (x - 1)] + sobel[y * side + (x - 1)] * 2.0
+            let gx = sobel[(y - 1) * side + (x - 1)]
+                + sobel[y * side + (x - 1)] * 2.0
                 + sobel[(y + 1) * side + (x - 1)]
                 - sobel[(y - 1) * side + (x + 1)]
                 - sobel[y * side + (x + 1)] * 2.0
                 - sobel[(y + 1) * side + (x + 1)];
-            let gy = sobel[(y - 1) * side + (x - 1)] + sobel[(y - 1) * side + x] * 2.0
+            let gy = sobel[(y - 1) * side + (x - 1)]
+                + sobel[(y - 1) * side + x] * 2.0
                 + sobel[(y - 1) * side + (x + 1)]
                 - sobel[(y + 1) * side + (x - 1)]
                 - sobel[(y + 1) * side + x] * 2.0
@@ -654,9 +671,11 @@ fn parseicon(
     if (sz as usize) < 40 {
         return false;
     }
-    let (Some(w), Some(h), Some(depth)) =
-        (ru32(data, icoff + 4), ru32(data, icoff + 8), ru16(data, icoff + 14))
-    else {
+    let (Some(w), Some(h), Some(depth)) = (
+        ru32(data, icoff + 4),
+        ru32(data, icoff + 8),
+        ru16(data, icoff + 14),
+    ) else {
         return false;
     };
     icoff += sz; // seek past v4/v5 header
@@ -688,7 +707,10 @@ fn parseicon(
             let Some(pal) = data.get(pstart..pstart + pbytes) else {
                 return false;
             };
-            palette = pal.chunks_exact(4).map(|c| u32::from_le_bytes([c[0], c[1], c[2], c[3]])).collect();
+            palette = pal
+                .chunks_exact(4)
+                .map(|c| u32::from_le_bytes([c[0], c[1], c[2], c[3]]))
+                .collect();
             icoff += pbytes as u32;
         }
         16 | 24 | 32 => {}
@@ -888,25 +910,101 @@ fn icon_confident(width: u32, enginesize: usize, m: &Metrics, ic: &IconMetric) -
     let mut positivematch = 64 + 4 * (2 - enginesize as u32);
     if m.ccount == 0 && ic.ccount == 0 {
         edge = matchbwpoint(
-            width, &m.edge_x, &m.edge_y, &m.edge_avg, &m.color_x, &m.color_y, &m.color_avg,
-            &ic.edge_x, &ic.edge_y, &ic.edge_avg, &ic.color_x, &ic.color_y, &ic.color_avg,
+            width,
+            &m.edge_x,
+            &m.edge_y,
+            &m.edge_avg,
+            &m.color_x,
+            &m.color_y,
+            &m.color_avg,
+            &ic.edge_x,
+            &ic.edge_y,
+            &ic.edge_avg,
+            &ic.color_x,
+            &ic.color_y,
+            &ic.color_avg,
         );
         noedge = matchbwpoint(
-            width, &m.noedge_x, &m.noedge_y, &m.noedge_avg, &m.gray_x, &m.gray_y, &m.gray_avg,
-            &ic.noedge_x, &ic.noedge_y, &ic.noedge_avg, &ic.gray_x, &ic.gray_y, &ic.gray_avg,
+            width,
+            &m.noedge_x,
+            &m.noedge_y,
+            &m.noedge_avg,
+            &m.gray_x,
+            &m.gray_y,
+            &m.gray_avg,
+            &ic.noedge_x,
+            &ic.noedge_y,
+            &ic.noedge_avg,
+            &ic.gray_x,
+            &ic.gray_y,
+            &ic.gray_avg,
         );
         bwmatch = true;
     } else {
-        edge = matchpoint(width, &m.edge_x, &m.edge_y, &m.edge_avg, &ic.edge_x, &ic.edge_y, &ic.edge_avg, 255);
-        noedge = matchpoint(width, &m.noedge_x, &m.noedge_y, &m.noedge_avg, &ic.noedge_x, &ic.noedge_y, &ic.noedge_avg, 255);
+        edge = matchpoint(
+            width,
+            &m.edge_x,
+            &m.edge_y,
+            &m.edge_avg,
+            &ic.edge_x,
+            &ic.edge_y,
+            &ic.edge_avg,
+            255,
+        );
+        noedge = matchpoint(
+            width,
+            &m.noedge_x,
+            &m.noedge_y,
+            &m.noedge_avg,
+            &ic.noedge_x,
+            &ic.noedge_y,
+            &ic.noedge_avg,
+            255,
+        );
         if m.ccount != 0 && ic.ccount != 0 {
-            color = matchpoint(width, &m.color_x, &m.color_y, &m.color_avg, &ic.color_x, &ic.color_y, &ic.color_avg, 4072);
-            gray = matchpoint(width, &m.gray_x, &m.gray_y, &m.gray_avg, &ic.gray_x, &ic.gray_y, &ic.gray_avg, 4072);
+            color = matchpoint(
+                width,
+                &m.color_x,
+                &m.color_y,
+                &m.color_avg,
+                &ic.color_x,
+                &ic.color_y,
+                &ic.color_avg,
+                4072,
+            );
+            gray = matchpoint(
+                width,
+                &m.gray_x,
+                &m.gray_y,
+                &m.gray_avg,
+                &ic.gray_x,
+                &ic.gray_y,
+                &ic.gray_avg,
+                4072,
+            );
         }
         bwmatch = false;
     }
-    let bright = matchpoint(width, &m.bright_x, &m.bright_y, &m.bright_avg, &ic.bright_x, &ic.bright_y, &ic.bright_avg, 255);
-    let dark = matchpoint(width, &m.dark_x, &m.dark_y, &m.dark_avg, &ic.dark_x, &ic.dark_y, &ic.dark_avg, 255);
+    let bright = matchpoint(
+        width,
+        &m.bright_x,
+        &m.bright_y,
+        &m.bright_avg,
+        &ic.bright_x,
+        &ic.bright_y,
+        &ic.bright_avg,
+        255,
+    );
+    let dark = matchpoint(
+        width,
+        &m.dark_x,
+        &m.dark_y,
+        &m.dark_avg,
+        &ic.dark_x,
+        &ic.dark_y,
+        &ic.dark_avg,
+        255,
+    );
 
     let spread = |a: u32, b: u32| -> u32 {
         let d = (a as i32 - b as i32).unsigned_abs() * 10;
@@ -954,7 +1052,10 @@ fn groupiconscan(
     let Some(raddr) = cli_rawaddr(grp_rva, sections, hdr_size, fsize) else {
         return false;
     };
-    if data.get(raddr as usize..raddr as usize + gsz0 as usize).is_none() {
+    if data
+        .get(raddr as usize..raddr as usize + gsz0 as usize)
+        .is_none()
+    {
         return false;
     }
     let Some(idcount) = ru16(data, raddr + 4) else {
