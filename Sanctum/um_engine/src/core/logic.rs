@@ -75,12 +75,9 @@ fn forward_to_owlyshield(
         NtFunction::NetworkActivity(_) => ("SANCTUM_NETWORK_ACTIVITY", None),
         NtFunction::None => ("SANCTUM_SYSCALL", None),
     };
-    if let Some(json) = enrich_and_serialize_sanctum_event(
-        syscall,
-        syscall.pid,
-        sanctum_event_type,
-        explicit_proc,
-    ) {
+    if let Some(json) =
+        enrich_and_serialize_sanctum_event(syscall, syscall.pid, sanctum_event_type, explicit_proc)
+    {
         let _ = pipe_tx.try_send(json + "\n");
     }
 }
@@ -90,12 +87,9 @@ fn forward_amsi_bypass_to_owlyshield(
     attempt: &shared_no_std::driver_ipc::AmsiBypassAttempt,
     pipe_tx: &tokio::sync::mpsc::Sender<String>,
 ) {
-    if let Some(json) = enrich_and_serialize_sanctum_event(
-        attempt,
-        attempt.pid,
-        "SANCTUM_AMSI_BYPASS",
-        None,
-    ) {
+    if let Some(json) =
+        enrich_and_serialize_sanctum_event(attempt, attempt.pid, "SANCTUM_AMSI_BYPASS", None)
+    {
         let _ = pipe_tx.try_send(json + "\n");
     }
 }
@@ -105,12 +99,9 @@ fn forward_ghost_hunt_to_owlyshield(
     hunt: &shared_no_std::driver_ipc::GhostHunt,
     pipe_tx: &tokio::sync::mpsc::Sender<String>,
 ) {
-    if let Some(json) = enrich_and_serialize_sanctum_event(
-        hunt,
-        hunt.pid,
-        "SANCTUM_GHOST_HUNT",
-        None,
-    ) {
+    if let Some(json) =
+        enrich_and_serialize_sanctum_event(hunt, hunt.pid, "SANCTUM_GHOST_HUNT", None)
+    {
         let _ = pipe_tx.try_send(json + "\n");
     }
 }
