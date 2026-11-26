@@ -369,6 +369,7 @@ pub fn dashboard_router(state: Arc<AppState>) -> Router {
         .route("/api/v1/edr/telemetry/behaviors", get(crate::edr_telemetry::handle_get_edr_behaviors))
         .route("/api/v1/edr/telemetry/flows", get(crate::edr_telemetry::handle_get_edr_flows))
         .route("/api/v1/edr/telemetry/threats", get(crate::edr_telemetry::handle_get_edr_threats))
+        .route("/api/v1/edr/telemetry/killchain", get(crate::edr_telemetry::handle_get_killchain))
         .route("/api/v1/edr/telemetry/killchain/stats", get(crate::edr_telemetry::handle_get_killchain_stats))
         .route("/api/v1/edr/telemetry/killchain/export", get(crate::edr_telemetry::handle_export_killchain))
         .route("/api/v1/edr/telemetry/killchain/machines", get(crate::edr_telemetry::handle_get_killchain_machines))
@@ -3667,5 +3668,7 @@ mod guard_tests {
         assert!(DASHBOARD_HTML.contains("#haEdrThreatRows tr[data-edr-kind]"));
         assert!(DASHBOARD_HTML.contains("#haEdrBehaviorRows tr[data-edr-kind]"));
         assert!(DASHBOARD_HTML.contains("#haEdrEventRows tr[data-edr-kind]"));
+        assert!(DASHBOARD_HTML.contains("#haEdrKillchainRows tr[data-edr-kind]"));
+        assert!(DASHBOARD_HTML.contains("haEdrViewKillchain"));
     }
 }

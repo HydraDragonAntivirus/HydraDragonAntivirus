@@ -30,8 +30,8 @@ use crate::logging::Logging;
 /// Server route the batches go to.
 pub const KILLCHAIN_PATH: &str = "/api/v1/edr/telemetry/killchain";
 
-const FIRST_ROUND_DELAY: Duration = Duration::from_secs(120);
-const ROUND_INTERVAL: Duration = Duration::from_secs(30 * 60);
+const FIRST_ROUND_DELAY: Duration = Duration::from_secs(30);
+const ROUND_INTERVAL: Duration = Duration::from_secs(5 * 60);
 const BATCH_SPACING: Duration = Duration::from_secs(3);
 /// Bytes of new log read per file per round (the rest waits for the next round).
 const MAX_READ_PER_ROUND: u64 = 64 * 1024 * 1024;
@@ -382,26 +382,30 @@ impl Pending {
     }
 }
 
-/// Adds one log line to the batch. `date` is the file's day.
-fn add_line(p: &mut Pending, seen: &HashSet<u64>, date: &str, line: &str) {
-    let Ok(d) = serde_json::from_str::<serde_json::Value>(line) else {
-        return;
-    };
-    let s = |k: &str| d.get(k).and_then(|v| v.as_str()).unwrap_or("").to_string();
-    let (exe, event, details) = (s("exe"), s("event"), s("details"));
-    let raw = d.get("raw").cloned().unwrap_or(serde_json::Value::Object(Default::default()));
+/// Adds a structured event into the batch, collapsing identical shapes.
+fn add_structured_record(
+    p: &mut Pending,
+    seen: &HashSet<u64>,
+    date: String,
+    time: String,
+    exe: String,
+    event: String,
+    details: String,
+    raw: serde_json::Value,
+    est_bytes: usize,
+) {
     let key = shape_key(&exe, &event_features(&event, &details, &raw));
     if seen.contains(&key) {
         *p.counts.entry(key).or_default() += 1;
     } else if let Some(&i) = p.index.get(&key) {
         p.records[i].count += 1;
     } else {
-        p.bytes += line.len();
+        p.bytes += est_bytes;
         p.index.insert(key, p.records.len());
         p.records.push(UploadRecord {
             key: key_hex(key),
-            date: date.to_string(),
-            time: s("time"),
+            date,
+            time,
             exe,
             event,
             details,
@@ -411,8 +415,43 @@ fn add_line(p: &mut Pending, seen: &HashSet<u64>, date: &str, line: &str) {
     }
 }
 
+/// Adds one log line to the batch. `date` is the file's day.
+fn add_line(p: &mut Pending, seen: &HashSet<u64>, date: &str, line: &str) {
+    let Ok(d) = serde_json::from_str::<serde_json::Value>(line) else {
+        return;
+    };
+    let s = |k: &str| d.get(k).and_then(|v| v.as_str()).unwrap_or("").to_string();
+    let (exe, event, details, time) = (s("exe"), s("event"), s("details"), s("time"));
+    let raw = d.get("raw").cloned().unwrap_or(serde_json::Value::Object(Default::default()));
+    add_structured_record(p, seen, date.to_string(), time, exe, event, details, raw, line.len());
+}
+
+fn enrich_record_for_parity(rec: &mut UploadRecord) {
+    if let Some(obj) = rec.raw.as_object_mut() {
+        if rec.event == "LLE_NAMED_PIPE_SERVER_CREATE" {
+            obj.entry("pipe_op").or_insert_with(|| serde_json::json!("create"));
+        } else if rec.event == "LLE_NAMED_PIPE_CREATE" {
+            obj.entry("pipe_op").or_insert_with(|| serde_json::json!("connect"));
+        }
+    }
+    if crate::telemetry_stream::should_hash_event(&rec.event) && rec.raw.get("hashes").is_none() {
+        if let Some(path) = crate::telemetry_stream::extract_best_file_path(&rec.raw, &rec.exe) {
+            if !path.to_ascii_lowercase().ends_with(":zone.identifier") {
+                if let Some(hashes) = crate::pe_hashes::compute_file_hashes_cached(&path) {
+                    if let (Some(obj), Ok(hv)) = (rec.raw.as_object_mut(), serde_json::to_value(hashes)) {
+                        obj.insert("hashes".to_string(), hv);
+                    }
+                }
+            }
+        }
+    }
+}
+
 /// Sends the batch; true when the server accepted it.
-fn send(p: &Pending) -> bool {
+fn send(p: &mut Pending) -> bool {
+    for rec in &mut p.records {
+        enrich_record_for_parity(rec);
+    }
     let machine_id = crate::edr_feedback::get_machine_guid();
     let batch = UploadBatch {
         machine_id: &machine_id,
@@ -508,7 +547,7 @@ fn round(state: &mut State, log_dir: &Path) -> bool {
             pos = end + 1;
             p.offsets.insert(name.clone(), start + pos as u64);
             if p.full() {
-                if !send(&p) {
+                if !send(&mut p) {
                     return false;
                 }
                 let keys: Vec<u64> = p.index.keys().copied().collect();
@@ -520,7 +559,7 @@ fn round(state: &mut State, log_dir: &Path) -> bool {
         }
     }
     if !p.is_empty() {
-        if !send(&p) {
+        if !send(&mut p) {
             return false;
         }
         let keys: Vec<u64> = p.index.keys().copied().collect();
@@ -606,10 +645,165 @@ fn requeue(failed: Pending, live: &mut Live) {
     }
 }
 
+#[derive(Clone)]
+struct TrainingConfig {
+    enabled: bool,
+    watch_dir: String,
+    refreshed_at: std::time::Instant,
+}
+
+fn read_sdk_training_config() -> (bool, String) {
+    #[cfg(target_os = "windows")]
+    {
+        use winreg::enums::{HKEY_LOCAL_MACHINE, KEY_READ};
+        use winreg::RegKey;
+        let hklm = RegKey::predef(HKEY_LOCAL_MACHINE);
+        let Ok(key) = hklm.open_subkey_with_flags(r"SOFTWARE\Owlyshield\SDK", KEY_READ) else {
+            return (false, String::new());
+        };
+        let mode = key
+            .get_value::<String, _>("TRAINING_MODE")
+            .ok()
+            .or_else(|| key.get_value::<u32, _>("TRAINING_MODE").ok().map(|n| n.to_string()))
+            .unwrap_or_default();
+        let trimmed = mode.trim_matches('\0').trim();
+        let enabled = trimmed == "1" || trimmed.eq_ignore_ascii_case("true");
+        let watch = key
+            .get_value::<String, _>("TRAINING_WATCH_DIR")
+            .unwrap_or_default()
+            .trim_matches('\0')
+            .to_string();
+        (enabled, watch)
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        (false, String::new())
+    }
+}
+
+fn training_config() -> (bool, String) {
+    static CACHE: std::sync::OnceLock<std::sync::RwLock<Option<TrainingConfig>>> = std::sync::OnceLock::new();
+    let lock = CACHE.get_or_init(|| std::sync::RwLock::new(None));
+    if let Ok(g) = lock.read() {
+        if let Some(cfg) = g.as_ref() {
+            if cfg.refreshed_at.elapsed() < Duration::from_secs(3) {
+                return (cfg.enabled, cfg.watch_dir.clone());
+            }
+        }
+    }
+    let (enabled, watch_dir) = read_sdk_training_config();
+    if let Ok(mut g) = lock.write() {
+        *g = Some(TrainingConfig {
+            enabled,
+            watch_dir: watch_dir.clone(),
+            refreshed_at: std::time::Instant::now(),
+        });
+    }
+    (enabled, watch_dir)
+}
+
+fn own_install_dir() -> Option<&'static str> {
+    static OWN: std::sync::OnceLock<Option<String>> = std::sync::OnceLock::new();
+    OWN.get_or_init(|| {
+        std::env::current_exe()
+            .ok()?
+            .parent()?
+            .to_str()
+            .map(|s| s.to_lowercase().replace('/', "\\"))
+    })
+    .as_deref()
+}
+
+/// Checks whether an executable path is eligible under `TRAINING_WATCH_DIR`, matching
+/// `eventenricher.cpp::IsProcessInTrainingDir` while allowing empty `exe_path` system-wide events.
+pub fn is_training_path_eligible(watch_dir: &str, own_dir: Option<&str>, exe_path: &str) -> bool {
+    let trimmed = watch_dir
+        .trim()
+        .trim_matches(|c| c == '"' || c == '\'')
+        .trim()
+        .to_lowercase()
+        .replace('/', "\\");
+    if trimmed == "*.*" || trimmed == "*" || trimmed.contains("*.*") {
+        return true;
+    }
+    let lower_exe = exe_path.to_lowercase().replace('/', "\\");
+    if trimmed.is_empty() {
+        if lower_exe.is_empty() {
+            return true;
+        }
+        if let Some(own) = own_dir.filter(|s| !s.is_empty()) {
+            let norm_own = own.to_lowercase().replace('/', "\\");
+            if lower_exe.starts_with(&norm_own) {
+                return false;
+            }
+        }
+        return true;
+    }
+    !lower_exe.is_empty() && lower_exe.contains(&trimmed)
+}
+
+fn is_disabled() -> bool {
+    std::env::var("OWLY_KILLCHAIN_UPLOAD").is_ok_and(|v| {
+        let t = v.trim();
+        t == "0" || t.eq_ignore_ascii_case("false")
+    })
+}
+
+/// Enqueues a structured/enriched/Sanctum telemetry event into the Kill Chain trainer
+/// uploader when `TRAINING_MODE` is enabled and the process passes `TRAINING_WATCH_DIR`.
+pub fn submit_edr_event(
+    event_type: &str,
+    exe_path: &str,
+    details: Option<&str>,
+    raw: &serde_json::Value,
+) {
+    if is_disabled() || event_type.trim().is_empty() || event_type.starts_with("AGENT_") {
+        return;
+    }
+    let (enabled, watch_dir) = training_config();
+    if !enabled || !is_training_path_eligible(&watch_dir, own_install_dir(), exe_path) {
+        return;
+    }
+    start();
+    let now = chrono::Local::now();
+    let date = now.format("%Y%m%d").to_string();
+    let time = now.format("%H:%M:%S%.3f").to_string();
+    let details_str = details.unwrap_or("").to_string();
+    let raw_val = if raw.is_null() {
+        serde_json::Value::Object(Default::default())
+    } else {
+        raw.clone()
+    };
+    let est_bytes = 64 + exe_path.len() + event_type.len() + details_str.len() + raw_val.to_string().len();
+    let (lock, wake) = live();
+    let Ok(mut g) = lock.lock() else { return };
+    if g.pending.records.len() >= MAX_BATCH_RECORDS * LIVE_CAP_FACTOR
+        || g.pending.bytes >= MAX_BATCH_BYTES * LIVE_CAP_FACTOR
+    {
+        g.dropped += 1;
+        return;
+    }
+    let Live { pending, seen, .. } = &mut *g;
+    add_structured_record(
+        pending,
+        seen,
+        date,
+        time,
+        exe_path.to_string(),
+        event_type.to_string(),
+        details_str,
+        raw_val,
+        est_bytes,
+    );
+    if g.pending.full() {
+        wake.notify_one();
+    }
+}
+
 /// Uploads what `submit` collected; returns false when the upload failed.
 fn send_live() -> bool {
     let (lock, _) = live();
-    let (batch, dropped) = {
+    let (mut batch, dropped) = {
         let Ok(mut g) = lock.lock() else { return false };
         (std::mem::take(&mut g.pending), std::mem::take(&mut g.dropped))
     };
@@ -621,7 +815,7 @@ fn send_live() -> bool {
     if batch.is_empty() {
         return true;
     }
-    let ok = send(&batch);
+    let ok = send(&mut batch);
     let Ok(mut g) = lock.lock() else { return ok };
     if ok {
         let room = MAX_SEEN_KEYS.saturating_sub(g.seen.len());
@@ -636,7 +830,7 @@ fn send_live() -> bool {
 /// Starts the background uploader (once). Set `OWLY_KILLCHAIN_UPLOAD=0` to turn it off.
 pub fn start() {
     static STARTED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
-    if std::env::var("OWLY_KILLCHAIN_UPLOAD").is_ok_and(|v| v.trim() == "0") {
+    if is_disabled() {
         return;
     }
     if STARTED.swap(true, std::sync::atomic::Ordering::SeqCst) {
@@ -793,5 +987,58 @@ mod tests {
         add_line(&mut p, &seen, "20261114", other);
         assert_eq!(p.records.len(), 1, "a key sent before is not sent again");
         assert_eq!(p.counts.values().sum::<u64>(), 2);
+    }
+
+    #[test]
+    fn add_structured_record_formats_like_edrsvc_and_dedupes() {
+        let mut p = Pending::default();
+        let seen = HashSet::new();
+        let raw = serde_json::json!({"ScriptBlockText": "Get-Process", "pid": 42});
+        for _ in 0..3 {
+            add_structured_record(
+                &mut p,
+                &seen,
+                "20261126".to_string(),
+                "12:34:56.789".to_string(),
+                r"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe".to_string(),
+                "SCRIPT_BLOCK_ACTIVITY".to_string(),
+                "Get-Process".to_string(),
+                raw.clone(),
+                128,
+            );
+        }
+        assert_eq!(p.records.len(), 1);
+        assert_eq!(p.records[0].count, 3);
+        assert_eq!(p.records[0].date, "20261126");
+        assert_eq!(p.records[0].time, "12:34:56.789");
+        assert_eq!(p.records[0].event, "SCRIPT_BLOCK_ACTIVITY");
+        assert_eq!(p.records[0].raw["ScriptBlockText"], "Get-Process");
+    }
+
+    #[test]
+    fn is_training_path_eligible_rules() {
+        let own = Some(r"c:\program files\hydradragonantivirus\openedr");
+        assert!(is_training_path_eligible("", own, ""));
+        assert!(is_training_path_eligible("", own, r"C:\Users\alice\Desktop\app.exe"));
+        assert!(!is_training_path_eligible("", own, r"C:\Program Files\HydraDragonAntivirus\OpenEDR\edrsvc.exe"));
+        assert!(is_training_path_eligible("*.*", own, r"C:\Program Files\HydraDragonAntivirus\OpenEDR\edrsvc.exe"));
+        assert!(is_training_path_eligible(r"C:\Samples", own, r"c:\samples\malware.exe"));
+        assert!(!is_training_path_eligible(r"C:\Samples", own, ""));
+    }
+
+    #[test]
+    fn enrich_record_for_parity_adds_pipe_op() {
+        let mut rec = UploadRecord {
+            key: "0000000000000001".to_string(),
+            date: "20261126".to_string(),
+            time: "00:00:00.000".to_string(),
+            exe: r"C:\Temp\app.exe".to_string(),
+            event: "LLE_NAMED_PIPE_SERVER_CREATE".to_string(),
+            details: String::new(),
+            raw: serde_json::json!({"file": {"rawPath": r"\Device\NamedPipe\p"}}),
+            count: 1,
+        };
+        enrich_record_for_parity(&mut rec);
+        assert_eq!(rec.raw["pipe_op"], "create");
     }
 }

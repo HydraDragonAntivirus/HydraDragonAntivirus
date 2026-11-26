@@ -1409,7 +1409,7 @@
         <div style="background:var(--panel2);border:1px solid var(--border);border-radius:8px;padding:8px 14px;flex:1;min-width:140px" title="Lossless raw EDR events streamed to SQLite">
           <div style="font-size:11px;color:var(--accent);text-transform:uppercase;font-weight:600">Raw EDR Events</div>
           <div style="font-size:20px;font-weight:700;color:var(--accent)" id="edrStatEvents">0</div>
-          <div style="font-size:11px;color:var(--muted)"><a id="edrEventsExport" href="/api/v1/edr/telemetry/events/export" download>export jsonl</a></div>
+          <div style="font-size:11px;color:var(--muted)"><a id="edrEventsExport" href="/api/v1/edr/telemetry/events/export" download>export jsonl</a> &middot; <a id="edrEventsExportGz" href="/api/v1/edr/telemetry/events/export?gzip=true" download>.gz</a></div>
         </div>
         <div style="background:var(--panel2);border:1px solid var(--border);border-radius:8px;padding:8px 14px;flex:1;min-width:140px" title="Agent lifecycle SysOps events (start, stop, install, uninstall, keep-alive, errors)">
           <div style="font-size:11px;color:var(--green);text-transform:uppercase;font-weight:600">Agent SysOps</div>
@@ -1419,8 +1419,8 @@
         <div style="background:var(--panel2);border:1px solid var(--border);border-radius:8px;padding:8px 14px;flex:1;min-width:150px" title="Unknown-process kill chain events uploaded by clients in training mode, merged by event shape">
           <div style="font-size:11px;color:var(--muted);text-transform:uppercase;font-weight:600">Kill Chain (training)</div>
           <div style="font-size:20px;font-weight:700" id="edrStatKcShapes">0</div>
-          <div style="font-size:11px;color:var(--muted)"><span id="edrStatKcEvents">0</span> events &middot; <a id="edrKcExport" href="/api/v1/edr/telemetry/killchain/export" download>export</a></div>
-          <select id="edrKcMachine" title="Export one machine's own kill chain, in the order it happened there" style="margin-top:4px;max-width:100%;font-size:11px">
+          <div style="font-size:11px;color:var(--muted)"><span id="edrStatKcEvents">0</span> events &middot; <a id="edrKcExport" href="/api/v1/edr/telemetry/killchain/export" download>export jsonl</a> &middot; <a id="edrKcExportGz" href="/api/v1/edr/telemetry/killchain/export?gzip=true" download>.gz</a></div>
+          <select id="edrKcMachine" title="Export or filter one machine's own kill chain, in the order it happened there" style="margin-top:4px;max-width:100%;font-size:11px">
             <option value="">All machines (merged)</option>
           </select>
         </div>
@@ -1431,6 +1431,7 @@
         <div style="display:flex;gap:6px;flex-wrap:wrap">
           <button class="ghost active" id="haEdrViewBehaviors" style="padding:5px 12px;font-size:12.5px;font-weight:600">Process Behaviors</button>
           <button class="ghost" id="haEdrViewEvents" style="padding:5px 12px;font-size:12.5px;font-weight:600">Raw EDR Events</button>
+          <button class="ghost" id="haEdrViewKillchain" style="padding:5px 12px;font-size:12.5px;font-weight:600">Kill Chain (Training)</button>
           <button class="ghost" id="haEdrViewFlows" style="padding:5px 12px;font-size:12.5px;font-weight:600">WinDivert Network Flows</button>
           <button class="ghost" id="haEdrViewThreats" style="padding:5px 12px;font-size:12.5px;font-weight:600">Threat Reports</button>
           <button class="ghost" id="haEdrViewSysops" style="padding:5px 12px;font-size:12.5px;font-weight:600">Agent SysOps &amp; System</button>
@@ -1525,6 +1526,26 @@
             </thead>
             <tbody id="haEdrEventRows">
               <tr><td colspan="5" class="empty">No raw EDR events ingested yet.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Kill Chain (Training) Table Section -->
+      <div id="haEdrSecKillchain" hidden>
+        <div class="tablewrap ha-table" style="max-height:560px">
+          <table>
+            <thead>
+              <tr>
+                <th style="width:130px">Event / Last Seen</th>
+                <th style="width:140px">Machine / Count</th>
+                <th style="width:180px">Event Type</th>
+                <th>Executable &amp; Shape Key</th>
+                <th>Details / Raw Telemetry</th>
+              </tr>
+            </thead>
+            <tbody id="haEdrKillchainRows">
+              <tr><td colspan="5" class="empty">No kill chain shapes ingested yet.</td></tr>
             </tbody>
           </table>
         </div>
@@ -4540,7 +4561,7 @@ window.sigKey = (list) => list && list.length ? `${list[0].layer}: ${list[0].nam
   // Right-click menu for file rows and EDR telemetry rows: inspect, queue, verdicts, rescan log, scan queue.
   const esc = (s) => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
   const ROWS = "#haRows tr.it, #haRecentRows tr[data-sha], #rsRows tr[data-sha], #sqRows tr[data-sha], #etScans tr[data-sha], #feed tr[data-sha], #srcFiles tr[data-sha], #rhList tr[data-sha]";
-  const EDR_ROWS = "#haEdrBehaviorRows tr[data-edr-kind], #haEdrThreatRows tr[data-edr-kind], #haEdrEventRows tr[data-edr-kind], #haEdrFlowRows tr[data-edr-kind], #haEdrSysopRows tr[data-edr-kind], #haEdrSysReportRows tr[data-edr-kind]";
+  const EDR_ROWS = "#haEdrBehaviorRows tr[data-edr-kind], #haEdrThreatRows tr[data-edr-kind], #haEdrEventRows tr[data-edr-kind], #haEdrKillchainRows tr[data-edr-kind], #haEdrFlowRows tr[data-edr-kind], #haEdrSysopRows tr[data-edr-kind], #haEdrSysReportRows tr[data-edr-kind]";
   let menu = null;
   const toast = (msg) => {
     let t = document.getElementById("ctxToast");
@@ -6139,12 +6160,21 @@ window.sigKey = (list) => list && list.length ? `${list[0].layer}: ${list[0].nam
   (() => {
     let edrActiveSub = "behaviors";
     let edrTimer = null;
+    let edrStatsInFlight = false;
+    let edrViewInFlight = false;
+    let lastKcMachinesSig = "";
+    let edrHiddenTick = 0;
 
     const edrEsc = (x) => String(x ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-    const edrCache = { behaviors: [], threats: [], events: [], flows: [], sysops: [], reports: [] };
+    const edrCache = { behaviors: [], threats: [], events: [], killchain: [], flows: [], sysops: [], reports: [] };
     const edrHex64 = (v) => {
       const s = String(v ?? "").trim().toLowerCase();
       return /^[0-9a-f]{64}$/.test(s) ? s : "";
+    };
+    const extractEventPid = (ev) => {
+      const r = (ev && ev.raw) ? ev.raw : {};
+      const p = (r.process && r.process.pid != null) ? r.process.pid : (r.sourceProcessPid != null ? r.sourceProcessPid : r.pid);
+      return (p != null && Number(p) > 0) ? Number(p) : "";
     };
     const extractEventSha = (ev) => {
       const r = (ev && ev.raw) ? ev.raw : {};
@@ -6223,6 +6253,21 @@ window.sigKey = (list) => list && list.length ? `${list[0].layer}: ${list[0].nam
         addKv("Path", row.exe_path, true);
         addKv("SHA-256", sha, true);
         addKv("Details", row.details);
+      } else if (kind === "killchain") {
+        sha = extractEventSha(row);
+        const evPid = extractEventPid(row);
+        if (evPid) addKv("PID", evPid, true);
+        addKv("Shape Key", row.key, true);
+        addKv("Count", row.count != null ? String(row.count) : "");
+        if (row.count_all != null) addKv("All-Machine Count", String(row.count_all));
+        if (row.machines != null) addKv("Machines Seen", String(row.machines));
+        addKv("Event Date / Time", [row.date, row.time].filter(Boolean).join(" "), true);
+        addKv("First Seen", row.first_seen, true);
+        addKv("Last Seen", row.last_seen, true);
+        addKv("Event Type", row.event, true);
+        addKv("Executable", row.exe, true);
+        addKv("SHA-256", sha, true);
+        addKv("Details", row.details);
       } else if (kind === "flows") {
         addKv("Process", row.process_name);
         addKv("Source", `${row.src_ip}:${row.src_port}`, true);
@@ -6239,7 +6284,7 @@ window.sigKey = (list) => list && list.length ? `${list[0].layer}: ${list[0].nam
         addKv("Monitored Processes", row.monitored_processes_count);
         addKv("Rootkit Findings", row.rootkit_findings_count);
       }
-      const headerLabel = row.process_name || row.file_name || row.event_type || row.hostname || kind;
+      const headerLabel = row.process_name || row.file_name || row.event_type || row.event || row.hostname || kind;
       titleEl.textContent = `EDR Inspect: ${headerLabel}`;
       const jsonText = JSON.stringify(row, null, 2);
       bodyEl.innerHTML = `<div class="edr-kv">${kv.join("")}</div><div style="font-size:12px;font-weight:600;color:var(--muted);margin:10px 0 4px">Full Telemetry Record (JSON)</div><pre class="edr-json">${edrEsc(jsonText)}</pre>`;
@@ -6281,54 +6326,86 @@ window.sigKey = (list) => list && list.length ? `${list[0].layer}: ${list[0].nam
       dlg.showModal();
     };
 
+    function syncExportLinks() {
+      const mach = ($("edrKcMachine") ? $("edrKcMachine").value : "").trim();
+      const et = ($("haEdrEventTypeF") ? $("haEdrEventTypeF").value : "").trim();
+      const q = ($("haEdrSearch") ? $("haEdrSearch").value : "").trim();
+      const buildQs = (machKey, machVal, includeFilters, gzip) => {
+        const p = new URLSearchParams();
+        if (machKey && machVal) p.set(machKey, machVal);
+        if (includeFilters) {
+          if (et) p.set("event_type", et);
+          if (q) p.set("q", q);
+        }
+        if (gzip) p.set("gzip", "true");
+        const s = p.toString();
+        return s ? "?" + s : "";
+      };
+      const kcFiltered = (edrActiveSub === "killchain");
+      const evFiltered = (edrActiveSub === "events");
+      if ($("edrKcExport")) $("edrKcExport").href = "/api/v1/edr/telemetry/killchain/export" + buildQs("machine", mach, kcFiltered, false);
+      if ($("edrKcExportGz")) $("edrKcExportGz").href = "/api/v1/edr/telemetry/killchain/export" + buildQs("machine", mach, kcFiltered, true);
+      if ($("edrEventsExport")) $("edrEventsExport").href = "/api/v1/edr/telemetry/events/export" + buildQs("", "", evFiltered, false);
+      if ($("edrEventsExportGz")) $("edrEventsExportGz").href = "/api/v1/edr/telemetry/events/export" + buildQs("", "", evFiltered, true);
+    }
+
     async function loadEdrStats() {
+      if (edrStatsInFlight) return;
+      edrStatsInFlight = true;
       try {
-        const res = await fetch("/api/v1/edr/telemetry/stats", { cache: "no-store" });
-        if (!res.ok) return;
-        const d = await res.json();
-        const total = (d.total_behaviors || 0) + (d.total_threats || 0);
-        if ($("haEdrCount")) $("haEdrCount").textContent = total ? `(${total})` : "";
-        if ($("edrStatBehaviors")) $("edrStatBehaviors").textContent = (d.total_behaviors || 0).toLocaleString();
-        if ($("edrStatMalicious")) $("edrStatMalicious").textContent = (d.malicious_behaviors || 0).toLocaleString();
-        if ($("edrStatSuspicious")) $("edrStatSuspicious").textContent = (d.suspicious_behaviors || 0).toLocaleString();
-        if ($("edrStatClean")) $("edrStatClean").textContent = (d.clean_behaviors || 0).toLocaleString();
-        if ($("edrStatFlows")) $("edrStatFlows").textContent = (d.total_flows || 0).toLocaleString();
-        if ($("edrStatThreats")) $("edrStatThreats").textContent = (d.total_threats || 0).toLocaleString();
-        if ($("edrStatEvents")) $("edrStatEvents").textContent = (d.total_events || 0).toLocaleString();
-        if ($("edrStatSysops")) $("edrStatSysops").textContent = (d.total_sysops || 0).toLocaleString();
-        if ($("edrStatSystemReports")) $("edrStatSystemReports").textContent = (d.total_system_reports || 0).toLocaleString();
-      } catch (_) {}
-      try {
-        const kc = await fetch("/api/v1/edr/telemetry/killchain/stats", { cache: "no-store" });
-        if (kc.ok) {
-          const k = await kc.json();
+        const sel = $("edrKcMachine");
+        if (sel && !sel.dataset.bound) {
+          sel.dataset.bound = "1";
+          sel.addEventListener("change", () => {
+            syncExportLinks();
+            if (edrActiveSub === "killchain") loadEdrKillchain();
+          });
+        }
+        const [statsRes, kcRes, kmRes] = await Promise.allSettled([
+          fetch("/api/v1/edr/telemetry/stats", { cache: "no-store" }),
+          fetch("/api/v1/edr/telemetry/killchain/stats", { cache: "no-store" }),
+          sel ? fetch("/api/v1/edr/telemetry/killchain/machines", { cache: "no-store" }) : Promise.resolve(null),
+        ]);
+        if (statsRes.status === "fulfilled" && statsRes.value && statsRes.value.ok) {
+          const d = await statsRes.value.json();
+          const total = (d.total_behaviors || 0) + (d.total_threats || 0);
+          if ($("haEdrCount")) $("haEdrCount").textContent = total ? `(${total})` : "";
+          if ($("edrStatBehaviors")) $("edrStatBehaviors").textContent = (d.total_behaviors || 0).toLocaleString();
+          if ($("edrStatMalicious")) $("edrStatMalicious").textContent = (d.malicious_behaviors || 0).toLocaleString();
+          if ($("edrStatSuspicious")) $("edrStatSuspicious").textContent = (d.suspicious_behaviors || 0).toLocaleString();
+          if ($("edrStatClean")) $("edrStatClean").textContent = (d.clean_behaviors || 0).toLocaleString();
+          if ($("edrStatFlows")) $("edrStatFlows").textContent = (d.total_flows || 0).toLocaleString();
+          if ($("edrStatThreats")) $("edrStatThreats").textContent = (d.total_threats || 0).toLocaleString();
+          if ($("edrStatEvents")) $("edrStatEvents").textContent = (d.total_events || 0).toLocaleString();
+          if ($("edrStatSysops")) $("edrStatSysops").textContent = (d.total_sysops || 0).toLocaleString();
+          if ($("edrStatSystemReports")) $("edrStatSystemReports").textContent = (d.total_system_reports || 0).toLocaleString();
+        }
+        if (kcRes.status === "fulfilled" && kcRes.value && kcRes.value.ok) {
+          const k = await kcRes.value.json();
           if ($("edrStatKcShapes")) $("edrStatKcShapes").textContent = (k.shapes || 0).toLocaleString() + " shapes";
           if ($("edrStatKcEvents")) $("edrStatKcEvents").textContent = (k.events || 0).toLocaleString();
         }
-      } catch (_) {}
-      try {
-        const sel = $("edrKcMachine");
-        const km = sel ? await fetch("/api/v1/edr/telemetry/killchain/machines", { cache: "no-store" }) : null;
-        if (km && km.ok) {
-          const list = (await km.json()).machines || [];
-          const keep = sel.value;
-          while (sel.options.length > 1) sel.remove(1);
-          for (const m of list) {
-            const o = document.createElement("option");
-            o.value = m.machine_id;
-            o.textContent = `${m.machine_id || "(no id)"} — ${(m.shapes || 0).toLocaleString()} shapes, ${(m.events || 0).toLocaleString()} events`;
-            sel.appendChild(o);
-          }
-          sel.value = list.some(m => m.machine_id === keep) ? keep : "";
-          if (!sel.dataset.bound) {
-            sel.dataset.bound = "1";
-            sel.addEventListener("change", () => {
-              const a = $("edrKcExport");
-              if (a) a.href = "/api/v1/edr/telemetry/killchain/export" + (sel.value ? "?machine=" + encodeURIComponent(sel.value) : "");
-            });
+        if (sel && kmRes.status === "fulfilled" && kmRes.value && kmRes.value.ok) {
+          const list = (await kmRes.value.json()).machines || [];
+          const sig = list.map(m => `${m.machine_id}\t${m.shapes || 0}\t${m.events || 0}`).join("\n");
+          if (sig !== lastKcMachinesSig && document.activeElement !== sel) {
+            lastKcMachinesSig = sig;
+            const keep = sel.value;
+            while (sel.options.length > 1) sel.remove(1);
+            for (const m of list) {
+              const o = document.createElement("option");
+              o.value = m.machine_id;
+              o.textContent = `${m.machine_id || "(no id)"} — ${(m.shapes || 0).toLocaleString()} shapes, ${(m.events || 0).toLocaleString()} events`;
+              sel.appendChild(o);
+            }
+            sel.value = list.some(m => m.machine_id === keep) ? keep : "";
           }
         }
+        syncExportLinks();
       } catch (_) {}
+      finally {
+        edrStatsInFlight = false;
+      }
     }
 
     async function loadEdrBehaviors() {
@@ -6475,6 +6552,61 @@ window.sigKey = (list) => list && list.length ? `${list[0].layer}: ${list[0].nam
       }
     }
 
+    async function loadEdrKillchain() {
+      const tbody = $("haEdrKillchainRows");
+      if (!tbody) return;
+      try {
+        const mach = ($("edrKcMachine") ? $("edrKcMachine").value : "").trim();
+        const et = ($("haEdrEventTypeF") ? $("haEdrEventTypeF").value : "").trim();
+        const q = ($("haEdrSearch") ? $("haEdrSearch").value : "").trim();
+        const res = await fetch(
+          `/api/v1/edr/telemetry/killchain?limit=250&machine=${encodeURIComponent(mach)}&event_type=${encodeURIComponent(et)}&q=${encodeURIComponent(q)}`,
+          { cache: "no-store" }
+        );
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        const data = await res.json();
+        const items = data.records || [];
+        edrCache.killchain = items;
+        if (!items.length) {
+          tbody.innerHTML = '<tr><td colspan="5" class="empty">No kill chain shapes match filter.</td></tr>';
+          return;
+        }
+        tbody.innerHTML = items.map((r, idx) => {
+          const evTime = [r.date, r.time].filter(Boolean).join(" ") || (r.last_seen ? r.last_seen.slice(0, 19).replace("T", " ") : "");
+          const seenTime = r.last_seen ? r.last_seen.slice(11, 19) : "";
+          const countHtml = r.count_all != null
+            ? `${Number(r.count || 0).toLocaleString()}x <span style="color:var(--muted);font-weight:400">/ ${Number(r.count_all || 0).toLocaleString()}</span>`
+            : `${Number(r.count || 0).toLocaleString()}x${r.machines ? ` <span style="color:var(--muted);font-weight:400">(${r.machines}m)</span>` : ""}`;
+          const procName = (r.exe || "").split(/[\\/]/).pop() || "—";
+          const rawStr = r.raw ? JSON.stringify(r.raw) : "";
+          const rawClip = rawStr.length > 260 ? rawStr.slice(0, 260) + "..." : rawStr;
+          const sha = extractEventSha(r);
+          const pid = extractEventPid(r);
+          const attrs = edrRowAttrs("killchain", idx, { sha, name: procName !== "—" ? procName : r.event, path: r.exe, pid, machine: r.machine_id });
+          return `<tr ${attrs}>
+            <td style="white-space:nowrap;font-size:11.5px;color:var(--muted)"><div>${edrEsc(evTime)}</div>${seenTime ? `<div style="font-size:10.5px">seen ${edrEsc(seenTime)}</div>` : ""}</td>
+            <td>
+              <div style="font-weight:600;font-family:Consolas,monospace">${countHtml}</div>
+              <div style="font-size:11px;color:var(--muted);max-width:125px;overflow:hidden;text-overflow:ellipsis" title="${edrEsc(r.machine_id)}">${edrEsc(r.machine_id || "—")}</div>
+            </td>
+            <td><span class="tag" style="background:var(--panel2);font-family:Consolas,monospace;font-size:11px">${edrEsc(r.event)}</span></td>
+            <td>
+              <div style="font-weight:600">${edrEsc(procName)}</div>
+              <div style="font-size:11px;color:var(--muted);font-family:Consolas,monospace;word-break:break-all">${edrEsc(r.exe || "")}</div>
+              <div style="font-size:10.5px;color:var(--muted);font-family:Consolas,monospace">key: ${edrEsc(r.key)}</div>
+            </td>
+            <td>
+              <div style="font-size:12px;word-break:break-all">${edrEsc(r.details || "")}</div>
+              <div style="font-size:11px;color:var(--muted);font-family:Consolas,monospace;word-break:break-all" title="${edrEsc(rawStr)}">${edrEsc(rawClip)}</div>
+            </td>
+          </tr>`;
+        }).join("");
+      } catch (err) {
+        edrCache.killchain = [];
+        tbody.innerHTML = `<tr><td colspan="5" class="empty" style="color:var(--red)">Failed to load kill chain: ${edrEsc(err.message)}</td></tr>`;
+      }
+    }
+
     async function loadEdrSysops() {
       const tbody = $("haEdrSysopRows");
       const rbody = $("haEdrSysReportRows");
@@ -6561,6 +6693,7 @@ window.sigKey = (list) => list && list.length ? `${list[0].layer}: ${list[0].nam
     const edrViews = [
       { key: "behaviors", btn: "haEdrViewBehaviors", sec: "haEdrSecBehaviors", load: loadEdrBehaviors },
       { key: "events", btn: "haEdrViewEvents", sec: "haEdrSecEvents", load: loadEdrEvents },
+      { key: "killchain", btn: "haEdrViewKillchain", sec: "haEdrSecKillchain", load: loadEdrKillchain },
       { key: "flows", btn: "haEdrViewFlows", sec: "haEdrSecFlows", load: loadEdrFlows },
       { key: "threats", btn: "haEdrViewThreats", sec: "haEdrSecThreats", load: loadEdrThreats },
       { key: "sysops", btn: "haEdrViewSysops", sec: "haEdrSecSysops", load: loadEdrSysops },
@@ -6568,19 +6701,29 @@ window.sigKey = (list) => list && list.length ? `${list[0].layer}: ${list[0].nam
 
     function setEdrSub(key) {
       edrActiveSub = key;
+      const showEvFilter = (key === "events" || key === "killchain");
       for (const v of edrViews) {
         if ($(v.btn)) $(v.btn).classList.toggle("active", v.key === key);
         if ($(v.sec)) $(v.sec).hidden = (v.key !== key);
       }
-      if ($("haEdrEventTypeF")) $("haEdrEventTypeF").hidden = (key !== "events");
-      if ($("haEdrEventPresetF")) $("haEdrEventPresetF").hidden = (key !== "events");
+      if ($("haEdrEventTypeF")) $("haEdrEventTypeF").hidden = !showEvFilter;
+      if ($("haEdrEventPresetF")) $("haEdrEventPresetF").hidden = !showEvFilter;
       if ($("haEdrRiskF")) $("haEdrRiskF").hidden = (key !== "behaviors");
+      syncExportLinks();
     }
 
-    function refreshActiveView() {
+    async function refreshActiveView() {
+      syncExportLinks();
       loadEdrStats();
+      if (edrViewInFlight) return;
       const v = edrViews.find(x => x.key === edrActiveSub);
-      if (v) v.load();
+      if (!v) return;
+      edrViewInFlight = true;
+      try {
+        await v.load();
+      } finally {
+        edrViewInFlight = false;
+      }
     }
 
     window.refreshEdrTelemetry = refreshActiveView;
@@ -6634,9 +6777,13 @@ window.sigKey = (list) => list && list.length ? `${list[0].layer}: ${list[0].nam
       const hasSelInEdr = !!(sel && !sel.isCollapsed && sel.anchorNode && edrTab && edrTab.contains(sel.anchorNode));
       const inspecting = !!(document.getElementById("ctxMenu") || ($("edrInspectDlg") && $("edrInspectDlg").open) || hasSelInEdr);
       if (edrTab && !edrTab.hidden && $("haEdrAuto") && $("haEdrAuto").checked && !inspecting) {
+        edrHiddenTick = 0;
         refreshActiveView();
       } else {
-        loadEdrStats();
+        edrHiddenTick = (edrHiddenTick + 1) % 5;
+        if ((edrTab && !edrTab.hidden) || edrHiddenTick === 0) {
+          loadEdrStats();
+        }
       }
     }, 3000);
 

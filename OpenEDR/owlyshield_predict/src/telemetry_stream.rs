@@ -35,6 +35,7 @@ struct RawTelemetryJob {
     details: Option<String>,
     raw: serde_json::Value,
     hash_files: bool,
+    forward_to_killchain: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -227,7 +228,7 @@ fn enqueue_record(rec: EdrEventRecord, est_bytes: usize) {
     }
 }
 
-fn extract_best_file_path(raw: &serde_json::Value, exe_path: &str) -> Option<String> {
+pub(crate) fn extract_best_file_path(raw: &serde_json::Value, exe_path: &str) -> Option<String> {
     const POINTERS: &[&str] = &[
         "/file/abstractPath",
         "/file/rawPath",
@@ -307,7 +308,7 @@ fn parse_zone_identifier_ini(text: &str) -> (Option<String>, Option<String>, Opt
     (zone_id, referrer, host_url)
 }
 
-fn should_hash_event(event_type: &str) -> bool {
+pub(crate) fn should_hash_event(event_type: &str) -> bool {
     matches!(
         event_type,
         "LLE_PROCESS_CREATE"
@@ -397,6 +398,7 @@ fn derive_high_signal_events(
                             "source": "motw_ads",
                         }),
                         hash_files: false,
+                        forward_to_killchain: true,
                     });
                 }
             } else if p.to_ascii_lowercase().ends_with(".sys")
@@ -414,6 +416,7 @@ fn derive_high_signal_events(
                         "source": "kernel_file_sys_corr",
                     }),
                     hash_files: false,
+                    forward_to_killchain: true,
                 });
             } else if p.to_ascii_lowercase().contains("\\windows\\system32\\tasks\\")
                 || p.to_ascii_lowercase().contains("\\windows\\tasks\\")
@@ -434,6 +437,7 @@ fn derive_high_signal_events(
                             "source": "kernel_task_file_corr",
                         }),
                         hash_files: false,
+                        forward_to_killchain: true,
                     });
                 }
             } else if p.to_ascii_lowercase().contains("\\system32\\grouppolicy")
@@ -449,6 +453,7 @@ fn derive_high_signal_events(
                         "source": "kernel_gpo_file_corr",
                     }),
                     hash_files: false,
+                    forward_to_killchain: true,
                 });
             }
         }
@@ -469,6 +474,7 @@ fn derive_high_signal_events(
                         "source": "kernel_task_file_corr",
                     }),
                     hash_files: false,
+                    forward_to_killchain: true,
                 });
             }
         }
@@ -496,6 +502,7 @@ fn derive_high_signal_events(
                                     "source": "kernel_reg_corr",
                                 }),
                                 hash_files: false,
+                                forward_to_killchain: true,
                             });
                         }
                         "LLE_REGISTRY_KEY_DELETE" if is_root_svc => {
@@ -510,6 +517,7 @@ fn derive_high_signal_events(
                                     "source": "kernel_reg_corr",
                                 }),
                                 hash_files: false,
+                                forward_to_killchain: true,
                             });
                         }
                         "LLE_REGISTRY_VALUE_SET" | "LLE_REGISTRY_VALUE_DELETE" => {
@@ -540,6 +548,7 @@ fn derive_high_signal_events(
                                         "source": "kernel_reg_corr",
                                     }),
                                     hash_files: false,
+                                    forward_to_killchain: true,
                                 });
                                 if val_lower == "imagepath"
                                     && data_str.to_ascii_lowercase().contains(".sys")
@@ -558,6 +567,7 @@ fn derive_high_signal_events(
                                             "source": "kernel_reg_corr",
                                         }),
                                         hash_files: false,
+                                        forward_to_killchain: true,
                                     });
                                 }
                             }
@@ -583,6 +593,7 @@ fn derive_high_signal_events(
                             "source": "kernel_task_reg_corr",
                         }),
                         hash_files: false,
+                        forward_to_killchain: true,
                     });
                 }
             } else if (lower.contains("\\software\\policies\\")
@@ -606,6 +617,7 @@ fn derive_high_signal_events(
                         "source": "kernel_gpo_reg_corr",
                     }),
                     hash_files: false,
+                    forward_to_killchain: true,
                 });
             }
         }
@@ -619,6 +631,37 @@ fn read_motw_ads_bounded(raw_path: &str) -> Option<String> {
     let data = std::fs::read(&norm).ok()?;
     let cap = data.len().min(16 * 1024);
     Some(String::from_utf8_lossy(&data[..cap]).into_owned())
+}
+
+fn forward_if_eligible(forward: bool, rec: &EdrEventRecord) {
+    if forward {
+        crate::killchain_upload::submit_edr_event(
+            &rec.event_type,
+            &rec.exe_path,
+            rec.details.as_deref(),
+            &rec.raw,
+        );
+    }
+}
+
+fn dispatch_or_fallback(job: RawTelemetryJob) {
+    let fallback = if let Some(tx) = ENRICH_TX.get() {
+        match tx.try_send(job) {
+            Ok(()) => return,
+            Err(mpsc::TrySendError::Full(j)) | Err(mpsc::TrySendError::Disconnected(j)) => j,
+        }
+    } else {
+        job
+    };
+    let (rec, sz) = build_record(
+        &fallback.event_type,
+        &fallback.exe_path,
+        fallback.pid_override,
+        fallback.details.as_deref(),
+        fallback.raw,
+    );
+    forward_if_eligible(fallback.forward_to_killchain, &rec);
+    enqueue_record(rec, sz);
 }
 
 fn run_enricher_loop(rx: mpsc::Receiver<RawTelemetryJob>) {
@@ -663,6 +706,7 @@ fn run_enricher_loop(rx: mpsc::Receiver<RawTelemetryJob>) {
             job.raw,
         );
         crate::edr_rules::evaluate_and_dispatch_event(&rec);
+        forward_if_eligible(job.forward_to_killchain, &rec);
         enqueue_record(rec, sz);
 
         for d in derived {
@@ -674,6 +718,7 @@ fn run_enricher_loop(rx: mpsc::Receiver<RawTelemetryJob>) {
                 d.raw,
             );
             crate::edr_rules::evaluate_and_dispatch_event(&d_rec);
+            forward_if_eligible(d.forward_to_killchain, &d_rec);
             enqueue_record(d_rec, d_sz);
         }
     }
@@ -815,37 +860,20 @@ pub fn submit_raw(event_type: &str, exe_path: &str, details: Option<&str>, raw: 
         return;
     }
     start();
-    let job = RawTelemetryJob {
+    // Sanctum / Hypervisor / MBR raw events aren't sent via edrsvc's AppendToTrainingDataset,
+    // so forward them to kill chain; LLE_/MLE_ already reach owlyshield_killchain_submit directly.
+    let forward_to_killchain = !event_type.starts_with("LLE_")
+        && !event_type.starts_with("MLE_")
+        && !event_type.starts_with("AGENT_");
+    dispatch_or_fallback(RawTelemetryJob {
         event_type: event_type.to_string(),
         exe_path: exe_path.to_string(),
         pid_override: None,
         details: details.map(str::to_string),
         raw,
         hash_files: true,
-    };
-    if let Some(tx) = ENRICH_TX.get() {
-        if let Err(mpsc::TrySendError::Full(fallback)) | Err(mpsc::TrySendError::Disconnected(fallback)) =
-            tx.try_send(job)
-        {
-            let (rec, sz) = build_record(
-                &fallback.event_type,
-                &fallback.exe_path,
-                fallback.pid_override,
-                fallback.details.as_deref(),
-                fallback.raw,
-            );
-            enqueue_record(rec, sz);
-        }
-    } else {
-        let (rec, sz) = build_record(
-            &job.event_type,
-            &job.exe_path,
-            job.pid_override,
-            job.details.as_deref(),
-            job.raw,
-        );
-        enqueue_record(rec, sz);
-    }
+        forward_to_killchain,
+    });
 }
 
 /// Submits a pre-built structured event (ETW, EventLog push, PnP, driver diff, WMI, VSS, TAMPERING,
@@ -863,37 +891,16 @@ pub fn submit_structured(
     start();
     let exe = exe_path.unwrap_or_default();
     let needs_hash = should_hash_event(event_type) && raw.get("hashes").is_none();
-    let job = RawTelemetryJob {
+    let forward_to_killchain = !event_type.starts_with("AGENT_");
+    dispatch_or_fallback(RawTelemetryJob {
         event_type: event_type.to_string(),
         exe_path: exe,
         pid_override: pid,
         details,
         raw,
         hash_files: needs_hash,
-    };
-    if let Some(tx) = ENRICH_TX.get() {
-        if let Err(mpsc::TrySendError::Full(fallback)) | Err(mpsc::TrySendError::Disconnected(fallback)) =
-            tx.try_send(job)
-        {
-            let (rec, sz) = build_record(
-                &fallback.event_type,
-                &fallback.exe_path,
-                fallback.pid_override,
-                fallback.details.as_deref(),
-                fallback.raw,
-            );
-            enqueue_record(rec, sz);
-        }
-    } else {
-        let (rec, sz) = build_record(
-            &job.event_type,
-            &job.exe_path,
-            job.pid_override,
-            job.details.as_deref(),
-            job.raw,
-        );
-        enqueue_record(rec, sz);
-    }
+        forward_to_killchain,
+    });
 }
 
 /// Submits an `AGENT_*` lifecycle/SysOps event (`AGENT_START`, `AGENT_STOP`, `AGENT_INSTALL`,

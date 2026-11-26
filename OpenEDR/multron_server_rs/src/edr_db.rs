@@ -10,16 +10,18 @@
 //! searchable fields joined by newlines, matched with `instr` the way the in-memory
 //! filter matches with `contains`.
 
-use std::path::Path;
+use std::borrow::Cow;
+use std::io::Write;
+use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::time::Duration;
 
 use rusqlite::{params, params_from_iter, types::Value as SqlValue, Connection, OpenFlags};
 use serde::de::DeserializeOwned;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::edr_telemetry::{
-    EdrStats, StoredBehavior, StoredEdrEvent, StoredFlow, StoredSystemReport, StoredThreat,
+    EdrStats, StoredBehavior, StoredEdrEvent, StoredFlow, StoredKillchainEvent, StoredSystemReport, StoredThreat,
 };
 
 type Res<T> = rusqlite::Result<T>;
@@ -33,12 +35,16 @@ pub struct KillchainRow {
     /// The machine's date (`YYYYMMDD`) and time of day of its first occurrence.
     pub date: String,
     pub time: String,
+    pub event_type: String,
+    pub exe: String,
+    pub search: String,
 }
 
 const WRITE_CACHE_KIB: i64 = 16 * 1024;
 const READ_CACHE_KIB: i64 = 8 * 1024;
 
 pub struct EdrDb {
+    path: PathBuf,
     write: Mutex<Connection>,
     read: Mutex<Connection>,
 }
@@ -46,6 +52,7 @@ pub struct EdrDb {
 fn tune(conn: &Connection, cache_kib: i64) -> Res<()> {
     conn.busy_timeout(Duration::from_secs(30))?;
     conn.pragma_update(None, "cache_size", -cache_kib)?;
+    conn.pragma_update(None, "temp_store", "MEMORY")?;
     Ok(())
 }
 
@@ -109,6 +116,78 @@ fn push_json_str(parts: &mut Vec<String>, root: &serde_json::Value, path: &[&str
     }
 }
 
+const RAW_SEARCH_PATHS: &[&[&str]] = &[
+    &["file", "path"],
+    &["file", "rawPath"],
+    &["file", "abstractPath"],
+    &["file", "renameTarget"],
+    &["file", "newPath"],
+    &["file", "sha1"],
+    &["file", "sha256"],
+    &["file", "hash"],
+    &["file_path"],
+    &["hashes", "md5"],
+    &["hashes", "sha1"],
+    &["hashes", "sha256"],
+    &["hashes", "imphash"],
+    &["target", "pid"],
+    &["target", "path"],
+    &["target", "imageFile", "path"],
+    &["target", "cmdLine"],
+    &["childProcess", "imageFile", "path"],
+    &["childProcess", "cmdLine"],
+    &["process", "cmdLine"],
+    &["process", "imageFile", "abstractPath"],
+    &["process", "imageFile", "rawPath"],
+    &["process", "imageFile", "sha1"],
+    &["process", "imageFile", "hash"],
+    &["registry", "path"],
+    &["registry", "abstractPath"],
+    &["registry", "rawPath"],
+    &["registry", "name"],
+    &["registry", "valueName"],
+    &["registry_path"],
+    &["owlyHook", "functionName"],
+    &["network", "destinationAddress"],
+    &["pipe", "name"],
+    &["pipe_name"],
+    &["scriptContent"],
+    &["script_block"],
+    &["ScriptBlockText"],
+    &["Path"],
+    &["service_name"],
+    &["task_name"],
+    &["TaskName"],
+    &["account_name"],
+    &["TargetUserName"],
+    &["driver_path"],
+    &["device_path"],
+    &["device_object"],
+    &["shadow_id"],
+    &["url"],
+    &["hostname"],
+    &["QueryName"],
+    &["ja3"],
+    &["ja3s"],
+    &["technique"],
+    &["reason"],
+    &["binding"],
+    &["query"],
+    &["kernelStackSymbols"],
+];
+
+fn finalize_search_text(parts: &[String]) -> String {
+    let mut joined = parts.join("\n").to_lowercase();
+    if joined.len() > 4096 {
+        let mut end = 4096;
+        while end > 0 && !joined.is_char_boundary(end) {
+            end -= 1;
+        }
+        joined.truncate(end);
+    }
+    joined
+}
+
 /// The fields `EdrTelemetryStore::get_edr_events` searches, lowercased.
 pub fn edr_event_search_text(e: &StoredEdrEvent) -> String {
     let mut parts = vec![
@@ -123,77 +202,34 @@ pub fn edr_event_search_text(e: &StoredEdrEvent) -> String {
             parts.push(d.clone());
         }
     }
-    const RAW_PATHS: &[&[&str]] = &[
-        &["file", "path"],
-        &["file", "rawPath"],
-        &["file", "abstractPath"],
-        &["file", "renameTarget"],
-        &["file", "newPath"],
-        &["file", "sha1"],
-        &["file", "sha256"],
-        &["file", "hash"],
-        &["file_path"],
-        &["hashes", "md5"],
-        &["hashes", "sha1"],
-        &["hashes", "sha256"],
-        &["hashes", "imphash"],
-        &["target", "pid"],
-        &["target", "path"],
-        &["target", "imageFile", "path"],
-        &["target", "cmdLine"],
-        &["childProcess", "imageFile", "path"],
-        &["childProcess", "cmdLine"],
-        &["process", "cmdLine"],
-        &["process", "imageFile", "abstractPath"],
-        &["process", "imageFile", "rawPath"],
-        &["process", "imageFile", "sha1"],
-        &["process", "imageFile", "hash"],
-        &["registry", "path"],
-        &["registry", "abstractPath"],
-        &["registry", "rawPath"],
-        &["registry", "name"],
-        &["registry", "valueName"],
-        &["registry_path"],
-        &["owlyHook", "functionName"],
-        &["network", "destinationAddress"],
-        &["pipe", "name"],
-        &["pipe_name"],
-        &["scriptContent"],
-        &["script_block"],
-        &["ScriptBlockText"],
-        &["Path"],
-        &["service_name"],
-        &["task_name"],
-        &["TaskName"],
-        &["account_name"],
-        &["TargetUserName"],
-        &["driver_path"],
-        &["device_path"],
-        &["device_object"],
-        &["shadow_id"],
-        &["url"],
-        &["hostname"],
-        &["QueryName"],
-        &["ja3"],
-        &["ja3s"],
-        &["technique"],
-        &["reason"],
-        &["binding"],
-        &["query"],
-        &["kernelStackSymbols"],
-    ];
-    for p in RAW_PATHS {
+    for p in RAW_SEARCH_PATHS {
         push_json_str(&mut parts, &e.raw, p);
     }
-    let mut joined = parts.join("\n").to_lowercase();
-    if joined.len() > 4096 {
-        let mut end = 4096;
-        while end > 0 && !joined.is_char_boundary(end) {
-            end -= 1;
-        }
-        joined.truncate(end);
+    finalize_search_text(&parts)
+}
+
+/// Searchable lowercased index text for a kill chain event shape.
+pub fn killchain_search_text(
+    key: &str,
+    machine_id: &str,
+    exe: &str,
+    event_type: &str,
+    details: &str,
+    raw: &serde_json::Value,
+) -> String {
+    let mut parts = vec![
+        key.to_string(),
+        machine_id.to_string(),
+        exe.to_string(),
+        event_type.to_string(),
+    ];
+    if !details.is_empty() {
+        parts.push(details.to_string());
     }
-    joined
+    for p in RAW_SEARCH_PATHS {
+        push_json_str(&mut parts, raw, p);
+    }
+    finalize_search_text(&parts)
 }
 
 /// Rows of `sql` (selecting `id, data`), newest first, decoded and given their row id.
@@ -247,7 +283,10 @@ impl EdrDb {
                  count INTEGER NOT NULL,
                  first_seen TEXT NOT NULL,
                  last_seen TEXT NOT NULL,
-                 data TEXT NOT NULL
+                 data TEXT NOT NULL,
+                 event_type TEXT NOT NULL DEFAULT '',
+                 exe TEXT NOT NULL DEFAULT '',
+                 search TEXT NOT NULL DEFAULT ''
              );
              CREATE TABLE IF NOT EXISTS killchain_machines (
                  key TEXT NOT NULL,
@@ -295,10 +334,42 @@ impl EdrDb {
                 conn.execute_batch(&format!("ALTER TABLE killchain_machines ADD COLUMN {col} {decl}"))?;
             }
         }
-        conn.execute_batch("CREATE INDEX IF NOT EXISTS killchain_machines_machine ON killchain_machines(machine)")?;
+        let have_kc: Vec<String> = conn
+            .prepare("SELECT name FROM pragma_table_info('killchain_events')")?
+            .query_map([], |r| r.get::<_, String>(0))?
+            .collect::<Result<_, _>>()?;
+        for (col, decl) in [
+            ("event_type", "TEXT NOT NULL DEFAULT ''"),
+            ("exe", "TEXT NOT NULL DEFAULT ''"),
+            ("search", "TEXT NOT NULL DEFAULT ''"),
+        ] {
+            if !have_kc.iter().any(|c| c == col) {
+                conn.execute_batch(&format!("ALTER TABLE killchain_events ADD COLUMN {col} {decl}"))?;
+            }
+        }
+        conn.execute_batch(
+            "CREATE INDEX IF NOT EXISTS killchain_machines_machine ON killchain_machines(machine);
+             CREATE INDEX IF NOT EXISTS killchain_events_first_seen_key ON killchain_events(first_seen, key);
+             CREATE INDEX IF NOT EXISTS killchain_events_last_seen_key ON killchain_events(last_seen DESC, key DESC);
+             CREATE INDEX IF NOT EXISTS killchain_events_type_last ON killchain_events(event_type, last_seen DESC);
+             CREATE INDEX IF NOT EXISTS killchain_events_count ON killchain_events(count);
+             CREATE INDEX IF NOT EXISTS killchain_machines_summary ON killchain_machines(machine, count, first_seen, last_seen);
+             CREATE INDEX IF NOT EXISTS killchain_machines_order ON killchain_machines(machine, event_date, event_time, key);",
+        )?;
         let read = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX)?;
         tune(&read, READ_CACHE_KIB)?;
-        Ok(Self { write: Mutex::new(conn), read: Mutex::new(read) })
+        Ok(Self { path: path.to_path_buf(), write: Mutex::new(conn), read: Mutex::new(read) })
+    }
+
+    /// Opens an independent read-only WAL connection so bulk streaming exports never block live queries.
+    pub fn open_readonly(&self) -> Res<Connection> {
+        let conn = Connection::open_with_flags(
+            &self.path,
+            OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
+        )?;
+        tune(&conn, WRITE_CACHE_KIB)?;
+        conn.pragma_update(None, "query_only", "ON")?;
+        Ok(conn)
     }
 
     /// Writes `b` and returns its row id (the record's id).
@@ -371,24 +442,27 @@ impl EdrDb {
     /// Merges a kill chain upload: a new key is stored with its first event (`data`, the
     /// edrsvc log line the trainer reads); a known key only gets its count raised (the
     /// first event is kept). `counts` raises the count of keys sent earlier.
-    /// Returns (new keys, merged keys).
+    /// Returns `(new keys, merged keys, added_events)`.
     pub fn merge_killchain(
         &self,
         machine_id: &str,
         now: &str,
         records: &[KillchainRow],
         counts: &[(String, u64)],
-    ) -> Res<(u64, u64)> {
+    ) -> Res<(u64, u64, u64)> {
         let mut conn = self.write.lock().unwrap_or_else(|e| e.into_inner());
         let tx = conn.transaction()?;
-        let (mut new, mut merged) = (0u64, 0u64);
+        let (mut new, mut merged, mut added_events) = (0u64, 0u64, 0u64);
         {
             let mut ins = tx.prepare_cached(
-                "INSERT INTO killchain_events (key, count, first_seen, last_seen, data)
-                 VALUES (?1, ?2, ?3, ?3, ?4)
+                "INSERT INTO killchain_events (key, count, first_seen, last_seen, data, event_type, exe, search)
+                 VALUES (?1, ?2, ?3, ?3, ?4, ?5, ?6, ?7)
                  ON CONFLICT(key) DO UPDATE SET
                      count = count + excluded.count,
-                     last_seen = excluded.last_seen",
+                     last_seen = excluded.last_seen,
+                     event_type = CASE WHEN event_type = '' THEN excluded.event_type ELSE event_type END,
+                     exe = CASE WHEN exe = '' THEN excluded.exe ELSE exe END,
+                     search = CASE WHEN search = '' THEN excluded.search ELSE search END",
             )?;
             let mut exists = tx.prepare_cached("SELECT 1 FROM killchain_events WHERE key = ?1")?;
             // The machine's own first occurrence (event_date/time) is set once;
@@ -409,7 +483,16 @@ impl EdrDb {
                 } else {
                     new += 1;
                 }
-                ins.execute(params![r.key, r.count as i64, now, r.data])?;
+                added_events = added_events.saturating_add(r.count);
+                ins.execute(params![
+                    r.key,
+                    r.count as i64,
+                    now,
+                    r.data,
+                    r.event_type,
+                    r.exe,
+                    r.search
+                ])?;
                 machine.execute(params![r.key, machine_id, r.count as i64, now, r.date, r.time])?;
             }
             let mut bump = tx.prepare_cached(
@@ -417,12 +500,13 @@ impl EdrDb {
             )?;
             for (key, count) in counts {
                 if bump.execute(params![key, *count as i64, now])? > 0 {
+                    added_events = added_events.saturating_add(*count);
                     machine.execute(params![key, machine_id, *count as i64, now, None::<String>, None::<String>])?;
                 }
             }
         }
         tx.commit()?;
-        Ok((new, merged))
+        Ok((new, merged, added_events))
     }
 
     /// (distinct kill chain event shapes, events they stand for).
@@ -433,71 +517,300 @@ impl EdrDb {
         })
     }
 
-    /// Every stored kill chain event as JSON lines in edrsvc's log format (what
-    /// train_kc_hybrid.py reads), each with its `count`, `machines` and `key`.
-    pub fn export_killchain(&self, out: &mut Vec<u8>) -> Res<u64> {
+    /// Recent/filtered kill chain event shapes for dashboard browsing and inspection.
+    pub fn killchain_records(
+        &self,
+        limit: usize,
+        machine: Option<&str>,
+        event_type: Option<&str>,
+        search: Option<&str>,
+    ) -> Res<Vec<StoredKillchainEvent>> {
         let conn = self.read.lock().unwrap_or_else(|e| e.into_inner());
-        let mut st = conn.prepare(
-            "SELECT k.key, k.count, (SELECT COUNT(*) FROM killchain_machines m WHERE m.key = k.key), k.data
-             FROM killchain_events k ORDER BY k.first_seen, k.key",
-        )?;
-        let mut rows = st.query([])?;
+        let mut conds: Vec<String> = Vec::new();
+        let mut args: Vec<SqlValue> = Vec::new();
+        let mach_clean = machine.map(str::trim).filter(|s| !s.is_empty());
+        if let Some(m) = mach_clean {
+            args.push(SqlValue::Text(m.to_string()));
+            conds.push(format!("m.machine = ?{}", args.len()));
+        }
+        append_killchain_conds(&mut conds, &mut args, event_type, search, "k");
+        args.push(SqlValue::Integer(limit as i64));
+        let limit_idx = args.len();
+        let where_sql = if conds.is_empty() {
+            String::new()
+        } else {
+            format!("WHERE {}", conds.join(" AND "))
+        };
+        let mut out = Vec::new();
+        if let Some(m) = mach_clean {
+            let sql = format!(
+                "SELECT k.key, m.count, k.count, COALESCE(m.first_seen, k.first_seen),
+                        COALESCE(m.last_seen, k.last_seen), m.event_date, m.event_time, k.data
+                 FROM killchain_machines m
+                 JOIN killchain_events k ON k.key = m.key
+                 {where_sql}
+                 ORDER BY m.event_date DESC, m.event_time DESC, m.key DESC
+                 LIMIT ?{limit_idx}"
+            );
+            let mut st = conn.prepare(&sql)?;
+            let mut rows = st.query(params_from_iter(args))?;
+            while let Some(r) = rows.next()? {
+                let key: String = r.get(0)?;
+                let m_count = r.get::<_, i64>(1)? as u64;
+                let k_count = r.get::<_, i64>(2)? as u64;
+                let first_seen: String = r.get::<_, Option<String>>(3)?.unwrap_or_default();
+                let last_seen: String = r.get::<_, Option<String>>(4)?.unwrap_or_default();
+                let event_date: Option<String> = r.get(5)?;
+                let event_time: Option<String> = r.get(6)?;
+                let data: String = r.get(7)?;
+                if let Some(ev) = decode_killchain_record(
+                    key,
+                    m_count,
+                    Some(k_count),
+                    None,
+                    first_seen,
+                    last_seen,
+                    event_date,
+                    event_time,
+                    Some(m),
+                    &data,
+                ) {
+                    out.push(ev);
+                }
+            }
+        } else {
+            let sql = format!(
+                "SELECT k.key, k.count, (SELECT COUNT(*) FROM killchain_machines m WHERE m.key = k.key),
+                        k.first_seen, k.last_seen, k.data
+                 FROM killchain_events k
+                 {where_sql}
+                 ORDER BY k.last_seen DESC, k.key DESC
+                 LIMIT ?{limit_idx}"
+            );
+            let mut st = conn.prepare(&sql)?;
+            let mut rows = st.query(params_from_iter(args))?;
+            while let Some(r) = rows.next()? {
+                let key: String = r.get(0)?;
+                let k_count = r.get::<_, i64>(1)? as u64;
+                let machines = r.get::<_, i64>(2)? as u64;
+                let first_seen: String = r.get(3)?;
+                let last_seen: String = r.get(4)?;
+                let data: String = r.get(5)?;
+                if let Some(ev) = decode_killchain_record(
+                    key,
+                    k_count,
+                    None,
+                    Some(machines),
+                    first_seen,
+                    last_seen,
+                    None,
+                    None,
+                    None,
+                    &data,
+                ) {
+                    out.push(ev);
+                }
+            }
+        }
+        Ok(out)
+    }
+
+    /// Streams kill chain events as NDJSON lines over a dedicated read-only connection,
+    /// avoiding DOM re-parsing per row and never blocking live queries on `self.read`.
+    pub fn stream_export_killchain<F>(
+        &self,
+        machine: Option<&str>,
+        event_type: Option<&str>,
+        search: Option<&str>,
+        limit: Option<usize>,
+        mut on_line: F,
+    ) -> Res<u64>
+    where
+        F: FnMut(&[u8]) -> Result<(), ()>,
+    {
+        let conn = self.open_readonly()?;
+        let mut conds: Vec<String> = Vec::new();
+        let mut args: Vec<SqlValue> = Vec::new();
+        let mach_clean = machine.map(str::trim).filter(|s| !s.is_empty());
+        if let Some(m) = mach_clean {
+            args.push(SqlValue::Text(m.to_string()));
+            conds.push(format!("m.machine = ?{}", args.len()));
+        }
+        append_killchain_conds(&mut conds, &mut args, event_type, search, "k");
+        let limit_sql = match limit.filter(|&n| n > 0) {
+            Some(lim) => {
+                args.push(SqlValue::Integer(lim as i64));
+                format!("LIMIT ?{}", args.len())
+            }
+            None => String::new(),
+        };
+        let where_sql = if conds.is_empty() {
+            String::new()
+        } else {
+            format!("WHERE {}", conds.join(" AND "))
+        };
+        let mut line_buf = Vec::with_capacity(8192);
         let mut n = 0u64;
-        while let Some(r) = rows.next()? {
-            let key: String = r.get(0)?;
-            let data: String = r.get(3)?;
-            let Ok(serde_json::Value::Object(mut obj)) = serde_json::from_str::<serde_json::Value>(&data) else {
-                continue;
-            };
-            obj.insert("key".into(), key.into());
-            obj.insert("count".into(), r.get::<_, i64>(1)?.into());
-            obj.insert("machines".into(), r.get::<_, i64>(2)?.into());
-            if serde_json::to_writer(&mut *out, &obj).is_ok() {
-                out.push(b'\n');
+
+        if let Some(m) = mach_clean {
+            #[derive(Deserialize)]
+            struct StoredKcLine<'a> {
+                #[serde(borrow, default)]
+                date: Cow<'a, str>,
+                #[serde(borrow, default)]
+                time: Cow<'a, str>,
+                #[serde(borrow, default)]
+                exe: Cow<'a, str>,
+                #[serde(borrow, default)]
+                event: Cow<'a, str>,
+                #[serde(borrow, default)]
+                details: Cow<'a, str>,
+                #[serde(borrow)]
+                raw: Option<&'a serde_json::value::RawValue>,
+            }
+            #[derive(Serialize)]
+            struct ExportKcMachineLine<'a> {
+                date: &'a str,
+                time: &'a str,
+                exe: &'a str,
+                event: &'a str,
+                details: &'a str,
+                raw: &'a serde_json::value::RawValue,
+                machine_id: &'a str,
+                key: &'a str,
+                count: i64,
+                count_all: i64,
+            }
+
+            let sql = format!(
+                "SELECT k.key, m.count, k.count, m.event_date, m.event_time, k.data
+                 FROM killchain_machines m JOIN killchain_events k ON k.key = m.key
+                 {where_sql}
+                 ORDER BY m.event_date, m.event_time, m.key {limit_sql}"
+            );
+            let mut st = conn.prepare(&sql)?;
+            let mut rows = st.query(params_from_iter(args))?;
+            while let Some(r) = rows.next()? {
+                let key: String = r.get(0)?;
+                let m_count: i64 = r.get(1)?;
+                let k_count: i64 = r.get(2)?;
+                let d_opt: Option<String> = r.get(3)?;
+                let t_opt: Option<String> = r.get(4)?;
+                let data: String = r.get(5)?;
+                line_buf.clear();
+                let encoded = if let Ok(parsed) = serde_json::from_str::<StoredKcLine>(&data) {
+                    if let Some(raw_val) = parsed.raw {
+                        let line = ExportKcMachineLine {
+                            date: d_opt.as_deref().unwrap_or(parsed.date.as_ref()),
+                            time: t_opt.as_deref().unwrap_or(parsed.time.as_ref()),
+                            exe: parsed.exe.as_ref(),
+                            event: parsed.event.as_ref(),
+                            details: parsed.details.as_ref(),
+                            raw: raw_val,
+                            machine_id: m,
+                            key: &key,
+                            count: m_count,
+                            count_all: k_count,
+                        };
+                        serde_json::to_writer(&mut line_buf, &line).is_ok()
+                    } else {
+                        false
+                    }
+                } else {
+                    false
+                };
+                if !encoded {
+                    let Ok(serde_json::Value::Object(mut obj)) = serde_json::from_str::<serde_json::Value>(&data) else {
+                        continue;
+                    };
+                    if let Some(d) = d_opt {
+                        obj.insert("date".into(), d.into());
+                    }
+                    if let Some(t) = t_opt {
+                        obj.insert("time".into(), t.into());
+                    }
+                    obj.insert("machine_id".into(), m.into());
+                    obj.insert("key".into(), key.into());
+                    obj.insert("count".into(), m_count.into());
+                    obj.insert("count_all".into(), k_count.into());
+                    if serde_json::to_writer(&mut line_buf, &obj).is_err() {
+                        continue;
+                    }
+                }
+                line_buf.push(b'\n');
+                if on_line(&line_buf).is_err() {
+                    return Ok(n);
+                }
+                n += 1;
+            }
+        } else {
+            let sql = format!(
+                "SELECT k.key, k.count, (SELECT COUNT(*) FROM killchain_machines m WHERE m.key = k.key), k.data
+                 FROM killchain_events k {where_sql}
+                 ORDER BY k.first_seen, k.key {limit_sql}"
+            );
+            let mut st = conn.prepare(&sql)?;
+            let mut rows = st.query(params_from_iter(args))?;
+            while let Some(r) = rows.next()? {
+                let key: String = r.get(0)?;
+                let count: i64 = r.get(1)?;
+                let machines: i64 = r.get(2)?;
+                let data: String = r.get(3)?;
+                line_buf.clear();
+                let trimmed = data.trim();
+                let fast_ok = if trimmed.starts_with('{') && trimmed.ends_with('}') {
+                    let prefix = &trimmed[..trimmed.len() - 1];
+                    line_buf.extend_from_slice(prefix.as_bytes());
+                    if prefix[1..].trim().is_empty() {
+                        line_buf.extend_from_slice(br#""key":"#);
+                    } else {
+                        line_buf.extend_from_slice(br#","key":"#);
+                    }
+                    serde_json::to_writer(&mut line_buf, &key).is_ok()
+                        && write!(&mut line_buf, r#","count":{count},"machines":{machines}}}"#).is_ok()
+                } else {
+                    false
+                };
+                if !fast_ok {
+                    line_buf.clear();
+                    let Ok(serde_json::Value::Object(mut obj)) = serde_json::from_str::<serde_json::Value>(&data) else {
+                        continue;
+                    };
+                    obj.insert("key".into(), key.into());
+                    obj.insert("count".into(), count.into());
+                    obj.insert("machines".into(), machines.into());
+                    if serde_json::to_writer(&mut line_buf, &obj).is_err() {
+                        continue;
+                    }
+                }
+                line_buf.push(b'\n');
+                if on_line(&line_buf).is_err() {
+                    return Ok(n);
+                }
                 n += 1;
             }
         }
         Ok(n)
     }
 
+    /// Every stored kill chain event as JSON lines in edrsvc's log format (what
+    /// train_kc_hybrid.py reads), each with its `count`, `machines` and `key`.
+    #[allow(dead_code)]
+    pub fn export_killchain(&self, out: &mut Vec<u8>) -> Res<u64> {
+        self.stream_export_killchain(None, None, None, None, |line| {
+            out.extend_from_slice(line);
+            Ok(())
+        })
+    }
+
     /// One machine's kill chain as JSON lines, in the order it happened there
-    /// (the machine's own date/time of each event's first occurrence). Each
-    /// line is the stored event with `date`, `time`, `machine_id` and `count`
-    /// set to this machine's values (`count_all`: every machine together).
-    /// Events from before per-machine counting have count 0 and no date; they
-    /// come first, with the date of the machine that sent them first.
+    /// (the machine's own date/time of each event's first occurrence).
+    #[allow(dead_code)]
     pub fn export_killchain_machine(&self, machine: &str, out: &mut Vec<u8>) -> Res<u64> {
-        let conn = self.read.lock().unwrap_or_else(|e| e.into_inner());
-        let mut st = conn.prepare(
-            "SELECT k.key, m.count, k.count, m.event_date, m.event_time, k.data
-             FROM killchain_machines m JOIN killchain_events k ON k.key = m.key
-             WHERE m.machine = ?1
-             ORDER BY m.event_date, m.event_time, k.first_seen, k.key",
-        )?;
-        let mut rows = st.query([machine])?;
-        let mut n = 0u64;
-        while let Some(r) = rows.next()? {
-            let key: String = r.get(0)?;
-            let data: String = r.get(5)?;
-            let Ok(serde_json::Value::Object(mut obj)) = serde_json::from_str::<serde_json::Value>(&data) else {
-                continue;
-            };
-            if let Some(d) = r.get::<_, Option<String>>(3)? {
-                obj.insert("date".into(), d.into());
-            }
-            if let Some(t) = r.get::<_, Option<String>>(4)? {
-                obj.insert("time".into(), t.into());
-            }
-            obj.insert("machine_id".into(), machine.into());
-            obj.insert("key".into(), key.into());
-            obj.insert("count".into(), r.get::<_, i64>(1)?.into());
-            obj.insert("count_all".into(), r.get::<_, i64>(2)?.into());
-            if serde_json::to_writer(&mut *out, &obj).is_ok() {
-                out.push(b'\n');
-                n += 1;
-            }
-        }
-        Ok(n)
+        self.stream_export_killchain(Some(machine), None, None, None, |line| {
+            out.extend_from_slice(line);
+            Ok(())
+        })
     }
 
     /// Machines that uploaded kill chain events: (machine, distinct events,
@@ -536,7 +849,7 @@ impl EdrDb {
         let suspicious_behaviors = count("suspicious")?;
         let total_sysops = conn
             .query_row(
-                "SELECT COUNT(*) FROM edr_events WHERE event_type LIKE 'AGENT_%'",
+                "SELECT COUNT(*) FROM edr_events WHERE event_type GLOB 'AGENT_*'",
                 [],
                 |r| r.get::<_, i64>(0),
             )
@@ -621,35 +934,7 @@ impl EdrDb {
         let conn = self.read.lock().unwrap_or_else(|e| e.into_inner());
         let mut conds: Vec<String> = Vec::new();
         let mut args: Vec<SqlValue> = Vec::new();
-        if let Some(et) = event_type.filter(|s| !s.is_empty()) {
-            let parts: Vec<&str> = et
-                .split(',')
-                .map(str::trim)
-                .filter(|s| !s.is_empty())
-                .take(32)
-                .collect();
-            if parts.len() == 1 {
-                args.push(SqlValue::Text(parts[0].to_string()));
-                conds.push(format!("event_type = ?{}", args.len()));
-            } else if !parts.is_empty() {
-                let mut placeholders = Vec::with_capacity(parts.len());
-                for p in parts {
-                    args.push(SqlValue::Text(p.to_string()));
-                    placeholders.push(format!("?{}", args.len()));
-                }
-                conds.push(format!("event_type IN ({})", placeholders.join(",")));
-            }
-        } else if sysops_only {
-            conds.push("event_type LIKE 'AGENT_%'".to_string());
-        }
-        if let Some(m) = machine_id.filter(|s| !s.is_empty()) {
-            args.push(SqlValue::Text(m.to_string()));
-            conds.push(format!("machine_id = ?{}", args.len()));
-        }
-        if let Some(q) = search.filter(|s| !s.is_empty()) {
-            args.push(SqlValue::Text(q.to_string()));
-            conds.push(format!("instr(search, ?{}) > 0", args.len()));
-        }
+        append_edr_event_conds(&mut conds, &mut args, event_type, machine_id, sysops_only, search);
         args.push(SqlValue::Integer(limit as i64));
         let where_sql = if conds.is_empty() {
             String::new()
@@ -670,49 +955,79 @@ impl EdrDb {
         Ok(out)
     }
 
+    /// Streams raw lossless EDR events as NDJSON lines (chronological) over an independent
+    /// read-only connection, splicing the SQLite row id without full DOM re-serialization.
+    pub fn stream_export_edr_events<F>(
+        &self,
+        event_type: Option<&str>,
+        machine_id: Option<&str>,
+        search: Option<&str>,
+        limit: Option<usize>,
+        mut on_line: F,
+    ) -> Res<u64>
+    where
+        F: FnMut(&[u8]) -> Result<(), ()>,
+    {
+        let conn = self.open_readonly()?;
+        let mut conds: Vec<String> = Vec::new();
+        let mut args: Vec<SqlValue> = Vec::new();
+        append_edr_event_conds(&mut conds, &mut args, event_type, machine_id, false, search);
+        let limit_sql = match limit.filter(|&n| n > 0) {
+            Some(lim) => {
+                args.push(SqlValue::Integer(lim as i64));
+                format!("LIMIT ?{}", args.len())
+            }
+            None => String::new(),
+        };
+        let where_sql = if conds.is_empty() {
+            String::new()
+        } else {
+            format!("WHERE {}", conds.join(" AND "))
+        };
+        let sql = format!("SELECT id, data FROM edr_events {where_sql} ORDER BY id ASC {limit_sql}");
+        let mut st = conn.prepare(&sql)?;
+        let mut rows = st.query(params_from_iter(args))?;
+        let mut line_buf = Vec::with_capacity(8192);
+        let mut n = 0u64;
+        while let Some(r) = rows.next()? {
+            let id = r.get::<_, i64>(0)? as u64;
+            let data: String = r.get(1)?;
+            line_buf.clear();
+            let trimmed = data.trim();
+            if trimmed.starts_with(r#"{"id":0,"#) && trimmed.ends_with('}') {
+                let _ = write!(&mut line_buf, r#"{{"id":{id},"#);
+                line_buf.extend_from_slice(&trimmed.as_bytes()[8..]);
+                line_buf.push(b'\n');
+            } else if let Some(mut ev) = from_json::<StoredEdrEvent>(&data) {
+                ev.id = id;
+                if serde_json::to_writer(&mut line_buf, &ev).is_err() {
+                    continue;
+                }
+                line_buf.push(b'\n');
+            } else {
+                line_buf.extend_from_slice(trimmed.as_bytes());
+                line_buf.push(b'\n');
+            }
+            if on_line(&line_buf).is_err() {
+                return Ok(n);
+            }
+            n += 1;
+        }
+        Ok(n)
+    }
+
     /// Exports the full lossless EDR event history as JSON lines (chronological).
+    #[allow(dead_code)]
     pub fn export_edr_events(
         &self,
         event_type: Option<&str>,
         machine_id: Option<&str>,
         out: &mut Vec<u8>,
     ) -> Res<u64> {
-        let conn = self.read.lock().unwrap_or_else(|e| e.into_inner());
-        let mut conds: Vec<String> = Vec::new();
-        let mut args: Vec<SqlValue> = Vec::new();
-        if let Some(et) = event_type.filter(|s| !s.is_empty()) {
-            args.push(SqlValue::Text(et.to_string()));
-            conds.push(format!("event_type = ?{}", args.len()));
-        }
-        if let Some(m) = machine_id.filter(|s| !s.is_empty()) {
-            args.push(SqlValue::Text(m.to_string()));
-            conds.push(format!("machine_id = ?{}", args.len()));
-        }
-        let where_sql = if conds.is_empty() {
-            String::new()
-        } else {
-            format!("WHERE {}", conds.join(" AND "))
-        };
-        let sql = format!("SELECT id, data FROM edr_events {where_sql} ORDER BY id ASC");
-        let mut st = conn.prepare(&sql)?;
-        let mut rows = st.query(params_from_iter(args))?;
-        let mut n = 0u64;
-        while let Some(r) = rows.next()? {
-            let id = r.get::<_, i64>(0)? as u64;
-            let data: String = r.get(1)?;
-            if let Some(mut ev) = from_json::<StoredEdrEvent>(&data) {
-                ev.id = id;
-                if serde_json::to_writer(&mut *out, &ev).is_ok() {
-                    out.push(b'\n');
-                    n += 1;
-                }
-            } else {
-                out.extend_from_slice(data.as_bytes());
-                out.push(b'\n');
-                n += 1;
-            }
-        }
-        Ok(n)
+        self.stream_export_edr_events(event_type, machine_id, None, None, |line| {
+            out.extend_from_slice(line);
+            Ok(())
+        })
     }
 
     /// Newest system diagnostic reports first.
@@ -726,4 +1041,121 @@ impl EdrDb {
             |r: &mut StoredSystemReport, id| r.id = id,
         )
     }
+}
+
+fn append_killchain_conds(
+    conds: &mut Vec<String>,
+    args: &mut Vec<SqlValue>,
+    event_type: Option<&str>,
+    search: Option<&str>,
+    kc_alias: &str,
+) {
+    if let Some(et) = event_type.map(str::trim).filter(|s| !s.is_empty()) {
+        let parts: Vec<&str> = et
+            .split(',')
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .take(32)
+            .collect();
+        if parts.len() == 1 {
+            args.push(SqlValue::Text(parts[0].to_string()));
+            let p = args.len();
+            conds.push(format!(
+                "({kc_alias}.event_type = ?{p} OR ({kc_alias}.event_type = '' AND json_extract({kc_alias}.data, '$.event') = ?{p}))"
+            ));
+        } else if !parts.is_empty() {
+            let mut ph = Vec::with_capacity(parts.len());
+            for part in parts {
+                args.push(SqlValue::Text(part.to_string()));
+                ph.push(format!("?{}", args.len()));
+            }
+            let list = ph.join(",");
+            conds.push(format!(
+                "({kc_alias}.event_type IN ({list}) OR ({kc_alias}.event_type = '' AND json_extract({kc_alias}.data, '$.event') IN ({list})))"
+            ));
+        }
+    }
+    if let Some(q) = search.map(|s| s.trim().to_lowercase()).filter(|s| !s.is_empty()) {
+        args.push(SqlValue::Text(q));
+        let p = args.len();
+        conds.push(format!(
+            "(instr({kc_alias}.search, ?{p}) > 0 OR ({kc_alias}.search = '' AND instr(lower({kc_alias}.data), ?{p}) > 0) OR instr({kc_alias}.key, ?{p}) > 0)"
+        ));
+    }
+}
+
+fn append_edr_event_conds(
+    conds: &mut Vec<String>,
+    args: &mut Vec<SqlValue>,
+    event_type: Option<&str>,
+    machine_id: Option<&str>,
+    sysops_only: bool,
+    search: Option<&str>,
+) {
+    if let Some(et) = event_type.map(str::trim).filter(|s| !s.is_empty()) {
+        let parts: Vec<&str> = et
+            .split(',')
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .take(32)
+            .collect();
+        if parts.len() == 1 {
+            args.push(SqlValue::Text(parts[0].to_string()));
+            conds.push(format!("event_type = ?{}", args.len()));
+        } else if !parts.is_empty() {
+            let mut placeholders = Vec::with_capacity(parts.len());
+            for p in parts {
+                args.push(SqlValue::Text(p.to_string()));
+                placeholders.push(format!("?{}", args.len()));
+            }
+            conds.push(format!("event_type IN ({})", placeholders.join(",")));
+        }
+    } else if sysops_only {
+        conds.push("event_type GLOB 'AGENT_*'".to_string());
+    }
+    if let Some(m) = machine_id.map(str::trim).filter(|s| !s.is_empty()) {
+        args.push(SqlValue::Text(m.to_string()));
+        conds.push(format!("machine_id = ?{}", args.len()));
+    }
+    if let Some(q) = search.map(|s| s.trim().to_lowercase()).filter(|s| !s.is_empty()) {
+        args.push(SqlValue::Text(q));
+        conds.push(format!("instr(search, ?{}) > 0", args.len()));
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn decode_killchain_record(
+    key: String,
+    count: u64,
+    count_all: Option<u64>,
+    machines: Option<u64>,
+    first_seen: String,
+    last_seen: String,
+    event_date: Option<String>,
+    event_time: Option<String>,
+    machine_override: Option<&str>,
+    data: &str,
+) -> Option<StoredKillchainEvent> {
+    let val: serde_json::Value = serde_json::from_str(data).ok()?;
+    let get_str = |k: &str| val.get(k).and_then(|v| v.as_str()).unwrap_or("").to_string();
+    Some(StoredKillchainEvent {
+        key,
+        count,
+        count_all,
+        machines,
+        date: event_date.unwrap_or_else(|| get_str("date")),
+        time: event_time.unwrap_or_else(|| get_str("time")),
+        first_seen,
+        last_seen,
+        machine_id: machine_override
+            .map(str::to_string)
+            .unwrap_or_else(|| get_str("machine_id")),
+        exe: get_str("exe"),
+        event: get_str("event"),
+        details: get_str("details"),
+        raw: val
+            .get("raw")
+            .cloned()
+            .unwrap_or_else(|| serde_json::Value::Object(Default::default())),
+    })
 }
