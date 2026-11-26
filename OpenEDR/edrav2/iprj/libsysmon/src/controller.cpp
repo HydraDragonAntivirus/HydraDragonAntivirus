@@ -1293,7 +1293,7 @@ void SystemMonitorController::mbrFilterPipeServerLoop()
 						? ("PhysicalDrive" + std::to_string(nDiskNum))
 						: sProcPath;
 
-					Dictionary vEvent;
+					Variant vEvent = Dictionary();
 					vEvent.put("baseType", static_cast<uint64_t>(Event::LLE_DISK_RAW_WRITE_ACCESS));
 					vEvent.put("type", "MBR_SECTOR0_RAW_WRITE");
 					vEvent.put("source", "mbrfilter");
