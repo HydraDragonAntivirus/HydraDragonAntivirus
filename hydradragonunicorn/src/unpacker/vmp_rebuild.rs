@@ -1442,6 +1442,17 @@ fn probe_live_cpuid_env(ld_ptr: u64, os_build: u16) -> u32 {
 const CAPTURE_SYNTH_STUB_BASE: u64 = 0x7FFF_0000_0000;
 const CAPTURE_SYNTH_STUB_SIZE: u64 = 0x0001_0000;
 
+enum CaptureErr {
+    AbortRetryLzma(Vec<u64>),
+    Fatal(String),
+}
+
+impl From<String> for CaptureErr {
+    fn from(s: String) -> Self {
+        Self::Fatal(s)
+    }
+}
+
 struct CaptureState {
     loaded_dlls: HashMap<String, LoadedDll>,
     hook_addrs: HashMap<u64, String>,
@@ -1457,6 +1468,8 @@ struct CaptureState {
     aborted: bool,
     abort_reason: Option<String>,
     lzma_entry_va: Option<u64>,
+    lzma_hooked_vas: HashSet<u64>,
+    lzma_abort_for_retry: bool,
 }
 
 fn load_loader_dll_by_name(
@@ -1662,6 +1675,64 @@ fn handle_loader_api(
     let _ = uc.reg_write(RegisterX86::RAX as i32, ret);
 }
 
+fn install_lzma_hook(
+    uc: &mut Unicorn<'_, ()>,
+    entry_va: u64,
+    smap: Rc<HashMap<u64, (u64, Vec<u8>)>>,
+    state: Rc<RefCell<CaptureState>>,
+) {
+    let _ = uc.add_code_hook(entry_va, entry_va, move |uc, _addr, _sz| {
+        let rdx = uc.reg_read(RegisterX86::RDX as i32).unwrap_or(0);
+        let r8 = uc.reg_read(RegisterX86::R8 as i32).unwrap_or(0);
+        let r9 = uc.reg_read(RegisterX86::R9 as i32).unwrap_or(0);
+        let rcx = uc.reg_read(RegisterX86::RCX as i32).unwrap_or(0);
+        let rsp = uc.reg_read(RegisterX86::RSP as i32).unwrap_or(0);
+        let mut arg5_out = 0u64;
+        let mut arg5_valid = false;
+        if rsp >= 0x10000 {
+            let mut buf = [0u8; 8];
+            if uc.mem_read(rsp + 0x28, &mut buf).is_ok() {
+                arg5_out = u64::from_le_bytes(buf);
+                arg5_valid = true;
+            }
+        }
+        let mut candidates = [rdx, r8, r9, rcx, 0];
+        let cand_len = if arg5_valid {
+            candidates[4] = arg5_out;
+            5
+        } else {
+            4
+        };
+        for &src in &candidates[..cand_len] {
+            if let Some((dst_va, out_bytes)) = smap.get(&src) {
+                let _ = uc.mem_write(*dst_va, out_bytes);
+                if src == rdx && arg5_valid && arg5_out == *dst_va {
+                    let mut tmp8 = [0u8; 8];
+                    if r9 >= 0x10000 && uc.mem_read(r9, &mut tmp8).is_ok() {
+                        let _ = uc.mem_write(r9, &r8.to_le_bytes());
+                    }
+                    let mut arg7_buf = [0u8; 8];
+                    if uc.mem_read(rsp + 0x38, &mut arg7_buf).is_ok() {
+                        let arg7_out_proc = u64::from_le_bytes(arg7_buf);
+                        if arg7_out_proc >= 0x10000 && uc.mem_read(arg7_out_proc, &mut tmp8).is_ok() {
+                            let _ = uc.mem_write(arg7_out_proc, &(out_bytes.len() as u64).to_le_bytes());
+                        }
+                    }
+                }
+                let mut ret_buf = [0u8; 8];
+                if uc.mem_read(rsp, &mut ret_buf).is_ok() {
+                    let ret_ip = u64::from_le_bytes(ret_buf);
+                    let _ = uc.reg_write(RegisterX86::RAX as i32, 0);
+                    let _ = uc.reg_write(RegisterX86::RSP as i32, rsp + 8);
+                    let _ = uc.reg_write(RegisterX86::RIP as i32, ret_ip);
+                    state.borrow_mut().lzma_entry_va = Some(entry_va);
+                }
+                return;
+            }
+        }
+    });
+}
+
 #[allow(clippy::too_many_arguments)]
 fn run_packed_loader_capture(
     packed_pe: &[u8],
@@ -1674,16 +1745,16 @@ fn run_packed_loader_capture(
     loader_sec_va: Option<u32>,
     heap_base: u64,
     os_build: u16,
-    lzma_hint: Option<u64>,
-) -> Result<LoaderCaptureRun, String> {
+    lzma_hints: &[u64],
+) -> Result<LoaderCaptureRun, CaptureErr> {
     let img_base = packed_opt.image_base;
     let map_size = ((packed_opt.size_of_image as u64 + 0xFFF) & !0xFFF).max(0x2000);
     let img_end = (img_base + map_size + 0xFF_FFFF) & !0xFF_FFFF;
 
     let mut uc = Unicorn::new(Arch::X86, Mode::MODE_64)
-        .map_err(|e| format!("Unicorn init failed: {e:?}"))?;
+        .map_err(|e| CaptureErr::Fatal(format!("Unicorn init failed: {e:?}")))?;
     uc.mem_map(img_base, map_size, Prot::ALL)
-        .map_err(|e| format!("mem_map(img_base={img_base:#x}, {map_size:#x}) failed: {e:?}"))?;
+        .map_err(|e| CaptureErr::Fatal(format!("mem_map(img_base={img_base:#x}, {map_size:#x}) failed: {e:?}")))?;
 
     // Populate initial packed image as OS loader maps it.
     let mut init_img = vec![0u8; map_size as usize];
@@ -1703,7 +1774,7 @@ fn run_packed_loader_capture(
         }
     }
     uc.mem_write(img_base, &init_img)
-        .map_err(|e| format!("mem_write(img) failed: {e:?}"))?;
+        .map_err(|e| CaptureErr::Fatal(format!("mem_write(img) failed: {e:?}")))?;
 
     // Choose low fixed addresses when ImageBase allows it, otherwise place above image.
     let low_free = img_base >= 0x4000_0000;
@@ -1867,7 +1938,9 @@ fn run_packed_loader_capture(
         hit_r8: 0,
         aborted: false,
         abort_reason: None,
-        lzma_entry_va: lzma_hint,
+        lzma_entry_va: None,
+        lzma_hooked_vas: HashSet::new(),
+        lzma_abort_for_retry: false,
     }));
 
     // 1. CRC32 Loop Fast-Forward Hooks
@@ -1914,7 +1987,7 @@ fn run_packed_loader_capture(
         });
     }
 
-    // Helper: install LZMA fast-forward hook on `entry_va`.
+    // Install LZMA fast-forward hooks.
     let stream_map: Rc<HashMap<u64, (u64, Vec<u8>)>> = Rc::new(
         streams
             .iter()
@@ -1922,39 +1995,16 @@ fn run_packed_loader_capture(
             .collect(),
     );
 
-    let install_lzma_hook = |uc: &mut Unicorn<'_, ()>, entry_va: u64, smap: Rc<HashMap<u64, (u64, Vec<u8>)>>| {
-        let _ = uc.add_code_hook(entry_va, entry_va, move |uc, _addr, _sz| {
-            let candidates = [
-                uc.reg_read(RegisterX86::RDX as i32).unwrap_or(0),
-                uc.reg_read(RegisterX86::R8 as i32).unwrap_or(0),
-                uc.reg_read(RegisterX86::R9 as i32).unwrap_or(0),
-                uc.reg_read(RegisterX86::RCX as i32).unwrap_or(0),
-            ];
-            for src in candidates {
-                if let Some((dst_va, out_bytes)) = smap.get(&src) {
-                    let _ = uc.mem_write(*dst_va, out_bytes);
-                    let rsp = uc.reg_read(RegisterX86::RSP as i32).unwrap_or(0);
-                    let mut ret_buf = [0u8; 8];
-                    if uc.mem_read(rsp, &mut ret_buf).is_ok() {
-                        let ret_ip = u64::from_le_bytes(ret_buf);
-                        let _ = uc.reg_write(RegisterX86::RAX as i32, 0);
-                        let _ = uc.reg_write(RegisterX86::RSP as i32, rsp + 8);
-                        let _ = uc.reg_write(RegisterX86::RIP as i32, ret_ip);
-                    }
-                    return;
-                }
+    if !lzma_hints.is_empty() && !stream_map.is_empty() {
+        for &entry_va in lzma_hints {
+            if state.borrow_mut().lzma_hooked_vas.insert(entry_va) {
+                install_lzma_hook(&mut uc, entry_va, Rc::clone(&stream_map), Rc::clone(&state));
             }
-        });
-    };
-
-    if let Some(entry_va) = lzma_hint {
-        if !stream_map.is_empty() {
-            install_lzma_hook(&mut uc, entry_va, Rc::clone(&stream_map));
         }
     } else if !stream_map.is_empty() {
         // Dynamically detect LzmaDecode entry point when byte 0 of any compressed stream is read outside CRC loops.
-        let packed_rfs: Rc<Vec<(u32, u32)>> = Rc::new(
-            packed_opt
+        let packed_rfs: Rc<Vec<(u32, u32)>> = Rc::new({
+            let mut v = packed_opt
                 .data_directory
                 .get(IMAGE_DIRECTORY_ENTRY_EXCEPTION)
                 .and_then(|exc| {
@@ -1973,8 +2023,10 @@ fn run_packed_loader_capture(
                     }
                     Some(v)
                 })
-                .unwrap_or_default(),
-        );
+                .unwrap_or_default();
+            v.sort_unstable_by_key(|&(b, _)| b);
+            v
+        });
         let crc_heads: Rc<Vec<u64>> = Rc::new(crc_loops.iter().map(|c| c.loop_head_va).collect());
         let smap_c = Rc::clone(&stream_map);
         let st_c = Rc::clone(&state);
@@ -1986,11 +2038,12 @@ fn run_packed_loader_capture(
             })
         });
 
-        for &src_va in stream_map.keys() {
+        for (&src_va, (_dst_va, out_bytes)) in stream_map.iter() {
             let smap_i = Rc::clone(&smap_c);
             let st_i = Rc::clone(&st_c);
             let rfs_i = Rc::clone(&packed_rfs);
             let crc_i = Rc::clone(&crc_heads);
+            let out_len = out_bytes.len();
             let _ = uc.add_mem_hook(UcHookType::MEM_READ, src_va, src_va, move |uc, _t, _a, _s, _v| {
                 if st_i.borrow().lzma_entry_va.is_some() {
                     return true;
@@ -2001,17 +2054,33 @@ fn run_packed_loader_capture(
                     return true;
                 }
                 let rip_rva = rip.saturating_sub(img_base) as u32;
-                let rf_hit = rfs_i
+                let rf_idx_hit = rfs_i
                     .iter()
-                    .find(|&&(b, e)| rip_rva >= b && rip_rva < e && (e - b) <= 0x8000)
-                    .map(|&(b, e)| (b, e));
+                    .position(|&(b, e)| rip_rva >= b && rip_rva < e && (e - b) <= 0x8000);
 
-                let mut chosen_entry = None;
-                // Check stack for a parent RF inside loader_sec with size <= 0x800 (wrapper like LzmaDecode)
+                let mut candidates: Vec<u64> = Vec::new();
+                let mut rf_hit_b: Option<u32> = None;
+                if let Some(idx) = rf_idx_hit {
+                    let (b, _e) = rfs_i[idx];
+                    rf_hit_b = Some(b);
+                    candidates.push(img_base + b as u64);
+                    if idx > 0 {
+                        let (pb, pe) = rfs_i[idx - 1];
+                        if pe == b && (pe - pb) <= 0x2000 {
+                            candidates.push(img_base + pb as u64);
+                        }
+                    }
+                }
+
+                // Also include up to 4 unique parent RFs on stack inside loader_sec (`<= 0x600`, e.g. wrapper around LzmaDecode).
                 let rsp = uc.reg_read(RegisterX86::RSP as i32).unwrap_or(0);
                 let mut stack_buf = [0u8; 0x200];
                 if uc.mem_read(rsp, &mut stack_buf).is_ok() {
+                    let mut stack_cands = 0usize;
                     for ch in stack_buf.chunks_exact(8) {
+                        if stack_cands >= 4 {
+                            break;
+                        }
                         let q = u64::from_le_bytes(ch.try_into().unwrap());
                         if let Some((ls, le)) = lsec_range {
                             if q < ls || q >= le {
@@ -2020,19 +2089,35 @@ fn run_packed_loader_capture(
                         }
                         let qrva = (q - img_base) as u32;
                         if let Some(&(b, _e)) = rfs_i.iter().find(|&&(b, e)| qrva > b && qrva <= e && (e - b) <= 0x600) {
-                            chosen_entry = Some(img_base + b as u64);
-                            break;
+                            if Some(b) != rf_hit_b {
+                                let cand_va = img_base + b as u64;
+                                if !candidates.contains(&cand_va) {
+                                    candidates.push(cand_va);
+                                    stack_cands += 1;
+                                }
+                            }
                         }
                     }
                 }
-                if chosen_entry.is_none() {
-                    if let Some((b, _)) = rf_hit {
-                        chosen_entry = Some(img_base + b as u64);
+
+                let new_vas: Vec<u64> = {
+                    let mut st = st_i.borrow_mut();
+                    candidates
+                        .into_iter()
+                        .filter(|&va| st.lzma_hooked_vas.insert(va))
+                        .collect()
+                };
+                if !new_vas.is_empty() {
+                    for va in &new_vas {
+                        install_lzma_hook(uc, *va, Rc::clone(&smap_i), Rc::clone(&st_i));
                     }
-                }
-                if let Some(entry_va) = chosen_entry {
-                    st_i.borrow_mut().lzma_entry_va = Some(entry_va);
-                    install_lzma_hook(uc, entry_va, Rc::clone(&smap_i));
+                    if out_len >= 1_000_000 {
+                        let mut st = st_i.borrow_mut();
+                        if st.lzma_entry_va.is_none() {
+                            st.lzma_abort_for_retry = true;
+                            let _ = uc.emu_stop();
+                        }
+                    }
                 }
                 true
             });
@@ -2370,16 +2455,22 @@ fn run_packed_loader_capture(
 
     let s = state.borrow();
     if s.aborted {
-        return Err(s
-            .abort_reason
-            .clone()
-            .unwrap_or_else(|| format!("packed loader aborted: {emu_res:?}")));
+        return Err(CaptureErr::Fatal(
+            s.abort_reason
+                .clone()
+                .unwrap_or_else(|| format!("packed loader aborted: {emu_res:?}")),
+        ));
+    }
+    if s.lzma_abort_for_retry && s.hit_rva.is_none() && s.lzma_entry_va.is_none() {
+        let mut cands: Vec<u64> = s.lzma_hooked_vas.iter().copied().collect();
+        cands.sort_unstable();
+        return Err(CaptureErr::AbortRetryLzma(cands));
     }
     let Some(hit_rva) = s.hit_rva else {
         let rip = uc.reg_read(RegisterX86::RIP as i32).unwrap_or(0);
-        return Err(format!(
+        return Err(CaptureErr::Fatal(format!(
             "packed loader stopped without reaching runtime/OEP (rip={rip:#x}, emu_res={emu_res:?})"
-        ));
+        )));
     };
     let hit_r8 = s.hit_r8;
     let lzma_found = s.lzma_entry_va;
@@ -2447,10 +2538,10 @@ fn run_packed_loader_capture(
     }
 
     if ld_ptr == 0 || ld_sz == 0 {
-        return Err(format!(
+        return Err(CaptureErr::Fatal(format!(
             "hit {hit_rva:#x} (r8={hit_r8:#x}), but no populated LoaderData heap buffer found among {} tracked allocs",
             alloc_map.len()
-        ));
+        )));
     }
     let mut ld_bytes = vec![0u8; ld_sz];
     uc.mem_read(ld_ptr, &mut ld_bytes)
@@ -2516,15 +2607,39 @@ fn capture_loader_data_via_packed_loader(
         loader_sec_va,
         heap1,
         26100,
-        None,
+        &[],
     ) {
         Ok(r) => r,
-        Err(msg) => {
+        Err(CaptureErr::AbortRetryLzma(cands)) => match run_packed_loader_capture(
+            packed_pe,
+            &packed_opt,
+            &packed_secs,
+            &streams,
+            &crc_loops,
+            rt_cands,
+            oep_rva,
+            loader_sec_va,
+            heap1,
+            26100,
+            &cands,
+        ) {
+            Ok(r) => r,
+            Err(CaptureErr::AbortRetryLzma(_)) => {
+                warnings.push("packed-loader capture run 1: LZMA retry aborted repeatedly".into());
+                return None;
+            }
+            Err(CaptureErr::Fatal(msg)) => {
+                warnings.push(format!("packed-loader capture run 1 (retry): {msg}"));
+                return None;
+            }
+        },
+        Err(CaptureErr::Fatal(msg)) => {
             warnings.push(format!("packed-loader capture run 1: {msg}"));
             return None;
         }
     };
 
+    let hints2: Vec<u64> = run1.lzma_entry_va.into_iter().collect();
     let run2 = run_packed_loader_capture(
         packed_pe,
         &packed_opt,
@@ -2536,7 +2651,7 @@ fn capture_loader_data_via_packed_loader(
         loader_sec_va,
         heap2,
         19045,
-        run1.lzma_entry_va,
+        &hints2,
     )
     .ok();
 

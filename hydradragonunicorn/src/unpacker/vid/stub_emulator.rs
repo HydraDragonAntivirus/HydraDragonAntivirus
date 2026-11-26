@@ -1,4 +1,4 @@
-use std::{error::Error, fmt, num::NonZeroUsize};
+use std::{cell::RefCell, collections::HashSet, error::Error, fmt, num::NonZeroUsize};
 
 use unicorn_engine::{
     MemType, RegisterX86, Unicorn,
@@ -171,6 +171,8 @@ pub struct StubEmulator {
     stack_base: u64,
     module_snapshot: Vec<u8>,
     extra_data_regions: Vec<(u64, Vec<u8>)>,
+    cached_unicorn: RefCell<Option<Unicorn<'static, ExecutionMonitor>>>,
+    mapped_extra_regions: RefCell<Vec<(u64, u64, usize)>>,
 }
 
 impl StubEmulator {
@@ -210,6 +212,8 @@ impl StubEmulator {
             stack_base,
             module_snapshot,
             extra_data_regions: Vec::new(),
+            cached_unicorn: RefCell::new(None),
+            mapped_extra_regions: RefCell::new(Vec::new()),
         })
     }
 
@@ -217,6 +221,8 @@ impl StubEmulator {
     /// buffers populated during unpacking) to be mapped read-write during stub checks.
     pub fn with_extra_data_regions(mut self, regions: Vec<(u64, Vec<u8>)>) -> Self {
         self.extra_data_regions = regions;
+        self.cached_unicorn = RefCell::new(None);
+        self.mapped_extra_regions = RefCell::new(Vec::new());
         self
     }
 
@@ -231,38 +237,85 @@ impl StubEmulator {
             self.validate_module_address("return address", return_address)?;
         }
 
-        let mode = match self.architecture {
-            Architecture::X86 => Mode::MODE_32,
-            Architecture::X64 => Mode::MODE_64,
-        };
-        let execution_monitor = ExecutionMonitor {
-            module_begin: self.module_base,
-            module_end: self.module_end,
+        if self.cached_unicorn.borrow().is_none() {
+            let mode = match self.architecture {
+                Architecture::X86 => Mode::MODE_32,
+                Architecture::X64 => Mode::MODE_64,
+            };
+            let execution_monitor = ExecutionMonitor {
+                module_begin: self.module_base,
+                module_end: self.module_end,
+                return_address: None,
+                stop_reason: None,
+                dirty_pages: Vec::new(),
+                dirty_page_set: HashSet::new(),
+            };
+            let mut unicorn = Unicorn::new_with_data(Arch::X86, mode, execution_monitor)
+                .map_err(|source| EmulationError::unicorn("cannot create the emulator", source))?;
+
+            unicorn
+                .mem_map(self.module_base, self.mapped_image_size, Prot::ALL)
+                .map_err(|source| EmulationError::unicorn("cannot map the module snapshot", source))?;
+            unicorn
+                .mem_write(self.module_base, &self.module_snapshot)
+                .map_err(|source| {
+                    EmulationError::unicorn("cannot write the module snapshot", source)
+                })?;
+
+            unicorn
+                .mem_map(self.stack_base, STACK_SIZE, Prot::ALL)
+                .map_err(|source| EmulationError::unicorn("cannot map the synthetic stack", source))?;
+
+            let mapped_extra = self.map_extra_data_regions(&mut unicorn);
+            *self.mapped_extra_regions.borrow_mut() = mapped_extra;
+            install_stop_hooks(&mut unicorn)?;
+            install_dirty_write_hook(&mut unicorn)?;
+            *self.cached_unicorn.borrow_mut() = Some(unicorn);
+        }
+
+        let mut unicorn_ref = self.cached_unicorn.borrow_mut();
+        let unicorn = unicorn_ref
+            .as_mut()
+            .expect("cached Unicorn instance must be initialized");
+
+        let stack_pointer = synthetic_stack_pointer(self.stack_base);
+        let run_result = self.run_stub_once(
+            unicorn,
+            stub_entry_address,
+            stack_pointer,
             return_address,
-            stop_reason: None,
-        };
-        let mut unicorn = Unicorn::new_with_data(Arch::X86, mode, execution_monitor)
-            .map_err(|source| EmulationError::unicorn("cannot create the emulator", source))?;
+            instruction_limit,
+        );
+        let restore_result = self.restore_dirty_pages(unicorn);
+        match (run_result, restore_result) {
+            (Ok(stop), Ok(())) => Ok(stop),
+            (Err(err), _) => Err(err),
+            (Ok(_), Err(err)) => Err(err),
+        }
+    }
 
-        unicorn
-            .mem_map(self.module_base, self.mapped_image_size, Prot::ALL)
-            .map_err(|source| EmulationError::unicorn("cannot map the module snapshot", source))?;
-        unicorn
-            .mem_write(self.module_base, &self.module_snapshot)
-            .map_err(|source| {
-                EmulationError::unicorn("cannot write the module snapshot", source)
-            })?;
+    fn run_stub_once(
+        &self,
+        unicorn: &mut Unicorn<'static, ExecutionMonitor>,
+        stub_entry_address: u64,
+        stack_pointer: u64,
+        return_address: Option<u64>,
+        instruction_limit: NonZeroUsize,
+    ) -> Result<EmulationStop, EmulationError> {
+        {
+            let monitor = unicorn.get_data_mut();
+            monitor.return_address = return_address;
+            monitor.stop_reason = None;
+        }
 
-        let stack_base = self.stack_base;
-        unicorn
-            .mem_map(stack_base, STACK_SIZE, Prot::ALL)
-            .map_err(|source| EmulationError::unicorn("cannot map the synthetic stack", source))?;
-
-        self.map_extra_data_regions(&mut unicorn);
-
-        let stack_pointer = synthetic_stack_pointer(stack_base);
-        initialize_registers(&mut unicorn, self.architecture, stack_pointer, return_address)?;
-        install_stop_hooks(&mut unicorn)?;
+        initialize_registers(unicorn, self.architecture, stack_pointer, return_address)?;
+        if return_address.is_some() {
+            record_dirty_range(
+                unicorn.get_data_mut(),
+                stack_pointer,
+                self.architecture.pointer_size(),
+            );
+        }
 
         let execution = unicorn.emu_start(stub_entry_address, 0, 0, instruction_limit.get());
         if let Some(mut stop_reason) = unicorn.get_data_mut().stop_reason.take() {
@@ -274,7 +327,7 @@ impl StubEmulator {
                     external_return_address,
                     ..
                 } => {
-                    let final_stack_pointer = read_stack_pointer(&unicorn, self.architecture)?;
+                    let final_stack_pointer = read_stack_pointer(unicorn, self.architecture)?;
                     *stack_pointer_delta = i64::try_from(final_stack_pointer)
                         .ok()
                         .and_then(|final_stack_pointer| {
@@ -284,12 +337,12 @@ impl StubEmulator {
                         })
                         .ok_or(EmulationError::AddressOverflow)?;
                     *external_return_address =
-                        read_stack_address(&unicorn, self.architecture, final_stack_pointer)?;
+                        read_stack_address(unicorn, self.architecture, final_stack_pointer)?;
                 }
                 EmulationStop::ReturnedToCaller {
                     register_readings, ..
                 } => {
-                    *register_readings = read_general_registers(&unicorn, self.architecture)?;
+                    *register_readings = read_general_registers(unicorn, self.architecture)?;
                 }
                 EmulationStop::UnmappedMemory { .. } | EmulationStop::InstructionLimit { .. } => {}
             }
@@ -308,9 +361,51 @@ impl StubEmulator {
         })
     }
 
-    fn map_extra_data_regions(&self, unicorn: &mut Unicorn<'_, ExecutionMonitor>) {
+    fn restore_dirty_pages(
+        &self,
+        unicorn: &mut Unicorn<'static, ExecutionMonitor>,
+    ) -> Result<(), EmulationError> {
+        const ZERO_PAGE: [u8; PAGE_SIZE as usize] = [0u8; PAGE_SIZE as usize];
+        let dirty_pages = {
+            let monitor = unicorn.get_data_mut();
+            monitor.dirty_page_set.clear();
+            std::mem::take(&mut monitor.dirty_pages)
+        };
+        if dirty_pages.is_empty() {
+            return Ok(());
+        }
+
+        let module_end_mapped = self.module_base + self.mapped_image_size;
+        let stack_end = self.stack_base + STACK_SIZE;
+        let mapped_extra = self.mapped_extra_regions.borrow();
+
+        for page_addr in dirty_pages {
+            if page_addr >= self.module_base && page_addr < module_end_mapped {
+                let offset = (page_addr - self.module_base) as usize;
+                restore_snapshot_page(unicorn, page_addr, &self.module_snapshot, offset)?;
+            } else if page_addr >= self.stack_base && page_addr < stack_end {
+                unicorn.mem_write(page_addr, &ZERO_PAGE).map_err(|source| {
+                    EmulationError::unicorn("cannot restore dirty synthetic stack page", source)
+                })?;
+            } else if let Some(&(_base, _end, idx)) = mapped_extra
+                .iter()
+                .find(|&&(base, end, _)| page_addr >= base && page_addr < end)
+            {
+                let (base, ref bytes) = self.extra_data_regions[idx];
+                let offset = (page_addr - base) as usize;
+                restore_snapshot_page(unicorn, page_addr, bytes, offset)?;
+            }
+        }
+        Ok(())
+    }
+
+    fn map_extra_data_regions(
+        &self,
+        unicorn: &mut Unicorn<'_, ExecutionMonitor>,
+    ) -> Vec<(u64, u64, usize)> {
+        let mut mapped_extra = Vec::new();
         if self.extra_data_regions.is_empty() {
-            return;
+            return mapped_extra;
         }
         let module_end = self.module_base + self.mapped_image_size;
         let stack_end = self.stack_base + STACK_SIZE;
@@ -319,7 +414,7 @@ impl StubEmulator {
             (self.stack_base, stack_end),
         ];
 
-        for (base, bytes) in &self.extra_data_regions {
+        for (idx, (base, bytes)) in self.extra_data_regions.iter().enumerate() {
             if bytes.is_empty() || !base.is_multiple_of(PAGE_SIZE) {
                 continue;
             }
@@ -344,8 +439,10 @@ impl StubEmulator {
             {
                 let _ = unicorn.mem_write(*base, bytes);
                 mapped_ranges.push((*base, end));
+                mapped_extra.push((*base, end, idx));
             }
         }
+        mapped_extra
     }
 
     fn validate_module_address(
@@ -369,6 +466,46 @@ struct ExecutionMonitor {
     module_end: u64,
     return_address: Option<u64>,
     stop_reason: Option<EmulationStop>,
+    dirty_pages: Vec<u64>,
+    dirty_page_set: HashSet<u64>,
+}
+
+fn record_dirty_range(monitor: &mut ExecutionMonitor, address: u64, size: usize) {
+    let span = size.max(1) as u64;
+    let first_page = address & !(PAGE_SIZE - 1);
+    let last_page = address.saturating_add(span - 1) & !(PAGE_SIZE - 1);
+    let mut page = first_page;
+    loop {
+        if monitor.dirty_page_set.insert(page) {
+            monitor.dirty_pages.push(page);
+        }
+        if page >= last_page {
+            break;
+        }
+        page = page.saturating_add(PAGE_SIZE);
+    }
+}
+
+fn restore_snapshot_page(
+    unicorn: &mut Unicorn<'static, ExecutionMonitor>,
+    page_addr: u64,
+    snapshot: &[u8],
+    offset: usize,
+) -> Result<(), EmulationError> {
+    let page_len = PAGE_SIZE as usize;
+    if let Some(full) = snapshot.get(offset..offset + page_len) {
+        return unicorn.mem_write(page_addr, full).map_err(|source| {
+            EmulationError::unicorn("cannot restore dirty snapshot page", source)
+        });
+    }
+    let mut buf = [0u8; PAGE_SIZE as usize];
+    if offset < snapshot.len() {
+        let avail = snapshot.len() - offset;
+        buf[..avail].copy_from_slice(&snapshot[offset..]);
+    }
+    unicorn
+        .mem_write(page_addr, &buf)
+        .map_err(|source| EmulationError::unicorn("cannot restore dirty snapshot page", source))
 }
 
 fn initialize_registers(
@@ -377,6 +514,40 @@ fn initialize_registers(
     stack_pointer: u64,
     return_address: Option<u64>,
 ) -> Result<(), EmulationError> {
+    let zero_regs: &[RegisterX86] = match architecture {
+        Architecture::X86 => &[
+            RegisterX86::EAX,
+            RegisterX86::EBX,
+            RegisterX86::ECX,
+            RegisterX86::EDX,
+            RegisterX86::ESI,
+            RegisterX86::EDI,
+            RegisterX86::EBP,
+        ],
+        Architecture::X64 => &[
+            RegisterX86::RAX,
+            RegisterX86::RBX,
+            RegisterX86::RCX,
+            RegisterX86::RDX,
+            RegisterX86::RSI,
+            RegisterX86::RDI,
+            RegisterX86::RBP,
+            RegisterX86::R8,
+            RegisterX86::R9,
+            RegisterX86::R10,
+            RegisterX86::R11,
+            RegisterX86::R12,
+            RegisterX86::R13,
+            RegisterX86::R14,
+            RegisterX86::R15,
+        ],
+    };
+    for &reg in zero_regs {
+        unicorn.reg_write(reg, 0).map_err(|source| {
+            EmulationError::unicorn("cannot reset general-purpose register", source)
+        })?;
+    }
+
     if let Some(return_address) = return_address {
         let return_bytes = match architecture {
             Architecture::X86 => (return_address as u32).to_le_bytes().to_vec(),
@@ -402,6 +573,25 @@ fn initialize_registers(
             EmulationError::unicorn("cannot initialize the flags register", source)
         })?;
     Ok(())
+}
+
+fn install_dirty_write_hook(
+    unicorn: &mut Unicorn<'_, ExecutionMonitor>,
+) -> Result<(), EmulationError> {
+    unicorn
+        .add_mem_hook(
+            HookType::MEM_WRITE,
+            1,
+            0,
+            |unicorn, _memory_type, address, size, _write_value| {
+                record_dirty_range(unicorn.get_data_mut(), address, size);
+                true
+            },
+        )
+        .map(|_| ())
+        .map_err(|source| {
+            EmulationError::unicorn("cannot install the dirty write hook", source)
+        })
 }
 
 fn install_stop_hooks(unicorn: &mut Unicorn<'_, ExecutionMonitor>) -> Result<(), EmulationError> {
@@ -799,5 +989,137 @@ mod tests {
                 instruction_address: MODULE_BASE,
             }
         );
+    }
+
+    #[test]
+    fn reused_emulator_resets_gprs_and_dirty_module_pages() {
+        let mut module_snapshot = vec![0_u8; (PAGE_SIZE as usize) * 2];
+        let data_va = (MODULE_BASE + PAGE_SIZE + 0x10) as u32;
+        // Orig data dword = 0x1122_3344
+        module_snapshot[(PAGE_SIZE as usize) + 0x10..(PAGE_SIZE as usize) + 0x14]
+            .copy_from_slice(&0x1122_3344_u32.to_le_bytes());
+
+        // Stub 1 @ MODULE_BASE:
+        //   mov dword ptr [data_va], 0xDEAD_BEEF ; c7 05 / modrm mod=00 rm=101 (disp32 in x86)
+        //   mov eax, 0x12345678
+        //   mov ebx, 0x22222222
+        //   push 0x33333333
+        //   add esp, 4
+        //   ret
+        let mut stub1 = Vec::new();
+        stub1.extend_from_slice(&[0xC7, 0x05]);
+        stub1.extend_from_slice(&data_va.to_le_bytes());
+        stub1.extend_from_slice(&0xDEAD_BEEF_u32.to_le_bytes());
+        stub1.push(0xB8);
+        stub1.extend_from_slice(&0x1234_5678_u32.to_le_bytes());
+        stub1.push(0xBB);
+        stub1.extend_from_slice(&0x2222_2222_u32.to_le_bytes());
+        stub1.push(0x68);
+        stub1.extend_from_slice(&0x3333_3333_u32.to_le_bytes());
+        stub1.extend_from_slice(&[0x83, 0xC4, 0x04, 0xC3]);
+        module_snapshot[..stub1.len()].copy_from_slice(&stub1);
+
+        // Stub 2 @ MODULE_BASE + 0x100:
+        //   mov eax, dword ptr [data_va] ; a1 <disp32>
+        //   add eax, ebx                 ; 01 d8 (ebx must have been reset to 0)
+        //   ret                          ; c3
+        let stub2 = [
+            0xA1,
+            data_va as u8,
+            (data_va >> 8) as u8,
+            (data_va >> 16) as u8,
+            (data_va >> 24) as u8,
+            0x01,
+            0xD8,
+            0xC3,
+        ];
+        module_snapshot[0x100..0x100 + stub2.len()].copy_from_slice(&stub2);
+
+        let emulator = StubEmulator::new(Architecture::X86, MODULE_BASE, module_snapshot)
+            .expect("valid x86 emulator");
+
+        let s1 = emulator
+            .emulate_stub(MODULE_BASE, Some(RESUME_ADDRESS), NonZeroUsize::new(64).unwrap())
+            .expect("stub 1 ok");
+        assert!(matches!(s1, EmulationStop::ReturnedToCaller { .. }));
+
+        let s2 = emulator
+            .emulate_stub(
+                MODULE_BASE + 0x100,
+                Some(RESUME_ADDRESS + 4),
+                NonZeroUsize::new(64).unwrap(),
+            )
+            .expect("stub 2 ok");
+        let EmulationStop::ReturnedToCaller {
+            return_address,
+            register_readings,
+        } = s2
+        else {
+            panic!("stub 2 must return to caller: {s2:?}");
+        };
+        assert_eq!(return_address, RESUME_ADDRESS + 4);
+        assert!(register_readings.contains(&RegisterReading {
+            register: GeneralRegister::Eax,
+            bits: 0x1122_3344,
+        }));
+        assert!(register_readings.contains(&RegisterReading {
+            register: GeneralRegister::Ebx,
+            bits: 0,
+        }));
+    }
+
+    #[test]
+    fn reused_emulator_restores_dirty_extra_region_pages() {
+        const EXTRA_BASE: u64 = 0x2000_0000;
+        let mut module_snapshot = vec![0_u8; PAGE_SIZE as usize];
+        // Stub 1 @ MODULE_BASE: write 0xCAFEBABE to [EXTRA_BASE+8], set rbx=0x99, ret
+        let mut stub1 = Vec::new();
+        stub1.extend_from_slice(&[0x48, 0xB8]); // mov rax, EXTRA_BASE+8
+        stub1.extend_from_slice(&(EXTRA_BASE + 8).to_le_bytes());
+        stub1.extend_from_slice(&[0xC7, 0x00]); // mov dword ptr [rax], 0xCAFEBABE
+        stub1.extend_from_slice(&0xCAFE_BABE_u32.to_le_bytes());
+        stub1.extend_from_slice(&[0x48, 0xC7, 0xC3, 0x99, 0x00, 0x00, 0x00]); // mov rbx, 0x99
+        stub1.push(0xC3); // ret
+        module_snapshot[..stub1.len()].copy_from_slice(&stub1);
+
+        // Stub 2 @ MODULE_BASE + 0x100: read [EXTRA_BASE+8] into eax, add eax, ebx, ret
+        let mut stub2 = Vec::new();
+        stub2.extend_from_slice(&[0x48, 0xB8]);
+        stub2.extend_from_slice(&(EXTRA_BASE + 8).to_le_bytes());
+        stub2.extend_from_slice(&[0x8B, 0x00]); // mov eax, [rax]
+        stub2.extend_from_slice(&[0x01, 0xD8, 0xC3]); // add eax, ebx; ret
+        module_snapshot[0x100..0x100 + stub2.len()].copy_from_slice(&stub2);
+
+        let mut extra_page = vec![0_u8; PAGE_SIZE as usize];
+        extra_page[8..12].copy_from_slice(&0x5566_7788_u32.to_le_bytes());
+
+        let emulator = StubEmulator::new(Architecture::X64, MODULE_BASE, module_snapshot)
+            .expect("valid x64 emulator")
+            .with_extra_data_regions(vec![(EXTRA_BASE, extra_page)]);
+
+        let _ = emulator
+            .emulate_stub(MODULE_BASE, Some(RESUME_ADDRESS), NonZeroUsize::new(64).unwrap())
+            .expect("stub 1 ok");
+        let s2 = emulator
+            .emulate_stub(
+                MODULE_BASE + 0x100,
+                Some(RESUME_ADDRESS),
+                NonZeroUsize::new(64).unwrap(),
+            )
+            .expect("stub 2 ok");
+        let EmulationStop::ReturnedToCaller {
+            register_readings, ..
+        } = s2
+        else {
+            panic!("stub 2 must return to caller: {s2:?}");
+        };
+        assert!(register_readings.contains(&RegisterReading {
+            register: GeneralRegister::Rax,
+            bits: 0x5566_7788,
+        }));
+        assert!(register_readings.contains(&RegisterReading {
+            register: GeneralRegister::Rbx,
+            bits: 0,
+        }));
     }
 }

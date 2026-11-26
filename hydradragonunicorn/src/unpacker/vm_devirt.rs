@@ -1448,7 +1448,11 @@ enum FlagState {
     SubCmp { lhs: ExprId, rhs: ExprId, width: u8 },
     TestBitwise { val: ExprId, width: u8 },
     Add { lhs: ExprId, rhs: ExprId, res: ExprId, width: u8 },
-    IncDec { res: ExprId, cf: Option<bool>, width: u8 },
+    IncDec { res: ExprId, is_inc: bool, cf: Option<ExprId>, width: u8 },
+    Shift { res: ExprId, width: u8, cf: Option<ExprId>, of: Option<ExprId> },
+    /// Wraps a base flag state where an instruction (`clc`/`stc`/`cmc`/`rol`/`ror`/`rcl`/`rcr`/`bt*`)
+    /// modified CF (and optionally OF) while leaving ZF/SF/PF (and unmodified OF) intact.
+    CarryOverride { base: Box<FlagState>, cf: ExprId, of: Option<Option<ExprId>> },
     /// The flags are the bits of this RFLAGS value (captured at run time after an
     /// atomic operation: `ExprNode::EffectOut`).
     Rflags(ExprId),
@@ -1571,6 +1575,17 @@ impl SymState {
         self.known_rflags_bits = None;
     }
 
+    fn set_carry_override(&mut self, cf: ExprId, of_override: Option<Option<ExprId>>) {
+        let (base, prev_of) = match std::mem::replace(&mut self.flags, FlagState::Unknown) {
+            FlagState::CarryOverride { base, of, .. } => (base, of),
+            other => (Box::new(other), None),
+        };
+        let of = of_override.or(prev_of);
+        self.flags = FlagState::CarryOverride { base, cf, of };
+        self.entry_flags_clobbered = true;
+        self.known_rflags_bits = None;
+    }
+
     #[inline]
     fn reg_full(&self, r: ArchReg) -> ExprId {
         self.regs[r.idx()]
@@ -1587,8 +1602,58 @@ impl SymState {
     }
 
     fn eval_cond_code(&self, arena: &mut ExprArena, cc: ConditionCode) -> Option<ExprId> {
+        self.eval_cond_code_for_flags(&self.flags, arena, cc)
+    }
+
+    fn eval_cond_code_for_flags(
+        &self,
+        flags: &FlagState,
+        arena: &mut ExprArena,
+        cc: ConditionCode,
+    ) -> Option<ExprId> {
         let zero = arena.const_u64(0);
-        match &self.flags {
+        let combine_be = |arena: &mut ExprArena, cf: Option<ExprId>, zf_opt: Option<ExprId>| -> Option<ExprId> {
+            if let Some(c) = cf {
+                if arena.as_const(c) == Some(1) {
+                    return Some(arena.const_u64(1));
+                }
+            }
+            let zf = zf_opt?;
+            if arena.as_const(zf) == Some(1) {
+                return Some(arena.const_u64(1));
+            }
+            let c = cf?;
+            if arena.as_const(c) == Some(0) {
+                Some(zf)
+            } else if arena.as_const(zf) == Some(0) {
+                Some(arena.and_const(c, 1))
+            } else {
+                Some(arena.or(c, zf))
+            }
+        };
+        let combine_a = |arena: &mut ExprArena, cf: Option<ExprId>, nzf_opt: Option<ExprId>| -> Option<ExprId> {
+            if let Some(c) = cf {
+                if arena.as_const(c) == Some(1) {
+                    return Some(arena.const_u64(0));
+                }
+            }
+            let nzf = nzf_opt?;
+            if arena.as_const(nzf) == Some(0) {
+                return Some(arena.const_u64(0));
+            }
+            let c = cf?;
+            if arena.as_const(c) == Some(0) {
+                Some(nzf)
+            } else {
+                let ncf = arena.xor_const(c, 1);
+                if arena.as_const(nzf) == Some(1) {
+                    Some(ncf)
+                } else {
+                    Some(arena.and(ncf, nzf))
+                }
+            }
+        };
+        match flags {
             FlagState::SubCmp { lhs, rhs, width } => {
                 let w = *width;
                 let la = arena.zext_mask(*lhs, w);
@@ -1752,7 +1817,55 @@ impl SymState {
                     _ => None,
                 }
             }
-            FlagState::IncDec { res, cf, width } => {
+            FlagState::IncDec { res, is_inc, cf, width } => {
+                let w = *width;
+                let zr = arena.zext_mask(*res, w);
+                let sr = arena.sext(*res, w * 8);
+                let sign_bit = 1u64 << (w * 8 - 1);
+                let ov_val = arena.const_u64(if *is_inc { sign_bit } else { sign_bit - 1 });
+                match cc {
+                    ConditionCode::e => Some(arena.cmp(CondPred::Eq, zr, zero)),
+                    ConditionCode::ne => Some(arena.cmp(CondPred::Ne, zr, zero)),
+                    ConditionCode::s => Some(arena.cmp(CondPred::Slt, sr, zero)),
+                    ConditionCode::ns => Some(arena.cmp(CondPred::Sge, sr, zero)),
+                    ConditionCode::b => *cf,
+                    ConditionCode::ae => cf.map(|v| arena.xor_const(v, 1)),
+                    ConditionCode::be => {
+                        let zf = arena.cmp(CondPred::Eq, zr, zero);
+                        combine_be(arena, *cf, Some(zf))
+                    }
+                    ConditionCode::a => {
+                        let nzf = arena.cmp(CondPred::Ne, zr, zero);
+                        combine_a(arena, *cf, Some(nzf))
+                    }
+                    ConditionCode::o => Some(arena.cmp(CondPred::Eq, zr, ov_val)),
+                    ConditionCode::no => Some(arena.cmp(CondPred::Ne, zr, ov_val)),
+                    ConditionCode::l | ConditionCode::ge | ConditionCode::le | ConditionCode::g => {
+                        let sf = arena.cmp(CondPred::Slt, sr, zero);
+                        let of = arena.cmp(CondPred::Eq, zr, ov_val);
+                        let sl = arena.xor(sf, of);
+                        match cc {
+                            ConditionCode::l => Some(sl),
+                            ConditionCode::ge => Some(arena.xor_const(sl, 1)),
+                            ConditionCode::le => {
+                                let zf = arena.cmp(CondPred::Eq, zr, zero);
+                                Some(arena.or(zf, sl))
+                            }
+                            _ => {
+                                let nzf = arena.cmp(CondPred::Ne, zr, zero);
+                                let sge = arena.xor_const(sl, 1);
+                                Some(arena.and(nzf, sge))
+                            }
+                        }
+                    }
+                    ConditionCode::p | ConditionCode::np => {
+                        let pf = parity_flag(arena, zr);
+                        Some(if cc == ConditionCode::p { pf } else { arena.xor_const(pf, 1) })
+                    }
+                    _ => None,
+                }
+            }
+            FlagState::Shift { res, width, cf, of } => {
                 let w = *width;
                 let zr = arena.zext_mask(*res, w);
                 let sr = arena.sext(*res, w * 8);
@@ -1761,8 +1874,36 @@ impl SymState {
                     ConditionCode::ne => Some(arena.cmp(CondPred::Ne, zr, zero)),
                     ConditionCode::s => Some(arena.cmp(CondPred::Slt, sr, zero)),
                     ConditionCode::ns => Some(arena.cmp(CondPred::Sge, sr, zero)),
-                    ConditionCode::b => cf.map(|v| arena.const_u64(u64::from(v))),
-                    ConditionCode::ae => cf.map(|v| arena.const_u64(u64::from(!v))),
+                    ConditionCode::b => *cf,
+                    ConditionCode::ae => cf.map(|v| arena.xor_const(v, 1)),
+                    ConditionCode::be => {
+                        let zf = arena.cmp(CondPred::Eq, zr, zero);
+                        combine_be(arena, *cf, Some(zf))
+                    }
+                    ConditionCode::a => {
+                        let nzf = arena.cmp(CondPred::Ne, zr, zero);
+                        combine_a(arena, *cf, Some(nzf))
+                    }
+                    ConditionCode::o => *of,
+                    ConditionCode::no => of.map(|o| arena.xor_const(o, 1)),
+                    ConditionCode::l | ConditionCode::ge | ConditionCode::le | ConditionCode::g => {
+                        let of_e = (*of)?;
+                        let sf = arena.cmp(CondPred::Slt, sr, zero);
+                        let sl = arena.xor(sf, of_e);
+                        match cc {
+                            ConditionCode::l => Some(sl),
+                            ConditionCode::ge => Some(arena.xor_const(sl, 1)),
+                            ConditionCode::le => {
+                                let zf = arena.cmp(CondPred::Eq, zr, zero);
+                                Some(arena.or(zf, sl))
+                            }
+                            _ => {
+                                let nzf = arena.cmp(CondPred::Ne, zr, zero);
+                                let sge = arena.xor_const(sl, 1);
+                                Some(arena.and(nzf, sge))
+                            }
+                        }
+                    }
                     ConditionCode::p | ConditionCode::np => {
                         let pf = parity_flag(arena, zr);
                         Some(if cc == ConditionCode::p { pf } else { arena.xor_const(pf, 1) })
@@ -1770,6 +1911,56 @@ impl SymState {
                     _ => None,
                 }
             }
+            FlagState::CarryOverride { base, cf, of } => match cc {
+                ConditionCode::b => Some(*cf),
+                ConditionCode::ae => Some(arena.xor_const(*cf, 1)),
+                ConditionCode::e | ConditionCode::ne | ConditionCode::s | ConditionCode::ns | ConditionCode::p | ConditionCode::np => {
+                    self.eval_cond_code_for_flags(base, arena, cc)
+                }
+                ConditionCode::be => {
+                    if arena.as_const(*cf) == Some(1) {
+                        Some(arena.const_u64(1))
+                    } else {
+                        let zf = self.eval_cond_code_for_flags(base, arena, ConditionCode::e);
+                        combine_be(arena, Some(*cf), zf)
+                    }
+                }
+                ConditionCode::a => {
+                    if arena.as_const(*cf) == Some(1) {
+                        Some(arena.const_u64(0))
+                    } else {
+                        let nzf = self.eval_cond_code_for_flags(base, arena, ConditionCode::ne);
+                        combine_a(arena, Some(*cf), nzf)
+                    }
+                }
+                ConditionCode::o | ConditionCode::no => match of {
+                    None => self.eval_cond_code_for_flags(base, arena, cc),
+                    Some(None) => None,
+                    Some(Some(o)) => Some(if cc == ConditionCode::o { *o } else { arena.xor_const(*o, 1) }),
+                },
+                ConditionCode::l | ConditionCode::ge | ConditionCode::le | ConditionCode::g => match of {
+                    None => self.eval_cond_code_for_flags(base, arena, cc),
+                    Some(None) => None,
+                    Some(Some(o)) => {
+                        let sf = self.eval_cond_code_for_flags(base, arena, ConditionCode::s)?;
+                        let sl = arena.xor(sf, *o);
+                        match cc {
+                            ConditionCode::l => Some(sl),
+                            ConditionCode::ge => Some(arena.xor_const(sl, 1)),
+                            ConditionCode::le => {
+                                let zf = self.eval_cond_code_for_flags(base, arena, ConditionCode::e)?;
+                                Some(arena.or(zf, sl))
+                            }
+                            _ => {
+                                let nzf = self.eval_cond_code_for_flags(base, arena, ConditionCode::ne)?;
+                                let sge = arena.xor_const(sl, 1);
+                                Some(arena.and(nzf, sge))
+                            }
+                        }
+                    }
+                },
+                _ => None,
+            },
             FlagState::Rflags(v) | FlagState::PoppedRflags(v) => {
                 let rf = *v;
                 if let Some((base_rf, kz, ko)) = self.known_rflags_bits {
@@ -3505,8 +3696,27 @@ fn subst_flag_state(
             *rhs = arena.substitute_memo(*rhs, from, to, memo);
             *res = arena.substitute_memo(*res, from, to, memo);
         }
-        FlagState::IncDec { res, .. } => {
+        FlagState::IncDec { res, cf, .. } => {
             *res = arena.substitute_memo(*res, from, to, memo);
+            if let Some(c) = cf {
+                *c = arena.substitute_memo(*c, from, to, memo);
+            }
+        }
+        FlagState::Shift { res, cf, of, .. } => {
+            *res = arena.substitute_memo(*res, from, to, memo);
+            if let Some(c) = cf {
+                *c = arena.substitute_memo(*c, from, to, memo);
+            }
+            if let Some(o) = of {
+                *o = arena.substitute_memo(*o, from, to, memo);
+            }
+        }
+        FlagState::CarryOverride { base, cf, of } => {
+            subst_flag_state(arena, base, from, to, memo);
+            *cf = arena.substitute_memo(*cf, from, to, memo);
+            if let Some(Some(o)) = of {
+                *o = arena.substitute_memo(*o, from, to, memo);
+            }
         }
         FlagState::CarryExpr(e) | FlagState::Rflags(e) | FlagState::PoppedRflags(e) => {
             *e = arena.substitute_memo(*e, from, to, memo);
@@ -4267,6 +4477,11 @@ fn lift_vm_entry_cfg_inner(
                 }
                 FlowControl::ConditionalBranch => {
                     let taken_va = ins.near_branch_target();
+                    if taken_va == next_ip {
+                        opaque_branches_folded += 1;
+                        state.ip = next_ip;
+                        continue;
+                    }
                     let Some(cond) = eval_cond_for_mnemonic(&state, &mut arena, m) else {
                         break exit_to_vm_or_bailout(cfg, &state, &mut arena, view, cur_ip, format!("unsupported_jcc_{m:?}"));
                     };
@@ -4798,13 +5013,13 @@ fn lift_vm_entry_cfg_inner(
             // Regular instructions (FlowControl::Next)
             match m {
                 Mnemonic::Nop | Mnemonic::Pause | Mnemonic::Endbr64 | Mnemonic::Endbr32 => {}
-                Mnemonic::Clc => state.set_flags(FlagState::CarryExpr(arena.const_u64(0))),
-                Mnemonic::Stc => state.set_flags(FlagState::CarryExpr(arena.const_u64(1))),
+                Mnemonic::Clc => state.set_carry_override(arena.const_u64(0), None),
+                Mnemonic::Stc => state.set_carry_override(arena.const_u64(1), None),
                 Mnemonic::Cmc => {
                     if let Some(cf) = state.cond_value(&mut arena, ConditionCode::b) {
                         let inv = arena.xor_const(cf, 1);
                         let bit = arena.and_const(inv, 1);
-                        state.set_flags(FlagState::CarryExpr(bit));
+                        state.set_carry_override(bit, None);
                     } else {
                         state.set_flags(FlagState::Unknown);
                     }
@@ -5313,11 +5528,16 @@ fn lift_vm_entry_cfg_inner(
                         arena.sub_const(lhs, 1)
                     };
                     let res = arena.zext_mask(res_full, w);
-                    let prev_cf = state.known_cf(&mut arena);
+                    let prev_cf = state.cond_value(&mut arena, ConditionCode::b);
                     if !write_operand(&mut state, &mut arena, &mut effects, view.bitness, &ins, next_ip, 0, res) {
                         break IrTerm::Bailout("incdec_write".into());
                     }
-                    state.set_flags(FlagState::IncDec { res, cf: prev_cf, width: w });
+                    state.set_flags(FlagState::IncDec {
+                        res,
+                        is_inc: m == Mnemonic::Inc,
+                        cf: prev_cf,
+                        width: w,
+                    });
                 }
                 Mnemonic::Neg => {
                     let w = op_width_bytes(&ins, view.bitness, 0);
@@ -5557,13 +5777,23 @@ fn lift_vm_entry_cfg_inner(
                     } else if let (Some(lv), Some(cv)) = (arena.as_const(lhs), arena.as_const(cnt_masked)) {
                         let c = (cv & 31) as u32;
                         let r = match (m, w) {
-                            (Mnemonic::Shl | Mnemonic::Sal, _) => lv.wrapping_shl(c),
+                            (Mnemonic::Shl | Mnemonic::Sal, 1) => {
+                                if c >= 8 { 0 } else { ((lv as u8) << c) as u64 }
+                            }
+                            (Mnemonic::Shl | Mnemonic::Sal, 2) => {
+                                if c >= 16 { 0 } else { ((lv as u16) << c) as u64 }
+                            }
+                            (Mnemonic::Shl | Mnemonic::Sal, _) => ((lv as u32).wrapping_shl(c)) as u64,
+                            (Mnemonic::Shr, 1) => {
+                                if c >= 8 { 0 } else { ((lv as u8) >> c) as u64 }
+                            }
+                            (Mnemonic::Shr, 2) => {
+                                if c >= 16 { 0 } else { ((lv as u16) >> c) as u64 }
+                            }
                             (Mnemonic::Shr, 4) => ((lv as u32).wrapping_shr(c)) as u64,
-                            (Mnemonic::Shr, 2) => ((lv as u16).wrapping_shr(c)) as u64,
-                            (Mnemonic::Shr, 1) => ((lv as u8).wrapping_shr(c)) as u64,
+                            (Mnemonic::Sar, 1) => ((lv as i8) >> c.min(7)) as u8 as u64,
+                            (Mnemonic::Sar, 2) => ((lv as i16) >> c.min(15)) as u16 as u64,
                             (Mnemonic::Sar, 4) => ((lv as i32).wrapping_shr(c)) as u32 as u64,
-                            (Mnemonic::Sar, 2) => ((lv as i16).wrapping_shr(c)) as u16 as u64,
-                            (Mnemonic::Sar, 1) => ((lv as i8).wrapping_shr(c)) as u8 as u64,
                             (Mnemonic::Rol, 4) => (lv as u32).rotate_left(c) as u64,
                             (Mnemonic::Rol, 2) => (lv as u16).rotate_left(c) as u64,
                             (Mnemonic::Rol, 1) => (lv as u8).rotate_left(c) as u64,
@@ -5631,7 +5861,81 @@ fn lift_vm_entry_cfg_inner(
                     if !write_operand(&mut state, &mut arena, &mut effects, view.bitness, &ins, next_ip, 0, res) {
                         break IrTerm::Bailout("shift_write".into());
                     }
-                    state.set_flags(FlagState::TestBitwise { val: res, width: w });
+                    match arena.as_const(cnt_masked) {
+                        Some(0) => {}
+                        Some(cv) if matches!(m, Mnemonic::Rol | Mnemonic::Ror) => {
+                            let bits_u64 = bits as u64;
+                            let cf = if m == Mnemonic::Rol {
+                                arena.and_const(res, 1)
+                            } else {
+                                let s = arena.shr_const(res, bits_u64 - 1);
+                                arena.and_const(s, 1)
+                            };
+                            let of_override = if cv == 1 {
+                                let msb_s = arena.shr_const(res, bits_u64 - 1);
+                                let msb = arena.and_const(msb_s, 1);
+                                let of = if m == Mnemonic::Rol {
+                                    arena.xor(msb, cf)
+                                } else {
+                                    let msb1_s = arena.shr_const(res, bits_u64 - 2);
+                                    let msb1 = arena.and_const(msb1_s, 1);
+                                    arena.xor(msb, msb1)
+                                };
+                                Some(Some(of))
+                            } else {
+                                Some(None)
+                            };
+                            state.set_carry_override(cf, of_override);
+                        }
+                        Some(cv) => {
+                            let bits_u64 = bits as u64;
+                            let lhs_m = arena.zext_mask(lhs, w);
+                            let cf = match m {
+                                Mnemonic::Shl | Mnemonic::Sal => {
+                                    if cv <= bits_u64 {
+                                        let s = arena.shr_const(lhs_m, bits_u64 - cv);
+                                        Some(arena.and_const(s, 1))
+                                    } else {
+                                        None
+                                    }
+                                }
+                                Mnemonic::Shr => {
+                                    if cv <= bits_u64 {
+                                        let s = arena.shr_const(lhs_m, cv - 1);
+                                        Some(arena.and_const(s, 1))
+                                    } else {
+                                        None
+                                    }
+                                }
+                                Mnemonic::Sar => {
+                                    let sh = (cv - 1).min(bits_u64 - 1);
+                                    let s = arena.shr_const(lhs_m, sh);
+                                    Some(arena.and_const(s, 1))
+                                }
+                                _ => None,
+                            };
+                            let of = if cv == 1 {
+                                match m {
+                                    Mnemonic::Shl | Mnemonic::Sal => {
+                                        let msb_s = arena.shr_const(res, bits_u64 - 1);
+                                        let msb = arena.and_const(msb_s, 1);
+                                        cf.map(|c| arena.xor(msb, c))
+                                    }
+                                    Mnemonic::Shr => {
+                                        let msb_s = arena.shr_const(lhs_m, bits_u64 - 1);
+                                        let msb = arena.and_const(msb_s, 1);
+                                        Some(msb)
+                                    }
+                                    Mnemonic::Sar => Some(arena.const_u64(0)),
+                                    _ => None,
+                                }
+                            } else {
+                                None
+                            };
+                            state.set_flags(FlagState::Shift { res, width: w, cf, of });
+                        }
+                        None => state.set_flags(FlagState::Unknown),
+                    }
                 }
                 Mnemonic::Rcl | Mnemonic::Rcr => {
                     let w = op_width_bytes(&ins, view.bitness, 0);
@@ -5662,7 +5966,7 @@ fn lift_vm_entry_cfg_inner(
                         if !write_operand(&mut state, &mut arena, &mut effects, view.bitness, &ins, next_ip, 0, res) {
                             break IrTerm::Bailout("rc_write".into());
                         }
-                        state.set_flags(FlagState::CarryExpr(arena.const_u64(u64::from(cf_out))));
+                        state.set_carry_override(arena.const_u64(u64::from(cf_out)), Some(None));
                     } else if let (Some(cv), Some(cf_in)) = (
                         arena.as_const(cnt_masked),
                         state.cond_value(&mut arena, ConditionCode::b),
@@ -5703,7 +6007,7 @@ fn lift_vm_entry_cfg_inner(
                         if !write_operand(&mut state, &mut arena, &mut effects, view.bitness, &ins, next_ip, 0, res) {
                             break IrTerm::Bailout("rc_write".into());
                         }
-                        state.set_flags(FlagState::CarryExpr(cf_out));
+                        state.set_carry_override(cf_out, Some(None));
                     } else {
                         let opq = arena.opaque();
                         if !write_operand(&mut state, &mut arena, &mut effects, view.bitness, &ins, next_ip, 0, opq) {
@@ -5722,11 +6026,15 @@ fn lift_vm_entry_cfg_inner(
                     let Some(rhs) = read_operand(view, &mut state, &mut arena, &ins, next_ip, 1) else {
                         break IrTerm::Bailout("bt_rhs".into());
                     };
-                    let bit_idx = if w == 8 { 63 } else { 31 };
+                    let bit_idx = if ins.op0_kind() == OpKind::Memory {
+                        if w == 8 { 63 } else { 31 }
+                    } else {
+                        (w as u64) * 8 - 1
+                    };
                     let b_masked = arena.and_const(rhs, bit_idx);
                     let shifted = arena.shr(lhs, b_masked);
                     let bit = arena.and_const(shifted, 1);
-                    state.set_flags(FlagState::CarryExpr(bit));
+                    state.set_carry_override(bit, Some(None));
                 }
                 Mnemonic::Btr | Mnemonic::Bts | Mnemonic::Btc => {
                     let w = op_width_bytes(&ins, view.bitness, 0);
@@ -5785,7 +6093,7 @@ fn lift_vm_entry_cfg_inner(
                         arena.shr(lhs_m, idx_expr)
                     };
                     let old_bit = arena.and_const(shifted, 1);
-                    state.set_flags(FlagState::CarryExpr(old_bit));
+                    state.set_carry_override(old_bit, Some(None));
                 }
                 Mnemonic::Shld | Mnemonic::Shrd => {
                     let w = op_width_bytes(&ins, view.bitness, 0);
@@ -9600,8 +9908,10 @@ pub fn devirtualize_pe_bytes(
         visited.extend(&lifted.visited_byte_addrs);
         let mut sound = validate_function_soundness(&lifted, view);
         for _ in 0..8 {
-            if sound.as_ref().err().map(String::as_str) != Some("exit_target_not_executable")
-                || lifted.folded_vm_qword_addrs.is_empty()
+            if !matches!(
+                sound.as_ref().err().map(String::as_str),
+                Some("exit_target_not_executable" | "ret_exit_dirty_rsp" | "indirect_exit_dirty_rsp")
+            ) || lifted.folded_vm_qword_addrs.is_empty()
             {
                 break;
             }
@@ -13749,6 +14059,294 @@ mod tests {
         ] {
             assert_eq!(run_case(&orig_pe, x, rflags), want, "orig mismatch for rflags={rflags:#x}");
             assert_eq!(run_case(&devirt_pe, x, rflags), want, "devirt mismatch for rflags={rflags:#x}");
+        }
+    }
+
+    #[test]
+    fn shift_narrow_oversized_counts_e2e() {
+        use gpr16::*;
+        use gpr32::*;
+        use gpr64::*;
+        use gpr8::*;
+        let base = 0x1_4000_0000u64;
+
+        let mut text_sec = vec![0xCCu8; 0x200];
+        let fn0 = assemble_at(64, base + 0x1000, |a| {
+            a.call(base + 0x2000)?;
+            a.ret()
+        });
+        text_sec[..fn0.len()].copy_from_slice(&fn0);
+
+        let mut vmp_sec = vec![0xCCu8; 0x400];
+        let stub = assemble_at(64, base + 0x2000, |a| {
+            a.push(rbx)?;
+            a.push(r12)?;
+            a.mov(eax, 0xFEu32)?;
+            a.shr(al, 9)?;
+            a.movzx(ebx, al)?;
+            a.mov(eax, 0x80u32)?;
+            a.sar(al, 9)?;
+            a.movzx(r12d, al)?;
+            a.shl(r12d, 8)?;
+            a.or(ebx, r12d)?;
+            a.mov(eax, 0x8000u32)?;
+            a.sar(ax, 17)?;
+            a.movzx(eax, ax)?;
+            a.shl(eax, 16)?;
+            a.or(eax, ebx)?;
+            a.pop(r12)?;
+            a.pop(rbx)?;
+            a.ret()
+        });
+        vmp_sec[..stub.len()].copy_from_slice(&stub);
+
+        let orig_pe = build_two_exec_pe64(&text_sec, &vmp_sec, 0x1000);
+        let dcfg = BinaryDevirtConfig {
+            min_vm_insns_replaced: 1,
+            max_code_growth_percent: 2000,
+            collect_diagnostics: true,
+            ..BinaryDevirtConfig::default()
+        };
+        let (devirt_pe, report) = devirtualize_pe_bytes(&orig_pe, dcfg).unwrap();
+        assert_eq!(report.devirtualized_vmenters, 1, "bailouts={:?}", report.bailout_reasons);
+
+        let run = |pe_bytes: &[u8]| -> u64 {
+            let s = Sample::from_bytes(pe_bytes).unwrap();
+            let mut eng = UnpackerEngine::new(s, "mem");
+            eng.init_uc().unwrap();
+            eng.call_function(base + 0x1000, &[0], 100_000, 2_000).unwrap()
+        };
+        assert_eq!(run(&orig_pe), 0xFFFF_FF00);
+        assert_eq!(run(&devirt_pe), 0xFFFF_FF00);
+    }
+
+    #[test]
+    fn rotate_preserves_zf_sf_pf_e2e() {
+        use gpr16::*;
+        use gpr32::*;
+        use gpr64::*;
+        use gpr8::*;
+        let base = 0x1_4000_0000u64;
+
+        let mut text_sec = vec![0xCCu8; 0x200];
+        let fn0 = assemble_at(64, base + 0x1000, |a| {
+            a.call(base + 0x2000)?;
+            a.ret()
+        });
+        text_sec[..fn0.len()].copy_from_slice(&fn0);
+
+        let mut vmp_sec = vec![0xCCu8; 0x400];
+        let stub = assemble_at(64, base + 0x2000, |a| {
+            let mut pf_zero_branch = a.create_label();
+            let mut done = a.create_label();
+            a.push(rbp)?;
+            a.push(rbx)?;
+            a.mov(ebp, ecx)?;
+            a.mov(ebx, edx)?;
+            // Sets PF/ZF/SF from `bp | 0x06` (`0x06` has even parity -> PF=1; `0x01 | 0x06 = 0x07` -> PF=0).
+            a.or(bp, 0x06)?;
+            // `ror bx, 0x44` modifies CF only, MUST preserve PF from `or bp, 0x06`.
+            a.ror(bx, 0x44)?;
+            a.setp(r8b)?;
+            a.movzx(eax, r8b)?;
+            a.jnp(pf_zero_branch)?;
+            a.add(eax, 0x100)?;
+            a.jmp(done)?;
+            a.set_label(&mut pf_zero_branch)?;
+            a.add(eax, 0x200)?;
+            a.set_label(&mut done)?;
+            a.pop(rbx)?;
+            a.pop(rbp)?;
+            a.ret()
+        });
+        vmp_sec[..stub.len()].copy_from_slice(&stub);
+
+        let orig_pe = build_two_exec_pe64(&text_sec, &vmp_sec, 0x1000);
+        let dcfg = BinaryDevirtConfig {
+            min_vm_insns_replaced: 1,
+            max_code_growth_percent: 2000,
+            collect_diagnostics: true,
+            ..BinaryDevirtConfig::default()
+        };
+        let (devirt_pe, report) = devirtualize_pe_bytes(&orig_pe, dcfg).unwrap();
+        assert_eq!(report.devirtualized_vmenters, 1, "bailouts={:?}", report.bailout_reasons);
+
+        let run = |pe_bytes: &[u8], c: u64, d: u64| -> u64 {
+            let s = Sample::from_bytes(pe_bytes).unwrap();
+            let mut eng = UnpackerEngine::new(s, "mem");
+            eng.init_uc().unwrap();
+            eng.call_function(base + 0x1000, &[c, d], 100_000, 2_000).unwrap()
+        };
+        for (c, d, want) in [
+            (0u64, 1u64, 0x101u64),
+            (1, 1, 0x200),
+            (0x10, 0xFFFE, 0x200),
+            (0x30, 0xFFFE, 0x101),
+        ] {
+            assert_eq!(run(&orig_pe, c, d), want);
+            assert_eq!(run(&devirt_pe, c, d), want);
+        }
+    }
+
+    #[test]
+    fn sar_carry_propagation_e2e() {
+        use gpr16::*;
+        use gpr32::*;
+        use gpr64::*;
+        use gpr8::*;
+        let base = 0x1_4000_0000u64;
+
+        let mut text_sec = vec![0xCCu8; 0x200];
+        let fn0 = assemble_at(64, base + 0x1000, |a| {
+            a.call(base + 0x2000)?;
+            a.ret()
+        });
+        text_sec[..fn0.len()].copy_from_slice(&fn0);
+
+        let mut vmp_sec = vec![0xCCu8; 0x400];
+        let stub = assemble_at(64, base + 0x2000, |a| {
+            a.push(r9)?;
+            a.push(r10)?;
+            a.mov(r9w, cx)?;
+            a.sar(r9w, 0x41)?; // 0x41 & 31 = 1 -> CF = bit 0 of initial cx
+            a.sbb(dl, 0x99)?;
+            a.movzx(eax, dl)?;
+            a.xor(eax, 0x100)?;
+            a.pop(r10)?;
+            a.pop(r9)?;
+            a.ret()
+        });
+        vmp_sec[..stub.len()].copy_from_slice(&stub);
+
+        let orig_pe = build_two_exec_pe64(&text_sec, &vmp_sec, 0x1000);
+        let dcfg = BinaryDevirtConfig {
+            min_vm_insns_replaced: 1,
+            max_code_growth_percent: 2000,
+            collect_diagnostics: true,
+            ..BinaryDevirtConfig::default()
+        };
+        let (devirt_pe, report) = devirtualize_pe_bytes(&orig_pe, dcfg).unwrap();
+        assert_eq!(report.devirtualized_vmenters, 1, "bailouts={:?}", report.bailout_reasons);
+
+        let run = |pe_bytes: &[u8], c: u64, d: u64| -> u64 {
+            let s = Sample::from_bytes(pe_bytes).unwrap();
+            let mut eng = UnpackerEngine::new(s, "mem");
+            eng.init_uc().unwrap();
+            eng.call_function(base + 0x1000, &[c, d], 100_000, 2_000).unwrap()
+        };
+        for (c, d) in [(0x1234u64, 0xA0u64), (0x1235, 0xA0), (0x8001, 0x05), (0x8000, 0x05)] {
+            assert_eq!(run(&devirt_pe, c, d), run(&orig_pe, c, d), "c={c:#x} d={d:#x}");
+        }
+    }
+
+    #[test]
+    fn inc_dec_signed_and_preserved_cf_e2e() {
+        use gpr16::*;
+        use gpr32::*;
+        use gpr64::*;
+        use gpr8::*;
+        let base = 0x1_4000_0000u64;
+
+        let mut text_sec = vec![0xCCu8; 0x200];
+        let fn0 = assemble_at(64, base + 0x1000, |a| {
+            a.call(base + 0x2000)?;
+            a.ret()
+        });
+        text_sec[..fn0.len()].copy_from_slice(&fn0);
+
+        let mut vmp_sec = vec![0xCCu8; 0x400];
+        let stub = assemble_at(64, base + 0x2000, |a| {
+            let mut after_jg = a.create_label();
+            let mut after_ja = a.create_label();
+            a.push(rbx)?;
+            a.push(r10)?;
+            a.xor(eax, eax)?;
+            a.dec(cl)?; // 0x80 -> 0x7F: SF=0, ZF=0, OF=1 -> SF!=OF -> `jg` NOT taken
+            a.jg(after_jg)?;
+            a.add(eax, 0x10)?;
+            a.set_label(&mut after_jg)?;
+            a.mov(ebx, edx)?;
+            a.neg(bx)?;
+            a.dec(dl)?; // preserves symbolic CF from `neg bx`
+            a.ja(after_ja)?;
+            a.add(eax, 0x20)?;
+            a.set_label(&mut after_ja)?;
+            a.pop(r10)?;
+            a.pop(rbx)?;
+            a.ret()
+        });
+        vmp_sec[..stub.len()].copy_from_slice(&stub);
+
+        let orig_pe = build_two_exec_pe64(&text_sec, &vmp_sec, 0x1000);
+        let dcfg = BinaryDevirtConfig {
+            min_vm_insns_replaced: 1,
+            max_code_growth_percent: 2000,
+            collect_diagnostics: true,
+            ..BinaryDevirtConfig::default()
+        };
+        let (devirt_pe, report) = devirtualize_pe_bytes(&orig_pe, dcfg).unwrap();
+        assert_eq!(report.devirtualized_vmenters, 1, "bailouts={:?}", report.bailout_reasons);
+
+        let run = |pe_bytes: &[u8], c: u64, d: u64| -> u64 {
+            let s = Sample::from_bytes(pe_bytes).unwrap();
+            let mut eng = UnpackerEngine::new(s, "mem");
+            eng.init_uc().unwrap();
+            eng.call_function(base + 0x1000, &[c, d], 100_000, 2_000).unwrap()
+        };
+        for (c, d) in [(0x80u64, 0u64), (0x80, 5), (0x02, 0), (0x02, 1), (0x00, 0x10000)] {
+            assert_eq!(run(&devirt_pe, c, d), run(&orig_pe, c, d), "c={c:#x} d={d:#x}");
+        }
+    }
+
+    #[test]
+    fn jbe_zero_disp_folds_without_flags_e2e() {
+        use gpr32::*;
+        use gpr64::*;
+        use gpr8::*;
+        let base = 0x1_4000_0000u64;
+
+        let mut text_sec = vec![0xCCu8; 0x200];
+        let fn0 = assemble_at(64, base + 0x1000, |a| {
+            a.call(base + 0x2000)?;
+            a.ret()
+        });
+        text_sec[..fn0.len()].copy_from_slice(&fn0);
+
+        let mut vmp_sec = vec![0xCCu8; 0x400];
+        let stub = assemble_at(64, base + 0x2000, |a| {
+            let mut next = a.create_label();
+            a.push(rbx)?;
+            a.push(r10)?;
+            a.lea(rbx, ptr(rcx) + 1)?;
+            a.sar(rcx, cl)?; // symbolic shift count -> FlagState::Unknown
+            a.jbe(next)?; // zero displacement -> taken_va == next_ip
+            a.set_label(&mut next)?;
+            a.lea(eax, ptr(rbx) + 7)?;
+            a.pop(r10)?;
+            a.pop(rbx)?;
+            a.ret()
+        });
+        vmp_sec[..stub.len()].copy_from_slice(&stub);
+
+        let orig_pe = build_two_exec_pe64(&text_sec, &vmp_sec, 0x1000);
+        let dcfg = BinaryDevirtConfig {
+            min_vm_insns_replaced: 1,
+            max_code_growth_percent: 2000,
+            collect_diagnostics: true,
+            ..BinaryDevirtConfig::default()
+        };
+        let (devirt_pe, report) = devirtualize_pe_bytes(&orig_pe, dcfg).unwrap();
+        assert_eq!(report.devirtualized_vmenters, 1, "bailouts={:?}", report.bailout_reasons);
+        assert!(report.opaque_branches_folded >= 1);
+
+        let run = |pe_bytes: &[u8], c: u64| -> u64 {
+            let s = Sample::from_bytes(pe_bytes).unwrap();
+            let mut eng = UnpackerEngine::new(s, "mem");
+            eng.init_uc().unwrap();
+            eng.call_function(base + 0x1000, &[c], 100_000, 2_000).unwrap()
+        };
+        for c in [0u64, 1, 5, 65] {
+            assert_eq!(run(&devirt_pe, c), run(&orig_pe, c));
         }
     }
 }
