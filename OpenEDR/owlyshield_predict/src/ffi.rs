@@ -380,14 +380,37 @@ pub extern "C" fn owlyshield_dll_install_ca() -> i32 {
     }
 }
 
-/// Quarantine a file into an encrypted .hqf container and remove the original.
-///
-/// Driver-independent: reads `file_path` (UTF-8), XOR-encrypts the payload into
-/// `C:\ProgramData\HydraDragonQuarantine\*.hqf` and deletes the source file.
-/// Called by the OpenEDR C++ layer when it receives an FLS verdict of 2
-/// (Malicious) for a file.
-#[unsafe(no_mangle)]
-pub extern "C" fn owlyshield_dll_quarantine_file(file_path: *const u8, len: u32) -> i32 {
+const DEFAULT_QUARANTINE_REASON: &str = "OpenEDR Threat Detection";
+const MAX_QUARANTINE_REASON_BYTES: usize = 256;
+
+fn parse_quarantine_reason<'a>(reason: *const u8, reason_len: u32) -> &'a str {
+    if reason.is_null() || reason_len == 0 {
+        return DEFAULT_QUARANTINE_REASON;
+    }
+    let capped_len = (reason_len as usize).min(4096);
+    let bytes = unsafe { std::slice::from_raw_parts(reason, capped_len) };
+    let trimmed = match std::str::from_utf8(bytes) {
+        Ok(s) => s.trim(),
+        Err(_) => return DEFAULT_QUARANTINE_REASON,
+    };
+    if trimmed.is_empty() {
+        return DEFAULT_QUARANTINE_REASON;
+    }
+    if trimmed.len() <= MAX_QUARANTINE_REASON_BYTES {
+        return trimmed;
+    }
+    let mut end = MAX_QUARANTINE_REASON_BYTES;
+    while end > 0 && !trimmed.is_char_boundary(end) {
+        end -= 1;
+    }
+    if end == 0 {
+        DEFAULT_QUARANTINE_REASON
+    } else {
+        &trimmed[..end]
+    }
+}
+
+fn quarantine_file_impl(file_path: *const u8, len: u32, detection: &str) -> i32 {
     if file_path.is_null() || len == 0 {
         Logging::error("[Owlyshield FFI] owlyshield_dll_quarantine_file: null or empty path");
         return OWLY_QUARANTINE_ERROR;
@@ -413,12 +436,13 @@ pub extern "C" fn owlyshield_dll_quarantine_file(file_path: *const u8, len: u32)
         return OWLY_QUARANTINE_ERROR;
     }
 
-    match crate::windows::quarantine::quarantine_path(src, "OpenEDR FLS Malicious Verdict") {
+    match crate::windows::quarantine::quarantine_path(src, detection) {
         Ok(dst) => {
             Logging::warning(&format!(
-                "[Owlyshield FFI] Quarantined {} into {}",
+                "[Owlyshield FFI] Quarantined {} into {} (reason: {})",
                 src.display(),
-                dst.display()
+                dst.display(),
+                detection
             ));
             OWLY_OK
         }
@@ -437,6 +461,31 @@ pub extern "C" fn owlyshield_dll_quarantine_file(file_path: *const u8, len: u32)
             OWLY_QUARANTINE_ERROR
         }
     }
+}
+
+/// Quarantine a file into an encrypted .hqf container and remove the original.
+///
+/// Driver-independent: reads `file_path` (UTF-8), XOR-encrypts the payload into
+/// `C:\ProgramData\HydraDragonQuarantine\*.hqf` and deletes the source file.
+/// Legacy 2-argument entry point preserving ABI for callers without a threat
+/// name; records `"OpenEDR Threat Detection"` rather than assuming FLS.
+#[unsafe(no_mangle)]
+pub extern "C" fn owlyshield_dll_quarantine_file(file_path: *const u8, len: u32) -> i32 {
+    quarantine_file_impl(file_path, len, DEFAULT_QUARANTINE_REASON)
+}
+
+/// Quarantine a file into an encrypted .hqf container with an explicit UTF-8
+/// detection reason. Falls back to `"OpenEDR Threat Detection"` when `reason`
+/// is null, empty, whitespace-only, or invalid UTF-8.
+#[unsafe(no_mangle)]
+pub extern "C" fn owlyshield_dll_quarantine_file_with_reason(
+    file_path: *const u8,
+    path_len: u32,
+    reason: *const u8,
+    reason_len: u32,
+) -> i32 {
+    let detection = parse_quarantine_reason(reason, reason_len);
+    quarantine_file_impl(file_path, path_len, detection)
 }
 
 /// Called by OpenEDR C++ layer to register/update FLS verdict for a process PID.
@@ -1112,5 +1161,49 @@ pub extern "C" fn owlyshield_free_string(ptr: *mut std::os::raw::c_char) {
     }
     if let Some(binding) = static_binding() {
         unsafe { (binding.free)(ptr) };
+    }
+}
+
+#[cfg(test)]
+mod quarantine_reason_tests {
+    use super::*;
+
+    #[test]
+    fn falls_back_without_blaming_fls() {
+        assert_eq!(DEFAULT_QUARANTINE_REASON, "OpenEDR Threat Detection");
+        assert!(!DEFAULT_QUARANTINE_REASON.contains("FLS"));
+
+        assert_eq!(parse_quarantine_reason(std::ptr::null(), 10), DEFAULT_QUARANTINE_REASON);
+        let empty = b"";
+        assert_eq!(parse_quarantine_reason(empty.as_ptr(), 0), DEFAULT_QUARANTINE_REASON);
+        let ws = b"   \t\r\n ";
+        assert_eq!(
+            parse_quarantine_reason(ws.as_ptr(), ws.len() as u32),
+            DEFAULT_QUARANTINE_REASON
+        );
+        let bad_utf8: [u8; 2] = [0xff, 0xfe];
+        assert_eq!(
+            parse_quarantine_reason(bad_utf8.as_ptr(), bad_utf8.len() as u32),
+            DEFAULT_QUARANTINE_REASON
+        );
+    }
+
+    #[test]
+    fn passes_valid_trimmed_reason() {
+        let r1 = b"Trojan.Win32.Test";
+        assert_eq!(parse_quarantine_reason(r1.as_ptr(), r1.len() as u32), "Trojan.Win32.Test");
+        let r2 = b"  Cloud.FLS.Malware\r\n";
+        assert_eq!(parse_quarantine_reason(r2.as_ptr(), r2.len() as u32), "Cloud.FLS.Malware");
+    }
+
+    #[test]
+    fn truncates_overlong_reason_on_utf8_boundary() {
+        let mut s = "A".repeat(255);
+        s.push('ü');
+        s.push_str("tail");
+        let parsed = parse_quarantine_reason(s.as_ptr(), s.len() as u32);
+        assert!(parsed.len() <= MAX_QUARANTINE_REASON_BYTES);
+        assert_eq!(parsed.len(), 255);
+        assert_eq!(parsed, "A".repeat(255));
     }
 }

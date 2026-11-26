@@ -236,8 +236,9 @@ bool OwlyshieldInstallCa()
 /// Driver-independent: uses a private DLL handle so it does not interfere with
 /// the engine state used by InitOwlyshield()/ShutdownOwlyshield().
 ///
-bool OwlyshieldQuarantineFile(const std::wstring& filePath)
+bool OwlyshieldQuarantineFile(const std::wstring& filePath, const std::string& reason)
 {
+	typedef int32_t (*OwlyshieldDllQuarantineWithReasonFn)(const uint8_t*, uint32_t, const uint8_t*, uint32_t);
 	typedef int32_t (*OwlyshieldDllQuarantineFileFn)(const uint8_t*, uint32_t);
 
 	if (filePath.empty())
@@ -254,6 +255,8 @@ bool OwlyshieldQuarantineFile(const std::wstring& filePath)
 		return false;
 	}
 
+	const std::string sReason = reason.empty() ? "OpenEDR Network Threat" : reason;
+
 	HMODULE hDll = ::LoadLibraryW(L"owlyshield_ransom.dll");
 	if (hDll == nullptr)
 	{
@@ -261,17 +264,31 @@ bool OwlyshieldQuarantineFile(const std::wstring& filePath)
 		return false;
 	}
 
-	auto fnQuarantine = (OwlyshieldDllQuarantineFileFn)::GetProcAddress(hDll, "owlyshield_dll_quarantine_file");
-	if (fnQuarantine == nullptr)
+	int32_t result = -1;
+	auto fnQuarantineWithReason = (OwlyshieldDllQuarantineWithReasonFn)::GetProcAddress(
+		hDll, "owlyshield_dll_quarantine_file_with_reason");
+	if (fnQuarantineWithReason != nullptr)
 	{
-		LOGLVL(Debug, "Failed to get owlyshield_dll_quarantine_file address");
-		::FreeLibrary(hDll);
-		return false;
+		result = fnQuarantineWithReason(
+			reinterpret_cast<const uint8_t*>(sUtf8.data()),
+			static_cast<uint32_t>(sUtf8.size()),
+			reinterpret_cast<const uint8_t*>(sReason.data()),
+			static_cast<uint32_t>(sReason.size()));
 	}
+	else
+	{
+		auto fnQuarantine = (OwlyshieldDllQuarantineFileFn)::GetProcAddress(hDll, "owlyshield_dll_quarantine_file");
+		if (fnQuarantine == nullptr)
+		{
+			LOGLVL(Debug, "Failed to get owlyshield_dll_quarantine_file address");
+			::FreeLibrary(hDll);
+			return false;
+		}
 
-	int32_t result = fnQuarantine(
-		reinterpret_cast<const uint8_t*>(sUtf8.data()),
-		static_cast<uint32_t>(sUtf8.size()));
+		result = fnQuarantine(
+			reinterpret_cast<const uint8_t*>(sUtf8.data()),
+			static_cast<uint32_t>(sUtf8.size()));
+	}
 	::FreeLibrary(hDll);
 
 	if (result != OWLY_OK)

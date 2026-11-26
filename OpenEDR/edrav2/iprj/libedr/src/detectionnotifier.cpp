@@ -2830,7 +2830,6 @@ Variant DetectionNotifier::execute(Variant vCommand, Variant vParams){
 				vEvent.put("threatName", sThreatName);
 				vEvent.put("threatType", std::string("PUM"));
 				vEvent.put("verdict", int64_t(2));
-				vEvent.put("flsVerdict", int64_t(2));
 				vEvent.put("registryRevert", true);
 				vEvent.put("should_trust_viruskov_cloud", true);
 				vEvent.put("should_trust_comodo_fls_cloud", true);
@@ -3189,6 +3188,9 @@ Variant DetectionNotifier::execute(Variant vCommand, Variant vParams){
 				} catch (...) {}
 			}
 
+			std::string sScanThreatName;
+			bool bFlsMalicious = false;
+
 			if (!sPath.empty())
 			{
 				bool bIsTrustedByViruskovCloud = false;
@@ -3199,11 +3201,20 @@ Variant DetectionNotifier::execute(Variant vCommand, Variant vParams){
 
 				CloudScanDetail sigDetail;
 				int nSigScan = getCachedFileVerdict(sPathForSig, &sigDetail);
+				std::string sThreatTmp;
 				if (nSigScan == 0)
 				{
-					std::string sThreatTmp;
 					nSigScan = scanFileWithLocalEngines(sPathForSig, sThreatTmp, &sigDetail);
 				}
+
+				if (sigDetail.sFls == "Malicious" || sigDetail.nFlsVerdict == 2)
+					bFlsMalicious = true;
+				if (!sigDetail.sViruskovName.empty())
+					sScanThreatName = sigDetail.sViruskovName;
+				else if (!sThreatTmp.empty() && sThreatTmp != "Cloud.FLS.Clean" && sThreatTmp != "Static.Clean")
+					sScanThreatName = sThreatTmp;
+				else if (bFlsMalicious)
+					sScanThreatName = "OpenEDR FLS Malicious Verdict";
 
 				if (sigDetail.sViruskov == "Malicious" || sigDetail.sViruskov == "Suspicious" || nSigScan == 2 || nSigScan == 3)
 				{
@@ -3513,24 +3524,77 @@ Variant DetectionNotifier::execute(Variant vCommand, Variant vParams){
 						}
 
 						// Always execute quarantine on detected malware
+						std::string sQuarantineReason;
+						{
+							auto cleanTag = [](const std::string& s) -> std::string {
+								return (!s.empty() && s != "<undefined>" && s != "null") ? s : std::string();
+							};
+							sQuarantineReason = cleanTag(vEvent.get("threatName", std::string()));
+							if (sQuarantineReason.empty())
+								sQuarantineReason = cleanTag(sScanThreatName);
+							if (sQuarantineReason.empty())
+							{
+								std::string sEvType = cleanTag(vEvent.get("type", std::string()));
+								if (sEvType.empty())
+									sEvType = cleanTag(vEvent.get("eventType", std::string()));
+								if (sEvType == "MLE_FLS_MALICIOUS_VERDICT")
+								{
+									bool bFlsVerdictMal = bFlsMalicious;
+									if (!bFlsVerdictMal)
+									{
+										for (const char* flsKey : { "file.fls.verdict", "process.imageFile.fls.verdict" })
+										{
+											if (auto optFv = variant::getByPathSafe(vEvent, flsKey))
+											{
+												try {
+													if (static_cast<int64_t>(optFv.value()) == 2)
+													{
+														bFlsVerdictMal = true;
+														break;
+													}
+												} catch (...) {}
+											}
+										}
+									}
+									sQuarantineReason = bFlsVerdictMal
+										? "OpenEDR FLS Malicious Verdict"
+										: "OpenEDR Malicious Verdict";
+								}
+								else if (!sEvType.empty())
+									sQuarantineReason = sEvType;
+							}
+							if (sQuarantineReason.empty())
+								sQuarantineReason = "OpenEDR Threat Detection";
+						}
+
 						HMODULE hDll = ::LoadLibraryW(L"owlyshield_ransom.dll");
 						if (hDll != nullptr)
 						{
+							typedef int32_t (*QuarantineWithReasonFn)(const uint8_t*, uint32_t, const uint8_t*, uint32_t);
 							typedef int32_t (*QuarantineFn)(const uint8_t*, uint32_t);
-							auto fnQ = (QuarantineFn)::GetProcAddress(hDll, "owlyshield_dll_quarantine_file");
-							if (fnQ != nullptr)
+							auto fnQR = (QuarantineWithReasonFn)::GetProcAddress(hDll, "owlyshield_dll_quarantine_file_with_reason");
+							auto fnQ = (fnQR == nullptr)
+								? (QuarantineFn)::GetProcAddress(hDll, "owlyshield_dll_quarantine_file")
+								: nullptr;
+							if (fnQR != nullptr || fnQ != nullptr)
 							{
-								int32_t qRes = fnQ(
-									reinterpret_cast<const uint8_t*>(sDos.data()),
-									static_cast<uint32_t>(sDos.size()));
+								int32_t qRes = (fnQR != nullptr)
+									? fnQR(
+										reinterpret_cast<const uint8_t*>(sDos.data()),
+										static_cast<uint32_t>(sDos.size()),
+										reinterpret_cast<const uint8_t*>(sQuarantineReason.data()),
+										static_cast<uint32_t>(sQuarantineReason.size()))
+									: fnQ(
+										reinterpret_cast<const uint8_t*>(sDos.data()),
+										static_cast<uint32_t>(sDos.size()));
 
 								if (qRes == 0)
 								{
-									LOGLVL(Critical, FMT("detnotif: owlyshield quarantined malware <" << sDos << ">"));
+									LOGLVL(Critical, FMT("detnotif: owlyshield quarantined malware <" << sDos << "> reason=<" << sQuarantineReason << ">"));
 								}
 								else
 								{
-									LOGLVL(Critical, FMT("detnotif: owlyshield quarantine FAILED for <" << sDos << "> result=" << qRes << "; delegating to kernel reboot delete"));
+									LOGLVL(Critical, FMT("detnotif: owlyshield quarantine FAILED for <" << sDos << "> reason=<" << sQuarantineReason << "> result=" << qRes << "; delegating to kernel reboot delete"));
 									HANDLE hGuiPipe = ::CreateFileW(L"\\\\.\\pipe\\HydraHipEvent",
 										GENERIC_WRITE, 0, NULL, OPEN_EXISTING, 0, NULL);
 									if (hGuiPipe != INVALID_HANDLE_VALUE)
@@ -4041,8 +4105,16 @@ Variant DetectionNotifier::execute(Variant vCommand, Variant vParams){
 	if (vCommand == "quarantineFile")
 	{
 		std::string sPath;
+		std::string sReason = "Quarantined by User (OpenEDR)";
 		if (vParams.isDictionaryLike())
+		{
 			sPath = vParams.get("path", sPath);
+			std::string sCustomReason = vParams.get("reason", std::string());
+			if (sCustomReason.empty())
+				sCustomReason = vParams.get("detection", std::string());
+			if (!sCustomReason.empty())
+				sReason = sCustomReason;
+		}
 		if (sPath.empty())
 			return Dictionary({ {"success", false}, {"error", "empty path"} });
 		std::string sHash = sha256HexOfFileUtf8(sPath);
@@ -4051,14 +4123,23 @@ Variant DetectionNotifier::execute(Variant vCommand, Variant vParams){
 		if (!hDll) hDll = ::LoadLibraryW(L"owlyshield_ransom.dll");
 		if (hDll)
 		{
+			typedef int32_t (*QuarantineWithReasonFn)(const uint8_t*, uint32_t, const uint8_t*, uint32_t);
 			typedef int32_t (*QuarantineFn)(const uint8_t*, uint32_t);
-			if (auto fn = (QuarantineFn)::GetProcAddress(hDll, "owlyshield_dll_quarantine_file"))
+			if (auto fnQR = (QuarantineWithReasonFn)::GetProcAddress(hDll, "owlyshield_dll_quarantine_file_with_reason"))
+			{
+				nResult = fnQR(
+					reinterpret_cast<const uint8_t*>(sPath.c_str()), static_cast<uint32_t>(sPath.size()),
+					reinterpret_cast<const uint8_t*>(sReason.c_str()), static_cast<uint32_t>(sReason.size()));
+			}
+			else if (auto fn = (QuarantineFn)::GetProcAddress(hDll, "owlyshield_dll_quarantine_file"))
+			{
 				nResult = fn(reinterpret_cast<const uint8_t*>(sPath.c_str()), static_cast<uint32_t>(sPath.size()));
+			}
 		}
 		if (nResult == 0)
 		{
 			DetectionNotifier::recordMalwareDetection(sPath, sHash);
-			LOGLVL(Critical, FMT("detnotif RPC: quarantined file <" << sPath << "> on user request"));
+			LOGLVL(Critical, FMT("detnotif RPC: quarantined file <" << sPath << "> reason=<" << sReason << "> on user request"));
 			return Dictionary({ {"success", true} });
 		}
 		return Dictionary({ {"success", false} });

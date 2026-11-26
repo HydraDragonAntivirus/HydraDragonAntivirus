@@ -4269,9 +4269,13 @@ static bool rescanOne(const std::string& dos, uint32_t nPid, bool fIsRetry, bool
 			hDll = ::LoadLibraryW(L"owlyshield_ransom.dll");
 		if (hDll)
 		{
+			typedef int32_t (*QuarantineWithReasonFn)(const uint8_t*, uint32_t, const uint8_t*, uint32_t);
 			typedef int32_t (*QuarantineFn)(const uint8_t*, uint32_t);
-			auto fnQ = (QuarantineFn)::GetProcAddress(hDll, "owlyshield_dll_quarantine_file");
-			if (fnQ != nullptr)
+			auto fnQR = (QuarantineWithReasonFn)::GetProcAddress(hDll, "owlyshield_dll_quarantine_file_with_reason");
+			auto fnQ = (fnQR == nullptr)
+				? (QuarantineFn)::GetProcAddress(hDll, "owlyshield_dll_quarantine_file")
+				: nullptr;
+			if (fnQR != nullptr || fnQ != nullptr)
 			{
 				int32_t qRes = -1;
 				// The image stays mapped for a moment after its last process
@@ -4280,13 +4284,16 @@ static bool rescanOne(const std::string& dos, uint32_t nPid, bool fIsRetry, bool
 				{
 					if (nTry > 0)
 						std::this_thread::sleep_for(std::chrono::milliseconds(400));
-					qRes = fnQ(reinterpret_cast<const uint8_t*>(dos.data()), static_cast<uint32_t>(dos.size()));
+					qRes = (fnQR != nullptr)
+						? fnQR(reinterpret_cast<const uint8_t*>(dos.data()), static_cast<uint32_t>(dos.size()),
+							reinterpret_cast<const uint8_t*>(sThreat.data()), static_cast<uint32_t>(sThreat.size()))
+						: fnQ(reinterpret_cast<const uint8_t*>(dos.data()), static_cast<uint32_t>(dos.size()));
 					if (qRes == 0)
 						break;
 				}
 				if (qRes == 0)
 				{
-					LOGLVL(Critical, FMT("enricher: [ASYNC RESCAN] quarantined <" << dos << ">"));
+					LOGLVL(Critical, FMT("enricher: [ASYNC RESCAN] quarantined <" << dos << "> reason=<" << sThreat << ">"));
 					// The path is empty now; a re-drop must be scanned even
 					// if it has the same size and time stamp.
 					RescanQueue::forgetScanned(dos);
@@ -5163,6 +5170,8 @@ void EventEnricher::executeUnfilteredLocalScan(Variant& vEvent, Variant& vProces
 	static HMODULE s_hOwlyDll = nullptr;
 	typedef int32_t (*RtEnqueueUtf8Fn)(const uint8_t*, uint32_t, uint32_t, uint32_t);
 	static RtEnqueueUtf8Fn s_fnEnqueue = nullptr;
+	typedef int32_t (*QuarantineWithReasonFn)(const uint8_t*, uint32_t, const uint8_t*, uint32_t);
+	static QuarantineWithReasonFn s_fnQuarantineWithReason = nullptr;
 	typedef int32_t (*QuarantineFn)(const uint8_t*, uint32_t);
 	static QuarantineFn s_fnQuarantine = nullptr;
 	static std::once_flag s_initFlag;
@@ -5186,6 +5195,7 @@ void EventEnricher::executeUnfilteredLocalScan(Variant& vEvent, Variant& vProces
 		if (s_hOwlyDll != nullptr)
 		{
 			s_fnEnqueue = (RtEnqueueUtf8Fn)::GetProcAddress(s_hOwlyDll, "owlyshield_rt_enqueue_utf8");
+			s_fnQuarantineWithReason = (QuarantineWithReasonFn)::GetProcAddress(s_hOwlyDll, "owlyshield_dll_quarantine_file_with_reason");
 			s_fnQuarantine = (QuarantineFn)::GetProcAddress(s_hOwlyDll, "owlyshield_dll_quarantine_file");
 		}
 	});
@@ -5435,9 +5445,7 @@ void EventEnricher::executeUnfilteredLocalScan(Variant& vEvent, Variant& vProces
 		{
 			// Already known malware: flag immediately without re-scanning
 			vEvent.put("verdict", 2);
-			vEvent.put("flsVerdict", 3);
 			vProcess.put("verdict", 2);
-			vProcess.put("flsVerdict", 3);
 			// Only when the path is this process' image. For a file event nPid is
 			// whoever opened or wrote the file (explorer, a browser); processes
 			// running the image are stopped and rolled back by the rescan below.
@@ -5491,10 +5499,10 @@ void EventEnricher::executeUnfilteredLocalScan(Variant& vEvent, Variant& vProces
 			(isProc && eEventType == Event::LLE_PROCESS_CREATE);
 
 		std::string sThreat;
+		DetectionNotifier::CloudScanDetail detail;
 		int r = 0;
 		if (!bDeferScan)
 		{
-			DetectionNotifier::CloudScanDetail detail;
 			r = DetectionNotifier::scanFileWithLocalEngines(dos, sThreat, &detail);
 			if (t_pStageUs != nullptr && !detail.fFromCache)
 			{
@@ -5538,12 +5546,15 @@ void EventEnricher::executeUnfilteredLocalScan(Variant& vEvent, Variant& vProces
 			LOGLVL(Critical, FMT("enricher: [UNFILTERED SCAN] THREAT DETECTED (" << (r == 2 ? "Malicious" : "Suspicious") << "): <"
 				<< sThreat << "> on <" << dos << "> (PID: " << nPid << ")"));
 
-			// Stamp verdicts on event & process
+			// Stamp verdicts on event & process; only record flsVerdict when FLS actually answered
 			vEvent.put("verdict", 2);
-			vEvent.put("flsVerdict", 3); // MALWARE
 			vEvent.put("threatName", sThreat);
 			vProcess.put("verdict", 2);
-			vProcess.put("flsVerdict", 3);
+			if (detail.nFlsVerdict >= 0)
+			{
+				vEvent.put("flsVerdict", detail.nFlsVerdict);
+				vProcess.put("flsVerdict", detail.nFlsVerdict);
+			}
 
 			// Rate limit alerts and remediation per file path (30 second cooldown)
 			static std::mutex s_mtxAlertThrottle;
@@ -5578,7 +5589,7 @@ void EventEnricher::executeUnfilteredLocalScan(Variant& vEvent, Variant& vProces
 				// locked and its quarantine fails (a process image convicted at
 				// its start was left running and on disk).
 				std::vector<uint32_t> vKilled;
-				if (!DetectionNotifier::isProtectionPaused() && s_fnQuarantine != nullptr)
+				if (!DetectionNotifier::isProtectionPaused() && (s_fnQuarantineWithReason != nullptr || s_fnQuarantine != nullptr))
 				{
 					const int nKilled = TerminateProcessesRunningImage(dos, &vKilled);
 					int32_t qRes = -1;
@@ -5586,15 +5597,21 @@ void EventEnricher::executeUnfilteredLocalScan(Variant& vEvent, Variant& vProces
 					{
 						if (nTry > 0)
 							std::this_thread::sleep_for(std::chrono::milliseconds(400));
-						qRes = s_fnQuarantine(
-							reinterpret_cast<const uint8_t*>(dos.data()),
-							static_cast<uint32_t>(dos.size()));
+						qRes = (s_fnQuarantineWithReason != nullptr)
+							? s_fnQuarantineWithReason(
+								reinterpret_cast<const uint8_t*>(dos.data()),
+								static_cast<uint32_t>(dos.size()),
+								reinterpret_cast<const uint8_t*>(sThreat.data()),
+								static_cast<uint32_t>(sThreat.size()))
+							: s_fnQuarantine(
+								reinterpret_cast<const uint8_t*>(dos.data()),
+								static_cast<uint32_t>(dos.size()));
 						if (qRes == 0)
 							break;
 					}
 					if (qRes == 0)
 					{
-						LOGLVL(Critical, FMT("enricher: successfully quarantined detected malware <" << dos << ">"));
+						LOGLVL(Critical, FMT("enricher: successfully quarantined detected malware <" << dos << "> reason=<" << sThreat << ">"));
 						// The path is empty now, so the 30 s cooldown must not
 						// swallow the malware coming back to it.
 						std::scoped_lock lock(s_mtxAlertThrottle);
@@ -6355,7 +6372,6 @@ void EventEnricher::put(const Variant& vEventRef)
 
 	if (DetectionNotifier::isKnownMalware(sProcPath, sProcHash))
 	{
-		vProcess.put("flsVerdict", 3);
 		vProcess.put("verdict", 2);
 	}
 
@@ -6603,7 +6619,6 @@ void EventEnricher::put(const Variant& vEventRef)
 								<< "> replicated to USB <" << Narrow(wsDestPath)
 								<< "> with similarity " << similarity << "%!"));
 
-							vProcess.put("flsVerdict", 2);
 							vProcess.put("verdict", 2);
 							vProcess.put("threatName", "Worm.Win32.UsbReplication");
 							vEvent.put("threatName", "Worm.Win32.UsbReplication");
@@ -6907,7 +6922,6 @@ void EventEnricher::put(const Variant& vEventRef)
 		if (DetectionNotifier::isKnownMalware(sImgPath, sImgHash))
 		{
 			LOGLVL(Critical, FMT("enricher: Process <" << sImgPath << "> matches KNOWN MALWARE in persistent database! Stamping Malicious verdict."));
-			enrichedProcessInfo.put("flsVerdict", 3);
 			enrichedProcessInfo.put("verdict", 2);
 		}
 

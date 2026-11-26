@@ -40,8 +40,9 @@ bool OwlyshieldInstallCa();
 /// Quarantine a file into an encrypted .hqf container and remove the original.
 /// Driver-independent; safe to call before the edrdrv driver is loaded.
 /// @param filePath Wide-character path of the file to quarantine
+/// @param reason Detection/threat name recorded in quarantine metadata
 /// @return true on success, false on failure
-bool OwlyshieldQuarantineFile(const std::wstring& filePath);
+bool OwlyshieldQuarantineFile(const std::wstring& filePath, const std::string& reason = "OpenEDR Network Threat");
 
 /// Stop/pause antivirus protection state
 bool OwlyshieldStopProtection();

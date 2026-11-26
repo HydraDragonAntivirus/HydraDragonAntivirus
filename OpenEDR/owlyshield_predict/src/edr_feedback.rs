@@ -1122,12 +1122,24 @@ fn behavior_from_openedr_detection(event: &serde_json::Value) -> BehaviorTelemet
         .or_else(|| event_str(event, &["process.name"]))
         .unwrap_or_else(|| "unknown".to_string());
     let command_line = event_str(event, &["process.cmdLine", "childProcess.cmdLine"]).unwrap_or_default();
-    let sha256 = event_str(event, &["process.imageFile.rawHash", "process.imageFile.hash", "process.imageHash"])
-        .filter(|h| h.len() == 64 && h.chars().all(|c| c.is_ascii_hexdigit()))
-        .map(|h| h.to_ascii_lowercase())
-        .unwrap_or_default();
+    let sha256 = event_str(
+        event,
+        &[
+            "process.imageFile.rawHash",
+            "process.imageFile.hash",
+            "process.imageHash",
+            "file.rawHash",
+            "file.hash",
+        ],
+    )
+    .filter(|h| h.len() == 64 && h.chars().all(|c| c.is_ascii_hexdigit()))
+    .map(|h| h.to_ascii_lowercase())
+    .unwrap_or_default();
 
     let mut indicators = vec![format!("OpenEDR policy: {detection}")];
+    if let Some(tn) = event_str(event, &["threatName"]) {
+        indicators.push(format!("threat: {tn}"));
+    }
     if let Some(base) = event_str(event, &["baseType"]) {
         indicators.push(format!("baseType: {base}"));
     }
@@ -1254,6 +1266,20 @@ mod openedr_detection_tests {
         assert_eq!(pending[0]["type"], "QUEUED_ONE");
         assert!(take_pending_detections().is_empty(), "the queue is drained by a take");
         set_detection_worker_alive(false);
+    }
+
+    #[test]
+    fn file_detection_preserves_file_sha256_and_threat_name() {
+        let h = "cd".repeat(32);
+        let event = serde_json::json!({
+            "type": "MLE_MALWARE_FILE",
+            "threatName": "Trojan.Win32.Agent",
+            "file": { "rawHash": h },
+            "process": { "pid": 100, "imageFile": { "path": "C:\\temp\\drop.exe" } }
+        });
+        let p = behavior_from_openedr_detection(&event);
+        assert_eq!(p.sha256, "cd".repeat(32));
+        assert!(p.indicators.iter().any(|i| i == "threat: Trojan.Win32.Agent"));
     }
 }
 

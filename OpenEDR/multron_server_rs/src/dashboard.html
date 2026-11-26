@@ -210,9 +210,10 @@
   .va-legend i { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
   .va-insp { border: 1px solid var(--border); border-radius: 8px; padding: 10px; font-size: 12px; font-family: Consolas, monospace; align-self: start; }
   .va-insp div { display: flex; justify-content: space-between; gap: 8px; padding: 1px 0; } .va-insp .k { color: var(--muted); font-family: inherit; }
-  #ctxMenu { position: fixed; z-index: 1000; min-width: 250px; background: var(--panel); color: var(--text); border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 8px 28px rgba(0,0,0,.28); padding: 4px; font-size: 13px; }
+  #ctxMenu { position: fixed; z-index: 1000; min-width: 250px; max-height: calc(100vh - 16px); overflow-y: auto; background: var(--panel); color: var(--text); border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 8px 28px rgba(0,0,0,.28); padding: 4px; font-size: 13px; }
   #ctxMenu .mi { padding: 6px 12px; border-radius: 5px; cursor: pointer; display: flex; gap: 10px; align-items: center; white-space: nowrap; }
   #ctxMenu .mi:hover { background: var(--panel2); }
+  #ctxMenu .hint-ft { padding: 4px 12px 3px; font-size: 11px; color: var(--muted); }
   #fpModal { position: fixed; inset: 0; z-index: 1100; background: rgba(0,0,0,.45); display: flex; align-items: flex-start; justify-content: center; padding: 6vh 16px; overflow: auto; }
   #fpModal .box { background: var(--panel); color: var(--text); border: 1px solid var(--border); border-radius: 10px; width: min(760px, 100%); padding: 18px 20px; box-shadow: 0 12px 40px rgba(0,0,0,.35); }
   #fpModal .det { display: flex; gap: 10px; align-items: flex-start; padding: 7px 8px; border: 1px solid var(--border); border-radius: 6px; margin-top: 6px; cursor: pointer; }
@@ -239,8 +240,16 @@
   .sigc b { font-family: "Segoe UI", sans-serif; font-weight: 600; color: var(--muted); margin-right: 4px; }
   td.eng .engd { font-size: 11px; color: var(--muted); max-width: 280px; white-space: normal; word-break: break-word; margin-top: 2px; }
   dialog#haDlg { border: 1px solid var(--border); border-radius: 12px; background: var(--panel); color: var(--text); padding: 0; width: min(760px, 94vw); }
-  dialog#haDlg::backdrop, dialog#askDlg::backdrop { background: rgba(0, 0, 0, .5); }
+  dialog#haDlg::backdrop, dialog#askDlg::backdrop, dialog#edrInspectDlg::backdrop { background: rgba(0, 0, 0, .5); }
   dialog#askDlg { border: 1px solid var(--border); border-radius: 12px; background: var(--panel); color: var(--text); padding: 0; width: min(520px, 94vw); }
+  dialog#edrInspectDlg { border: 1px solid var(--border); border-radius: 12px; background: var(--panel); color: var(--text); padding: 0; width: min(820px, 94vw); }
+  .edr-kv { display: grid; grid-template-columns: 150px 1fr; gap: 6px 12px; font-size: 12.5px; margin-bottom: 10px; }
+  .edr-kv .k { color: var(--muted); font-weight: 600; }
+  .edr-kv .v { word-break: break-word; }
+  .edr-kv .v.mono { font-family: Consolas, monospace; font-size: 12px; }
+  .edr-json { margin: 0; font-family: Consolas, monospace; font-size: 12px; line-height: 1.45; max-height: 360px; overflow: auto; white-space: pre-wrap; word-break: break-word; padding: 10px 12px; border-radius: 8px; border: 1px solid var(--border); background: var(--panel2); color: var(--text); }
+  tr[data-edr-kind] { cursor: context-menu; }
+  tr[data-edr-kind]:hover { background: var(--panel2); }
   #askDlg .ask-sha { font-family: ui-monospace, Consolas, monospace; font-size: 12px; color: var(--muted); word-break: break-all; margin: -4px 0 10px; }
   #askDlg label.ask-l { display: block; font-size: 12.5px; font-weight: 600; margin: 12px 0 4px; }
   #askDlg textarea { width: 100%; box-sizing: border-box; min-height: 64px; resize: vertical; font: inherit; font-size: 13px; padding: 7px 9px; border-radius: 8px; border: 1px solid var(--border); background: var(--panel2); color: var(--text); }
@@ -1368,7 +1377,7 @@
 
     <div class="ha-tab" id="haTabEdrTelemetry" hidden>
       <div class="hint" style="margin:-4px 0 10px">
-        <b>OpenEDR Live Telemetry Engine:</b> Real-time process behavior monitoring, WinDivert network flow captures, and dynamic threat telemetry ingested from connected endpoints.
+        <b>OpenEDR Live Telemetry Engine:</b> Real-time process behavior monitoring, WinDivert network flow captures, and dynamic threat telemetry ingested from connected endpoints. Right-click any row to inspect details, VirusKovAlyzer, or human analysis (double-click for full JSON; Shift+Right-click for browser menu).
       </div>
 
       <!-- Stat cards -->
@@ -1598,6 +1607,16 @@
         <button class="primary" type="submit" id="askDlgOk">OK</button>
       </div>
     </form>
+  </dialog>
+
+  <dialog id="edrInspectDlg">
+    <div class="dlg-body">
+      <h3 id="edrInspectTitle">EDR Telemetry Details</h3>
+      <div id="edrInspectBody"></div>
+    </div>
+    <div class="dlg-foot" id="edrInspectFoot">
+      <button class="ghost" type="button" id="edrInspectClose">Close</button>
+    </div>
   </dialog>
 </main>
 
@@ -4518,9 +4537,10 @@ window.sigKey = (list) => list && list.length ? `${list[0].layer}: ${list[0].nam
 </script>
 <script>
 (() => {
-  // Right-click menu for file rows: queue, verdicts, rescan log, scan queue.
+  // Right-click menu for file rows and EDR telemetry rows: inspect, queue, verdicts, rescan log, scan queue.
   const esc = (s) => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
   const ROWS = "#haRows tr.it, #haRecentRows tr[data-sha], #rsRows tr[data-sha], #sqRows tr[data-sha], #etScans tr[data-sha], #feed tr[data-sha], #srcFiles tr[data-sha], #rhList tr[data-sha]";
+  const EDR_ROWS = "#haEdrBehaviorRows tr[data-edr-kind], #haEdrThreatRows tr[data-edr-kind], #haEdrEventRows tr[data-edr-kind], #haEdrFlowRows tr[data-edr-kind], #haEdrSysopRows tr[data-edr-kind], #haEdrSysReportRows tr[data-edr-kind]";
   let menu = null;
   const toast = (msg) => {
     let t = document.getElementById("ctxToast");
@@ -4534,6 +4554,7 @@ window.sigKey = (list) => list && list.length ? `${list[0].layer}: ${list[0].nam
     catch (_) { const a = document.createElement("textarea"); a.value = text; document.body.appendChild(a); a.select(); document.execCommand("copy"); a.remove(); }
     toast(what + " copied");
   };
+  window.ctxCopy = copy;
   const api = async (url, body) => {
     const res = await fetch(url, body === undefined ? { cache: "no-store" } : { method: "POST", headers: { "Content-Type": "application/json", "X-Multron-Dashboard": "1" }, body: JSON.stringify(body) });
     const d = await res.json().catch(() => ({}));
@@ -4541,18 +4562,18 @@ window.sigKey = (list) => list && list.length ? `${list[0].layer}: ${list[0].nam
     return d;
   };
   const close = () => { if (menu) { menu.remove(); menu = null; } };
-  const show = (x, y, sha, name, inQueue, folders) => {
-    close();
-    menu = document.createElement("div");
-    menu.id = "ctxMenu";
-    const items = [
-      ["hd", `${name ? esc(name) + " · " : ""}<span style="font-family:Consolas,monospace">${esc(sha.slice(0, 16))}…</span>`],
+  const buildFileItems = (name, inQueue, folders, includeQueueOps) => {
+    const list = [
       ["reveal", "&#128194;", "Open file location (server)"],
       ["copypath", "&#128203;", "Copy kept file path"],
       ["sep"],
       ["copysha", "#", "Copy SHA-256"],
       ["copyname", "A", "Copy file name", !name],
-      ["copyfolder", "&#128193;", "Copy client folder" + (folders.length > 1 ? "s" : ""), !folders.length],
+    ];
+    if (includeQueueOps) {
+      list.push(["copyfolder", "&#128193;", "Copy client folder" + (folders.length > 1 ? "s" : ""), !folders.length]);
+    }
+    list.push(
       ["sep"],
       ["vt", "&#8599;", "Open on VirusTotal"],
       ["site", "&#8599;", "Open report on viruskov.com"],
@@ -4570,18 +4591,93 @@ window.sigKey = (list) => list && list.length ? `${list[0].layer}: ${list[0].nam
       ["v-clean", "&#10003;", "Verdict: clean (whitelist)…"],
       ["v-suspicious", "!", "Verdict: suspicious…"],
       ["v-malicious", "&#10007;", "Verdict: malicious…"],
-      ["dismiss", "&#8722;", "Remove from queue", !inQueue],
-    ];
-    menu.innerHTML = items.map(it => it[0] === "sep" ? '<div class="sep"></div>' : it[0] === "hd" ? `<div class="hd">${it[1]}</div>` :
-      `<div class="mi${it[3] ? " dis" : ""}" data-act="${it[0]}"><span class="ic">${it[1]}</span>${it[2]}</div>`).join("");
+    );
+    if (includeQueueOps) {
+      list.push(["dismiss", "&#8722;", "Remove from queue", !inQueue]);
+    }
+    return list;
+  };
+  const show = (x, y, ctx) => {
+    const sha = ctx.sha || "";
+    const name = ctx.name || "";
+    const inQueue = !!ctx.inQueue;
+    const folders = ctx.folders || [];
+    const edr = ctx.edr || null;
+    const hasSha = /^[0-9a-f]{64}$/.test(sha);
+    const dstText = edr && edr.kind === "flows" && edr.row
+      ? (edr.row.url ? (edr.row.http_method ? edr.row.http_method + " " : "") + edr.row.url : (edr.row.dns_query || edr.row.hostname || (edr.row.dst_ip ? `${edr.row.dst_ip}:${edr.row.dst_port}` : "")))
+      : "";
+    close();
+    menu = document.createElement("div");
+    menu.id = "ctxMenu";
+    const items = [];
+    if (edr) {
+      const parts = [];
+      if (name) parts.push(esc(name));
+      else if (edr.kind) parts.push(esc(edr.kind));
+      if (edr.pid && edr.pid !== "0") parts.push("PID " + esc(edr.pid));
+      const hdText = parts.join(" · ") + (hasSha ? ` · <span style="font-family:Consolas,monospace">${esc(sha.slice(0, 16))}…</span>` : "");
+      items.push(["hd", hdText]);
+      items.push(["edr-inspect", "&#128269;", "Inspect telemetry details…"]);
+      items.push(["edr-copyjson", "&#128203;", "Copy full JSON", !edr.row]);
+      if (edr.path) items.push(["edr-copypath", "&#128193;", "Copy path"]);
+      if (edr.row && edr.row.command_line) items.push(["edr-copycmd", ">_", "Copy command line"]);
+      if (edr.kind === "flows" && dstText) items.push(["edr-copydst", "&#8599;", "Copy destination / URL"]);
+      if (edr.pid && edr.pid !== "0") items.push(["edr-filterpid", "&#9776;", "Filter EDR by PID " + esc(edr.pid)]);
+      if (edr.machine) items.push(["edr-filtermachine", "&#128187;", "Filter EDR by machine"]);
+      if (hasSha) items.push(["sep"]);
+    } else {
+      items.push(["hd", `${name ? esc(name) + " · " : ""}<span style="font-family:Consolas,monospace">${esc(sha.slice(0, 16))}…</span>`]);
+    }
+    if (hasSha) {
+      items.push(...buildFileItems(name, inQueue, folders, !edr));
+    }
+    items.push(["sep"], ["hint-ft", "Shift + Right-click for browser menu"]);
+    menu.innerHTML = items.map(it =>
+      it[0] === "sep" ? '<div class="sep"></div>'
+      : it[0] === "hd" ? `<div class="hd">${it[1]}</div>`
+      : it[0] === "hint-ft" ? `<div class="hint-ft">${it[1]}</div>`
+      : `<div class="mi${it[3] ? " dis" : ""}" data-act="${it[0]}"><span class="ic">${it[1]}</span>${it[2]}</div>`
+    ).join("");
     document.body.appendChild(menu);
     const r = menu.getBoundingClientRect();
-    menu.style.left = Math.min(x, innerWidth - r.width - 8) + "px";
-    menu.style.top = Math.min(y, innerHeight - r.height - 8) + "px";
+    menu.style.left = Math.max(8, Math.min(x, innerWidth - r.width - 8)) + "px";
+    menu.style.top = Math.max(8, Math.min(y, innerHeight - r.height - 8)) + "px";
     menu.onclick = async (ev) => {
       const act = ev.target.closest(".mi")?.dataset.act;
       if (!act) return;
       close();
+      if (edr) {
+        if (act === "edr-inspect") {
+          if (typeof window.edrInspectRow === "function") window.edrInspectRow(edr.kind, edr.idx);
+          return;
+        }
+        if (act === "edr-copyjson") {
+          if (edr.row) copy(JSON.stringify(edr.row, null, 2), "JSON");
+          return;
+        }
+        if (act === "edr-copypath") {
+          if (edr.path) copy(edr.path, "Path");
+          return;
+        }
+        if (act === "edr-copycmd") {
+          if (edr.row && edr.row.command_line) copy(edr.row.command_line, "Command line");
+          return;
+        }
+        if (act === "edr-copydst") {
+          if (dstText) copy(dstText, "Destination");
+          return;
+        }
+        if (act === "edr-filterpid") {
+          if (edr.pid && typeof window.edrFilterBy === "function") window.edrFilterBy(edr.pid);
+          return;
+        }
+        if (act === "edr-filtermachine") {
+          if (edr.machine && typeof window.edrFilterBy === "function") window.edrFilterBy(edr.machine);
+          return;
+        }
+      }
+      if (!hasSha) return;
       const open = (verdict) => {
         if (typeof window.haFill !== "function") return;
         window.haFill(sha, verdict);
@@ -4676,8 +4772,35 @@ window.sigKey = (list) => list && list.length ? `${list[0].layer}: ${list[0].nam
     };
   };
   document.addEventListener("contextmenu", (e) => {
+    if (e.shiftKey) return;
+    if (e.target.closest("input, textarea, a")) return;
+    const edrTr = e.target.closest(EDR_ROWS);
+    if (edrTr) {
+      e.preventDefault();
+      const kind = edrTr.dataset.edrKind || "";
+      const idx = parseInt(edrTr.dataset.edrIdx || "-1", 10);
+      const row = typeof window.edrGetRow === "function" ? window.edrGetRow(kind, idx) : null;
+      const sha = (edrTr.dataset.sha || "").toLowerCase();
+      const hasSha = /^[0-9a-f]{64}$/.test(sha);
+      show(e.clientX, e.clientY, {
+        sha: hasSha ? sha : "",
+        name: edrTr.dataset.name || "",
+        inQueue: false,
+        folders: [],
+        edr: {
+          kind,
+          idx,
+          row,
+          pid: edrTr.dataset.pid || "",
+          machine: edrTr.dataset.machine || "",
+          path: edrTr.dataset.path || "",
+          name: edrTr.dataset.name || "",
+        },
+      });
+      return;
+    }
     const tr = e.target.closest(ROWS);
-    if (!tr || e.target.closest("input, textarea, a")) return;
+    if (!tr) return;
     e.preventDefault();
     const sha = (tr.dataset.sha || "").toLowerCase();
     if (!/^[0-9a-f]{64}$/.test(sha)) return;
@@ -4685,7 +4808,7 @@ window.sigKey = (list) => list && list.length ? `${list[0].layer}: ${list[0].nam
     const fold = tr.querySelector("td.fold");
     const folders = fold && fold.title ? fold.title.split("\n").filter(Boolean) : [];
     const name = tr.dataset.name || (tr.querySelector("td.file b") || {}).textContent || "";
-    show(e.clientX, e.clientY, sha, name, inQueue, folders);
+    show(e.clientX, e.clientY, { sha, name, inQueue, folders, edr: null });
   });
   document.addEventListener("click", (e) => { if (menu && !menu.contains(e.target)) close(); });
   document.addEventListener("keydown", (e) => { if (e.key === "Escape") close(); });
@@ -6018,6 +6141,145 @@ window.sigKey = (list) => list && list.length ? `${list[0].layer}: ${list[0].nam
     let edrTimer = null;
 
     const edrEsc = (x) => String(x ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+    const edrCache = { behaviors: [], threats: [], events: [], flows: [], sysops: [], reports: [] };
+    const edrHex64 = (v) => {
+      const s = String(v ?? "").trim().toLowerCase();
+      return /^[0-9a-f]{64}$/.test(s) ? s : "";
+    };
+    const extractEventSha = (ev) => {
+      const r = (ev && ev.raw) ? ev.raw : {};
+      return edrHex64(ev && ev.sha256)
+        || edrHex64(r.sha256)
+        || edrHex64(r.hashes && r.hashes.sha256)
+        || edrHex64(r.file && r.file.rawHash)
+        || edrHex64(r.file && r.file.hash)
+        || edrHex64(r.process && r.process.imageFile && r.process.imageFile.rawHash)
+        || edrHex64(r.process && r.process.imageFile && r.process.imageFile.hash)
+        || edrHex64(r.process && r.process.imageHash);
+    };
+    const edrRowAttrs = (kind, idx, o) => {
+      const attrs = [`data-edr-kind="${edrEsc(kind)}"`, `data-edr-idx="${idx}"`];
+      if (o.sha) attrs.push(`data-sha="${o.sha}"`);
+      if (o.name) attrs.push(`data-name="${edrEsc(o.name)}"`);
+      if (o.path) attrs.push(`data-path="${edrEsc(o.path)}"`);
+      if (o.pid != null && o.pid !== "") attrs.push(`data-pid="${edrEsc(o.pid)}"`);
+      if (o.machine) attrs.push(`data-machine="${edrEsc(o.machine)}"`);
+      return attrs.join(" ");
+    };
+    const edrCopy = (text, what) => {
+      if (typeof window.ctxCopy === "function") return window.ctxCopy(text, what);
+      try { navigator.clipboard.writeText(text); } catch (_) {}
+      if (typeof window.toast === "function") window.toast(what + " copied");
+    };
+    window.edrGetRow = (kind, idx) => (edrCache[kind] || [])[idx] || null;
+    window.edrFilterBy = (q) => {
+      const inp = $("haEdrSearch");
+      if (inp) {
+        inp.value = String(q ?? "");
+        refreshActiveView();
+      }
+    };
+    window.edrInspectRow = (kind, idx) => {
+      const row = window.edrGetRow(kind, idx);
+      const dlg = $("edrInspectDlg"), titleEl = $("edrInspectTitle"), bodyEl = $("edrInspectBody"), footEl = $("edrInspectFoot");
+      if (!row || !dlg || !titleEl || !bodyEl || !footEl) return;
+      const kv = [];
+      const addKv = (k, v, mono) => {
+        if (v === undefined || v === null || v === "") return;
+        kv.push(`<div class="k">${edrEsc(k)}</div><div class="v${mono ? " mono" : ""}">${edrEsc(v)}</div>`);
+      };
+      addKv("Category", kind);
+      addKv("Time", row.time_iso);
+      addKv("Machine ID", row.machine_id, true);
+      if (row.pid != null) addKv("PID", row.pid, true);
+      if (row.gid) addKv("GID", row.gid, true);
+      let sha = edrHex64(row.sha256);
+      if (kind === "behaviors") {
+        addKv("Process", row.process_name);
+        addKv("Path", row.exe_path, true);
+        addKv("SHA-256", sha, true);
+        if (row.parent_name || row.parent_pid != null) {
+          addKv("Parent", row.parent_name ? `${row.parent_name} (PID ${row.parent_pid ?? "?"})` : `PID ${row.parent_pid}`);
+        }
+        addKv("Verdict", `${row.verdict || "unknown"} (score ${(row.risk_score || 0).toFixed(2)})`);
+        addKv("Detection / Threat", row.threat_name || row.detection);
+        addKv("Source", row.source);
+        addKv("Command Line", row.command_line, true);
+        if (row.indicators && row.indicators.length) addKv("Indicators", row.indicators.join(", "));
+        if (row.ops_summary) {
+          const o = row.ops_summary;
+          addKv("I/O Summary", `R=${o.ops_read} W=${o.ops_written} open=${o.ops_open} rename=${o.files_renamed_count} H(w)=${o.entropy_written.toFixed(2)}`);
+        }
+      } else if (kind === "threats") {
+        addKv("File Name", row.file_name);
+        addKv("Original Path", row.original_path, true);
+        addKv("SHA-256", sha, true);
+        addKv("Detection", row.detection);
+        addKv("Source", row.source);
+      } else if (kind === "events" || kind === "sysops") {
+        sha = sha || extractEventSha(row);
+        addKv("Event Type", row.event_type, true);
+        addKv("Process", row.process_name);
+        addKv("Path", row.exe_path, true);
+        addKv("SHA-256", sha, true);
+        addKv("Details", row.details);
+      } else if (kind === "flows") {
+        addKv("Process", row.process_name);
+        addKv("Source", `${row.src_ip}:${row.src_port}`, true);
+        addKv("Destination", `${row.dst_ip}:${row.dst_port}`, true);
+        addKv("Protocol", row.protocol);
+        addKv("Hostname", row.hostname, true);
+        addKv("DNS Query", row.dns_query, true);
+        if (row.url) addKv("URL", (row.http_method ? row.http_method + " " : "") + row.url, true);
+        addKv("JA3", row.ja3, true);
+        addKv("JA3S", row.ja3s, true);
+      } else if (kind === "reports") {
+        addKv("Hostname", row.hostname);
+        addKv("OS Version", row.os_version);
+        addKv("Monitored Processes", row.monitored_processes_count);
+        addKv("Rootkit Findings", row.rootkit_findings_count);
+      }
+      const headerLabel = row.process_name || row.file_name || row.event_type || row.hostname || kind;
+      titleEl.textContent = `EDR Inspect: ${headerLabel}`;
+      const jsonText = JSON.stringify(row, null, 2);
+      bodyEl.innerHTML = `<div class="edr-kv">${kv.join("")}</div><div style="font-size:12px;font-weight:600;color:var(--muted);margin:10px 0 4px">Full Telemetry Record (JSON)</div><pre class="edr-json">${edrEsc(jsonText)}</pre>`;
+      footEl.innerHTML = "";
+      const addBtn = (label, cls, onClick) => {
+        const b = document.createElement("button");
+        b.type = "button";
+        b.className = cls;
+        b.textContent = label;
+        b.onclick = onClick;
+        footEl.appendChild(b);
+      };
+      if (sha) {
+        addBtn("Open in VirusKovAlyzer", "primary", () => {
+          dlg.close();
+          if (typeof window.vaOpenSha === "function") window.vaOpenSha(sha);
+        });
+        addBtn("Open in human analysis", "ghost", () => {
+          dlg.close();
+          if (typeof window.haFill === "function") {
+            window.haFill(sha);
+            const haEl = document.getElementById("humanAnalysis");
+            if (haEl) haEl.scrollIntoView({ behavior: "smooth" });
+          }
+        });
+        addBtn("VirusTotal ↗", "ghost", () => {
+          window.open("https://www.virustotal.com/gui/file/" + sha, "_blank", "noopener");
+        });
+        addBtn("Copy SHA-256", "ghost", () => edrCopy(sha, "SHA-256"));
+      }
+      addBtn("Copy JSON", "ghost", () => edrCopy(jsonText, "JSON"));
+      addBtn("Close", "ghost", () => dlg.close());
+      if (!dlg.dataset.backdropBound) {
+        dlg.dataset.backdropBound = "1";
+        dlg.addEventListener("click", (ev) => {
+          if (ev.target === dlg) dlg.close();
+        });
+      }
+      dlg.showModal();
+    };
 
     async function loadEdrStats() {
       try {
@@ -6079,21 +6341,25 @@ window.sigKey = (list) => list && list.length ? `${list[0].layer}: ${list[0].nam
         if (!res.ok) throw new Error("HTTP " + res.status);
         const data = await res.json();
         const items = data.behaviors || [];
+        edrCache.behaviors = items;
         if (!items.length) {
           tbody.innerHTML = '<tr><td colspan="7" class="empty">No behaviors match filter.</td></tr>';
           return;
         }
-        tbody.innerHTML = items.map(b => {
+        tbody.innerHTML = items.map((b, idx) => {
           const time = b.time_iso ? b.time_iso.slice(11, 19) : "";
           const vClass = b.verdict === "malicious" ? "t-malicious" : b.verdict === "suspicious" ? "t-suspicious" : "t-clean";
           const score = (b.risk_score || 0).toFixed(2);
           const inds = (b.indicators && b.indicators.length) ? b.indicators.map(i => `<span class="sigc">${edrEsc(i)}</span>`).join(" ") : '<span style="color:var(--muted)">none</span>';
+          const sha = edrHex64(b.sha256);
+          const shaHtml = sha ? `<div style="font-size:11px;color:var(--muted);font-family:Consolas,monospace" title="${sha}">SHA-256: ${sha.slice(0, 16)}…</div>` : "";
           let ioHtml = '<span style="color:var(--muted)">—</span>';
           if (b.ops_summary) {
             const ops = b.ops_summary;
             ioHtml = `<div style="font-size:11px;line-height:1.3">R:<b>${ops.ops_read}</b> W:<b>${ops.ops_written}</b> ren:<b>${ops.files_renamed_count}</b><br>H(w):<b>${ops.entropy_written.toFixed(2)}</b></div>`;
           }
-          return `<tr>
+          const attrs = edrRowAttrs("behaviors", idx, { sha, name: b.process_name, path: b.exe_path, pid: b.pid, machine: b.machine_id });
+          return `<tr ${attrs}>
             <td style="white-space:nowrap;font-size:11.5px;color:var(--muted)">${edrEsc(time)}</td>
             <td>
               <div style="font-weight:600;font-family:Consolas,monospace">PID ${b.pid}</div>
@@ -6102,6 +6368,7 @@ window.sigKey = (list) => list && list.length ? `${list[0].layer}: ${list[0].nam
             <td>
               <div style="font-weight:600">${edrEsc(b.process_name)}</div>
               <div style="font-size:11px;color:var(--muted);font-family:Consolas,monospace;word-break:break-all">${edrEsc(b.exe_path)}</div>
+              ${shaHtml}
             </td>
             <td>
               <span class="tag ${vClass}">${edrEsc(b.verdict)}</span>
@@ -6119,6 +6386,7 @@ window.sigKey = (list) => list && list.length ? `${list[0].layer}: ${list[0].nam
           </tr>`;
         }).join("");
       } catch (err) {
+        edrCache.behaviors = [];
         tbody.innerHTML = `<tr><td colspan="7" class="empty" style="color:var(--red)">Failed to load behaviors: ${edrEsc(err.message)}</td></tr>`;
       }
     }
@@ -6132,18 +6400,21 @@ window.sigKey = (list) => list && list.length ? `${list[0].layer}: ${list[0].nam
         if (!res.ok) throw new Error("HTTP " + res.status);
         const data = await res.json();
         const items = data.flows || [];
+        edrCache.flows = items;
         if (!items.length) {
           tbody.innerHTML = '<tr><td colspan="8" class="empty">No network flows match filter.</td></tr>';
           return;
         }
-        tbody.innerHTML = items.map(f => {
+        tbody.innerHTML = items.map((f, idx) => {
           const time = f.time_iso ? f.time_iso.slice(11, 19) : "";
           const dnsPart = f.dns_query ? `<span class="sigc">DNS: ${edrEsc(f.dns_query)}</span>` : "";
           const ja3Part = f.ja3 ? `<span class="sigc" style="margin-left:4px" title="TLS ClientHello JA3">JA3: ${edrEsc(f.ja3)}</span>` : "";
           const ja3sPart = f.ja3s ? `<span class="sigc" style="margin-left:4px" title="TLS ServerHello JA3S">JA3S: ${edrEsc(f.ja3s)}</span>` : "";
           const urlPart = f.url ? `<div style="font-family:Consolas,monospace;font-size:11px;color:var(--accent);word-break:break-all">${edrEsc((f.http_method ? f.http_method + " " : "") + f.url)}</div>` : "";
           const hostPart = f.hostname ? `<div>${edrEsc(f.hostname)}</div>` : (!dnsPart && !ja3Part && !ja3sPart && !urlPart ? "—" : "");
-          return `<tr>
+          const flowDst = f.url || f.dns_query || f.hostname || `${f.dst_ip}:${f.dst_port}`;
+          const attrs = edrRowAttrs("flows", idx, { name: f.process_name, path: flowDst, pid: f.pid, machine: f.machine_id });
+          return `<tr ${attrs}>
             <td style="white-space:nowrap;font-size:11.5px;color:var(--muted)">${edrEsc(time)}</td>
             <td style="font-size:11px;color:var(--muted);max-width:110px;overflow:hidden;text-overflow:ellipsis" title="${edrEsc(f.machine_id)}">${edrEsc(f.machine_id)}</td>
             <td style="font-family:Consolas,monospace">PID ${f.pid}</td>
@@ -6155,6 +6426,7 @@ window.sigKey = (list) => list && list.length ? `${list[0].layer}: ${list[0].nam
           </tr>`;
         }).join("");
       } catch (err) {
+        edrCache.flows = [];
         tbody.innerHTML = `<tr><td colspan="8" class="empty" style="color:var(--red)">Failed to load network flows: ${edrEsc(err.message)}</td></tr>`;
       }
     }
@@ -6169,15 +6441,18 @@ window.sigKey = (list) => list && list.length ? `${list[0].layer}: ${list[0].nam
         if (!res.ok) throw new Error("HTTP " + res.status);
         const data = await res.json();
         const items = data.events || [];
+        edrCache.events = items;
         if (!items.length) {
           tbody.innerHTML = '<tr><td colspan="5" class="empty">No raw EDR events match filter.</td></tr>';
           return;
         }
-        tbody.innerHTML = items.map(ev => {
+        tbody.innerHTML = items.map((ev, idx) => {
           const time = ev.time_iso ? ev.time_iso.slice(11, 23) : "";
           const rawStr = ev.raw ? JSON.stringify(ev.raw) : "";
           const rawClip = rawStr.length > 260 ? rawStr.slice(0, 260) + "..." : rawStr;
-          return `<tr>
+          const sha = extractEventSha(ev);
+          const attrs = edrRowAttrs("events", idx, { sha, name: ev.process_name || ev.event_type, path: ev.exe_path, pid: ev.pid, machine: ev.machine_id });
+          return `<tr ${attrs}>
             <td style="white-space:nowrap;font-size:11.5px;color:var(--muted)">${edrEsc(time)}</td>
             <td>
               <div style="font-weight:600;font-family:Consolas,monospace">PID ${ev.pid}</div>
@@ -6195,6 +6470,7 @@ window.sigKey = (list) => list && list.length ? `${list[0].layer}: ${list[0].nam
           </tr>`;
         }).join("");
       } catch (err) {
+        edrCache.events = [];
         tbody.innerHTML = `<tr><td colspan="5" class="empty" style="color:var(--red)">Failed to load raw EDR events: ${edrEsc(err.message)}</td></tr>`;
       }
     }
@@ -6210,10 +6486,13 @@ window.sigKey = (list) => list && list.length ? `${list[0].layer}: ${list[0].nam
         ]);
         if (tbody && evRes.ok) {
           const items = (await evRes.json()).events || [];
-          tbody.innerHTML = items.length ? items.map(ev => {
+          edrCache.sysops = items;
+          tbody.innerHTML = items.length ? items.map((ev, idx) => {
             const time = ev.time_iso ? ev.time_iso.slice(0, 19).replace("T", " ") : "";
             const cls = ev.event_type === "AGENT_ERROR" ? "t-malicious" : ev.event_type === "AGENT_UNINSTALL" || ev.event_type === "AGENT_STOP" ? "t-suspicious" : "t-clean";
-            return `<tr>
+            const sha = extractEventSha(ev);
+            const attrs = edrRowAttrs("sysops", idx, { sha, name: ev.event_type, path: ev.exe_path, pid: ev.pid, machine: ev.machine_id });
+            return `<tr ${attrs}>
               <td style="white-space:nowrap;font-size:11.5px;color:var(--muted)">${edrEsc(time)}</td>
               <td style="font-size:11px;color:var(--muted);max-width:120px;overflow:hidden;text-overflow:ellipsis" title="${edrEsc(ev.machine_id)}">${edrEsc(ev.machine_id)}</td>
               <td><span class="tag ${cls}">${edrEsc(ev.event_type)}</span></td>
@@ -6224,9 +6503,11 @@ window.sigKey = (list) => list && list.length ? `${list[0].layer}: ${list[0].nam
         }
         if (rbody && repRes.ok) {
           const reps = (await repRes.json()).reports || [];
-          rbody.innerHTML = reps.length ? reps.map(r => {
+          edrCache.reports = reps;
+          rbody.innerHTML = reps.length ? reps.map((r, idx) => {
             const time = r.time_iso ? r.time_iso.slice(0, 19).replace("T", " ") : "";
-            return `<tr>
+            const attrs = edrRowAttrs("reports", idx, { name: r.hostname || r.machine_id, machine: r.machine_id });
+            return `<tr ${attrs}>
               <td style="white-space:nowrap;font-size:11.5px;color:var(--muted)">${edrEsc(time)}</td>
               <td style="font-size:11px;color:var(--muted);max-width:120px;overflow:hidden;text-overflow:ellipsis" title="${edrEsc(r.machine_id)}">${edrEsc(r.machine_id)}</td>
               <td><b>${edrEsc(r.hostname || "—")}</b> <span style="color:var(--muted);font-size:11px">${edrEsc(r.os_version || "")}</span></td>
@@ -6236,6 +6517,8 @@ window.sigKey = (list) => list && list.length ? `${list[0].layer}: ${list[0].nam
           }).join("") : '<tr><td colspan="5" class="empty">No system diagnostic reports persisted yet.</td></tr>';
         }
       } catch (err) {
+        edrCache.sysops = [];
+        edrCache.reports = [];
         if (tbody) tbody.innerHTML = `<tr><td colspan="5" class="empty" style="color:var(--red)">Failed to load SysOps: ${edrEsc(err.message)}</td></tr>`;
       }
     }
@@ -6248,13 +6531,16 @@ window.sigKey = (list) => list && list.length ? `${list[0].layer}: ${list[0].nam
         if (!res.ok) throw new Error("HTTP " + res.status);
         const data = await res.json();
         const items = data.threats || [];
+        edrCache.threats = items;
         if (!items.length) {
           tbody.innerHTML = '<tr><td colspan="6" class="empty">No threat reports logged yet.</td></tr>';
           return;
         }
-        tbody.innerHTML = items.map(t => {
+        tbody.innerHTML = items.map((t, idx) => {
           const time = t.time_iso ? t.time_iso.slice(11, 19) : "";
-          return `<tr>
+          const sha = edrHex64(t.sha256);
+          const attrs = edrRowAttrs("threats", idx, { sha, name: t.file_name, path: t.original_path, pid: t.pid, machine: "" });
+          return `<tr ${attrs}>
             <td style="white-space:nowrap;font-size:11.5px;color:var(--muted)">${edrEsc(time)}</td>
             <td style="font-family:Consolas,monospace">PID ${t.pid || '—'}</td>
             <td>
@@ -6267,6 +6553,7 @@ window.sigKey = (list) => list && list.length ? `${list[0].layer}: ${list[0].nam
           </tr>`;
         }).join("");
       } catch (err) {
+        edrCache.threats = [];
         tbody.innerHTML = `<tr><td colspan="6" class="empty" style="color:var(--red)">Failed to load threats: ${edrEsc(err.message)}</td></tr>`;
       }
     }
@@ -6306,6 +6593,18 @@ window.sigKey = (list) => list && list.length ? `${list[0].layer}: ${list[0].nam
     }
     setEdrSub(edrActiveSub);
 
+    const edrSection = $("haTabEdrTelemetry");
+    if (edrSection && !edrSection.dataset.dblBound) {
+      edrSection.dataset.dblBound = "1";
+      edrSection.addEventListener("dblclick", (e) => {
+        if (e.target.closest("a, button, input, select, textarea")) return;
+        const tr = e.target.closest("tr[data-edr-kind]");
+        if (!tr) return;
+        const idx = parseInt(tr.dataset.edrIdx || "-1", 10);
+        if (idx >= 0) window.edrInspectRow(tr.dataset.edrKind, idx);
+      });
+    }
+
     if ($("haEdrRefresh")) $("haEdrRefresh").onclick = refreshActiveView;
     if ($("haEdrRiskF")) $("haEdrRiskF").onchange = refreshActiveView;
     if ($("haEdrEventPresetF")) $("haEdrEventPresetF").onchange = () => {
@@ -6328,10 +6627,13 @@ window.sigKey = (list) => list && list.length ? `${list[0].layer}: ${list[0].nam
       });
     }
 
-    // Auto refresh interval
+    // Auto refresh interval (paused while context menu, inspect dialog, or text selection is active)
     setInterval(() => {
       const edrTab = $("haTabEdrTelemetry");
-      if (edrTab && !edrTab.hidden && $("haEdrAuto") && $("haEdrAuto").checked) {
+      const sel = window.getSelection ? window.getSelection() : null;
+      const hasSelInEdr = !!(sel && !sel.isCollapsed && sel.anchorNode && edrTab && edrTab.contains(sel.anchorNode));
+      const inspecting = !!(document.getElementById("ctxMenu") || ($("edrInspectDlg") && $("edrInspectDlg").open) || hasSelInEdr);
+      if (edrTab && !edrTab.hidden && $("haEdrAuto") && $("haEdrAuto").checked && !inspecting) {
         refreshActiveView();
       } else {
         loadEdrStats();

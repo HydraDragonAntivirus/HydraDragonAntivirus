@@ -3659,4 +3659,13 @@ mod guard_tests {
         assert!(bad_key.starts_with("HTTP/1.1 401"), "{bad_key}");
         assert!(good.starts_with("HTTP/1.1 200") && good.ends_with("Test Analyst"), "{good}");
     }
+
+    #[test]
+    fn edr_telemetry_right_click_inspection_wired() {
+        assert!(DASHBOARD_HTML.contains("edrInspectDlg"));
+        assert!(DASHBOARD_HTML.contains("window.edrInspectRow"));
+        assert!(DASHBOARD_HTML.contains("#haEdrThreatRows tr[data-edr-kind]"));
+        assert!(DASHBOARD_HTML.contains("#haEdrBehaviorRows tr[data-edr-kind]"));
+        assert!(DASHBOARD_HTML.contains("#haEdrEventRows tr[data-edr-kind]"));
+    }
 }

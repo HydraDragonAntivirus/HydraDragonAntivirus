@@ -30,6 +30,10 @@ __declspec(dllimport) int32_t owlyshield_dll_install_ca();
 // Returns OWLY_OK on success, or an error code on failure
 __declspec(dllimport) int32_t owlyshield_dll_quarantine_file(const uint8_t* file_path, uint32_t len);
 
+// Quarantine a file with an explicit UTF-8 detection reason.
+__declspec(dllimport) int32_t owlyshield_dll_quarantine_file_with_reason(
+    const uint8_t* file_path, uint32_t path_len, const uint8_t* reason, uint32_t reason_len);
+
 // Ingest a serialized IOMessage event from the driver
 // data: pointer to MessagePack-serialized IOMessage
 // len: length of data in bytes
