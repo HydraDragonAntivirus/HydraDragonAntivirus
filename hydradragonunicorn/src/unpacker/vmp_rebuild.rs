@@ -3033,8 +3033,11 @@ fn probe_vmp35_single(
     None
 }
 
-/// Assembles `.vmpinit`, appends it as an RWX (`0xE000_0060`) section, disables ASLR,
-/// sets `AddressOfEntryPoint` to `.vmpinit`, and recomputes the PE checksum.
+/// Appends a writable `.vmpdata` section (LoaderData template + a VirtualProtect scratch
+/// DWORD), assembles `.vmpinit` and appends it as an RX (`0x6000_0020`) section, disables
+/// ASLR, sets `AddressOfEntryPoint` to `.vmpinit`, and recomputes the PE checksum. The stub
+/// relocks executable+writable code sections to PAGE_EXECUTE_READ before OEP so the sample's
+/// own memory-patch scan finds no executable+writable page.
 fn emit_vmpinit_section(
     pe: &mut Vec<u8>,
     image_base: u64,
@@ -3043,7 +3046,43 @@ fn emit_vmpinit_section(
     ld_plan: Option<&LoaderDataPlan>,
     oep_rva: u32,
     detect_overrides: &[(u32, i32, bool)],
+    vp_slot_rva: Option<u32>,
 ) -> UnpackerResult<u32> {
+    // Code sections currently left executable+writable (so the fixup loop and the VMProtect
+    // runtime can write to them). After the runtime returns, `.vmpinit` relocks these to
+    // PAGE_EXECUTE_READ so the sample's own anti-tamper (which VirtualQuery-scans its image
+    // for executable+writable pages and reports "Code 75") finds none.
+    let relock_spans: Vec<(u32, u32)> = {
+        let (_d, _p, _o, secs) = parse_pe_bytes(pe)?;
+        secs.iter()
+            .filter(|s| {
+                (s.characteristics & IMAGE_SCN_MEM_EXECUTE) != 0
+                    && (s.characteristics & IMAGE_SCN_MEM_WRITE) != 0
+            })
+            .map(|s| (s.virtual_address, s.virtual_size.max(s.size_of_raw_data).max(1)))
+            .collect()
+    };
+
+    // Move the LoaderData template into its own writable, non-executable `.vmpdata` section,
+    // plus a scratch DWORD for VirtualProtect's lpflOldProtect. Keeping it out of `.vmpinit`
+    // lets `.vmpinit` be RX (never executable+writable) while the VM may still read/write
+    // LoaderData at runtime.
+    const IMAGE_SCN_CNT_INITIALIZED_DATA: u32 = 0x0000_0040;
+    let ld_bytes = ld_plan
+        .map(|p| p.template.clone())
+        .unwrap_or_else(|| vec![0u8; 0x200]);
+    let scratch_off = ((ld_bytes.len() as u32) + 15) & !15;
+    let mut vmpdata_bytes = ld_bytes;
+    vmpdata_bytes.resize(scratch_off as usize + 16, 0);
+    let vmpdata_rva = imagedump::append_section_with_chars(
+        pe,
+        ".vmpdata",
+        &vmpdata_bytes,
+        IMAGE_SCN_CNT_INITIALIZED_DATA | IMAGE_SCN_MEM_READ | IMAGE_SCN_MEM_WRITE,
+    )?;
+    let loader_data_rva = vmpdata_rva;
+    let scratch_rva = vmpdata_rva + scratch_off;
+
     let (vmpinit_rva, _) = imagedump::next_section_rva(pe)?;
     let vmpinit_va = image_base + vmpinit_rva as u64;
 
@@ -3051,7 +3090,6 @@ fn emit_vmpinit_section(
         .map_err(|e| UnpackerError::General(format!("CodeAssembler(64): {e}")))?;
     let mut lbl_fixup_loop = a.create_label();
     let mut lbl_fixup_table = a.create_label();
-    let mut lbl_loader_data = a.create_label();
     let mut lbl_stub_invalid = a.create_label();
     let mut lbl_stub_zero = a.create_label();
 
@@ -3115,8 +3153,8 @@ fn emit_vmpinit_section(
                 .map_err(|e| UnpackerError::General(e.to_string()))?;
         }
 
-        // 2. Populate inline LoaderData using live CPUID leaf 1 + PEB.OSBuildNumber + LD ptr.
-        a.lea(rdi, qword_ptr(lbl_loader_data))
+        // 2. Populate LoaderData (now in `.vmpdata`) using live CPUID leaf 1 + PEB.OSBuildNumber.
+        a.lea(rdi, qword_ptr(r11 + loader_data_rva as i64))
             .map_err(|e| UnpackerError::General(e.to_string()))?;
 
         if let Some(plan) = ld_plan {
@@ -3186,6 +3224,29 @@ fn emit_vmpinit_section(
             a.mov(r11, image_base).map_err(|e| UnpackerError::General(e.to_string()))?;
         }
 
+        // 3b. Relock executable+writable code sections to PAGE_EXECUTE_READ before handing
+        // control to OEP, so the sample's own memory-patch scan ("Code 75") finds no
+        // executable+writable page. The runtime has finished its writes by now; if the VM
+        // needs to write a protected region later it re-VirtualProtects it itself, matching
+        // the original's posture. lpflOldProtect is the scratch DWORD in `.vmpdata`.
+        if let Some(vp) = vp_slot_rva {
+            const PAGE_EXECUTE_READ: u32 = 0x20;
+            for (va, size) in &relock_spans {
+                a.mov(r11, image_base).map_err(|e| UnpackerError::General(e.to_string()))?;
+                a.mov(rcx, image_base + *va as u64)
+                    .map_err(|e| UnpackerError::General(e.to_string()))?;
+                a.mov(rdx, *size as u64)
+                    .map_err(|e| UnpackerError::General(e.to_string()))?;
+                a.mov(r8d, PAGE_EXECUTE_READ)
+                    .map_err(|e| UnpackerError::General(e.to_string()))?;
+                a.lea(r9, qword_ptr(r11 + scratch_rva as i64))
+                    .map_err(|e| UnpackerError::General(e.to_string()))?;
+                a.call(qword_ptr(r11 + vp as i64))
+                    .map_err(|e| UnpackerError::General(e.to_string()))?;
+            }
+            a.mov(r11, image_base).map_err(|e| UnpackerError::General(e.to_string()))?;
+        }
+
         // 4. Restore callee-saved registers & exact stack alignment, then tail-jump to OEP.
         a.add(rsp, 0x20).map_err(|e| UnpackerError::General(e.to_string()))?;
         a.pop(rdi).map_err(|e| UnpackerError::General(e.to_string()))?;
@@ -3204,14 +3265,9 @@ fn emit_vmpinit_section(
             table_bytes.extend_from_slice(&fx.dst_slot_rva.to_le_bytes());
             table_bytes.extend_from_slice(&(fx.key_i32 as u32).to_le_bytes());
         }
-        // Keep trailing zero bytes so table label never shares address with ld label if empty.
+        // Keep trailing zero bytes so the fixup table never shares an address with the stubs.
         table_bytes.resize(table_bytes.len() + 16, 0);
         a.db(&table_bytes).map_err(|e| UnpackerError::General(e.to_string()))?;
-
-        a.set_label(&mut lbl_loader_data)
-            .map_err(|e| UnpackerError::General(e.to_string()))?;
-        let ld_bytes = ld_plan.map(|p| p.template.clone()).unwrap_or_else(|| vec![0u8; 0x200]);
-        a.db(&ld_bytes).map_err(|e| UnpackerError::General(e.to_string()))?;
 
         // No-op detection stubs (reached only by the repointed slots above).
         a.set_label(&mut lbl_stub_invalid)
@@ -3229,7 +3285,9 @@ fn emit_vmpinit_section(
         .map_err(|e| UnpackerError::General(format!("assemble .vmpinit: {e}")))?;
     let stub_bytes = res.inner.code_buffer;
 
-    let chars = IMAGE_SCN_CNT_CODE | IMAGE_SCN_MEM_EXECUTE | IMAGE_SCN_MEM_READ | IMAGE_SCN_MEM_WRITE;
+    // `.vmpinit` is RX (never executable+writable): its only writable datum, the LoaderData
+    // template, now lives in the separate RW `.vmpdata` section.
+    let chars = IMAGE_SCN_CNT_CODE | IMAGE_SCN_MEM_EXECUTE | IMAGE_SCN_MEM_READ;
     let actual_rva = imagedump::append_section_with_chars(pe, ".vmpinit", &stub_bytes, chars)?;
     if actual_rva != vmpinit_rva {
         return Err(UnpackerError::General(format!(
@@ -3312,6 +3370,10 @@ pub fn rebuild_vmp_pe(
     let mut fixups = Vec::new();
     let mut import_dlls = 0usize;
     let mut import_entries = 0usize;
+    // IAT slot of `kernel32!VirtualProtect`, injected below so `.vmpinit` can relock the
+    // rebuilt code sections to PAGE_EXECUTE_READ before OEP (defeats the sample's own
+    // "Code 75 / executable+writable page" memory-patch check).
+    let mut vp_slot_rva: Option<u32> = None;
 
     if !all_records.is_empty() {
         let mut per_dll: HashMap<String, (String, Vec<String>, HashSet<String>)> = HashMap::new();
@@ -3327,7 +3389,7 @@ pub fn rebuild_vmp_pe(
             }
         }
         import_dlls = dll_order.len();
-        let imports_arg: Vec<(String, Vec<String>)> = dll_order
+        let mut imports_arg: Vec<(String, Vec<String>)> = dll_order
             .into_iter()
             .map(|k| {
                 let (name, funcs, _) = per_dll.remove(&k).unwrap();
@@ -3335,9 +3397,16 @@ pub fn rebuild_vmp_pe(
                 (name, funcs)
             })
             .collect();
+        // Ensure VirtualProtect is importable so `.vmpinit` can strip the WRITE bit from the
+        // rebuilt code sections at runtime. `rebuild_import_section_with_map` merges this into
+        // an existing kernel32 entry case-insensitively and dedups, so adding it is harmless.
+        imports_arg.push(("kernel32.dll".to_string(), vec!["VirtualProtect".to_string()]));
 
         let (imp_rva, slot_map) = imagedump::rebuild_import_section_with_map(pe_bytes, &imports_arg)?;
         import_section_rva = Some(imp_rva);
+        vp_slot_rva = slot_map
+            .get(&("kernel32.dll".to_string(), "VirtualProtect".to_string()))
+            .copied();
 
         let mut dst_rvas = Vec::with_capacity(all_records.len());
         for rec in &all_records {
@@ -3384,6 +3453,7 @@ pub fn rebuild_vmp_pe(
         ld_plan.as_ref(),
         oep_rva,
         &detect_overrides,
+        vp_slot_rva,
     )?;
 
     Ok(VmpRebuildReport {
@@ -3529,6 +3599,13 @@ mod tests {
         let fake_exit: u64 = 0x7FF8_9ABC_DEF0;
         uc.mem_write(base + ft as u64, &fake_getproc.to_le_bytes()).unwrap();
         uc.mem_write(base + ft as u64 + 8, &fake_exit.to_le_bytes()).unwrap();
+        // The rebuilder injects kernel32!VirtualProtect (appended after GetProcAddress &
+        // ExitProcess, so slot ft+16) for the Code-75 relock. Resolve it to a no-op stub so
+        // the `.vmpinit` relock calls return instead of faulting on an unresolved IAT slot.
+        let vp_stub: u64 = 0x0006_0000;
+        uc.mem_map(vp_stub, 0x1000, Prot::ALL).unwrap();
+        uc.mem_write(vp_stub, &[0x31, 0xC0, 0xC3]).unwrap(); // xor eax, eax ; ret
+        uc.mem_write(base + ft as u64 + 16, &vp_stub.to_le_bytes()).unwrap();
 
         let stack_base = 0x0020_0000u64;
         let stack_sz = 0x0010_0000u64;
@@ -3684,8 +3761,11 @@ mod tests {
             image_rel_qwords: Vec::new(),
         };
 
-        let init_rva = emit_vmpinit_section(&mut pe, image_base, &[], Some(0x1040), Some(&plan), 0x1000, &[]).unwrap();
-        assert_eq!(init_rva, 0x3000);
+        let init_rva =
+            emit_vmpinit_section(&mut pe, image_base, &[], Some(0x1040), Some(&plan), 0x1000, &[], None)
+                .unwrap();
+        // `.vmpdata` (LoaderData) lands at 0x3000, pushing `.vmpinit` to 0x4000.
+        assert_eq!(init_rva, 0x4000);
 
         let (_d, _p, opt_out, _) = parse_pe_bytes(&pe).unwrap();
         let mut uc = Unicorn::new(Arch::X86, Mode::MODE_64).unwrap();
