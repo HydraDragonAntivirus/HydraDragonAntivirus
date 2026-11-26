@@ -38,7 +38,7 @@
 use serde::Serialize;
 
 use crate::engine_adapter::EngineAdapter;
-use crate::fingerprint::{accept, Structure, SMART_WL_MAX_DIST, SMART_WL_MAX_DIST_EP_MOVED};
+use crate::fingerprint::{SMART_WL_MAX_DIST, SMART_WL_MAX_DIST_EP_MOVED, Structure, accept};
 use crate::threat_intel::ThreatIntelStore;
 
 /// What the client should do with the file.
@@ -146,7 +146,11 @@ pub struct GenericRepair {
 /// Windows system locations (case-insensitive, `\\?\` and `/` tolerated).
 /// Only these get disinfection as the recommended action.
 pub fn system_path_reason(path: &str) -> Option<&'static str> {
-    let p = path.trim().trim_start_matches(r"\\?\").replace('/', "\\").to_ascii_lowercase();
+    let p = path
+        .trim()
+        .trim_start_matches(r"\\?\")
+        .replace('/', "\\")
+        .to_ascii_lowercase();
     if p.is_empty() {
         return None;
     }
@@ -167,7 +171,10 @@ pub fn system_path_reason(path: &str) -> Option<&'static str> {
     }
     for root in [r"%systemroot%\", r"%windir%\"] {
         if let Some(rest) = p.strip_prefix(root) {
-            if rest.starts_with(r"system32\") || rest.starts_with(r"syswow64\") || rest.starts_with(r"winsxs\") {
+            if rest.starts_with(r"system32\")
+                || rest.starts_with(r"syswow64\")
+                || rest.starts_with(r"winsxs\")
+            {
                 return Some("Windows system directory");
             }
         }
@@ -175,7 +182,9 @@ pub fn system_path_reason(path: &str) -> Option<&'static str> {
     // Files directly in the Windows folder (explorer.exe, regedit.exe, ...).
     if let Some(idx) = p.find(r":\windows\") {
         let rest = &p[idx + r":\windows\".len()..];
-        if !rest.contains('\\') && (rest.ends_with(".exe") || rest.ends_with(".dll") || rest.ends_with(".sys")) {
+        if !rest.contains('\\')
+            && (rest.ends_with(".exe") || rest.ends_with(".dll") || rest.ends_with(".sys"))
+        {
             return Some("Windows folder");
         }
     }
@@ -209,10 +218,17 @@ pub fn find_restore(
 ) -> Option<RestoreCandidate> {
     let trimmed = crate::similarity::trim_trailing_padding(data);
     let tlsh = crate::analyzer::tlsh_digest(trimmed)?;
-    let max = if repaired { SMART_WL_MAX_DIST } else { SMART_WL_MAX_DIST_EP_MOVED };
+    let max = if repaired {
+        SMART_WL_MAX_DIST
+    } else {
+        SMART_WL_MAX_DIST_EP_MOVED
+    };
     let cand = if repaired {
         let rep = crate::analyzer::analyze(data, name);
-        serde_json::to_value(&rep).ok().as_ref().and_then(Structure::from_report)
+        serde_json::to_value(&rep)
+            .ok()
+            .as_ref()
+            .and_then(Structure::from_report)
     } else {
         None
     };
@@ -220,9 +236,16 @@ pub fn find_restore(
         if s.sha256.is_empty() {
             continue; // TLSH blacklist entry, not a stored file
         }
-        let Some(source) = known_clean_source(ti, &s.sha256) else { continue };
+        let Some(source) = known_clean_source(ti, &s.sha256) else {
+            continue;
+        };
         if repaired {
-            let (Some(c), Some(r)) = (cand.as_ref(), crate::reports::load(&s.sha256).as_ref().and_then(Structure::from_report)) else {
+            let (Some(c), Some(r)) = (
+                cand.as_ref(),
+                crate::reports::load(&s.sha256)
+                    .as_ref()
+                    .and_then(Structure::from_report),
+            ) else {
                 continue;
             };
             if let Err(why) = accept(s.distance, c, &r) {
@@ -247,11 +270,17 @@ pub fn find_restore(
 /// The built-in disinfection definitions plus `<hydradragonsig_rules>/disinfect_rules.yaml`
 /// (a definition with the same name replaces the built-in one). Read on every request,
 /// so an edited file applies without a restart; a broken file falls back to the built-in set.
-fn disinfect_rules(engine: &EngineAdapter) -> std::borrow::Cow<'static, hydradragonunicorn::DisinfectRules> {
+fn disinfect_rules(
+    engine: &EngineAdapter,
+) -> std::borrow::Cow<'static, hydradragonunicorn::DisinfectRules> {
     use hydradragonunicorn::DisinfectRules;
     let file = engine
         .rules_dir()
-        .map(|d| crate::fp_ignore::Kind::HydraSig.dir(&d).join(hydradragonunicorn::DISINFECT_RULES_FILE))
+        .map(|d| {
+            crate::fp_ignore::Kind::HydraSig
+                .dir(&d)
+                .join(hydradragonunicorn::DISINFECT_RULES_FILE)
+        })
         .filter(|f| f.is_file());
     match file {
         Some(f) => match DisinfectRules::builtin_with_file(&f) {
@@ -275,11 +304,17 @@ pub fn run(
 ) -> (DisinfectReport, Option<Vec<u8>>, Option<Vec<u8>>) {
     use hydradragonunicorn::DisinfectOutcome;
 
-    let name = client_path.rsplit(['\\', '/']).next().filter(|n| !n.is_empty()).unwrap_or("file");
+    let name = client_path
+        .rsplit(['\\', '/'])
+        .next()
+        .filter(|n| !n.is_empty())
+        .unwrap_or("file");
     let system = system_path_reason(client_path);
     let rules = disinfect_rules(engine);
-    let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| hydradragonunicorn::disinfect_bytes_with(data, &rules)))
-        .unwrap_or(DisinfectOutcome::NotInfected);
+    let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        hydradragonunicorn::disinfect_bytes_with(data, &rules)
+    }))
+    .unwrap_or(DisinfectOutcome::NotInfected);
 
     let mut report = DisinfectReport {
         sha256: sha256_hex(data),
@@ -302,9 +337,10 @@ pub fn run(
 
     let repaired = match outcome {
         DisinfectOutcome::NotInfected => {
-            report.advice = "No infection known to a signature disinfector was found. A detection by \
+            report.advice =
+                "No infection known to a signature disinfector was found. A detection by \
                 another engine is not repaired: delete or quarantine the file."
-                .into();
+                    .into();
             let generic = match generic_repair(ti, engine, data, name, &report.sha256) {
                 Ok(Some((g, bytes))) => {
                     report.generic_repair = Some(g);
@@ -318,13 +354,20 @@ pub fn run(
             };
             return (report, None, generic);
         }
-        DisinfectOutcome::NotRepairable { malware_name, reason } => {
+        DisinfectOutcome::NotRepairable {
+            malware_name,
+            reason,
+        } => {
             report.infected = true;
             report.malware_name = Some(malware_name);
             report.not_repairable_reason = Some(reason);
             None
         }
-        DisinfectOutcome::Disinfected { malware_name, data: fixed, removed_bytes } => {
+        DisinfectOutcome::Disinfected {
+            malware_name,
+            data: fixed,
+            removed_bytes,
+        } => {
             report.infected = true;
             report.malware_name = Some(malware_name);
             report.repaired = true;
@@ -377,7 +420,13 @@ pub fn run(
 /// stored engine verdict. Only a file this server never saw is scanned again, with the
 /// same refinements as a normal scan (analyst TLSH, TLSH blacklist, TLSH smart
 /// whitelist), so the repair never sees a verdict the scan server would not give.
-fn repair_verdict(ti: &ThreatIntelStore, engine: &EngineAdapter, data: &[u8], name: &str, sha: &str) -> String {
+fn repair_verdict(
+    ti: &ThreatIntelStore,
+    engine: &EngineAdapter,
+    data: &[u8],
+    name: &str,
+    sha: &str,
+) -> String {
     let (verdict, source, _) = ti.effective(sha);
     if source != "unseen" {
         return verdict;
@@ -392,9 +441,16 @@ fn repair_verdict(ti: &ThreatIntelStore, engine: &EngineAdapter, data: &[u8], na
 
 /// Whether the removed part of a heuristic repair is malicious on its own (each
 /// removed piece scanned by itself; at least one must be malicious).
-fn removed_part_is_malicious(engine: &EngineAdapter, data: &[u8], pieces: &[(usize, usize)], name: &str) -> bool {
+fn removed_part_is_malicious(
+    engine: &EngineAdapter,
+    data: &[u8],
+    pieces: &[(usize, usize)],
+    name: &str,
+) -> bool {
     pieces.iter().any(|&(s, e)| {
-        let Some(piece) = data.get(s..e).filter(|p| !p.is_empty()) else { return false };
+        let Some(piece) = data.get(s..e).filter(|p| !p.is_empty()) else {
+            return false;
+        };
         let sha = sha256_hex(piece);
         engine
             .scan_blocking_opts(piece, &format!("{name}.removed"), &sha, false, |_| {})
@@ -427,11 +483,16 @@ fn generic_repair(
     // and never a range touching the import / export tables: zeroing an imported API
     // name would keep the program from loading at all.
     let hits = engine.match_ranges(data, name, GENERIC_MAX_RANGES);
-    let protected = PeLayout::parse(data).map(|pe| pe.import_export_ranges(data)).unwrap_or_default();
-    let (hits, skipped): (Vec<_>, Vec<_>) = hits.into_iter().partition(|h| !overlaps_any(h.2, h.3, &protected));
+    let protected = PeLayout::parse(data)
+        .map(|pe| pe.import_export_ranges(data))
+        .unwrap_or_default();
+    let (hits, skipped): (Vec<_>, Vec<_>) = hits
+        .into_iter()
+        .partition(|h| !overlaps_any(h.2, h.3, &protected));
     if !hits.is_empty() {
         let ranges: Vec<(usize, usize)> = hits.iter().map(|h| (h.2, h.3)).collect();
-        let mut signatures: Vec<String> = hits.iter().map(|h| format!("{}: {}", h.0, h.1)).collect();
+        let mut signatures: Vec<String> =
+            hits.iter().map(|h| format!("{}: {}", h.0, h.1)).collect();
         signatures.sort();
         signatures.dedup();
         if let Some(mut fix) = neutralize_ranges(data, &ranges) {
@@ -446,15 +507,22 @@ fn generic_repair(
     }
     let trimmed = crate::similarity::trim_trailing_padding(data);
     let Some(tlsh) = crate::analyzer::tlsh_digest(trimmed) else {
-        return Err("no signature byte range to remove, and the file is too small or uniform for TLSH".into());
+        return Err(
+            "no signature byte range to remove, and the file is too small or uniform for TLSH"
+                .into(),
+        );
     };
     let mut why = "no signature byte range to remove, and no known-clean file with a TLSH distance <= 100 is stored here".to_string();
     for s in ti.similarity.nearest(&tlsh, HEURISTIC_MAX_DIST, 32, sha) {
         if s.sha256.is_empty() || s.sha256.eq_ignore_ascii_case(sha) {
             continue;
         }
-        let Some(source) = known_clean_source(ti, &s.sha256) else { continue };
-        let Some(rel) = engine.read_kept_sample(&s.sha256.to_ascii_uppercase()) else { continue };
+        let Some(source) = known_clean_source(ti, &s.sha256) else {
+            continue;
+        };
+        let Some(rel) = engine.read_kept_sample(&s.sha256.to_ascii_uppercase()) else {
+            continue;
+        };
         match diff_with_relative(data, &rel) {
             // Same build, but what it has on top of the clean file must itself be
             // malicious; otherwise the difference may be legitimate (patched, re-signed).
@@ -465,10 +533,23 @@ fn generic_repair(
                 );
             }
             Ok(fix) => {
-                let relative = CleanRelative { sha256: s.sha256.clone(), distance: s.distance, source };
-                return Ok(Some(fix.into_report("clean_relative_diff", Vec::new(), Some(relative))));
+                let relative = CleanRelative {
+                    sha256: s.sha256.clone(),
+                    distance: s.distance,
+                    source,
+                };
+                return Ok(Some(fix.into_report(
+                    "clean_relative_diff",
+                    Vec::new(),
+                    Some(relative),
+                )));
             }
-            Err(e) => why = format!("closest clean file {} (distance {}): {e}", s.sha256, s.distance),
+            Err(e) => {
+                why = format!(
+                    "closest clean file {} (distance {}): {e}",
+                    s.sha256, s.distance
+                )
+            }
         }
     }
     Err(why)
@@ -491,7 +572,12 @@ fn overlaps_any(s: usize, e: usize, ranges: &[(usize, usize)]) -> bool {
 }
 
 impl Fix {
-    fn into_report(self, method: &'static str, signatures: Vec<String>, relative: Option<CleanRelative>) -> (GenericRepair, Vec<u8>) {
+    fn into_report(
+        self,
+        method: &'static str,
+        signatures: Vec<String>,
+        relative: Option<CleanRelative>,
+    ) -> (GenericRepair, Vec<u8>) {
         let g = GenericRepair {
             method,
             recommended: false,
@@ -607,7 +693,9 @@ impl PeLayout {
     }
 
     fn section_of_rva(&self, rva: u32) -> Option<usize> {
-        self.sections.iter().position(|s| rva >= s.va && rva < s.va.saturating_add(s.vsize.max(s.raw_size)))
+        self.sections
+            .iter()
+            .position(|s| rva >= s.va && rva < s.va.saturating_add(s.vsize.max(s.raw_size)))
     }
 
     /// File offset of the certificate-table data directory (index 4).
@@ -631,7 +719,10 @@ impl PeLayout {
         if rva < self.size_of_headers {
             return Some(rva as usize).filter(|&o| o < len);
         }
-        let s = self.sections.iter().find(|s| rva >= s.va && rva - s.va < s.raw_size)?;
+        let s = self
+            .sections
+            .iter()
+            .find(|s| rva >= s.va && rva - s.va < s.raw_size)?;
         let off = s.raw_ptr as usize + (rva - s.va) as usize;
         (off < len).then_some(off)
     }
@@ -640,18 +731,32 @@ impl PeLayout {
     fn cstr(&self, d: &[u8], rva: u32) -> Option<(usize, usize, String)> {
         let s = self.rva_to_off(rva, d.len())?;
         let n = d[s..d.len().min(s + 4096)].iter().position(|&b| b == 0)?;
-        Some((s, s + n + 1, String::from_utf8_lossy(&d[s..s + n]).to_ascii_lowercase()))
+        Some((
+            s,
+            s + n + 1,
+            String::from_utf8_lossy(&d[s..s + n]).to_ascii_lowercase(),
+        ))
     }
 
     /// One import thunk array: its range, and the hint/name entries it points to
     /// (`names` = None for a bound IAT, whose entries are addresses, not RVAs).
-    fn walk_thunks(&self, d: &[u8], arr: u32, dll: &str, ranges: &mut Vec<(usize, usize)>, mut names: Option<&mut Vec<String>>) {
-        let Some(start) = self.rva_to_off(arr, d.len()) else { return };
+    fn walk_thunks(
+        &self,
+        d: &[u8],
+        arr: u32,
+        dll: &str,
+        ranges: &mut Vec<(usize, usize)>,
+        mut names: Option<&mut Vec<String>>,
+    ) {
+        let Some(start) = self.rva_to_off(arr, d.len()) else {
+            return;
+        };
         let ptr = if self.pe32plus { 8 } else { 4 };
         let mut o = start;
         for _ in 0..65_536 {
             let v = if self.pe32plus {
-                d.get(o..o + 8).map(|b| u64::from_le_bytes(b.try_into().unwrap()))
+                d.get(o..o + 8)
+                    .map(|b| u64::from_le_bytes(b.try_into().unwrap()))
             } else {
                 rd32(d, o).map(u64::from)
             };
@@ -660,11 +765,20 @@ impl PeLayout {
             if v == 0 {
                 break;
             }
-            let Some(names) = names.as_deref_mut() else { continue };
-            let by_ordinal = if self.pe32plus { v >> 63 == 1 } else { v & 0x8000_0000 != 0 };
+            let Some(names) = names.as_deref_mut() else {
+                continue;
+            };
+            let by_ordinal = if self.pe32plus {
+                v >> 63 == 1
+            } else {
+                v & 0x8000_0000 != 0
+            };
             if by_ordinal {
                 names.push(format!("{dll}!#{}", v & 0xffff));
-            } else if let Some((s, e, name)) = u32::try_from(v).ok().and_then(|r| self.cstr(d, r.checked_add(2)?)) {
+            } else if let Some((s, e, name)) = u32::try_from(v)
+                .ok()
+                .and_then(|r| self.cstr(d, r.checked_add(2)?))
+            {
                 ranges.push((s.saturating_sub(2), e));
                 names.push(format!("{dll}!{name}"));
             }
@@ -676,14 +790,23 @@ impl PeLayout {
     /// DLL names and hint/name entries, plus the imported `dll!api` names in order.
     fn walk_imports(&self, d: &[u8], ranges: &mut Vec<(usize, usize)>) -> Vec<String> {
         let mut names = Vec::new();
-        if let Some(mut desc) = self.data_dir(d, 1).and_then(|(rva, _)| self.rva_to_off(rva, d.len())) {
+        if let Some(mut desc) = self
+            .data_dir(d, 1)
+            .and_then(|(rva, _)| self.rva_to_off(rva, d.len()))
+        {
             for _ in 0..4096 {
-                let Some(b) = d.get(desc..desc + 20) else { break };
+                let Some(b) = d.get(desc..desc + 20) else {
+                    break;
+                };
                 ranges.push((desc, desc + 20));
                 if b.iter().all(|&x| x == 0) {
                     break;
                 }
-                let (oft, name_rva, ft) = (rd32(d, desc).unwrap_or(0), rd32(d, desc + 12).unwrap_or(0), rd32(d, desc + 16).unwrap_or(0));
+                let (oft, name_rva, ft) = (
+                    rd32(d, desc).unwrap_or(0),
+                    rd32(d, desc + 12).unwrap_or(0),
+                    rd32(d, desc + 16).unwrap_or(0),
+                );
                 let dll = match self.cstr(d, name_rva) {
                     Some((s, e, n)) => {
                         ranges.push((s, e));
@@ -701,9 +824,14 @@ impl PeLayout {
             }
         }
         // Delay imports, RVA-based descriptors only (attribute bit 0).
-        if let Some(mut desc) = self.data_dir(d, 13).and_then(|(rva, _)| self.rva_to_off(rva, d.len())) {
+        if let Some(mut desc) = self
+            .data_dir(d, 13)
+            .and_then(|(rva, _)| self.rva_to_off(rva, d.len()))
+        {
             for _ in 0..4096 {
-                let Some(b) = d.get(desc..desc + 32) else { break };
+                let Some(b) = d.get(desc..desc + 32) else {
+                    break;
+                };
                 ranges.push((desc, desc + 32));
                 if b.iter().all(|&x| x == 0) || rd32(d, desc).unwrap_or(0) & 1 == 0 {
                     break;
@@ -715,7 +843,13 @@ impl PeLayout {
                     }
                     None => "delay:".into(),
                 };
-                self.walk_thunks(d, rd32(d, desc + 16).unwrap_or(0), &dll, ranges, Some(&mut names));
+                self.walk_thunks(
+                    d,
+                    rd32(d, desc + 16).unwrap_or(0),
+                    &dll,
+                    ranges,
+                    Some(&mut names),
+                );
                 self.walk_thunks(d, rd32(d, desc + 12).unwrap_or(0), &dll, ranges, None);
                 desc += 32;
             }
@@ -741,20 +875,32 @@ impl PeLayout {
             }
         }
         self.walk_imports(d, &mut out);
-        if let Some(e) = self.data_dir(d, 0).and_then(|(rva, _)| self.rva_to_off(rva, len)) {
+        if let Some(e) = self
+            .data_dir(d, 0)
+            .and_then(|(rva, _)| self.rva_to_off(rva, len))
+        {
             if let Some((s, end, _)) = rd32(d, e + 12).and_then(|r| self.cstr(d, r)) {
                 out.push((s, end));
             }
             let field = |o: usize| rd32(d, e + o).unwrap_or(0);
-            let (nfun, nnames) = (field(20).min(65_536) as usize, field(24).min(65_536) as usize);
-            for (rva, bytes) in [(field(28), nfun * 4), (field(32), nnames * 4), (field(36), nnames * 2)] {
+            let (nfun, nnames) = (
+                field(20).min(65_536) as usize,
+                field(24).min(65_536) as usize,
+            );
+            for (rva, bytes) in [
+                (field(28), nfun * 4),
+                (field(32), nnames * 4),
+                (field(36), nnames * 2),
+            ] {
                 if let Some(o) = self.rva_to_off(rva, len) {
                     out.push((o, o.saturating_add(bytes).min(len)));
                 }
             }
             if let Some(names) = self.rva_to_off(field(32), len) {
                 for i in 0..nnames {
-                    let Some(r) = rd32(d, names + i * 4) else { break };
+                    let Some(r) = rd32(d, names + i * 4) else {
+                        break;
+                    };
                     if let Some((s, end, _)) = self.cstr(d, r) {
                         out.push((s, end));
                     }
@@ -785,7 +931,9 @@ fn fix_pe_after_edit(d: &mut [u8]) {
 fn neutralize_ranges(data: &[u8], ranges: &[(usize, usize)]) -> Option<Fix> {
     let pe = PeLayout::parse(data);
     let len = data.len();
-    let headers = pe.as_ref().map_or(0, |p| (p.size_of_headers as usize).min(len));
+    let headers = pe
+        .as_ref()
+        .map_or(0, |p| (p.size_of_headers as usize).min(len));
     let overlay = pe.as_ref().map(PeLayout::raw_end).filter(|&e| e < len);
     let cut_at = overlay.filter(|&ov| ranges.iter().any(|&(s, _)| s >= ov));
     let keep = cut_at.unwrap_or(len);
@@ -814,10 +962,16 @@ fn neutralize_ranges(data: &[u8], ranges: &[(usize, usize)]) -> Option<Fix> {
     }
     let mut changes = Vec::new();
     if zeroed > 0 {
-        changes.push(format!("zeroed {zeroed} bytes in {} matched range(s)", runs.len()));
+        changes.push(format!(
+            "zeroed {zeroed} bytes in {} matched range(s)",
+            runs.len()
+        ));
     }
     if let Some(c) = cut_at {
-        changes.push(format!("cut {} bytes appended after the last section (from 0x{c:x})", len - c));
+        changes.push(format!(
+            "cut {} bytes appended after the last section (from 0x{c:x})",
+            len - c
+        ));
     }
     if skipped_header {
         changes.push("matches inside the PE headers were left as they are".into());
@@ -825,7 +979,13 @@ fn neutralize_ranges(data: &[u8], ranges: &[(usize, usize)]) -> Option<Fix> {
     if pe.is_some() {
         fix_pe_after_edit(&mut out);
     }
-    Some(Fix { data: out, zeroed, cut: (len - keep) as u64, changes, removed: Vec::new() })
+    Some(Fix {
+        data: out,
+        zeroed,
+        cut: (len - keep) as u64,
+        changes,
+        removed: Vec::new(),
+    })
 }
 
 /// Heuristic repair against a known-clean relative with the same section layout
@@ -881,10 +1041,18 @@ fn diff_with_relative(data: &[u8], rel: &[u8]) -> Result<Fix, String> {
             removed.push((rs.min(len), re.min(len)));
             zeroed += zero(&mut out, rs, re);
             zero(&mut out, s.header_off, s.header_off + 40);
-            names.push(String::from_utf8_lossy(&s.name).trim_end_matches('\0').to_string());
+            names.push(
+                String::from_utf8_lossy(&s.name)
+                    .trim_end_matches('\0')
+                    .to_string(),
+            );
         }
         wr16(&mut out, inf.nsec_off, keep_n as u16);
-        changes.push(format!("removed {} added section(s): {}", names.len(), names.join(", ")));
+        changes.push(format!(
+            "removed {} added section(s): {}",
+            names.len(),
+            names.join(", ")
+        ));
     }
     // 2. The last shared section grew (the virus body was appended into it).
     let last = keep_n - 1;
@@ -892,7 +1060,10 @@ fn diff_with_relative(data: &[u8], rel: &[u8]) -> Result<Fix, String> {
     let mut last_raw = a.raw_size;
     if a.raw_size > b.raw_size || a.vsize > b.vsize {
         if a.raw_size > b.raw_size {
-            let (gs, ge) = (a.raw_ptr as usize + b.raw_size as usize, a.raw_ptr as usize + a.raw_size as usize);
+            let (gs, ge) = (
+                a.raw_ptr as usize + b.raw_size as usize,
+                a.raw_ptr as usize + a.raw_size as usize,
+            );
             removed.push((gs.min(len), ge.min(len)));
             zeroed += zero(&mut out, gs, ge);
             last_raw = b.raw_size;
@@ -905,13 +1076,20 @@ fn diff_with_relative(data: &[u8], rel: &[u8]) -> Result<Fix, String> {
         ));
     }
     if inf.sections.len() > keep_n || a.raw_size > b.raw_size || a.vsize > b.vsize {
-        wr32(&mut out, inf.opt_off + 56, cl.size_of_image.min(inf.size_of_image));
+        wr32(
+            &mut out,
+            inf.opt_off + 56,
+            cl.size_of_image.min(inf.size_of_image),
+        );
     }
     // 3. Entry point moved away from the clean file's.
     if inf.entry != cl.entry {
         if cl.section_of_rva(cl.entry).is_some_and(|i| i < keep_n) {
             wr32(&mut out, inf.opt_off + 16, cl.entry);
-            changes.push(format!("entry point 0x{:x} -> 0x{:x} (the clean file's)", inf.entry, cl.entry));
+            changes.push(format!(
+                "entry point 0x{:x} -> 0x{:x} (the clean file's)",
+                inf.entry, cl.entry
+            ));
         } else {
             return Err("the clean file's entry point is not in a shared section".into());
         }
@@ -921,7 +1099,14 @@ fn diff_with_relative(data: &[u8], rel: &[u8]) -> Result<Fix, String> {
         .iter()
         .enumerate()
         .filter(|(_, s)| s.raw_size > 0)
-        .map(|(i, s)| s.raw_ptr as usize + if i == last { last_raw as usize } else { s.raw_size as usize })
+        .map(|(i, s)| {
+            s.raw_ptr as usize
+                + if i == last {
+                    last_raw as usize
+                } else {
+                    s.raw_size as usize
+                }
+        })
         .max()
         .unwrap_or(inf.size_of_headers as usize)
         .min(len);
@@ -935,7 +1120,10 @@ fn diff_with_relative(data: &[u8], rel: &[u8]) -> Result<Fix, String> {
             out.truncate(kept_end);
         } else {
             let probe = &cl_overlay[..cl_overlay.len().min(256)];
-            let found = data[kept_end..].windows(probe.len()).position(|w| w == probe).map(|p| kept_end + p);
+            let found = data[kept_end..]
+                .windows(probe.len())
+                .position(|w| w == probe)
+                .map(|p| kept_end + p);
             match found {
                 Some(p) if p + cl_overlay.len() <= len => {
                     let mut rebuilt = out[..kept_end].to_vec();
@@ -952,20 +1140,34 @@ fn diff_with_relative(data: &[u8], rel: &[u8]) -> Result<Fix, String> {
                     removed.push((p + cl_overlay.len(), len));
                     out = rebuilt;
                 }
-                _ => changes.push("appended data kept: the clean file's overlay was not found in it".into()),
+                _ => changes.push(
+                    "appended data kept: the clean file's overlay was not found in it".into(),
+                ),
             }
         }
         if cut > 0 {
-            changes.push(format!("cut {cut} bytes of data appended after the sections"));
+            changes.push(format!(
+                "cut {cut} bytes of data appended after the sections"
+            ));
         }
     }
-    let changed = inf.sections.len() > keep_n || a.raw_size > b.raw_size || a.vsize > b.vsize || inf.entry != cl.entry || cut > 0;
+    let changed = inf.sections.len() > keep_n
+        || a.raw_size > b.raw_size
+        || a.vsize > b.vsize
+        || inf.entry != cl.entry
+        || cut > 0;
     if !changed {
         return Err("no difference to the clean file was found".into());
     }
     fix_pe_after_edit(&mut out);
     removed.retain(|&(s, e)| s < e);
-    Ok(Fix { data: out, zeroed, cut, changes, removed })
+    Ok(Fix {
+        data: out,
+        zeroed,
+        cut,
+        changes,
+        removed,
+    })
 }
 
 #[cfg(test)]
@@ -1020,14 +1222,26 @@ mod tests {
         let pe = build_pe(&[(".text", 0x1000, t)], 0x1000, b"....EVILTAIL....");
         let body = 0x200 + 0x40;
         let tail = pe.len() - 12;
-        let fix = neutralize_ranges(&pe, &[(body, body + 9), (tail, tail + 8), (0x3c, 0x40)]).unwrap();
+        let fix =
+            neutralize_ranges(&pe, &[(body, body + 9), (tail, tail + 8), (0x3c, 0x40)]).unwrap();
         assert!(fix.data[body..body + 9].iter().all(|&b| b == 0));
-        assert_eq!(fix.data.len(), 0x200 + 0x400, "cut at the end of the last section");
+        assert_eq!(
+            fix.data.len(),
+            0x200 + 0x400,
+            "cut at the end of the last section"
+        );
         assert_eq!(fix.cut, 16);
         assert_eq!(fix.zeroed, 9);
-        assert_eq!(&fix.data[0x3c..0x40], &0x40u32.to_le_bytes(), "headers are never zeroed");
+        assert_eq!(
+            &fix.data[0x3c..0x40],
+            &0x40u32.to_le_bytes(),
+            "headers are never zeroed"
+        );
         assert!(PeLayout::parse(&fix.data).is_some());
-        assert!(neutralize_ranges(&pe, &[(0x10, 0x20)]).is_none(), "only header ranges: nothing to do");
+        assert!(
+            neutralize_ranges(&pe, &[(0x10, 0x20)]).is_none(),
+            "only header ranges: nothing to do"
+        );
         // Not a PE: zeroed, nothing cut.
         let fix = neutralize_ranges(b"var a = evil(); ok", &[(8, 14)]).unwrap();
         assert_eq!(fix.data, b"var a = \0\0\0\0\0\0; ok");
@@ -1035,42 +1249,86 @@ mod tests {
 
     #[test]
     fn added_section_and_moved_entry_point_are_removed() {
-        let clean = build_pe(&[(".text", 0x1000, text()), (".data", 0x2000, vec![5u8; 0x100])], 0x1010, b"");
+        let clean = build_pe(
+            &[
+                (".text", 0x1000, text()),
+                (".data", 0x2000, vec![5u8; 0x100]),
+            ],
+            0x1010,
+            b"",
+        );
         let infected = build_pe(
-            &[(".text", 0x1000, text()), (".data", 0x2000, vec![5u8; 0x100]), (".virus", 0x3000, vec![0xCC; 0x250])],
+            &[
+                (".text", 0x1000, text()),
+                (".data", 0x2000, vec![5u8; 0x100]),
+                (".virus", 0x3000, vec![0xCC; 0x250]),
+            ],
             0x3000,
             b"",
         );
         let fix = diff_with_relative(&infected, &clean).unwrap();
-        assert_eq!(fix.data, clean, "the infected file is turned back into the clean one");
-        assert!(fix.changes.iter().any(|c| c.contains(".virus")), "{:?}", fix.changes);
+        assert_eq!(
+            fix.data, clean,
+            "the infected file is turned back into the clean one"
+        );
+        assert!(
+            fix.changes.iter().any(|c| c.contains(".virus")),
+            "{:?}",
+            fix.changes
+        );
         assert!(fix.cut > 0);
     }
 
     #[test]
     fn grown_last_section_is_shrunk() {
-        let clean = build_pe(&[(".text", 0x1000, text()), (".data", 0x2000, vec![5u8; 0x100])], 0x1010, b"");
+        let clean = build_pe(
+            &[
+                (".text", 0x1000, text()),
+                (".data", 0x2000, vec![5u8; 0x100]),
+            ],
+            0x1010,
+            b"",
+        );
         let mut grown = vec![5u8; 0x100];
         grown.resize(0x200, 0);
         grown.extend(vec![0xCC; 0x300]); // virus body appended into the last section
-        let infected = build_pe(&[(".text", 0x1000, text()), (".data", 0x2000, grown)], 0x2200, b"");
+        let infected = build_pe(
+            &[(".text", 0x1000, text()), (".data", 0x2000, grown)],
+            0x2200,
+            b"",
+        );
         let fix = diff_with_relative(&infected, &clean).unwrap();
-        assert_eq!(fix.data, clean, "section sizes, entry point and length back to the clean file");
+        assert_eq!(
+            fix.data, clean,
+            "section sizes, entry point and length back to the clean file"
+        );
     }
 
     #[test]
     fn clean_overlay_is_kept_and_virus_before_it_removed() {
         let ov = b"INSTALLER-OVERLAY-DATA-0123456789".repeat(4);
         let clean = build_pe(&[(".text", 0x1000, text())], 0x1000, &ov);
-        let infected = build_pe(&[(".text", 0x1000, text()), (".v", 0x2000, vec![0xCC; 0x80])], 0x2000, &ov);
+        let infected = build_pe(
+            &[(".text", 0x1000, text()), (".v", 0x2000, vec![0xCC; 0x80])],
+            0x2000,
+            &ov,
+        );
         let fix = diff_with_relative(&infected, &clean).unwrap();
         assert_eq!(fix.data, clean);
     }
 
     #[test]
     fn other_builds_are_refused() {
-        let clean = build_pe(&[(".text", 0x1000, text()), (".rdata", 0x2000, vec![1; 16])], 0x1000, b"");
-        let other = build_pe(&[(".text", 0x1000, text()), (".data", 0x2000, vec![1; 16])], 0x1000, b"");
+        let clean = build_pe(
+            &[(".text", 0x1000, text()), (".rdata", 0x2000, vec![1; 16])],
+            0x1000,
+            b"",
+        );
+        let other = build_pe(
+            &[(".text", 0x1000, text()), (".data", 0x2000, vec![1; 16])],
+            0x1000,
+            b"",
+        );
         assert!(diff_with_relative(&other, &clean).is_err());
         assert!(diff_with_relative(&clean, &clean).is_err(), "no difference");
         assert!(diff_with_relative(b"not a pe", &clean).is_err());
@@ -1086,7 +1344,11 @@ mod tests {
         wr32(&mut rdata, 0x60, 0x20a0);
         rdata[0x80..0x8c].copy_from_slice(b"kernel32.dll");
         rdata[0xa2..0xa2 + api.len()].copy_from_slice(api.as_bytes());
-        let mut pe = build_pe(&[(".text", 0x1000, text()), (".rdata", 0x2000, rdata)], 0x1000, b"");
+        let mut pe = build_pe(
+            &[(".text", 0x1000, text()), (".rdata", 0x2000, rdata)],
+            0x1000,
+            b"",
+        );
         wr32(&mut pe, 0x48, timestamp);
         wr32(&mut pe, 0x58 + 92, 16); // NumberOfRvaAndSizes
         wr32(&mut pe, 0x58 + 96 + 8, 0x2000); // import directory
@@ -1098,14 +1360,29 @@ mod tests {
     fn import_tables_are_found_and_protected() {
         let pe = pe_with_import("VirtualAlloc", 0);
         let layout = PeLayout::parse(&pe).unwrap();
-        assert_eq!(layout.imports(&pe), vec!["kernel32.dll!virtualalloc".to_string()]);
+        assert_eq!(
+            layout.imports(&pe),
+            vec!["kernel32.dll!virtualalloc".to_string()]
+        );
         let prot = layout.import_export_ranges(&pe);
         let rdata = 0x200 + 0x400; // .text is 0x300 bytes -> 0x400 raw
         let api = rdata + 0xa2;
-        assert!(overlaps_any(api, api + 12, &prot), "the API name is protected: {prot:x?}");
-        assert!(overlaps_any(rdata + 0x80, rdata + 0x8c, &prot), "the DLL name is protected");
-        assert!(overlaps_any(rdata, rdata + 20, &prot), "the descriptor is protected");
-        assert!(!overlaps_any(0x200 + 0x40, 0x200 + 0x49, &prot), "code is not protected");
+        assert!(
+            overlaps_any(api, api + 12, &prot),
+            "the API name is protected: {prot:x?}"
+        );
+        assert!(
+            overlaps_any(rdata + 0x80, rdata + 0x8c, &prot),
+            "the DLL name is protected"
+        );
+        assert!(
+            overlaps_any(rdata, rdata + 20, &prot),
+            "the descriptor is protected"
+        );
+        assert!(
+            !overlaps_any(0x200 + 0x40, 0x200 + 0x49, &prot),
+            "code is not protected"
+        );
     }
 
     #[test]
@@ -1118,29 +1395,60 @@ mod tests {
         let same = pe_with_import("VirtualAlloc", 0x5000_0000);
         let fix = diff_with_relative(&infected, &same).unwrap();
         assert_eq!(fix.data, same);
-        assert_eq!(fix.removed, vec![(same.len(), infected.len())], "the removed part is reported");
+        assert_eq!(
+            fix.removed,
+            vec![(same.len(), infected.len())],
+            "the removed part is reported"
+        );
 
         let other_stamp = pe_with_import("VirtualAlloc", 0x5100_0000);
-        assert!(diff_with_relative(&infected, &other_stamp).unwrap_err().contains("timestamp"));
+        assert!(
+            diff_with_relative(&infected, &other_stamp)
+                .unwrap_err()
+                .contains("timestamp")
+        );
         let other_imports = pe_with_import("VirtualFree", 0x5000_0000);
-        assert!(diff_with_relative(&infected, &other_imports).unwrap_err().contains("import"));
+        assert!(
+            diff_with_relative(&infected, &other_imports)
+                .unwrap_err()
+                .contains("import")
+        );
         let mut other_linker = same.clone();
         other_linker[0x58 + 2] = 14;
-        assert!(diff_with_relative(&infected, &other_linker).unwrap_err().contains("linker"));
+        assert!(
+            diff_with_relative(&infected, &other_linker)
+                .unwrap_err()
+                .contains("linker")
+        );
     }
 
     #[test]
     fn removed_parts_of_added_section_and_grown_section() {
-        let clean = build_pe(&[(".text", 0x1000, text()), (".data", 0x2000, vec![5u8; 0x100])], 0x1010, b"");
+        let clean = build_pe(
+            &[
+                (".text", 0x1000, text()),
+                (".data", 0x2000, vec![5u8; 0x100]),
+            ],
+            0x1010,
+            b"",
+        );
         let infected = build_pe(
-            &[(".text", 0x1000, text()), (".data", 0x2000, vec![5u8; 0x100]), (".virus", 0x3000, vec![0xCC; 0x250])],
+            &[
+                (".text", 0x1000, text()),
+                (".data", 0x2000, vec![5u8; 0x100]),
+                (".virus", 0x3000, vec![0xCC; 0x250]),
+            ],
             0x3000,
             b"",
         );
         let fix = diff_with_relative(&infected, &clean).unwrap();
         let v = 0x200 + 0x400 + 0x200; // raw pointer of .virus
         assert!(fix.removed.contains(&(v, v + 0x400)), "{:x?}", fix.removed);
-        assert!(fix.removed.iter().all(|&(s, e)| infected[s..e].iter().all(|&b| b == 0xCC || b == 0)));
+        assert!(
+            fix.removed
+                .iter()
+                .all(|&(s, e)| infected[s..e].iter().all(|&b| b == 0xCC || b == 0))
+        );
     }
 
     #[test]

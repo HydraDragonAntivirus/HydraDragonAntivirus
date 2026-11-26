@@ -47,10 +47,12 @@ pub struct Entry {
 }
 
 fn u16_at(d: &[u8], o: usize) -> Option<u16> {
-    d.get(o..o.checked_add(2)?).map(|b| u16::from_le_bytes([b[0], b[1]]))
+    d.get(o..o.checked_add(2)?)
+        .map(|b| u16::from_le_bytes([b[0], b[1]]))
 }
 fn u32_at(d: &[u8], o: usize) -> Option<u32> {
-    d.get(o..o.checked_add(4)?).map(|b| u32::from_le_bytes([b[0], b[1], b[2], b[3]]))
+    d.get(o..o.checked_add(4)?)
+        .map(|b| u32::from_le_bytes([b[0], b[1], b[2], b[3]]))
 }
 fn u64_at(d: &[u8], o: usize) -> Option<u64> {
     let b = d.get(o..o.checked_add(8)?)?;
@@ -63,8 +65,14 @@ fn eocd(data: &[u8]) -> Option<(usize, usize, usize)> {
         return None;
     }
     let from = data.len().saturating_sub(65_557);
-    let e = (from..=data.len() - 22).rev().find(|&i| data[i..i + 4] == [0x50, 0x4b, 0x05, 0x06])?;
-    Some((e, u32_at(data, e + 16)? as usize, u16_at(data, e + 10)? as usize))
+    let e = (from..=data.len() - 22)
+        .rev()
+        .find(|&i| data[i..i + 4] == [0x50, 0x4b, 0x05, 0x06])?;
+    Some((
+        e,
+        u32_at(data, e + 16)? as usize,
+        u16_at(data, e + 10)? as usize,
+    ))
 }
 
 pub fn entries(data: &[u8]) -> Option<Vec<Entry>> {
@@ -94,13 +102,17 @@ pub fn read_entry(data: &[u8], e: &Entry, cap: usize) -> Option<Vec<u8>> {
     if u32_at(data, e.local)? != 0x0403_4b50 {
         return None;
     }
-    let start = e.local + 30 + u16_at(data, e.local + 26)? as usize + u16_at(data, e.local + 28)? as usize;
+    let start =
+        e.local + 30 + u16_at(data, e.local + 26)? as usize + u16_at(data, e.local + 28)? as usize;
     let comp = data.get(start..start.checked_add(e.csize)?)?;
     match e.method {
         0 => Some(comp[..comp.len().min(cap)].to_vec()),
         8 => {
             let mut buf = Vec::with_capacity(e.usize_.min(cap));
-            flate2::read::DeflateDecoder::new(comp).take(cap as u64).read_to_end(&mut buf).ok()?;
+            flate2::read::DeflateDecoder::new(comp)
+                .take(cap as u64)
+                .read_to_end(&mut buf)
+                .ok()?;
             Some(buf)
         }
         _ => None,
@@ -109,12 +121,19 @@ pub fn read_entry(data: &[u8], e: &Entry, cap: usize) -> Option<Vec<u8>> {
 
 fn dex_order(name: &str) -> Option<u32> {
     let mid = name.strip_prefix("classes")?.strip_suffix(".dex")?;
-    if mid.is_empty() { Some(1) } else { mid.parse().ok() }
+    if mid.is_empty() {
+        Some(1)
+    } else {
+        mid.parse().ok()
+    }
 }
 
 /// `classes.dex`, `classes2.dex`, ... concatenated in order.
 pub fn dex_code(data: &[u8]) -> Option<Vec<u8>> {
-    let mut dex: Vec<(u32, Entry)> = entries(data)?.into_iter().filter_map(|e| dex_order(&e.name).map(|o| (o, e))).collect();
+    let mut dex: Vec<(u32, Entry)> = entries(data)?
+        .into_iter()
+        .filter_map(|e| dex_order(&e.name).map(|o| (o, e)))
+        .collect();
     dex.sort_by_key(|x| x.0);
     let mut out = Vec::new();
     for (_, e) in dex {
@@ -143,20 +162,36 @@ fn string_pool(d: &[u8], c: usize) -> Option<Vec<String>> {
     let strings_start = c + u32_at(d, c + 20)? as usize;
     let mut out = Vec::with_capacity(count);
     for i in 0..count {
-        let Some(o) = u32_at(d, c + hsize + i * 4) else { break };
+        let Some(o) = u32_at(d, c + hsize + i * 4) else {
+            break;
+        };
         let p = strings_start + o as usize;
         let s = if utf8 {
             let mut q = p;
             let b = *d.get(q)?;
             q += if b & 0x80 != 0 { 2 } else { 1 }; // UTF-16 length, skipped
             let b0 = *d.get(q)? as usize;
-            let (len, skip) = if b0 & 0x80 != 0 { (((b0 & 0x7f) << 8) | *d.get(q + 1)? as usize, 2) } else { (b0, 1) };
+            let (len, skip) = if b0 & 0x80 != 0 {
+                (((b0 & 0x7f) << 8) | *d.get(q + 1)? as usize, 2)
+            } else {
+                (b0, 1)
+            };
             String::from_utf8_lossy(d.get(q + skip..q + skip + len).unwrap_or(&[])).into_owned()
         } else {
             let l0 = u16_at(d, p)? as usize;
-            let (len, skip) = if l0 & 0x8000 != 0 { ((((l0 & 0x7fff) << 16) | u16_at(d, p + 2)? as usize), 4) } else { (l0, 2) };
-            let raw = d.get(p + skip..p + skip + len.min(65_536) * 2).unwrap_or(&[]);
-            String::from_utf16_lossy(&raw.chunks_exact(2).map(|b| u16::from_le_bytes([b[0], b[1]])).collect::<Vec<_>>())
+            let (len, skip) = if l0 & 0x8000 != 0 {
+                ((((l0 & 0x7fff) << 16) | u16_at(d, p + 2)? as usize), 4)
+            } else {
+                (l0, 2)
+            };
+            let raw = d
+                .get(p + skip..p + skip + len.min(65_536) * 2)
+                .unwrap_or(&[]);
+            String::from_utf16_lossy(
+                &raw.chunks_exact(2)
+                    .map(|b| u16::from_le_bytes([b[0], b[1]]))
+                    .collect::<Vec<_>>(),
+            )
         };
         out.push(s);
     }
@@ -187,7 +222,8 @@ fn parse_axml(d: &[u8]) -> Option<Manifest> {
         receivers: BTreeSet::new(),
         providers: BTreeSet::new(),
     };
-    let str_at = |strings: &Vec<String>, i: u32| strings.get(i as usize).cloned().unwrap_or_default();
+    let str_at =
+        |strings: &Vec<String>, i: u32| strings.get(i as usize).cloned().unwrap_or_default();
     let mut c = u16_at(d, 2)? as usize;
     while c + 8 <= total {
         let ty = u16_at(d, c)?;
@@ -199,7 +235,10 @@ fn parse_axml(d: &[u8]) -> Option<Manifest> {
         match ty {
             RES_STRING_POOL if strings.is_empty() => strings = string_pool(d, c)?,
             RES_XML_RESOURCE_MAP => {
-                resmap = (c + hsize..c + size).step_by(4).filter_map(|o| u32_at(d, o)).collect();
+                resmap = (c + hsize..c + size)
+                    .step_by(4)
+                    .filter_map(|o| u32_at(d, o))
+                    .collect();
             }
             RES_XML_START_ELEMENT => {
                 let ext = c + hsize;
@@ -224,16 +263,25 @@ fn parse_axml(d: &[u8]) -> Option<Manifest> {
                     let aname = str_at(&strings, an);
                     let is_name = resmap.get(an as usize).copied() == Some(ATTR_NAME_ID)
                         || (resmap.get(an as usize).is_none() && aname == "name");
-                    if tag == "manifest" && aname == "package" && resmap.get(an as usize).is_none() {
+                    if tag == "manifest" && aname == "package" && resmap.get(an as usize).is_none()
+                    {
                         m.package = val.clone();
                     }
                     if is_name {
                         name_val = val;
                     }
                 }
-                let full = |n: &str, pkg: &str| if n.starts_with('.') { format!("{pkg}{n}") } else { n.to_string() };
+                let full = |n: &str, pkg: &str| {
+                    if n.starts_with('.') {
+                        format!("{pkg}{n}")
+                    } else {
+                        n.to_string()
+                    }
+                };
                 match tag.as_str() {
-                    "uses-permission" | "uses-permission-sdk-23" | "uses-permission-sdk-m" if !name_val.is_empty() => {
+                    "uses-permission" | "uses-permission-sdk-23" | "uses-permission-sdk-m"
+                        if !name_val.is_empty() =>
+                    {
                         m.permissions.insert(name_val);
                     }
                     "activity" | "activity-alias" => m.activities += 1,
@@ -310,7 +358,9 @@ fn lp_items(d: &[u8]) -> Vec<&[u8]> {
     let mut o = 0usize;
     while let Some(l) = u32_at(d, o) {
         let s = o + 4;
-        let Some(item) = d.get(s..s + l as usize) else { break };
+        let Some(item) = d.get(s..s + l as usize) else {
+            break;
+        };
         v.push(item);
         o = s + l as usize;
         if v.len() > 64 {
@@ -328,12 +378,22 @@ fn lp_first(d: &[u8]) -> Option<&[u8]> {
 /// First certificate of every signer in an APK Signature Scheme v2/v3 block value.
 fn v2_certs(value: &[u8]) -> Vec<Vec<u8>> {
     let mut out = Vec::new();
-    let Some(signers) = lp_first(value) else { return out };
+    let Some(signers) = lp_first(value) else {
+        return out;
+    };
     for signer in lp_items(signers) {
-        let Some(signed_data) = lp_first(signer) else { continue };
-        let Some(digests_len) = u32_at(signed_data, 0) else { continue };
-        let Some(rest) = signed_data.get(4 + digests_len as usize..) else { continue };
-        let Some(certs) = lp_first(rest) else { continue };
+        let Some(signed_data) = lp_first(signer) else {
+            continue;
+        };
+        let Some(digests_len) = u32_at(signed_data, 0) else {
+            continue;
+        };
+        let Some(rest) = signed_data.get(4 + digests_len as usize..) else {
+            continue;
+        };
+        let Some(certs) = lp_first(rest) else {
+            continue;
+        };
         if let Some(c) = lp_items(certs).first() {
             out.push(c.to_vec());
         }
@@ -352,7 +412,9 @@ fn signing_certs(data: &[u8], entries: &[Entry]) -> Option<(String, Vec<Vec<u8>>
             while o + 12 <= cd - 24 {
                 let len = u64_at(data, o)? as usize;
                 let id = u32_at(data, o + 8)?;
-                let Some(val) = data.get(o + 12..(o + 8).checked_add(len)?) else { break };
+                let Some(val) = data.get(o + 12..(o + 8).checked_add(len)?) else {
+                    break;
+                };
                 match id {
                     0xf053_68c0 | 0x1b93_ad61 => v3 = v2_certs(val),
                     0x7109_871a => v2 = v2_certs(val),
@@ -371,8 +433,13 @@ fn signing_certs(data: &[u8], entries: &[Entry]) -> Option<(String, Vec<Vec<u8>>
     let mut v1 = Vec::new();
     for e in entries {
         let n = e.name.to_ascii_uppercase();
-        if n.starts_with("META-INF/") && (n.ends_with(".RSA") || n.ends_with(".DSA") || n.ends_with(".EC")) {
-            if let Some(cert) = read_entry(data, e, MAX_ENTRY).as_deref().and_then(pkcs7_first_cert) {
+        if n.starts_with("META-INF/")
+            && (n.ends_with(".RSA") || n.ends_with(".DSA") || n.ends_with(".EC"))
+        {
+            if let Some(cert) = read_entry(data, e, MAX_ENTRY)
+                .as_deref()
+                .and_then(pkcs7_first_cert)
+            {
                 v1.push(cert);
             }
         }
@@ -391,10 +458,15 @@ pub fn parse(data: &[u8]) -> Option<ApkInfo> {
     let manifest = entries.iter().find(|e| e.name == "AndroidManifest.xml")?;
     let m = parse_axml(&read_entry(data, manifest, MAX_ENTRY)?)?;
     let (scheme, certs) = signing_certs(data, &entries).unwrap_or_default();
-    let mut signers: Vec<String> = certs.iter().map(|c| hex::encode(Sha256::digest(c))).collect();
+    let mut signers: Vec<String> = certs
+        .iter()
+        .map(|c| hex::encode(Sha256::digest(c)))
+        .collect();
     signers.sort();
     signers.dedup();
-    let test_key = certs.iter().any(|c| contains(c, b"Android Debug") || contains(c, b"android@android.com"));
+    let test_key = certs
+        .iter()
+        .any(|c| contains(c, b"Android Debug") || contains(c, b"android@android.com"));
     Some(ApkInfo {
         package: m.package,
         signers,
@@ -405,7 +477,14 @@ pub fn parse(data: &[u8]) -> Option<ApkInfo> {
         services: m.services,
         receivers: m.receivers,
         providers: m.providers,
-        dex_count: entries.iter().filter(|e| dex_order(&e.name).is_some()).count() as u32,
-        native_libs: entries.iter().filter(|e| e.name.starts_with("lib/") && e.name.ends_with(".so")).map(|e| e.name.clone()).collect(),
+        dex_count: entries
+            .iter()
+            .filter(|e| dex_order(&e.name).is_some())
+            .count() as u32,
+        native_libs: entries
+            .iter()
+            .filter(|e| e.name.starts_with("lib/") && e.name.ends_with(".so"))
+            .map(|e| e.name.clone())
+            .collect(),
     })
 }

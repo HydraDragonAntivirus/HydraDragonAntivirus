@@ -58,8 +58,16 @@ fn largest_scanning(srv: &ScanServer, n: usize) -> (Vec<(String, i64)>, usize, u
 pub fn report(srv: &ScanServer) -> serde_json::Value {
     let (private, ws, peak_ws) = memtrack::process_memory();
     let comps = memtrack::snapshot();
-    let loaded: i64 = comps.iter().filter(|c| c.kind == Kind::Load).map(|c| c.retained_bytes.max(0)).sum();
-    let live: i64 = comps.iter().filter(|c| c.kind == Kind::Scan).map(|c| c.live_bytes).sum();
+    let loaded: i64 = comps
+        .iter()
+        .filter(|c| c.kind == Kind::Load)
+        .map(|c| c.retained_bytes.max(0))
+        .sum();
+    let live: i64 = comps
+        .iter()
+        .filter(|c| c.kind == Kind::Scan)
+        .map(|c| c.live_bytes)
+        .sum();
     let (files, ns, nw) = largest_scanning(srv, 10);
     serde_json::json!({
         "tracking": memtrack::installed(),
@@ -83,7 +91,10 @@ pub fn report(srv: &ScanServer) -> serde_json::Value {
 /// upload buffers and the largest files in the engine.
 fn spike_summary(srv: &ScanServer, private: u64, grew: u64) -> (String, serde_json::Value) {
     let comps = memtrack::snapshot();
-    let mut holders: Vec<&ComponentMem> = comps.iter().filter(|c| c.live_bytes > 16 * 1024 * 1024).collect();
+    let mut holders: Vec<&ComponentMem> = comps
+        .iter()
+        .filter(|c| c.live_bytes > 16 * 1024 * 1024)
+        .collect();
     holders.sort_by_key(|c| std::cmp::Reverse(c.live_bytes));
     holders.truncate(4);
     let (files, ns, _) = largest_scanning(srv, 3);
@@ -94,17 +105,30 @@ fn spike_summary(srv: &ScanServer, private: u64, grew: u64) -> (String, serde_js
     } else {
         parts.push(format!(
             "held now by {}",
-            holders.iter().map(|c| format!("{} {}", c.name, human(c.live_bytes))).collect::<Vec<_>>().join(", ")
+            holders
+                .iter()
+                .map(|c| format!("{} {}", c.name, human(c.live_bytes)))
+                .collect::<Vec<_>>()
+                .join(", ")
         ));
     }
     parts.push(format!("upload buffers {}", human(uploads)));
     if !files.is_empty() {
         parts.push(format!(
             "{ns} file(s) in the engine, largest {}",
-            files.iter().map(|(f, s)| format!("{f} ({})", human(*s))).collect::<Vec<_>>().join(", ")
+            files
+                .iter()
+                .map(|(f, s)| format!("{f} ({})", human(*s)))
+                .collect::<Vec<_>>()
+                .join(", ")
         ));
     }
-    let msg = format!("Memory spike: {} private (+{} in the last minute); {}", human(private as i64), human(grew as i64), parts.join("; "));
+    let msg = format!(
+        "Memory spike: {} private (+{} in the last minute); {}",
+        human(private as i64),
+        human(grew as i64),
+        parts.join("; ")
+    );
     let json = serde_json::json!({
         "at": chrono::Utc::now(),
         "privateMB": mb(private as i64),
@@ -118,28 +142,32 @@ fn spike_summary(srv: &ScanServer, private: u64, grew: u64) -> (String, serde_js
 }
 
 pub fn spawn(srv: Arc<ScanServer>) {
-    let _ = std::thread::Builder::new().name("memwatch".into()).spawn(move || {
-        let mut window: VecDeque<u64> = VecDeque::with_capacity(WINDOW + 1);
-        let mut last_report: Option<Instant> = None;
-        loop {
-            std::thread::sleep(SAMPLE_EVERY);
-            let (private, _, _) = memtrack::process_memory();
-            if private == 0 {
-                continue;
+    let _ = std::thread::Builder::new()
+        .name("memwatch".into())
+        .spawn(move || {
+            let mut window: VecDeque<u64> = VecDeque::with_capacity(WINDOW + 1);
+            let mut last_report: Option<Instant> = None;
+            loop {
+                std::thread::sleep(SAMPLE_EVERY);
+                let (private, _, _) = memtrack::process_memory();
+                if private == 0 {
+                    continue;
+                }
+                let low = window.iter().copied().min().unwrap_or(private);
+                window.push_back(private);
+                if window.len() > WINDOW {
+                    window.pop_front();
+                }
+                let grew = private.saturating_sub(low);
+                if grew < MIN_SPIKE_BYTES.max(low / 4)
+                    || last_report.is_some_and(|t| t.elapsed() < REPORT_GAP)
+                {
+                    continue;
+                }
+                last_report = Some(Instant::now());
+                let (msg, json) = spike_summary(&srv, private, grew);
+                *LAST_SPIKE.lock().unwrap() = Some(json);
+                srv.log_info(msg);
             }
-            let low = window.iter().copied().min().unwrap_or(private);
-            window.push_back(private);
-            if window.len() > WINDOW {
-                window.pop_front();
-            }
-            let grew = private.saturating_sub(low);
-            if grew < MIN_SPIKE_BYTES.max(low / 4) || last_report.is_some_and(|t| t.elapsed() < REPORT_GAP) {
-                continue;
-            }
-            last_report = Some(Instant::now());
-            let (msg, json) = spike_summary(&srv, private, grew);
-            *LAST_SPIKE.lock().unwrap() = Some(json);
-            srv.log_info(msg);
-        }
-    });
+        });
 }

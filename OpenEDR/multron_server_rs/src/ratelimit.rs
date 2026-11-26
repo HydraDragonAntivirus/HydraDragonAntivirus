@@ -14,7 +14,10 @@ pub struct Bucket {
 
 impl Bucket {
     pub fn full(cap: f64) -> Self {
-        Self { tokens: cap, last: Instant::now() }
+        Self {
+            tokens: cap,
+            last: Instant::now(),
+        }
     }
 
     /// `cap` tokens at most, refilled at `rate` per second.
@@ -112,7 +115,9 @@ impl RateLimiter {
     /// Before asking for an upload: bytes this address may still send this hour.
     pub fn take_upload(&self, ip: &str, bytes: i64) -> bool {
         let cap = self.upload_cap();
-        let ok = self.with(ip, |s| s.upload_bytes.take(bytes.max(0) as f64, cap, cap / 3600.0));
+        let ok = self.with(ip, |s| {
+            s.upload_bytes.take(bytes.max(0) as f64, cap, cap / 3600.0)
+        });
         if !ok {
             self.blocked.fetch_add(1, Ordering::Relaxed);
         }

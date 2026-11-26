@@ -2,18 +2,18 @@ use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use axum::Router;
 use axum::extract::{DefaultBodyLimit, Extension, Path, Query, State};
 use axum::http::header::HeaderMap;
 use axum::http::{Method, Request, StatusCode};
 use axum::middleware::{self, Next};
 use axum::response::{Html, IntoResponse, Json, Response};
 use axum::routing::{get, post};
-use axum::Router;
 use chrono::Utc;
 use serde::Deserialize;
-use tokio::sync::{mpsc, Mutex, RwLock};
+use tokio::sync::{Mutex, RwLock, mpsc};
 
-use crate::config::{app_dir, CliArgs, SavedSettings};
+use crate::config::{CliArgs, SavedSettings, app_dir};
 use crate::engine_adapter::EngineAdapter;
 use crate::events::EventLog;
 use crate::limits::LimitSettings;
@@ -87,42 +87,68 @@ impl AppState {
         if cfg.no_keep_possible_clean {
             settings.keep_possible_clean = false;
         }
-        engine.keep_possible_clean.store(settings.keep_possible_clean, std::sync::atomic::Ordering::Relaxed);
+        engine.keep_possible_clean.store(
+            settings.keep_possible_clean,
+            std::sync::atomic::Ordering::Relaxed,
+        );
         // Keeping every unique file / collecting XOR-filter hits: saved dashboard choice
         // (both on by default), unless the command line turns them off.
         if cfg.no_keep_all_unique {
             settings.keep_all_unique = false;
         }
-        engine.keep_all_unique.store(settings.keep_all_unique, std::sync::atomic::Ordering::Relaxed);
+        engine.keep_all_unique.store(
+            settings.keep_all_unique,
+            std::sync::atomic::Ordering::Relaxed,
+        );
         if cfg.no_collect_xorfilter {
             settings.collect_xorfilter = false;
         }
-        engine.collect_xorfilter.store(settings.collect_xorfilter, std::sync::atomic::Ordering::Relaxed);
+        engine.collect_xorfilter.store(
+            settings.collect_xorfilter,
+            std::sync::atomic::Ordering::Relaxed,
+        );
         // Keeping clean PE / APK files: saved dashboard choice; `--keep-clean` turns it on.
         if cfg.keep_clean {
             settings.keep_clean = true;
         }
-        engine.keep_clean.store(settings.keep_clean, std::sync::atomic::Ordering::Relaxed);
+        engine
+            .keep_clean
+            .store(settings.keep_clean, std::sync::atomic::Ordering::Relaxed);
         // Low-disk LZMA2 compression: saved dashboard choice (off by default); the
         // command line (--compress-low-disk / --no-compress-low-disk) wins.
         if let Some(on) = cfg.compress_low_disk_flag() {
             settings.lzma_low_disk = on;
         }
-        engine.compress_low_disk.store(settings.lzma_low_disk, std::sync::atomic::Ordering::Relaxed);
+        engine
+            .compress_low_disk
+            .store(settings.lzma_low_disk, std::sync::atomic::Ordering::Relaxed);
         if cfg.no_brotli_upload {
             settings.allow_brotli_upload = false;
         }
         if let Some(on) = cfg.lzma_upload_flag() {
             settings.allow_lzma_upload = on;
         }
-        scan_server.allow_brotli_upload.store(settings.allow_brotli_upload, std::sync::atomic::Ordering::Relaxed);
-        scan_server.allow_lzma_upload.store(settings.allow_lzma_upload, std::sync::atomic::Ordering::Relaxed);
+        scan_server.allow_brotli_upload.store(
+            settings.allow_brotli_upload,
+            std::sync::atomic::Ordering::Relaxed,
+        );
+        scan_server.allow_lzma_upload.store(
+            settings.allow_lzma_upload,
+            std::sync::atomic::Ordering::Relaxed,
+        );
         // Deleted samples stored again or not: saved dashboard choice (on by default).
         crate::sample_deletions::set_never_store_again(settings.never_store_deleted);
-        settings.tlsh_blacklist_max_dist = crate::similarity::set_blacklist_max_dist(settings.tlsh_blacklist_max_dist);
-        openedr_static::engine::set_ml_thresholds(settings.ml_js_threshold, settings.ml_apk_threshold);
+        settings.tlsh_blacklist_max_dist =
+            crate::similarity::set_blacklist_max_dist(settings.tlsh_blacklist_max_dist);
+        openedr_static::engine::set_ml_thresholds(
+            settings.ml_js_threshold,
+            settings.ml_apk_threshold,
+        );
         openedr_static::engine::set_pe_threshold(settings.ml_pe_threshold);
-        scan_server.rescan.after_reload.store(settings.rescan_after_reload, std::sync::atomic::Ordering::Relaxed);
+        scan_server.rescan.after_reload.store(
+            settings.rescan_after_reload,
+            std::sync::atomic::Ordering::Relaxed,
+        );
         if !cfg.offload_dir.trim().is_empty() {
             settings.offload_target = cfg.offload_dir.trim().to_string();
         }
@@ -134,12 +160,17 @@ impl AppState {
             // Nothing is ever written here: no mirror out, no rescans after reloads.
             settings.archive_mirror.clear();
             settings.rescan_after_reload = false;
-            scan_server.rescan.after_reload.store(false, std::sync::atomic::Ordering::Relaxed);
+            scan_server
+                .rescan
+                .after_reload
+                .store(false, std::sync::atomic::Ordering::Relaxed);
         }
         scan_server.mirror.set_target(&settings.archive_mirror);
         if settings.maintenance {
             scan_server.set_maintenance("maintenance");
-            eprintln!("[maintenance] still on from before the restart (turn it off in the dashboard)");
+            eprintln!(
+                "[maintenance] still on from before the restart (turn it off in the dashboard)"
+            );
         }
 
         // Limits saved from the dashboard win over the command-line defaults.
@@ -344,66 +375,152 @@ pub fn dashboard_router(state: Arc<AppState>) -> Router {
         .route("/api/alyzer/strings", get(crate::alyzer::handle_strings))
         .route("/api/alyzer/disasm", get(crate::alyzer::handle_disasm))
         .route("/api/alyzer/archive", get(crate::alyzer::handle_archive))
-        .route("/api/alyzer/archive/open", post(crate::alyzer::handle_archive_open))
-        .route("/api/alyzer/decompile", get(crate::alyzer::handle_decompile))
+        .route(
+            "/api/alyzer/archive/open",
+            post(crate::alyzer::handle_archive_open),
+        )
+        .route(
+            "/api/alyzer/decompile",
+            get(crate::alyzer::handle_decompile),
+        )
         .route("/api/alyzer/unpack", post(crate::alyzer::handle_unpack))
         .route("/api/alyzer/devirt", post(crate::alyzer::handle_devirt))
         .route("/api/alyzer/scan", post(crate::alyzer::handle_scan))
-        .route("/api/alyzer/save", post(crate::alyzer::handle_save).route_layer(DefaultBodyLimit::max(64 * 1024 * 1024)))
+        .route(
+            "/api/alyzer/save",
+            post(crate::alyzer::handle_save).route_layer(DefaultBodyLimit::max(64 * 1024 * 1024)),
+        )
         .route("/api/alyzer/export", post(crate::alyzer::handle_export))
         .route("/api/alyzer/download", get(crate::alyzer::handle_download))
         .route("/api/events/ecs", get(handle_events_ecs))
-        .route("/api/v1/edr/telemetry/behavior", post(crate::edr_telemetry::handle_edr_telemetry_behavior))
-        .route("/api/v1/edr/telemetry/network-flows", post(crate::edr_telemetry::handle_edr_telemetry_network_flows))
-        .route("/api/v1/edr/telemetry/threat", post(crate::edr_telemetry::handle_edr_telemetry_threat))
-        .route("/api/v1/edr/telemetry/report", post(crate::edr_telemetry::handle_edr_telemetry_report))
+        .route(
+            "/api/v1/edr/telemetry/behavior",
+            post(crate::edr_telemetry::handle_edr_telemetry_behavior),
+        )
+        .route(
+            "/api/v1/edr/telemetry/network-flows",
+            post(crate::edr_telemetry::handle_edr_telemetry_network_flows),
+        )
+        .route(
+            "/api/v1/edr/telemetry/threat",
+            post(crate::edr_telemetry::handle_edr_telemetry_threat),
+        )
+        .route(
+            "/api/v1/edr/telemetry/report",
+            post(crate::edr_telemetry::handle_edr_telemetry_report),
+        )
         .route(
             "/api/v1/edr/telemetry/events",
             post(crate::edr_telemetry::handle_edr_telemetry_events)
                 .get(crate::edr_telemetry::handle_get_edr_events)
                 .route_layer(DefaultBodyLimit::max(32 * 1024 * 1024)),
         )
-        .route("/api/v1/edr/telemetry/events/export", get(crate::edr_telemetry::handle_export_edr_events))
-        .route("/api/v1/edr/telemetry/system-reports", get(crate::edr_telemetry::handle_get_system_reports))
-        .route("/api/v1/edr/telemetry/stats", get(crate::edr_telemetry::handle_get_edr_stats))
-        .route("/api/v1/edr/telemetry/behaviors", get(crate::edr_telemetry::handle_get_edr_behaviors))
-        .route("/api/v1/edr/telemetry/flows", get(crate::edr_telemetry::handle_get_edr_flows))
-        .route("/api/v1/edr/telemetry/threats", get(crate::edr_telemetry::handle_get_edr_threats))
-        .route("/api/v1/edr/telemetry/killchain/stats", get(crate::edr_telemetry::handle_get_killchain_stats))
-        .route("/api/v1/edr/telemetry/killchain/export", get(crate::edr_telemetry::handle_export_killchain))
-        .route("/api/v1/edr/telemetry/killchain/machines", get(crate::edr_telemetry::handle_get_killchain_machines))
+        .route(
+            "/api/v1/edr/telemetry/events/export",
+            get(crate::edr_telemetry::handle_export_edr_events),
+        )
+        .route(
+            "/api/v1/edr/telemetry/system-reports",
+            get(crate::edr_telemetry::handle_get_system_reports),
+        )
+        .route(
+            "/api/v1/edr/telemetry/stats",
+            get(crate::edr_telemetry::handle_get_edr_stats),
+        )
+        .route(
+            "/api/v1/edr/telemetry/behaviors",
+            get(crate::edr_telemetry::handle_get_edr_behaviors),
+        )
+        .route(
+            "/api/v1/edr/telemetry/flows",
+            get(crate::edr_telemetry::handle_get_edr_flows),
+        )
+        .route(
+            "/api/v1/edr/telemetry/threats",
+            get(crate::edr_telemetry::handle_get_edr_threats),
+        )
+        .route(
+            "/api/v1/edr/telemetry/killchain/stats",
+            get(crate::edr_telemetry::handle_get_killchain_stats),
+        )
+        .route(
+            "/api/v1/edr/telemetry/killchain/export",
+            get(crate::edr_telemetry::handle_export_killchain),
+        )
+        .route(
+            "/api/v1/edr/telemetry/killchain/machines",
+            get(crate::edr_telemetry::handle_get_killchain_machines),
+        )
         .route("/api/v1/firewall/rules", get(handle_firewall_rules_export))
-        .route("/api/v1/firewall/sslbl", get(crate::sslbl::handle_get_sslbl))
-        .route("/api/v1/firewall/sslbl/add", post(crate::sslbl::handle_add_sslbl))
-        .route("/api/v1/firewall/sslbl/delete", post(crate::sslbl::handle_delete_sslbl))
-        .route("/api/v1/firewall/sslbl/import-abusech", post(crate::sslbl::handle_import_abusech_sslbl).route_layer(DefaultBodyLimit::max(64 * 1024 * 1024)))
+        .route(
+            "/api/v1/firewall/sslbl",
+            get(crate::sslbl::handle_get_sslbl),
+        )
+        .route(
+            "/api/v1/firewall/sslbl/add",
+            post(crate::sslbl::handle_add_sslbl),
+        )
+        .route(
+            "/api/v1/firewall/sslbl/delete",
+            post(crate::sslbl::handle_delete_sslbl),
+        )
+        .route(
+            "/api/v1/firewall/sslbl/import-abusech",
+            post(crate::sslbl::handle_import_abusech_sslbl)
+                .route_layer(DefaultBodyLimit::max(64 * 1024 * 1024)),
+        )
         .route("/api/firewall/rules", get(handle_firewall_rules_export))
-        .route("/api/v1/edr/report", post(crate::edr_telemetry::handle_edr_telemetry_threat))
-        .route("/api/v1/edr/upload/:sha256", post(crate::edr_telemetry::handle_edr_upload).route_layer(DefaultBodyLimit::max(128 * 1024 * 1024)))
+        .route(
+            "/api/v1/edr/report",
+            post(crate::edr_telemetry::handle_edr_telemetry_threat),
+        )
+        .route(
+            "/api/v1/edr/upload/:sha256",
+            post(crate::edr_telemetry::handle_edr_upload)
+                .route_layer(DefaultBodyLimit::max(128 * 1024 * 1024)),
+        )
         .route("/api/start", post(handle_start))
         .route("/api/stop", post(handle_stop))
-        .route("/api/maintenance", get(handle_maintenance_status).post(handle_maintenance))
+        .route(
+            "/api/maintenance",
+            get(handle_maintenance_status).post(handle_maintenance),
+        )
         .route("/api/handoff/begin", post(handle_handoff_begin))
         .route("/api/handoff/cancel", post(handle_handoff_cancel))
         .route("/api/handoff/release", post(handle_handoff_release))
         .route("/api/keep-possible-clean", post(handle_keep_possible_clean))
-        .route("/api/tlsh-blacklist-distance", post(handle_tlsh_blacklist_distance))
+        .route(
+            "/api/tlsh-blacklist-distance",
+            post(handle_tlsh_blacklist_distance),
+        )
         .route("/api/ml-thresholds", post(handle_ml_thresholds))
         .route("/api/keep-clean", post(handle_keep_clean))
         .route("/api/keep-all-unique", post(handle_keep_all_unique))
         .route("/api/collect-xorfilter", post(handle_collect_xorfilter))
         .route("/api/dataset/conflicts", get(handle_dataset_conflicts))
-        .route("/api/dataset/remove-incoming-duplicates", post(handle_remove_incoming_duplicates))
+        .route(
+            "/api/dataset/remove-incoming-duplicates",
+            post(handle_remove_incoming_duplicates),
+        )
         .route("/api/kept/sort-by-type", post(handle_sort_kept_by_type))
         .route("/api/kept/unpack-xz", post(handle_unpack_kept_xz))
         .route("/api/compress-low-disk", post(handle_compress_low_disk))
         .route("/api/upload-encodings", post(handle_upload_encodings))
         .route("/api/never-store-deleted", post(handle_never_store_deleted))
         .route("/api/rescan", post(handle_rescan_one))
-        .route("/api/rescan/bulk", get(handle_rescan_status).post(handle_rescan_bulk))
+        .route(
+            "/api/rescan/bulk",
+            get(handle_rescan_status).post(handle_rescan_bulk),
+        )
         .route("/api/rescan/stop", post(handle_rescan_stop))
-        .route("/api/rescan/audit", get(handle_rescan_audit).post(handle_rescan_audit_bulk))
-        .route("/api/rescan/unkept-threats", get(handle_unkept_threats).post(handle_unkept_threats_apply))
+        .route(
+            "/api/rescan/audit",
+            get(handle_rescan_audit).post(handle_rescan_audit_bulk),
+        )
+        .route(
+            "/api/rescan/unkept-threats",
+            get(handle_unkept_threats).post(handle_unkept_threats_apply),
+        )
         .route("/api/rescan/log", get(handle_rescan_log))
         .route("/api/kept/info/:sha256", get(handle_kept_info))
         .route("/api/reviews/requeue", post(handle_reviews_requeue))
@@ -424,8 +541,14 @@ pub fn dashboard_router(state: Arc<AppState>) -> Router {
         .route("/api/url-insights", get(handle_url_insights))
         .route("/api/url-review", post(handle_url_review))
         .route("/api/insights/:sha256", get(handle_dashboard_insights_hash))
-        .route("/api/rules", post(handle_rules_reload).route_layer(DefaultBodyLimit::disable()))
-        .route("/api/engine/reload", get(handle_engine_reload_status).post(handle_engine_reload))
+        .route(
+            "/api/rules",
+            post(handle_rules_reload).route_layer(DefaultBodyLimit::disable()),
+        )
+        .route(
+            "/api/engine/reload",
+            get(handle_engine_reload_status).post(handle_engine_reload),
+        )
         .route("/api/reviews", get(handle_reviews_list))
         .route("/api/review", post(handle_review_save))
         .route("/api/review/delete", post(handle_review_delete))
@@ -441,19 +564,40 @@ pub fn dashboard_router(state: Arc<AppState>) -> Router {
             "/api/reviews/bulk",
             post(handle_reviews_bulk).route_layer(DefaultBodyLimit::max(16 * 1024 * 1024)),
         )
-        .route("/api/signatures", get(handle_signatures_list).post(handle_signature_save))
+        .route(
+            "/api/signatures",
+            get(handle_signatures_list).post(handle_signature_save),
+        )
         .route("/api/signatures/schema", get(handle_signatures_schema))
         .route("/api/signatures/delete", post(handle_signature_delete))
-        .route("/api/imphash-signatures", get(handle_imphash_list).post(handle_imphash_create))
-        .route("/api/imphash-signatures/delete", post(handle_imphash_delete))
-        .route("/api/private-samples", get(handle_private_list).post(handle_private_set))
-        .route("/api/blacklist/removals", get(handle_blacklist_removals_list))
+        .route(
+            "/api/imphash-signatures",
+            get(handle_imphash_list).post(handle_imphash_create),
+        )
+        .route(
+            "/api/imphash-signatures/delete",
+            post(handle_imphash_delete),
+        )
+        .route(
+            "/api/private-samples",
+            get(handle_private_list).post(handle_private_set),
+        )
+        .route(
+            "/api/blacklist/removals",
+            get(handle_blacklist_removals_list),
+        )
         .route("/api/blacklist/remove", post(handle_blacklist_remove))
         .route("/api/blacklist/restore", post(handle_blacklist_restore))
         .route("/api/samples/deleted", get(handle_deleted_list))
         .route("/api/samples/delete", post(handle_sample_delete))
-        .route("/api/yara-rule-classes", get(handle_yara_classes_list).post(handle_yara_class_set))
-        .route("/api/yara-rule-classes/delete", post(handle_yara_class_delete))
+        .route(
+            "/api/yara-rule-classes",
+            get(handle_yara_classes_list).post(handle_yara_class_set),
+        )
+        .route(
+            "/api/yara-rule-classes/delete",
+            post(handle_yara_class_delete),
+        )
         .route("/api/fp/detections/:sha256", get(handle_fp_detections))
         .route("/api/fp/lists", get(handle_fp_lists))
         .route("/api/fp/ignore", post(handle_fp_ignore))
@@ -468,7 +612,10 @@ pub fn dashboard_router(state: Arc<AppState>) -> Router {
         .route("/api/retrohunt/archive", post(handle_retrohunt_archive))
         .route("/api/naming", get(handle_naming_check))
         .route("/api/signer-rules/lookup", get(handle_signer_rules_lookup))
-        .route("/api/signer-rules/quick-add", post(handle_signer_rules_quick_add))
+        .route(
+            "/api/signer-rules/quick-add",
+            post(handle_signer_rules_quick_add),
+        )
         .route("/api/analyst/whoami", get(handle_analyst_whoami))
         .layer(middleware::from_fn(guard_middleware))
         .with_state(state)
@@ -476,10 +623,25 @@ pub fn dashboard_router(state: Arc<AppState>) -> Router {
 
 /// Dashboard calls that change nothing in the mirrored data (archive mode).
 const ARCHIVE_ALLOWED: [&str; 19] = [
-    "/api/start", "/api/stop", "/api/maintenance", "/api/limits", "/api/limits/reset", "/api/unban",
-    "/api/handoff/begin", "/api/handoff/cancel", "/api/handoff/release",
-    "/api/alyzer/open", "/api/alyzer/bytes", "/api/alyzer/search", "/api/alyzer/strings", "/api/alyzer/list", "/api/fs/list",
-    "/api/alyzer/archive/open", "/api/alyzer/unpack", "/api/retrohunt/archive", "/api/retrohunt/stop",
+    "/api/start",
+    "/api/stop",
+    "/api/maintenance",
+    "/api/limits",
+    "/api/limits/reset",
+    "/api/unban",
+    "/api/handoff/begin",
+    "/api/handoff/cancel",
+    "/api/handoff/release",
+    "/api/alyzer/open",
+    "/api/alyzer/bytes",
+    "/api/alyzer/search",
+    "/api/alyzer/strings",
+    "/api/alyzer/list",
+    "/api/fs/list",
+    "/api/alyzer/archive/open",
+    "/api/alyzer/unpack",
+    "/api/retrohunt/archive",
+    "/api/retrohunt/stop",
 ];
 
 /// `Host` header names this computer: `localhost`, `127.0.0.1` or `[::1]` / `::1`,
@@ -490,18 +652,35 @@ fn is_local_host(host: &str) -> bool {
         None if host.matches(':').count() > 1 => host, // bare IPv6, no port
         None => host.split(':').next().unwrap_or(""),
     };
-    name.eq_ignore_ascii_case("localhost") || name.parse::<std::net::IpAddr>().is_ok_and(|ip| ip.is_loopback())
+    name.eq_ignore_ascii_case("localhost")
+        || name
+            .parse::<std::net::IpAddr>()
+            .is_ok_and(|ip| ip.is_loopback())
 }
 
 /// Dashboard calls that write human verdicts or change what decides a verdict (rules,
 /// FP lists, signer rules, bans): with `analyst_keys.txt` in place they need a valid
 /// `X-Multron-Analyst-Key` (see `human_review::analyst_keys`).
 const ANALYST_PATHS: &[&str] = &[
-    "/api/review", "/api/review/start", "/api/review/release", "/api/review/delete", "/api/url-review",
-    "/api/reviews/bulk", "/api/reviews/requeue", "/api/signatures", "/api/signatures/delete",
-    "/api/imphash-signatures", "/api/imphash-signatures/delete",
-    "/api/yara-rule-classes", "/api/yara-rule-classes/delete",
-    "/api/fp/ignore", "/api/fp/unignore", "/api/signer-rules/quick-add", "/api/rules", "/api/bans/add", "/api/bans/remove",
+    "/api/review",
+    "/api/review/start",
+    "/api/review/release",
+    "/api/review/delete",
+    "/api/url-review",
+    "/api/reviews/bulk",
+    "/api/reviews/requeue",
+    "/api/signatures",
+    "/api/signatures/delete",
+    "/api/imphash-signatures",
+    "/api/imphash-signatures/delete",
+    "/api/yara-rule-classes",
+    "/api/yara-rule-classes/delete",
+    "/api/fp/ignore",
+    "/api/fp/unignore",
+    "/api/signer-rules/quick-add",
+    "/api/rules",
+    "/api/bans/add",
+    "/api/bans/remove",
     "/api/ml-thresholds",
 ];
 
@@ -517,7 +696,13 @@ fn apply_analyst(id: &Option<Extension<AnalystId>>, field: &mut String) {
 }
 
 async fn guard_middleware(mut req: Request<axum::body::Body>, next: Next) -> Response {
-    let forbidden = || (StatusCode::FORBIDDEN, "dashboard is only available on this computer").into_response();
+    let forbidden = || {
+        (
+            StatusCode::FORBIDDEN,
+            "dashboard is only available on this computer",
+        )
+            .into_response()
+    };
 
     // The connection itself must come from this computer (the Host header alone is
     // sent by the client and proves nothing). No peer address = refuse.
@@ -532,12 +717,19 @@ async fn guard_middleware(mut req: Request<axum::body::Body>, next: Next) -> Res
     // Host header must name this computer too (stops DNS rebinding from a web page);
     // a request without one is refused.
     let headers = req.headers();
-    if !headers.get("host").and_then(|h| h.to_str().ok()).is_some_and(is_local_host) {
+    if !headers
+        .get("host")
+        .and_then(|h| h.to_str().ok())
+        .is_some_and(is_local_host)
+    {
         return forbidden();
     }
 
     // Archive server: read-only. Only running the listener and viewing files are allowed.
-    if crate::config::is_archive() && req.method() != Method::GET && !ARCHIVE_ALLOWED.contains(&req.uri().path()) {
+    if crate::config::is_archive()
+        && req.method() != Method::GET
+        && !ARCHIVE_ALLOWED.contains(&req.uri().path())
+    {
         return (
             StatusCode::FORBIDDEN,
             Json(serde_json::json!({"ok": false, "error": "archive server: read-only (make changes on the main server; they are mirrored here)"})),
@@ -547,7 +739,11 @@ async fn guard_middleware(mut req: Request<axum::body::Body>, next: Next) -> Res
 
     // State-changing calls need X-Multron-Dashboard header
     if req.method() == Method::POST {
-        if headers.get("X-Multron-Dashboard").and_then(|v| v.to_str().ok()) != Some("1") {
+        if headers
+            .get("X-Multron-Dashboard")
+            .and_then(|v| v.to_str().ok())
+            != Some("1")
+        {
             return (StatusCode::FORBIDDEN, "forbidden").into_response();
         }
     }
@@ -559,7 +755,10 @@ async fn guard_middleware(mut req: Request<axum::body::Body>, next: Next) -> Res
             .get("X-Multron-Analyst-Key")
             .and_then(|v| v.to_str().ok())
             .and_then(|k| crate::human_review::analyst_for_key(&keys, k.trim()));
-        if req.method() == Method::POST && ANALYST_PATHS.contains(&req.uri().path()) && who.is_none() {
+        if req.method() == Method::POST
+            && ANALYST_PATHS.contains(&req.uri().path())
+            && who.is_none()
+        {
             return (
                 StatusCode::UNAUTHORIZED,
                 Json(serde_json::json!({"ok": false, "error": "analyst key required: enter your analyst key in Human analysis (X-Multron-Analyst-Key)"})),
@@ -583,7 +782,8 @@ async fn handle_index() -> impl IntoResponse {
 }
 
 /// Kept-file counts walk multron_incoming; refreshed at most every 30 s.
-static KEPT_CACHE: std::sync::Mutex<Option<(std::time::Instant, serde_json::Value)>> = std::sync::Mutex::new(None);
+static KEPT_CACHE: std::sync::Mutex<Option<(std::time::Instant, serde_json::Value)>> =
+    std::sync::Mutex::new(None);
 
 async fn kept_counts_cached(engine: &Arc<EngineAdapter>) -> serde_json::Value {
     if let Some((t, v)) = KEPT_CACHE.lock().unwrap().as_ref() {
@@ -592,10 +792,15 @@ async fn kept_counts_cached(engine: &Arc<EngineAdapter>) -> serde_json::Value {
         }
     }
     let eng = Arc::clone(engine);
-    let counts = tokio::task::spawn_blocking(move || eng.kept_counts()).await.unwrap_or_default();
+    let counts = tokio::task::spawn_blocking(move || eng.kept_counts())
+        .await
+        .unwrap_or_default();
     let mut v = serde_json::Map::new();
     for (cat, files, bytes) in counts {
-        v.insert(cat.to_string(), serde_json::json!({ "files": files, "gb": bytes as f64 / (1024.0 * 1024.0 * 1024.0) }));
+        v.insert(
+            cat.to_string(),
+            serde_json::json!({ "files": files, "gb": bytes as f64 / (1024.0 * 1024.0 * 1024.0) }),
+        );
     }
     let v = serde_json::Value::Object(v);
     *KEPT_CACHE.lock().unwrap() = Some((std::time::Instant::now(), v.clone()));
@@ -603,7 +808,8 @@ async fn kept_counts_cached(engine: &Arc<EngineAdapter>) -> serde_json::Value {
 }
 
 /// Files moved to the archive folders (`archived.rs`), refreshed at most every 30 s.
-static ARCHIVED_CACHE: std::sync::Mutex<Option<(std::time::Instant, serde_json::Value)>> = std::sync::Mutex::new(None);
+static ARCHIVED_CACHE: std::sync::Mutex<Option<(std::time::Instant, serde_json::Value)>> =
+    std::sync::Mutex::new(None);
 
 async fn archived_counts_cached() -> serde_json::Value {
     if let Some((t, v)) = ARCHIVED_CACHE.lock().unwrap().as_ref() {
@@ -611,7 +817,9 @@ async fn archived_counts_cached() -> serde_json::Value {
             return v.clone();
         }
     }
-    let v = tokio::task::spawn_blocking(crate::archived::counts).await.unwrap_or_default();
+    let v = tokio::task::spawn_blocking(crate::archived::counts)
+        .await
+        .unwrap_or_default();
     *ARCHIVED_CACHE.lock().unwrap() = Some((std::time::Instant::now(), v.clone()));
     v
 }
@@ -776,10 +984,13 @@ async fn handle_events_ecs(
     let (ecs_events, seq) = app.events.since_ecs(query.since);
     let mut headers = HeaderMap::new();
     headers.insert("Cache-Control", "no-store".parse().unwrap());
-    (headers, Json(serde_json::json!({
-        "events": ecs_events,
-        "seq": seq,
-    })))
+    (
+        headers,
+        Json(serde_json::json!({
+            "events": ecs_events,
+            "seq": seq,
+        })),
+    )
 }
 
 /// Starts the scan listener (WebSocket + public API) with these settings and saves
@@ -809,7 +1020,10 @@ async fn handle_stop(State(app): State<Arc<AppState>>) -> impl IntoResponse {
 /// `Dataset::apply_human_verdict`). Nothing is copied into the dataset: only files
 /// put there by hand are trained on.
 fn export_human_label(engine: &crate::engine_adapter::EngineAdapter, sha: &str, verdict: &str) {
-    let (Some(ds), Some(label)) = (engine.dataset.get(), crate::dataset::human_label(verdict)) else { return };
+    let (Some(ds), Some(label)) = (engine.dataset.get(), crate::dataset::human_label(verdict))
+    else {
+        return;
+    };
     ds.apply_human_verdict(sha, label);
 }
 
@@ -821,18 +1035,29 @@ struct DistanceBody {
 /// Largest TLSH distance to a TLSH blacklist digest that still flags a file (one of
 /// 5, 10, 15, 20, 30; default 10). Applies to new scans at once and is saved to
 /// multron_server.json; verdicts already cached stay until those files are rescanned.
-async fn handle_tlsh_blacklist_distance(State(app): State<Arc<AppState>>, Json(b): Json<DistanceBody>) -> impl IntoResponse {
+async fn handle_tlsh_blacklist_distance(
+    State(app): State<Arc<AppState>>,
+    Json(b): Json<DistanceBody>,
+) -> impl IntoResponse {
     if !crate::similarity::TLSH_BLACKLIST_DISTANCES.contains(&b.distance) {
         return (
             StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({ "ok": false, "error": format!("distance must be one of {:?}", crate::similarity::TLSH_BLACKLIST_DISTANCES) })),
+            Json(
+                serde_json::json!({ "ok": false, "error": format!("distance must be one of {:?}", crate::similarity::TLSH_BLACKLIST_DISTANCES) }),
+            ),
         );
     }
     let d = crate::similarity::set_blacklist_max_dist(b.distance);
     app.settings.write().await.tlsh_blacklist_max_dist = d;
     app.save_settings().await;
-    info_event(&app, format!("TLSH blacklist distance: {d} or less flags a file"));
-    (StatusCode::OK, Json(serde_json::json!({ "ok": true, "distance": d })))
+    info_event(
+        &app,
+        format!("TLSH blacklist distance: {d} or less flags a file"),
+    );
+    (
+        StatusCode::OK,
+        Json(serde_json::json!({ "ok": true, "distance": d })),
+    )
 }
 
 #[derive(Deserialize)]
@@ -845,7 +1070,10 @@ struct MlThresholdsBody {
 /// PE / JS / APK ML thresholds (null = the engine default; clamped to 0.50 - 0.9999).
 /// Lower flags more files. Applies to new scans at once and is saved to
 /// multron_server.json; verdicts already cached stay until those files are rescanned.
-async fn handle_ml_thresholds(State(app): State<Arc<AppState>>, Json(b): Json<MlThresholdsBody>) -> impl IntoResponse {
+async fn handle_ml_thresholds(
+    State(app): State<Arc<AppState>>,
+    Json(b): Json<MlThresholdsBody>,
+) -> impl IntoResponse {
     let (js, apk) = openedr_static::engine::set_ml_thresholds(b.js, b.apk);
     let pe = openedr_static::engine::set_pe_threshold(b.pe);
     {
@@ -855,8 +1083,14 @@ async fn handle_ml_thresholds(State(app): State<Arc<AppState>>, Json(b): Json<Ml
         s.ml_apk_threshold = b.apk.map(|_| apk);
     }
     app.save_settings().await;
-    info_event(&app, format!("ML thresholds: PE {pe:.4}, JS {js:.4}, APK {apk:.4}"));
-    (StatusCode::OK, Json(serde_json::json!({ "ok": true, "pe": pe, "js": js, "apk": apk })))
+    info_event(
+        &app,
+        format!("ML thresholds: PE {pe:.4}, JS {js:.4}, APK {apk:.4}"),
+    );
+    (
+        StatusCode::OK,
+        Json(serde_json::json!({ "ok": true, "pe": pe, "js": js, "apk": apk })),
+    )
 }
 
 #[derive(Deserialize)]
@@ -867,11 +1101,22 @@ struct KeepToggle {
 
 /// Whether `possible_clean` files (TLSH smart whitelist) are kept in the work folder.
 /// Applies at once and is saved to multron_server.json.
-async fn handle_keep_possible_clean(State(app): State<Arc<AppState>>, Json(t): Json<KeepToggle>) -> impl IntoResponse {
-    app.engine.keep_possible_clean.store(t.enabled, std::sync::atomic::Ordering::Relaxed);
+async fn handle_keep_possible_clean(
+    State(app): State<Arc<AppState>>,
+    Json(t): Json<KeepToggle>,
+) -> impl IntoResponse {
+    app.engine
+        .keep_possible_clean
+        .store(t.enabled, std::sync::atomic::Ordering::Relaxed);
     app.settings.write().await.keep_possible_clean = t.enabled;
     app.save_settings().await;
-    info_event(&app, format!("keep possible_clean files: {}", if t.enabled { "on" } else { "off" }));
+    info_event(
+        &app,
+        format!(
+            "keep possible_clean files: {}",
+            if t.enabled { "on" } else { "off" }
+        ),
+    );
     Json(serde_json::json!({ "ok": true, "enabled": t.enabled }))
 }
 
@@ -881,16 +1126,27 @@ async fn handle_unpack_kept_xz(State(app): State<Arc<AppState>>) -> Response {
     let eng = Arc::clone(&app.engine);
     match tokio::task::spawn_blocking(move || eng.unpack_kept_xz()).await {
         Ok(r) => {
-            info_event(&app, format!(
-                "multron_incoming: {} .xz files unpacked ({:.1} MB more on disk), {} failed{}",
-                r.unpacked,
-                r.bytes_added as f64 / 1048576.0,
-                r.failed,
-                if r.stopped_low_disk { "; stopped: low disk space" } else { "" }
-            ));
+            info_event(
+                &app,
+                format!(
+                    "multron_incoming: {} .xz files unpacked ({:.1} MB more on disk), {} failed{}",
+                    r.unpacked,
+                    r.bytes_added as f64 / 1048576.0,
+                    r.failed,
+                    if r.stopped_low_disk {
+                        "; stopped: low disk space"
+                    } else {
+                        ""
+                    }
+                ),
+            );
             Json(serde_json::json!({ "ok": true, "result": r })).into_response()
         }
-        Err(_) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({ "ok": false, "error": "failed" }))).into_response(),
+        Err(_) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({ "ok": false, "error": "failed" })),
+        )
+            .into_response(),
     }
 }
 
@@ -904,11 +1160,29 @@ async fn handle_sort_kept_by_type(State(app): State<Arc<AppState>>) -> Response 
                 .filter(|(k, _)| k.as_str() != "unchanged")
                 .map(|(k, n)| format!("{n} {k}"))
                 .collect();
-            info_event(&app, format!("multron_incoming sorted by file type (HydraDragonSig / ClamAV): {} moved", if moved.is_empty() { "nothing".to_string() } else { moved.join(", ") }));
+            info_event(
+                &app,
+                format!(
+                    "multron_incoming sorted by file type (HydraDragonSig / ClamAV): {} moved",
+                    if moved.is_empty() {
+                        "nothing".to_string()
+                    } else {
+                        moved.join(", ")
+                    }
+                ),
+            );
             Json(serde_json::json!({ "ok": true, "moved": counts })).into_response()
         }
-        Ok(Err(e)) => (StatusCode::CONFLICT, Json(serde_json::json!({ "ok": false, "error": e }))).into_response(),
-        Err(_) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({ "ok": false, "error": "failed" }))).into_response(),
+        Ok(Err(e)) => (
+            StatusCode::CONFLICT,
+            Json(serde_json::json!({ "ok": false, "error": e })),
+        )
+            .into_response(),
+        Err(_) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({ "ok": false, "error": "failed" })),
+        )
+            .into_response(),
     }
 }
 
@@ -922,7 +1196,10 @@ struct DryRun {
 /// `dry_run` counts them, otherwise they are moved to the backup folders.
 /// multron_incoming stays. Copies of samples with an analyst verdict (clean /
 /// malicious) always stay: they are the human labels the models train on.
-async fn handle_remove_incoming_duplicates(State(app): State<Arc<AppState>>, Json(b): Json<DryRun>) -> Response {
+async fn handle_remove_incoming_duplicates(
+    State(app): State<Arc<AppState>>,
+    Json(b): Json<DryRun>,
+) -> Response {
     let eng = Arc::clone(&app.engine);
     let dry = b.dry_run;
     let human: std::collections::HashSet<String> = app
@@ -933,15 +1210,31 @@ async fn handle_remove_incoming_duplicates(State(app): State<Arc<AppState>>, Jso
         .filter(|(_, v)| crate::dataset::human_label(v).is_some())
         .map(|(s, _)| s.to_ascii_uppercase())
         .collect();
-    match tokio::task::spawn_blocking(move || eng.remove_dataset_copies_of_kept(dry, &human)).await {
+    match tokio::task::spawn_blocking(move || eng.remove_dataset_copies_of_kept(dry, &human)).await
+    {
         Ok(Ok((files, bytes))) => {
             if !dry && files > 0 {
-                info_event(&app, format!("moved {files} ML dataset copies of multron_incoming files to the deleted_from_* backup folders ({:.1} MB)", bytes as f64 / 1048576.0));
+                info_event(
+                    &app,
+                    format!(
+                        "moved {files} ML dataset copies of multron_incoming files to the deleted_from_* backup folders ({:.1} MB)",
+                        bytes as f64 / 1048576.0
+                    ),
+                );
             }
-            Json(serde_json::json!({ "ok": true, "dry_run": dry, "files": files, "bytes": bytes })).into_response()
+            Json(serde_json::json!({ "ok": true, "dry_run": dry, "files": files, "bytes": bytes }))
+                .into_response()
         }
-        Ok(Err(e)) => (StatusCode::CONFLICT, Json(serde_json::json!({ "ok": false, "error": e }))).into_response(),
-        Err(_) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({ "ok": false, "error": "failed" }))).into_response(),
+        Ok(Err(e)) => (
+            StatusCode::CONFLICT,
+            Json(serde_json::json!({ "ok": false, "error": e })),
+        )
+            .into_response(),
+        Err(_) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({ "ok": false, "error": "failed" })),
+        )
+            .into_response(),
     }
 }
 
@@ -951,7 +1244,9 @@ async fn handle_dataset_conflicts(State(app): State<Arc<AppState>>) -> impl Into
     match app.engine.dataset.get() {
         Some(ds) => {
             let ds = Arc::clone(ds);
-            let list = tokio::task::spawn_blocking(move || ds.recent_conflicts(500)).await.unwrap_or_default();
+            let list = tokio::task::spawn_blocking(move || ds.recent_conflicts(500))
+                .await
+                .unwrap_or_default();
             Json(serde_json::json!({ "ok": true, "enabled": true, "conflicts": list }))
         }
         None => Json(serde_json::json!({ "ok": true, "enabled": false, "conflicts": [] })),
@@ -959,50 +1254,103 @@ async fn handle_dataset_conflicts(State(app): State<Arc<AppState>>) -> impl Into
 }
 
 /// Keep every unique file (any category, any type; quotas still apply).
-async fn handle_keep_all_unique(State(app): State<Arc<AppState>>, Json(t): Json<KeepToggle>) -> impl IntoResponse {
-    app.engine.keep_all_unique.store(t.enabled, std::sync::atomic::Ordering::Relaxed);
+async fn handle_keep_all_unique(
+    State(app): State<Arc<AppState>>,
+    Json(t): Json<KeepToggle>,
+) -> impl IntoResponse {
+    app.engine
+        .keep_all_unique
+        .store(t.enabled, std::sync::atomic::Ordering::Relaxed);
     app.settings.write().await.keep_all_unique = t.enabled;
     app.save_settings().await;
-    info_event(&app, format!("keep every unique file: {}", if t.enabled { "on" } else { "off" }));
+    info_event(
+        &app,
+        format!(
+            "keep every unique file: {}",
+            if t.enabled { "on" } else { "off" }
+        ),
+    );
     Json(serde_json::json!({ "ok": true, "enabled": t.enabled }))
 }
 
 /// Collect XOR-filter hash hits (benign whitelist / malicious hash filter) for checking.
-async fn handle_collect_xorfilter(State(app): State<Arc<AppState>>, Json(t): Json<KeepToggle>) -> impl IntoResponse {
-    app.engine.collect_xorfilter.store(t.enabled, std::sync::atomic::Ordering::Relaxed);
+async fn handle_collect_xorfilter(
+    State(app): State<Arc<AppState>>,
+    Json(t): Json<KeepToggle>,
+) -> impl IntoResponse {
+    app.engine
+        .collect_xorfilter
+        .store(t.enabled, std::sync::atomic::Ordering::Relaxed);
     app.settings.write().await.collect_xorfilter = t.enabled;
     app.save_settings().await;
-    info_event(&app, format!("collect XOR-filter hits: {}", if t.enabled { "on" } else { "off" }));
+    info_event(
+        &app,
+        format!(
+            "collect XOR-filter hits: {}",
+            if t.enabled { "on" } else { "off" }
+        ),
+    );
     Json(serde_json::json!({ "ok": true, "enabled": t.enabled }))
 }
 
 /// Whether clean PE/APK files are kept in multron_incoming. Saved to
 /// multron_server.json.
-async fn handle_keep_clean(State(app): State<Arc<AppState>>, Json(t): Json<KeepToggle>) -> impl IntoResponse {
-    app.engine.keep_clean.store(t.enabled, std::sync::atomic::Ordering::Relaxed);
+async fn handle_keep_clean(
+    State(app): State<Arc<AppState>>,
+    Json(t): Json<KeepToggle>,
+) -> impl IntoResponse {
+    app.engine
+        .keep_clean
+        .store(t.enabled, std::sync::atomic::Ordering::Relaxed);
     app.settings.write().await.keep_clean = t.enabled;
     app.save_settings().await;
-    info_event(&app, format!("keep clean PE/APK files: {}", if t.enabled { "on" } else { "off" }));
+    info_event(
+        &app,
+        format!(
+            "keep clean PE/APK files: {}",
+            if t.enabled { "on" } else { "off" }
+        ),
+    );
     Json(serde_json::json!({ "ok": true, "enabled": t.enabled }))
 }
 
 /// Whether samples deleted on request are never stored again (on) or kept again,
 /// with their report, when a client sends the same file later (off). Saved.
-async fn handle_never_store_deleted(State(app): State<Arc<AppState>>, Json(t): Json<KeepToggle>) -> impl IntoResponse {
+async fn handle_never_store_deleted(
+    State(app): State<Arc<AppState>>,
+    Json(t): Json<KeepToggle>,
+) -> impl IntoResponse {
     crate::sample_deletions::set_never_store_again(t.enabled);
     app.settings.write().await.never_store_deleted = t.enabled;
     app.save_settings().await;
-    info_event(&app, format!("never store deleted samples again: {}", if t.enabled { "on" } else { "off" }));
+    info_event(
+        &app,
+        format!(
+            "never store deleted samples again: {}",
+            if t.enabled { "on" } else { "off" }
+        ),
+    );
     Json(serde_json::json!({ "ok": true, "enabled": t.enabled }))
 }
 
 /// Whether kept files are stored LZMA2-compressed (`.xz`) when disk space runs low.
 /// Saved.
-async fn handle_compress_low_disk(State(app): State<Arc<AppState>>, Json(t): Json<KeepToggle>) -> impl IntoResponse {
-    app.engine.compress_low_disk.store(t.enabled, std::sync::atomic::Ordering::Relaxed);
+async fn handle_compress_low_disk(
+    State(app): State<Arc<AppState>>,
+    Json(t): Json<KeepToggle>,
+) -> impl IntoResponse {
+    app.engine
+        .compress_low_disk
+        .store(t.enabled, std::sync::atomic::Ordering::Relaxed);
     app.settings.write().await.lzma_low_disk = t.enabled;
     app.save_settings().await;
-    info_event(&app, format!("LZMA2 compression of kept files when space runs low: {}", if t.enabled { "on" } else { "off" }));
+    info_event(
+        &app,
+        format!(
+            "LZMA2 compression of kept files when space runs low: {}",
+            if t.enabled { "on" } else { "off" }
+        ),
+    );
     Json(serde_json::json!({ "ok": true, "enabled": t.enabled }))
 }
 
@@ -1014,9 +1362,16 @@ struct UploadEncodingsBody {
 
 /// Controls which compressed upload encodings (`br`, `lzma`) `hello_ok` advertises
 /// to clients. Saved in `multron_server.json`.
-async fn handle_upload_encodings(State(app): State<Arc<AppState>>, Json(b): Json<UploadEncodingsBody>) -> impl IntoResponse {
-    app.scan_server.allow_brotli_upload.store(b.brotli, std::sync::atomic::Ordering::Relaxed);
-    app.scan_server.allow_lzma_upload.store(b.lzma, std::sync::atomic::Ordering::Relaxed);
+async fn handle_upload_encodings(
+    State(app): State<Arc<AppState>>,
+    Json(b): Json<UploadEncodingsBody>,
+) -> impl IntoResponse {
+    app.scan_server
+        .allow_brotli_upload
+        .store(b.brotli, std::sync::atomic::Ordering::Relaxed);
+    app.scan_server
+        .allow_lzma_upload
+        .store(b.lzma, std::sync::atomic::Ordering::Relaxed);
     {
         let mut s = app.settings.write().await;
         s.allow_brotli_upload = b.brotli;
@@ -1041,13 +1396,26 @@ struct RescanBody {
 
 /// Rescans one file kept in multron_incoming with the current engine, analyst
 /// signatures and smart whitelist; updates cache, telemetry and the website.
-async fn handle_rescan_one(State(app): State<Arc<AppState>>, Json(b): Json<RescanBody>) -> Response {
+async fn handle_rescan_one(
+    State(app): State<Arc<AppState>>,
+    Json(b): Json<RescanBody>,
+) -> Response {
     let srv = Arc::clone(&app.scan_server);
     let sha = b.sha256.clone();
-    match tokio::task::spawn_blocking(move || crate::rescan::rescan_logged(&srv, &sha, "single", 0)).await {
+    match tokio::task::spawn_blocking(move || crate::rescan::rescan_logged(&srv, &sha, "single", 0))
+        .await
+    {
         Ok(Ok(c)) => Json(serde_json::json!({ "ok": true, "change": c })).into_response(),
-        Ok(Err(e)) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({ "error": e }))).into_response(),
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({ "error": e.to_string() }))).into_response(),
+        Ok(Err(e)) => (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({ "error": e })),
+        )
+            .into_response(),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({ "error": e.to_string() })),
+        )
+            .into_response(),
     }
 }
 
@@ -1061,10 +1429,17 @@ struct BulkRescanBody {
 
 /// Rescans every kept file of the given categories (empty = all) with the current
 /// engine. Returns `{queued}`; 409 when one is already running.
-async fn handle_rescan_bulk(State(app): State<Arc<AppState>>, Json(b): Json<BulkRescanBody>) -> Response {
+async fn handle_rescan_bulk(
+    State(app): State<Arc<AppState>>,
+    Json(b): Json<BulkRescanBody>,
+) -> Response {
     match crate::rescan::start_bulk(&app.scan_server, &b.categories) {
         Ok(n) => Json(serde_json::json!({ "ok": true, "queued": n })).into_response(),
-        Err(e) => (StatusCode::CONFLICT, Json(serde_json::json!({ "error": e }))).into_response(),
+        Err(e) => (
+            StatusCode::CONFLICT,
+            Json(serde_json::json!({ "error": e })),
+        )
+            .into_response(),
     }
 }
 
@@ -1090,7 +1465,11 @@ struct UrlInsightsQuery {
 
 /// URLs a scan found malicious or suspicious (and their later scans), newest first.
 async fn handle_url_insights(Query(q): Query<UrlInsightsQuery>) -> impl IntoResponse {
-    Json(crate::url_intel::list(&q.q, &q.verdict, q.limit.unwrap_or(200).min(2000)))
+    Json(crate::url_intel::list(
+        &q.q,
+        &q.verdict,
+        q.limit.unwrap_or(200).min(2000),
+    ))
 }
 
 #[derive(Deserialize)]
@@ -1108,15 +1487,40 @@ struct UrlReviewBody {
 }
 
 /// Analyst verdict for a URL of the URL threat list.
-async fn handle_url_review(State(app): State<Arc<AppState>>, who: Option<Extension<AnalystId>>, Json(mut b): Json<UrlReviewBody>) -> Response {
+async fn handle_url_review(
+    State(app): State<Arc<AppState>>,
+    who: Option<Extension<AnalystId>>,
+    Json(mut b): Json<UrlReviewBody>,
+) -> Response {
     apply_analyst(&who, &mut b.analyst);
-    match crate::url_intel::review(&b.url, &b.verdict, Some(b.threat_name.as_str()), &b.note, &b.analyst) {
+    match crate::url_intel::review(
+        &b.url,
+        &b.verdict,
+        Some(b.threat_name.as_str()),
+        &b.note,
+        &b.analyst,
+    ) {
         Ok(e) => {
-            let by = if e.analyst.is_empty() { "analyst" } else { e.analyst.as_str() };
-            info_event(&app, format!("URL analysis: {} -> {} by {by}", e.url, e.human_verdict.as_deref().unwrap_or("review removed")));
+            let by = if e.analyst.is_empty() {
+                "analyst"
+            } else {
+                e.analyst.as_str()
+            };
+            info_event(
+                &app,
+                format!(
+                    "URL analysis: {} -> {} by {by}",
+                    e.url,
+                    e.human_verdict.as_deref().unwrap_or("review removed")
+                ),
+            );
             Json(serde_json::json!({ "ok": true, "item": e })).into_response()
         }
-        Err(e) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({ "error": e }))).into_response(),
+        Err(e) => (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({ "error": e })),
+        )
+            .into_response(),
     }
 }
 
@@ -1136,21 +1540,45 @@ struct UnkeptQuery {
 
 async fn unkept_threats(app: Arc<AppState>, verdicts: Vec<String>, apply: bool) -> Response {
     let srv = Arc::clone(&app.scan_server);
-    match tokio::task::spawn_blocking(move || crate::rescan::unkept_threats_report(&srv, &verdicts, apply)).await {
+    match tokio::task::spawn_blocking(move || {
+        crate::rescan::unkept_threats_report(&srv, &verdicts, apply)
+    })
+    .await
+    {
         Ok(Ok(v)) => Json(v).into_response(),
-        Ok(Err(e)) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({ "ok": false, "error": e }))).into_response(),
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({ "ok": false, "error": e.to_string() }))).into_response(),
+        Ok(Err(e)) => (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({ "ok": false, "error": e })),
+        )
+            .into_response(),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({ "ok": false, "error": e.to_string() })),
+        )
+            .into_response(),
     }
 }
 
 /// Engine-malicious / suspicious hashes without a kept file (a rescan cannot reach them).
-async fn handle_unkept_threats(State(app): State<Arc<AppState>>, Query(q): Query<UnkeptQuery>) -> Response {
-    let verdicts = q.verdicts.split(',').map(str::trim).filter(|v| !v.is_empty()).map(String::from).collect();
+async fn handle_unkept_threats(
+    State(app): State<Arc<AppState>>,
+    Query(q): Query<UnkeptQuery>,
+) -> Response {
+    let verdicts = q
+        .verdicts
+        .split(',')
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
+        .map(String::from)
+        .collect();
     unkept_threats(app, verdicts, false).await
 }
 
 /// Sets them to unknown (the dashboard button; never automatic). Nothing is deleted.
-async fn handle_unkept_threats_apply(State(app): State<Arc<AppState>>, Json(b): Json<UnkeptBody>) -> Response {
+async fn handle_unkept_threats_apply(
+    State(app): State<Arc<AppState>>,
+    Json(b): Json<UnkeptBody>,
+) -> Response {
     unkept_threats(app, b.verdicts, true).await
 }
 
@@ -1165,12 +1593,27 @@ struct AuditBulkBody {
 
 /// Rescans the problem files found by `GET /api/rescan/audit` (duplicates and/or files
 /// missing from telemetry).
-async fn handle_rescan_audit_bulk(State(app): State<Arc<AppState>>, Json(b): Json<AuditBulkBody>) -> Response {
+async fn handle_rescan_audit_bulk(
+    State(app): State<Arc<AppState>>,
+    Json(b): Json<AuditBulkBody>,
+) -> Response {
     let srv = Arc::clone(&app.scan_server);
-    match tokio::task::spawn_blocking(move || crate::rescan::start_bulk_problems(&srv, &b.categories, &b.kinds)).await {
+    match tokio::task::spawn_blocking(move || {
+        crate::rescan::start_bulk_problems(&srv, &b.categories, &b.kinds)
+    })
+    .await
+    {
         Ok(Ok(n)) => Json(serde_json::json!({ "ok": true, "queued": n })).into_response(),
-        Ok(Err(e)) => (StatusCode::CONFLICT, Json(serde_json::json!({ "error": e }))).into_response(),
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({ "error": e.to_string() }))).into_response(),
+        Ok(Err(e)) => (
+            StatusCode::CONFLICT,
+            Json(serde_json::json!({ "error": e })),
+        )
+            .into_response(),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({ "error": e.to_string() })),
+        )
+            .into_response(),
     }
 }
 
@@ -1183,24 +1626,49 @@ struct RequeueBody {
 
 /// Queues again the files with this engine verdict that have no human review
 /// ("missing" in the coverage line), plus the removed ones when asked.
-async fn handle_reviews_requeue(State(app): State<Arc<AppState>>, Json(b): Json<RequeueBody>) -> Response {
+async fn handle_reviews_requeue(
+    State(app): State<Arc<AppState>>,
+    Json(b): Json<RequeueBody>,
+) -> Response {
     let v = b.verdict.trim().to_ascii_lowercase();
     if !crate::human_review::AUTO_QUEUE_VERDICTS.contains(&v.as_str()) {
-        return (StatusCode::BAD_REQUEST, Json(serde_json::json!({ "error": "unknown verdict" }))).into_response();
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({ "error": "unknown verdict" })),
+        )
+            .into_response();
     }
     let (ti, eng) = (Arc::clone(&app.threat_intel), Arc::clone(&app.engine));
-    match tokio::task::spawn_blocking(move || ti.requeue(&v, b.include_removed, &|s| eng.is_kept(s))).await {
+    match tokio::task::spawn_blocking(move || {
+        ti.requeue(&v, b.include_removed, &|s| eng.is_kept(s))
+    })
+    .await
+    {
         Ok(Ok(n)) => Json(serde_json::json!({ "ok": true, "queued": n })).into_response(),
-        Ok(Err(e)) => (StatusCode::CONFLICT, Json(serde_json::json!({ "error": e }))).into_response(),
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({ "error": e.to_string() }))).into_response(),
+        Ok(Err(e)) => (
+            StatusCode::CONFLICT,
+            Json(serde_json::json!({ "error": e })),
+        )
+            .into_response(),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({ "error": e.to_string() })),
+        )
+            .into_response(),
     }
 }
 
 /// Where a kept upload is on this server (multron_incoming/<category>/...).
-async fn handle_kept_info(State(app): State<Arc<AppState>>, Path(sha256): Path<String>) -> impl IntoResponse {
+async fn handle_kept_info(
+    State(app): State<Arc<AppState>>,
+    Path(sha256): Path<String>,
+) -> impl IntoResponse {
     let sha = sha256.trim().to_ascii_uppercase();
     let eng = Arc::clone(&app.engine);
-    let kept = tokio::task::spawn_blocking(move || eng.find_kept(&sha)).await.ok().flatten();
+    let kept = tokio::task::spawn_blocking(move || eng.find_kept(&sha))
+        .await
+        .ok()
+        .flatten();
     match kept {
         Some(k) => Json(serde_json::json!({
             "ok": true, "kept": true,
@@ -1215,18 +1683,34 @@ async fn handle_kept_info(State(app): State<Arc<AppState>>, Path(sha256): Path<S
 /// Opens Explorer on this server with the kept file selected. The dashboard only
 /// answers on localhost, so this is the machine the analyst is sitting at (or the
 /// remote desktop of the VDS).
-async fn handle_kept_reveal(State(app): State<Arc<AppState>>, Json(b): Json<RescanBody>) -> Response {
+async fn handle_kept_reveal(
+    State(app): State<Arc<AppState>>,
+    Json(b): Json<RescanBody>,
+) -> Response {
     let sha = b.sha256.trim().to_ascii_uppercase();
     let eng = Arc::clone(&app.engine);
     let sha_q = sha.clone();
-    let Some(k) = tokio::task::spawn_blocking(move || eng.find_kept(&sha)).await.ok().flatten() else {
-        return (StatusCode::NOT_FOUND, Json(serde_json::json!({ "error": crate::missing_files::explain(&sha_q) }))).into_response();
+    let Some(k) = tokio::task::spawn_blocking(move || eng.find_kept(&sha))
+        .await
+        .ok()
+        .flatten()
+    else {
+        return (
+            StatusCode::NOT_FOUND,
+            Json(serde_json::json!({ "error": crate::missing_files::explain(&sha_q) })),
+        )
+            .into_response();
     };
     let path = k.path.clone();
     let res = reveal_in_file_manager(&path);
     match res {
-        Ok(()) => Json(serde_json::json!({ "ok": true, "path": path.display().to_string() })).into_response(),
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({ "error": e, "path": path.display().to_string() }))).into_response(),
+        Ok(()) => Json(serde_json::json!({ "ok": true, "path": path.display().to_string() }))
+            .into_response(),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({ "error": e, "path": path.display().to_string() })),
+        )
+            .into_response(),
     }
 }
 
@@ -1254,7 +1738,9 @@ fn reveal_in_file_manager(path: &std::path::Path) -> Result<(), String> {
 
 /// Every rescanned file (newest first, across runs) with old/new verdict and engines.
 async fn handle_rescan_log(State(app): State<Arc<AppState>>) -> impl IntoResponse {
-    Json(serde_json::json!({ "ok": true, "status": app.scan_server.rescan.status(), "log": app.scan_server.rescan.log() }))
+    Json(
+        serde_json::json!({ "ok": true, "status": app.scan_server.rescan.status(), "log": app.scan_server.rescan.log() }),
+    )
 }
 
 /// Progress of the bulk rescan.
@@ -1269,8 +1755,14 @@ async fn handle_rescan_stop(State(app): State<Arc<AppState>>) -> impl IntoRespon
 }
 
 /// Whether every kept file is rescanned automatically after an engine reload. Saved.
-async fn handle_rescan_after_reload(State(app): State<Arc<AppState>>, Json(t): Json<KeepToggle>) -> impl IntoResponse {
-    app.scan_server.rescan.after_reload.store(t.enabled, std::sync::atomic::Ordering::Relaxed);
+async fn handle_rescan_after_reload(
+    State(app): State<Arc<AppState>>,
+    Json(t): Json<KeepToggle>,
+) -> impl IntoResponse {
+    app.scan_server
+        .rescan
+        .after_reload
+        .store(t.enabled, std::sync::atomic::Ordering::Relaxed);
     app.settings.write().await.rescan_after_reload = t.enabled;
     app.save_settings().await;
     Json(serde_json::json!({ "ok": true, "enabled": t.enabled }))
@@ -1288,8 +1780,16 @@ struct FsListQuery {
 async fn handle_fs_list(Query(q): Query<FsListQuery>) -> Response {
     match tokio::task::spawn_blocking(move || crate::folder_wl::list_dir(&q.path)).await {
         Ok(Ok(v)) => Json(v).into_response(),
-        Ok(Err(e)) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": e}))).into_response(),
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": e.to_string()}))).into_response(),
+        Ok(Err(e)) => (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": e})),
+        )
+            .into_response(),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error": e.to_string()})),
+        )
+            .into_response(),
     }
 }
 
@@ -1308,13 +1808,20 @@ fn folder_exclusions(app: &AppState) -> Vec<Option<PathBuf>> {
     let target = app.scan_server.offload.target();
     vec![
         app.engine.work_dir().map(|p| p.to_path_buf()),
-        if target.trim().is_empty() { None } else { Some(PathBuf::from(target.trim())) },
+        if target.trim().is_empty() {
+            None
+        } else {
+            Some(PathBuf::from(target.trim()))
+        },
     ]
 }
 
 /// Counts the file types in a folder before a folder whitelist (multron_incoming and
 /// the move target are never walked).
-async fn handle_folder_types(State(app): State<Arc<AppState>>, Json(b): Json<FolderBody>) -> Response {
+async fn handle_folder_types(
+    State(app): State<Arc<AppState>>,
+    Json(b): Json<FolderBody>,
+) -> Response {
     let ex = folder_exclusions(&app);
     let res = tokio::task::spawn_blocking(move || {
         let refs: Vec<Option<&std::path::Path>> = ex.iter().map(|p| p.as_deref()).collect();
@@ -1323,20 +1830,37 @@ async fn handle_folder_types(State(app): State<Arc<AppState>>, Json(b): Json<Fol
     .await;
     match res {
         Ok(Ok(v)) => Json(v).into_response(),
-        Ok(Err(e)) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": e}))).into_response(),
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": e.to_string()}))).into_response(),
+        Ok(Err(e)) => (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": e})),
+        )
+            .into_response(),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error": e.to_string()})),
+        )
+            .into_response(),
     }
 }
 
 /// Starts hashing a folder on the server's disk for a bulk whitelist (`exts` filters,
 /// `max_mb` skips large files).
-async fn handle_folder_start(State(app): State<Arc<AppState>>, Json(b): Json<FolderBody>) -> Response {
+async fn handle_folder_start(
+    State(app): State<Arc<AppState>>,
+    Json(b): Json<FolderBody>,
+) -> Response {
     let ex = folder_exclusions(&app);
     let refs: Vec<Option<&std::path::Path>> = ex.iter().map(|p| p.as_deref()).collect();
     let srv = Arc::clone(&app.scan_server);
-    match crate::folder_wl::start(&b.path, &b.exts, b.max_mb * 1024 * 1024, &refs, move |m| srv.log_info(m)) {
+    match crate::folder_wl::start(&b.path, &b.exts, b.max_mb * 1024 * 1024, &refs, move |m| {
+        srv.log_info(m)
+    }) {
         Ok(()) => Json(serde_json::json!({"ok": true})).into_response(),
-        Err(e) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": e}))).into_response(),
+        Err(e) => (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": e})),
+        )
+            .into_response(),
     }
 }
 
@@ -1361,7 +1885,10 @@ struct MirrorConfigBody {
 
 /// Sets the backup archive mirror folder (absolute path, e.g.
 /// `\\\\ARCHIVEPC\\viruskov_archive`; empty = off) and starts a mirror run.
-async fn handle_mirror_config(State(app): State<Arc<AppState>>, Json(b): Json<MirrorConfigBody>) -> Response {
+async fn handle_mirror_config(
+    State(app): State<Arc<AppState>>,
+    Json(b): Json<MirrorConfigBody>,
+) -> Response {
     let target = b.target.trim().to_string();
     if !target.is_empty() && !std::path::Path::new(&target).is_absolute() {
         return (StatusCode::BAD_REQUEST, Json(serde_json::json!({ "error": "use an absolute path, e.g. \\\\ARCHIVEPC\\viruskov_archive or Z:\\viruskov_archive" }))).into_response();
@@ -1369,17 +1896,28 @@ async fn handle_mirror_config(State(app): State<Arc<AppState>>, Json(b): Json<Mi
     app.scan_server.mirror.set_target(&target);
     app.settings.write().await.archive_mirror = target.clone();
     app.save_settings().await;
-    info_event(&app, format!("archive mirror: {}", if target.is_empty() { "off" } else { &target }));
+    info_event(
+        &app,
+        format!(
+            "archive mirror: {}",
+            if target.is_empty() { "off" } else { &target }
+        ),
+    );
     if !target.is_empty() {
         app.scan_server.mirror.run_now();
     }
-    Json(serde_json::json!({ "ok": true, "mirror": app.scan_server.mirror.status() })).into_response()
+    Json(serde_json::json!({ "ok": true, "mirror": app.scan_server.mirror.status() }))
+        .into_response()
 }
 
 /// Runs the archive mirror now.
 async fn handle_mirror_run(State(app): State<Arc<AppState>>) -> Response {
     if app.scan_server.mirror.target().is_empty() {
-        return (StatusCode::BAD_REQUEST, Json(serde_json::json!({ "error": "set the archive folder first" }))).into_response();
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({ "error": "set the archive folder first" })),
+        )
+            .into_response();
     }
     app.scan_server.mirror.run_now();
     Json(serde_json::json!({ "ok": true })).into_response()
@@ -1399,10 +1937,20 @@ async fn handle_kept_dedupe(State(app): State<Arc<AppState>>) -> Response {
     match r {
         Ok((n, bytes)) => {
             *KEPT_CACHE.lock().unwrap() = None;
-            info_event(&app, format!("{n} duplicate kept file(s) removed, {:.1} MB freed", bytes as f64 / 1048576.0));
+            info_event(
+                &app,
+                format!(
+                    "{n} duplicate kept file(s) removed, {:.1} MB freed",
+                    bytes as f64 / 1048576.0
+                ),
+            );
             Json(serde_json::json!({ "ok": true, "removed": n, "bytes": bytes })).into_response()
         }
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({ "error": e.to_string() }))).into_response(),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({ "error": e.to_string() })),
+        )
+            .into_response(),
     }
 }
 
@@ -1411,11 +1959,25 @@ async fn handle_mirror_dedupe(State(app): State<Arc<AppState>>) -> Response {
     let m = Arc::clone(&app.scan_server.mirror);
     match tokio::task::spawn_blocking(move || m.dedupe_now()).await {
         Ok(Ok((n, bytes))) => {
-            info_event(&app, format!("archive: {n} duplicate sample(s) removed, {:.1} MB freed", bytes as f64 / 1048576.0));
+            info_event(
+                &app,
+                format!(
+                    "archive: {n} duplicate sample(s) removed, {:.1} MB freed",
+                    bytes as f64 / 1048576.0
+                ),
+            );
             Json(serde_json::json!({ "ok": true, "removed": n, "bytes": bytes })).into_response()
         }
-        Ok(Err(e)) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({ "error": e }))).into_response(),
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({ "error": e.to_string() }))).into_response(),
+        Ok(Err(e)) => (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({ "error": e })),
+        )
+            .into_response(),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({ "error": e.to_string() })),
+        )
+            .into_response(),
     }
 }
 
@@ -1435,15 +1997,30 @@ struct OffloadConfigBody {
 
 /// Sets the folder kept files are moved to (another disk / network share) and whether
 /// moving is automatic.
-async fn handle_offload_config(State(app): State<Arc<AppState>>, Json(b): Json<OffloadConfigBody>) -> Response {
+async fn handle_offload_config(
+    State(app): State<Arc<AppState>>,
+    Json(b): Json<OffloadConfigBody>,
+) -> Response {
     let target = b.target.trim().to_string();
     if !target.is_empty() {
         let engine = Arc::clone(&app.engine);
         let t = target.clone();
         match tokio::task::spawn_blocking(move || crate::offload::check_target(&engine, &t)).await {
             Ok(Ok(_)) => {}
-            Ok(Err(e)) => return (StatusCode::BAD_REQUEST, Json(serde_json::json!({ "error": e }))).into_response(),
-            Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({ "error": e.to_string() }))).into_response(),
+            Ok(Err(e)) => {
+                return (
+                    StatusCode::BAD_REQUEST,
+                    Json(serde_json::json!({ "error": e })),
+                )
+                    .into_response();
+            }
+            Err(e) => {
+                return (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(serde_json::json!({ "error": e.to_string() })),
+                )
+                    .into_response();
+            }
         }
     }
     let off = &app.scan_server.offload;
@@ -1455,25 +2032,47 @@ async fn handle_offload_config(State(app): State<Arc<AppState>>, Json(b): Json<O
         g.offload_auto = false;
     }
     app.save_settings().await;
-    info_event(&app, format!("move target: {}", if target.is_empty() { "off" } else { &target }));
+    info_event(
+        &app,
+        format!(
+            "move target: {}",
+            if target.is_empty() { "off" } else { &target }
+        ),
+    );
     Json(serde_json::json!({ "ok": true, "offload": off.status() })).into_response()
 }
 
 /// Moves the kept files of the given categories to the move target now. Returns
 /// `{files}`.
-async fn handle_offload_start(State(app): State<Arc<AppState>>, body: Option<Json<BulkRescanBody>>) -> Response {
+async fn handle_offload_start(
+    State(app): State<Arc<AppState>>,
+    body: Option<Json<BulkRescanBody>>,
+) -> Response {
     let cats = body.map(|Json(b)| b.categories).unwrap_or_default();
     let srv = Arc::clone(&app.scan_server);
     let engine = Arc::clone(&app.engine);
     let res = tokio::task::spawn_blocking(move || {
         let log_srv = Arc::clone(&srv);
-        crate::offload::start(&engine, &srv.offload, crate::offload::Mode::Categories(cats), move |m| log_srv.log_info(m))
+        crate::offload::start(
+            &engine,
+            &srv.offload,
+            crate::offload::Mode::Categories(cats),
+            move |m| log_srv.log_info(m),
+        )
     })
     .await;
     match res {
         Ok(Ok(n)) => Json(serde_json::json!({ "ok": true, "files": n })).into_response(),
-        Ok(Err(e)) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({ "error": e }))).into_response(),
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({ "error": e.to_string() }))).into_response(),
+        Ok(Err(e)) => (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({ "error": e })),
+        )
+            .into_response(),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({ "error": e.to_string() })),
+        )
+            .into_response(),
     }
 }
 
@@ -1529,7 +2128,13 @@ async fn handle_maintenance(
     State(app): State<Arc<AppState>>,
     Json(toggle): Json<MaintenanceToggle>,
 ) -> impl IntoResponse {
-    let mode = if !toggle.enabled { "off" } else if toggle.mode.eq_ignore_ascii_case("updating") { "updating" } else { "maintenance" };
+    let mode = if !toggle.enabled {
+        "off"
+    } else if toggle.mode.eq_ignore_ascii_case("updating") {
+        "updating"
+    } else {
+        "maintenance"
+    };
     app.scan_server.set_maintenance(mode);
     // "updating" is not saved and leaves the saved choice alone: a server that was in
     // normal maintenance before the update comes back in normal maintenance.
@@ -1540,8 +2145,13 @@ async fn handle_maintenance(
     info_event(
         &app,
         match mode {
-            "updating" => "maintenance mode ON (updating server): new scans refused, in-flight work finishes".into(),
-            "maintenance" => "maintenance mode ON: new scans refused, in-flight work finishes".into(),
+            "updating" => {
+                "maintenance mode ON (updating server): new scans refused, in-flight work finishes"
+                    .into()
+            }
+            "maintenance" => {
+                "maintenance mode ON: new scans refused, in-flight work finishes".into()
+            }
             _ => "maintenance mode OFF: scans accepted again".into(),
         },
     );
@@ -1558,19 +2168,39 @@ struct HandoffReq {
 
 /// Seamless update: the new version started next to this one and loads its engine.
 /// Scans go on ("getting updated"); called again every few seconds as a heartbeat.
-async fn handle_handoff_begin(State(app): State<Arc<AppState>>, Json(req): Json<HandoffReq>) -> impl IntoResponse {
+async fn handle_handoff_begin(
+    State(app): State<Arc<AppState>>,
+    Json(req): Json<HandoffReq>,
+) -> impl IntoResponse {
     if app.scan_server.handoff.begin(&app.scan_server, req.pid) {
-        info_event(&app, format!("getting updated: the new version (pid {}) is loading next to this one; scans continue", req.pid));
+        info_event(
+            &app,
+            format!(
+                "getting updated: the new version (pid {}) is loading next to this one; scans continue",
+                req.pid
+            ),
+        );
     }
     let listening = app.listener_handle.lock().await.is_some();
-    Json(serde_json::json!({ "ok": true, "pid": std::process::id(), "listening": listening, "mode": app.scan_server.maintenance_mode() }))
+    Json(
+        serde_json::json!({ "ok": true, "pid": std::process::id(), "listening": listening, "mode": app.scan_server.maintenance_mode() }),
+    )
 }
 
 /// Seamless update abandoned by the new version (it could not load).
-async fn handle_handoff_cancel(State(app): State<Arc<AppState>>, Json(req): Json<HandoffReq>) -> impl IntoResponse {
+async fn handle_handoff_cancel(
+    State(app): State<Arc<AppState>>,
+    Json(req): Json<HandoffReq>,
+) -> impl IntoResponse {
     if app.scan_server.handoff.standby_pid() == Some(req.pid) {
         app.scan_server.handoff.abandon(&app.scan_server, false);
-        info_event(&app, format!("seamless update cancelled by the new version (pid {}); back to normal", req.pid));
+        info_event(
+            &app,
+            format!(
+                "seamless update cancelled by the new version (pid {}); back to normal",
+                req.pid
+            ),
+        );
     }
     Json(maintenance_json(&app))
 }
@@ -1578,7 +2208,10 @@ async fn handle_handoff_cancel(State(app): State<Arc<AppState>>, Json(req): Json
 /// Seamless update, last step: refuse new scans for a moment, let the ones in progress
 /// finish, close the sessions, let the writers flush, answer and exit, so the new
 /// version can bind the ports.
-async fn handle_handoff_release(State(app): State<Arc<AppState>>, Json(req): Json<HandoffReq>) -> Response {
+async fn handle_handoff_release(
+    State(app): State<Arc<AppState>>,
+    Json(req): Json<HandoffReq>,
+) -> Response {
     let standby = app.scan_server.handoff.standby_pid();
     if standby != Some(req.pid) {
         return (
@@ -1592,7 +2225,13 @@ async fn handle_handoff_release(State(app): State<Arc<AppState>>, Json(req): Jso
     if app.scan_server.maintenance_mode() != "maintenance" {
         app.scan_server.set_maintenance("switching");
     }
-    info_event(&app, format!("seamless update: handing over to pid {}; finishing the scans in progress", req.pid));
+    info_event(
+        &app,
+        format!(
+            "seamless update: handing over to pid {}; finishing the scans in progress",
+            req.pid
+        ),
+    );
     let limit = std::time::Duration::from_secs(req.drain_seconds.unwrap_or(30).min(600));
     while active_work(&app) > 0 && started.elapsed() < limit {
         tokio::time::sleep(std::time::Duration::from_millis(200)).await;
@@ -1635,7 +2274,12 @@ pub fn spawn_handoff_watchdog(app: Arc<AppState>) {
         loop {
             tokio::time::sleep(crate::handoff::BEAT_EVERY).await;
             if let Some(pid) = app.scan_server.handoff.abandon(&app.scan_server, true) {
-                info_event(&app, format!("seamless update abandoned: the new version (pid {pid}) stopped answering; back to normal"));
+                info_event(
+                    &app,
+                    format!(
+                        "seamless update abandoned: the new version (pid {pid}) stopped answering; back to normal"
+                    ),
+                );
             }
         }
     });
@@ -1673,8 +2317,14 @@ async fn handle_limits(
         &app,
         format!(
             "limits changed: max file {} MB, {} conn/IP, {} connects/min, {} MB upload/h, {} msg/s, {} checks/s, ban after {} strikes for {} min",
-            applied.max_mb, applied.max_per_ip, applied.connects_per_min, applied.upload_mb_per_hour,
-            applied.msgs_per_sec, applied.checks_per_sec, applied.ban_strikes, applied.ban_minutes
+            applied.max_mb,
+            applied.max_per_ip,
+            applied.connects_per_min,
+            applied.upload_mb_per_hour,
+            applied.msgs_per_sec,
+            applied.checks_per_sec,
+            applied.ban_strikes,
+            applied.ban_minutes
         ),
     );
     Json(serde_json::json!({"ok": true, "limits": applied}))
@@ -1682,7 +2332,9 @@ async fn handle_limits(
 
 /// Back to the command-line values; the saved limits are removed.
 async fn handle_limits_reset(State(app): State<Arc<AppState>>) -> impl IntoResponse {
-    let applied = app.scan_server.apply_limits(LimitSettings::from_args(&app.cfg));
+    let applied = app
+        .scan_server
+        .apply_limits(LimitSettings::from_args(&app.cfg));
     app.settings.write().await.limits = None;
     app.save_settings().await;
     info_event(&app, "limits reset to the command-line values".into());
@@ -1716,7 +2368,10 @@ async fn handle_engine_reload(
     let prepare = move || {
         let tl = app1.threat_intel.similarity.reload_known_malware();
         let refs = app1.threat_intel.similarity.reload_corpus_refs();
-        info_event(&app1, format!("TLSH blacklist: {tl} digests, smart-whitelist corpus: {refs} references"));
+        info_event(
+            &app1,
+            format!("TLSH blacklist: {tl} digests, smart-whitelist corpus: {refs} references"),
+        );
     };
     let started = app.engine.reload_all(prepare, move |res| match res {
         Ok(ms) => {
@@ -1727,11 +2382,20 @@ async fn handle_engine_reload(
                 &app2,
                 format!(
                     "engine hot-reloaded in {ms} ms{}",
-                    if keep_cache { "" } else { ", verdict cache invalidated" }
+                    if keep_cache {
+                        ""
+                    } else {
+                        ", verdict cache invalidated"
+                    }
                 ),
             );
             // New rules may settle kept unknown / possible_clean files.
-            if app2.scan_server.rescan.after_reload.load(std::sync::atomic::Ordering::Relaxed) {
+            if app2
+                .scan_server
+                .rescan
+                .after_reload
+                .load(std::sync::atomic::Ordering::Relaxed)
+            {
                 if let Err(e) = crate::rescan::start_bulk_from(&app2.scan_server, &[], "reload") {
                     info_event(&app2, format!("rescan after reload not started: {e}"));
                 }
@@ -1742,7 +2406,11 @@ async fn handle_engine_reload(
     match started {
         Ok(()) => {
             info_event(&app, "engine hot reload started".to_string());
-            (StatusCode::ACCEPTED, Json(serde_json::json!({"ok": true, "detail": "reload started"}))).into_response()
+            (
+                StatusCode::ACCEPTED,
+                Json(serde_json::json!({"ok": true, "detail": "reload started"})),
+            )
+                .into_response()
         }
         Err(e) => (StatusCode::CONFLICT, Json(serde_json::json!({"error": e}))).into_response(),
     }
@@ -1793,8 +2461,15 @@ async fn handle_rules_reload(
     }
     match app.engine.reload_rules(&q.kind, &body) {
         Ok(detail) => {
-            info_event(&app, format!("rules reloaded ({kind}): {detail}", kind = q.kind));
-            (StatusCode::OK, Json(serde_json::json!({"ok": true, "detail": detail}))).into_response()
+            info_event(
+                &app,
+                format!("rules reloaded ({kind}): {detail}", kind = q.kind),
+            );
+            (
+                StatusCode::OK,
+                Json(serde_json::json!({"ok": true, "detail": detail})),
+            )
+                .into_response()
         }
         Err(err) => (
             StatusCode::BAD_REQUEST,
@@ -1826,7 +2501,9 @@ fn lan_addresses() -> Vec<String> {
 async fn handle_dashboard_insights_stats(State(app): State<Arc<AppState>>) -> impl IntoResponse {
     let stats = app.threat_intel.stats();
     let srv = Arc::clone(&app.scan_server);
-    let types = tokio::task::spawn_blocking(move || crate::scan_server::cached_type_stats(&srv)).await.unwrap_or_default();
+    let types = tokio::task::spawn_blocking(move || crate::scan_server::cached_type_stats(&srv))
+        .await
+        .unwrap_or_default();
     Json(serde_json::json!({
         "ok": true,
         "types": types,
@@ -1895,7 +2572,9 @@ async fn handle_dashboard_insights_hash(
 fn file_ext(name: &str) -> String {
     let base = name.rsplit(['\\', '/']).next().unwrap_or(name);
     match base.rfind('.') {
-        Some(i) if i > 0 && i + 1 < base.len() && base.len() - i <= 12 => base[i + 1..].to_ascii_lowercase(),
+        Some(i) if i > 0 && i + 1 < base.len() && base.len() - i <= 12 => {
+            base[i + 1..].to_ascii_lowercase()
+        }
         _ => String::new(),
     }
 }
@@ -1931,8 +2610,14 @@ async fn handle_engine_time() -> impl IntoResponse {
     (headers, Json(crate::scan_timing::report()))
 }
 
-async fn handle_scan_queue(State(app): State<Arc<AppState>>, Query(q): Query<AllQuery>) -> impl IntoResponse {
-    let (scanning, waiting, ns, nw) = app.scan_server.scan_queue.snapshot(if q.all() { usize::MAX } else { 500 });
+async fn handle_scan_queue(
+    State(app): State<Arc<AppState>>,
+    Query(q): Query<AllQuery>,
+) -> impl IntoResponse {
+    let (scanning, waiting, ns, nw) =
+        app.scan_server
+            .scan_queue
+            .snapshot(if q.all() { usize::MAX } else { 500 });
     Json(serde_json::json!({
         "ok": true,
         "scanning": scanning,
@@ -2005,13 +2690,20 @@ fn csv_lower(v: &Option<String>) -> Vec<String> {
 /// (`all=1`: every one). With `offset` / `limit` and the filters (`ext`, `not_ext`,
 /// `engine_verdict`, `folder`, `not_folder`): the pending files that pass the filters,
 /// oldest first, one page at a time; `next_offset` is null on the last page.
-async fn handle_reviews_list(State(app): State<Arc<AppState>>, Query(q): Query<ReviewsQuery>) -> impl IntoResponse {
+async fn handle_reviews_list(
+    State(app): State<Arc<AppState>>,
+    Query(q): Query<ReviewsQuery>,
+) -> impl IntoResponse {
     // Every step reads SQLite or stats kept files (the whole queue with `all=1`): off
     // the async workers, so the other dashboard requests are not held up meanwhile.
     let out = tokio::task::spawn_blocking(move || reviews_list(&app, q)).await;
     match out {
         Ok(v) => Json(v).into_response(),
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"ok": false, "error": e.to_string()}))).into_response(),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"ok": false, "error": e.to_string()})),
+        )
+            .into_response(),
     }
 }
 
@@ -2036,25 +2728,46 @@ fn reviews_list(app: &AppState, q: ReviewsQuery) -> serde_json::Value {
     let r = &app.threat_intel.reviews;
     let all = q.all.as_deref().is_some_and(|v| v == "1" || v == "true");
     let offset = q.offset.unwrap_or(0);
-    let limit = if all { usize::MAX } else { q.limit.unwrap_or(5000).max(1) };
+    let limit = if all {
+        usize::MAX
+    } else {
+        q.limit.unwrap_or(5000).max(1)
+    };
     let exts = csv_lower(&q.ext);
     let not_exts = csv_lower(&q.not_ext);
     let verdicts = csv_lower(&q.engine_verdict);
-    let folder = q.folder.as_deref().map(|f| f.trim().to_lowercase()).filter(|f| !f.is_empty());
+    let folder = q
+        .folder
+        .as_deref()
+        .map(|f| f.trim().to_lowercase())
+        .filter(|f| !f.is_empty());
     let not_folders = csv_lower(&q.not_folder);
-    let filtered = !exts.is_empty() || !not_exts.is_empty() || !verdicts.is_empty() || folder.is_some() || !not_folders.is_empty();
+    let filtered = !exts.is_empty()
+        || !not_exts.is_empty()
+        || !verdicts.is_empty()
+        || folder.is_some()
+        || !not_folders.is_empty();
     // Filter first (cheap fields only), then page, then build the full JSON for the page.
     let mut matched = 0usize;
     let mut page: Vec<(crate::human_review::HumanReview, Option<_>, String)> = Vec::new();
     let queue = r.pending(usize::MAX);
     // One batched read for the whole queue (a query per file was most of the time).
-    let mut records = app.threat_intel.get_many(&queue.iter().map(|rv| rv.sha256.as_str()).collect::<Vec<_>>());
+    let mut records = app.threat_intel.get_many(
+        &queue
+            .iter()
+            .map(|rv| rv.sha256.as_str())
+            .collect::<Vec<_>>(),
+    );
     for rv in queue {
         let ins = records.remove(&rv.sha256.to_ascii_lowercase());
         let name = review_name(&rv, ins.as_ref());
         let ext = file_ext(&name);
         if filtered {
-            let ext_key = if ext.is_empty() { "-".to_string() } else { ext.clone() };
+            let ext_key = if ext.is_empty() {
+                "-".to_string()
+            } else {
+                ext.clone()
+            };
             if !exts.is_empty() && !exts.contains(&ext_key) {
                 continue;
             }
@@ -2062,7 +2775,10 @@ fn reviews_list(app: &AppState, q: ReviewsQuery) -> serde_json::Value {
                 continue;
             }
             if !verdicts.is_empty() {
-                let v = ins.as_ref().map(|i| i.verdict.to_ascii_lowercase()).unwrap_or_else(|| "unknown".into());
+                let v = ins
+                    .as_ref()
+                    .map(|i| i.verdict.to_ascii_lowercase())
+                    .unwrap_or_else(|| "unknown".into());
                 if !verdicts.contains(&v) {
                     continue;
                 }
@@ -2070,7 +2786,12 @@ fn reviews_list(app: &AppState, q: ReviewsQuery) -> serde_json::Value {
             if folder.is_some() || !not_folders.is_empty() {
                 let mut hay = name.to_lowercase();
                 if let Some(i) = &ins {
-                    for f in i.folders.iter().chain(i.full_folders.iter()).chain(i.file_names.iter()) {
+                    for f in i
+                        .folders
+                        .iter()
+                        .chain(i.full_folders.iter())
+                        .chain(i.file_names.iter())
+                    {
                         hay.push('\n');
                         hay.push_str(&f.to_lowercase());
                     }
@@ -2101,23 +2822,48 @@ fn reviews_list(app: &AppState, q: ReviewsQuery) -> serde_json::Value {
     };
     // Verdicts: the 200 newest, or with a search / filter every completed verdict that
     // matches (newest first, at most 500), so a wrong verdict is found by any field.
-    let lc = |o: &Option<String>| o.as_deref().map(|s| s.trim().to_lowercase()).filter(|s| !s.is_empty());
-    let (rq, rverdict, rengine, rsource, rtype) =
-        (lc(&q.recent_q), lc(&q.recent_verdict), lc(&q.recent_engine), lc(&q.recent_source), lc(&q.recent_type));
-    let searching = rq.is_some() || rverdict.is_some() || rengine.is_some() || rsource.is_some() || rtype.is_some();
+    let lc = |o: &Option<String>| {
+        o.as_deref()
+            .map(|s| s.trim().to_lowercase())
+            .filter(|s| !s.is_empty())
+    };
+    let (rq, rverdict, rengine, rsource, rtype) = (
+        lc(&q.recent_q),
+        lc(&q.recent_verdict),
+        lc(&q.recent_engine),
+        lc(&q.recent_source),
+        lc(&q.recent_type),
+    );
+    let searching = rq.is_some()
+        || rverdict.is_some()
+        || rengine.is_some()
+        || rsource.is_some()
+        || rtype.is_some();
     let mut recent: Vec<serde_json::Value> = Vec::new();
     if with_recent {
-        let (pool, cap) = if searching { (r.recent_completed(usize::MAX), 500) } else { (r.recent_completed(200), 200) };
+        let (pool, cap) = if searching {
+            (r.recent_completed(usize::MAX), 500)
+        } else {
+            (r.recent_completed(200), 200)
+        };
         for rv in pool {
-            if rverdict.as_ref().is_some_and(|v| rv.verdict.as_deref().map(str::to_lowercase).as_deref() != Some(v.as_str())) {
+            if rverdict.as_ref().is_some_and(|v| {
+                rv.verdict.as_deref().map(str::to_lowercase).as_deref() != Some(v.as_str())
+            }) {
                 continue;
             }
-            if rsource.as_ref().is_some_and(|s| rv.source.to_lowercase() != *s) {
+            if rsource
+                .as_ref()
+                .is_some_and(|s| rv.source.to_lowercase() != *s)
+            {
                 continue;
             }
             let ins = app.threat_intel.get(&rv.sha256);
             if let Some(e) = &rengine {
-                let cur = ins.as_ref().map(|i| i.verdict.to_ascii_lowercase()).unwrap_or_else(|| "unknown".into());
+                let cur = ins
+                    .as_ref()
+                    .map(|i| i.verdict.to_ascii_lowercase())
+                    .unwrap_or_else(|| "unknown".into());
                 if cur != *e {
                     continue;
                 }
@@ -2126,8 +2872,17 @@ fn reviews_list(app: &AppState, q: ReviewsQuery) -> serde_json::Value {
             let kept = is_kept(&rv.sha256);
             let mut v = review_row(app, &rv, ins, ext, kept);
             // In this list the analyst's verdict gives the malware type.
-            v["classification"] = crate::scan_server::classification_json(rv.verdict.as_deref().unwrap_or(""), rv.threat_name.as_deref());
-            if rtype.as_ref().is_some_and(|t| v["classification"]["category"].as_str().map(str::to_lowercase).as_deref() != Some(t.as_str())) {
+            v["classification"] = crate::scan_server::classification_json(
+                rv.verdict.as_deref().unwrap_or(""),
+                rv.threat_name.as_deref(),
+            );
+            if rtype.as_ref().is_some_and(|t| {
+                v["classification"]["category"]
+                    .as_str()
+                    .map(str::to_lowercase)
+                    .as_deref()
+                    != Some(t.as_str())
+            }) {
                 continue;
             }
             if let Some(needle) = &rq {
@@ -2161,8 +2916,14 @@ fn reviews_list(app: &AppState, q: ReviewsQuery) -> serde_json::Value {
 /// Which engines flagged the file ("jpeg (YARA), MalwareNet.PE (PE_ML)"), from the
 /// last engine verdict in the scan cache. Missing when the cache entry expired.
 /// File name of a review: the one the client sent, else the first name seen.
-fn review_name(rv: &crate::human_review::HumanReview, ins: Option<&crate::threat_intel::ThreatInsight>) -> String {
-    rv.file_name.clone().or_else(|| ins.and_then(|i| i.file_names.first().map(|n| n.to_string()))).unwrap_or_default()
+fn review_name(
+    rv: &crate::human_review::HumanReview,
+    ins: Option<&crate::threat_intel::ThreatInsight>,
+) -> String {
+    rv.file_name
+        .clone()
+        .or_else(|| ins.and_then(|i| i.file_names.first().map(|n| n.to_string())))
+        .unwrap_or_default()
 }
 
 /// One row of the analyst lists (queue and verdicts): the review plus what the
@@ -2239,10 +3000,15 @@ fn add_engine_detail(app: &AppState, v: &mut serde_json::Value, sha256: &str) {
 }
 
 /// Up to 5 similar files (TLSH) with their verdicts.
-async fn handle_review_similar(State(app): State<Arc<AppState>>, Path(sha256): Path<String>) -> impl IntoResponse {
+async fn handle_review_similar(
+    State(app): State<Arc<AppState>>,
+    Path(sha256): Path<String>,
+) -> impl IntoResponse {
     let sha = sha256.trim().to_lowercase();
     let ti = Arc::clone(&app.threat_intel);
-    let list = tokio::task::spawn_blocking(move || crate::scan_server::similar_files(&ti, &sha, 5)).await.unwrap_or_default();
+    let list = tokio::task::spawn_blocking(move || crate::scan_server::similar_files(&ti, &sha, 5))
+        .await
+        .unwrap_or_default();
     Json(serde_json::json!({"ok": true, "similar": list}))
 }
 
@@ -2282,15 +3048,29 @@ const BULK_MAX: usize = 100_000;
 /// hashing (`folder_job`). `verdict` = malicious | suspicious | clean | dismiss
 /// (dismiss = remove pending entries). A malicious verdict needs `threat_name`.
 /// `dry_run` only reports what would change.
-async fn handle_reviews_bulk(State(app): State<Arc<AppState>>, who: Option<Extension<AnalystId>>, Json(mut b): Json<ReviewBulkBody>) -> Response {
+async fn handle_reviews_bulk(
+    State(app): State<Arc<AppState>>,
+    who: Option<Extension<AnalystId>>,
+    Json(mut b): Json<ReviewBulkBody>,
+) -> Response {
     apply_analyst(&who, &mut b.analyst);
     if b.folder_job {
         if crate::folder_wl::JOB.is_running() {
-            return (StatusCode::CONFLICT, Json(serde_json::json!({"error": "the folder is still being hashed"}))).into_response();
+            return (
+                StatusCode::CONFLICT,
+                Json(serde_json::json!({"error": "the folder is still being hashed"})),
+            )
+                .into_response();
         }
         b.sha256s = crate::folder_wl::JOB.hashes();
     }
-    let bad = |e: String| (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": e}))).into_response();
+    let bad = |e: String| {
+        (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": e})),
+        )
+            .into_response()
+    };
     let verdict = b.verdict.trim().to_ascii_lowercase();
     let dismiss = verdict == "dismiss";
     if !dismiss && !crate::human_review::VERDICTS.contains(&verdict.as_str()) {
@@ -2445,7 +3225,11 @@ async fn handle_reviews_bulk(State(app): State<Arc<AppState>>, who: Option<Exten
             }
             (StatusCode::OK, Json(v)).into_response()
         }
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": e.to_string()}))).into_response(),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error": e.to_string()})),
+        )
+            .into_response(),
     }
 }
 
@@ -2487,14 +3271,18 @@ fn sync_analyst_tlsh(
         None => (ti.similarity.tlsh_of(&sha), 0),
     };
     let Some(tlsh) = tlsh else { return };
-    ti.similarity.add_analyst_sig(crate::similarity::AnalystTlsh {
-        sha256: sha,
-        tlsh,
-        threat: threat.filter(|t| !t.is_empty()).unwrap_or("Generic.Multi.Malware").to_string(),
-        analyst: analyst.to_string(),
-        size,
-        added: chrono::Utc::now().to_rfc3339(),
-    });
+    ti.similarity
+        .add_analyst_sig(crate::similarity::AnalystTlsh {
+            sha256: sha,
+            tlsh,
+            threat: threat
+                .filter(|t| !t.is_empty())
+                .unwrap_or("Generic.Multi.Malware")
+                .to_string(),
+            analyst: analyst.to_string(),
+            size,
+            added: chrono::Utc::now().to_rfc3339(),
+        });
 }
 
 /// Saves an analyst verdict for one file. The kept file moves to the verdict's folder,
@@ -2506,11 +3294,26 @@ async fn handle_review_save(
     Json(mut b): Json<ReviewSaveBody>,
 ) -> Response {
     apply_analyst(&who, &mut b.analyst);
-    let threat = if b.threat_name.trim().is_empty() { None } else { Some(b.threat_name.as_str()) };
-    match app.threat_intel.reviews.complete(b.sha256.trim(), &b.verdict, threat, &b.note, &b.internal_note, &b.analyst) {
+    let threat = if b.threat_name.trim().is_empty() {
+        None
+    } else {
+        Some(b.threat_name.as_str())
+    };
+    match app.threat_intel.reviews.complete(
+        b.sha256.trim(),
+        &b.verdict,
+        threat,
+        &b.note,
+        &b.internal_note,
+        &b.analyst,
+    ) {
         Ok(r) => {
             if let Some(v) = r.verdict.clone() {
-                let (eng, ti, sha) = (Arc::clone(&app.engine), Arc::clone(&app.threat_intel), r.sha256.clone());
+                let (eng, ti, sha) = (
+                    Arc::clone(&app.engine),
+                    Arc::clone(&app.threat_intel),
+                    r.sha256.clone(),
+                );
                 let (threat, analyst) = (r.threat_name.clone(), r.analyst.clone());
                 tokio::task::spawn_blocking(move || {
                     eng.relabel_kept(&sha.to_ascii_uppercase(), &v);
@@ -2524,13 +3327,25 @@ async fn handle_review_save(
                     "human analysis: {} -> {} by {} ({} s)",
                     r.sha256,
                     r.verdict.as_deref().unwrap_or("?"),
-                    if r.analyst.is_empty() { "analyst" } else { r.analyst.as_str() },
+                    if r.analyst.is_empty() {
+                        "analyst"
+                    } else {
+                        r.analyst.as_str()
+                    },
                     r.response_secs.unwrap_or(0)
                 ),
             );
-            (StatusCode::OK, Json(serde_json::json!({"ok": true, "review": r.to_dashboard_json()}))).into_response()
+            (
+                StatusCode::OK,
+                Json(serde_json::json!({"ok": true, "review": r.to_dashboard_json()})),
+            )
+                .into_response()
         }
-        Err(e) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": e}))).into_response(),
+        Err(e) => (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": e})),
+        )
+            .into_response(),
     }
 }
 
@@ -2544,22 +3359,56 @@ struct ReviewStartBody {
 }
 
 /// "Start analysis" (Valkyrie-style start date): marks the hash as being analysed.
-async fn handle_review_start(State(app): State<Arc<AppState>>, who: Option<Extension<AnalystId>>, Json(mut b): Json<ReviewStartBody>) -> Response {
+async fn handle_review_start(
+    State(app): State<Arc<AppState>>,
+    who: Option<Extension<AnalystId>>,
+    Json(mut b): Json<ReviewStartBody>,
+) -> Response {
     apply_analyst(&who, &mut b.analyst);
-    match app.threat_intel.reviews.start(b.sha256.trim(), &b.analyst, b.take_over) {
+    match app
+        .threat_intel
+        .reviews
+        .start(b.sha256.trim(), &b.analyst, b.take_over)
+    {
         Ok(r) => {
-            info_event(&app, format!("human analysis started: {} by {}", r.sha256, if r.started_by.is_empty() { "analyst" } else { &r.started_by }));
-            (StatusCode::OK, Json(serde_json::json!({"ok": true, "review": r.to_dashboard_json()}))).into_response()
+            info_event(
+                &app,
+                format!(
+                    "human analysis started: {} by {}",
+                    r.sha256,
+                    if r.started_by.is_empty() {
+                        "analyst"
+                    } else {
+                        &r.started_by
+                    }
+                ),
+            );
+            (
+                StatusCode::OK,
+                Json(serde_json::json!({"ok": true, "review": r.to_dashboard_json()})),
+            )
+                .into_response()
         }
         Err(e) => (StatusCode::CONFLICT, Json(serde_json::json!({"error": e}))).into_response(),
     }
 }
 
 /// Releases a file an analyst had started (`/api/review/start`) back to the queue.
-async fn handle_review_release(State(app): State<Arc<AppState>>, Json(b): Json<ReviewDeleteBody>) -> Response {
+async fn handle_review_release(
+    State(app): State<Arc<AppState>>,
+    Json(b): Json<ReviewDeleteBody>,
+) -> Response {
     match app.threat_intel.reviews.release(b.sha256.trim()) {
-        Ok(r) => (StatusCode::OK, Json(serde_json::json!({"ok": true, "review": r.to_dashboard_json()}))).into_response(),
-        Err(e) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": e}))).into_response(),
+        Ok(r) => (
+            StatusCode::OK,
+            Json(serde_json::json!({"ok": true, "review": r.to_dashboard_json()})),
+        )
+            .into_response(),
+        Err(e) => (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": e})),
+        )
+            .into_response(),
     }
 }
 
@@ -2575,18 +3424,28 @@ async fn handle_review_delete(
     Json(b): Json<ReviewDeleteBody>,
 ) -> Response {
     if app.threat_intel.reviews.remove(b.sha256.trim()) {
-        app.threat_intel.similarity.remove_analyst_sig(b.sha256.trim());
+        app.threat_intel
+            .similarity
+            .remove_analyst_sig(b.sha256.trim());
         // The human verdict no longer applies: put the kept file back in the folder of
         // the engine verdict (otherwise it stays in e.g. clean/ with no verdict behind it).
         let sha = b.sha256.trim().to_lowercase();
-        let engine_verdict = app.threat_intel.get(&sha).map(|i| i.verdict).unwrap_or_else(|| "unknown".into());
+        let engine_verdict = app
+            .threat_intel
+            .get(&sha)
+            .map(|i| i.verdict)
+            .unwrap_or_else(|| "unknown".into());
         let eng = Arc::clone(&app.engine);
         let sha_upper = sha.to_ascii_uppercase();
         tokio::task::spawn_blocking(move || eng.relabel_kept(&sha_upper, &engine_verdict));
         info_event(&app, format!("human analysis removed: {}", sha));
         (StatusCode::OK, Json(serde_json::json!({"ok": true}))).into_response()
     } else {
-        (StatusCode::NOT_FOUND, Json(serde_json::json!({"error": "no review for this hash"}))).into_response()
+        (
+            StatusCode::NOT_FOUND,
+            Json(serde_json::json!({"error": "no review for this hash"})),
+        )
+            .into_response()
     }
 }
 
@@ -2602,14 +3461,18 @@ struct NamingQuery {
 /// `{ok:false, error}`.
 async fn handle_naming_check(Query(q): Query<NamingQuery>) -> impl IntoResponse {
     match crate::naming::normalize_threat_name(&q.name) {
-        Ok(n) => Json(serde_json::json!({"ok": true, "name": n, "yara_id": crate::naming::yara_identifier(&n)})),
+        Ok(n) => Json(
+            serde_json::json!({"ok": true, "name": n, "yara_id": crate::naming::yara_identifier(&n)}),
+        ),
         Err(e) => Json(serde_json::json!({"ok": false, "error": e})),
     }
 }
 
 /// Analyst imphash signatures (`imphash_sigs`), newest first.
 async fn handle_imphash_list() -> impl IntoResponse {
-    Json(serde_json::json!({ "ok": true, "items": crate::imphash_sigs::list(), "min_imports": crate::imphash_sigs::MIN_IMPORTS }))
+    Json(
+        serde_json::json!({ "ok": true, "items": crate::imphash_sigs::list(), "min_imports": crate::imphash_sigs::MIN_IMPORTS }),
+    )
 }
 
 #[derive(Deserialize)]
@@ -2637,26 +3500,47 @@ async fn handle_imphash_create(
 ) -> Response {
     apply_analyst(&who, &mut b.analyst);
     let (eng, ti) = (Arc::clone(&app.engine), Arc::clone(&app.threat_intel));
-    let r = tokio::task::spawn_blocking(move || -> Result<crate::imphash_sigs::ImphashSig, String> {
-        let (sha, data) = if !b.token.trim().is_empty() {
-            let (_, data) = crate::alyzer::doc(b.token.trim()).ok_or("the file is not open in VirusKovAlyzer any more")?;
-            use sha2::Digest;
-            (hex::encode(sha2::Sha256::digest(data.as_slice())), data.to_vec())
-        } else {
-            let sha = b.sha256.trim().to_ascii_uppercase();
-            let data = eng.read_kept_indexed(&sha).ok_or_else(|| crate::missing_files::explain(&sha))?;
-            (sha, data)
-        };
-        crate::imphash_sigs::create(&ti, &sha, &data, &b.threat, &b.analyst)
-    })
-    .await;
+    let r =
+        tokio::task::spawn_blocking(move || -> Result<crate::imphash_sigs::ImphashSig, String> {
+            let (sha, data) = if !b.token.trim().is_empty() {
+                let (_, data) = crate::alyzer::doc(b.token.trim())
+                    .ok_or("the file is not open in VirusKovAlyzer any more")?;
+                use sha2::Digest;
+                (
+                    hex::encode(sha2::Sha256::digest(data.as_slice())),
+                    data.to_vec(),
+                )
+            } else {
+                let sha = b.sha256.trim().to_ascii_uppercase();
+                let data = eng
+                    .read_kept_indexed(&sha)
+                    .ok_or_else(|| crate::missing_files::explain(&sha))?;
+                (sha, data)
+            };
+            crate::imphash_sigs::create(&ti, &sha, &data, &b.threat, &b.analyst)
+        })
+        .await;
     match r {
         Ok(Ok(sig)) => {
-            info_event(&app, format!("imphash signature {} -> {} ({} imports, from {})", sig.imphash, sig.threat, sig.imports, sig.sha256));
+            info_event(
+                &app,
+                format!(
+                    "imphash signature {} -> {} ({} imports, from {})",
+                    sig.imphash, sig.threat, sig.imports, sig.sha256
+                ),
+            );
             Json(serde_json::json!({ "ok": true, "signature": sig })).into_response()
         }
-        Ok(Err(e)) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({ "ok": false, "error": e }))).into_response(),
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({ "ok": false, "error": e.to_string() }))).into_response(),
+        Ok(Err(e)) => (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({ "ok": false, "error": e })),
+        )
+            .into_response(),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({ "ok": false, "error": e.to_string() })),
+        )
+            .into_response(),
     }
 }
 
@@ -2666,14 +3550,28 @@ struct ImphashDeleteBody {
 }
 
 /// Deletes an analyst imphash signature.
-async fn handle_imphash_delete(State(app): State<Arc<AppState>>, Json(b): Json<ImphashDeleteBody>) -> Response {
+async fn handle_imphash_delete(
+    State(app): State<Arc<AppState>>,
+    Json(b): Json<ImphashDeleteBody>,
+) -> Response {
     match crate::imphash_sigs::remove(&b.imphash) {
         Ok(true) => {
-            info_event(&app, format!("imphash signature {} deleted", b.imphash.trim()));
+            info_event(
+                &app,
+                format!("imphash signature {} deleted", b.imphash.trim()),
+            );
             Json(serde_json::json!({ "ok": true })).into_response()
         }
-        Ok(false) => (StatusCode::NOT_FOUND, Json(serde_json::json!({ "ok": false, "error": "no such imphash signature" }))).into_response(),
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({ "ok": false, "error": e.to_string() }))).into_response(),
+        Ok(false) => (
+            StatusCode::NOT_FOUND,
+            Json(serde_json::json!({ "ok": false, "error": "no such imphash signature" })),
+        )
+            .into_response(),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({ "ok": false, "error": e.to_string() })),
+        )
+            .into_response(),
     }
 }
 
@@ -2684,11 +3582,19 @@ async fn handle_private_list(State(app): State<Arc<AppState>>) -> impl IntoRespo
             .map(|s| {
                 let clean = s.sha256.to_ascii_lowercase();
                 let ins = app.threat_intel.get(&clean);
-                let rev_json = app.threat_intel.reviews.get(&clean).map(|r| r.to_dashboard_json());
+                let rev_json = app
+                    .threat_intel
+                    .reviews
+                    .get(&clean)
+                    .map(|r| r.to_dashboard_json());
                 let file_name = ins
                     .as_ref()
                     .and_then(|i| i.file_names.first().map(|f| f.to_string()))
-                    .or_else(|| rev_json.as_ref().and_then(|r| r["file_name"].as_str().map(String::from)))
+                    .or_else(|| {
+                        rev_json
+                            .as_ref()
+                            .and_then(|r| r["file_name"].as_str().map(String::from))
+                    })
                     .unwrap_or_default();
                 let verdict = rev_json
                     .as_ref()
@@ -2698,7 +3604,11 @@ async fn handle_private_list(State(app): State<Arc<AppState>>) -> impl IntoRespo
                 let detection = ins
                     .as_ref()
                     .and_then(|i| i.threat_name.as_ref().map(|t| t.to_string()))
-                    .or_else(|| rev_json.as_ref().and_then(|r| r["detection"].as_str().map(String::from)))
+                    .or_else(|| {
+                        rev_json
+                            .as_ref()
+                            .and_then(|r| r["detection"].as_str().map(String::from))
+                    })
                     .unwrap_or_default();
                 let kept = app.engine.is_kept(&clean);
                 let size = ins.as_ref().and_then(|i| i.file_size).unwrap_or(0);
@@ -2735,20 +3645,39 @@ struct PrivateSampleBody {
 
 /// Marks a sample private (the public API gives its verdict only, see
 /// `private_samples`) or public again. Applies to the next API request.
-async fn handle_private_set(State(app): State<Arc<AppState>>, who: Option<Extension<AnalystId>>, Json(mut b): Json<PrivateSampleBody>) -> Response {
+async fn handle_private_set(
+    State(app): State<Arc<AppState>>,
+    who: Option<Extension<AnalystId>>,
+    Json(mut b): Json<PrivateSampleBody>,
+) -> Response {
     apply_analyst(&who, &mut b.analyst);
     let sha = b.sha256.trim().to_ascii_lowercase();
     if sha.len() != 64 || !sha.bytes().all(|c| c.is_ascii_hexdigit()) {
-        return (StatusCode::BAD_REQUEST, Json(serde_json::json!({ "ok": false, "error": "invalid sha256" }))).into_response();
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({ "ok": false, "error": "invalid sha256" })),
+        )
+            .into_response();
     }
     match crate::private_samples::set(&sha, b.private, &b.analyst, &b.note) {
         Ok(changed) => {
             if changed {
-                info_event(&app, format!("sample {sha} is now {}", if b.private { "private" } else { "public" }));
+                info_event(
+                    &app,
+                    format!(
+                        "sample {sha} is now {}",
+                        if b.private { "private" } else { "public" }
+                    ),
+                );
             }
-            Json(serde_json::json!({ "ok": true, "private": b.private, "changed": changed })).into_response()
+            Json(serde_json::json!({ "ok": true, "private": b.private, "changed": changed }))
+                .into_response()
         }
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({ "ok": false, "error": e.to_string() }))).into_response(),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({ "ok": false, "error": e.to_string() })),
+        )
+            .into_response(),
     }
 }
 
@@ -2805,7 +3734,11 @@ async fn handle_blacklist_remove(
     apply_analyst(&who, &mut b.analyst);
     match crate::blacklist_removals::remove_hash(&b.hash, &b.analyst, &b.reason) {
         Ok(changed) => Json(serde_json::json!({ "ok": true, "changed": changed })).into_response(),
-        Err(e) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({ "ok": false, "error": e.to_string() }))).into_response(),
+        Err(e) => (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({ "ok": false, "error": e.to_string() })),
+        )
+            .into_response(),
     }
 }
 
@@ -2816,8 +3749,14 @@ async fn handle_blacklist_restore(
 ) -> Response {
     apply_analyst(&who, &mut b.analyst);
     match crate::blacklist_removals::restore_hash(&b.hash, &b.analyst) {
-        Ok(restored) => Json(serde_json::json!({ "ok": true, "restored": restored })).into_response(),
-        Err(e) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({ "ok": false, "error": e.to_string() }))).into_response(),
+        Ok(restored) => {
+            Json(serde_json::json!({ "ok": true, "restored": restored })).into_response()
+        }
+        Err(e) => (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({ "ok": false, "error": e.to_string() })),
+        )
+            .into_response(),
     }
 }
 
@@ -2835,20 +3774,39 @@ struct SampleDeleteBody {
 
 /// Deletes a sample on request (kept file + static report, never stored again), with
 /// the reason in `sample_deletions.jsonl`; see `sample_deletions`.
-async fn handle_sample_delete(State(app): State<Arc<AppState>>, who: Option<Extension<AnalystId>>, Json(mut b): Json<SampleDeleteBody>) -> Response {
+async fn handle_sample_delete(
+    State(app): State<Arc<AppState>>,
+    who: Option<Extension<AnalystId>>,
+    Json(mut b): Json<SampleDeleteBody>,
+) -> Response {
     apply_analyst(&who, &mut b.analyst);
     let eng = Arc::clone(&app.engine);
     let (sha, reason, analyst) = (b.sha256.clone(), b.reason.clone(), b.analyst.clone());
-    let r = tokio::task::spawn_blocking(move || crate::sample_deletions::delete(&eng, &sha, &reason, &analyst))
-        .await
-        .unwrap_or_else(|e| Err(e.to_string()));
+    let r = tokio::task::spawn_blocking(move || {
+        crate::sample_deletions::delete(&eng, &sha, &reason, &analyst)
+    })
+    .await
+    .unwrap_or_else(|e| Err(e.to_string()));
     match r {
         Ok(d) => {
-            info_event(&app, format!("sample {} deleted on request ({} files): {}", d.sha256, d.removed.len(), d.reason));
+            info_event(
+                &app,
+                format!(
+                    "sample {} deleted on request ({} files): {}",
+                    d.sha256,
+                    d.removed.len(),
+                    d.reason
+                ),
+            );
             let archived = crate::sample_deletions::archived_copy(&d.sha256);
-            Json(serde_json::json!({ "ok": true, "deletion": d, "archived_copy": archived })).into_response()
+            Json(serde_json::json!({ "ok": true, "deletion": d, "archived_copy": archived }))
+                .into_response()
         }
-        Err(e) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({ "ok": false, "error": e }))).into_response(),
+        Err(e) => (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({ "ok": false, "error": e })),
+        )
+            .into_response(),
     }
 }
 
@@ -2869,15 +3827,35 @@ struct YaraClassBody {
 
 /// Sets what a match of a YARA rule means (e.g. `RAT_VNC` → suspicious). Cached
 /// verdicts are dropped so files are judged again with it; kept files need a rescan.
-async fn handle_yara_class_set(State(app): State<Arc<AppState>>, who: Option<Extension<AnalystId>>, Json(mut b): Json<YaraClassBody>) -> Response {
+async fn handle_yara_class_set(
+    State(app): State<Arc<AppState>>,
+    who: Option<Extension<AnalystId>>,
+    Json(mut b): Json<YaraClassBody>,
+) -> Response {
     apply_analyst(&who, &mut b.analyst);
     match crate::yara_classes::set(&b.rule, &b.class, &b.note, &b.analyst) {
         Ok(e) => {
             app.scan_server.cache.invalidate_all();
-            info_event(&app, format!("YARA rule {} -> {} (by {})", e.rule, e.class, if e.analyst.is_empty() { "?" } else { &e.analyst }));
+            info_event(
+                &app,
+                format!(
+                    "YARA rule {} -> {} (by {})",
+                    e.rule,
+                    e.class,
+                    if e.analyst.is_empty() {
+                        "?"
+                    } else {
+                        &e.analyst
+                    }
+                ),
+            );
             Json(serde_json::json!({ "ok": true, "item": e })).into_response()
         }
-        Err(e) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({ "ok": false, "error": e }))).into_response(),
+        Err(e) => (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({ "ok": false, "error": e })),
+        )
+            .into_response(),
     }
 }
 
@@ -2887,15 +3865,29 @@ struct YaraClassDeleteBody {
 }
 
 /// Removes an analyst rule class: the rule's own name and metadata decide again.
-async fn handle_yara_class_delete(State(app): State<Arc<AppState>>, Json(b): Json<YaraClassDeleteBody>) -> Response {
+async fn handle_yara_class_delete(
+    State(app): State<Arc<AppState>>,
+    Json(b): Json<YaraClassDeleteBody>,
+) -> Response {
     match crate::yara_classes::remove(&b.rule) {
         Ok(true) => {
             app.scan_server.cache.invalidate_all();
-            info_event(&app, format!("YARA rule class of {} removed", b.rule.trim()));
+            info_event(
+                &app,
+                format!("YARA rule class of {} removed", b.rule.trim()),
+            );
             Json(serde_json::json!({ "ok": true })).into_response()
         }
-        Ok(false) => (StatusCode::NOT_FOUND, Json(serde_json::json!({ "ok": false, "error": "no class set for this rule" }))).into_response(),
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({ "ok": false, "error": e }))).into_response(),
+        Ok(false) => (
+            StatusCode::NOT_FOUND,
+            Json(serde_json::json!({ "ok": false, "error": "no class set for this rule" })),
+        )
+            .into_response(),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({ "ok": false, "error": e })),
+        )
+            .into_response(),
     }
 }
 
@@ -2906,13 +3898,18 @@ async fn handle_signatures_list() -> impl IntoResponse {
     let mut items = Vec::new();
     for kind in SigKind::ALL {
         let dir = crate::human_review::analyst_dir().join(kind.folder());
-        let Ok(rd) = std::fs::read_dir(&dir) else { continue };
+        let Ok(rd) = std::fs::read_dir(&dir) else {
+            continue;
+        };
         for e in rd.flatten() {
             let p = e.path();
             if p.extension().and_then(|x| x.to_str()) != Some(kind.ext()) {
                 continue;
             }
-            let name = p.file_stem().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+            let name = p
+                .file_stem()
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_default();
             let modified = e
                 .metadata()
                 .ok()
@@ -2926,7 +3923,9 @@ async fn handle_signatures_list() -> impl IntoResponse {
             }));
         }
     }
-    items.sort_by(|a, b| (a["name"].as_str(), a["kind"].as_str()).cmp(&(b["name"].as_str(), b["kind"].as_str())));
+    items.sort_by(|a, b| {
+        (a["name"].as_str(), a["kind"].as_str()).cmp(&(b["name"].as_str(), b["kind"].as_str()))
+    });
     Json(serde_json::json!({
         "ok": true,
         "folder": crate::human_review::analyst_dir().display().to_string(),
@@ -2955,8 +3954,7 @@ struct SignatureSaveBody {
 }
 
 /// Every kind the signature room accepts, for error messages.
-const SIG_KINDS_HELP: &str =
-    "unknown kind (yara | hydradragonsig | clamav_ndb | clamav_ldb | firewall | signer | registry | url | sigma)";
+const SIG_KINDS_HELP: &str = "unknown kind (yara | hydradragonsig | clamav_ndb | clamav_ldb | firewall | signer | registry | url | sigma)";
 
 /// The file name a rule of `kind` is saved under: a threat name in canonical form for
 /// detection kinds, a plain safe file name for the free-named ones (signer, registry,
@@ -2983,9 +3981,17 @@ fn rebuild_engine_for_rules(app: &Arc<AppState>, what: &str) -> String {
         move |res| match res {
             Ok(ms) => {
                 app2.scan_server.cache.invalidate_all();
-                info_event(&app2, format!("engine rebuilt in {ms} ms after {what_done}, verdict cache invalidated"));
+                info_event(
+                    &app2,
+                    format!(
+                        "engine rebuilt in {ms} ms after {what_done}, verdict cache invalidated"
+                    ),
+                );
             }
-            Err(e) => info_event(&app2, format!("engine rebuild after {what_done} failed, old engine kept: {e}")),
+            Err(e) => info_event(
+                &app2,
+                format!("engine rebuild after {what_done} failed, old engine kept: {e}"),
+            ),
         },
     );
     match started {
@@ -3002,8 +4008,14 @@ async fn handle_signature_save(
     State(app): State<Arc<AppState>>,
     Json(b): Json<SignatureSaveBody>,
 ) -> Response {
-    use crate::analyst_engine::{validate_clamav, validate_hydrasig, SigKind};
-    let bad = |e: String| (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": e}))).into_response();
+    use crate::analyst_engine::{SigKind, validate_clamav, validate_hydrasig};
+    let bad = |e: String| {
+        (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": e})),
+        )
+            .into_response()
+    };
     let Some(kind) = SigKind::parse(&b.kind) else {
         return bad(SIG_KINDS_HELP.into());
     };
@@ -3041,7 +4053,11 @@ async fn handle_signature_save(
         Err(e) => return bad(e),
     };
     if let Err(e) = std::fs::write(&path, &b.source) {
-        return (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": e.to_string()}))).into_response();
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error": e.to_string()})),
+        )
+            .into_response();
     }
     let note = if kind.needs_engine_rebuild() {
         let what = if kind == SigKind::Sigma && !sigma_title.trim().is_empty() {
@@ -3049,7 +4065,10 @@ async fn handle_signature_save(
         } else {
             format!("Saved ({count} {} rule(s)).", kind.id())
         };
-        format!("{what} {}", rebuild_engine_for_rules(&app, &format!("saving {} rule {name}", kind.id())))
+        format!(
+            "{what} {}",
+            rebuild_engine_for_rules(&app, &format!("saving {} rule {name}", kind.id()))
+        )
     } else if kind == SigKind::Yara {
         if existed {
             "Saved. The previous version stays loaded too until the next engine reload.".to_string()
@@ -3060,16 +4079,28 @@ async fn handle_signature_save(
         format!("Saved and active ({count} firewall rule(s)).")
     } else {
         let engine = Arc::clone(&app.engine);
-        let summary = tokio::task::spawn_blocking(move || engine.analyst.reload()).await.unwrap_or_default();
+        let summary = tokio::task::spawn_blocking(move || engine.analyst.reload())
+            .await
+            .unwrap_or_default();
         format!("Saved and active ({count} signature(s)). {summary}")
     };
-    info_event(&app, format!("signature room: {} {name} {}", kind.id(), if existed { "updated" } else { "added" }));
+    info_event(
+        &app,
+        format!(
+            "signature room: {} {name} {}",
+            kind.id(),
+            if existed { "updated" } else { "added" }
+        ),
+    );
     // Retrohunt: this signature over every kept file, matches rescanned with the full engine.
     let (note, hunt) = if !kind.retrohuntable() {
         (note, 0)
     } else {
         let hunt = crate::retrohunt::start(&app.scan_server, kind, &name, &b.source);
-        (format!("{note} Retrohunt #{hunt} queued over all kept files."), hunt)
+        (
+            format!("{note} Retrohunt #{hunt} queued over all kept files."),
+            hunt,
+        )
     };
     Json(serde_json::json!({ "ok": true, "kind": kind.id(), "name": name, "file": path.display().to_string(), "note": note, "retrohunt": hunt })).into_response()
 }
@@ -3081,9 +4112,18 @@ async fn handle_retrohunt_status(State(app): State<Arc<AppState>>) -> impl IntoR
 
 /// Archive server: matches a rule (saved or only in the editor) against every file of
 /// the mirrored work folder. Match only: no engine, nothing written.
-async fn handle_retrohunt_archive(State(app): State<Arc<AppState>>, Json(b): Json<SignatureSaveBody>) -> Response {
+async fn handle_retrohunt_archive(
+    State(app): State<Arc<AppState>>,
+    Json(b): Json<SignatureSaveBody>,
+) -> Response {
     use crate::analyst_engine::SigKind;
-    let bad = |e: &str| (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": e}))).into_response();
+    let bad = |e: &str| {
+        (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": e})),
+        )
+            .into_response()
+    };
     if !crate::config::is_archive() {
         return bad("on the main server, saving the signature starts its retrohunt");
     }
@@ -3094,7 +4134,9 @@ async fn handle_retrohunt_archive(State(app): State<Arc<AppState>>, Json(b): Jso
         return bad("firewall rules filter network traffic, they do not scan static file archives");
     };
     if !kind.retrohuntable() {
-        return bad("signer, registry, URL and Sigma rules are not file content rules and cannot be retrohunted");
+        return bad(
+            "signer, registry, URL and Sigma rules are not file content rules and cannot be retrohunted",
+        );
     }
     if b.source.trim().is_empty() {
         return bad("the rule is empty");
@@ -3103,7 +4145,11 @@ async fn handle_retrohunt_archive(State(app): State<Arc<AppState>>, Json(b): Jso
         return bad("rule source over 1 MB");
     }
     let name: String = b.name.trim().chars().take(200).collect();
-    let name = if name.is_empty() { "(unsaved rule)".to_string() } else { name };
+    let name = if name.is_empty() {
+        "(unsaved rule)".to_string()
+    } else {
+        name
+    };
     let hunt = crate::retrohunt::start_match_only(&app.scan_server, kind, &name, &b.source);
     Json(serde_json::json!({ "ok": true, "retrohunt": hunt })).into_response()
 }
@@ -3130,27 +4176,46 @@ async fn handle_signature_delete(
 ) -> Response {
     use crate::analyst_engine::SigKind;
     let Some(kind) = SigKind::parse(&b.kind) else {
-        return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "invalid kind or name"}))).into_response();
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": "invalid kind or name"})),
+        )
+            .into_response();
     };
     let Ok(name) = signature_file_name(kind, &b.name) else {
-        return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "invalid kind or name"}))).into_response();
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": "invalid kind or name"})),
+        )
+            .into_response();
     };
     if let Err(e) = std::fs::remove_file(kind.path(&name)) {
-        return (StatusCode::NOT_FOUND, Json(serde_json::json!({"error": e.to_string()}))).into_response();
+        return (
+            StatusCode::NOT_FOUND,
+            Json(serde_json::json!({"error": e.to_string()})),
+        )
+            .into_response();
     }
     let note = if kind.needs_engine_rebuild() {
-        format!("Deleted. {}", rebuild_engine_for_rules(&app, &format!("deleting {} rule {name}", kind.id())))
+        format!(
+            "Deleted. {}",
+            rebuild_engine_for_rules(&app, &format!("deleting {} rule {name}", kind.id()))
+        )
     } else if kind == SigKind::Yara {
         "Deleted. It stays loaded until the next engine reload.".to_string()
     } else {
         let engine = Arc::clone(&app.engine);
-        tokio::task::spawn_blocking(move || engine.analyst.reload()).await.unwrap_or_default();
+        tokio::task::spawn_blocking(move || engine.analyst.reload())
+            .await
+            .unwrap_or_default();
         "Deleted and unloaded.".to_string()
     };
-    info_event(&app, format!("signature room: {} {name} deleted", kind.id()));
+    info_event(
+        &app,
+        format!("signature room: {} {name} deleted", kind.id()),
+    );
     Json(serde_json::json!({"ok": true, "note": note})).into_response()
 }
-
 
 /// Export consolidated HydraDragon Firewall rules YAML for clients (WinDivert/OpenEDR)
 pub async fn handle_firewall_rules_export() -> impl IntoResponse {
@@ -3183,10 +4248,16 @@ pub async fn handle_firewall_rules_export() -> impl IntoResponse {
         }
     }
     let mut m = yaml_serde::Mapping::new();
-    m.insert(yaml_serde::Value::String("rules".into()), yaml_serde::Value::Sequence(all_rules));
+    m.insert(
+        yaml_serde::Value::String("rules".into()),
+        yaml_serde::Value::Sequence(all_rules),
+    );
     let root = yaml_serde::Value::Mapping(m);
     let yaml_str = yaml_serde::to_string(&root).unwrap_or_else(|_| "rules: []\n".into());
-    ([(axum::http::header::CONTENT_TYPE, "text/yaml; charset=utf-8")], yaml_str)
+    (
+        [(axum::http::header::CONTENT_TYPE, "text/yaml; charset=utf-8")],
+        yaml_str,
+    )
 }
 
 // ---------------- Analyst identity & signer rule quick-add ----------------
@@ -3195,7 +4266,9 @@ pub async fn handle_firewall_rules_export() -> impl IntoResponse {
 /// then need `X-Multron-Analyst-Key`), `analyst` = owner of the key sent, if valid.
 async fn handle_analyst_whoami(who: Option<Extension<AnalystId>>) -> impl IntoResponse {
     let enforced = !crate::human_review::analyst_keys().is_empty();
-    Json(serde_json::json!({ "ok": true, "enforced": enforced, "analyst": who.map(|Extension(a)| a.0) }))
+    Json(
+        serde_json::json!({ "ok": true, "enforced": enforced, "analyst": who.map(|Extension(a)| a.0) }),
+    )
 }
 
 #[derive(Deserialize)]
@@ -3247,15 +4320,26 @@ async fn handle_signer_rules_quick_add(
     };
     let added = match crate::analyst_engine::append_quick_signer_rule(input) {
         Ok(res) => res,
-        Err(e) => return (StatusCode::BAD_REQUEST, Json(serde_json::json!({ "error": e }))).into_response(),
+        Err(e) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({ "error": e })),
+            )
+                .into_response();
+        }
     };
 
-    let reload_note = rebuild_engine_for_rules(&app, &format!("adding signer rule {}", added.rule_id));
+    let reload_note =
+        rebuild_engine_for_rules(&app, &format!("adding signer rule {}", added.rule_id));
     info_event(
         &app,
         format!(
             "signer rule added ({verdict} {} = {value}): {} [by {analyst}, sha256={sha}, sample={sample_name}]",
-            if cond_type.is_empty() { "signature_signer_equals" } else { cond_type.as_str() },
+            if cond_type.is_empty() {
+                "signature_signer_equals"
+            } else {
+                cond_type.as_str()
+            },
             added.rule_id
         ),
     );
@@ -3287,7 +4371,11 @@ async fn handle_signer_rules_lookup(
 ) -> Response {
     let sha = q.sha256.trim().to_ascii_lowercase();
     if sha.is_empty() {
-        return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "sha256 query param required"}))).into_response();
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": "sha256 query param required"})),
+        )
+            .into_response();
     }
 
     let ti = app.threat_intel.get(&sha);
@@ -3320,7 +4408,10 @@ async fn handle_signer_rules_lookup(
         if let Some(sha_arr) = crate::cache::parse_sha(&sha.to_ascii_uppercase()) {
             if let Some(cached) = app.scan_server.cache.get(&sha_arr) {
                 if let Some(d) = cached.detail {
-                    if let Some(rest) = d.find("[Authenticode:").and_then(|pos| d[pos..].strip_prefix("[Authenticode:")) {
+                    if let Some(rest) = d
+                        .find("[Authenticode:")
+                        .and_then(|pos| d[pos..].strip_prefix("[Authenticode:"))
+                    {
                         if let Some(end) = rest.find(']') {
                             let text = rest[..end].trim();
                             if !text.is_empty() {
@@ -3364,12 +4455,15 @@ async fn handle_signer_rules_lookup(
     }
 }
 
-
 // ---------------- False-positive signature lists ----------------
 
 fn fp_rules_dir(app: &AppState) -> Result<std::path::PathBuf, Response> {
     app.engine.rules_dir().ok_or_else(|| {
-        (StatusCode::SERVICE_UNAVAILABLE, Json(serde_json::json!({"error": "the engine has not started loading yet"}))).into_response()
+        (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(serde_json::json!({"error": "the engine has not started loading yet"})),
+        )
+            .into_response()
     })
 }
 
@@ -3411,7 +4505,11 @@ async fn handle_fp_detections(
     .await;
     match out {
         Ok(v) => Json(v).into_response(),
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": e.to_string()}))).into_response(),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error": e.to_string()})),
+        )
+            .into_response(),
     }
 }
 
@@ -3426,26 +4524,43 @@ struct SourcesQuery {
 }
 
 /// Client IPs that sent files, with file / path counts (bot and abuse hunting).
-async fn handle_sources(State(app): State<Arc<AppState>>, Query(q): Query<SourcesQuery>) -> Response {
+async fn handle_sources(
+    State(app): State<Arc<AppState>>,
+    Query(q): Query<SourcesQuery>,
+) -> Response {
     let ti = Arc::clone(&app.threat_intel);
     let limit = q.limit.unwrap_or(200).clamp(1, 2000);
-    let mut list = tokio::task::spawn_blocking(move || ti.sources(&q.ip, &q.path, limit)).await.unwrap_or_default();
+    let mut list = tokio::task::spawn_blocking(move || ti.sources(&q.ip, &q.path, limit))
+        .await
+        .unwrap_or_default();
     for v in &mut list {
-        let banned = v["ip"].as_str().is_some_and(|ip| app.scan_server.ip_bans.is_banned(ip));
+        let banned = v["ip"]
+            .as_str()
+            .is_some_and(|ip| app.scan_server.ip_bans.is_banned(ip));
         v["banned"] = serde_json::json!(banned);
     }
     Json(serde_json::json!({"ok": true, "sources": list})).into_response()
 }
 
 /// Files one client IP sent, with the full paths it sent them from.
-async fn handle_source_files(State(app): State<Arc<AppState>>, Query(q): Query<SourcesQuery>) -> Response {
+async fn handle_source_files(
+    State(app): State<Arc<AppState>>,
+    Query(q): Query<SourcesQuery>,
+) -> Response {
     if q.ip.trim().is_empty() {
-        return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"ok": false, "error": "ip required"}))).into_response();
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"ok": false, "error": "ip required"})),
+        )
+            .into_response();
     }
     let ti = Arc::clone(&app.threat_intel);
     let limit = q.limit.unwrap_or(500).clamp(1, 5000);
     let ip = q.ip.clone();
-    let (total, files) = tokio::task::spawn_blocking(move || ti.files_from_ip(&q.ip, &q.path, limit)).await.unwrap_or_default();
+    let (total, files) =
+        tokio::task::spawn_blocking(move || ti.files_from_ip(&q.ip, &q.path, limit))
+            .await
+            .unwrap_or_default();
     let banned = app.scan_server.ip_bans.is_banned(&ip);
     Json(serde_json::json!({"ok": true, "ip": ip.trim(), "banned": banned, "total": total, "files": files})).into_response()
 }
@@ -3473,17 +4588,44 @@ struct BanBody {
 }
 
 /// Bans an IP or CIDR range on every public route and closes its open sessions.
-async fn handle_ban_add(State(app): State<Arc<AppState>>, who: Option<Extension<AnalystId>>, Json(mut b): Json<BanBody>) -> Response {
+async fn handle_ban_add(
+    State(app): State<Arc<AppState>>,
+    who: Option<Extension<AnalystId>>,
+    Json(mut b): Json<BanBody>,
+) -> Response {
     apply_analyst(&who, &mut b.analyst);
-    match app.scan_server.ip_bans.add(&b.ip, &b.reason, &b.analyst, b.minutes) {
+    match app
+        .scan_server
+        .ip_bans
+        .add(&b.ip, &b.reason, &b.analyst, b.minutes)
+    {
         Ok(ban) => {
             let closed = app.scan_server.close_banned_sessions().await;
-            let span = if b.minutes == 0 { "until removed".to_string() } else { format!("for {} min", b.minutes) };
-            info_event(&app, format!("IP ban {} {span} by {}: {} ({closed} session(s) closed)", ban.rule,
-                if ban.analyst.is_empty() { "analyst" } else { &ban.analyst }, ban.reason));
+            let span = if b.minutes == 0 {
+                "until removed".to_string()
+            } else {
+                format!("for {} min", b.minutes)
+            };
+            info_event(
+                &app,
+                format!(
+                    "IP ban {} {span} by {}: {} ({closed} session(s) closed)",
+                    ban.rule,
+                    if ban.analyst.is_empty() {
+                        "analyst"
+                    } else {
+                        &ban.analyst
+                    },
+                    ban.reason
+                ),
+            );
             Json(serde_json::json!({"ok": true, "ban": ban, "closed": closed})).into_response()
         }
-        Err(e) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({"ok": false, "error": e}))).into_response(),
+        Err(e) => (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"ok": false, "error": e})),
+        )
+            .into_response(),
     }
 }
 
@@ -3496,7 +4638,11 @@ async fn handle_ban_remove(State(app): State<Arc<AppState>>, Json(b): Json<BanBo
             }
             Json(serde_json::json!({"ok": true, "removed": removed})).into_response()
         }
-        Err(e) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({"ok": false, "error": e}))).into_response(),
+        Err(e) => (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"ok": false, "error": e})),
+        )
+            .into_response(),
     }
 }
 
@@ -3509,7 +4655,10 @@ async fn handle_fp_lists(State(app): State<Arc<AppState>>) -> Response {
     };
     // Reads every list file (directory walks + file reads): off the async workers.
     let lists = tokio::task::spawn_blocking(move || {
-        crate::fp_ignore::Kind::ALL.iter().map(|k| crate::fp_ignore::list(&rules, *k)).collect::<Vec<_>>()
+        crate::fp_ignore::Kind::ALL
+            .iter()
+            .map(|k| crate::fp_ignore::list(&rules, *k))
+            .collect::<Vec<_>>()
     })
     .await
     .unwrap_or_default();
@@ -3534,9 +4683,19 @@ struct FpIgnoreBody {
 
 /// Adds a signature to a false-positive ignore list (`kind` = clamav | hydrasig | yara)
 /// with reason, analyst and the file it was seen on.
-async fn handle_fp_ignore(State(app): State<Arc<AppState>>, who: Option<Extension<AnalystId>>, Json(mut b): Json<FpIgnoreBody>) -> Response {
+async fn handle_fp_ignore(
+    State(app): State<Arc<AppState>>,
+    who: Option<Extension<AnalystId>>,
+    Json(mut b): Json<FpIgnoreBody>,
+) -> Response {
     apply_analyst(&who, &mut b.analyst);
-    let bad = |e: String| (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": e}))).into_response();
+    let bad = |e: String| {
+        (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": e})),
+        )
+            .into_response()
+    };
     let Some(kind) = crate::fp_ignore::Kind::parse(&b.kind) else {
         return bad("kind must be clamav, hydrasig or yara".into());
     };
@@ -3555,7 +4714,16 @@ async fn handle_fp_ignore(State(app): State<Arc<AppState>>, who: Option<Extensio
     };
     match crate::fp_ignore::add(&rules, &req) {
         Ok(path) => {
-            info_event(&app, format!("FP list: {} {} added to {} ({})", kind.id(), b.name.trim(), path.display(), b.reason.trim()));
+            info_event(
+                &app,
+                format!(
+                    "FP list: {} {} added to {} ({})",
+                    kind.id(),
+                    b.name.trim(),
+                    path.display(),
+                    b.reason.trim()
+                ),
+            );
             Json(serde_json::json!({"ok": true, "file": path.display().to_string(), "note": kind.note()})).into_response()
         }
         Err(e) => bad(e),
@@ -3571,9 +4739,16 @@ struct FpUnignoreBody {
 
 /// Removes a signature from a false-positive ignore list. Active after the next engine
 /// reload.
-async fn handle_fp_unignore(State(app): State<Arc<AppState>>, Json(b): Json<FpUnignoreBody>) -> Response {
+async fn handle_fp_unignore(
+    State(app): State<Arc<AppState>>,
+    Json(b): Json<FpUnignoreBody>,
+) -> Response {
     let Some(kind) = crate::fp_ignore::Kind::parse(&b.kind) else {
-        return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "unknown kind"}))).into_response();
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": "unknown kind"})),
+        )
+            .into_response();
     };
     let rules = match fp_rules_dir(&app) {
         Ok(r) => r,
@@ -3581,10 +4756,22 @@ async fn handle_fp_unignore(State(app): State<Arc<AppState>>, Json(b): Json<FpUn
     };
     match crate::fp_ignore::remove(&rules, kind, &b.file, b.name.trim()) {
         Ok(()) => {
-            info_event(&app, format!("FP list: {} {} removed from {}", kind.id(), b.name.trim(), b.file));
+            info_event(
+                &app,
+                format!(
+                    "FP list: {} {} removed from {}",
+                    kind.id(),
+                    b.name.trim(),
+                    b.file
+                ),
+            );
             Json(serde_json::json!({"ok": true, "note": "Removed. Active after the next engine reload."})).into_response()
         }
-        Err(e) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": e}))).into_response(),
+        Err(e) => (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": e})),
+        )
+            .into_response(),
     }
 }
 
@@ -3595,10 +4782,28 @@ mod guard_tests {
 
     #[test]
     fn local_host_names() {
-        for h in ["localhost", "localhost:9440", "LOCALHOST", "127.0.0.1", "127.0.0.1:9440", "[::1]:9440", "[::1]", "::1", "127.0.0.2"] {
+        for h in [
+            "localhost",
+            "localhost:9440",
+            "LOCALHOST",
+            "127.0.0.1",
+            "127.0.0.1:9440",
+            "[::1]:9440",
+            "[::1]",
+            "::1",
+            "127.0.0.2",
+        ] {
             assert!(is_local_host(h), "{h}");
         }
-        for h in ["", "evil.com", "evil.com:9440", "localhost.evil.com", "192.168.1.5:9440", "[fe80::1]:9440", "10.0.0.1"] {
+        for h in [
+            "",
+            "evil.com",
+            "evil.com:9440",
+            "localhost.evil.com",
+            "192.168.1.5:9440",
+            "[fe80::1]:9440",
+            "10.0.0.1",
+        ] {
             assert!(!is_local_host(h), "{h}");
         }
     }
@@ -3608,7 +4813,11 @@ mod guard_tests {
         s.write_all(raw.as_bytes()).await.unwrap();
         let mut buf = vec![0u8; 256];
         let n = s.read(&mut buf).await.unwrap();
-        String::from_utf8_lossy(&buf[..n]).lines().next().unwrap_or("").to_string()
+        String::from_utf8_lossy(&buf[..n])
+            .lines()
+            .next()
+            .unwrap_or("")
+            .to_string()
     }
 
     #[tokio::test]
@@ -3619,31 +4828,78 @@ mod guard_tests {
         let l = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = l.local_addr().unwrap();
         tokio::spawn(async move {
-            axum::serve(l, app.into_make_service_with_connect_info::<std::net::SocketAddr>()).await.unwrap();
+            axum::serve(
+                l,
+                app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+            )
+            .await
+            .unwrap();
         });
         let get = |host: &str| format!("GET /x HTTP/1.1\r\n{host}Connection: close\r\n\r\n");
-        assert!(status(addr, &get("Host: localhost\r\n")).await.contains("200"));
-        assert!(status(addr, &get("Host: evil.com\r\n")).await.contains("403"), "DNS rebinding");
-        assert!(status(addr, "GET /x HTTP/1.0\r\n\r\n").await.contains("403"), "no Host header");
-        let post = |hdr: &str| format!("POST /x HTTP/1.1\r\nHost: 127.0.0.1\r\n{hdr}Content-Length: 0\r\nConnection: close\r\n\r\n");
-        assert!(status(addr, &post("")).await.contains("403"), "POST without the dashboard header");
-        assert!(status(addr, &post("X-Multron-Dashboard: 1\r\n")).await.contains("200"));
+        assert!(
+            status(addr, &get("Host: localhost\r\n"))
+                .await
+                .contains("200")
+        );
+        assert!(
+            status(addr, &get("Host: evil.com\r\n"))
+                .await
+                .contains("403"),
+            "DNS rebinding"
+        );
+        assert!(
+            status(addr, "GET /x HTTP/1.0\r\n\r\n")
+                .await
+                .contains("403"),
+            "no Host header"
+        );
+        let post = |hdr: &str| {
+            format!(
+                "POST /x HTTP/1.1\r\nHost: 127.0.0.1\r\n{hdr}Content-Length: 0\r\nConnection: close\r\n\r\n"
+            )
+        };
+        assert!(
+            status(addr, &post("")).await.contains("403"),
+            "POST without the dashboard header"
+        );
+        assert!(
+            status(addr, &post("X-Multron-Dashboard: 1\r\n"))
+                .await
+                .contains("200")
+        );
     }
 
     #[tokio::test]
     async fn analyst_key_required_and_names_the_analyst() {
         let file = crate::config::app_dir().join("analyst_keys.txt");
-        assert!(!file.exists(), "test would overwrite a real analyst_keys.txt");
+        assert!(
+            !file.exists(),
+            "test would overwrite a real analyst_keys.txt"
+        );
         std::fs::write(&file, "test-key-0123456789abcdef Test Analyst\n").unwrap();
         let app = Router::new()
-            .route("/api/review", post(|who: Option<Extension<AnalystId>>| async move { who.map(|Extension(a)| a.0).unwrap_or_default() }))
+            .route(
+                "/api/review",
+                post(|who: Option<Extension<AnalystId>>| async move {
+                    who.map(|Extension(a)| a.0).unwrap_or_default()
+                }),
+            )
             .layer(middleware::from_fn(guard_middleware));
         let l = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = l.local_addr().unwrap();
         tokio::spawn(async move {
-            axum::serve(l, app.into_make_service_with_connect_info::<std::net::SocketAddr>()).await.unwrap();
+            axum::serve(
+                l,
+                app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+            )
+            .await
+            .unwrap();
         });
-        let req = |key: &str| format!("POST /api/review HTTP/1.1\r\nHost: localhost\r\nX-Multron-Dashboard: 1\r\n{key}Content-Length: 0\r\nConnection: close\r\n\r\n");
+        let req = |key: &str| {
+            format!(
+                "POST /api/review HTTP/1.1\r\nHost: localhost\r\nX-Multron-Dashboard: 1\r\n{key}Content-Length: 0\r\nConnection: close\r\n\r\n"
+            )
+        };
         let full = |raw: String| async move {
             let mut s = tokio::net::TcpStream::connect(addr).await.unwrap();
             s.write_all(raw.as_bytes()).await.unwrap();
@@ -3657,6 +4913,9 @@ mod guard_tests {
         let _ = std::fs::remove_file(&file);
         assert!(no_key.starts_with("HTTP/1.1 401"), "{no_key}");
         assert!(bad_key.starts_with("HTTP/1.1 401"), "{bad_key}");
-        assert!(good.starts_with("HTTP/1.1 200") && good.ends_with("Test Analyst"), "{good}");
+        assert!(
+            good.starts_with("HTTP/1.1 200") && good.ends_with("Test Analyst"),
+            "{good}"
+        );
     }
 }

@@ -199,15 +199,23 @@ impl EngineAdapter {
         let (tx, rx) = std::sync::mpsc::sync_channel::<KeepJob>(512);
         let _ = adapter.keep_tx.set(tx);
         let weak = Arc::downgrade(&adapter);
-        let _ = std::thread::Builder::new().name("keep-writer".into()).spawn(move || {
-            while let Ok(job) = rx.recv() {
-                if let Some(a) = weak.upgrade() {
-                    a.keep_or_remove(job.temp.as_deref(), &job.data, &job.res, &job.sha, &job.name);
-                } else if let Some(p) = job.temp {
-                    let _ = std::fs::remove_file(p);
+        let _ = std::thread::Builder::new()
+            .name("keep-writer".into())
+            .spawn(move || {
+                while let Ok(job) = rx.recv() {
+                    if let Some(a) = weak.upgrade() {
+                        a.keep_or_remove(
+                            job.temp.as_deref(),
+                            &job.data,
+                            &job.res,
+                            &job.sha,
+                            &job.name,
+                        );
+                    } else if let Some(p) = job.temp {
+                        let _ = std::fs::remove_file(p);
+                    }
                 }
-            }
-        });
+            });
         adapter
     }
 
@@ -275,12 +283,20 @@ impl EngineAdapter {
     /// Every signature byte range in `data` (shipped ClamAV / YARA-X / HydraDragonSig
     /// and the analyst signatures) as `(engine, signature, start, end)`, at most
     /// `limit`. For in-place disinfection; empty while the engine loads.
-    pub fn match_ranges(&self, data: &[u8], name: &str, limit: usize) -> Vec<(&'static str, String, usize, usize)> {
+    pub fn match_ranges(
+        &self,
+        data: &[u8],
+        name: &str,
+        limit: usize,
+    ) -> Vec<(&'static str, String, usize, usize)> {
         let mut out = match self.engine.get().and_then(|e| e.read().ok()) {
             Some(e) => e.match_ranges(data, name, limit),
             None => Vec::new(),
         };
-        out.extend(self.analyst.match_ranges(data, name, limit.saturating_sub(out.len())));
+        out.extend(
+            self.analyst
+                .match_ranges(data, name, limit.saturating_sub(out.len())),
+        );
         out
     }
 
@@ -288,14 +304,23 @@ impl EngineAdapter {
     /// (`StaticEngine::explain_matches`, `AnalystEngine::explain`), YARA rules with
     /// their rule file / line and source text from `yara_rules/`. Empty while the
     /// engine loads.
-    pub fn explain_matches(&self, data: &[u8], name: &str, max_ranges: usize) -> Vec<openedr_static::engine::MatchExplain> {
+    pub fn explain_matches(
+        &self,
+        data: &[u8],
+        name: &str,
+        max_ranges: usize,
+    ) -> Vec<openedr_static::engine::MatchExplain> {
         let mut out = match self.engine.get().and_then(|e| e.read().ok()) {
             Some(e) => e.explain_matches(data, name, max_ranges),
             None => Vec::new(),
         };
         out.extend(self.analyst.explain(data, name, max_ranges));
         if let Some(dir) = self.rules_dir() {
-            let wanted: Vec<String> = out.iter().filter(|m| m.engine == "YARA").map(|m| m.rule.clone()).collect();
+            let wanted: Vec<String> = out
+                .iter()
+                .filter(|m| m.engine == "YARA")
+                .map(|m| m.rule.clone())
+                .collect();
             if !wanted.is_empty() {
                 let found = find_yara_rules(&dir, &wanted);
                 for m in out.iter_mut().filter(|m| m.engine == "YARA") {
@@ -308,7 +333,11 @@ impl EngineAdapter {
             }
         }
         // Strongest first: what decided the verdict is at the top.
-        out.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+        out.sort_by(|a, b| {
+            b.score
+                .partial_cmp(&a.score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
         out
     }
 
@@ -319,26 +348,41 @@ impl EngineAdapter {
     /// Every kept upload: `<work>/<category>/<SHA256>_<name>[.xz]`, plus old-style
     /// `<prefix><SHA256>_<name>` files left in the work folder itself.
     pub fn list_kept(&self) -> Vec<KeptFile> {
-        let Some(dir) = self.work_dir.as_ref() else { return Vec::new() };
+        let Some(dir) = self.work_dir.as_ref() else {
+            return Vec::new();
+        };
         let mut out = Vec::new();
         for cat in KeptFile::CATEGORIES {
             if let Ok(rd) = std::fs::read_dir(dir.join(cat)) {
-                out.extend(rd.flatten().filter_map(|e| KeptFile::parse(e.path(), Some(cat))));
+                out.extend(
+                    rd.flatten()
+                        .filter_map(|e| KeptFile::parse(e.path(), Some(cat))),
+                );
             }
             // Sorted by ClamAV file type: `<category>/<type>/` (`sort_kept_by_type`).
             for sub in type_dirs(&dir.join(cat)) {
                 if let Ok(rd) = std::fs::read_dir(sub) {
-                    out.extend(rd.flatten().filter_map(|e| KeptFile::parse(e.path(), Some(cat))));
+                    out.extend(
+                        rd.flatten()
+                            .filter_map(|e| KeptFile::parse(e.path(), Some(cat))),
+                    );
                 }
             }
         }
         // `threat/` from an earlier build that did not split malicious and suspicious
         // (sorted by `sort_legacy_kept`, malicious until then).
         if let Ok(rd) = std::fs::read_dir(dir.join(KeptFile::LEGACY_THREAT_DIR)) {
-            out.extend(rd.flatten().filter_map(|e| KeptFile::parse(e.path(), Some("malicious"))));
+            out.extend(
+                rd.flatten()
+                    .filter_map(|e| KeptFile::parse(e.path(), Some("malicious"))),
+            );
         }
         if let Ok(rd) = std::fs::read_dir(dir) {
-            out.extend(rd.flatten().filter(|e| e.path().is_file()).filter_map(|e| KeptFile::parse(e.path(), None)));
+            out.extend(
+                rd.flatten()
+                    .filter(|e| e.path().is_file())
+                    .filter_map(|e| KeptFile::parse(e.path(), None)),
+            );
         }
         out
     }
@@ -361,7 +405,9 @@ impl EngineAdapter {
 
     /// `find_kept` by walking the folders (the index missed or is stale).
     fn find_kept_walk(&self, sha_upper: &str) -> Option<KeptFile> {
-        self.list_kept().into_iter().find(|k| k.sha256.eq_ignore_ascii_case(sha_upper))
+        self.list_kept()
+            .into_iter()
+            .find(|k| k.sha256.eq_ignore_ascii_case(sha_upper))
     }
 
     /// Bytes of a kept upload (any category, plain or `.xz`).
@@ -447,7 +493,8 @@ impl EngineAdapter {
     /// in the folder of its current verdict stays; otherwise the plain one, then the
     /// newest. Returns (files removed, bytes freed).
     pub fn dedupe_kept(&self, verdict_of: impl Fn(&str) -> Option<String>) -> (u64, u64) {
-        let mut by_sha: std::collections::HashMap<String, Vec<KeptFile>> = std::collections::HashMap::new();
+        let mut by_sha: std::collections::HashMap<String, Vec<KeptFile>> =
+            std::collections::HashMap::new();
         for k in self.list_kept() {
             by_sha.entry(k.sha256.clone()).or_default().push(k);
         }
@@ -462,7 +509,14 @@ impl EngineAdapter {
             let mtime = |k: &KeptFile| std::fs::metadata(&k.path).and_then(|m| m.modified()).ok();
             let Some(keep) = copies
                 .iter()
-                .max_by_key(|k| (Some(k.category) == want && !k.legacy, !k.xz, !k.legacy, mtime(k)))
+                .max_by_key(|k| {
+                    (
+                        Some(k.category) == want && !k.legacy,
+                        !k.xz,
+                        !k.legacy,
+                        mtime(k),
+                    )
+                })
                 .map(|k| k.path.clone())
             else {
                 continue;
@@ -486,15 +540,23 @@ impl EngineAdapter {
     /// `human`: SHA-256 of samples with an analyst verdict (clean / malicious). Their
     /// ML dataset copies are the human labels the models train on, so they are never
     /// moved out, even though the same file is also in multron_incoming.
-    pub fn remove_dataset_copies_of_kept(&self, dry_run: bool, human: &std::collections::HashSet<String>) -> Result<(u64, u64), String> {
-        let ds = self.dataset.get().ok_or("ML datasets are off (no dataset_paths.json)")?;
+    pub fn remove_dataset_copies_of_kept(
+        &self,
+        dry_run: bool,
+        human: &std::collections::HashSet<String>,
+    ) -> Result<(u64, u64), String> {
+        let ds = self
+            .dataset
+            .get()
+            .ok_or("ML datasets are off (no dataset_paths.json)")?;
         let kept: std::collections::HashSet<String> = self
             .list_kept()
             .into_iter()
             .map(|k| k.sha256.to_ascii_uppercase())
             .filter(|s| !human.contains(s))
             .collect();
-        ds.remove_copies_of_kept(&kept, dry_run).ok_or_else(|| "the ML dataset is still indexing, try again in a moment".to_string())
+        ds.remove_copies_of_kept(&kept, dry_run)
+            .ok_or_else(|| "the ML dataset is still indexing, try again in a moment".to_string())
     }
 
     /// Type folder for `data`, from the content only (never the file name):
@@ -532,7 +594,9 @@ impl EngineAdapter {
     pub fn unpack_kept_xz(&self) -> XzUnpack {
         use sha2::Digest;
         let mut r = XzUnpack::default();
-        let Some(dir) = self.work_dir.as_ref() else { return r };
+        let Some(dir) = self.work_dir.as_ref() else {
+            return r;
+        };
         for k in self.list_kept() {
             if !k.xz || k.legacy {
                 continue;
@@ -543,14 +607,21 @@ impl EngineAdapter {
                 continue;
             };
             if !hex::encode_upper(sha2::Sha256::digest(&data)).eq_ignore_ascii_case(&k.sha256) {
-                eprintln!("[kept] {} does not unpack to its SHA-256, left as it is", k.path.display());
+                eprintln!(
+                    "[kept] {} does not unpack to its SHA-256, left as it is",
+                    k.path.display()
+                );
                 r.failed += 1;
                 continue;
             }
-            let Some(parent) = k.path.parent() else { continue };
+            let Some(parent) = k.path.parent() else {
+                continue;
+            };
             let target = parent.join(format!("{}_{}", k.sha256, k.name));
             let already = std::fs::read(&target)
-                .map(|d| hex::encode_upper(sha2::Sha256::digest(&d)).eq_ignore_ascii_case(&k.sha256))
+                .map(|d| {
+                    hex::encode_upper(sha2::Sha256::digest(&d)).eq_ignore_ascii_case(&k.sha256)
+                })
                 .unwrap_or(false);
             if !already {
                 if target.exists() {
@@ -576,7 +647,11 @@ impl EngineAdapter {
                 continue;
             }
             self.kept_index_set(&k.sha256, &target);
-            let used = if k.category == "clean" { &self.kept_clean_bytes } else { &self.kept_bytes };
+            let used = if k.category == "clean" {
+                &self.kept_clean_bytes
+            } else {
+                &self.kept_bytes
+            };
             if !already {
                 used.fetch_add(data.len() as u64, Ordering::Relaxed);
             }
@@ -589,7 +664,9 @@ impl EngineAdapter {
 
     pub fn sort_kept_by_type(&self) -> Result<std::collections::BTreeMap<String, u64>, String> {
         let mut counts: std::collections::BTreeMap<String, u64> = std::collections::BTreeMap::new();
-        let Some(dir) = self.work_dir.as_ref() else { return Ok(counts) };
+        let Some(dir) = self.work_dir.as_ref() else {
+            return Ok(counts);
+        };
         if self.engine.get().is_none() {
             return Err("the engine is still loading, try again in a moment".into());
         }
@@ -603,7 +680,10 @@ impl EngineAdapter {
                 use std::io::Read;
                 std::fs::File::open(&k.path).ok().and_then(|f| {
                     let mut buf = Vec::new();
-                    f.take(16 * 1024 * 1024).read_to_end(&mut buf).ok().map(|_| buf)
+                    f.take(16 * 1024 * 1024)
+                        .read_to_end(&mut buf)
+                        .ok()
+                        .map(|_| buf)
                 })
             };
             let kind = data.as_deref().and_then(|d| self.file_type_folder(d));
@@ -628,7 +708,9 @@ impl EngineAdapter {
                     let _ = std::fs::remove_dir(old);
                 }
             }
-            *counts.entry(kind.unwrap_or_else(|| "other".into())).or_default() += 1;
+            *counts
+                .entry(kind.unwrap_or_else(|| "other".into()))
+                .or_default() += 1;
         }
         Ok(counts)
     }
@@ -651,8 +733,11 @@ impl EngineAdapter {
         if items.is_empty() || self.work_dir.is_none() {
             return 0;
         }
-        let kept: std::collections::HashMap<String, KeptFile> =
-            self.list_kept().into_iter().map(|k| (k.sha256.clone(), k)).collect();
+        let kept: std::collections::HashMap<String, KeptFile> = self
+            .list_kept()
+            .into_iter()
+            .map(|k| (k.sha256.clone(), k))
+            .collect();
         items
             .iter()
             .filter_map(|(sha, verdict)| kept.get(&sha.to_ascii_uppercase()).map(|k| (k, verdict)))
@@ -663,7 +748,9 @@ impl EngineAdapter {
     /// Moves a kept file into the folder of `cat`, moving its bytes between the clean
     /// quota and the shared one when needed. True when it moved.
     fn move_kept(&self, k: &KeptFile, cat: &'static str) -> bool {
-        let Some(dir) = self.work_dir.as_ref() else { return false };
+        let Some(dir) = self.work_dir.as_ref() else {
+            return false;
+        };
         if k.category == cat && !k.legacy {
             return false;
         }
@@ -685,7 +772,11 @@ impl EngineAdapter {
         self.kept_index_set(&k.sha256, &target);
         if (k.category == "clean") != (cat == "clean") {
             let len = std::fs::metadata(&target).map(|m| m.len()).unwrap_or(0);
-            let (from, to) = if cat == "clean" { (&self.kept_bytes, &self.kept_clean_bytes) } else { (&self.kept_clean_bytes, &self.kept_bytes) };
+            let (from, to) = if cat == "clean" {
+                (&self.kept_bytes, &self.kept_clean_bytes)
+            } else {
+                (&self.kept_clean_bytes, &self.kept_bytes)
+            };
             sub_u64(from, len);
             to.fetch_add(len, Ordering::Relaxed);
         }
@@ -695,7 +786,8 @@ impl EngineAdapter {
     /// Kept files on disk per category: (category, files, bytes). Walks the folders,
     /// so callers cache it.
     pub fn kept_counts(&self) -> Vec<(&'static str, u64, u64)> {
-        let mut out: Vec<(&'static str, u64, u64)> = KeptFile::CATEGORIES.iter().map(|c| (*c, 0, 0)).collect();
+        let mut out: Vec<(&'static str, u64, u64)> =
+            KeptFile::CATEGORIES.iter().map(|c| (*c, 0, 0)).collect();
         for k in self.list_kept() {
             if let Some(e) = out.iter_mut().find(|e| e.0 == k.category) {
                 e.1 += 1;
@@ -713,7 +805,11 @@ impl EngineAdapter {
     pub fn forget_kept(&self, k: &KeptFile) -> Option<u64> {
         let len = std::fs::metadata(&k.path).map(|m| m.len()).unwrap_or(0);
         std::fs::remove_file(&k.path).ok()?;
-        let used = if k.category == "clean" { &self.kept_clean_bytes } else { &self.kept_bytes };
+        let used = if k.category == "clean" {
+            &self.kept_clean_bytes
+        } else {
+            &self.kept_bytes
+        };
         sub_u64(used, len);
         dec_i64(&self.kept_files);
         Some(len)
@@ -723,7 +819,9 @@ impl EngineAdapter {
     /// category folders. `verdict_of` gives the recorded engine verdict, which splits the
     /// old `threat_` files into malicious and suspicious. Run once at startup.
     pub fn sort_legacy_kept(&self, verdict_of: impl Fn(&str) -> Option<String>) {
-        let Some(dir) = self.work_dir.as_ref() else { return };
+        let Some(dir) = self.work_dir.as_ref() else {
+            return;
+        };
         let (mut moved, mut left) = (0usize, 0usize);
         for k in self.list_kept().into_iter().filter(|k| k.legacy) {
             let cat = match (k.category, verdict_of(&k.sha256).as_deref()) {
@@ -738,7 +836,9 @@ impl EngineAdapter {
             }
         }
         if moved + left > 0 {
-            eprintln!("[engine] kept files sorted into category folders: {moved} moved, {left} left in place");
+            eprintln!(
+                "[engine] kept files sorted into category folders: {moved} moved, {left} left in place"
+            );
         }
         // Remove the old threat/ folder once it is empty.
         let _ = std::fs::remove_dir(dir.join(KeptFile::LEGACY_THREAT_DIR));
@@ -747,8 +847,12 @@ impl EngineAdapter {
     /// Adds the analyst-written YARA rules (`analyst_signatures/yara/*.yar`, kept apart
     /// from the shipped rule folders) to the live engine. Returns (loaded, failed files).
     pub fn load_analyst_yara(&self) -> (usize, Vec<String>) {
-        let Some(engine) = self.engine.get() else { return (0, Vec::new()) };
-        let Ok(mut g) = engine.write() else { return (0, Vec::new()) };
+        let Some(engine) = self.engine.get() else {
+            return (0, Vec::new());
+        };
+        let Ok(mut g) = engine.write() else {
+            return (0, Vec::new());
+        };
         load_analyst_yara_into(&mut g)
     }
 
@@ -869,19 +973,38 @@ impl EngineAdapter {
     }
 
     pub fn malicious_hash_count(&self) -> usize {
-        let c256 = self.malicious_sha256_xf.read().unwrap().as_ref().map(|f| f.len()).unwrap_or(0);
-        let c1 = self.malicious_sha1_xf.read().unwrap().as_ref().map(|f| f.len()).unwrap_or(0);
-        let cmd5 = self.malicious_md5_xf.read().unwrap().as_ref().map(|f| f.len()).unwrap_or(0);
+        let c256 = self
+            .malicious_sha256_xf
+            .read()
+            .unwrap()
+            .as_ref()
+            .map(|f| f.len())
+            .unwrap_or(0);
+        let c1 = self
+            .malicious_sha1_xf
+            .read()
+            .unwrap()
+            .as_ref()
+            .map(|f| f.len())
+            .unwrap_or(0);
+        let cmd5 = self
+            .malicious_md5_xf
+            .read()
+            .unwrap()
+            .as_ref()
+            .map(|f| f.len())
+            .unwrap_or(0);
         let cxv = self.xvirus_plain_md5.read().unwrap().len();
         c256 + c1 + cmd5 + cxv
     }
 
     pub fn whitelist_active(&self) -> bool {
         self.whitelist_enabled
-            && self
-                .engine
-                .get()
-                .is_some_and(|e| e.read().map(|g| g.benign_whitelist_loaded()).unwrap_or(false))
+            && self.engine.get().is_some_and(|e| {
+                e.read()
+                    .map(|g| g.benign_whitelist_loaded())
+                    .unwrap_or(false)
+            })
     }
 
     /// URL model probability for each URL; None when the engine or the URL model is
@@ -892,7 +1015,11 @@ impl EngineAdapter {
         if !guard.url_model_loaded() {
             return None;
         }
-        Some(urls.iter().filter_map(|u| guard.predict_url_raw(u).map(|p| (u.clone(), p))).collect())
+        Some(
+            urls.iter()
+                .filter_map(|u| guard.predict_url_raw(u).map(|p| (u.clone(), p)))
+                .collect(),
+        )
     }
 
     /// Full URL Threat Inspection through OpenEDR Static Engine.
@@ -906,7 +1033,9 @@ impl EngineAdapter {
             .engine
             .get()
             .ok_or_else(|| "Engine not ready".to_string())?;
-        let guard = engine.read().map_err(|_| "engine lock poisoned".to_string())?;
+        let guard = engine
+            .read()
+            .map_err(|_| "engine lock poisoned".to_string())?;
         Ok(guard.inspect_url_with_content(raw_url, liveness_code, page_content))
     }
 
@@ -925,8 +1054,16 @@ impl EngineAdapter {
             .engine
             .get()
             .ok_or_else(|| "Engine not ready".to_string())?;
-        let guard = engine.read().map_err(|_| "engine lock poisoned".to_string())?;
-        Ok(guard.url_engine.match_difference_rules(raw_url, difference_percent, client_status, server_status, liveness_code))
+        let guard = engine
+            .read()
+            .map_err(|_| "engine lock poisoned".to_string())?;
+        Ok(guard.url_engine.match_difference_rules(
+            raw_url,
+            difference_percent,
+            client_status,
+            server_status,
+            liveness_code,
+        ))
     }
 
     /// General runtime rule reload without restart. Kinds:
@@ -940,7 +1077,9 @@ impl EngineAdapter {
             .engine
             .get()
             .ok_or_else(|| "Engine not ready".to_string())?;
-        let mut guard = engine.write().map_err(|_| "engine lock poisoned".to_string())?;
+        let mut guard = engine
+            .write()
+            .map_err(|_| "engine lock poisoned".to_string())?;
         match kind.to_ascii_lowercase().as_str() {
             "url" => guard
                 .load_url_rules(content)
@@ -1045,7 +1184,14 @@ impl EngineAdapter {
             || clean == "da39a3ee5e6b4b0d3255bfef95601890afd80709"
             || clean == "d41d8cd98f00b204e9800998ecf8427e"
         {
-            return Some(hash_result("skipped", None, "0 KB / empty file skipped", 0.0, &clean, "hash"));
+            return Some(hash_result(
+                "skipped",
+                None,
+                "0 KB / empty file skipped",
+                0.0,
+                &clean,
+                "hash",
+            ));
         }
 
         // 1. Whitelist has P0 priority over blacklist
@@ -1053,12 +1199,26 @@ impl EngineAdapter {
             if self.want_xorfilter_upload(&clean) {
                 return None;
             }
-            return Some(hash_result("clean", None, "Known benign file (whitelist)", 0.0, &clean, "whitelist"));
+            return Some(hash_result(
+                "clean",
+                None,
+                "Known benign file (whitelist)",
+                0.0,
+                &clean,
+                "whitelist",
+            ));
         }
 
         // 2. Standard EICAR test file
         if clean == EICAR_SHA256 {
-            return Some(hash_result("malicious", Some("EICAR-Test-File"), "EICAR standard antivirus test file (hash)", 1.0, &clean, "hash"));
+            return Some(hash_result(
+                "malicious",
+                Some("EICAR-Test-File"),
+                "EICAR standard antivirus test file (hash)",
+                1.0,
+                &clean,
+                "hash",
+            ));
         }
 
         // 3. Malicious XOR filter (respects override removals)
@@ -1076,7 +1236,11 @@ impl EngineAdapter {
     /// A cached verdict affected by a dashboard blacklist override (remove / restore):
     /// an XOR-filter hit cached before the change, or a non-malicious verdict whose
     /// SHA-256 is on the blacklist again.
-    pub fn stale_for_blacklist_overrides(&self, sha_hex: &str, v: &crate::cache::CachedVerdict) -> bool {
+    pub fn stale_for_blacklist_overrides(
+        &self,
+        sha_hex: &str,
+        v: &crate::cache::CachedVerdict,
+    ) -> bool {
         let overrides = crate::blacklist_removals::changed_at();
         if overrides == 0 || v.at > overrides {
             return false;
@@ -1103,19 +1267,41 @@ impl EngineAdapter {
     /// The XOR-filter verdicts `hash_lookup` gives without the file, applied to a full
     /// scan (a collected file must not lose its hash verdict) and tagged with the
     /// `xorfilter/...` ruleset so it is kept in its own folder.
-    fn apply_xorfilter(&self, engine: &StaticEngine, res: &mut ResultMessage, sha: &str, data: Option<&[u8]>) {
+    fn apply_xorfilter(
+        &self,
+        engine: &StaticEngine,
+        res: &mut ResultMessage,
+        sha: &str,
+        data: Option<&[u8]>,
+    ) {
         let sha_l = sha.to_ascii_lowercase();
 
         // 1. Whitelist has absolute priority over XOR filter blacklist (SHA-256 only)
         if self.whitelist_enabled && engine.is_benign(&sha_l) {
-            let was_malicious_xf = res.rule.as_ref().and_then(|r| r.get("ruleset")).and_then(|rs| rs.as_str()) == Some(XORFILTER_MALICIOUS);
+            let was_malicious_xf = res
+                .rule
+                .as_ref()
+                .and_then(|r| r.get("ruleset"))
+                .and_then(|rs| rs.as_str())
+                == Some(XORFILTER_MALICIOUS);
             if res.verdict != "malicious" || was_malicious_xf {
-                let name = res.rule.as_ref().and_then(|r| r["name"].as_str()).unwrap_or("Known benign file (whitelist)").to_string();
+                let name = res
+                    .rule
+                    .as_ref()
+                    .and_then(|r| r["name"].as_str())
+                    .unwrap_or("Known benign file (whitelist)")
+                    .to_string();
                 // mark_clean, not only `res.verdict`: the client reads the verdict
                 // from `antivirus.verdict` (`verdict` is not serialized), which
                 // otherwise kept the engine's "unknown" for a whitelisted file.
-                mark_clean(res, "Known benign file (whitelist)".to_string(), XORFILTER_BENIGN);
-                res.rule = Some(serde_json::json!({ "name": name, "verdict": "clean", "ruleset": XORFILTER_BENIGN }));
+                mark_clean(
+                    res,
+                    "Known benign file (whitelist)".to_string(),
+                    XORFILTER_BENIGN,
+                );
+                res.rule = Some(
+                    serde_json::json!({ "name": name, "verdict": "clean", "ruleset": XORFILTER_BENIGN }),
+                );
             }
             return;
         }
@@ -1128,10 +1314,16 @@ impl EngineAdapter {
         // SHA-1 / MD5 only when needed: no SHA-256 hit, or an override may name them.
         let hashes = data
             .filter(|_| !sha256_hit || crate::blacklist_removals::any())
-            .map(|d| (hex::encode(crate::analyzer::sha1(d)), hex::encode(crate::analyzer::md5(d))));
+            .map(|d| {
+                (
+                    hex::encode(crate::analyzer::sha1(d)),
+                    hex::encode(crate::analyzer::md5(d)),
+                )
+            });
         let overridden = crate::blacklist_removals::is_removed(&sha_l)
             || hashes.as_ref().is_some_and(|(s1, m5)| {
-                crate::blacklist_removals::is_removed(s1) || crate::blacklist_removals::is_removed(m5)
+                crate::blacklist_removals::is_removed(s1)
+                    || crate::blacklist_removals::is_removed(m5)
             });
         if !overridden {
             if sha256_hit {
@@ -1162,7 +1354,14 @@ impl EngineAdapter {
             }
             if res.verdict != "malicious" {
                 let detail_msg = format!("Matched malicious {} (XOR Filter)", algo);
-                let h = hash_result("malicious", Some("Malware.Hash.XorFilter"), &detail_msg, 1.0, &sha_l, "hash");
+                let h = hash_result(
+                    "malicious",
+                    Some("Malware.Hash.XorFilter"),
+                    &detail_msg,
+                    1.0,
+                    &sha_l,
+                    "hash",
+                );
                 res.verdict = h.verdict;
                 res.threat = h.threat;
                 res.detail = h.detail;
@@ -1170,21 +1369,35 @@ impl EngineAdapter {
                 res.event = h.event;
                 res.antivirus = h.antivirus;
                 res.threat_indicator = h.threat_indicator;
-                res.rule = Some(serde_json::json!({ "name": "Malware.Hash.XorFilter", "verdict": "malicious", "ruleset": XORFILTER_MALICIOUS }));
+                res.rule = Some(
+                    serde_json::json!({ "name": "Malware.Hash.XorFilter", "verdict": "malicious", "ruleset": XORFILTER_MALICIOUS }),
+                );
             }
             return;
         }
 
         if self.whitelist_enabled && res.verdict == "clean" && engine.is_benign(&sha_l) {
-            let name = res.rule.as_ref().and_then(|r| r["name"].as_str()).unwrap_or("").to_string();
-            res.rule = Some(serde_json::json!({ "name": name, "verdict": "clean", "ruleset": XORFILTER_BENIGN }));
+            let name = res
+                .rule
+                .as_ref()
+                .and_then(|r| r["name"].as_str())
+                .unwrap_or("")
+                .to_string();
+            res.rule = Some(
+                serde_json::json!({ "name": name, "verdict": "clean", "ruleset": XORFILTER_BENIGN }),
+            );
         }
     }
 
     /// Runs on an engine thread. The file is written to the work folder first so the
     /// engine can check its Authenticode signature; it falls back to an in-memory scan.
     #[allow(dead_code)]
-    pub fn scan_blocking(&self, data: &[u8], name: &str, sha: &str) -> Result<ResultMessage, String> {
+    pub fn scan_blocking(
+        &self,
+        data: &[u8],
+        name: &str,
+        sha: &str,
+    ) -> Result<ResultMessage, String> {
         self.scan_blocking_with(data, name, None, sha, |_| {})
     }
 
@@ -1226,8 +1439,13 @@ impl EngineAdapter {
         keep: bool,
         refine: impl FnOnce(&mut ResultMessage),
     ) -> Result<ResultMessage, String> {
-        let engine = self.engine.get().ok_or_else(|| "engine not ready".to_string())?;
-        let engine = engine.read().map_err(|_| "engine lock poisoned".to_string())?;
+        let engine = self
+            .engine
+            .get()
+            .ok_or_else(|| "engine not ready".to_string())?;
+        let engine = engine
+            .read()
+            .map_err(|_| "engine lock poisoned".to_string())?;
 
         let started = Instant::now();
         if data.len() <= 12 {
@@ -1236,8 +1454,12 @@ impl EngineAdapter {
                 id: 0,
                 timestamp: Some(chrono::Utc::now().to_rfc3339()),
                 ecs: Some(serde_json::json!({ "version": "9.5.4" })),
-                event: Some(serde_json::json!({ "action": "scan_skipped", "kind": "event", "category": ["malware", "file"] })),
-                file: Some(serde_json::json!({ "name": name, "size": data.len(), "hash": { "sha256": sha } })),
+                event: Some(
+                    serde_json::json!({ "action": "scan_skipped", "kind": "event", "category": ["malware", "file"] }),
+                ),
+                file: Some(
+                    serde_json::json!({ "name": name, "size": data.len(), "hash": { "sha256": sha } }),
+                ),
                 antivirus: Some(serde_json::json!({ "engine": ENGINE_NAME, "verdict": "skipped" })),
                 threat_indicator: None,
                 rule: None,
@@ -1246,7 +1468,10 @@ impl EngineAdapter {
                 detail: Some(if data.is_empty() {
                     "0 KB / empty file skipped".to_string()
                 } else {
-                    format!("File size {} B <= 12 B skipped (below minimum viable executable size 13 B)", data.len())
+                    format!(
+                        "File size {} B <= 12 B skipped (below minimum viable executable size 13 B)",
+                        data.len()
+                    )
                 }),
                 score: 0.0,
                 sha256: sha.to_string(),
@@ -1265,9 +1490,17 @@ impl EngineAdapter {
             let safe_filename = file_system_name(name);
             let mut temp_path: Option<PathBuf> = None;
 
-            let report = if let Some(dir) = self.work_dir.as_ref().filter(|_| needs_temp_file_for_authenticode(data)) {
+            let report = if let Some(dir) = self
+                .work_dir
+                .as_ref()
+                .filter(|_| needs_temp_file_for_authenticode(data))
+            {
                 let seq = self.file_seq.fetch_add(1, Ordering::Relaxed);
-                let path = dir.join(format!("{:08}_{}", seq % 100_000_000, temp_name(&safe_filename, data)));
+                let path = dir.join(format!(
+                    "{:08}_{}",
+                    seq % 100_000_000,
+                    temp_name(&safe_filename, data)
+                ));
                 let written = {
                     let _t = openedr_static::memtrack::stage("server:temp_write");
                     std::fs::write(&path, data).is_ok()
@@ -1342,7 +1575,12 @@ impl EngineAdapter {
         out
     }
 
-    fn keep_category_and_wanted(&self, data: &[u8], res: &ResultMessage, name: &str) -> (&'static str, bool, bool) {
+    fn keep_category_and_wanted(
+        &self,
+        data: &[u8],
+        res: &ResultMessage,
+        name: &str,
+    ) -> (&'static str, bool, bool) {
         let is_threat = res.verdict == "malicious" || res.verdict == "suspicious";
         let is_unknown = res.verdict == "unknown";
         let is_clean = res.verdict == "clean";
@@ -1354,16 +1592,28 @@ impl EngineAdapter {
                 || (is_xorfilter && self.collect_xorfilter.load(Ordering::Relaxed))
                 || (self.keep_threats && is_threat)
                 || (self.keep_unknown && is_unknown)
-                || (is_clean && self.keep_clean.load(Ordering::Relaxed) && is_pe_or_apk(data, name))
+                || (is_clean
+                    && self.keep_clean.load(Ordering::Relaxed)
+                    && is_pe_or_apk(data, name))
                 || (self.keep_possible_clean.load(Ordering::Relaxed) && is_possible_clean));
         (category, is_xorfilter, wanted)
     }
 
     /// Offloads sample keeping to the background `keep-writer` thread so scan workers
     /// never block on `file_type_folder` classification or disk I/O after returning a verdict.
-    fn enqueue_keep_or_remove(&self, temp: Option<PathBuf>, data: &[u8], res: &ResultMessage, sha: &str, name: &str) {
+    fn enqueue_keep_or_remove(
+        &self,
+        temp: Option<PathBuf>,
+        data: &[u8],
+        res: &ResultMessage,
+        sha: &str,
+        name: &str,
+    ) {
         let (category, is_xorfilter, wanted) = self.keep_category_and_wanted(data, res, name);
-        if !wanted || crate::archived::is_archived(sha, category) || crate::sample_deletions::blocks_storing(sha) {
+        if !wanted
+            || crate::archived::is_archived(sha, category)
+            || crate::sample_deletions::blocks_storing(sha)
+        {
             if let Some(p) = temp {
                 let _ = std::fs::remove_file(p);
             }
@@ -1371,7 +1621,8 @@ impl EngineAdapter {
         }
         if let Some(existing) = self.kept_path_of_if_ready(sha) {
             if let Some(k) = KeptFile::parse(existing.clone(), category_dir_of(&existing)) {
-                if k.category == category || (k.category.starts_with("xorfilter_") && !is_xorfilter) {
+                if k.category == category || (k.category.starts_with("xorfilter_") && !is_xorfilter)
+                {
                     if let Some(p) = temp {
                         let _ = std::fs::remove_file(p);
                     }
@@ -1391,7 +1642,13 @@ impl EngineAdapter {
                 Ok(()) => return,
                 Err(std::sync::mpsc::TrySendError::Full(job))
                 | Err(std::sync::mpsc::TrySendError::Disconnected(job)) => {
-                    self.keep_or_remove(job.temp.as_deref(), &job.data, &job.res, &job.sha, &job.name);
+                    self.keep_or_remove(
+                        job.temp.as_deref(),
+                        &job.data,
+                        &job.res,
+                        &job.sha,
+                        &job.name,
+                    );
                     return;
                 }
             }
@@ -1405,20 +1662,33 @@ impl EngineAdapter {
     /// `suspicious/`, `malicious/`, `clean/`, each as `<SHA256>_<name>`. Clean files use
     /// their own quota (`--keep-clean-gb`), the rest share `--keep-unknown-gb`.
     /// When disk space is low, incoming files are automatically compressed using LZMA2 maximum preset (.xz).
-    fn keep_or_remove(&self, temp: Option<&Path>, data: &[u8], res: &ResultMessage, sha: &str, name: &str) {
+    fn keep_or_remove(
+        &self,
+        temp: Option<&Path>,
+        data: &[u8],
+        res: &ResultMessage,
+        sha: &str,
+        name: &str,
+    ) {
         let size = data.len() as u64;
         let (category, is_xorfilter, wanted) = self.keep_category_and_wanted(data, res, name);
         // Moved by hand to an archive folder under this category (archived_dirs.json):
         // remembered there, never stored here again. Deleted on request: not again
         // either, unless the dashboard turned "never store deleted samples again" off.
-        if crate::archived::is_archived(sha, category) || crate::sample_deletions::blocks_storing(sha) {
+        if crate::archived::is_archived(sha, category)
+            || crate::sample_deletions::blocks_storing(sha)
+        {
             if let Some(p) = temp {
                 let _ = std::fs::remove_file(p);
             }
             return;
         }
 
-        let used = if category == "clean" { &self.kept_clean_bytes } else { &self.kept_bytes };
+        let used = if category == "clean" {
+            &self.kept_clean_bytes
+        } else {
+            &self.kept_bytes
+        };
         // No quota: the samples are the dataset, a counter must not throw them away.
         // Dropped only when the disk itself is down to the low-disk threshold (kept when
         // the free space cannot be read). `used` / `limit` are only shown in the dashboard.
@@ -1426,11 +1696,17 @@ impl EngineAdapter {
             .work_dir
             .as_ref()
             .and_then(|d| get_available_disk_space_bytes(d))
-            .map_or(true, |free| free > self.low_disk_threshold_bytes.saturating_add(size));
+            .map_or(true, |free| {
+                free > self.low_disk_threshold_bytes.saturating_add(size)
+            });
         let should_keep = wanted && disk_room;
         if wanted && !should_keep && self.kept_path_of_if_ready(sha).is_none() {
             // Used to be dropped silently: say so, and remember why the file is missing.
-            let detail = format!("{category}, {} KB, free disk space under {} GB", size / 1024, self.low_disk_threshold_bytes / (1024 * 1024 * 1024));
+            let detail = format!(
+                "{category}, {} KB, free disk space under {} GB",
+                size / 1024,
+                self.low_disk_threshold_bytes / (1024 * 1024 * 1024)
+            );
             eprintln!("[kept] not kept, disk low: {sha} {name} ({detail})");
             crate::missing_files::record(sha, "quota", detail);
         }
@@ -1513,9 +1789,20 @@ impl EngineAdapter {
     pub fn check_registry_with_detail(
         &self,
         reg_path: &str,
-    ) -> Result<(openedr_static::report::RegistryCheckReport, Option<(String, String)>), String> {
-        let engine = self.engine.get().ok_or_else(|| "engine not ready".to_string())?;
-        let engine = engine.read().map_err(|_| "engine lock poisoned".to_string())?;
+    ) -> Result<
+        (
+            openedr_static::report::RegistryCheckReport,
+            Option<(String, String)>,
+        ),
+        String,
+    > {
+        let engine = self
+            .engine
+            .get()
+            .ok_or_else(|| "engine not ready".to_string())?;
+        let engine = engine
+            .read()
+            .map_err(|_| "engine lock poisoned".to_string())?;
         let report = engine.check_registry(reg_path);
         let detail = if report.matched_patterns.is_empty() && !report.is_pua_autostart {
             None
@@ -1526,8 +1813,13 @@ impl EngineAdapter {
     }
 
     pub fn get_registry_targets(&self) -> Result<Vec<String>, String> {
-        let engine = self.engine.get().ok_or_else(|| "engine not ready".to_string())?;
-        let engine = engine.read().map_err(|_| "engine lock poisoned".to_string())?;
+        let engine = self
+            .engine
+            .get()
+            .ok_or_else(|| "engine not ready".to_string())?;
+        let engine = engine
+            .read()
+            .map_err(|_| "engine lock poisoned".to_string())?;
         Ok(engine.get_registry_targets())
     }
 
@@ -1540,20 +1832,40 @@ impl EngineAdapter {
         value_name: &str,
         value_data: &str,
     ) -> Result<openedr_static::report::RegistryContentCheckReport, String> {
-        let engine = self.engine.get().ok_or_else(|| "engine not ready".to_string())?;
-        let engine = engine.read().map_err(|_| "engine lock poisoned".to_string())?;
+        let engine = self
+            .engine
+            .get()
+            .ok_or_else(|| "engine not ready".to_string())?;
+        let engine = engine
+            .read()
+            .map_err(|_| "engine lock poisoned".to_string())?;
         Ok(engine.check_registry_content(key_path, value_name, value_data))
     }
 
-    pub fn scan_evtx_file(&self, path: &Path) -> Result<Vec<openedr_static::hayabusa_scanner::HayabusaEventMatch>, String> {
-        let engine = self.engine.get().ok_or_else(|| "engine not ready".to_string())?;
-        let engine = engine.read().map_err(|_| "engine lock poisoned".to_string())?;
+    pub fn scan_evtx_file(
+        &self,
+        path: &Path,
+    ) -> Result<Vec<openedr_static::hayabusa_scanner::HayabusaEventMatch>, String> {
+        let engine = self
+            .engine
+            .get()
+            .ok_or_else(|| "engine not ready".to_string())?;
+        let engine = engine
+            .read()
+            .map_err(|_| "engine lock poisoned".to_string())?;
         Ok(engine.scan_evtx(path))
     }
 
-    pub fn scan_system_events(&self) -> Result<Vec<openedr_static::hayabusa_scanner::HayabusaEventMatch>, String> {
-        let engine = self.engine.get().ok_or_else(|| "engine not ready".to_string())?;
-        let engine = engine.read().map_err(|_| "engine lock poisoned".to_string())?;
+    pub fn scan_system_events(
+        &self,
+    ) -> Result<Vec<openedr_static::hayabusa_scanner::HayabusaEventMatch>, String> {
+        let engine = self
+            .engine
+            .get()
+            .ok_or_else(|| "engine not ready".to_string())?;
+        let engine = engine
+            .read()
+            .map_err(|_| "engine lock poisoned".to_string())?;
         Ok(engine.scan_system_events())
     }
 }
@@ -1584,8 +1896,15 @@ pub struct KeptFile {
 }
 
 impl KeptFile {
-    pub const CATEGORIES: [&'static str; 7] =
-        ["unknown", "possible_clean", "suspicious", "malicious", "clean", "xorfilter_clean", "xorfilter_malicious"];
+    pub const CATEGORIES: [&'static str; 7] = [
+        "unknown",
+        "possible_clean",
+        "suspicious",
+        "malicious",
+        "clean",
+        "xorfilter_clean",
+        "xorfilter_malicious",
+    ];
     /// Folder of an earlier build for malicious + suspicious together.
     pub const LEGACY_THREAT_DIR: &'static str = "threat";
     /// Type folder the file is in now (`<category>/<type>/`), if any.
@@ -1594,8 +1913,11 @@ impl KeptFile {
     }
     /// Old file name prefixes. `threat_` did not tell malicious from suspicious: such files
     /// are sorted by their recorded verdict (`sort_legacy_kept`), malicious by default.
-    const LEGACY_PREFIXES: [(&'static str, &'static str); 3] =
-        [("threat_", "malicious"), ("possible_clean_", "possible_clean"), ("clean_", "clean")];
+    const LEGACY_PREFIXES: [(&'static str, &'static str); 3] = [
+        ("threat_", "malicious"),
+        ("possible_clean_", "possible_clean"),
+        ("clean_", "clean"),
+    ];
 
     /// `category` is the folder the file is in; `None` for the work folder root, where
     /// the category comes from the old file name prefix.
@@ -1652,7 +1974,12 @@ impl KeptFile {
 
     /// File name inside a category folder.
     pub fn file_name(&self) -> String {
-        format!("{}_{}{}", self.sha256, self.name, if self.xz { ".xz" } else { "" })
+        format!(
+            "{}_{}{}",
+            self.sha256,
+            self.name,
+            if self.xz { ".xz" } else { "" }
+        )
     }
 
     pub fn read(&self) -> Option<Vec<u8>> {
@@ -1660,7 +1987,9 @@ impl KeptFile {
             use std::io::Read;
             let f = std::fs::File::open(&self.path).ok()?;
             let mut out = Vec::new();
-            lzma_rust2::XzReader::new(std::io::BufReader::new(f), false).read_to_end(&mut out).ok()?;
+            lzma_rust2::XzReader::new(std::io::BufReader::new(f), false)
+                .read_to_end(&mut out)
+                .ok()?;
             return Some(out);
         }
         std::fs::read(&self.path).ok()
@@ -1676,8 +2005,11 @@ pub fn mark_possible_clean(res: &mut ResultMessage, detail: String, ruleset: &st
     res.score = 0.0;
     res.detail = Some(detail.clone());
     res.threat_indicator = None;
-    res.rule = Some(serde_json::json!({ "name": "", "verdict": "possible_clean", "ruleset": ruleset }));
-    let av = res.antivirus.get_or_insert_with(|| serde_json::json!({ "engine": ENGINE_NAME }));
+    res.rule =
+        Some(serde_json::json!({ "name": "", "verdict": "possible_clean", "ruleset": ruleset }));
+    let av = res
+        .antivirus
+        .get_or_insert_with(|| serde_json::json!({ "engine": ENGINE_NAME }));
     if let Some(o) = av.as_object_mut() {
         o.insert("verdict".into(), serde_json::json!("possible_clean"));
         o.insert("score".into(), serde_json::json!(0.0));
@@ -1688,7 +2020,14 @@ pub fn mark_possible_clean(res: &mut ResultMessage, detail: String, ruleset: &st
     }
 }
 
-fn hash_result(verdict: &str, threat: Option<&str>, detail: &str, score: f64, sha: &str, source: &str) -> ResultMessage {
+fn hash_result(
+    verdict: &str,
+    threat: Option<&str>,
+    detail: &str,
+    score: f64,
+    sha: &str,
+    source: &str,
+) -> ResultMessage {
     let is_threat = verdict == "malicious" || verdict == "suspicious";
     let ecs = serde_json::json!({
         "@timestamp": chrono::Utc::now().to_rfc3339(),
@@ -1739,7 +2078,10 @@ fn hash_result(verdict: &str, threat: Option<&str>, detail: &str, score: f64, sh
     ResultMessage {
         r#type: "result".to_string(),
         id: 0,
-        timestamp: ecs.get("@timestamp").and_then(|t| t.as_str()).map(|s| s.to_string()),
+        timestamp: ecs
+            .get("@timestamp")
+            .and_then(|t| t.as_str())
+            .map(|s| s.to_string()),
         ecs: Some(serde_json::json!({ "version": "9.5.4" })),
         event: ecs.get("event").cloned(),
         file: ecs.get("file").cloned(),
@@ -1756,7 +2098,10 @@ fn hash_result(verdict: &str, threat: Option<&str>, detail: &str, score: f64, sh
         extracted_objects: Vec::new(),
         signer: None,
         detections: if is_threat {
-            vec![crate::threat_intel::DetectionRef { layer: format!("Hash ({source})"), name: threat.unwrap_or(detail).to_string() }]
+            vec![crate::threat_intel::DetectionRef {
+                layer: format!("Hash ({source})"),
+                name: threat.unwrap_or(detail).to_string(),
+            }]
         } else {
             Vec::new()
         },
@@ -1782,7 +2127,10 @@ pub fn apply_analyst_hit(res: &mut ResultMessage, hit: &crate::analyst_engine::A
         "analyst_imphash" => "Analyst imphash".to_string(),
         e => format!("Analyst {e}"),
     };
-    let d = crate::threat_intel::DetectionRef { layer, name: hit.name.clone() };
+    let d = crate::threat_intel::DetectionRef {
+        layer,
+        name: hit.name.clone(),
+    };
     if !res.detections.contains(&d) {
         res.detections.insert(0, d);
     }
@@ -1796,7 +2144,11 @@ pub fn apply_analyst_hit(res: &mut ResultMessage, hit: &crate::analyst_engine::A
         return;
     }
     let detail = format!("Analyst signature ({}): {}", hit.engine, hit.name);
-    let score = if hit.verdict == "malicious" { 100.0 } else { 60.0 };
+    let score = if hit.verdict == "malicious" {
+        100.0
+    } else {
+        60.0
+    };
     res.verdict = hit.verdict.to_string();
     res.threat = Some(hit.name.clone());
     res.detail = Some(match res.detail.take() {
@@ -1804,7 +2156,9 @@ pub fn apply_analyst_hit(res: &mut ResultMessage, hit: &crate::analyst_engine::A
         _ => detail.clone(),
     });
     res.score = res.score.max(score);
-    let av = res.antivirus.get_or_insert_with(|| serde_json::json!({ "engine": ENGINE_NAME }));
+    let av = res
+        .antivirus
+        .get_or_insert_with(|| serde_json::json!({ "engine": ENGINE_NAME }));
     if let Some(o) = av.as_object_mut() {
         o.insert("verdict".into(), serde_json::json!(hit.verdict));
         o.insert("score".into(), serde_json::json!(res.score));
@@ -1848,7 +2202,9 @@ pub fn mark_clean(res: &mut ResultMessage, detail: String, ruleset: &str) {
     res.detail = Some(detail.clone());
     res.threat_indicator = None;
     res.rule = Some(serde_json::json!({ "name": "", "verdict": "clean", "ruleset": ruleset }));
-    let av = res.antivirus.get_or_insert_with(|| serde_json::json!({ "engine": ENGINE_NAME }));
+    let av = res
+        .antivirus
+        .get_or_insert_with(|| serde_json::json!({ "engine": ENGINE_NAME }));
     if let Some(o) = av.as_object_mut() {
         o.insert("verdict".into(), serde_json::json!("clean"));
         o.insert("score".into(), serde_json::json!(0.0));
@@ -1884,31 +2240,37 @@ fn build_result(report: &StaticScanReport, sha: &str) -> ResultMessage {
         scan_ms: report.scan_time_ms as i64,
         source: "scan".to_string(),
         extracted_objects: report.extracted_objects.clone(),
-        signer: report.signer_info.as_ref().map(|s| crate::threat_intel::SignerSummary {
-            name: s.signer_name.clone().filter(|n| !n.trim().is_empty()),
-            signed: s.is_signed,
-            trusted: s.is_trusted,
-            catalog: s.is_catalog_signed,
-            status: s.status.clone(),
-            issuer: s.issuer.clone().filter(|n| !n.trim().is_empty()),
-            chain_len: s.chain_len,
-            thumbprint: s.thumbprint.clone().filter(|n| !n.trim().is_empty()),
-            not_before: s.not_before,
-            not_after: s.not_after,
-            // `Option<bool>`, not `bool`: "no PKCS#7 of its own" and "PKCS#7
-            // with no countersignature" are different facts, and an insight
-            // file from before this existed knows neither.
-            timestamped: Some(s.timestamped),
-            timestamp_kind: s.timestamp_kind.clone(),
-            timestamp_signer: s.timestamp_signer.clone().filter(|n| !n.trim().is_empty()),
-            timestamp_time: s.timestamp_time,
-            trusted_rule: s.trusted_rule.clone().filter(|n| !n.trim().is_empty()),
-        }),
+        signer: report
+            .signer_info
+            .as_ref()
+            .map(|s| crate::threat_intel::SignerSummary {
+                name: s.signer_name.clone().filter(|n| !n.trim().is_empty()),
+                signed: s.is_signed,
+                trusted: s.is_trusted,
+                catalog: s.is_catalog_signed,
+                status: s.status.clone(),
+                issuer: s.issuer.clone().filter(|n| !n.trim().is_empty()),
+                chain_len: s.chain_len,
+                thumbprint: s.thumbprint.clone().filter(|n| !n.trim().is_empty()),
+                not_before: s.not_before,
+                not_after: s.not_after,
+                // `Option<bool>`, not `bool`: "no PKCS#7 of its own" and "PKCS#7
+                // with no countersignature" are different facts, and an insight
+                // file from before this existed knows neither.
+                timestamped: Some(s.timestamped),
+                timestamp_kind: s.timestamp_kind.clone(),
+                timestamp_signer: s.timestamp_signer.clone().filter(|n| !n.trim().is_empty()),
+                timestamp_time: s.timestamp_time,
+                trusted_rule: s.trusted_rule.clone().filter(|n| !n.trim().is_empty()),
+            }),
         detections: report
             .detections
             .iter()
             .take(32)
-            .map(|d| crate::threat_intel::DetectionRef { layer: d.layer.clone(), name: d.name.clone() })
+            .map(|d| crate::threat_intel::DetectionRef {
+                layer: d.layer.clone(),
+                name: d.name.clone(),
+            })
             .collect(),
     };
 
@@ -1948,14 +2310,35 @@ fn build_result(report: &StaticScanReport, sha: &str) -> ResultMessage {
 
     // Explicitly summarize extracted objects (Unicorn unpacked, archives, overlays)
     if !report.extracted_objects.is_empty() {
-        let unpacked_count = report.extracted_objects.iter().filter(|o| o.origin_type == "UnpackedPE").count();
-        let archive_count = report.extracted_objects.iter().filter(|o| o.origin_type == "ArchiveMember").count();
-        let overlay_count = report.extracted_objects.iter().filter(|o| o.origin_type == "Overlay").count();
+        let unpacked_count = report
+            .extracted_objects
+            .iter()
+            .filter(|o| o.origin_type == "UnpackedPE")
+            .count();
+        let archive_count = report
+            .extracted_objects
+            .iter()
+            .filter(|o| o.origin_type == "ArchiveMember")
+            .count();
+        let overlay_count = report
+            .extracted_objects
+            .iter()
+            .filter(|o| o.origin_type == "Overlay")
+            .count();
 
         let mut summary_tags = Vec::new();
         if unpacked_count > 0 {
-            let total_unpacked_bytes: u64 = report.extracted_objects.iter().filter(|o| o.origin_type == "UnpackedPE").map(|o| o.size).sum();
-            summary_tags.push(format!("Unicorn Unpacked: {} PE ({} KB)", unpacked_count, (total_unpacked_bytes + 1023) / 1024));
+            let total_unpacked_bytes: u64 = report
+                .extracted_objects
+                .iter()
+                .filter(|o| o.origin_type == "UnpackedPE")
+                .map(|o| o.size)
+                .sum();
+            summary_tags.push(format!(
+                "Unicorn Unpacked: {} PE ({} KB)",
+                unpacked_count,
+                (total_unpacked_bytes + 1023) / 1024
+            ));
         }
         if archive_count > 0 {
             summary_tags.push(format!("Archive: {} items", archive_count));
@@ -1977,8 +2360,14 @@ fn build_result(report: &StaticScanReport, sha: &str) -> ResultMessage {
     if let Some(file_obj) = ecs_val.get_mut("file").and_then(|f| f.as_object_mut()) {
         file_obj.insert("hash".to_string(), serde_json::json!({ "sha256": sha }));
     }
-    res.timestamp = ecs_val.get("@timestamp").and_then(|t| t.as_str()).map(|s| s.to_string());
-    res.ecs = ecs_val.get("ecs").cloned().or_else(|| Some(serde_json::json!({ "version": "9.5.4" })));
+    res.timestamp = ecs_val
+        .get("@timestamp")
+        .and_then(|t| t.as_str())
+        .map(|s| s.to_string());
+    res.ecs = ecs_val
+        .get("ecs")
+        .cloned()
+        .or_else(|| Some(serde_json::json!({ "version": "9.5.4" })));
     res.event = ecs_val.get("event").cloned();
     res.file = ecs_val.get("file").cloned();
     res.antivirus = ecs_val.get("antivirus").cloned();
@@ -1994,7 +2383,12 @@ fn load_filter(rules_dir: &Path, file_name: &str, label: &str) -> Option<BinaryF
     let bytes = std::fs::read(&p).ok()?;
     match BinaryFuse32Filter::load(&bytes) {
         Ok(f) => {
-            eprintln!("[engine] {} malicious {} signatures loaded from XOR filter {}", f.len(), label, p.display());
+            eprintln!(
+                "[engine] {} malicious {} signatures loaded from XOR filter {}",
+                f.len(),
+                label,
+                p.display()
+            );
             Some(f)
         }
         Err(e) => {
@@ -2039,7 +2433,11 @@ fn load_plain_xvirus_md5(rules_dir: &Path) -> std::collections::HashSet<String> 
                 }
                 line.clear();
             }
-            eprintln!("[engine] {} plain-text Xvirus MD5 signatures loaded from {}", count, path.display());
+            eprintln!(
+                "[engine] {} plain-text Xvirus MD5 signatures loaded from {}",
+                count,
+                path.display()
+            );
             break;
         }
     }
@@ -2097,14 +2495,21 @@ fn is_pe_or_apk(data: &[u8], name: &str) -> bool {
         return false;
     }
     let lower = name.to_ascii_lowercase();
-    lower.ends_with(".apk") || lower.ends_with(".xapk") || data.windows(11).any(|w| w == b"classes.dex")
+    lower.ends_with(".apk")
+        || lower.ends_with(".xapk")
+        || data.windows(11).any(|w| w == b"classes.dex")
 }
 
 /// `v -= n`, never below 0 (a compare-exchange loop: `fetch_update` is deprecated in
 /// newer Rust and its replacement `try_update` does not exist in older versions).
 fn sub_u64(v: &AtomicU64, n: u64) {
     let mut cur = v.load(Ordering::Relaxed);
-    while let Err(actual) = v.compare_exchange_weak(cur, cur.saturating_sub(n), Ordering::Relaxed, Ordering::Relaxed) {
+    while let Err(actual) = v.compare_exchange_weak(
+        cur,
+        cur.saturating_sub(n),
+        Ordering::Relaxed,
+        Ordering::Relaxed,
+    ) {
         cur = actual;
     }
 }
@@ -2112,7 +2517,9 @@ fn sub_u64(v: &AtomicU64, n: u64) {
 /// `v -= 1`, never below 0.
 fn dec_i64(v: &AtomicI64) {
     let mut cur = v.load(Ordering::Relaxed);
-    while let Err(actual) = v.compare_exchange_weak(cur, (cur - 1).max(0), Ordering::Relaxed, Ordering::Relaxed) {
+    while let Err(actual) =
+        v.compare_exchange_weak(cur, (cur - 1).max(0), Ordering::Relaxed, Ordering::Relaxed)
+    {
         cur = actual;
     }
 }
@@ -2133,34 +2540,56 @@ pub fn kind_dir_of(path: &Path) -> Option<String> {
     let parent = path.parent()?;
     let kind = parent.file_name()?.to_str()?;
     let cat = parent.parent()?.file_name()?.to_str()?;
-    KeptFile::CATEGORIES.contains(&cat).then(|| kind.to_string())
+    KeptFile::CATEGORIES
+        .contains(&cat)
+        .then(|| kind.to_string())
 }
 
 /// Source of the named YARA rules: `rule -> (file, 1-based line, rule text up to
 /// 8 KB)`, from the `.yar` / `.yara` files under `<rules>/` (searched once per call).
-fn find_yara_rules(rules_dir: &Path, wanted: &[String]) -> std::collections::HashMap<String, (String, usize, String)> {
+fn find_yara_rules(
+    rules_dir: &Path,
+    wanted: &[String],
+) -> std::collections::HashMap<String, (String, usize, String)> {
     let mut found = std::collections::HashMap::new();
     let mut stack = vec![rules_dir.to_path_buf()];
     while let Some(d) = stack.pop() {
-        let Ok(rd) = std::fs::read_dir(&d) else { continue };
+        let Ok(rd) = std::fs::read_dir(&d) else {
+            continue;
+        };
         for e in rd.flatten() {
             let p = e.path();
             if p.is_dir() {
                 stack.push(p);
                 continue;
             }
-            let ext = p.extension().and_then(|x| x.to_str()).unwrap_or("").to_ascii_lowercase();
+            let ext = p
+                .extension()
+                .and_then(|x| x.to_str())
+                .unwrap_or("")
+                .to_ascii_lowercase();
             if ext != "yar" && ext != "yara" {
                 continue;
             }
-            let Ok(text) = std::fs::read(&p) else { continue };
+            let Ok(text) = std::fs::read(&p) else {
+                continue;
+            };
             let text = String::from_utf8_lossy(&text);
             let lines: Vec<&str> = text.lines().collect();
             for (i, l) in lines.iter().enumerate() {
                 let t = l.trim_start();
-                let t = t.strip_prefix("private ").or_else(|| t.strip_prefix("global ")).unwrap_or(t);
-                let Some(rest) = t.strip_prefix("rule ") else { continue };
-                let ident: String = rest.trim_start().chars().take_while(|c| c.is_ascii_alphanumeric() || *c == '_').collect();
+                let t = t
+                    .strip_prefix("private ")
+                    .or_else(|| t.strip_prefix("global "))
+                    .unwrap_or(t);
+                let Some(rest) = t.strip_prefix("rule ") else {
+                    continue;
+                };
+                let ident: String = rest
+                    .trim_start()
+                    .chars()
+                    .take_while(|c| c.is_ascii_alphanumeric() || *c == '_')
+                    .collect();
                 if !wanted.contains(&ident) || found.contains_key(&ident) {
                     continue;
                 }
@@ -2186,7 +2615,12 @@ fn find_yara_rules(rules_dir: &Path, wanted: &[String]) -> std::collections::Has
 /// Type folders inside a category folder.
 fn type_dirs(cat_dir: &Path) -> Vec<PathBuf> {
     std::fs::read_dir(cat_dir)
-        .map(|rd| rd.flatten().filter(|e| e.file_type().is_ok_and(|t| t.is_dir())).map(|e| e.path()).collect())
+        .map(|rd| {
+            rd.flatten()
+                .filter(|e| e.file_type().is_ok_and(|t| t.is_dir()))
+                .map(|e| e.path())
+                .collect()
+        })
         .unwrap_or_default()
 }
 
@@ -2210,7 +2644,14 @@ fn hydradragonsig_type(data: &[u8]) -> Option<String> {
         }
     }
     if info.is_script {
-        return Some(if info.tags.iter().any(|t| t == "shell") { "shell" } else { "script" }.to_string());
+        return Some(
+            if info.tags.iter().any(|t| t == "shell") {
+                "shell"
+            } else {
+                "script"
+            }
+            .to_string(),
+        );
     }
     match info.primary.as_str() {
         "unknown" | "text" | "plain_text" | "binary" | "archive" => None,
@@ -2220,8 +2661,12 @@ fn hydradragonsig_type(data: &[u8]) -> Option<String> {
 
 /// Folder name for a ClamAV file type: `CL_TYPE_MSEXE` -> `msexe`.
 fn type_folder(cl_type: &str) -> Option<String> {
-    let name = cl_type.strip_prefix("CL_TYPE_").unwrap_or(cl_type).to_ascii_lowercase();
-    (!name.is_empty() && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')).then_some(name)
+    let name = cl_type
+        .strip_prefix("CL_TYPE_")
+        .unwrap_or(cl_type)
+        .to_ascii_lowercase();
+    (!name.is_empty() && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_'))
+        .then_some(name)
 }
 
 /// At startup: deletes temp files of interrupted scans, creates the category folders
@@ -2233,9 +2678,15 @@ fn remove_leftover_uploads(dir: &Path, remove: bool) -> (u64, i64, u64) {
     if let Some(entries) = remove.then(|| std::fs::read_dir(dir).ok()).flatten() {
         for entry in entries.flatten() {
             let path = entry.path();
-            let Some(name) = path.file_name().and_then(|n| n.to_str()) else { continue };
+            let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
+                continue;
+            };
             let b = name.as_bytes();
-            if path.is_file() && b.len() >= 9 && b[..8].iter().all(|c| c.is_ascii_digit()) && b[8] == b'_' {
+            if path.is_file()
+                && b.len() >= 9
+                && b[..8].iter().all(|c| c.is_ascii_digit())
+                && b[8] == b'_'
+            {
                 let _ = std::fs::remove_file(&path);
             }
         }
@@ -2280,7 +2731,8 @@ fn compress_bytes_lzma2_max(data: &[u8], target_path: &Path) -> std::io::Result<
     let mut enc = lzma_rust2::XzWriter::new(file, lzma_rust2::XzOptions::with_preset(9))
         .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
     enc.write_all(data)?;
-    let finished_file = enc.finish()
+    let finished_file = enc
+        .finish()
         .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
     finished_file.metadata().map(|m| m.len())
 }
@@ -2299,7 +2751,8 @@ fn compress_file_lzma2_max(src_path: &Path, target_path: &Path) -> std::io::Resu
         }
         enc.write_all(&buffer[..n])?;
     }
-    let finished_file = enc.finish()
+    let finished_file = enc
+        .finish()
         .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
     finished_file.metadata().map(|m| m.len())
 }
@@ -2363,9 +2816,11 @@ fn temp_name(safe: &str, data: &[u8]) -> String {
     }
     if data.starts_with(b"MZ") {
         let lower = name.to_ascii_lowercase();
-        let is_pe_ext = [".exe", ".dll", ".sys", ".scr", ".ocx", ".cpl", ".efi", ".drv", ".com"]
-            .iter()
-            .any(|e| lower.ends_with(e));
+        let is_pe_ext = [
+            ".exe", ".dll", ".sys", ".scr", ".ocx", ".cpl", ".efi", ".drv", ".com",
+        ]
+        .iter()
+        .any(|e| lower.ends_with(e));
         if !is_pe_ext {
             name.push_str(".exe");
         }
@@ -2376,7 +2831,9 @@ fn temp_name(safe: &str, data: &[u8]) -> String {
 fn load_analyst_yara_into(engine: &mut StaticEngine) -> (usize, Vec<String>) {
     let mut failed = Vec::new();
     let dir = crate::human_review::analyst_dir().join("yara");
-    let Ok(rd) = std::fs::read_dir(&dir) else { return (0, failed) };
+    let Ok(rd) = std::fs::read_dir(&dir) else {
+        return (0, failed);
+    };
     let mut files: Vec<PathBuf> = rd
         .flatten()
         .map(|e| e.path())
@@ -2385,14 +2842,21 @@ fn load_analyst_yara_into(engine: &mut StaticEngine) -> (usize, Vec<String>) {
     files.sort();
     let mut ok = 0;
     for p in files {
-        let name = p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+        let name = p
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_default();
         match std::fs::read_to_string(&p) {
             Ok(src) if engine.add_yara_source(&src) => ok += 1,
             _ => failed.push(name),
         }
     }
     if ok > 0 || !failed.is_empty() {
-        eprintln!("[engine] analyst YARA rules: {ok} loaded, {} failed {:?}", failed.len(), failed);
+        eprintln!(
+            "[engine] analyst YARA rules: {ok} loaded, {} failed {:?}",
+            failed.len(),
+            failed
+        );
     }
     (ok, failed)
 }
@@ -2401,7 +2865,9 @@ fn load_analyst_yara_into(engine: &mut StaticEngine) -> (usize, Vec<String>) {
 /// so load order (and so which duplicate wins) does not depend on the file system.
 fn analyst_yaml_files(folder: &str) -> Vec<PathBuf> {
     let dir = crate::human_review::analyst_dir().join(folder);
-    let Ok(rd) = std::fs::read_dir(&dir) else { return Vec::new() };
+    let Ok(rd) = std::fs::read_dir(&dir) else {
+        return Vec::new();
+    };
     let mut files: Vec<PathBuf> = rd
         .flatten()
         .map(|e| e.path())
@@ -2422,22 +2888,40 @@ fn load_analyst_rules_into(engine: &mut StaticEngine) {
     crate::analyst_engine::migrate_legacy_company_lists();
     type AddFn = fn(&mut StaticEngine, &str) -> Result<usize, String>;
     let kinds: [(&str, &str, AddFn); 3] = [
-        ("signer_rules", "signer", StaticEngine::add_signer_rules_yaml),
-        ("registry_rules", "registry", StaticEngine::add_registry_rules_yaml),
+        (
+            "signer_rules",
+            "signer",
+            StaticEngine::add_signer_rules_yaml,
+        ),
+        (
+            "registry_rules",
+            "registry",
+            StaticEngine::add_registry_rules_yaml,
+        ),
         ("url_rules", "URL", StaticEngine::add_url_rules_yaml),
     ];
     for (folder, label, add) in kinds {
         let mut ok = 0usize;
         let mut failed = Vec::new();
         for p in analyst_yaml_files(folder) {
-            let name = p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-            match std::fs::read_to_string(&p).map_err(|e| e.to_string()).and_then(|src| add(engine, &src)) {
+            let name = p
+                .file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_default();
+            match std::fs::read_to_string(&p)
+                .map_err(|e| e.to_string())
+                .and_then(|src| add(engine, &src))
+            {
                 Ok(n) => ok += n,
                 Err(e) => failed.push(format!("{name}: {e}")),
             }
         }
         if ok > 0 || !failed.is_empty() {
-            eprintln!("[engine] analyst {label} rules: {ok} loaded, {} failed {:?}", failed.len(), failed);
+            eprintln!(
+                "[engine] analyst {label} rules: {ok} loaded, {} failed {:?}",
+                failed.len(),
+                failed
+            );
         }
     }
     let sigma = crate::human_review::analyst_dir().join("sigma");
@@ -2448,7 +2932,9 @@ fn load_analyst_rules_into(engine: &mut StaticEngine) {
 }
 
 fn contains_bytes(haystack: &[u8], needle: &[u8]) -> bool {
-    !needle.is_empty() && haystack.len() >= needle.len() && haystack.windows(needle.len()).any(|w| w == needle)
+    !needle.is_empty()
+        && haystack.len() >= needle.len()
+        && haystack.windows(needle.len()).any(|w| w == needle)
 }
 
 /// Returns true only when `WinVerifyTrust` actually needs a file on disk:
@@ -2525,7 +3011,11 @@ mod pc_test {
     #[test]
     fn possible_clean_wire() {
         let mut r = super::hash_result("unknown", None, "x", 0.0, "AB", "scan");
-        super::mark_possible_clean(&mut r, "Smart whitelist: test".into(), "smart_whitelist/tlsh");
+        super::mark_possible_clean(
+            &mut r,
+            "Smart whitelist: test".into(),
+            "smart_whitelist/tlsh",
+        );
         println!("WIRE {}", serde_json::to_string(&r).unwrap());
     }
 }
@@ -2577,19 +3067,31 @@ mod kept_tests {
         std::fs::create_dir_all(&dir).unwrap();
         let sha = "D".repeat(64);
         let ad = EngineAdapter::new(Some(dir.clone()), false, true, 1, true, false, 1, false, 1);
-        for (cat, name) in [("unknown", "a.exe"), ("malicious", "b.exe"), ("malicious", "c.exe.xz")] {
+        for (cat, name) in [
+            ("unknown", "a.exe"),
+            ("malicious", "b.exe"),
+            ("malicious", "c.exe.xz"),
+        ] {
             std::fs::create_dir_all(dir.join(cat)).unwrap();
             std::fs::write(dir.join(cat).join(format!("{sha}_{name}")), b"MZ").unwrap();
         }
         let (n, _) = ad.dedupe_kept(|_| Some("malicious".into()));
         assert_eq!(n, 2);
-        let left: Vec<_> = ad.list_kept().into_iter().map(|k| (k.category, k.name, k.xz)).collect();
+        let left: Vec<_> = ad
+            .list_kept()
+            .into_iter()
+            .map(|k| (k.category, k.name, k.xz))
+            .collect();
         assert_eq!(left, vec![("malicious", "b.exe".to_string(), false)]);
 
         // the same sample uploaded again under another name and verdict: moved, not stored twice
         let res = hash_result("suspicious", None, "z", 0.0, &sha, "scan");
         ad.keep_or_remove(None, b"MZ", &res, &sha, "other.exe");
-        let left: Vec<_> = ad.list_kept().into_iter().map(|k| (k.category, k.name)).collect();
+        let left: Vec<_> = ad
+            .list_kept()
+            .into_iter()
+            .map(|k| (k.category, k.name))
+            .collect();
         assert_eq!(left, vec![("suspicious", "b.exe".to_string())]);
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -2616,20 +3118,48 @@ mod kept_tests {
         assert!(!dir.join("00000012_tmp.exe").exists());
         let ad = EngineAdapter::new(Some(dir.clone()), false, true, 1, true, false, 1, false, 1);
         ad.sort_legacy_kept(|s| (s == sha('B')).then(|| "suspicious".to_string()));
-        assert!(dir.join("malicious").join(format!("{}_a.exe", sha('A'))).exists());
-        assert!(dir.join("suspicious").join(format!("{}_b.exe", sha('B'))).exists());
-        assert!(dir.join("possible_clean").join(format!("{}_c.dll", sha('C'))).exists());
-        assert!(dir.join("unknown").join(format!("{}_d.js", sha('D'))).exists());
-        assert!(dir.join("malicious").join(format!("{}_e.exe", sha('E'))).exists());
+        assert!(
+            dir.join("malicious")
+                .join(format!("{}_a.exe", sha('A')))
+                .exists()
+        );
+        assert!(
+            dir.join("suspicious")
+                .join(format!("{}_b.exe", sha('B')))
+                .exists()
+        );
+        assert!(
+            dir.join("possible_clean")
+                .join(format!("{}_c.dll", sha('C')))
+                .exists()
+        );
+        assert!(
+            dir.join("unknown")
+                .join(format!("{}_d.js", sha('D')))
+                .exists()
+        );
+        assert!(
+            dir.join("malicious")
+                .join(format!("{}_e.exe", sha('E')))
+                .exists()
+        );
         assert!(!dir.join("threat").exists());
         ad.relabel_kept(&sha('D'), "clean");
         let k = ad.find_kept(&sha('D')).unwrap();
         assert_eq!(k.category, "clean");
         assert!(!k.legacy);
         assert_eq!(ad.list_kept().len(), 5);
-        let moved = ad.relabel_many(&[(sha('a'), "clean".into()), (sha('C'), "possible_clean".into()), ("F".repeat(64), "clean".into())]);
+        let moved = ad.relabel_many(&[
+            (sha('a'), "clean".into()),
+            (sha('C'), "possible_clean".into()),
+            ("F".repeat(64), "clean".into()),
+        ]);
         assert_eq!(moved, 1);
-        assert!(dir.join("clean").join(format!("{}_a.exe", sha('A'))).exists());
+        assert!(
+            dir.join("clean")
+                .join(format!("{}_a.exe", sha('A')))
+                .exists()
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

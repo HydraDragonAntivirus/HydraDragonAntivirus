@@ -20,7 +20,7 @@ use std::sync::{Mutex, RwLock};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
-use crate::cache::{parse_sha, Sha};
+use crate::cache::{Sha, parse_sha};
 
 pub const VERDICTS: [&str; 3] = ["malicious", "suspicious", "clean"];
 
@@ -179,7 +179,11 @@ pub struct DailyStats {
 }
 
 fn avg(v: &[i64]) -> Option<i64> {
-    if v.is_empty() { None } else { Some(v.iter().sum::<i64>() / v.len() as i64) }
+    if v.is_empty() {
+        None
+    } else {
+        Some(v.iter().sum::<i64>() / v.len() as i64)
+    }
 }
 
 fn median(v: &mut [i64]) -> Option<i64> {
@@ -220,18 +224,26 @@ fn parse_analyst_keys(text: &str) -> Vec<(String, String, bool)> {
         .filter_map(|l| {
             let (key, name) = l.split_once(char::is_whitespace)?;
             let name = name.trim();
-            let (name, ai) = match name.strip_suffix("[ai]").or_else(|| name.strip_suffix("[AI]")) {
+            let (name, ai) = match name
+                .strip_suffix("[ai]")
+                .or_else(|| name.strip_suffix("[AI]"))
+            {
                 Some(n) => (n.trim(), true),
                 None => (name, false),
             };
-            (key.len() >= 16 && !name.is_empty()).then(|| (key.to_string(), name.chars().take(64).collect(), ai))
+            (key.len() >= 16 && !name.is_empty())
+                .then(|| (key.to_string(), name.chars().take(64).collect(), ai))
         })
         .collect()
 }
 
 /// Names of the AI analysts (`[ai]` keys), compared case-insensitively.
 pub fn ai_analyst_names() -> HashSet<String> {
-    analyst_keys().into_iter().filter(|k| k.2).map(|k| k.1.to_lowercase()).collect()
+    analyst_keys()
+        .into_iter()
+        .filter(|k| k.2)
+        .map(|k| k.1.to_lowercase())
+        .collect()
 }
 
 /// Analyst name of `key` (constant-time compare against every key).
@@ -246,16 +258,24 @@ pub fn analyst_for_key(keys: &[(String, String, bool)], key: &str) -> Option<Str
 }
 
 pub fn virustotal_url(sha256: &str) -> String {
-    format!("https://www.virustotal.com/gui/file/{}", sha256.to_lowercase())
+    format!(
+        "https://www.virustotal.com/gui/file/{}",
+        sha256.to_lowercase()
+    )
 }
 
 /// The file's report page on viruskov.com (`viruskov/file/index.html`).
 pub fn viruskov_url(sha256: &str) -> String {
-    format!("https://viruskov.com/file/index.html?sha256={}", sha256.to_lowercase())
+    format!(
+        "https://viruskov.com/file/index.html?sha256={}",
+        sha256.to_lowercase()
+    )
 }
 
 fn parse_time(s: &str) -> Option<DateTime<Utc>> {
-    DateTime::parse_from_rfc3339(s).ok().map(|d| d.with_timezone(&Utc))
+    DateTime::parse_from_rfc3339(s)
+        .ok()
+        .map(|d| d.with_timezone(&Utc))
 }
 
 pub struct HumanReviewStore {
@@ -293,9 +313,16 @@ impl HumanReviewStore {
             .filter(|(_, r)| r.is_completed() && r.verdict.as_deref() == Some("clean"))
             .map(|(sha, _)| *sha)
             .collect();
-        let file = if crate::config::is_archive() { None } else { OpenOptions::new().create(true).append(true).open(path).ok() };
+        let file = if crate::config::is_archive() {
+            None
+        } else {
+            OpenOptions::new().create(true).append(true).open(path).ok()
+        };
         if file.is_none() && !crate::config::is_archive() {
-            eprintln!("[review] cannot open {} for writing; reviews will not persist", path.display());
+            eprintln!(
+                "[review] cannot open {} for writing; reviews will not persist",
+                path.display()
+            );
         }
         Self {
             map: RwLock::new(map),
@@ -368,12 +395,22 @@ impl HumanReviewStore {
 
     /// Completed (verdict, threat name) by raw hash (statistics by malware type).
     pub fn completed_raw(&self, sha: &Sha) -> Option<(Option<String>, Option<String>)> {
-        self.map.read().unwrap().get(sha).filter(|r| r.is_completed()).map(|r| (r.verdict.clone(), r.threat_name.clone()))
+        self.map
+            .read()
+            .unwrap()
+            .get(sha)
+            .filter(|r| r.is_completed())
+            .map(|r| (r.verdict.clone(), r.threat_name.clone()))
     }
 
     /// Completed verdict by raw hash (used while counting statistics).
     pub fn completed_verdict_raw(&self, sha: &Sha) -> Option<String> {
-        self.map.read().unwrap().get(sha).filter(|r| r.is_completed()).and_then(|r| r.verdict.clone())
+        self.map
+            .read()
+            .unwrap()
+            .get(sha)
+            .filter(|r| r.is_completed())
+            .and_then(|r| r.verdict.clone())
     }
 
     /// Puts a hash in the queue. Existing entries (pending or completed) are returned as is.
@@ -429,8 +466,17 @@ impl HumanReviewStore {
         comment: &str,
     ) -> Result<(HumanReview, bool), String> {
         let sha = parse_sha(sha_hex).ok_or("invalid sha256")?;
-        let comment: String = comment.trim().chars().filter(|c| !c.is_control() || *c == '\n').take(REPORT_COMMENT_MAX).collect();
-        let line = if comment.is_empty() { String::new() } else { format!("{label}: {comment}") };
+        let comment: String = comment
+            .trim()
+            .chars()
+            .filter(|c| !c.is_control() || *c == '\n')
+            .take(REPORT_COMMENT_MAX)
+            .collect();
+        let line = if comment.is_empty() {
+            String::new()
+        } else {
+            format!("{label}: {comment}")
+        };
         let review = {
             let mut g = self.map.write().unwrap();
             if let Some(existing) = g.get_mut(&sha) {
@@ -496,15 +542,23 @@ impl HumanReviewStore {
             _ if verdict == "clean" => None,
             Some(t) => Some(crate::naming::normalize_threat_name(t)?),
             None if verdict == "malicious" => {
-                return Err("a malicious verdict needs a threat name, e.g. Trojan.Win32.Remcos.A".into())
+                return Err(
+                    "a malicious verdict needs a threat name, e.g. Trojan.Win32.Remcos.A".into(),
+                );
             }
             None => None,
         };
         // Adware / PUA / HackTool / Riskware are greyware: always the suspicious verdict
         // (and folder), never malicious.
         if verdict == "malicious" {
-            let cat = threat_name.as_deref().and_then(|t| t.split('.').next()).unwrap_or("");
-            if ["Adware", "PUA", "HackTool", "Riskware"].iter().any(|g| g.eq_ignore_ascii_case(cat)) {
+            let cat = threat_name
+                .as_deref()
+                .and_then(|t| t.split('.').next())
+                .unwrap_or("");
+            if ["Adware", "PUA", "HackTool", "Riskware"]
+                .iter()
+                .any(|g| g.eq_ignore_ascii_case(cat))
+            {
                 verdict = "suspicious".into();
             }
         }
@@ -534,7 +588,15 @@ impl HumanReviewStore {
             });
             let requested = parse_time(&r.requested_at).unwrap_or(now);
             let previous = r.is_completed().then(|| r.verdict.clone()).flatten();
-            crate::verdict_history::record(&r.sha256, "human", previous.as_deref(), &verdict, threat_name.as_deref(), "analyst", analyst.trim());
+            crate::verdict_history::record(
+                &r.sha256,
+                "human",
+                previous.as_deref(),
+                &verdict,
+                threat_name.as_deref(),
+                "analyst",
+                analyst.trim(),
+            );
             r.status = ReviewStatus::Completed;
             {
                 let mut cc = self.completed_clean.write().unwrap();
@@ -553,7 +615,12 @@ impl HumanReviewStore {
             // A re-review keeps the first response, wait and analysis times.
             if r.response_secs.is_none() {
                 r.response_secs = Some((now - requested).num_seconds().max(0));
-                let started = r.started_at.as_deref().and_then(parse_time).filter(|_| r.timed).unwrap_or(now);
+                let started = r
+                    .started_at
+                    .as_deref()
+                    .and_then(parse_time)
+                    .filter(|_| r.timed)
+                    .unwrap_or(now);
                 if !r.timed {
                     r.started_at = Some(now.to_rfc3339());
                     r.started_by = r.analyst.clone();
@@ -570,7 +637,12 @@ impl HumanReviewStore {
     /// "Start analysis": marks a queued (or new) hash as being analysed by `analyst`.
     /// A hash someone else already started is returned unchanged (`Err` with who),
     /// unless `take_over`.
-    pub fn start(&self, sha_hex: &str, analyst: &str, take_over: bool) -> Result<HumanReview, String> {
+    pub fn start(
+        &self,
+        sha_hex: &str,
+        analyst: &str,
+        take_over: bool,
+    ) -> Result<HumanReview, String> {
         let sha = parse_sha(sha_hex).ok_or("invalid sha256")?;
         let analyst: String = analyst.trim().chars().take(64).collect();
         let now = Utc::now();
@@ -600,10 +672,15 @@ impl HumanReviewStore {
             if r.is_completed() {
                 return Err("this hash already has a verdict; edit it instead".into());
             }
-            if r.started_at.is_some() && !take_over && !r.started_by.eq_ignore_ascii_case(&analyst) {
+            if r.started_at.is_some() && !take_over && !r.started_by.eq_ignore_ascii_case(&analyst)
+            {
                 return Err(format!(
                     "already in analysis by {}",
-                    if r.started_by.is_empty() { "another analyst" } else { r.started_by.as_str() }
+                    if r.started_by.is_empty() {
+                        "another analyst"
+                    } else {
+                        r.started_by.as_str()
+                    }
                 ));
             }
             if r.started_at.is_none() || take_over {
@@ -636,13 +713,23 @@ impl HumanReviewStore {
     }
 
     pub fn remove(&self, sha_hex: &str) -> bool {
-        let Some(sha) = parse_sha(sha_hex) else { return false };
+        let Some(sha) = parse_sha(sha_hex) else {
+            return false;
+        };
         let removed = self.map.write().unwrap().remove(&sha);
         self.completed_clean.write().unwrap().remove(&sha);
         self.removed.write().unwrap().insert(sha);
         if let Some(mut r) = removed {
             if let Some(v) = r.verdict.as_deref().filter(|_| r.is_completed()) {
-                crate::verdict_history::record(&r.sha256, "human", Some(v), "removed", None, "analyst", &r.analyst);
+                crate::verdict_history::record(
+                    &r.sha256,
+                    "human",
+                    Some(v),
+                    "removed",
+                    None,
+                    "analyst",
+                    &r.analyst,
+                );
             }
             r.deleted = true;
             self.persist(&r);
@@ -655,7 +742,11 @@ impl HumanReviewStore {
     /// Oldest first.
     pub fn pending(&self, limit: usize) -> Vec<HumanReview> {
         let g = self.map.read().unwrap();
-        let mut v: Vec<HumanReview> = g.values().filter(|r| r.status == ReviewStatus::Pending).cloned().collect();
+        let mut v: Vec<HumanReview> = g
+            .values()
+            .filter(|r| r.status == ReviewStatus::Pending)
+            .cloned()
+            .collect();
         v.sort_by(|a, b| a.requested_at.cmp(&b.requested_at));
         v.truncate(limit);
         v
@@ -664,14 +755,20 @@ impl HumanReviewStore {
     /// (SHA-256, verdict) of every completed review.
     pub fn completed_verdicts(&self) -> Vec<(String, String)> {
         let g = self.map.read().unwrap();
-        g.values().filter(|r| r.is_completed()).filter_map(|r| Some((r.sha256.clone(), r.verdict.clone()?))).collect()
+        g.values()
+            .filter(|r| r.is_completed())
+            .filter_map(|r| Some((r.sha256.clone(), r.verdict.clone()?)))
+            .collect()
     }
 
     /// (hash, verdict, threat name) of every completed review: the statistics move
     /// these files from their engine verdict to this one.
     pub fn completed_overrides(&self) -> Vec<(Sha, Option<String>, Option<String>)> {
         let g = self.map.read().unwrap();
-        g.iter().filter(|(_, r)| r.is_completed()).map(|(sha, r)| (*sha, r.verdict.clone(), r.threat_name.clone())).collect()
+        g.iter()
+            .filter(|(_, r)| r.is_completed())
+            .map(|(sha, r)| (*sha, r.verdict.clone(), r.threat_name.clone()))
+            .collect()
     }
 
     /// Newest first.
@@ -698,7 +795,14 @@ impl HumanReviewStore {
         let g = self.map.read().unwrap();
         let now = Utc::now();
         let today = now.date_naive();
-        let (mut ai_clean, mut ai_suspicious, mut ai_malicious, mut ai_7d, mut ai_fp, mut ai_missed) = (0usize, 0usize, 0usize, 0usize, 0usize, 0usize);
+        let (
+            mut ai_clean,
+            mut ai_suspicious,
+            mut ai_malicious,
+            mut ai_7d,
+            mut ai_fp,
+            mut ai_missed,
+        ) = (0usize, 0usize, 0usize, 0usize, 0usize, 0usize);
         let mut ai_daily: HashMap<chrono::NaiveDate, usize> = HashMap::new();
         let mut done: Vec<(&HumanReview, Option<DateTime<Utc>>)> = Vec::new();
         for r in g.values().filter(|r| r.is_completed()) {
@@ -734,14 +838,21 @@ impl HumanReviewStore {
                 *per_second.entry(t.timestamp()).or_default() += 1;
             }
         }
-        let is_bulk = |t: &Option<DateTime<Utc>>| t.is_some_and(|t| per_second.get(&t.timestamp()).copied().unwrap_or(0) > BULK_PER_SECOND);
+        let is_bulk = |t: &Option<DateTime<Utc>>| {
+            t.is_some_and(|t| {
+                per_second.get(&t.timestamp()).copied().unwrap_or(0) > BULK_PER_SECOND
+            })
+        };
 
         let (mut clean, mut suspicious, mut malicious, mut bulk) = (0usize, 0usize, 0usize, 0usize);
-        let (mut last_24h, mut last_7d, mut fp_fixed, mut missed_found) = (0usize, 0usize, 0usize, 0usize);
+        let (mut last_24h, mut last_7d, mut fp_fixed, mut missed_found) =
+            (0usize, 0usize, 0usize, 0usize);
         let mut resp: Vec<i64> = Vec::new();
         // date, clean, suspicious, malicious, bulk
-        let mut days: Vec<(chrono::NaiveDate, usize, usize, usize, usize)> =
-            (0..14).rev().map(|i| (today - chrono::Duration::days(i), 0, 0, 0, 0)).collect();
+        let mut days: Vec<(chrono::NaiveDate, usize, usize, usize, usize)> = (0..14)
+            .rev()
+            .map(|i| (today - chrono::Duration::days(i), 0, 0, 0, 0))
+            .collect();
         for (r, t) in &done {
             let day = t.and_then(|t| days.iter_mut().find(|d| d.0 == t.date_naive()));
             if is_bulk(t) {
@@ -819,7 +930,8 @@ impl HumanReviewStore {
     pub fn stats(&self) -> ReviewStats {
         let g = self.map.read().unwrap();
         let now = Utc::now();
-        let (mut pending, mut in_progress, mut completed, mut completed_24h) = (0usize, 0usize, 0usize, 0usize);
+        let (mut pending, mut in_progress, mut completed, mut completed_24h) =
+            (0usize, 0usize, 0usize, 0usize);
         let mut oldest_pending: Option<DateTime<Utc>> = None;
         let (mut resp, mut wait, mut analysis) = (Vec::new(), Vec::new(), Vec::new());
         #[derive(Default)]
@@ -832,8 +944,10 @@ impl HumanReviewStore {
         }
         let mut per: HashMap<String, (String, Acc)> = HashMap::new();
         let today = now.date_naive();
-        let mut days: Vec<(chrono::NaiveDate, usize, Vec<i64>, Vec<i64>)> =
-            (0..14).rev().map(|i| (today - chrono::Duration::days(i), 0, Vec::new(), Vec::new())).collect();
+        let mut days: Vec<(chrono::NaiveDate, usize, Vec<i64>, Vec<i64>)> = (0..14)
+            .rev()
+            .map(|i| (today - chrono::Duration::days(i), 0, Vec::new(), Vec::new()))
+            .collect();
         for r in g.values() {
             match r.status {
                 ReviewStatus::Pending => {
@@ -844,7 +958,10 @@ impl HumanReviewStore {
                     if r.started_at.is_some() {
                         in_progress += 1;
                         if !r.started_by.is_empty() {
-                            per.entry(r.started_by.to_lowercase()).or_insert_with(|| (r.started_by.clone(), Acc::default())).1.in_progress += 1;
+                            per.entry(r.started_by.to_lowercase())
+                                .or_insert_with(|| (r.started_by.clone(), Acc::default()))
+                                .1
+                                .in_progress += 1;
                         }
                     }
                 }
@@ -862,8 +979,15 @@ impl HumanReviewStore {
                         wait.extend(r.wait_secs);
                         analysis.extend(r.analysis_secs);
                     }
-                    let name = if r.analyst.is_empty() { "analyst".to_string() } else { r.analyst.clone() };
-                    let acc = &mut per.entry(name.to_lowercase()).or_insert_with(|| (name, Acc::default())).1;
+                    let name = if r.analyst.is_empty() {
+                        "analyst".to_string()
+                    } else {
+                        r.analyst.clone()
+                    };
+                    let acc = &mut per
+                        .entry(name.to_lowercase())
+                        .or_insert_with(|| (name, Acc::default()))
+                        .1;
                     acc.completed += 1;
                     if reviewed.is_some_and(|t| now - t < chrono::Duration::days(7)) {
                         acc.completed_7d += 1;
@@ -892,7 +1016,11 @@ impl HumanReviewStore {
                 avg_response_secs: avg(&a.response),
             })
             .collect();
-        analysts.sort_by(|a, b| b.completed.cmp(&a.completed).then(a.analyst.cmp(&b.analyst)));
+        analysts.sort_by(|a, b| {
+            b.completed
+                .cmp(&a.completed)
+                .then(a.analyst.cmp(&b.analyst))
+        });
         ReviewStats {
             pending,
             in_progress,
@@ -926,13 +1054,36 @@ mod timing_tests {
 
     #[test]
     fn analyst_keys_parsed_and_matched() {
-        let keys = parse_analyst_keys("# analysts\nk3y-0123456789abcdef  Emirhan Uçan\nshort bob\n\nanother-key-0123456789 alice\nnoname-0123456789abcdef\nai-key-0123456789abcdef Claude [ai]\n");
-        assert_eq!(keys.len(), 3, "short keys and keys without a name are ignored");
-        assert_eq!(keys[2], ("ai-key-0123456789abcdef".to_string(), "Claude".to_string(), true));
+        let keys = parse_analyst_keys(
+            "# analysts\nk3y-0123456789abcdef  Emirhan Uçan\nshort bob\n\nanother-key-0123456789 alice\nnoname-0123456789abcdef\nai-key-0123456789abcdef Claude [ai]\n",
+        );
+        assert_eq!(
+            keys.len(),
+            3,
+            "short keys and keys without a name are ignored"
+        );
+        assert_eq!(
+            keys[2],
+            (
+                "ai-key-0123456789abcdef".to_string(),
+                "Claude".to_string(),
+                true
+            )
+        );
         assert!(!keys[0].2);
-        assert_eq!(analyst_for_key(&keys, "ai-key-0123456789abcdef").as_deref(), Some("Claude"), "the tag is not part of the name");
-        assert_eq!(analyst_for_key(&keys, "k3y-0123456789abcdef").as_deref(), Some("Emirhan Uçan"));
-        assert_eq!(analyst_for_key(&keys, "another-key-0123456789").as_deref(), Some("alice"));
+        assert_eq!(
+            analyst_for_key(&keys, "ai-key-0123456789abcdef").as_deref(),
+            Some("Claude"),
+            "the tag is not part of the name"
+        );
+        assert_eq!(
+            analyst_for_key(&keys, "k3y-0123456789abcdef").as_deref(),
+            Some("Emirhan Uçan")
+        );
+        assert_eq!(
+            analyst_for_key(&keys, "another-key-0123456789").as_deref(),
+            Some("alice")
+        );
         assert_eq!(analyst_for_key(&keys, "k3y-0123456789abcdeX"), None);
         assert_eq!(analyst_for_key(&keys, ""), None);
     }
@@ -943,8 +1094,10 @@ mod timing_tests {
         let _ = std::fs::remove_file(&path);
         let st = HumanReviewStore::new(&path);
         let (a, b) = ("a".repeat(64), "b".repeat(64));
-        st.enqueue(&a, "auto", Some("unknown"), Some("x.exe")).unwrap();
-        st.enqueue(&b, "auto", Some("unknown"), Some("y.exe")).unwrap();
+        st.enqueue(&a, "auto", Some("unknown"), Some("x.exe"))
+            .unwrap();
+        st.enqueue(&b, "auto", Some("unknown"), Some("y.exe"))
+            .unwrap();
         let r = st.start(&a, "emir", false).unwrap();
         assert_eq!(r.stage(), "in_progress");
         assert!(st.start(&a, "other", false).is_err());
@@ -980,11 +1133,15 @@ mod public_probe {
         let _ = std::fs::remove_file(&path);
         let st = HumanReviewStore::new(&path);
         let h = |i: u32| format!("{:064x}", i);
-        st.enqueue(&h(1), "auto", Some("malicious"), Some("a.exe")).unwrap();
+        st.enqueue(&h(1), "auto", Some("malicious"), Some("a.exe"))
+            .unwrap();
         st.complete(&h(1), "clean", None, "", "", "x").unwrap();
-        st.complete(&h(2), "malicious", Some("Trojan.Win32.Agent"), "", "", "x").unwrap();
+        st.complete(&h(2), "malicious", Some("Trojan.Win32.Agent"), "", "", "x")
+            .unwrap();
         std::thread::sleep(std::time::Duration::from_millis(1100));
-        for i in 100..140 { st.complete(&h(i), "clean", None, "", "", "x").unwrap(); }
+        for i in 100..140 {
+            st.complete(&h(i), "clean", None, "", "", "x").unwrap();
+        }
         st.enqueue(&h(999), "auto", Some("unknown"), None).unwrap();
         let v = st.public_stats();
         eprintln!("{}", serde_json::to_string(&v).unwrap());
@@ -1001,9 +1158,18 @@ mod public_probe {
         let _ = std::fs::remove_file(&path);
         let st = HumanReviewStore::new(&path);
         let h = |i: u32| format!("{:064x}", i);
-        st.enqueue(&h(1), "auto", Some("malicious"), Some("a.exe")).unwrap();
+        st.enqueue(&h(1), "auto", Some("malicious"), Some("a.exe"))
+            .unwrap();
         st.complete(&h(1), "clean", None, "", "", "Claude").unwrap();
-        st.complete(&h(2), "malicious", Some("Trojan.Win32.Agent"), "", "", "Emirhan").unwrap();
+        st.complete(
+            &h(2),
+            "malicious",
+            Some("Trojan.Win32.Agent"),
+            "",
+            "",
+            "Emirhan",
+        )
+        .unwrap();
         st.complete(&h(3), "clean", None, "", "", "claude").unwrap();
         let ai: HashSet<String> = ["claude".to_string()].into();
         let v = st.public_stats_with(&ai);

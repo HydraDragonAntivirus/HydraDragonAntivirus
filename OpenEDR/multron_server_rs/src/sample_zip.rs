@@ -18,7 +18,11 @@ impl Keys {
     }
     fn update(&mut self, b: u8) {
         self.0 = crc32_step(self.0, b);
-        self.1 = self.1.wrapping_add(self.0 & 0xFF).wrapping_mul(134_775_813).wrapping_add(1);
+        self.1 = self
+            .1
+            .wrapping_add(self.0 & 0xFF)
+            .wrapping_mul(134_775_813)
+            .wrapping_add(1);
         self.2 = crc32_step(self.2, (self.1 >> 24) as u8);
     }
     fn stream_byte(&self) -> u8 {

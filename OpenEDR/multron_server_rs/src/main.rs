@@ -1,56 +1,56 @@
-mod sslbl;
+mod alyzer;
+mod analyst_engine;
+mod analyzer;
+mod apk;
+mod archive;
+mod archived;
+mod blacklist_removals;
 mod budget;
 mod cache;
-mod insight_db;
 mod config;
 mod dashboard;
 mod dataset;
-mod disinfect;
 mod disasm;
-mod engine_adapter;
-mod apk;
-mod fingerprint;
-mod analyst_engine;
-mod analyzer;
-mod alyzer;
-mod archive;
-mod archived;
-mod human_review;
-mod hexsha;
-mod istr;
-mod stamp;
-mod imphash_sigs;
-mod private_samples;
-mod sample_deletions;
-mod blacklist_removals;
-mod yara_classes;
-mod ip_bans;
-mod missing_files;
-mod naming;
-mod verdict_history;
-mod reports;
-mod folder_wl;
-mod fp_ignore;
-mod offload;
-mod rescan;
-mod retrohunt;
-mod sample_zip;
-mod similarity;
-mod string_wl;
-mod events;
+mod disinfect;
 mod edr_db;
 mod edr_telemetry;
+mod engine_adapter;
+mod events;
+mod fingerprint;
+mod folder_wl;
+mod fp_ignore;
 mod handoff;
+mod hexsha;
+mod human_review;
+mod imphash_sigs;
+mod insight_db;
+mod ip_bans;
+mod istr;
 mod limits;
 mod liveness;
 mod memwatch;
+mod missing_files;
+mod naming;
+mod offload;
+mod private_samples;
 mod ratelimit;
+mod reports;
+mod rescan;
+mod retrohunt;
+mod sample_deletions;
+mod sample_zip;
 mod scan_server;
 mod scan_timing;
 mod scheduler;
+mod similarity;
+mod sslbl;
+mod stamp;
+mod string_wl;
 mod threat_intel;
 mod uptime;
 mod url_intel;
+mod verdict_history;
+mod yara_classes;
 
 use std::net::SocketAddr;
 use std::path::PathBuf;
@@ -58,8 +58,8 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use clap::Parser;
-use config::{app_dir, CliArgs};
-use dashboard::{dashboard_router, AppState};
+use config::{CliArgs, app_dir};
+use dashboard::{AppState, dashboard_router};
 use engine_adapter::EngineAdapter;
 use events::EventLog;
 use scan_server::ScanServer;
@@ -76,7 +76,11 @@ static ALLOC: openedr_static::memtrack::TrackingAlloc = openedr_static::memtrack
 fn exit_report(message: &str) {
     use std::io::Write;
     let line = serde_json::json!({ "at": chrono::Utc::now().to_rfc3339(), "pid": std::process::id(), "message": message });
-    if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(app_dir().join(EXIT_LOG)) {
+    if let Ok(mut f) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(app_dir().join(EXIT_LOG))
+    {
         let _ = writeln!(f, "{line}");
     }
 }
@@ -106,10 +110,16 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
     if args.index_archived {
         let dirs = archived::configured_dirs();
         if dirs.is_empty() {
-            eprintln!("[archived] no folders in {}", app_dir().join(archived::CONFIG_FILE).display());
+            eprintln!(
+                "[archived] no folders in {}",
+                app_dir().join(archived::CONFIG_FILE).display()
+            );
         } else {
             let (added, seen) = archived::index_dirs(&dirs);
-            eprintln!("[archived] {added} new of {seen} files remembered in {}", app_dir().join(archived::INDEX_FILE).display());
+            eprintln!(
+                "[archived] {added} new of {seen} files remembered in {}",
+                app_dir().join(archived::INDEX_FILE).display()
+            );
         }
         if !dataset::Dataset::index_now() {
             eprintln!("[dataset] no usable {}", dataset::config_path().display());
@@ -135,14 +145,20 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
     if args.handoff {
         match handoff::begin(ui_addr).await {
             handoff::Begin::Accepted { pid } => {
-                eprintln!("[handoff] standby: the running server (pid {pid}) keeps scanning while this version loads");
+                eprintln!(
+                    "[handoff] standby: the running server (pid {pid}) keeps scanning while this version loads"
+                );
                 config::set_standby(true);
                 handoff_from = Some(pid);
                 beater = Some(handoff::Beater::start(ui_addr));
             }
-            handoff::Begin::NoServer => eprintln!("[handoff] no server is running on {ui_addr}: normal start"),
+            handoff::Begin::NoServer => {
+                eprintln!("[handoff] no server is running on {ui_addr}: normal start")
+            }
             handoff::Begin::Unsupported => {
-                eprintln!("[handoff] the running server does not support seamless updates; exiting (the updater restarts it the usual way)");
+                eprintln!(
+                    "[handoff] the running server does not support seamless updates; exiting (the updater restarts it the usual way)"
+                );
                 std::process::exit(handoff::EXIT_UNSUPPORTED);
             }
         }
@@ -155,7 +171,10 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
     if args.archive {
-        eprintln!("[archive] read-only archive server: data comes from the main server's mirror in {}", app_dir().display());
+        eprintln!(
+            "[archive] read-only archive server: data comes from the main server's mirror in {}",
+            app_dir().display()
+        );
     }
 
     let events = Arc::new(EventLog::new(args.verbose));
@@ -190,9 +209,12 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     let lengths = standby.then(handoff::lengths);
-    let threat_intel = openedr_static::memtrack::measure("server:threat_intel", openedr_static::memtrack::Kind::Load, 0, || {
-        threat_intel::ThreatIntelStore::new(None)
-    });
+    let threat_intel = openedr_static::memtrack::measure(
+        "server:threat_intel",
+        openedr_static::memtrack::Kind::Load,
+        0,
+        || threat_intel::ThreatIntelStore::new(None),
+    );
     verdict_history::start();
     let preloaded_cache = ScanServer::load_cache(&args);
 
@@ -208,8 +230,12 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         let waited = std::time::Instant::now();
         while !args.archive && !engine.is_ready().await {
             if engine.load_failed() {
-                eprintln!("[handoff] the engine failed to load; the running server stays (update cancelled)");
-                exit_report("the engine failed to load; the running server stays (update cancelled)");
+                eprintln!(
+                    "[handoff] the engine failed to load; the running server stays (update cancelled)"
+                );
+                exit_report(
+                    "the engine failed to load; the running server stays (update cancelled)",
+                );
                 handoff::cancel(ui_addr).await;
                 std::process::exit(1);
             }
@@ -217,15 +243,22 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
             if last_beat.elapsed() >= handoff::BEAT_EVERY {
                 last_beat = std::time::Instant::now();
                 if let handoff::Begin::NoServer = handoff::begin(ui_addr).await {
-                    eprintln!("[handoff] the running server is gone; taking over when the engine is ready");
+                    eprintln!(
+                        "[handoff] the running server is gone; taking over when the engine is ready"
+                    );
                 }
-                tokio::task::block_in_place(|| follow.catch_up_fast(&threat_intel, Some(&preloaded_cache)));
+                tokio::task::block_in_place(|| {
+                    follow.catch_up_fast(&threat_intel, Some(&preloaded_cache))
+                });
             }
         }
         if let Some(b) = beater.take() {
             b.stop();
         }
-        eprintln!("[handoff] ready after {} s; asking pid {old_pid} to hand over", waited.elapsed().as_secs());
+        eprintln!(
+            "[handoff] ready after {} s; asking pid {old_pid} to hand over",
+            waited.elapsed().as_secs()
+        );
         let switch = std::time::Instant::now();
         switch_started = Some(switch);
         // Re-announce right before release in case BEAT_TIMEOUT elapsed during a stall.
@@ -254,13 +287,18 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         }
         // The old process has exited: everything it wrote is on disk now.
         config::set_standby(false);
-        let lines = tokio::task::block_in_place(|| follow.catch_up_fast(&threat_intel, Some(&preloaded_cache)));
+        let lines = tokio::task::block_in_place(|| {
+            follow.catch_up_fast(&threat_intel, Some(&preloaded_cache))
+        });
         takeover_follow = Some(follow);
         uptime::start();
         if !args.archive {
             archived::start();
         }
-        eprintln!("[handoff] took over from pid {old_pid} ({lines} new lines read, {} ms since the hand-over started)", switch.elapsed().as_millis());
+        eprintln!(
+            "[handoff] took over from pid {old_pid} ({lines} new lines read, {} ms since the hand-over started)",
+            switch.elapsed().as_millis()
+        );
     }
 
     // Analyst YARA rule classes (e.g. RAT_VNC -> suspicious) before the first scan.
@@ -271,14 +309,16 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         // dataset loading run here without delaying the takeover.
         let ti = Arc::clone(&threat_intel);
         let eng = Arc::clone(&engine);
-        let _ = std::thread::Builder::new().name("handoff-upkeep".into()).spawn(move || {
-            if let Some(mut f) = takeover_follow {
-                f.finish_heavy(&ti);
-            }
-            eng.after_takeover();
-            eng.analyst.reload();
-            startup_upkeep(&eng, &ti);
-        });
+        let _ = std::thread::Builder::new()
+            .name("handoff-upkeep".into())
+            .spawn(move || {
+                if let Some(mut f) = takeover_follow {
+                    f.finish_heavy(&ti);
+                }
+                eng.after_takeover();
+                eng.analyst.reload();
+                startup_upkeep(&eng, &ti);
+            });
     } else if !args.archive {
         startup_upkeep(&engine, &threat_intel);
     }
@@ -300,13 +340,19 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         crate::archive::spawn_reloader(Arc::clone(&scan_server));
     } else {
         let srv = Arc::clone(&scan_server);
-        scan_server.mirror.set_work_dir(engine.work_dir().map(|p| p.to_path_buf()));
+        scan_server
+            .mirror
+            .set_work_dir(engine.work_dir().map(|p| p.to_path_buf()));
         let ti = Arc::clone(&threat_intel);
-        scan_server.mirror.set_insights_db(Arc::clone(threat_intel.db()));
-        scan_server.mirror.set_verdict_lookup(Arc::new(move |sha: &str| {
-            let (verdict, source, _) = ti.effective(&sha.to_ascii_lowercase());
-            (source != "unseen").then_some(verdict)
-        }));
+        scan_server
+            .mirror
+            .set_insights_db(Arc::clone(threat_intel.db()));
+        scan_server
+            .mirror
+            .set_verdict_lookup(Arc::new(move |sha: &str| {
+                let (verdict, source, _) = ti.effective(&sha.to_ascii_lowercase());
+                (source != "unseen").then_some(verdict)
+            }));
         scan_server.mirror.spawn(move |m| srv.log_info(m));
     }
     let app_state = AppState::new(
@@ -329,7 +375,10 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
                 match app_state.start_listener(settings.clone()).await {
                     Ok(()) => {
                         let ms = switch_started.map_or(0, |t| t.elapsed().as_millis());
-                        eprintln!("[handoff] scanning on {}:{} again, {ms} ms after the hand-over started", settings.host, settings.port);
+                        eprintln!(
+                            "[handoff] scanning on {}:{} again, {ms} ms after the hand-over started",
+                            settings.host, settings.port
+                        );
                         break;
                     }
                     Err(e) if started.elapsed() < Duration::from_secs(15) => {
@@ -429,7 +478,11 @@ fn startup_upkeep(engine: &Arc<EngineAdapter>, ti: &Arc<threat_intel::ThreatInte
         eprintln!("[review] {queued} open files added to the human analysis queue");
     }
     // Without a work folder nothing is kept: leave the queue alone.
-    let pruned = if engine.work_dir().is_some() { ti.prune_queue_without_file(&|s| engine.is_kept(s)) } else { 0 };
+    let pruned = if engine.work_dir().is_some() {
+        ti.prune_queue_without_file(&|s| engine.is_kept(s))
+    } else {
+        0
+    };
     if pruned > 0 {
         eprintln!("[review] {pruned} queued files removed: their file is not on the server");
     }
@@ -442,7 +495,10 @@ fn startup_upkeep(engine: &Arc<EngineAdapter>, ti: &Arc<threat_intel::ThreatInte
         (source != "unseen").then_some(verdict)
     });
     if dups > 0 {
-        eprintln!("[engine] {dups} duplicate kept files removed ({:.1} MB)", bytes as f64 / 1048576.0);
+        eprintln!(
+            "[engine] {dups} duplicate kept files removed ({:.1} MB)",
+            bytes as f64 / 1048576.0
+        );
     }
     // ML dataset files follow human verdicts too (applied when the index is ready).
     if let Some(ds) = engine.dataset.get() {

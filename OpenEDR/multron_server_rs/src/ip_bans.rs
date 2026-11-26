@@ -44,7 +44,11 @@ impl Net {
         let addr: IpAddr = a.parse().map_err(|_| format!("not an IP address: {a}"))?;
         let max = if addr.is_ipv4() { 32 } else { 128 };
         let prefix = match p {
-            Some(p) => p.parse::<u8>().ok().filter(|n| *n <= max).ok_or_else(|| format!("bad prefix /{p} (0-{max})"))?,
+            Some(p) => p
+                .parse::<u8>()
+                .ok()
+                .filter(|n| *n <= max)
+                .ok_or_else(|| format!("bad prefix /{p} (0-{max})"))?,
             None => max,
         };
         // A whole address family can not be banned by accident.
@@ -52,7 +56,10 @@ impl Net {
         if prefix < min {
             return Err(format!("range too wide: at least /{min}"));
         }
-        Ok(Self { addr: mask(addr, prefix), prefix })
+        Ok(Self {
+            addr: mask(addr, prefix),
+            prefix,
+        })
     }
 
     fn contains(&self, ip: IpAddr) -> bool {
@@ -66,18 +73,30 @@ impl Net {
 
     fn text(&self) -> String {
         let max = if self.addr.is_ipv4() { 32 } else { 128 };
-        if self.prefix == max { self.addr.to_string() } else { format!("{}/{}", self.addr, self.prefix) }
+        if self.prefix == max {
+            self.addr.to_string()
+        } else {
+            format!("{}/{}", self.addr, self.prefix)
+        }
     }
 }
 
 fn mask(ip: IpAddr, prefix: u8) -> IpAddr {
     match ip {
         IpAddr::V4(v) => {
-            let m = if prefix == 0 { 0 } else { u32::MAX << (32 - prefix as u32) };
+            let m = if prefix == 0 {
+                0
+            } else {
+                u32::MAX << (32 - prefix as u32)
+            };
             IpAddr::V4((u32::from(v) & m).into())
         }
         IpAddr::V6(v) => {
-            let m = if prefix == 0 { 0 } else { u128::MAX << (128 - prefix as u32) };
+            let m = if prefix == 0 {
+                0
+            } else {
+                u128::MAX << (128 - prefix as u32)
+            };
             IpAddr::V6((u128::from(v) & m).into())
         }
     }
@@ -118,7 +137,10 @@ impl BanList {
         if !list.is_empty() {
             eprintln!("[bans] {} IP bans loaded", list.len());
         }
-        Self { path, list: RwLock::new(list) }
+        Self {
+            path,
+            list: RwLock::new(list),
+        }
     }
 
     /// Reads the file again (archive mode: the main server's bans were mirrored).
@@ -142,7 +164,8 @@ impl BanList {
         let now = Utc::now();
         let hit = {
             let g = self.list.read().unwrap();
-            g.iter().position(|(n, b)| n.contains(ip) && !expired(b, now))
+            g.iter()
+                .position(|(n, b)| n.contains(ip) && !expired(b, now))
         }?;
         let mut g = self.list.write().unwrap();
         let (_, b) = g.get_mut(hit)?;
@@ -151,13 +174,25 @@ impl BanList {
     }
 
     pub fn is_banned(&self, ip: &str) -> bool {
-        let Ok(ip) = ip.trim().parse::<IpAddr>() else { return false };
+        let Ok(ip) = ip.trim().parse::<IpAddr>() else {
+            return false;
+        };
         let now = Utc::now();
-        self.list.read().unwrap().iter().any(|(n, b)| n.contains(ip) && !expired(b, now))
+        self.list
+            .read()
+            .unwrap()
+            .iter()
+            .any(|(n, b)| n.contains(ip) && !expired(b, now))
     }
 
     /// Adds or replaces a ban. `minutes` 0 = permanent. Returns the normalized rule.
-    pub fn add(&self, rule: &str, reason: &str, analyst: &str, minutes: u64) -> Result<IpBan, String> {
+    pub fn add(
+        &self,
+        rule: &str,
+        reason: &str,
+        analyst: &str,
+        minutes: u64,
+    ) -> Result<IpBan, String> {
         let net = Net::parse(rule)?;
         let now = Utc::now();
         let ban = IpBan {
@@ -165,7 +200,10 @@ impl BanList {
             reason: reason.trim().chars().take(500).collect(),
             analyst: analyst.trim().chars().take(80).collect(),
             created: now.to_rfc3339(),
-            expires: (minutes > 0).then(|| (now + chrono::Duration::minutes(minutes.min(10 * 365 * 24 * 60) as i64)).to_rfc3339()),
+            expires: (minutes > 0).then(|| {
+                (now + chrono::Duration::minutes(minutes.min(10 * 365 * 24 * 60) as i64))
+                    .to_rfc3339()
+            }),
             hits: 0,
         };
         let mut g = self.list.write().unwrap();
@@ -212,19 +250,26 @@ mod tests {
     use super::*;
 
     fn tmp() -> PathBuf {
-        let d = std::env::temp_dir().join(format!("ipbans_{}_{}", std::process::id(), rand_suffix()));
+        let d =
+            std::env::temp_dir().join(format!("ipbans_{}_{}", std::process::id(), rand_suffix()));
         std::fs::create_dir_all(&d).unwrap();
         d.join("ip_bans.json")
     }
     fn rand_suffix() -> u128 {
-        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
     }
 
     #[test]
     fn exact_cidr_v6_and_persist() {
         let p = tmp();
         let b = BanList::load_from(p.clone());
-        assert_eq!(b.add("203.0.113.77/24", "bot", "a", 0).unwrap().rule, "203.0.113.0/24");
+        assert_eq!(
+            b.add("203.0.113.77/24", "bot", "a", 0).unwrap().rule,
+            "203.0.113.0/24"
+        );
         b.add("2001:db8::1", "bot6", "a", 0).unwrap();
         assert!(b.is_banned("203.0.113.5"));
         assert!(b.is_banned("::ffff:203.0.113.200"));
@@ -232,7 +277,10 @@ mod tests {
         assert!(b.is_banned("2001:db8::1"));
         assert!(!b.is_banned("2001:db8::2"));
         assert!(b.check("203.0.113.9").is_some());
-        assert!(BanList::load_from(p.clone()).is_banned("203.0.113.1"), "saved to disk");
+        assert!(
+            BanList::load_from(p.clone()).is_banned("203.0.113.1"),
+            "saved to disk"
+        );
         assert!(b.remove("203.0.113.0/24").unwrap());
         assert!(!b.is_banned("203.0.113.5"));
         assert!(!BanList::load_from(p).is_banned("203.0.113.5"));

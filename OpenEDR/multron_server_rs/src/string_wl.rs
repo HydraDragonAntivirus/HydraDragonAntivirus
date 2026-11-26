@@ -130,11 +130,19 @@ impl Disk {
         let len = file.metadata()?.len() / 8;
         let mut raw = Vec::new();
         File::open(dir.join(format!("strings-{generation}.idx")))?.read_to_end(&mut raw)?;
-        let index: Vec<u64> = raw.chunks_exact(8).map(|c| u64::from_le_bytes(c.try_into().unwrap())).collect();
+        let index: Vec<u64> = raw
+            .chunks_exact(8)
+            .map(|c| u64::from_le_bytes(c.try_into().unwrap()))
+            .collect();
         if len != keys || index.len() as u64 != len.div_ceil(BLOCK as u64) {
             return Err(io::Error::other("string whitelist files do not match"));
         }
-        Ok(Disk { generation, file: Mutex::new(file), len, index })
+        Ok(Disk {
+            generation,
+            file: Mutex::new(file),
+            len,
+            index,
+        })
     }
 
     /// Which of the sorted `keys` are in this generation.
@@ -153,7 +161,12 @@ impl Disk {
                 let mut buf = vec![0u8; n * 8];
                 f.seek(SeekFrom::Start(start * 8))?;
                 f.read_exact(&mut buf)?;
-                cached = Some((b, buf.chunks_exact(8).map(|c| u64::from_le_bytes(c.try_into().unwrap())).collect()));
+                cached = Some((
+                    b,
+                    buf.chunks_exact(8)
+                        .map(|c| u64::from_le_bytes(c.try_into().unwrap()))
+                        .collect(),
+                ));
             }
             *hit = cached.as_ref().unwrap().1.binary_search(k).is_ok();
         }
@@ -168,7 +181,10 @@ impl Iterator for KeyReader {
     type Item = u64;
     fn next(&mut self) -> Option<u64> {
         let mut b = [0u8; 8];
-        self.0.read_exact(&mut b).ok().map(|_| u64::from_le_bytes(b))
+        self.0
+            .read_exact(&mut b)
+            .ok()
+            .map(|_| u64::from_le_bytes(b))
     }
 }
 
@@ -241,8 +257,12 @@ impl StringWhitelist {
     /// than `MIN_LEN` are never.
     pub fn contains_many(&self, group: &str, strings: &[&str]) -> Vec<bool> {
         let mut out = vec![false; strings.len()];
-        let mut keys: Vec<(u64, usize)> =
-            strings.iter().enumerate().filter(|(_, s)| s.len() >= MIN_LEN).map(|(i, s)| (key(group, s), i)).collect();
+        let mut keys: Vec<(u64, usize)> = strings
+            .iter()
+            .enumerate()
+            .filter(|(_, s)| s.len() >= MIN_LEN)
+            .map(|(i, s)| (key(group, s), i))
+            .collect();
         if keys.is_empty() {
             return out;
         }
@@ -270,7 +290,9 @@ impl StringWhitelist {
     /// Loads the last generation; leftovers of an interrupted build are removed.
     fn load(&self) {
         let _ = std::fs::create_dir_all(&self.dir);
-        let man: Option<Manifest> = std::fs::read(self.dir.join("whitelist.json")).ok().and_then(|b| serde_json::from_slice(&b).ok());
+        let man: Option<Manifest> = std::fs::read(self.dir.join("whitelist.json"))
+            .ok()
+            .and_then(|b| serde_json::from_slice(&b).ok());
         if let Some(m) = man.filter(|m| m.min_len == MIN_LEN && m.format == FORMAT) {
             match Disk::open(&self.dir, m.generation, m.keys) {
                 Ok(d) => {
@@ -288,8 +310,12 @@ impl StringWhitelist {
     /// still open for a lookup stays until the next time).
     fn remove_old_files(&self) {
         let cur = self.disk.read().unwrap().as_ref().map(|d| d.generation);
-        let keep: Vec<String> = cur.map(|g| vec![format!("strings-{g}.u64"), format!("strings-{g}.idx")]).unwrap_or_default();
-        let Ok(rd) = std::fs::read_dir(&self.dir) else { return };
+        let keep: Vec<String> = cur
+            .map(|g| vec![format!("strings-{g}.u64"), format!("strings-{g}.idx")])
+            .unwrap_or_default();
+        let Ok(rd) = std::fs::read_dir(&self.dir) else {
+            return;
+        };
         for e in rd.flatten() {
             let name = e.file_name().to_string_lossy().into_owned();
             if name != "whitelist.json" && !keep.contains(&name) {
@@ -305,25 +331,41 @@ impl StringWhitelist {
         }
         let (stale, todo) = {
             let f = self.files.lock().unwrap();
-            let stale = f.merged.iter().chain(f.pending.iter()).any(|s| !desired.contains(s));
+            let stale = f
+                .merged
+                .iter()
+                .chain(f.pending.iter())
+                .any(|s| !desired.contains(s));
             let todo: Vec<String> = desired
                 .iter()
-                .filter(|s| !f.merged.contains(*s) && !f.pending.contains(*s) && !f.missing.contains(*s))
+                .filter(|s| {
+                    !f.merged.contains(*s) && !f.pending.contains(*s) && !f.missing.contains(*s)
+                })
                 .cloned()
                 .collect();
             (stale, todo)
         };
         let result = if stale {
-            eprintln!("[string-wl] a clean verdict was taken back: building the string whitelist again");
+            eprintln!(
+                "[string-wl] a clean verdict was taken back: building the string whitelist again"
+            );
             let mut all: Vec<String> = desired.iter().cloned().collect();
             all.sort();
             self.files.lock().unwrap().missing.clear();
             self.build(false, all, read)
         } else if todo.is_empty() {
-            if self.pending.read().unwrap().len() > self.pending_max { self.build(true, Vec::new(), read) } else { Ok(()) }
+            if self.pending.read().unwrap().len() > self.pending_max {
+                self.build(true, Vec::new(), read)
+            } else {
+                Ok(())
+            }
         } else if todo.len() <= DIRECT_FILES {
             self.add_pending(&todo, read);
-            if self.pending.read().unwrap().len() > self.pending_max { self.build(true, Vec::new(), read) } else { Ok(()) }
+            if self.pending.read().unwrap().len() > self.pending_max {
+                self.build(true, Vec::new(), read)
+            } else {
+                Ok(())
+            }
         } else {
             let mut todo = todo;
             todo.sort();
@@ -359,7 +401,12 @@ impl StringWhitelist {
 
     /// A new generation: (the current one and the keys in memory, if `keep`) plus
     /// every string of `shas`. Lookups use the old generation until it is done.
-    fn build(&self, keep: bool, shas: Vec<String>, read: &dyn Fn(&str) -> Option<Vec<u8>>) -> io::Result<()> {
+    fn build(
+        &self,
+        keep: bool,
+        shas: Vec<String>,
+        read: &dyn Fn(&str) -> Option<Vec<u8>>,
+    ) -> io::Result<()> {
         self.remove_old_files();
         self.building.store(true, Ordering::Relaxed);
         self.build_done.store(0, Ordering::Relaxed);
@@ -369,7 +416,12 @@ impl StringWhitelist {
         r
     }
 
-    fn build_inner(&self, keep: bool, shas: Vec<String>, read: &dyn Fn(&str) -> Option<Vec<u8>>) -> io::Result<()> {
+    fn build_inner(
+        &self,
+        keep: bool,
+        shas: Vec<String>,
+        read: &dyn Fn(&str) -> Option<Vec<u8>>,
+    ) -> io::Result<()> {
         let started = std::time::Instant::now();
         let old = self.disk.read().unwrap().clone();
         let generation = old.as_ref().map_or(0, |d| d.generation) + 1;
@@ -379,7 +431,9 @@ impl StringWhitelist {
         let spill = |buf: &mut Vec<u64>, runs: &mut Vec<PathBuf>| -> io::Result<()> {
             buf.sort_unstable();
             buf.dedup();
-            let p = self.dir.join(format!("build-{generation}-{}.run", runs.len()));
+            let p = self
+                .dir
+                .join(format!("build-{generation}-{}.run", runs.len()));
             let mut w = BufWriter::new(File::create(&p)?);
             for k in buf.iter() {
                 w.write_all(&k.to_le_bytes())?;
@@ -405,14 +459,21 @@ impl StringWhitelist {
         buf.sort_unstable();
         buf.dedup();
         // The keys added to memory meanwhile go in too (one writer: this thread).
-        let pending: Vec<u64> = if keep { self.pending.read().unwrap().clone() } else { Vec::new() };
+        let pending: Vec<u64> = if keep {
+            self.pending.read().unwrap().clone()
+        } else {
+            Vec::new()
+        };
 
-        let mut inputs: Vec<Box<dyn Iterator<Item = u64>>> = vec![Box::new(buf.into_iter()), Box::new(pending.into_iter())];
+        let mut inputs: Vec<Box<dyn Iterator<Item = u64>>> =
+            vec![Box::new(buf.into_iter()), Box::new(pending.into_iter())];
         for p in &runs {
             inputs.push(Box::new(KeyReader(BufReader::new(File::open(p)?))));
         }
         if let (true, Some(d)) = (keep, old.as_ref()) {
-            inputs.push(Box::new(KeyReader(BufReader::new(File::open(self.dir.join(format!("strings-{}.u64", d.generation)))?))));
+            inputs.push(Box::new(KeyReader(BufReader::new(File::open(
+                self.dir.join(format!("strings-{}.u64", d.generation)),
+            )?))));
         }
         let keys = merge_to(&self.dir, generation, inputs)?;
         for p in &runs {
@@ -420,11 +481,21 @@ impl StringWhitelist {
         }
 
         let mut f = self.files.lock().unwrap();
-        let mut files: HashSet<String> = if keep { f.merged.iter().chain(f.pending.iter()).cloned().collect() } else { HashSet::new() };
+        let mut files: HashSet<String> = if keep {
+            f.merged.iter().chain(f.pending.iter()).cloned().collect()
+        } else {
+            HashSet::new()
+        };
         files.extend(ok);
         let mut list: Vec<String> = files.iter().cloned().collect();
         list.sort();
-        let man = Manifest { format: FORMAT, generation, min_len: MIN_LEN, keys, files: list };
+        let man = Manifest {
+            format: FORMAT,
+            generation,
+            min_len: MIN_LEN,
+            keys,
+            files: list,
+        };
         let tmp = self.dir.join("whitelist.json.tmp");
         std::fs::write(&tmp, serde_json::to_vec(&man).map_err(io::Error::other)?)?;
         std::fs::rename(&tmp, self.dir.join("whitelist.json"))?;
@@ -438,14 +509,21 @@ impl StringWhitelist {
         drop(f);
         drop(old);
         self.remove_old_files();
-        eprintln!("[string-wl] string whitelist: {keys} strings of {n} clean files ({} s)", started.elapsed().as_secs());
+        eprintln!(
+            "[string-wl] string whitelist: {keys} strings of {n} clean files ({} s)",
+            started.elapsed().as_secs()
+        );
         Ok(())
     }
 }
 
 /// k-way merge of sorted inputs into `strings-<generation>.u64` (duplicates dropped) and its
 /// index. Returns the number of keys.
-fn merge_to(dir: &Path, generation: u64, mut inputs: Vec<Box<dyn Iterator<Item = u64>>>) -> io::Result<u64> {
+fn merge_to(
+    dir: &Path,
+    generation: u64,
+    mut inputs: Vec<Box<dyn Iterator<Item = u64>>>,
+) -> io::Result<u64> {
     let mut data = BufWriter::new(File::create(dir.join(format!("strings-{generation}.u64")))?);
     let mut idx = BufWriter::new(File::create(dir.join(format!("strings-{generation}.idx")))?);
     let mut heap = BinaryHeap::new();
@@ -481,23 +559,32 @@ pub fn get() -> Option<&'static Arc<StringWhitelist>> {
 
 /// Starts keeping `string_whitelist/` in line with the human clean verdicts (main
 /// server only; the archive server has no kept files to read).
-pub fn start(engine: Arc<crate::engine_adapter::EngineAdapter>, ti: Arc<crate::threat_intel::ThreatIntelStore>) {
-    let wl = Arc::clone(GLOBAL.get_or_init(|| Arc::new(StringWhitelist::new(crate::config::app_dir().join("string_whitelist")))));
-    let _ = std::thread::Builder::new().name("string-wl".into()).spawn(move || {
-        // Let the start-up work finish first.
-        std::thread::sleep(Duration::from_secs(30));
-        loop {
-            let desired: HashSet<String> = ti
-                .reviews
-                .completed_verdicts()
-                .into_iter()
-                .filter(|(_, v)| v == "clean")
-                .map(|(s, _)| s.to_ascii_uppercase())
-                .collect();
-            wl.sync(&desired, &|sha: &str| engine.read_kept_indexed(sha));
-            std::thread::sleep(CHECK_EVERY);
-        }
-    });
+pub fn start(
+    engine: Arc<crate::engine_adapter::EngineAdapter>,
+    ti: Arc<crate::threat_intel::ThreatIntelStore>,
+) {
+    let wl = Arc::clone(GLOBAL.get_or_init(|| {
+        Arc::new(StringWhitelist::new(
+            crate::config::app_dir().join("string_whitelist"),
+        ))
+    }));
+    let _ = std::thread::Builder::new()
+        .name("string-wl".into())
+        .spawn(move || {
+            // Let the start-up work finish first.
+            std::thread::sleep(Duration::from_secs(30));
+            loop {
+                let desired: HashSet<String> = ti
+                    .reviews
+                    .completed_verdicts()
+                    .into_iter()
+                    .filter(|(_, v)| v == "clean")
+                    .map(|(s, _)| s.to_ascii_uppercase())
+                    .collect();
+                wl.sync(&desired, &|sha: &str| engine.read_kept_indexed(sha));
+                std::thread::sleep(CHECK_EVERY);
+            }
+        });
 }
 
 #[cfg(test)]
@@ -524,39 +611,79 @@ mod tests {
     }
 
     const A: &[u8] = b"\x00\x01kernel32.dll\x00GetProcAddress\x00abc\x00\x02";
-    const B: &[u8] = b"\x01LoadLibraryW\x02k\x00e\x00r\x00n\x00e\x00l\x00b\x00a\x00s\x00e\x00\x00\x00";
+    const B: &[u8] =
+        b"\x01LoadLibraryW\x02k\x00e\x00r\x00n\x00e\x00l\x00b\x00a\x00s\x00e\x00\x00\x00";
 
     #[test]
     fn follows_clean_verdicts_on_disk_and_in_memory() {
         let (dir, wl) = setup("follow");
-        assert_eq!(file_type(A), file_type(B), "both test files are the same type");
-        let files: HashMap<String, Vec<u8>> = [("A".to_string(), A.to_vec()), ("B".to_string(), B.to_vec())].into_iter().collect();
+        assert_eq!(
+            file_type(A),
+            file_type(B),
+            "both test files are the same type"
+        );
+        let files: HashMap<String, Vec<u8>> =
+            [("A".to_string(), A.to_vec()), ("B".to_string(), B.to_vec())]
+                .into_iter()
+                .collect();
         let read = |s: &str| files.get(s).cloned();
 
         wl.sync(&set(&["A"]), &read);
-        assert_eq!(known(&wl, A, &["kernel32.dll", "GetProcAddress", "abc", "LoadLibraryW"]), [true, true, false, false], "abc is too short");
+        assert_eq!(
+            known(
+                &wl,
+                A,
+                &["kernel32.dll", "GetProcAddress", "abc", "LoadLibraryW"]
+            ),
+            [true, true, false, false],
+            "abc is too short"
+        );
         assert_eq!(wl.status().files, 1);
-        assert!(wl.disk.read().unwrap().is_none(), "a few files go to memory first");
+        assert!(
+            wl.disk.read().unwrap().is_none(),
+            "a few files go to memory first"
+        );
 
         // B arrives; its UTF-16 string counts as the same text. Memory is over the
         // limit, so a new generation is written.
         wl.sync(&set(&["A", "B"]), &read);
-        assert_eq!(known(&wl, A, &["kernelbase", "LoadLibraryW", "GetProcAddress", "unknown!"]), [true, true, true, false]);
+        assert_eq!(
+            known(
+                &wl,
+                A,
+                &["kernelbase", "LoadLibraryW", "GetProcAddress", "unknown!"]
+            ),
+            [true, true, true, false]
+        );
         assert!(wl.disk.read().unwrap().is_some());
         assert!(wl.pending.read().unwrap().is_empty());
 
         // A restart reads it back from disk.
         let again = StringWhitelist::new(dir.clone());
         again.sync(&set(&["A", "B"]), &read);
-        assert_eq!(known(&again, A, &["kernel32.dll", "kernelbase"]), [true, true]);
+        assert_eq!(
+            known(&again, A, &["kernel32.dll", "kernelbase"]),
+            [true, true]
+        );
         assert_eq!(again.status().files, 2);
 
         // A's clean verdict is taken back: only B's strings stay.
         again.sync(&set(&["B"]), &read);
-        assert_eq!(known(&again, A, &["kernel32.dll", "kernelbase"]), [false, true]);
+        assert_eq!(
+            known(&again, A, &["kernel32.dll", "kernelbase"]),
+            [false, true]
+        );
         assert_eq!(again.status().files, 1);
-        let left: Vec<String> = std::fs::read_dir(&dir).unwrap().flatten().map(|e| e.file_name().to_string_lossy().into_owned()).collect();
-        assert_eq!(left.len(), 3, "manifest + one generation, no runs: {left:?}");
+        let left: Vec<String> = std::fs::read_dir(&dir)
+            .unwrap()
+            .flatten()
+            .map(|e| e.file_name().to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(
+            left.len(),
+            3,
+            "manifest + one generation, no runs: {left:?}"
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -572,7 +699,11 @@ mod tests {
         wl.sync(&set(&["T"]), &|_| Some(t.clone()));
         let s = "powershell -nop -w hidden is in this clean text file";
         assert_eq!(known(&wl, &text, &[s]), [true]);
-        assert_eq!(known(&wl, &pe, &[s]), [false], "a clean text file does not vouch for a PE");
+        assert_eq!(
+            known(&wl, &pe, &[s]),
+            [false],
+            "a clean text file does not vouch for a PE"
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -590,13 +721,29 @@ mod tests {
     #[test]
     fn many_files_build_through_runs() {
         let (dir, wl) = setup("many");
-        let data: HashMap<String, Vec<u8>> =
-            (0..(DIRECT_FILES + 5)).map(|i| (format!("F{i}"), format!("\x01string number {i}\x00shared string\x02").into_bytes())).collect();
+        let data: HashMap<String, Vec<u8>> = (0..(DIRECT_FILES + 5))
+            .map(|i| {
+                (
+                    format!("F{i}"),
+                    format!("\x01string number {i}\x00shared string\x02").into_bytes(),
+                )
+            })
+            .collect();
         let desired: HashSet<String> = data.keys().cloned().collect();
         wl.sync(&desired, &|s| data.get(s).cloned());
         let st = wl.status();
-        assert_eq!((st.files, st.strings), (DIRECT_FILES + 5, DIRECT_FILES as u64 + 6));
-        assert_eq!(known(&wl, &data["F7"], &["string number 7", "shared string", "string number 999"]), [true, true, false]);
+        assert_eq!(
+            (st.files, st.strings),
+            (DIRECT_FILES + 5, DIRECT_FILES as u64 + 6)
+        );
+        assert_eq!(
+            known(
+                &wl,
+                &data["F7"],
+                &["string number 7", "shared string", "string number 999"]
+            ),
+            [true, true, false]
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

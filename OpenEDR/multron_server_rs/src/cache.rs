@@ -2,9 +2,9 @@ use std::collections::{HashMap, VecDeque};
 use std::fs::{File, OpenOptions};
 use std::io::{BufRead, BufReader, BufWriter, Write};
 use std::path::{Path, PathBuf};
-use std::sync::mpsc;
-use std::sync::atomic::{AtomicI64, Ordering};
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicI64, Ordering};
+use std::sync::mpsc;
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
@@ -106,7 +106,9 @@ impl VerdictCache {
         let mut g = self.inner.lock().unwrap();
         for line in BufReader::new(f).lines().map_while(Result::ok) {
             lines += 1;
-            let Ok(l) = serde_json::from_str::<Line>(&line) else { continue };
+            let Ok(l) = serde_json::from_str::<Line>(&line) else {
+                continue;
+            };
             let Some(sha) = parse_sha(&l.s) else { continue };
             if now - l.v.at > self.ttl_for(&l.v.verdict) {
                 // The last line of a hash wins: an expired one drops an older live one
@@ -136,7 +138,9 @@ impl VerdictCache {
             g.order.clear();
         }
         for line in lines {
-            let Ok(l) = serde_json::from_str::<Line>(line) else { continue };
+            let Ok(l) = serde_json::from_str::<Line>(line) else {
+                continue;
+            };
             let Some(sha) = parse_sha(&l.s) else { continue };
             if now - l.v.at > self.ttl_for(&l.v.verdict) {
                 // The last line of a hash wins: an expired one drops an older live one
@@ -162,7 +166,10 @@ impl VerdictCache {
             let g = self.inner.lock().unwrap();
             for sha in &g.order {
                 if let Some(v) = g.map.get(sha) {
-                    let line = Line { s: hex::encode_upper(sha), v: v.clone() };
+                    let line = Line {
+                        s: hex::encode_upper(sha),
+                        v: v.clone(),
+                    };
                     writeln!(w, "{}", serde_json::to_string(&line).unwrap_or_default())?;
                 }
             }
@@ -196,7 +203,10 @@ impl VerdictCache {
 
     pub fn put(&self, sha: Sha, v: CachedVerdict) {
         if let Some(w) = &self.writer {
-            let line = Line { s: hex::encode_upper(sha), v: v.clone() };
+            let line = Line {
+                s: hex::encode_upper(sha),
+                v: v.clone(),
+            };
             if let Ok(s) = serde_json::to_string(&line) {
                 let _ = w.send(CacheMsg::Line(s));
             }
@@ -226,8 +236,17 @@ impl VerdictCache {
         };
         if let Some(w) = &self.writer {
             for sha in shas {
-                let v = CachedVerdict { verdict: "unknown".into(), threat: None, detail: None, score: 0.0, at: 0 };
-                if let Ok(s) = serde_json::to_string(&Line { s: hex::encode_upper(sha), v }) {
+                let v = CachedVerdict {
+                    verdict: "unknown".into(),
+                    threat: None,
+                    detail: None,
+                    score: 0.0,
+                    at: 0,
+                };
+                if let Ok(s) = serde_json::to_string(&Line {
+                    s: hex::encode_upper(sha),
+                    v,
+                }) {
                     let _ = w.send(CacheMsg::Line(s));
                 }
             }
@@ -239,7 +258,8 @@ impl VerdictCache {
     /// In memory only: entries already on disk come back after a process restart, the
     /// same as before this feature existed.
     pub fn invalidate_all(&self) {
-        self.invalidated_before.store(now_secs() + 1, Ordering::Relaxed);
+        self.invalidated_before
+            .store(now_secs() + 1, Ordering::Relaxed);
     }
 
     pub fn len(&self) -> usize {
@@ -267,7 +287,11 @@ enum CacheMsg {
 }
 
 fn start_writer(path: PathBuf) -> Option<mpsc::Sender<CacheMsg>> {
-    let file = OpenOptions::new().create(true).append(true).open(&path).ok()?;
+    let file = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&path)
+        .ok()?;
     let (tx, rx) = mpsc::channel::<CacheMsg>();
     std::thread::Builder::new()
         .name("cache-writer".into())
@@ -308,14 +332,21 @@ mod tests {
     use super::*;
 
     fn verdict(v: &str, at: i64) -> CachedVerdict {
-        CachedVerdict { verdict: v.into(), threat: None, detail: None, score: 0.0, at }
+        CachedVerdict {
+            verdict: v.into(),
+            threat: None,
+            detail: None,
+            score: 0.0,
+            at,
+        }
     }
 
     /// A forgotten verdict stays gone after a restart, and an expired last line does not
     /// bring back an older live one.
     #[test]
     fn forget_survives_restart() {
-        let path = std::env::temp_dir().join(format!("multron_cache_forget_{}.jsonl", std::process::id()));
+        let path =
+            std::env::temp_dir().join(format!("multron_cache_forget_{}.jsonl", std::process::id()));
         let _ = std::fs::remove_file(&path);
         let (a, b) = ([1u8; 32], [2u8; 32]);
         {
@@ -327,7 +358,10 @@ mod tests {
             assert!(c.flush(Duration::from_secs(5)));
         }
         let c = VerdictCache::new(1000, 30, 24, Some(path.clone()));
-        assert!(c.get(&a).is_none(), "forgotten verdict came back after a restart");
+        assert!(
+            c.get(&a).is_none(),
+            "forgotten verdict came back after a restart"
+        );
         assert_eq!(c.get(&b).unwrap().verdict, "malicious");
         drop(c);
         let _ = std::fs::remove_file(&path);

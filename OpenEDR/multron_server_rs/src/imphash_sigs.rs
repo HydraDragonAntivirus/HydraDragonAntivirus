@@ -51,8 +51,12 @@ fn load() -> HashMap<String, ImphashSig> {
     let mut m = HashMap::new();
     if let Ok(f) = std::fs::File::open(path()) {
         for line in BufReader::new(f).lines().map_while(Result::ok) {
-            let Ok(v) = serde_json::from_str::<serde_json::Value>(&line) else { continue };
-            let Some(h) = v["imphash"].as_str().map(str::to_ascii_lowercase) else { continue };
+            let Ok(v) = serde_json::from_str::<serde_json::Value>(&line) else {
+                continue;
+            };
+            let Some(h) = v["imphash"].as_str().map(str::to_ascii_lowercase) else {
+                continue;
+            };
             if v["removed"].as_bool() == Some(true) {
                 m.remove(&h);
             } else if let Ok(s) = serde_json::from_value::<ImphashSig>(v) {
@@ -67,7 +71,10 @@ fn load() -> HashMap<String, ImphashSig> {
 }
 
 fn append(v: &serde_json::Value) -> std::io::Result<()> {
-    let mut f = std::fs::OpenOptions::new().create(true).append(true).open(path())?;
+    let mut f = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path())?;
     writeln!(f, "{v}")
 }
 
@@ -76,7 +83,11 @@ pub fn any() -> bool {
 }
 
 pub fn lookup(imphash: &str) -> Option<ImphashSig> {
-    sigs().read().unwrap().get(&imphash.to_ascii_lowercase()).cloned()
+    sigs()
+        .read()
+        .unwrap()
+        .get(&imphash.to_ascii_lowercase())
+        .cloned()
 }
 
 /// Newest first.
@@ -103,7 +114,11 @@ fn clean_imphashes() -> &'static Mutex<HashMap<String, Option<String>>> {
 }
 
 /// Clean files with this imphash (at most `limit`): (SHA-256, where it is known clean).
-pub fn clean_with(ti: &ThreatIntelStore, imphash: &str, limit: usize) -> Vec<(String, &'static str)> {
+pub fn clean_with(
+    ti: &ThreatIntelStore,
+    imphash: &str,
+    limit: usize,
+) -> Vec<(String, &'static str)> {
     let h = imphash.to_ascii_lowercase();
     let mut out: Vec<(String, &'static str)> = ti
         .similarity
@@ -121,7 +136,8 @@ pub fn clean_with(ti: &ThreatIntelStore, imphash: &str, limit: usize) -> Vec<(St
     let mut cache = clean_imphashes().lock().unwrap();
     for sha in &clean {
         let ih = cache.entry(sha.clone()).or_insert_with(|| {
-            crate::reports::load(sha).and_then(|r| r["hashes"]["imphash"].as_str().map(str::to_ascii_lowercase))
+            crate::reports::load(sha)
+                .and_then(|r| r["hashes"]["imphash"].as_str().map(str::to_ascii_lowercase))
         });
         if ih.as_deref() == Some(h.as_str()) && out.len() < limit {
             out.push((sha.clone(), "human clean verdict"));
@@ -132,26 +148,55 @@ pub fn clean_with(ti: &ThreatIntelStore, imphash: &str, limit: usize) -> Vec<(St
 
 /// Makes the signature of the PE `data` (SHA-256 `sha`) after the checks in the
 /// module docs. Returns it, or why it was refused.
-pub fn create(ti: &ThreatIntelStore, sha: &str, data: &[u8], threat: &str, analyst: &str) -> Result<ImphashSig, String> {
+pub fn create(
+    ti: &ThreatIntelStore,
+    sha: &str,
+    data: &[u8],
+    threat: &str,
+    analyst: &str,
+) -> Result<ImphashSig, String> {
     let sha = sha.trim().to_ascii_lowercase();
     let threat = crate::naming::normalize_threat_name(threat)?;
-    if ti.reviews.completed(&sha).and_then(|r| r.verdict).as_deref() == Some("clean") {
+    if ti
+        .reviews
+        .completed(&sha)
+        .and_then(|r| r.verdict)
+        .as_deref()
+        == Some("clean")
+    {
         return Err("this file has a human clean verdict".into());
     }
-    let (imphash, imports, dotnet) = crate::analyzer::pe_imphash(data).ok_or("not a PE with an import table")?;
+    let (imphash, imports, dotnet) =
+        crate::analyzer::pe_imphash(data).ok_or("not a PE with an import table")?;
     if dotnet {
-        return Err(".NET program: every .NET program has the same import table, use another signature".into());
+        return Err(
+            ".NET program: every .NET program has the same import table, use another signature"
+                .into(),
+        );
     }
     if imports < MIN_IMPORTS {
-        return Err(format!("only {imports} imports: an import table this small is shared by too many programs (at least {MIN_IMPORTS})"));
+        return Err(format!(
+            "only {imports} imports: an import table this small is shared by too many programs (at least {MIN_IMPORTS})"
+        ));
     }
     let clean = clean_with(ti, &imphash, 5);
     if !clean.is_empty() {
         let list: Vec<String> = clean.iter().map(|(s, o)| format!("{s} ({o})")).collect();
-        return Err(format!("clean files have imphash {imphash}: {}", list.join(", ")));
+        return Err(format!(
+            "clean files have imphash {imphash}: {}",
+            list.join(", ")
+        ));
     }
-    let sig = ImphashSig { imphash: imphash.clone(), threat, sha256: sha, analyst: analyst.to_string(), imports, added: chrono::Utc::now().to_rfc3339() };
-    append(&serde_json::to_value(&sig).unwrap_or_default()).map_err(|e| format!("could not save: {e}"))?;
+    let sig = ImphashSig {
+        imphash: imphash.clone(),
+        threat,
+        sha256: sha,
+        analyst: analyst.to_string(),
+        imports,
+        added: chrono::Utc::now().to_rfc3339(),
+    };
+    append(&serde_json::to_value(&sig).unwrap_or_default())
+        .map_err(|e| format!("could not save: {e}"))?;
     sigs().write().unwrap().insert(imphash, sig.clone());
     Ok(sig)
 }

@@ -1,6 +1,6 @@
+use axum::Json;
 use axum::extract::{Path as AxumPath, Query, State};
 use axum::response::IntoResponse;
-use axum::Json;
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, VecDeque};
@@ -272,7 +272,10 @@ impl EdrTelemetryStore {
         let db = match crate::edr_db::EdrDb::open(path) {
             Ok(db) => db,
             Err(e) => {
-                eprintln!("[EDR] telemetry history {} unavailable ({e}); keeping it in memory only", path.display());
+                eprintln!(
+                    "[EDR] telemetry history {} unavailable ({e}); keeping it in memory only",
+                    path.display()
+                );
                 return Self::new();
             }
         };
@@ -340,7 +343,12 @@ impl EdrTelemetryStore {
         }
     }
 
-    pub fn add_behavior(&self, payload: BehaviorTelemetryPayload, verdict: String, threat_name: Option<String>) {
+    pub fn add_behavior(
+        &self,
+        payload: BehaviorTelemetryPayload,
+        verdict: String,
+        threat_name: Option<String>,
+    ) {
         if let Ok(mut g) = self.inner.write() {
             let time_iso = Utc::now().to_rfc3339();
 
@@ -413,7 +421,10 @@ impl EdrTelemetryStore {
             let stored = match self.db.as_ref().map(|db| db.insert_flows(&mut items)) {
                 Some(Ok(())) => true,
                 Some(Err(e)) => {
-                    eprintln!("[EDR] could not store {} flows in the telemetry history: {e}", items.len());
+                    eprintln!(
+                        "[EDR] could not store {} flows in the telemetry history: {e}",
+                        items.len()
+                    );
                     false
                 }
                 None => false,
@@ -459,20 +470,33 @@ impl EdrTelemetryStore {
     }
 
     pub fn get_stats(&self) -> EdrStats {
-        self.inner.read().map(|g| g.stats.clone()).unwrap_or_default()
+        self.inner
+            .read()
+            .map(|g| g.stats.clone())
+            .unwrap_or_default()
     }
 
-    pub fn get_behaviors(&self, limit: usize, risk_filter: Option<&str>, q: Option<&str>) -> Vec<StoredBehavior> {
+    pub fn get_behaviors(
+        &self,
+        limit: usize,
+        risk_filter: Option<&str>,
+        q: Option<&str>,
+    ) -> Vec<StoredBehavior> {
         let q_lower = q.map(|s| s.trim().to_lowercase()).filter(|s| !s.is_empty());
-        let risk_lower = risk_filter.map(|s| s.trim().to_lowercase()).filter(|s| !s.is_empty() && s != "all");
+        let risk_lower = risk_filter
+            .map(|s| s.trim().to_lowercase())
+            .filter(|s| !s.is_empty() && s != "all");
 
         // A filter or a search looks through the whole history; the newest records
         // alone are the in-memory window.
-        let wants_history = q_lower.is_some() || risk_lower.is_some() || limit > MAX_STORED_BEHAVIORS;
+        let wants_history =
+            q_lower.is_some() || risk_lower.is_some() || limit > MAX_STORED_BEHAVIORS;
         if let Some(db) = self.db.as_ref().filter(|_| wants_history) {
             match db.behaviors(limit, risk_lower.as_deref(), q_lower.as_deref()) {
                 Ok(rows) => return rows,
-                Err(e) => eprintln!("[EDR] behavior history query failed ({e}); answering from memory"),
+                Err(e) => {
+                    eprintln!("[EDR] behavior history query failed ({e}); answering from memory")
+                }
             }
         }
 
@@ -512,7 +536,11 @@ impl EdrTelemetryStore {
     pub fn get_flows(&self, limit: usize, q: Option<&str>) -> Vec<StoredFlow> {
         let q_lower = q.map(|s| s.trim().to_lowercase()).filter(|s| !s.is_empty());
 
-        if let Some(db) = self.db.as_ref().filter(|_| q_lower.is_some() || limit > MAX_STORED_FLOWS) {
+        if let Some(db) = self
+            .db
+            .as_ref()
+            .filter(|_| q_lower.is_some() || limit > MAX_STORED_FLOWS)
+        {
             match db.flows(limit, q_lower.as_deref()) {
                 Ok(rows) => return rows,
                 Err(e) => eprintln!("[EDR] flow history query failed ({e}); answering from memory"),
@@ -534,12 +562,24 @@ impl EdrTelemetryStore {
                         || f.dst_ip.contains(search)
                         || f.protocol.to_lowercase().contains(search)
                         || f.machine_id.to_lowercase().contains(search)
-                        || f.hostname.as_deref().map_or(false, |h| h.to_lowercase().contains(search))
-                        || f.dns_query.as_deref().map_or(false, |d| d.to_lowercase().contains(search))
-                        || f.url.as_deref().map_or(false, |u| u.to_lowercase().contains(search))
-                        || f.http_method.as_deref().map_or(false, |m| m.to_lowercase().contains(search))
-                        || f.ja3.as_deref().map_or(false, |j| j.to_lowercase().contains(search))
-                        || f.ja3s.as_deref().map_or(false, |j| j.to_lowercase().contains(search))
+                        || f.hostname
+                            .as_deref()
+                            .map_or(false, |h| h.to_lowercase().contains(search))
+                        || f.dns_query
+                            .as_deref()
+                            .map_or(false, |d| d.to_lowercase().contains(search))
+                        || f.url
+                            .as_deref()
+                            .map_or(false, |u| u.to_lowercase().contains(search))
+                        || f.http_method
+                            .as_deref()
+                            .map_or(false, |m| m.to_lowercase().contains(search))
+                        || f.ja3
+                            .as_deref()
+                            .map_or(false, |j| j.to_lowercase().contains(search))
+                        || f.ja3s
+                            .as_deref()
+                            .map_or(false, |j| j.to_lowercase().contains(search))
                         || f.pid.to_string().contains(search);
                     if !matches {
                         return false;
@@ -556,7 +596,9 @@ impl EdrTelemetryStore {
         if let Some(db) = self.db.as_ref().filter(|_| limit > MAX_STORED_THREATS) {
             match db.threats(limit) {
                 Ok(rows) => return rows,
-                Err(e) => eprintln!("[EDR] threat history query failed ({e}); answering from memory"),
+                Err(e) => {
+                    eprintln!("[EDR] threat history query failed ({e}); answering from memory")
+                }
             }
         }
         let guard = match self.inner.read() {
@@ -592,7 +634,11 @@ impl EdrTelemetryStore {
                 };
                 StoredEdrEvent {
                     id: 0,
-                    timestamp: if r.timestamp == 0 { now_ts } else { r.timestamp },
+                    timestamp: if r.timestamp == 0 {
+                        now_ts
+                    } else {
+                        r.timestamp
+                    },
                     time_iso: if r.time_iso.is_empty() {
                         now_iso.clone()
                     } else {
@@ -665,7 +711,9 @@ impl EdrTelemetryStore {
         if let Some(db) = self.db.as_ref().filter(|_| wants_history) {
             match db.edr_events(limit, et_clean, mach_clean, sysops_only, q_lower.as_deref()) {
                 Ok(rows) => return rows,
-                Err(e) => eprintln!("[EDR] EDR event history query failed ({e}); answering from memory"),
+                Err(e) => {
+                    eprintln!("[EDR] EDR event history query failed ({e}); answering from memory")
+                }
             }
         }
 
@@ -700,7 +748,10 @@ impl EdrTelemetryStore {
                         || ev.exe_path.to_lowercase().contains(search)
                         || ev.machine_id.to_lowercase().contains(search)
                         || ev.pid.to_string().contains(search)
-                        || ev.details.as_deref().map_or(false, |d| d.to_lowercase().contains(search))
+                        || ev
+                            .details
+                            .as_deref()
+                            .map_or(false, |d| d.to_lowercase().contains(search))
                         || ev.raw.to_string().to_lowercase().contains(search);
                     if !matches {
                         return false;
@@ -727,7 +778,10 @@ impl EdrTelemetryStore {
                 .map_err(|e| e.to_string())?;
             return Ok((out, n));
         }
-        let guard = self.inner.read().map_err(|_| "store lock poisoned".to_string())?;
+        let guard = self
+            .inner
+            .read()
+            .map_err(|_| "store lock poisoned".to_string())?;
         let mut out = Vec::new();
         let mut n = 0u64;
         for ev in guard.events.iter().rev() {
@@ -798,10 +852,16 @@ impl EdrTelemetryStore {
     }
 
     pub fn get_system_reports(&self, limit: usize) -> Vec<StoredSystemReport> {
-        if let Some(db) = self.db.as_ref().filter(|_| limit > MAX_STORED_SYSTEM_REPORTS) {
+        if let Some(db) = self
+            .db
+            .as_ref()
+            .filter(|_| limit > MAX_STORED_SYSTEM_REPORTS)
+        {
             match db.system_reports(limit) {
                 Ok(rows) => return rows,
-                Err(e) => eprintln!("[EDR] system report history query failed ({e}); answering from memory"),
+                Err(e) => eprintln!(
+                    "[EDR] system report history query failed ({e}); answering from memory"
+                ),
             }
         }
         let guard = match self.inner.read() {
@@ -846,9 +906,18 @@ static SERVER_ALERT_DEDUP: OnceLock<Mutex<HashMap<(String, String, u32, String),
     OnceLock::new();
 
 const SERVER_MALICIOUS_TLS_FINGERPRINTS: &[(&str, &str)] = &[
-    ("eb88d0b3e1961a0562f006e5ce2a0b87", "CobaltStrike.MalleableC2"),
-    ("ae4edc6faf64d08308082ad26be60767", "CobaltStrike.Server.JA3S"),
-    ("aa29d305dff6e6ac9cd244a62c6ad0c2", "CobaltStrike.Server.JA3S"),
+    (
+        "eb88d0b3e1961a0562f006e5ce2a0b87",
+        "CobaltStrike.MalleableC2",
+    ),
+    (
+        "ae4edc6faf64d08308082ad26be60767",
+        "CobaltStrike.Server.JA3S",
+    ),
+    (
+        "aa29d305dff6e6ac9cd244a62c6ad0c2",
+        "CobaltStrike.Server.JA3S",
+    ),
     ("8916410db85077a5460817142dcbc8de", "Metasploit.Meterpreter"),
     ("72a589da586844d7f0818ce684948eea", "Metasploit.Meterpreter"),
     ("e564ee1b7bcae4467d8c759df910ed9c", "DeimosC2.Agent"),
@@ -856,7 +925,10 @@ const SERVER_MALICIOUS_TLS_FINGERPRINTS: &[(&str, &str)] = &[
     ("f6dfdd25d1522e4e1c7cd09bd37ce619", "RustyBuer.Server.JA3S"),
     ("16f17c896273d1d098314a02e87dd4cb", "Metasploit.HttpScanner"),
     ("950ccdd64d360a7b24c70678ac116a44", "Metasploit.CcsScanner"),
-    ("ee031b874122d97ab269e0d8740be31a", "Metasploit.HeartbleedScanner"),
+    (
+        "ee031b874122d97ab269e0d8740be31a",
+        "Metasploit.HeartbleedScanner",
+    ),
     ("6825b330bf9de50ccc8745553cb61b2f", "Metasploit.SslScanner"),
     ("1aa7bf8b97e540ca5edd75f7b8384bfa", "AbuseCh.Trickbot"),
     ("e62a5f4d538cbf169c2af71bec2399b4", "AbuseCh.Trickbot"),
@@ -1091,7 +1163,10 @@ fn evaluate_server_edr_event(
                     format!("MatchedThreat:{}", sig.threat),
                     format!("EventType:{}", rec.event_type),
                 ],
-                format!("PE imphash {imphash} matched analyst signature {}", sig.threat),
+                format!(
+                    "PE imphash {imphash} matched analyst signature {}",
+                    sig.threat
+                ),
                 serde_json::json!({
                     "imphash": imphash,
                     "sig_sha256": sig.sha256,
@@ -1116,10 +1191,7 @@ fn evaluate_server_edr_event(
                 &rec.exe_path,
                 "Server.EDR.ProcessTampering",
                 1.00,
-                vec![
-                    format!("Technique:{technique}"),
-                    format!("Reason:{reason}"),
-                ],
+                vec![format!("Technique:{technique}"), format!("Reason:{reason}")],
                 format!("Process tampering reported: {} ({reason})", rec.exe_path),
                 rec.raw.clone(),
             );
@@ -1186,7 +1258,9 @@ fn evaluate_server_edr_event(
             };
             let sub_type = raw_first_str(&rec.raw, &["/subType"]);
             let drv_action = raw_first_str(&rec.raw, &["/driver/action"]);
-            if sub_type.eq_ignore_ascii_case("HVCI_BLOCK") || drv_action.eq_ignore_ascii_case("BLOCK") {
+            if sub_type.eq_ignore_ascii_case("HVCI_BLOCK")
+                || drv_action.eq_ignore_ascii_case("BLOCK")
+            {
                 emit_server_rule_alert(
                     store,
                     events,
@@ -1242,7 +1316,12 @@ fn evaluate_server_edr_event(
         "LLE_NAMED_PIPE_SERVER_CREATE" | "LLE_NAMED_PIPE_CREATE" => {
             let pipe = raw_first_str(
                 &rec.raw,
-                &["/file/rawPath", "/file/abstractPath", "/file/path", "/pipe_name"],
+                &[
+                    "/file/rawPath",
+                    "/file/abstractPath",
+                    "/file/path",
+                    "/pipe_name",
+                ],
             );
             let check = if pipe.is_empty() {
                 rec.details.as_deref().unwrap_or("")
@@ -1319,7 +1398,12 @@ fn evaluate_server_edr_event(
         "SANCTUM_HVCI_BLOCK" => {
             let drv = raw_first_str(
                 &rec.raw,
-                &["/driver/image", "/file/rawPath", "/file/abstractPath", "/driver_path"],
+                &[
+                    "/driver/image",
+                    "/file/rawPath",
+                    "/file/abstractPath",
+                    "/driver_path",
+                ],
             );
             let check = if drv.is_empty() {
                 rec.details.as_deref().unwrap_or(rec.exe_path.as_str())
@@ -1343,7 +1427,10 @@ fn evaluate_server_edr_event(
             );
         }
         "SANCTUM_ETW_BLINDING" => {
-            let subj = rec.details.as_deref().unwrap_or("SanctumETWThreatIntelligence");
+            let subj = rec
+                .details
+                .as_deref()
+                .unwrap_or("SanctumETWThreatIntelligence");
             emit_server_rule_alert(
                 store,
                 events,
@@ -1370,7 +1457,8 @@ fn evaluate_server_edr_event(
                 })
             };
             let is_remote = has_true(&["/remote", "/data/EtwThreatIntelligence/remote"]);
-            let is_suspicious = has_true(&["/suspicious", "/data/EtwThreatIntelligence/suspicious"]);
+            let is_suspicious =
+                has_true(&["/suspicious", "/data/EtwThreatIntelligence/suspicious"]);
             if is_remote || is_suspicious {
                 let func = raw_first_str(
                     &rec.raw,
@@ -1458,8 +1546,8 @@ fn evaluate_server_edr_event(
             if hv_ts == 0 || rec.pid <= 4 {
                 return;
             }
-            let evt_type =
-                raw_first_u64(&rec.raw, &["/owlyHook/eventType", "/owlyHookEventType"]).unwrap_or(0);
+            let evt_type = raw_first_u64(&rec.raw, &["/owlyHook/eventType", "/owlyHookEventType"])
+                .unwrap_or(0);
             let ctx = raw_first_u64(&rec.raw, &["/owlyHv/context"]).unwrap_or(0);
             let is_crit_msr = matches!(ctx, 0x176 | 0xC000_0080 | 0xC000_0082 | 0xC000_0083);
             if evt_type == 65 && is_crit_msr {
@@ -1476,7 +1564,9 @@ fn evaluate_server_edr_event(
                     "Server.Hypervisor.SyscallMsrTamper",
                     1.00,
                     vec!["MITRE:T1014".to_string(), format!("TargetMsr:0x{ctx:x}")],
-                    format!("Hypervisor trapped syscall MSR / EFER write outside System context: {subj}"),
+                    format!(
+                        "Hypervisor trapped syscall MSR / EFER write outside System context: {subj}"
+                    ),
                     rec.raw.clone(),
                 );
             } else if evt_type == 0x10 || (0x90..=0x94).contains(&evt_type) {
@@ -1517,15 +1607,22 @@ const SUSPICIOUS_RISK_SCORE: f32 = 0.40;
 /// match is suspicious, not malicious.
 fn behavior_severity(payload: &BehaviorTelemetryPayload) -> (bool, bool) {
     let named_detection = !payload.detection.is_empty() && payload.detection != "Clean";
-    let graded = GRADED_DETECTION_SOURCES.iter().any(|s| payload.source.eq_ignore_ascii_case(s));
+    let graded = GRADED_DETECTION_SOURCES
+        .iter()
+        .any(|s| payload.source.eq_ignore_ascii_case(s));
 
     let is_malicious = payload.risk_score >= MALICIOUS_RISK_SCORE || (named_detection && !graded);
-    let is_suspicious =
-        payload.risk_score >= SUSPICIOUS_RISK_SCORE || !payload.indicators.is_empty() || (named_detection && graded);
+    let is_suspicious = payload.risk_score >= SUSPICIOUS_RISK_SCORE
+        || !payload.indicators.is_empty()
+        || (named_detection && graded);
     (is_malicious, is_suspicious)
 }
 
-pub fn ingest_behavior(store: &EdrTelemetryStore, events: &EventLog, payload: BehaviorTelemetryPayload) -> serde_json::Value {
+pub fn ingest_behavior(
+    store: &EdrTelemetryStore,
+    events: &EventLog,
+    payload: BehaviorTelemetryPayload,
+) -> serde_json::Value {
     let (is_malicious, is_suspicious) = behavior_severity(&payload);
 
     let verdict = if is_malicious {
@@ -1624,7 +1721,11 @@ pub async fn handle_edr_telemetry_network_flows(
 }
 
 /// Records a batch of network flows (EDR store + at most 5 live-feed lines).
-pub fn ingest_flows(store: &EdrTelemetryStore, events: &EventLog, batch: &NetworkFlowBatch) -> serde_json::Value {
+pub fn ingest_flows(
+    store: &EdrTelemetryStore,
+    events: &EventLog,
+    batch: &NetworkFlowBatch,
+) -> serde_json::Value {
     let count = batch.flows.len();
 
     // Store in structured telemetry store
@@ -1724,7 +1825,10 @@ pub async fn handle_edr_telemetry_threat(
         ms: None,
         items: None,
         threat: Some(report.detection.clone()),
-        detail: Some(format!("source:{} path:{}", report.source, report.original_path)),
+        detail: Some(format!(
+            "source:{} path:{}",
+            report.source, report.original_path
+        )),
         sha256: Some(report.sha256.clone()),
         message: None,
         origin_type: Some("EDR-Threat".to_string()),
@@ -1742,7 +1846,11 @@ pub async fn handle_edr_telemetry_report(
     State(app): State<Arc<AppState>>,
     Json(payload): Json<serde_json::Value>,
 ) -> impl IntoResponse {
-    Json(ingest_system_report(&app.edr_telemetry, &app.events, &payload))
+    Json(ingest_system_report(
+        &app.edr_telemetry,
+        &app.events,
+        &payload,
+    ))
 }
 
 /// Records a system diagnostic report (full SQLite persistence + AGENT_KEEPALIVE SysOp
@@ -1755,7 +1863,10 @@ pub fn ingest_system_report(
     let stored = store.add_system_report(payload);
     let keepalive_detail = format!(
         "hostname={} os={} processes={} rootkit_findings={}",
-        stored.hostname, stored.os_version, stored.monitored_processes_count, stored.rootkit_findings_count
+        stored.hostname,
+        stored.os_version,
+        stored.monitored_processes_count,
+        stored.rootkit_findings_count
     );
     store.add_edr_events(
         &stored.machine_id,
@@ -1838,9 +1949,7 @@ pub async fn handle_edr_upload(
 }
 
 /// Handler for GET /api/v1/edr/telemetry/stats
-pub async fn handle_get_edr_stats(
-    State(app): State<Arc<AppState>>,
-) -> impl IntoResponse {
+pub async fn handle_get_edr_stats(State(app): State<Arc<AppState>>) -> impl IntoResponse {
     Json(app.edr_telemetry.get_stats())
 }
 
@@ -1850,7 +1959,9 @@ pub async fn handle_get_edr_behaviors(
     Query(query): Query<TelemetryQuery>,
 ) -> impl IntoResponse {
     let limit = query.limit.unwrap_or(100).min(500);
-    let items = app.edr_telemetry.get_behaviors(limit, query.risk.as_deref(), query.q.as_deref());
+    let items = app
+        .edr_telemetry
+        .get_behaviors(limit, query.risk.as_deref(), query.q.as_deref());
     Json(serde_json::json!({
         "total": items.len(),
         "behaviors": items
@@ -1906,10 +2017,15 @@ fn decode_body_bounded(body: &[u8], brotli: bool, max_bytes: u64) -> Result<Vec<
             .read_to_end(&mut out)
             .map_err(|e| format!("brotli decompression failed: {e}"))?
     } else {
-        body.take(limit).read_to_end(&mut out).map_err(|e| e.to_string())?
+        body.take(limit)
+            .read_to_end(&mut out)
+            .map_err(|e| e.to_string())?
     };
     if n as u64 > max_bytes {
-        return Err(format!("upload larger than {} MB decompressed", max_bytes / (1024 * 1024)));
+        return Err(format!(
+            "upload larger than {} MB decompressed",
+            max_bytes / (1024 * 1024)
+        ));
     }
     Ok(out)
 }
@@ -1949,7 +2065,9 @@ pub struct KillchainBatch {
 
 /// A client key: 16 lowercase hex digits.
 fn valid_killchain_key(k: &str) -> bool {
-    k.len() == 16 && k.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+    k.len() == 16
+        && k.bytes()
+            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
 }
 
 /// The request body as JSON bytes: brotli-decoded when `brotli`, never more than
@@ -1973,7 +2091,11 @@ pub fn ingest_edr_events(
     for rec in &batch.events {
         evaluate_server_edr_event(store, events, &batch.machine_id, rec);
     }
-    for rec in batch.events.iter().filter(|r| r.event_type.starts_with("AGENT_")) {
+    for rec in batch
+        .events
+        .iter()
+        .filter(|r| r.event_type.starts_with("AGENT_"))
+    {
         let msg = rec.details.as_deref().unwrap_or("");
         events.add(Event {
             seq: 0,
@@ -1991,9 +2113,16 @@ pub fn ingest_edr_events(
             ms: None,
             items: None,
             threat: None,
-            detail: if msg.is_empty() { None } else { Some(msg.to_string()) },
+            detail: if msg.is_empty() {
+                None
+            } else {
+                Some(msg.to_string())
+            },
             sha256: None,
-            message: Some(format!("[EDR:SysOp] {} ({}) {}", rec.event_type, batch.machine_id, msg)),
+            message: Some(format!(
+                "[EDR:SysOp] {} ({}) {}",
+                rec.event_type, batch.machine_id, msg
+            )),
             origin_type: Some("EDR-SysOp".to_string()),
         });
     }
@@ -2009,7 +2138,9 @@ impl EdrTelemetryStore {
     pub fn ingest_killchain(&self, batch: &KillchainBatch) -> Result<(u64, u64), String> {
         let db = self.db.as_ref().ok_or("no EDR telemetry database")?;
         if batch.records.len() + batch.counts.len() > KILLCHAIN_MAX_ITEMS {
-            return Err(format!("more than {KILLCHAIN_MAX_ITEMS} items in one upload"));
+            return Err(format!(
+                "more than {KILLCHAIN_MAX_ITEMS} items in one upload"
+            ));
         }
         let machine = batch.machine_id.chars().take(128).collect::<String>();
         let records: Vec<crate::edr_db::KillchainRow> = batch
@@ -2049,7 +2180,10 @@ impl EdrTelemetryStore {
 
     /// (distinct event shapes, events they stand for); zeros without a database.
     pub fn killchain_totals(&self) -> (u64, u64) {
-        self.db.as_ref().and_then(|db| db.killchain_totals().ok()).unwrap_or((0, 0))
+        self.db
+            .as_ref()
+            .and_then(|db| db.killchain_totals().ok())
+            .unwrap_or((0, 0))
     }
 
     /// Every stored kill chain event as JSON lines (see `EdrDb::export_killchain`),
@@ -2099,7 +2233,9 @@ pub async fn handle_get_killchain_stats(State(app): State<Arc<AppState>>) -> imp
 
 /// Handler for GET /api/v1/edr/telemetry/killchain/machines: the machines that
 /// uploaded kill chain events, with their counts and upload times.
-pub async fn handle_get_killchain_machines(State(app): State<Arc<AppState>>) -> axum::response::Response {
+pub async fn handle_get_killchain_machines(
+    State(app): State<Arc<AppState>>,
+) -> axum::response::Response {
     let store = Arc::clone(&app.edr_telemetry);
     match tokio::task::spawn_blocking(move || store.killchain_machines()).await {
         Ok(Ok(rows)) => Json(serde_json::json!({ "machines": rows })).into_response(),
@@ -2136,15 +2272,22 @@ pub async fn handle_edr_telemetry_events(
     let store = Arc::clone(&app.edr_telemetry);
     let events = Arc::clone(&app.events);
     let res = tokio::task::spawn_blocking(move || {
-        let json = decode_events_body(&body, brotli).map_err(|e| (axum::http::StatusCode::BAD_REQUEST, e))?;
-        let batch: EdrEventBatch =
-            serde_json::from_slice(&json).map_err(|e| (axum::http::StatusCode::BAD_REQUEST, format!("bad JSON: {e}")))?;
+        let json = decode_events_body(&body, brotli)
+            .map_err(|e| (axum::http::StatusCode::BAD_REQUEST, e))?;
+        let batch: EdrEventBatch = serde_json::from_slice(&json).map_err(|e| {
+            (
+                axum::http::StatusCode::BAD_REQUEST,
+                format!("bad JSON: {e}"),
+            )
+        })?;
         Ok::<_, (axum::http::StatusCode, String)>(ingest_edr_events(&store, &events, &batch))
     })
     .await;
     match res {
         Ok(Ok(v)) => Json(v).into_response(),
-        Ok(Err((st, e))) => (st, Json(serde_json::json!({"status": "error", "error": e}))).into_response(),
+        Ok(Err((st, e))) => {
+            (st, Json(serde_json::json!({"status": "error", "error": e}))).into_response()
+        }
         Err(e) => (axum::http::StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
     }
 }
@@ -2193,11 +2336,17 @@ pub async fn handle_export_edr_events(
         }
         None => "attachment; filename=\"edr_events.jsonl\"".to_string(),
     };
-    let result = tokio::task::spawn_blocking(move || store.export_edr_events(et.as_deref(), mach.as_deref())).await;
+    let result = tokio::task::spawn_blocking(move || {
+        store.export_edr_events(et.as_deref(), mach.as_deref())
+    })
+    .await;
     match result {
         Ok(Ok((body, _))) => (
             [
-                (axum::http::header::CONTENT_TYPE, "application/x-ndjson".to_string()),
+                (
+                    axum::http::header::CONTENT_TYPE,
+                    "application/x-ndjson".to_string(),
+                ),
                 (axum::http::header::CONTENT_DISPOSITION, file_name),
             ],
             body,
@@ -2233,16 +2382,24 @@ pub async fn handle_export_killchain(
     // Only file-name-safe characters of the machine id go into the download name.
     let file_name = match &machine {
         Some(m) => {
-            let safe: String = m.chars().filter(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_').take(64).collect();
+            let safe: String = m
+                .chars()
+                .filter(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_')
+                .take(64)
+                .collect();
             format!("attachment; filename=\"killchain_{safe}.jsonl\"")
         }
         None => "attachment; filename=\"killchain_events.jsonl\"".to_string(),
     };
-    let result = tokio::task::spawn_blocking(move || store.export_killchain(machine.as_deref())).await;
+    let result =
+        tokio::task::spawn_blocking(move || store.export_killchain(machine.as_deref())).await;
     match result {
         Ok(Ok((body, _))) => (
             [
-                (axum::http::header::CONTENT_TYPE, "application/x-ndjson".to_string()),
+                (
+                    axum::http::header::CONTENT_TYPE,
+                    "application/x-ndjson".to_string(),
+                ),
                 (axum::http::header::CONTENT_DISPOSITION, file_name),
             ],
             body,
@@ -2277,7 +2434,11 @@ mod tests {
             records: vec![rec("00000000000000aa", 3), rec("not-a-key", 1)],
             counts: Default::default(),
         };
-        assert_eq!(store.ingest_killchain(&first).unwrap(), (1, 0), "invalid keys are dropped");
+        assert_eq!(
+            store.ingest_killchain(&first).unwrap(),
+            (1, 0),
+            "invalid keys are dropped"
+        );
         let second = KillchainBatch {
             machine_id: "m2".into(),
             records: vec![rec("00000000000000aa", 2), rec("00000000000000bb", 1)],
@@ -2288,7 +2449,8 @@ mod tests {
         let (body, n) = store.export_killchain(None).unwrap();
         assert_eq!(n, 2);
         let first_row: serde_json::Value =
-            serde_json::from_str(std::str::from_utf8(&body).unwrap().lines().next().unwrap()).unwrap();
+            serde_json::from_str(std::str::from_utf8(&body).unwrap().lines().next().unwrap())
+                .unwrap();
         assert_eq!(first_row["event"], "LLE_FILE_MAP_READ");
         assert_eq!(first_row["raw"]["accessMask"], 2);
         assert_eq!(first_row["machines"], 2, "seen on two machines");
@@ -2297,12 +2459,21 @@ mod tests {
         // Per machine: m2 saw "aa" 2 + 5 times and "bb" once, m1 "aa" 3 times.
         let machines = store.killchain_machines().unwrap();
         let m2 = machines.iter().find(|m| m["machine_id"] == "m2").unwrap();
-        assert_eq!((m2["shapes"].as_u64(), m2["events"].as_u64()), (Some(2), Some(8)));
+        assert_eq!(
+            (m2["shapes"].as_u64(), m2["events"].as_u64()),
+            (Some(2), Some(8))
+        );
         let (body, n) = store.export_killchain(Some("m2")).unwrap();
         assert_eq!(n, 2);
-        let rows: Vec<serde_json::Value> =
-            std::str::from_utf8(&body).unwrap().lines().map(|l| serde_json::from_str(l).unwrap()).collect();
-        let aa = rows.iter().find(|r| r["key"] == "00000000000000aa").unwrap();
+        let rows: Vec<serde_json::Value> = std::str::from_utf8(&body)
+            .unwrap()
+            .lines()
+            .map(|l| serde_json::from_str(l).unwrap())
+            .collect();
+        let aa = rows
+            .iter()
+            .find(|r| r["key"] == "00000000000000aa")
+            .unwrap();
         assert_eq!(aa["count"], 7, "m2's own count");
         assert_eq!(aa["count_all"], 10);
         assert_eq!(aa["machine_id"], "m2");
@@ -2317,7 +2488,12 @@ mod tests {
         assert!(killchain_body(b"not brotli", true).is_err());
     }
 
-    fn report(source: &str, detection: &str, risk_score: f32, indicators: &[&str]) -> BehaviorTelemetryPayload {
+    fn report(
+        source: &str,
+        detection: &str,
+        risk_score: f32,
+        indicators: &[&str],
+    ) -> BehaviorTelemetryPayload {
         BehaviorTelemetryPayload {
             machine_id: "m".to_string(),
             timestamp: 0,
@@ -2340,7 +2516,14 @@ mod tests {
 
     #[test]
     fn sigma_matches_are_graded_by_their_level() {
-        let sigma = |score| report("sigma_event_log", "Sigma.Some.Rule", score, &["Sigma Level: x"]);
+        let sigma = |score| {
+            report(
+                "sigma_event_log",
+                "Sigma.Some.Rule",
+                score,
+                &["Sigma Level: x"],
+            )
+        };
         // critical / high: malicious
         assert_eq!(behavior_severity(&sigma(1.0)), (true, true));
         assert_eq!(behavior_severity(&sigma(0.85)), (true, true));
@@ -2351,18 +2534,41 @@ mod tests {
 
     #[test]
     fn a_named_detection_from_any_other_source_is_malicious() {
-        assert!(behavior_severity(&report("openedr_detnotif", "MLE_GODMODE_ACTIVITY", 1.0, &[])).0);
+        assert!(
+            behavior_severity(&report(
+                "openedr_detnotif",
+                "MLE_GODMODE_ACTIVITY",
+                1.0,
+                &[]
+            ))
+            .0
+        );
         // Even with a low score: the agent already acted on the verdict.
         assert!(behavior_severity(&report("ransomware", "Ransom.Generic", 0.1, &[])).0);
     }
 
     #[test]
     fn reports_without_a_detection_follow_the_score_and_the_indicators() {
-        assert_eq!(behavior_severity(&report("generic", "", 0.1, &[])), (false, false));
-        assert_eq!(behavior_severity(&report("generic", "Clean", 0.1, &[])), (false, false));
-        assert_eq!(behavior_severity(&report("generic", "", 0.5, &[])), (false, true));
-        assert_eq!(behavior_severity(&report("generic", "", 0.1, &["x"])), (false, true));
-        assert_eq!(behavior_severity(&report("generic", "", 0.9, &[])), (true, true));
+        assert_eq!(
+            behavior_severity(&report("generic", "", 0.1, &[])),
+            (false, false)
+        );
+        assert_eq!(
+            behavior_severity(&report("generic", "Clean", 0.1, &[])),
+            (false, false)
+        );
+        assert_eq!(
+            behavior_severity(&report("generic", "", 0.5, &[])),
+            (false, true)
+        );
+        assert_eq!(
+            behavior_severity(&report("generic", "", 0.1, &["x"])),
+            (false, true)
+        );
+        assert_eq!(
+            behavior_severity(&report("generic", "", 0.9, &[])),
+            (true, true)
+        );
     }
 
     fn tmp_db(name: &str) -> std::path::PathBuf {
@@ -2415,7 +2621,15 @@ mod tests {
                 details: serde_json::Value::Null,
             });
             // The first behavior has left the memory window but a search still finds it.
-            assert!(store.inner.read().unwrap().behaviors.iter().all(|b| b.process_name != "OldDropper.exe"));
+            assert!(
+                store
+                    .inner
+                    .read()
+                    .unwrap()
+                    .behaviors
+                    .iter()
+                    .all(|b| b.process_name != "OldDropper.exe")
+            );
             let found = store.get_behaviors(10, None, Some("olddropper"));
             assert_eq!(found.len(), 1);
             assert_eq!(found[0].verdict, "malicious");
@@ -2425,13 +2639,22 @@ mod tests {
         let stats = store.get_stats();
         let total = MAX_STORED_BEHAVIORS as u64 + 1;
         assert_eq!(
-            (stats.total_behaviors, stats.malicious_behaviors, stats.clean_behaviors, stats.total_flows, stats.total_threats),
+            (
+                stats.total_behaviors,
+                stats.malicious_behaviors,
+                stats.clean_behaviors,
+                stats.total_flows,
+                stats.total_threats
+            ),
             (total, 1, total - 1, 2, 1)
         );
         assert_eq!(store.get_behaviors(5, None, None).len(), 5);
         assert_eq!(store.get_behaviors(5, Some("malicious"), None).len(), 1);
         let flows = store.get_flows(10, None);
-        assert_eq!(flows.iter().map(|f| f.dst_ip.as_str()).collect::<Vec<_>>(), ["5.6.7.8", "1.2.3.4"]);
+        assert_eq!(
+            flows.iter().map(|f| f.dst_ip.as_str()).collect::<Vec<_>>(),
+            ["5.6.7.8", "1.2.3.4"]
+        );
         assert_eq!(store.get_flows(10, Some("5.6.7")).len(), 1);
         assert_eq!(store.get_threats(10)[0].detection, "Trojan.X");
 
@@ -2445,11 +2668,27 @@ mod tests {
     fn ingest_counts_a_medium_sigma_match_as_suspicious() {
         let store = EdrTelemetryStore::new();
         let events = EventLog::new(false);
-        let body = ingest_behavior(&store, &events, report("sigma_event_log", "Sigma.Some.Rule", 0.6, &["Sigma Level: medium"]));
+        let body = ingest_behavior(
+            &store,
+            &events,
+            report(
+                "sigma_event_log",
+                "Sigma.Some.Rule",
+                0.6,
+                &["Sigma Level: medium"],
+            ),
+        );
         assert_eq!(body["verdict"], "suspicious");
         assert_eq!(body["need_sample"], false);
         let stats = store.get_stats();
-        assert_eq!((stats.malicious_behaviors, stats.suspicious_behaviors, stats.clean_behaviors), (0, 1, 0));
+        assert_eq!(
+            (
+                stats.malicious_behaviors,
+                stats.suspicious_behaviors,
+                stats.clean_behaviors
+            ),
+            (0, 1, 0)
+        );
     }
 
     #[test]
@@ -2482,7 +2721,8 @@ mod tests {
                         event_type: "AGENT_START".to_string(),
                         pid: 100,
                         process_name: "edrsvc.exe".to_string(),
-                        exe_path: r"C:\Program Files\HydraDragonAntivirus\OpenEDR\edrsvc.exe".to_string(),
+                        exe_path: r"C:\Program Files\HydraDragonAntivirus\OpenEDR\edrsvc.exe"
+                            .to_string(),
                         details: Some("service started".to_string()),
                         raw: serde_json::json!({"version": "1.2"}),
                     },
@@ -2492,7 +2732,7 @@ mod tests {
             assert_eq!(resp["ingested"], 3);
 
             // NetworkFlowRecord carries dns_query, url, http_method cleanly
-        let mut f = flow("93.184.216.34");
+            let mut f = flow("93.184.216.34");
             f.dns_query = Some("example.org".to_string());
             f.url = Some("https://example.org/payload.exe".to_string());
             f.http_method = Some("GET".to_string());
@@ -2543,18 +2783,58 @@ mod tests {
         // Reopen DB and verify everything survived with exact totals
         let store = EdrTelemetryStore::open(&path);
         let stats = store.get_stats();
-        assert_eq!(stats.total_events, 5, "2 duplicate LLE + AGENT_START + SCRIPT_BLOCK_ACTIVITY + AGENT_KEEPALIVE");
+        assert_eq!(
+            stats.total_events, 5,
+            "2 duplicate LLE + AGENT_START + SCRIPT_BLOCK_ACTIVITY + AGENT_KEEPALIVE"
+        );
         assert_eq!(stats.total_sysops, 2, "AGENT_START + AGENT_KEEPALIVE");
         assert_eq!(stats.total_system_reports, 1);
 
         let all = store.get_edr_events(20, None, None, false, None);
         assert_eq!(all.len(), 5);
-        assert_eq!(store.get_edr_events(20, Some("LLE_FILE_CREATE"), None, false, None).len(), 2);
-        assert_eq!(store.get_edr_events(20, Some("LLE_FILE_CREATE,SCRIPT_BLOCK_ACTIVITY"), None, false, None).len(), 3);
+        assert_eq!(
+            store
+                .get_edr_events(20, Some("LLE_FILE_CREATE"), None, false, None)
+                .len(),
+            2
+        );
+        assert_eq!(
+            store
+                .get_edr_events(
+                    20,
+                    Some("LLE_FILE_CREATE,SCRIPT_BLOCK_ACTIVITY"),
+                    None,
+                    false,
+                    None
+                )
+                .len(),
+            3
+        );
         assert_eq!(store.get_edr_events(20, None, None, true, None).len(), 2);
-        assert_eq!(store.get_edr_events(20, None, None, false, Some("deadbeef")).len(), 2);
-        assert_eq!(store.get_edr_events(20, None, None, false, Some("11223344556677889900aabbccddeeff")).len(), 1);
-        assert_eq!(store.get_edr_events(20, None, None, false, Some("invoke-webrequest")).len(), 1);
+        assert_eq!(
+            store
+                .get_edr_events(20, None, None, false, Some("deadbeef"))
+                .len(),
+            2
+        );
+        assert_eq!(
+            store
+                .get_edr_events(
+                    20,
+                    None,
+                    None,
+                    false,
+                    Some("11223344556677889900aabbccddeeff")
+                )
+                .len(),
+            1
+        );
+        assert_eq!(
+            store
+                .get_edr_events(20, None, None, false, Some("invoke-webrequest"))
+                .len(),
+            1
+        );
 
         let (exported, n) = store.export_edr_events(None, Some("machine-1")).unwrap();
         assert_eq!(n, 5);
@@ -2564,7 +2844,10 @@ mod tests {
         assert_eq!(flows.len(), 1);
         assert_eq!(flows[0].dns_query.as_deref(), Some("example.org"));
         assert_eq!(flows[0].http_method.as_deref(), Some("GET"));
-        assert_eq!(flows[0].ja3s.as_deref(), Some("ec74a5c51106f0419184d0dd08905735"));
+        assert_eq!(
+            flows[0].ja3s.as_deref(),
+            Some("ec74a5c51106f0419184d0dd08905735")
+        );
 
         let reports = store.get_system_reports(10);
         assert_eq!(reports.len(), 1);
@@ -2574,13 +2857,28 @@ mod tests {
 
     #[test]
     fn graded_edr_telemetry_rule_respects_risk_score() {
-        let med = report("edr_telemetry_rule", "EDR.FileDownload.HighRiskMotwPayload", 0.60, &["MITRE:T1566.002"]);
+        let med = report(
+            "edr_telemetry_rule",
+            "EDR.FileDownload.HighRiskMotwPayload",
+            0.60,
+            &["MITRE:T1566.002"],
+        );
         assert_eq!(behavior_severity(&med), (false, true));
 
-        let high = report("edr_telemetry_rule", "EDR.NamedPipe.KnownMaliciousC2OrExploit", 0.85, &["MITRE:T1071"]);
+        let high = report(
+            "edr_telemetry_rule",
+            "EDR.NamedPipe.KnownMaliciousC2OrExploit",
+            0.85,
+            &["MITRE:T1071"],
+        );
         assert_eq!(behavior_severity(&high), (true, true));
 
-        let srv_crit = report("server_telemetry_rule", "Server.EDR.ProcessTampering", 1.00, &[]);
+        let srv_crit = report(
+            "server_telemetry_rule",
+            "Server.EDR.ProcessTampering",
+            1.00,
+            &[],
+        );
         assert_eq!(behavior_severity(&srv_crit), (true, true));
     }
 
@@ -2645,10 +2943,26 @@ mod tests {
         assert_eq!(resp["ingested"], 4);
 
         let behaviors = store.get_behaviors(20, None, None);
-        assert!(behaviors.iter().any(|b| b.detection == "Server.EDR.ProcessTampering"));
-        assert!(behaviors.iter().any(|b| b.detection == "Server.EDR.ShadowCopyDeletion"));
-        assert!(behaviors.iter().any(|b| b.detection == "Server.EDR.BYOVDVulnerableDriver"));
-        assert!(behaviors.iter().any(|b| b.detection == "Server.EDR.MaliciousNamedPipe"));
+        assert!(
+            behaviors
+                .iter()
+                .any(|b| b.detection == "Server.EDR.ProcessTampering")
+        );
+        assert!(
+            behaviors
+                .iter()
+                .any(|b| b.detection == "Server.EDR.ShadowCopyDeletion")
+        );
+        assert!(
+            behaviors
+                .iter()
+                .any(|b| b.detection == "Server.EDR.BYOVDVulnerableDriver")
+        );
+        assert!(
+            behaviors
+                .iter()
+                .any(|b| b.detection == "Server.EDR.MaliciousNamedPipe")
+        );
     }
 
     #[test]
@@ -2670,7 +2984,10 @@ mod tests {
         );
         let behaviors = store.get_behaviors(20, None, None);
         assert_eq!(behaviors.len(), 1);
-        assert_eq!(behaviors[0].detection, "Server.TLS.CobaltStrike.MalleableC2");
+        assert_eq!(
+            behaviors[0].detection,
+            "Server.TLS.CobaltStrike.MalleableC2"
+        );
         assert_eq!(behaviors[0].verdict, "malicious");
     }
 
@@ -2788,13 +3105,41 @@ mod tests {
         assert_eq!(resp["ingested"], 7);
 
         let behaviors = store.get_behaviors(20, None, None);
-        assert!(behaviors.iter().any(|b| b.detection == "Server.Sanctum.DirectSyscallGhostHunt"));
-        assert!(behaviors.iter().any(|b| b.detection == "Server.Sanctum.AmsiBypass"));
-        assert!(behaviors.iter().any(|b| b.detection == "Server.Sanctum.HvciDriverBlocked"));
-        assert!(behaviors.iter().any(|b| b.detection == "Server.Sanctum.EtwTiBlinding"));
-        assert!(behaviors.iter().any(|b| b.detection == "Server.Sanctum.EtwThreatIntel"));
-        assert!(behaviors.iter().any(|b| b.pid == 6206 && b.detection == "Server.EDR.ShadowCopyDeletion"));
-        assert!(!behaviors.iter().any(|b| b.pid == 6205 && b.detection == "Server.Sanctum.EtwThreatIntel"));
+        assert!(
+            behaviors
+                .iter()
+                .any(|b| b.detection == "Server.Sanctum.DirectSyscallGhostHunt")
+        );
+        assert!(
+            behaviors
+                .iter()
+                .any(|b| b.detection == "Server.Sanctum.AmsiBypass")
+        );
+        assert!(
+            behaviors
+                .iter()
+                .any(|b| b.detection == "Server.Sanctum.HvciDriverBlocked")
+        );
+        assert!(
+            behaviors
+                .iter()
+                .any(|b| b.detection == "Server.Sanctum.EtwTiBlinding")
+        );
+        assert!(
+            behaviors
+                .iter()
+                .any(|b| b.detection == "Server.Sanctum.EtwThreatIntel")
+        );
+        assert!(
+            behaviors
+                .iter()
+                .any(|b| b.pid == 6206 && b.detection == "Server.EDR.ShadowCopyDeletion")
+        );
+        assert!(
+            !behaviors
+                .iter()
+                .any(|b| b.pid == 6205 && b.detection == "Server.Sanctum.EtwThreatIntel")
+        );
     }
 
     #[test]
@@ -2913,14 +3258,39 @@ mod tests {
         assert_eq!(resp["ingested"], 9);
 
         let behaviors = store.get_behaviors(30, None, None);
-        assert!(behaviors.iter().any(|b| b.pid == 7100 && b.detection == "Server.EDR.MbrSector0RawWrite"));
+        assert!(
+            behaviors
+                .iter()
+                .any(|b| b.pid == 7100 && b.detection == "Server.EDR.MbrSector0RawWrite")
+        );
         assert!(!behaviors.iter().any(|b| b.pid == 7101));
-        assert!(behaviors.iter().any(|b| b.pid == 7102 && b.detection == "Server.Hypervisor.SyscallMsrTamper"));
-        assert!(!behaviors.iter().any(|b| b.pid == 4 && b.detection == "Server.Hypervisor.SyscallMsrTamper"));
-        assert!(behaviors.iter().any(|b| b.pid == 7104 && b.detection == "Server.Hypervisor.SyscallMsrTamper"));
-        assert!(behaviors.iter().any(|b| b.pid == 7105 && b.detection == "Server.Hypervisor.EptViolation"));
+        assert!(
+            behaviors
+                .iter()
+                .any(|b| b.pid == 7102 && b.detection == "Server.Hypervisor.SyscallMsrTamper")
+        );
+        assert!(
+            !behaviors
+                .iter()
+                .any(|b| b.pid == 4 && b.detection == "Server.Hypervisor.SyscallMsrTamper")
+        );
+        assert!(
+            behaviors
+                .iter()
+                .any(|b| b.pid == 7104 && b.detection == "Server.Hypervisor.SyscallMsrTamper")
+        );
+        assert!(
+            behaviors
+                .iter()
+                .any(|b| b.pid == 7105 && b.detection == "Server.Hypervisor.EptViolation")
+        );
         for tamper_pid in [7106u32, 7107, 7108] {
-            assert!(behaviors.iter().any(|b| b.pid == tamper_pid && b.detection == "Server.EDR.SecurityDriverUnloaded"));
+            assert!(
+                behaviors
+                    .iter()
+                    .any(|b| b.pid == tamper_pid
+                        && b.detection == "Server.EDR.SecurityDriverUnloaded")
+            );
         }
     }
 }

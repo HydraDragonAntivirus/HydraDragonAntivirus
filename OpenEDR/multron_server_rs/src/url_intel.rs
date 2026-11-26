@@ -84,7 +84,15 @@ fn is_threat(verdict: &str) -> bool {
 }
 
 /// One URL scan result. Not on the archive server (it only mirrors) and not in tests.
-pub fn record(url: &str, host: &str, verdict: &str, threat: Option<&str>, reason: &str, score: u32, liveness: &str) {
+pub fn record(
+    url: &str,
+    host: &str,
+    verdict: &str,
+    threat: Option<&str>,
+    reason: &str,
+    score: u32,
+    liveness: &str,
+) {
     if cfg!(test) || crate::config::is_archive() {
         return;
     }
@@ -126,7 +134,11 @@ pub fn record(url: &str, host: &str, verdict: &str, threat: Option<&str>, reason
 
 fn append(entry: &UrlInsight) {
     if let Ok(line) = serde_json::to_string(entry) {
-        if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(path()) {
+        if let Ok(mut f) = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(path())
+        {
             let _ = writeln!(f, "{line}");
         }
     }
@@ -134,7 +146,13 @@ fn append(entry: &UrlInsight) {
 
 /// Analyst verdict for a listed URL; an empty `verdict` removes the review (the engine
 /// verdict applies again).
-pub fn review(url: &str, verdict: &str, threat: Option<&str>, note: &str, analyst: &str) -> Result<UrlInsight, String> {
+pub fn review(
+    url: &str,
+    verdict: &str,
+    threat: Option<&str>,
+    note: &str,
+    analyst: &str,
+) -> Result<UrlInsight, String> {
     let verdict = verdict.trim().to_ascii_lowercase();
     if !verdict.is_empty() && !crate::human_review::VERDICTS.contains(&verdict.as_str()) {
         return Err("verdict must be malicious, suspicious or clean".into());
@@ -149,7 +167,10 @@ pub fn review(url: &str, verdict: &str, threat: Option<&str>, note: &str, analys
             e.analyst.clear();
             e.reviewed_at = None;
         } else {
-            e.human_threat = threat.map(str::trim).filter(|t| !t.is_empty() && verdict != "clean").map(str::to_string);
+            e.human_threat = threat
+                .map(str::trim)
+                .filter(|t| !t.is_empty() && verdict != "clean")
+                .map(str::to_string);
             e.human_verdict = Some(verdict);
             e.human_note = note.trim().to_string();
             e.analyst = analyst.trim().to_string();
@@ -167,7 +188,11 @@ pub fn review(url: &str, verdict: &str, threat: Option<&str>, note: &str, analys
 pub fn human(url: &str) -> Option<(String, Option<String>, String)> {
     let m = map().read().unwrap();
     let e = m.get(url)?;
-    Some((e.human_verdict.clone()?, e.human_threat.clone(), e.human_note.clone()))
+    Some((
+        e.human_verdict.clone()?,
+        e.human_threat.clone(),
+        e.human_note.clone(),
+    ))
 }
 
 /// Counts per (human first) verdict and the URLs matching `query` (URL, host or threat
@@ -196,8 +221,12 @@ pub fn list(query: &str, verdict: &str, limit: usize) -> serde_json::Value {
             q.is_empty()
                 || i.url.to_lowercase().contains(&q)
                 || i.host.to_lowercase().contains(&q)
-                || i.threat.as_deref().is_some_and(|t| t.to_lowercase().contains(&q))
-                || i.human_threat.as_deref().is_some_and(|t| t.to_lowercase().contains(&q))
+                || i.threat
+                    .as_deref()
+                    .is_some_and(|t| t.to_lowercase().contains(&q))
+                || i.human_threat
+                    .as_deref()
+                    .is_some_and(|t| t.to_lowercase().contains(&q))
         })
         .collect();
     let matched = items.len();
@@ -244,12 +273,26 @@ mod tests {
         assert!(review(url, "pua", None, "", "").is_err());
         assert!(review("https://not-listed.example/", "clean", None, "", "").is_err());
 
-        let e = review(url, "Clean", Some("ignored for clean"), "bank's own login page", "ana").unwrap();
+        let e = review(
+            url,
+            "Clean",
+            Some("ignored for clean"),
+            "bank's own login page",
+            "ana",
+        )
+        .unwrap();
         assert_eq!((e.effective(), e.human_threat.as_deref()), ("clean", None));
         assert_eq!(human(url).unwrap().0, "clean");
         let l = list("", "all", 10);
-        assert_eq!((l["counts"]["clean"].as_u64(), l["reviewed"].as_u64()), (Some(1), Some(1)));
-        assert_eq!(list("", "threat", 10)["matched"], 0, "no longer counted as a threat");
+        assert_eq!(
+            (l["counts"]["clean"].as_u64(), l["reviewed"].as_u64()),
+            (Some(1), Some(1))
+        );
+        assert_eq!(
+            list("", "threat", 10)["matched"],
+            0,
+            "no longer counted as a threat"
+        );
 
         let e = review(url, "", None, "", "").unwrap();
         assert_eq!(e.effective(), "malicious", "engine verdict applies again");

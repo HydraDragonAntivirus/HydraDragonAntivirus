@@ -114,7 +114,10 @@ impl SigKind {
     /// Rules the static engine only picks up while it is built (startup or a full
     /// reload): saving or deleting one has to trigger `reload_all`.
     pub fn needs_engine_rebuild(self) -> bool {
-        matches!(self, Self::Signer | Self::Registry | Self::Url | Self::Sigma)
+        matches!(
+            self,
+            Self::Signer | Self::Registry | Self::Url | Self::Sigma
+        )
     }
 
     /// Kinds whose file name is free-form instead of a threat name: a signer rule
@@ -128,7 +131,10 @@ impl SigKind {
     /// Firewall rules see traffic; signer rules need the engine's Authenticode
     /// extraction; registry / URL / Sigma rules judge live events.
     pub fn retrohuntable(self) -> bool {
-        matches!(self, Self::Yara | Self::HydraSig | Self::ClamNdb | Self::ClamLdb)
+        matches!(
+            self,
+            Self::Yara | Self::HydraSig | Self::ClamNdb | Self::ClamLdb
+        )
     }
 
     pub fn path(self, name: &str) -> PathBuf {
@@ -248,7 +254,10 @@ fn normalize_thumbprint_hex(value: &str) -> Result<String, String> {
         }
     }
     if hex.len() != 40 {
-        return Err(format!("thumbprint must be 40 hex chars (SHA-1), got {}", hex.len()));
+        return Err(format!(
+            "thumbprint must be 40 hex chars (SHA-1), got {}",
+            hex.len()
+        ));
     }
     Ok(hex)
 }
@@ -267,7 +276,11 @@ fn slugify_rule_id(prefix: &str, raw: &str, used: &HashSet<String>) -> String {
         .join("-");
     let base = format!(
         "{prefix}-{}",
-        if slug.is_empty() { "rule" } else { slug.as_str() }
+        if slug.is_empty() {
+            "rule"
+        } else {
+            slug.as_str()
+        }
     );
     if !used.contains(&base) {
         return base;
@@ -309,11 +322,13 @@ fn canonical_verdict(v: &str) -> Option<&'static str> {
 }
 
 fn write_signer_rules_doc(path: &Path, doc: &SignerRuleDoc, header: &str) -> Result<usize, String> {
-    let yaml_body = yaml_serde::to_string(doc).map_err(|e| format!("failed to serialize signer rules YAML: {e}"))?;
+    let yaml_body = yaml_serde::to_string(doc)
+        .map_err(|e| format!("failed to serialize signer rules YAML: {e}"))?;
     let full = format!("{header}{yaml_body}");
     let count = validate_signer_rules(&full)?;
     if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent).map_err(|e| format!("failed to create {}: {e}", parent.display()))?;
+        std::fs::create_dir_all(parent)
+            .map_err(|e| format!("failed to create {}: {e}", parent.display()))?;
     }
     let tmp = path.with_extension("yaml.tmp");
     std::fs::write(&tmp, &full).map_err(|e| format!("failed to write {}: {e}", tmp.display()))?;
@@ -323,11 +338,16 @@ fn write_signer_rules_doc(path: &Path, doc: &SignerRuleDoc, header: &str) -> Res
 
 /// Appends one validated Authenticode signer rule into
 /// `analyst_signatures/signer_rules/analyst_signers.yaml`.
-pub fn append_quick_signer_rule(input: QuickSignerRuleInput) -> Result<QuickSignerRuleResult, String> {
+pub fn append_quick_signer_rule(
+    input: QuickSignerRuleInput,
+) -> Result<QuickSignerRuleResult, String> {
     append_quick_signer_rule_in(&crate::human_review::analyst_dir(), input)
 }
 
-fn append_quick_signer_rule_in(analyst_root: &Path, input: QuickSignerRuleInput) -> Result<QuickSignerRuleResult, String> {
+fn append_quick_signer_rule_in(
+    analyst_root: &Path,
+    input: QuickSignerRuleInput,
+) -> Result<QuickSignerRuleResult, String> {
     let verdict = canonical_verdict(&input.verdict)
         .ok_or_else(|| "verdict must be 'trusted', 'malware', or 'pua'".to_string())?;
     let raw_cond = input.condition_type.trim();
@@ -345,7 +365,10 @@ fn append_quick_signer_rule_in(analyst_root: &Path, input: QuickSignerRuleInput)
     if verdict == "trusted" && !cond_type.starts_with("signature_signer_") {
         return Err("trusted rules only support publisher conditions (signature_signer_equals / signature_signer_contains)".into());
     }
-    if verdict == "pua" && !cond_type.starts_with("signature_signer_") && !cond_type.starts_with("signature_issuer_") {
+    if verdict == "pua"
+        && !cond_type.starts_with("signature_signer_")
+        && !cond_type.starts_with("signature_issuer_")
+    {
         return Err("PUA signer rules only support publisher or issuing CA conditions".into());
     }
 
@@ -388,9 +411,12 @@ fn append_quick_signer_rule_in(analyst_root: &Path, input: QuickSignerRuleInput)
     .to_string();
 
     let _guard = SIGNER_RULES_LOCK.lock().unwrap();
-    let path = analyst_root.join("signer_rules").join(format!("{ANALYST_SIGNERS_FILE}.yaml"));
+    let path = analyst_root
+        .join("signer_rules")
+        .join(format!("{ANALYST_SIGNERS_FILE}.yaml"));
     let mut doc = if path.is_file() {
-        let src = std::fs::read_to_string(&path).map_err(|e| format!("failed to read {}: {e}", path.display()))?;
+        let src = std::fs::read_to_string(&path)
+            .map_err(|e| format!("failed to read {}: {e}", path.display()))?;
         yaml_serde::from_str::<SignerRuleDoc>(&src)
             .map_err(|e| format!("existing {ANALYST_SIGNERS_FILE}.yaml is invalid ({e}); fix it in Signature Room first"))?
     } else {
@@ -510,7 +536,12 @@ fn legacy_verdict(raw: &str) -> Option<&'static str> {
     }
 }
 
-fn map_legacy_condition(verdict: &str, raw_type: &str, raw_value: &str, nocase: bool) -> Option<SignerRuleCond> {
+fn map_legacy_condition(
+    verdict: &str,
+    raw_type: &str,
+    raw_value: &str,
+    nocase: bool,
+) -> Option<SignerRuleCond> {
     let trimmed = raw_value.trim();
     if trimmed.is_empty() {
         return None;
@@ -623,7 +654,10 @@ fn migrate_legacy_company_lists_in(analyst_root: &Path) {
         {
             Ok(existing) => existing,
             Err(e) => {
-                eprintln!("[engine] existing {} is invalid ({e}); skipping legacy company migration", dest.display());
+                eprintln!(
+                    "[engine] existing {} is invalid ({e}); skipping legacy company migration",
+                    dest.display()
+                );
                 return;
             }
         }
@@ -644,15 +678,29 @@ fn migrate_legacy_company_lists_in(analyst_root: &Path) {
         used_ids.insert(r.id.trim().to_string());
         if let Some(v) = canonical_verdict(&r.verdict) {
             for c in &r.conditions {
-                seen_keys.insert((v.to_string(), c.cond_type.clone(), c.value.trim().to_ascii_lowercase()));
+                seen_keys.insert((
+                    v.to_string(),
+                    c.cond_type.clone(),
+                    c.value.trim().to_ascii_lowercase(),
+                ));
             }
         }
     }
 
-    let mut push_rule = |verdict: &str, title: String, description: String, family: String, conditions: Vec<SignerRuleCond>| {
+    let mut push_rule = |verdict: &str,
+                         title: String,
+                         description: String,
+                         family: String,
+                         conditions: Vec<SignerRuleCond>| {
         let filtered: Vec<SignerRuleCond> = conditions
             .into_iter()
-            .filter(|c| seen_keys.insert((verdict.to_string(), c.cond_type.clone(), c.value.to_ascii_lowercase())))
+            .filter(|c| {
+                seen_keys.insert((
+                    verdict.to_string(),
+                    c.cond_type.clone(),
+                    c.value.to_ascii_lowercase(),
+                ))
+            })
             .collect();
         if filtered.is_empty() {
             return;
@@ -674,7 +722,11 @@ fn migrate_legacy_company_lists_in(analyst_root: &Path) {
                 description.trim().to_string()
             },
             verdict: verdict.to_string(),
-            family: if verdict == "trusted" { String::new() } else { family.trim().to_string() },
+            family: if verdict == "trusted" {
+                String::new()
+            } else {
+                family.trim().to_string()
+            },
             severity: if verdict == "trusted" { "info" } else { "high" }.to_string(),
             confidence: None,
             score: None,
@@ -688,19 +740,26 @@ fn migrate_legacy_company_lists_in(analyst_root: &Path) {
         let raw = match std::fs::read_to_string(&yaml_path) {
             Ok(s) => s,
             Err(e) => {
-                eprintln!("[engine] could not read {}: {e}; leaving legacy files untouched", yaml_path.display());
+                eprintln!(
+                    "[engine] could not read {}: {e}; leaving legacy files untouched",
+                    yaml_path.display()
+                );
                 return;
             }
         };
         let parsed: LegacyCompanyYamlFile = match yaml_serde::from_str(&raw) {
             Ok(f) => f,
             Err(e) => {
-                eprintln!("[engine] legacy company_signers.yaml parse error ({e}); leaving legacy files untouched");
+                eprintln!(
+                    "[engine] legacy company_signers.yaml parse error ({e}); leaving legacy files untouched"
+                );
                 return;
             }
         };
         for r in parsed.rules {
-            let Some(verdict) = legacy_verdict(&r.verdict) else { continue };
+            let Some(verdict) = legacy_verdict(&r.verdict) else {
+                continue;
+            };
             let conds: Vec<SignerRuleCond> = r
                 .conditions
                 .into_iter()
@@ -713,9 +772,19 @@ fn migrate_legacy_company_lists_in(analyst_root: &Path) {
         let mut legacy_entries: HashMap<(String, String), LegacyCompanyJsonEntry> = HashMap::new();
         if let Ok(f) = std::fs::File::open(&jsonl_path) {
             for line in BufReader::new(f).lines().map_while(Result::ok) {
-                let Ok(v) = serde_json::from_str::<serde_json::Value>(&line) else { continue };
-                let Some(name) = v["name"].as_str().map(|s| s.trim().to_string()).filter(|s| !s.is_empty()) else { continue };
-                let Some(list) = v["list"].as_str().and_then(legacy_verdict) else { continue };
+                let Ok(v) = serde_json::from_str::<serde_json::Value>(&line) else {
+                    continue;
+                };
+                let Some(name) = v["name"]
+                    .as_str()
+                    .map(|s| s.trim().to_string())
+                    .filter(|s| !s.is_empty())
+                else {
+                    continue;
+                };
+                let Some(list) = v["list"].as_str().and_then(legacy_verdict) else {
+                    continue;
+                };
                 let key = (name.to_ascii_lowercase(), list.to_string());
                 if v["removed"].as_bool() == Some(true) {
                     legacy_entries.remove(&key);
@@ -726,7 +795,10 @@ fn migrate_legacy_company_lists_in(analyst_root: &Path) {
                 }
             }
         }
-        for (file_name, verdict) in [("companies_allow.txt", "trusted"), ("companies_block.txt", "malware")] {
+        for (file_name, verdict) in [
+            ("companies_allow.txt", "trusted"),
+            ("companies_block.txt", "malware"),
+        ] {
             if let Ok(text) = std::fs::read_to_string(analyst_root.join(file_name)) {
                 for line in text.lines() {
                     let mut parts = line.splitn(2, '#');
@@ -736,19 +808,24 @@ fn migrate_legacy_company_lists_in(analyst_root: &Path) {
                         continue;
                     }
                     let key = (clean.to_ascii_lowercase(), verdict.to_string());
-                    legacy_entries.entry(key).or_insert_with(|| LegacyCompanyJsonEntry {
-                        name: clean.to_string(),
-                        list: verdict.to_string(),
-                        reason: comment.to_string(),
-                        title: String::new(),
-                        family: String::new(),
-                        aliases: Vec::new(),
-                    });
+                    legacy_entries
+                        .entry(key)
+                        .or_insert_with(|| LegacyCompanyJsonEntry {
+                            name: clean.to_string(),
+                            list: verdict.to_string(),
+                            reason: comment.to_string(),
+                            title: String::new(),
+                            family: String::new(),
+                            aliases: Vec::new(),
+                        });
                 }
             }
         }
         let mut entries: Vec<LegacyCompanyJsonEntry> = legacy_entries.into_values().collect();
-        entries.sort_by(|a, b| (a.list.as_str(), a.name.to_ascii_lowercase()).cmp(&(b.list.as_str(), b.name.to_ascii_lowercase())));
+        entries.sort_by(|a, b| {
+            (a.list.as_str(), a.name.to_ascii_lowercase())
+                .cmp(&(b.list.as_str(), b.name.to_ascii_lowercase()))
+        });
         for e in entries {
             let conds: Vec<SignerRuleCond> = std::iter::once(e.name)
                 .chain(e.aliases)
@@ -761,9 +838,13 @@ fn migrate_legacy_company_lists_in(analyst_root: &Path) {
     let added_count = migrated_rules.len();
     if added_count > 0 {
         doc.rules.extend(migrated_rules);
-        const HEADER: &str = "# Automatically migrated from legacy company signer lists into signer_rules/*.yaml.\n";
+        const HEADER: &str =
+            "# Automatically migrated from legacy company signer lists into signer_rules/*.yaml.\n";
         if let Err(e) = write_signer_rules_doc(&dest, &doc, HEADER) {
-            eprintln!("[engine] failed to write {}: {e}; leaving legacy files untouched", dest.display());
+            eprintln!(
+                "[engine] failed to write {}: {e}; leaving legacy files untouched",
+                dest.display()
+            );
             return;
         }
         eprintln!(
@@ -774,11 +855,13 @@ fn migrate_legacy_company_lists_in(analyst_root: &Path) {
     for src in present {
         let bak = backup_legacy_path(&src);
         if let Err(e) = std::fs::rename(&src, &bak) {
-            eprintln!("[engine] warning: could not archive legacy file {}: {e}", src.display());
+            eprintln!(
+                "[engine] warning: could not archive legacy file {}: {e}",
+                src.display()
+            );
         }
     }
 }
-
 
 // ------------------------------------------------------------------ validation
 
@@ -802,7 +885,9 @@ pub fn validate_clamav(kind: SigKind, src: &str) -> Result<usize, String> {
     for n in &names {
         let canon = normalize_threat_name(n).map_err(|e| format!("signature name \"{n}\": {e}"))?;
         if &canon != n {
-            return Err(format!("write the signature name in canonical form: {canon}"));
+            return Err(format!(
+                "write the signature name in canonical form: {canon}"
+            ));
         }
     }
     let mut files = HashMap::new();
@@ -816,7 +901,10 @@ pub fn validate_clamav(kind: SigKind, src: &str) -> Result<usize, String> {
         return Err("hydradragonclamav loaded no signature from this file".into());
     }
     if loaded < names.len() {
-        return Err(format!("only {loaded} of {} signatures were accepted", names.len()));
+        return Err(format!(
+            "only {loaded} of {} signatures were accepted",
+            names.len()
+        ));
     }
     Ok(loaded)
 }
@@ -835,10 +923,19 @@ pub fn validate_hydrasig(src: &str) -> Result<usize, String> {
         if let Some(rules) = doc.get("rules").and_then(|v| v.as_sequence()) {
             for (idx, r) in rules.iter().enumerate() {
                 let Some(v) = r.get("verdict") else { continue };
-                let id = r.get("id").and_then(|v| v.as_str()).map(str::to_string).unwrap_or_else(|| format!("#{idx}"));
-                let ok = v.as_str().is_some_and(|s| HYDRASIG_VERDICTS.contains(&s.to_ascii_lowercase().as_str()));
+                let id = r
+                    .get("id")
+                    .and_then(|v| v.as_str())
+                    .map(str::to_string)
+                    .unwrap_or_else(|| format!("#{idx}"));
+                let ok = v
+                    .as_str()
+                    .is_some_and(|s| HYDRASIG_VERDICTS.contains(&s.to_ascii_lowercase().as_str()));
                 if !ok {
-                    return Err(format!("rule {id}: verdict must be one of {}", HYDRASIG_VERDICTS.join(", ")));
+                    return Err(format!(
+                        "rule {id}: verdict must be one of {}",
+                        HYDRASIG_VERDICTS.join(", ")
+                    ));
                 }
             }
         }
@@ -852,16 +949,21 @@ pub fn validate_hydrasig(src: &str) -> Result<usize, String> {
     for r in rs.rules() {
         let fam = r.family.as_deref().unwrap_or("");
         if fam.is_empty() {
-            return Err(format!("rule {} needs a family, e.g. family: \"Trojan.Win32.Remcos.A\"", r.id));
+            return Err(format!(
+                "rule {} needs a family, e.g. family: \"Trojan.Win32.Remcos.A\"",
+                r.id
+            ));
         }
         let canon = normalize_threat_name(fam).map_err(|e| format!("rule {} family: {e}", r.id))?;
         if canon != fam {
-            return Err(format!("rule {}: write the family in canonical form: {canon}", r.id));
+            return Err(format!(
+                "rule {}: write the family in canonical form: {canon}",
+                r.id
+            ));
         }
     }
     Ok(rs.rules().len())
 }
-
 
 /// Firewall rule `action` values (`owlyshield_predict::firewall::sdk::RuleAction`,
 /// snake_case). Also served by `/api/signatures/schema`.
@@ -883,8 +985,16 @@ pub const FIREWALL_PROTOCOLS: [&str; 7] = ["http", "https", "udp", "tcp", "icmp"
 /// `condition_logic` values (`sdk::ConditionLogic`, lowercase).
 pub const FIREWALL_CONDITION_LOGIC: [&str; 2] = ["and", "or"];
 /// `localhost_type` values (`sdk::LocalhostType`, snake_case).
-pub const FIREWALL_LOCALHOST_TYPES: [&str; 8] =
-    ["loopback", "private_a", "private_b", "private_c", "private", "any", "all", "none"];
+pub const FIREWALL_LOCALHOST_TYPES: [&str; 8] = [
+    "loopback",
+    "private_a",
+    "private_b",
+    "private_c",
+    "private",
+    "any",
+    "all",
+    "none",
+];
 /// `encoding` values (`sdk::ContentEncoding`, lowercase).
 pub const FIREWALL_ENCODINGS: [&str; 5] = ["base58", "base64", "reverse", "hex", "plain"];
 
@@ -896,29 +1006,40 @@ pub const FIREWALL_ENCODINGS: [&str; 5] = ["base58", "base64", "reverse", "hex",
 ///
 /// Accepts a `rules:` mapping (`SdkRuleFile`) or a top-level list of rules.
 pub fn validate_firewall_yaml(src: &str) -> Result<usize, String> {
-    let val: yaml_serde::Value = yaml_serde::from_str(src).map_err(|e| format!("YAML parse error: {e}"))?;
+    let val: yaml_serde::Value =
+        yaml_serde::from_str(src).map_err(|e| format!("YAML parse error: {e}"))?;
     let rules = if let Some(r) = val.get("rules").and_then(|v| v.as_sequence()) {
         r
     } else if let Some(seq) = val.as_sequence() {
         seq
     } else {
-        return Err("Firewall YAML must contain either a 'rules:' mapping or a top-level list of rules".into());
+        return Err(
+            "Firewall YAML must contain either a 'rules:' mapping or a top-level list of rules"
+                .into(),
+        );
     };
     if rules.is_empty() {
         return Err("No rules found in firewall YAML".into());
     }
     // One enum-valued field: absent is fine (serde default), present must be a
     // string from the list (the SDK enums are case-sensitive).
-    let one_of = |r: &yaml_serde::Value, idx: usize, key: &str, allowed: &[&str]| -> Result<(), String> {
-        match r.get(key) {
-            None => Ok(()),
-            Some(v) => match v.as_str() {
-                Some(s) if allowed.contains(&s) => Ok(()),
-                Some(s) => Err(format!("Rule #{idx} has unknown {key} '{s}' (expected {})", allowed.join(", "))),
-                None => Err(format!("Rule #{idx}: {key} must be a string ({})", allowed.join(", "))),
-            },
-        }
-    };
+    let one_of =
+        |r: &yaml_serde::Value, idx: usize, key: &str, allowed: &[&str]| -> Result<(), String> {
+            match r.get(key) {
+                None => Ok(()),
+                Some(v) => match v.as_str() {
+                    Some(s) if allowed.contains(&s) => Ok(()),
+                    Some(s) => Err(format!(
+                        "Rule #{idx} has unknown {key} '{s}' (expected {})",
+                        allowed.join(", ")
+                    )),
+                    None => Err(format!(
+                        "Rule #{idx}: {key} must be a string ({})",
+                        allowed.join(", ")
+                    )),
+                },
+            }
+        };
     for (idx, r) in rules.iter().enumerate() {
         if !r.is_mapping() {
             return Err(format!("Rule #{idx} is not a mapping"));
@@ -936,13 +1057,21 @@ pub fn validate_firewall_yaml(src: &str) -> Result<usize, String> {
         // `RegexMatcher { pattern: String, case_insensitive: bool }`, neither defaulted.
         if let Some(re) = r.get("regex").filter(|v| !v.is_null()) {
             if !re.is_mapping() {
-                return Err(format!("Rule #{idx}: regex must be a mapping with pattern and case_insensitive"));
+                return Err(format!(
+                    "Rule #{idx}: regex must be a mapping with pattern and case_insensitive"
+                ));
             }
             if re.get("pattern").and_then(|v| v.as_str()).is_none() {
                 return Err(format!("Rule #{idx}: regex.pattern must be a string"));
             }
-            if re.get("case_insensitive").and_then(|v| v.as_bool()).is_none() {
-                return Err(format!("Rule #{idx}: regex.case_insensitive must be true or false"));
+            if re
+                .get("case_insensitive")
+                .and_then(|v| v.as_bool())
+                .is_none()
+            {
+                return Err(format!(
+                    "Rule #{idx}: regex.case_insensitive must be true or false"
+                ));
             }
         }
     }
@@ -960,7 +1089,10 @@ pub fn normalize_rule_file_name(name: &str) -> Result<String, String> {
     if n.chars().count() > 100 {
         return Err("rule file name over 100 characters".into());
     }
-    if !n.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-')) {
+    if !n
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'))
+    {
         return Err("rule file name may only contain letters, digits, '.', '_' and '-'".into());
     }
     if n.starts_with('.') || n.contains("..") {
@@ -997,24 +1129,108 @@ pub fn validate_sigma(src: &str) -> Result<String, String> {
 /// hand because the enum has no list of its names; the strict loader still decides,
 /// this only feeds the dashboard's form builder.
 pub const HYDRASIG_CONDITION_TYPES: [&str; 102] = [
-    "string_contains", "string_regex", "string_set", "native_signature", "import_any", "import_all",
-    "import_set", "import_regex", "export_any", "export_all", "export_set", "dll_any", "dll_regex",
-    "suspicious_import_count", "file_entropy", "file_size_gte", "file_size_lte", "section_entropy",
-    "section_name_regex", "pe_section", "packed_pe", "env_reference", "path_regex", "file_type", "hash_sha256",
-    "hash_md5", "hash_sha1", "hash_crc32", "imphash_any", "feature_gte", "feature_lte", "has_parent",
-    "parent_feature_gte", "parent_feature_lte", "feature_delta_gte", "new_import_set", "byte_pattern",
-    "byte_set", "rule_match", "unpacker_any", "emulated_api_any", "emulated_arg_regex", "emulated_sequence",
-    "emulated_count_gte", "image_fuzzy_hash_any", "pe_icon_any", "pe_anchor_pattern", "byte_repeat", "bytecode",
-    "opcode_pattern", "not_mz", "authenticode", "authentihash_any", "pe_subsystem", "version_info",
-    "resource_match", "resource_hash_any", "resources_absent", "registry_key", "registry_value", "clsid",
-    "hosts_entry", "sector_pattern", "path_glob", "feature_bounds", "pe_sections_summary", "export_hash_any",
-    "pe_timestamp", "file_timestamp", "file_attributes", "domain_blocklist", "dex_string_regex",
-    "dex_class_regex", "dex_method_regex", "dex_class_count", "dex_method_count", "dotnet_guid_any",
-    "dotnet_type_regex", "dotnet_method_regex", "dotnet_pinvoke_any", "dotnet_pinvoke_set", "dotnet_stream_any",
-    "dotnet_user_string_regex", "elf_import_any", "elf_import_set", "elf_import_regex", "elf_export_any",
-    "elf_export_set", "elf_needed_any", "elf_section", "elf_segment", "elf_build_id_any", "new_elf_import_set",
-    "macho_dylib_any", "macho_sym_any", "macho_sym_regex", "macho_segment", "macho_uuid_any", "macho_signed",
-    "macho_entitlement_any", "pdf_keyword", "pdf_stream_match",
+    "string_contains",
+    "string_regex",
+    "string_set",
+    "native_signature",
+    "import_any",
+    "import_all",
+    "import_set",
+    "import_regex",
+    "export_any",
+    "export_all",
+    "export_set",
+    "dll_any",
+    "dll_regex",
+    "suspicious_import_count",
+    "file_entropy",
+    "file_size_gte",
+    "file_size_lte",
+    "section_entropy",
+    "section_name_regex",
+    "pe_section",
+    "packed_pe",
+    "env_reference",
+    "path_regex",
+    "file_type",
+    "hash_sha256",
+    "hash_md5",
+    "hash_sha1",
+    "hash_crc32",
+    "imphash_any",
+    "feature_gte",
+    "feature_lte",
+    "has_parent",
+    "parent_feature_gte",
+    "parent_feature_lte",
+    "feature_delta_gte",
+    "new_import_set",
+    "byte_pattern",
+    "byte_set",
+    "rule_match",
+    "unpacker_any",
+    "emulated_api_any",
+    "emulated_arg_regex",
+    "emulated_sequence",
+    "emulated_count_gte",
+    "image_fuzzy_hash_any",
+    "pe_icon_any",
+    "pe_anchor_pattern",
+    "byte_repeat",
+    "bytecode",
+    "opcode_pattern",
+    "not_mz",
+    "authenticode",
+    "authentihash_any",
+    "pe_subsystem",
+    "version_info",
+    "resource_match",
+    "resource_hash_any",
+    "resources_absent",
+    "registry_key",
+    "registry_value",
+    "clsid",
+    "hosts_entry",
+    "sector_pattern",
+    "path_glob",
+    "feature_bounds",
+    "pe_sections_summary",
+    "export_hash_any",
+    "pe_timestamp",
+    "file_timestamp",
+    "file_attributes",
+    "domain_blocklist",
+    "dex_string_regex",
+    "dex_class_regex",
+    "dex_method_regex",
+    "dex_class_count",
+    "dex_method_count",
+    "dotnet_guid_any",
+    "dotnet_type_regex",
+    "dotnet_method_regex",
+    "dotnet_pinvoke_any",
+    "dotnet_pinvoke_set",
+    "dotnet_stream_any",
+    "dotnet_user_string_regex",
+    "elf_import_any",
+    "elf_import_set",
+    "elf_import_regex",
+    "elf_export_any",
+    "elf_export_set",
+    "elf_needed_any",
+    "elf_section",
+    "elf_segment",
+    "elf_build_id_any",
+    "new_elf_import_set",
+    "macho_dylib_any",
+    "macho_sym_any",
+    "macho_sym_regex",
+    "macho_segment",
+    "macho_uuid_any",
+    "macho_signed",
+    "macho_entitlement_any",
+    "pdf_keyword",
+    "pdf_stream_match",
 ];
 
 /// Signer rule condition `type`s the engine reads (`openedr_static::signers`): which
@@ -1234,12 +1450,21 @@ impl AnalystEngine {
         if let Ok(rd) = std::fs::read_dir(dir) {
             for e in rd.flatten() {
                 let p = e.path();
-                let ok = p.extension().and_then(|x| x.to_str()).is_some_and(|x| exts.contains(&x));
+                let ok = p
+                    .extension()
+                    .and_then(|x| x.to_str())
+                    .is_some_and(|x| exts.contains(&x));
                 if !ok {
                     continue;
                 }
                 if let Ok(bytes) = std::fs::read(&p) {
-                    out.push((p.file_name().unwrap_or_default().to_string_lossy().into_owned(), bytes));
+                    out.push((
+                        p.file_name()
+                            .unwrap_or_default()
+                            .to_string_lossy()
+                            .into_owned(),
+                        bytes,
+                    ));
                 }
             }
         }
@@ -1250,14 +1475,20 @@ impl AnalystEngine {
     /// Rebuilds both analyst engines from disk. Returns a one-line summary.
     pub fn reload(&self) -> String {
         // ClamAV: one in-memory database from every analyst .ndb/.ldb file.
-        let clam_files: HashMap<String, Vec<u8>> = Self::read_dir("clamav", &["ndb", "ldb"]).into_iter().collect();
+        let clam_files: HashMap<String, Vec<u8>> = Self::read_dir("clamav", &["ndb", "ldb"])
+            .into_iter()
+            .collect();
         let clam_count = clam_files.len();
         let (clam, clam_loaded, clam_errors) = if clam_files.is_empty() {
             (None, 0, 0)
         } else {
             let (engine, report) = ClamEngine::from_bytes_map(&clam_files);
             let loaded = report.extended_loaded + report.logical_loaded + report.db_loaded;
-            (if loaded > 0 { Some(engine) } else { None }, loaded, report.errors.len())
+            (
+                if loaded > 0 { Some(engine) } else { None },
+                loaded,
+                report.errors.len(),
+            )
         };
         *self.clam.write().unwrap() = clam;
 
@@ -1265,7 +1496,10 @@ impl AnalystEngine {
         let mut set: Option<RuleSet> = None;
         let mut sig_failed = Vec::new();
         for (name, bytes) in Self::read_dir("hydradragonsig", &["yaml", "yml"]) {
-            match std::str::from_utf8(&bytes).ok().and_then(|s| RuleSet::from_yaml_str(s).ok()) {
+            match std::str::from_utf8(&bytes)
+                .ok()
+                .and_then(|s| RuleSet::from_yaml_str(s).ok())
+            {
                 Some(rs) => match set.as_mut() {
                     Some(cur) => cur.extend(rs),
                     None => set = Some(rs),
@@ -1298,9 +1532,19 @@ impl AnalystEngine {
         hits
     }
 
-    fn scan_into(&self, data: &[u8], name: &str, depth: usize, budget: &mut usize, hits: &mut Vec<AnalystHit>) {
+    fn scan_into(
+        &self,
+        data: &[u8],
+        name: &str,
+        depth: usize,
+        budget: &mut usize,
+        hits: &mut Vec<AnalystHit>,
+    ) {
         for hit in self.scan_one(data, name) {
-            if !hits.iter().any(|h| h.engine == hit.engine && h.name == hit.name) {
+            if !hits
+                .iter()
+                .any(|h| h.engine == hit.engine && h.name == hit.name)
+            {
                 hits.push(hit);
             }
         }
@@ -1331,24 +1575,56 @@ impl AnalystEngine {
         let mut hits = Vec::new();
         if let Some(clam) = self.clam.read().unwrap().as_ref() {
             let _t = openedr_static::memtrack::stage("server:analyst_clamav");
-            for m in clam.scan_bytes_named(data, if name.is_empty() { "file" } else { name }, ClamScanOptions::default(), &[]) {
+            for m in clam.scan_bytes_named(
+                data,
+                if name.is_empty() { "file" } else { name },
+                ClamScanOptions::default(),
+                &[],
+            ) {
                 // `PUA.*` signatures are potentially unwanted, not malware (same as the engine).
-                let verdict = if m.name.get(..4).is_some_and(|p| p.eq_ignore_ascii_case("PUA.")) { "suspicious" } else { "malicious" };
-                hits.push(AnalystHit { engine: "clamav", name: m.name, verdict });
+                let verdict = if m
+                    .name
+                    .get(..4)
+                    .is_some_and(|p| p.eq_ignore_ascii_case("PUA."))
+                {
+                    "suspicious"
+                } else {
+                    "malicious"
+                };
+                hits.push(AnalystHit {
+                    engine: "clamav",
+                    name: m.name,
+                    verdict,
+                });
             }
         }
         if let Some(rules) = self.sig.read().unwrap().as_ref() {
             let _t = openedr_static::memtrack::stage("server:analyst_sig");
-            let ctx = MemoryScanContext { buffer: data.to_vec(), identifier: name.to_string(), base_address: None };
-            if let Ok(report) = hydradragonsig::scan_memory_owned(ctx, rules, &hydradragonsig::ScanOptions::default()) {
+            let ctx = MemoryScanContext {
+                buffer: data.to_vec(),
+                identifier: name.to_string(),
+                base_address: None,
+            };
+            if let Ok(report) = hydradragonsig::scan_memory_owned(
+                ctx,
+                rules,
+                &hydradragonsig::ScanOptions::default(),
+            ) {
                 let verdict = match report.verdict {
                     SigVerdict::Malware => Some("malicious"),
                     SigVerdict::Pua | SigVerdict::Suspicious => Some("suspicious"),
                     _ => None,
                 };
                 if let Some(v) = verdict {
-                    let name = report.threat_name.clone().unwrap_or_else(|| "Generic.Multi.AnalystRule".into());
-                    hits.push(AnalystHit { engine: "hydradragonsig", name, verdict: v });
+                    let name = report
+                        .threat_name
+                        .clone()
+                        .unwrap_or_else(|| "Generic.Multi.AnalystRule".into());
+                    hits.push(AnalystHit {
+                        engine: "hydradragonsig",
+                        name,
+                        verdict: v,
+                    });
                 }
             }
         }
@@ -1358,15 +1634,28 @@ impl AnalystEngine {
     /// Every analyst ClamAV and HydraDragonSig match of `data` (PUA and low ones
     /// included) explained: signature, score, source file / line and its text,
     /// evidence and file byte ranges (at most `max_ranges` per match).
-    pub fn explain(&self, data: &[u8], name: &str, max_ranges: usize) -> Vec<openedr_static::engine::MatchExplain> {
+    pub fn explain(
+        &self,
+        data: &[u8],
+        name: &str,
+        max_ranges: usize,
+    ) -> Vec<openedr_static::engine::MatchExplain> {
         use openedr_static::engine::MatchExplain;
         let mut out = Vec::new();
         let name = if name.is_empty() { "file" } else { name };
         if let Some(clam) = self.clam.read().unwrap().as_ref() {
             for m in clam.scan_bytes_named(data, name, ClamScanOptions::default(), &[]) {
-                let raw = m.object_path == name && matches!(m.view, hydradragonclamav::ScanView::Raw);
-                let ranges = if raw { clam.match_ranges(data, &m, max_ranges) } else { Vec::new() };
-                let pua = m.name.get(..4).is_some_and(|p| p.eq_ignore_ascii_case("PUA."));
+                let raw =
+                    m.object_path == name && matches!(m.view, hydradragonclamav::ScanView::Raw);
+                let ranges = if raw {
+                    clam.match_ranges(data, &m, max_ranges)
+                } else {
+                    Vec::new()
+                };
+                let pua = m
+                    .name
+                    .get(..4)
+                    .is_some_and(|p| p.eq_ignore_ascii_case("PUA."));
                 out.push(MatchExplain {
                     engine: "Analyst ClamAV",
                     score: if pua { 0.60 } else { 1.0 },
@@ -1383,8 +1672,16 @@ impl AnalystEngine {
             }
         }
         if let Some(rules) = self.sig.read().unwrap().as_ref() {
-            let ctx = MemoryScanContext { buffer: data.to_vec(), identifier: name.to_string(), base_address: None };
-            if let Ok(report) = hydradragonsig::scan_memory_owned(ctx, rules, &hydradragonsig::ScanOptions::default()) {
+            let ctx = MemoryScanContext {
+                buffer: data.to_vec(),
+                identifier: name.to_string(),
+                base_address: None,
+            };
+            if let Ok(report) = hydradragonsig::scan_memory_owned(
+                ctx,
+                rules,
+                &hydradragonsig::ScanOptions::default(),
+            ) {
                 for f in report.findings {
                     out.push(MatchExplain {
                         engine: "Analyst HydraSig",
@@ -1395,7 +1692,11 @@ impl AnalystEngine {
                         definition: (!f.description.is_empty()).then(|| f.description.clone()),
                         object_path: None,
                         view: None,
-                        ranges: openedr_static::string_rules::evidence_ranges(data, &f.evidence, max_ranges),
+                        ranges: openedr_static::string_rules::evidence_ranges(
+                            data,
+                            &f.evidence,
+                            max_ranges,
+                        ),
                         evidence: f.evidence,
                         rule: f.rule_id,
                     });
@@ -1408,7 +1709,12 @@ impl AnalystEngine {
     /// Byte ranges `(engine, signature, start, end)` behind the analyst ClamAV and
     /// HydraDragonSig matches that are malware (not `PUA.*`, not Pua / Suspicious
     /// findings), at most `limit`. For in-place disinfection only.
-    pub fn match_ranges(&self, data: &[u8], name: &str, limit: usize) -> Vec<(&'static str, String, usize, usize)> {
+    pub fn match_ranges(
+        &self,
+        data: &[u8],
+        name: &str,
+        limit: usize,
+    ) -> Vec<(&'static str, String, usize, usize)> {
         let mut out = Vec::new();
         let name = if name.is_empty() { "file" } else { name };
         if let Some(clam) = self.clam.read().unwrap().as_ref() {
@@ -1416,7 +1722,10 @@ impl AnalystEngine {
                 if m.object_path != name {
                     continue; // an extracted member: its offsets are not file offsets
                 }
-                if m.name.get(..4).is_some_and(|p| p.eq_ignore_ascii_case("PUA.")) {
+                if m.name
+                    .get(..4)
+                    .is_some_and(|p| p.eq_ignore_ascii_case("PUA."))
+                {
                     continue; // potentially unwanted, not malware (same as `scan`)
                 }
                 for (s, e) in clam.match_ranges(data, &m, limit.saturating_sub(out.len())) {
@@ -1425,14 +1734,28 @@ impl AnalystEngine {
             }
         }
         if let Some(rules) = self.sig.read().unwrap().as_ref() {
-            let ctx = MemoryScanContext { buffer: data.to_vec(), identifier: name.to_string(), base_address: None };
-            if let Ok(report) = hydradragonsig::scan_memory_owned(ctx, rules, &hydradragonsig::ScanOptions::default()) {
-                for f in report.findings.iter().filter(|f| matches!(f.verdict, SigVerdict::Malware)) {
+            let ctx = MemoryScanContext {
+                buffer: data.to_vec(),
+                identifier: name.to_string(),
+                base_address: None,
+            };
+            if let Ok(report) = hydradragonsig::scan_memory_owned(
+                ctx,
+                rules,
+                &hydradragonsig::ScanOptions::default(),
+            ) {
+                for f in report
+                    .findings
+                    .iter()
+                    .filter(|f| matches!(f.verdict, SigVerdict::Malware))
+                {
                     let left = limit.saturating_sub(out.len());
                     if left == 0 {
                         break;
                     }
-                    for (s, e) in openedr_static::string_rules::evidence_ranges(data, &f.evidence, left) {
+                    for (s, e) in
+                        openedr_static::string_rules::evidence_ranges(data, &f.evidence, left)
+                    {
                         out.push(("analyst-hydradragonsig", f.rule_id.clone(), s, e));
                     }
                 }
@@ -1452,7 +1775,8 @@ mod tests {
 
     fn temp_analyst_dir(tag: &str) -> PathBuf {
         let id = SEQ.fetch_add(1, Ordering::Relaxed);
-        let dir = std::env::temp_dir().join(format!("multron_signer_{tag}_{}_{id}", std::process::id()));
+        let dir =
+            std::env::temp_dir().join(format!("multron_signer_{tag}_{}_{id}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         dir
@@ -1574,7 +1898,9 @@ mod tests {
 
         migrate_legacy_company_lists_in(&dir);
 
-        let migrated = dir.join("signer_rules").join(format!("{MIGRATED_COMPANY_SIGNERS_FILE}.yaml"));
+        let migrated = dir
+            .join("signer_rules")
+            .join(format!("{MIGRATED_COMPANY_SIGNERS_FILE}.yaml"));
         assert!(migrated.is_file());
         let yaml = std::fs::read_to_string(&migrated).unwrap();
         assert_eq!(validate_signer_rules(&yaml), Ok(3));
@@ -1587,7 +1913,10 @@ mod tests {
 
         // Second run is a clean no-op
         migrate_legacy_company_lists_in(&dir);
-        assert_eq!(validate_signer_rules(&std::fs::read_to_string(&migrated).unwrap()), Ok(3));
+        assert_eq!(
+            validate_signer_rules(&std::fs::read_to_string(&migrated).unwrap()),
+            Ok(3)
+        );
         let _ = std::fs::remove_dir_all(&dir);
 
         // Legacy YAML with family, aliases & invalid-for-trusted condition is normalized safely
@@ -1614,8 +1943,13 @@ rules:
         )
         .unwrap();
         migrate_legacy_company_lists_in(&dir_yaml);
-        let out_yaml = dir_yaml.join("signer_rules").join(format!("{MIGRATED_COMPANY_SIGNERS_FILE}.yaml"));
-        assert_eq!(validate_signer_rules(&std::fs::read_to_string(&out_yaml).unwrap()), Ok(1));
+        let out_yaml = dir_yaml
+            .join("signer_rules")
+            .join(format!("{MIGRATED_COMPANY_SIGNERS_FILE}.yaml"));
+        assert_eq!(
+            validate_signer_rules(&std::fs::read_to_string(&out_yaml).unwrap()),
+            Ok(1)
+        );
         assert!(dir_yaml.join("company_signers.yaml.migrated").is_file());
         let _ = std::fs::remove_dir_all(&dir_yaml);
     }

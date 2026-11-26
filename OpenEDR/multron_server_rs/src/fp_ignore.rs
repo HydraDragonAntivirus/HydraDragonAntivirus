@@ -79,7 +79,9 @@ impl Kind {
     pub fn note(self) -> &'static str {
         match self {
             Kind::ClamAv | Kind::HydraSig => "Active after the next engine reload.",
-            Kind::Yara => "Active after the next engine reload. To remove the rule from the sources for good: remove_excluded_rules.py -x <this file>, then rebuild the .yrc.",
+            Kind::Yara => {
+                "Active after the next engine reload. To remove the rule from the sources for good: remove_excluded_rules.py -x <this file>, then rebuild the .yrc."
+            }
         }
     }
 }
@@ -138,13 +140,20 @@ pub fn parse_detail(detail: &str) -> Vec<Detection> {
         }
         if let Some(rest) = seg.strip_prefix("Analyst signature (") {
             if let Some((engine, name)) = rest.split_once("): ") {
-                out.push(Detection { layer: format!("analyst/{engine}"), kind: "analyst", name: name.trim().to_string(), raw: name.trim().to_string() });
+                out.push(Detection {
+                    layer: format!("analyst/{engine}"),
+                    kind: "analyst",
+                    name: name.trim().to_string(),
+                    raw: name.trim().to_string(),
+                });
             }
             continue;
         }
         for part in seg.split(", ") {
             let part = part.trim();
-            let Some(open) = part.rfind(" (") else { continue };
+            let Some(open) = part.rfind(" (") else {
+                continue;
+            };
             if !part.ends_with(')') {
                 continue;
             }
@@ -153,7 +162,12 @@ pub fn parse_detail(detail: &str) -> Vec<Detection> {
                 continue;
             }
             let raw = &part[..open];
-            let det = Detection { layer: layer.to_string(), kind: kind_of_layer(layer), name: strip_origin(raw).to_string(), raw: raw.to_string() };
+            let det = Detection {
+                layer: layer.to_string(),
+                kind: kind_of_layer(layer),
+                name: strip_origin(raw).to_string(),
+                raw: raw.to_string(),
+            };
             if !out.iter().any(|d| d.kind == det.kind && d.name == det.name) {
                 out.push(det);
             }
@@ -166,9 +180,21 @@ pub fn parse_detail(detail: &str) -> Vec<Detection> {
 /// engine's extension added when missing.
 pub fn clean_file_name(kind: Kind, file: &str) -> Result<String, String> {
     let file = file.trim();
-    let file = if file.is_empty() { kind.default_file() } else { file };
-    let stem = file.strip_suffix(&format!(".{}", kind.ext())).unwrap_or(file);
-    if stem.is_empty() || stem.len() > 64 || !stem.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.')) || stem.starts_with('.') {
+    let file = if file.is_empty() {
+        kind.default_file()
+    } else {
+        file
+    };
+    let stem = file
+        .strip_suffix(&format!(".{}", kind.ext()))
+        .unwrap_or(file);
+    if stem.is_empty()
+        || stem.len() > 64
+        || !stem
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.'))
+        || stem.starts_with('.')
+    {
         return Err("file name: use letters, digits, '_', '-' and '.' (at most 64)".into());
     }
     Ok(format!("{stem}.{}", kind.ext()))
@@ -179,7 +205,9 @@ fn check_name(kind: Kind, name: &str) -> Result<(), String> {
         return Err("invalid signature name".into());
     }
     match kind {
-        Kind::ClamAv if name.contains(':') => Err("a ClamAV signature name cannot contain ':'".into()),
+        Kind::ClamAv if name.contains(':') => {
+            Err("a ClamAV signature name cannot contain ':'".into())
+        }
         Kind::Yara if !name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') => {
             Err("a YARA rule name has only letters, digits and '_'".into())
         }
@@ -188,7 +216,13 @@ fn check_name(kind: Kind, name: &str) -> Result<(), String> {
 }
 
 fn one_line(s: &str) -> String {
-    s.chars().map(|c| if c.is_control() { ' ' } else { c }).collect::<String>().trim().chars().take(500).collect()
+    s.chars()
+        .map(|c| if c.is_control() { ' ' } else { c })
+        .collect::<String>()
+        .trim()
+        .chars()
+        .take(500)
+        .collect()
 }
 
 /// Names listed in a file (non-comment, non-empty lines; `Name:md5` -> `Name`).
@@ -238,7 +272,11 @@ pub fn add(rules: &Path, r: &AddRequest) -> Result<PathBuf, String> {
     block.push_str(&format!(
         "# {} | analyst: {} | sample: {} {}\n# reason: {}\n{}\n",
         chrono::Utc::now().format("%Y-%m-%d %H:%M UTC"),
-        one_line(if r.analyst.trim().is_empty() { "analyst" } else { r.analyst }),
+        one_line(if r.analyst.trim().is_empty() {
+            "analyst"
+        } else {
+            r.analyst
+        }),
         one_line(r.sha256),
         one_line(r.file_name),
         reason,
@@ -318,7 +356,11 @@ pub fn list(rules: &Path, kind: Kind) -> KindLists {
             .flatten()
             .map(|e| e.path())
             .filter(|p| {
-                let ext = p.extension().and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase();
+                let ext = p
+                    .extension()
+                    .and_then(|e| e.to_str())
+                    .unwrap_or("")
+                    .to_ascii_lowercase();
                 p.is_file() && (ext == "ign2" || ext == "ign")
             })
             .collect();
@@ -334,14 +376,30 @@ pub fn list(rules: &Path, kind: Kind) -> KindLists {
                 } else if let Some(c) = t.strip_prefix('#').or_else(|| t.strip_prefix("//")) {
                     comment.push(c.trim().to_string());
                 } else {
-                    entries.push(Entry { name: t.split(':').next().unwrap_or("").trim().to_string(), comment: std::mem::take(&mut comment) });
+                    entries.push(Entry {
+                        name: t.split(':').next().unwrap_or("").trim().to_string(),
+                        comment: std::mem::take(&mut comment),
+                    });
                 }
             }
-            files.push(ListFile { file: p.file_name().unwrap_or_default().to_string_lossy().into_owned(), entries });
+            files.push(ListFile {
+                file: p
+                    .file_name()
+                    .unwrap_or_default()
+                    .to_string_lossy()
+                    .into_owned(),
+                entries,
+            });
         }
     }
     let _ = listed_names;
-    KindLists { kind: kind.id(), dir: dir.display().to_string(), default_file: kind.default_file(), note: kind.note(), files }
+    KindLists {
+        kind: kind.id(),
+        dir: dir.display().to_string(),
+        default_file: kind.default_file(),
+        note: kind.note(),
+        files,
+    }
 }
 
 #[cfg(test)]
@@ -350,9 +408,20 @@ mod tests {
 
     #[test]
     fn parses_detail() {
-        let d = parse_detail("Analyst signature (clamav): Trojan.Win32.X.A — Win.Trojan.Agent-1 (ClamAV), Unpacked:Generic_Rule (Unicorn_Unpacker_YARA), Archive:a:b.exe:HDS_1 (Archive_HydraSig), MalwareNet.PE.HighConfidence (PE_ML) — [Unicorn Unpacked: 1 PE (3 KB)]");
+        let d = parse_detail(
+            "Analyst signature (clamav): Trojan.Win32.X.A — Win.Trojan.Agent-1 (ClamAV), Unpacked:Generic_Rule (Unicorn_Unpacker_YARA), Archive:a:b.exe:HDS_1 (Archive_HydraSig), MalwareNet.PE.HighConfidence (PE_ML) — [Unicorn Unpacked: 1 PE (3 KB)]",
+        );
         let v: Vec<(&str, &str)> = d.iter().map(|x| (x.kind, x.name.as_str())).collect();
-        assert_eq!(v, vec![("analyst", "Trojan.Win32.X.A"), ("clamav", "Win.Trojan.Agent-1"), ("yara", "Generic_Rule"), ("hydrasig", "HDS_1"), ("other", "MalwareNet.PE.HighConfidence")]);
+        assert_eq!(
+            v,
+            vec![
+                ("analyst", "Trojan.Win32.X.A"),
+                ("clamav", "Win.Trojan.Agent-1"),
+                ("yara", "Generic_Rule"),
+                ("hydrasig", "HDS_1"),
+                ("other", "MalwareNet.PE.HighConfidence")
+            ]
+        );
     }
 
     #[test]
@@ -360,7 +429,15 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("fpig{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(dir.join("database")).unwrap();
-        let req = |name: &'static str| AddRequest { kind: Kind::ClamAv, name, file: "my", reason: "clean installer", analyst: "E", sha256: "ab", file_name: "x.exe" };
+        let req = |name: &'static str| AddRequest {
+            kind: Kind::ClamAv,
+            name,
+            file: "my",
+            reason: "clean installer",
+            analyst: "E",
+            sha256: "ab",
+            file_name: "x.exe",
+        };
         let p = add(&dir, &req("Win.A-1")).unwrap();
         add(&dir, &req("Win.B-2")).unwrap();
         assert!(add(&dir, &req("Win.A-1")).is_err());

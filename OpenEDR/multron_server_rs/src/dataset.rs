@@ -61,7 +61,6 @@ use std::sync::{Arc, Mutex};
 
 use serde::{Deserialize, Serialize};
 
-
 /// Days of additions in `public_stats`.
 pub const STATS_DAYS: usize = 30;
 
@@ -121,7 +120,9 @@ impl FolderSpec {
         match self {
             FolderSpec::Path(p) => ((p, Source::Own), None),
             FolderSpec::Tagged { path, source, name } => {
-                let name = name.map(|n| n.trim().chars().take(48).collect::<String>()).filter(|n| !n.is_empty());
+                let name = name
+                    .map(|n| n.trim().chars().take(48).collect::<String>())
+                    .filter(|n| !n.is_empty());
                 ((path, source), name)
             }
         }
@@ -231,13 +232,20 @@ impl DatasetPaths {
     /// Display name of a configured folder (`name` in dataset_paths.json).
     pub fn name_of(&self, platform: Platform, label: Label, dir: &Path) -> Option<String> {
         let l = self.list(platform, label);
-        l.0.iter().position(|(p, _)| p == dir).and_then(|i| l.1.get(i).cloned().flatten())
+        l.0.iter()
+            .position(|(p, _)| p == dir)
+            .and_then(|i| l.1.get(i).cloned().flatten())
     }
 
     /// Configured folders of the same platform and label that lie inside `dir`: their
     /// files belong to them (their own source and name), not to `dir`.
     pub fn nested_in(&self, platform: Platform, label: Label, dir: &Path) -> Vec<PathBuf> {
-        self.list(platform, label).0.iter().filter(|(p, _)| is_inside(p, dir)).map(|(p, _)| p.clone()).collect()
+        self.list(platform, label)
+            .0
+            .iter()
+            .filter(|(p, _)| is_inside(p, dir))
+            .map(|(p, _)| p.clone())
+            .collect()
     }
 
     /// Every configured folder with its platform, label and source (a folder listed
@@ -247,7 +255,11 @@ impl DatasetPaths {
         for platform in Platform::ALL {
             for label in Label::ALL {
                 for (p, source) in &self.list(platform, label).0 {
-                    if p.as_os_str().is_empty() || out.iter().any(|f| f.0 == platform && f.1 == label && f.3 == *p) {
+                    if p.as_os_str().is_empty()
+                        || out
+                            .iter()
+                            .any(|f| f.0 == platform && f.1 == label && f.3 == *p)
+                    {
                         continue;
                     }
                     out.push((platform, label, *source, p.clone()));
@@ -358,7 +370,8 @@ impl UserFile {
             sha256: sha256.to_string(),
             platform: names.iter().find_map(|n| platform_of_name(n.as_ref())),
             label: human_label(verdict),
-            added: chrono::DateTime::parse_from_rfc3339(first_seen).map_or(0, |d| d.timestamp().max(0) as u64),
+            added: chrono::DateTime::parse_from_rfc3339(first_seen)
+                .map_or(0, |d| d.timestamp().max(0) as u64),
         }
     }
 }
@@ -368,9 +381,8 @@ pub fn platform_of_name(name: &str) -> Option<Platform> {
     let lower = name.to_ascii_lowercase();
     let ext = lower.rsplit_once('.').map(|(_, e)| e)?;
     match ext {
-        "exe" | "dll" | "sys" | "scr" | "ocx" | "cpl" | "drv" | "efi" | "mui" | "com" | "ax" | "acm" | "pyd" | "node" => {
-            Some(Platform::Windows)
-        }
+        "exe" | "dll" | "sys" | "scr" | "ocx" | "cpl" | "drv" | "efi" | "mui" | "com" | "ax"
+        | "acm" | "pyd" | "node" => Some(Platform::Windows),
         "apk" | "xapk" | "apks" => Some(Platform::Android),
         "js" | "mjs" | "cjs" | "jse" => Some(Platform::JavaScript),
         _ => None,
@@ -441,7 +453,9 @@ impl Dataset {
     pub fn load() -> Option<Arc<Self>> {
         let ds = Arc::new(Self::from_config()?);
         let bg = Arc::clone(&ds);
-        let _ = std::thread::Builder::new().name("dataset-index".into()).spawn(move || bg.build_index());
+        let _ = std::thread::Builder::new()
+            .name("dataset-index".into())
+            .spawn(move || bg.build_index());
         Some(ds)
     }
 
@@ -507,12 +521,24 @@ impl Dataset {
     /// dataset folders before (your own and public collections) are never touched.
     /// Each removal is a "duplicate_removed" line in `dataset_moves.jsonl`.
     /// None until the index is ready. Returns (files, bytes).
-    pub fn remove_copies_of_kept(&self, kept: &std::collections::HashSet<String>, dry_run: bool) -> Option<(u64, u64)> {
+    pub fn remove_copies_of_kept(
+        &self,
+        kept: &std::collections::HashSet<String>,
+        dry_run: bool,
+    ) -> Option<(u64, u64)> {
         if !self.ready.load(Ordering::Relaxed) {
             return None;
         }
         let (mut files, mut bytes) = (0u64, 0u64);
-        let mut log = if dry_run { None } else { std::fs::OpenOptions::new().create(true).append(true).open(self.moves_file()).ok() };
+        let mut log = if dry_run {
+            None
+        } else {
+            std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(self.moves_file())
+                .ok()
+        };
         let mut index = self.index.lock().unwrap();
         for (sha, entries) in index.iter_mut() {
             if !kept.contains(sha) {
@@ -531,7 +557,10 @@ impl Dataset {
                 let backup = match self.to_backup(e.platform, e.label, &e.path, sha) {
                     Ok(b) => b,
                     Err(err) => {
-                        eprintln!("[dataset] could not move {} to the backup folder: {err}", e.path.display());
+                        eprintln!(
+                            "[dataset] could not move {} to the backup folder: {err}",
+                            e.path.display()
+                        );
                         return true;
                     }
                 };
@@ -575,7 +604,11 @@ impl Dataset {
     }
 
     /// `public_stats` with the files of the archive folders counted as own files.
-    pub fn public_stats_with(&self, users: &[UserFile], archived: &[ArchivedSample]) -> Option<PublicStats> {
+    pub fn public_stats_with(
+        &self,
+        users: &[UserFile],
+        archived: &[ArchivedSample],
+    ) -> Option<PublicStats> {
         if !self.ready.load(Ordering::Relaxed) {
             return None;
         }
@@ -593,13 +626,28 @@ impl Dataset {
     /// A hash users sent that is in no dataset folder of the filter is "users_only"
     /// (day: first seen); all of them also form the `USERS_GROUP` group. Archive-folder
     /// files count as files of an own folder named after their group.
-    fn public_stats_full(&self, now: u64, users: &[UserFile], archived: &[ArchivedSample]) -> PublicStats {
-        const PLATFORMS: [Option<Platform>; 4] =
-            [None, Some(Platform::Windows), Some(Platform::Android), Some(Platform::JavaScript)];
+    fn public_stats_full(
+        &self,
+        now: u64,
+        users: &[UserFile],
+        archived: &[ArchivedSample],
+    ) -> PublicStats {
+        const PLATFORMS: [Option<Platform>; 4] = [
+            None,
+            Some(Platform::Windows),
+            Some(Platform::Android),
+            Some(Platform::JavaScript),
+        ];
         const LABELS: [Option<Label>; 3] = [None, Some(Label::Malware), Some(Label::Clean)];
         let today = now / 86_400;
         let first = today + 1 - STATS_DAYS as u64;
-        let mut acc = vec![(SourceCounts::default(), vec![SourceCounts::default(); STATS_DAYS]); 12];
+        let mut acc = vec![
+            (
+                SourceCounts::default(),
+                vec![SourceCounts::default(); STATS_DAYS]
+            );
+            12
+        ];
         let mut gacc: BTreeMap<Arc<str>, Vec<(u64, Vec<u64>)>> = BTreeMap::new();
         {
             let index = self.index.lock().unwrap();
@@ -611,7 +659,11 @@ impl Dataset {
                 if sha == EMPTY_SHA256 {
                     continue;
                 }
-                let group = Arc::clone(names.entry(a.group.as_str()).or_insert_with(|| Arc::from(a.group.as_str())));
+                let group = Arc::clone(
+                    names
+                        .entry(a.group.as_str())
+                        .or_insert_with(|| Arc::from(a.group.as_str())),
+                );
                 extra.entry(sha).or_default().push(Entry {
                     platform: a.platform,
                     label: a.label,
@@ -639,7 +691,9 @@ impl Dataset {
                     *c = (*c).min(e.added);
                 }
                 for (name, cell) in &gcells {
-                    let a = gacc.entry(Arc::clone(name)).or_insert_with(|| vec![(0, vec![0; STATS_DAYS]); 12]);
+                    let a = gacc
+                        .entry(Arc::clone(name))
+                        .or_insert_with(|| vec![(0, vec![0; STATS_DAYS]); 12]);
                     for (pi, pf) in PLATFORMS.iter().enumerate() {
                         for (li, lf) in LABELS.iter().enumerate() {
                             let mut added = u64::MAX;
@@ -713,16 +767,24 @@ impl Dataset {
                 }
             }
             // Files users sent. Several records of one hash count once.
-            let mut seen: std::collections::HashSet<String> = std::collections::HashSet::with_capacity(users.len());
+            let mut seen: std::collections::HashSet<String> =
+                std::collections::HashSet::with_capacity(users.len());
             let mut uacc = vec![(0u64, vec![0u64; STATS_DAYS]); 12];
             for u in users {
                 let sha = u.sha256.to_ascii_uppercase();
                 if sha == EMPTY_SHA256 || !seen.insert(sha.clone()) {
                     continue;
                 }
-                let entries: Vec<&Entry> = index.get(&sha).into_iter().chain(extra.get(&sha)).flatten().collect();
+                let entries: Vec<&Entry> = index
+                    .get(&sha)
+                    .into_iter()
+                    .chain(extra.get(&sha))
+                    .flatten()
+                    .collect();
                 let day = u.added / 86_400;
-                let day = (first..=today).contains(&day).then(|| (day - first) as usize);
+                let day = (first..=today)
+                    .contains(&day)
+                    .then(|| (day - first) as usize);
                 for (pi, pf) in PLATFORMS.iter().enumerate() {
                     if pf.is_some_and(|x| Some(x) != u.platform) {
                         continue;
@@ -736,8 +798,9 @@ impl Dataset {
                         if let Some(d) = day {
                             g.1[d] += 1;
                         }
-                        let in_dataset =
-                            entries.iter().any(|e| pf.is_none_or(|x| x == e.platform) && lf.is_none_or(|x| x == e.label));
+                        let in_dataset = entries.iter().any(|e| {
+                            pf.is_none_or(|x| x == e.platform) && lf.is_none_or(|x| x == e.label)
+                        });
                         if in_dataset {
                             continue;
                         }
@@ -767,15 +830,28 @@ impl Dataset {
                 let daily = dates
                     .iter()
                     .zip(days)
-                    .map(|(date, c)| DayCounts { date: date.clone(), counts: *c })
+                    .map(|(date, c)| DayCounts {
+                        date: date.clone(),
+                        counts: *c,
+                    })
                     .collect();
-                cells.entry(pf.map_or("all", Platform::key)).or_default().insert(
-                    lf.map_or("all", Label::key),
-                    StatsCell { counts: *counts, total: counts.total(), daily },
-                );
+                cells
+                    .entry(pf.map_or("all", Platform::key))
+                    .or_default()
+                    .insert(
+                        lf.map_or("all", Label::key),
+                        StatsCell {
+                            counts: *counts,
+                            total: counts.total(),
+                            daily,
+                        },
+                    );
             }
         }
-        let mut groups: BTreeMap<String, BTreeMap<&'static str, BTreeMap<&'static str, GroupCell>>> = BTreeMap::new();
+        let mut groups: BTreeMap<
+            String,
+            BTreeMap<&'static str, BTreeMap<&'static str, GroupCell>>,
+        > = BTreeMap::new();
         for (name, a) in gacc {
             let g = groups.entry(name.to_string()).or_default();
             for (pi, pf) in PLATFORMS.iter().enumerate() {
@@ -786,11 +862,21 @@ impl Dataset {
                     }
                     g.entry(pf.map_or("all", Platform::key))
                         .or_default()
-                        .insert(lf.map_or("all", Label::key), GroupCell { total: *total, daily: daily.clone() });
+                        .insert(
+                            lf.map_or("all", Label::key),
+                            GroupCell {
+                                total: *total,
+                                daily: daily.clone(),
+                            },
+                        );
                 }
             }
         }
-        PublicStats { days: STATS_DAYS, cells, groups }
+        PublicStats {
+            days: STATS_DAYS,
+            cells,
+            groups,
+        }
     }
 
     /// `dataset_conflicts.jsonl`: one JSON object per conflict, newest last.
@@ -805,11 +891,17 @@ impl Dataset {
 
     /// The last `limit` conflicts (newest first) for the dashboard.
     pub fn recent_conflicts(&self, limit: usize) -> Vec<serde_json::Value> {
-        let Ok(text) = std::fs::read_to_string(self.conflicts_file()) else { return Vec::new() };
+        let Ok(text) = std::fs::read_to_string(self.conflicts_file()) else {
+            return Vec::new();
+        };
         text.lines()
             .rev()
             .filter_map(|l| serde_json::from_str::<serde_json::Value>(l).ok())
-            .filter(|v| !v["sha256"].as_str().is_some_and(|h| h.eq_ignore_ascii_case(EMPTY_SHA256)))
+            .filter(|v| {
+                !v["sha256"]
+                    .as_str()
+                    .is_some_and(|h| h.eq_ignore_ascii_case(EMPTY_SHA256))
+            })
             .take(limit)
             .collect()
     }
@@ -818,12 +910,17 @@ impl Dataset {
     /// again) and lines about empty files; label conflicts found by human verdicts stay.
     fn prune_conflicts(&self) {
         let path = self.conflicts_file();
-        let Ok(text) = std::fs::read_to_string(&path) else { return };
+        let Ok(text) = std::fs::read_to_string(&path) else {
+            return;
+        };
         let kept: Vec<&str> = text
             .lines()
             .filter(|l| {
                 serde_json::from_str::<serde_json::Value>(l).is_ok_and(|v| {
-                    v["kind"] != "existing" && !v["sha256"].as_str().is_some_and(|h| h.eq_ignore_ascii_case(EMPTY_SHA256))
+                    v["kind"] != "existing"
+                        && !v["sha256"]
+                            .as_str()
+                            .is_some_and(|h| h.eq_ignore_ascii_case(EMPTY_SHA256))
                 })
             })
             .collect();
@@ -863,10 +960,19 @@ impl Dataset {
                 let mut remembered = 0u64;
                 for (p, (s, m, h)) in &cache {
                     let path = PathBuf::from(p);
-                    if !is_inside(&path, &dir) || nested.iter().any(|n| is_inside(&path, n)) || *s == 0 || h == EMPTY_SHA256 {
+                    if !is_inside(&path, &dir)
+                        || nested.iter().any(|n| is_inside(&path, n))
+                        || *s == 0
+                        || h == EMPTY_SHA256
+                    {
                         continue;
                     }
-                    fresh.push(CacheLine { p: p.clone(), s: *s, m: *m, h: h.clone() });
+                    fresh.push(CacheLine {
+                        p: p.clone(),
+                        s: *s,
+                        m: *m,
+                        h: h.clone(),
+                    });
                     let ours = is_ours(&path, h);
                     map.entry(h.clone()).or_default().push(Entry {
                         platform,
@@ -881,11 +987,16 @@ impl Dataset {
                     self.indexed_files.fetch_add(1, Ordering::Relaxed);
                     remembered += 1;
                 }
-                eprintln!("[dataset] {} is not reachable: {remembered} remembered files stay counted (never moved or removed)", dir.display());
+                eprintln!(
+                    "[dataset] {} is not reachable: {remembered} remembered files stay counted (never moved or removed)",
+                    dir.display()
+                );
                 continue;
             }
             for path in walk_files(&dir, &nested) {
-                let Ok(meta) = std::fs::metadata(&path) else { continue };
+                let Ok(meta) = std::fs::metadata(&path) else {
+                    continue;
+                };
                 let size = meta.len();
                 if size == 0 {
                     empty += 1;
@@ -907,9 +1018,23 @@ impl Dataset {
                         None => continue,
                     },
                 };
-                fresh.push(CacheLine { p: key, s: size, m: mtime, h: sha.clone() });
+                fresh.push(CacheLine {
+                    p: key,
+                    s: size,
+                    m: mtime,
+                    h: sha.clone(),
+                });
                 let ours = is_ours(&path, &sha);
-                map.entry(sha).or_default().push(Entry { platform, label, path, ours, source, added, group: group.clone(), offline: false });
+                map.entry(sha).or_default().push(Entry {
+                    platform,
+                    label,
+                    path,
+                    ours,
+                    source,
+                    added,
+                    group: group.clone(),
+                    offline: false,
+                });
                 let n = self.indexed_files.fetch_add(1, Ordering::Relaxed) + 1;
                 if n % 20_000 == 0 {
                     eprintln!("[dataset] indexing: {n} files ({hashed} hashed)");
@@ -924,18 +1049,34 @@ impl Dataset {
                 }
             }
         }
-        let removed = if self.remove_dups.load(Ordering::Relaxed) { self.remove_duplicates(&mut map) } else { 0 };
+        let removed = if self.remove_dups.load(Ordering::Relaxed) {
+            self.remove_duplicates(&mut map)
+        } else {
+            0
+        };
         if removed > 0 {
-            eprintln!("[dataset] {removed} duplicate files removed (same content, same platform and label; dataset_moves.jsonl)");
+            eprintln!(
+                "[dataset] {removed} duplicate files removed (same content, same platform and label; dataset_moves.jsonl)"
+            );
         }
         // Conflicts already in the data: the same content under both labels.
         self.prune_conflicts();
         for (sha, entries) in &map {
             for platform in Platform::ALL {
-                let mal: Vec<&Entry> = entries.iter().filter(|e| e.platform == platform && e.label == Label::Malware).collect();
-                let cln: Vec<&Entry> = entries.iter().filter(|e| e.platform == platform && e.label == Label::Clean).collect();
+                let mal: Vec<&Entry> = entries
+                    .iter()
+                    .filter(|e| e.platform == platform && e.label == Label::Malware)
+                    .collect();
+                let cln: Vec<&Entry> = entries
+                    .iter()
+                    .filter(|e| e.platform == platform && e.label == Label::Clean)
+                    .collect();
                 if !mal.is_empty() && !cln.is_empty() {
-                    let paths: Vec<PathBuf> = mal.iter().chain(cln.iter()).map(|e| e.path.clone()).collect();
+                    let paths: Vec<PathBuf> = mal
+                        .iter()
+                        .chain(cln.iter())
+                        .map(|e| e.path.clone())
+                        .collect();
                     self.record_conflict("existing", sha, platform, None, "dataset index", &paths);
                 }
             }
@@ -950,9 +1091,14 @@ impl Dataset {
         );
         // Human verdicts first: the queued copies then find their files in place.
         let human = std::mem::take(&mut *self.pending_human.lock().unwrap());
-        let moved: usize = human.iter().map(|(sha, label)| self.apply_human_verdict(sha, *label)).sum();
+        let moved: usize = human
+            .iter()
+            .map(|(sha, label)| self.apply_human_verdict(sha, *label))
+            .sum();
         if moved > 0 {
-            eprintln!("[dataset] {moved} files moved to the folder of their human verdict (dataset_moves.jsonl)");
+            eprintln!(
+                "[dataset] {moved} files moved to the folder of their human verdict (dataset_moves.jsonl)"
+            );
         }
     }
 
@@ -960,7 +1106,9 @@ impl Dataset {
     /// every completed review at start. Returns how many files were moved (0 while the
     /// index is not ready: they are applied when it is).
     pub fn apply_human_verdicts(&self, verdicts: &[(String, String)]) -> usize {
-        let labelled = verdicts.iter().filter_map(|(sha, v)| Some((sha.clone(), human_label(v)?)));
+        let labelled = verdicts
+            .iter()
+            .filter_map(|(sha, v)| Some((sha.clone(), human_label(v)?)));
         if !self.ready.load(Ordering::Relaxed) {
             let mut g = self.pending_human.lock().unwrap();
             if !self.ready.load(Ordering::Relaxed) {
@@ -968,7 +1116,9 @@ impl Dataset {
                 return 0;
             }
         }
-        labelled.map(|(sha, label)| self.apply_human_verdict(&sha, label)).sum()
+        labelled
+            .map(|(sha, label)| self.apply_human_verdict(&sha, label))
+            .sum()
     }
 
     /// A human verdict wins over the dataset folders, without loss and without
@@ -996,7 +1146,9 @@ impl Dataset {
         }
         let mut moved = 0;
         let mut index = self.index.lock().unwrap();
-        let Some(entries) = index.get_mut(&sha) else { return 0 };
+        let Some(entries) = index.get_mut(&sha) else {
+            return 0;
+        };
         entries.retain(|e| e.offline || e.path.exists());
         let mut i = 0;
         while i < entries.len() {
@@ -1007,12 +1159,18 @@ impl Dataset {
             }
             let platform = entries[i].platform;
             // Already under the verdict's label: this copy is a duplicate.
-            if let Some(k) = entries.iter().position(|x| x.platform == platform && x.label == label && !x.offline) {
+            if let Some(k) = entries
+                .iter()
+                .position(|x| x.platform == platform && x.label == label && !x.offline)
+            {
                 let (dup, original) = (entries[i].path.clone(), entries[k].path.clone());
                 let backup = match self.to_backup(platform, label.other(), &dup, &sha) {
                     Ok(b) => b,
                     Err(err) => {
-                        eprintln!("[dataset] human verdict {sha}: could not move duplicate {} to the backup folder: {err}", dup.display());
+                        eprintln!(
+                            "[dataset] human verdict {sha}: could not move duplicate {} to the backup folder: {err}",
+                            dup.display()
+                        );
                         i += 1;
                         continue;
                     }
@@ -1029,8 +1187,17 @@ impl Dataset {
                     "duplicate_of": original.display().to_string(),
                     "reason": "human verdict",
                 });
-                eprintln!("[dataset] human verdict: {} -> {} (same content as {})", dup.display(), backup.display(), original.display());
-                if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(self.moves_file()) {
+                eprintln!(
+                    "[dataset] human verdict: {} -> {} (same content as {})",
+                    dup.display(),
+                    backup.display(),
+                    original.display()
+                );
+                if let Ok(mut f) = std::fs::OpenOptions::new()
+                    .create(true)
+                    .append(true)
+                    .open(self.moves_file())
+                {
                     let _ = writeln!(f, "{line}");
                 }
                 entries.remove(i);
@@ -1039,17 +1206,29 @@ impl Dataset {
             }
             let e = &mut entries[i];
             i += 1;
-            let Some((dir, source, group)) = self.human_target(e.platform, label, e.group.as_deref()) else {
-                eprintln!("[dataset] human verdict {sha}: no {} folder for {}; {} left in place", label.key(), e.platform.key(), e.path.display());
+            let Some((dir, source, group)) =
+                self.human_target(e.platform, label, e.group.as_deref())
+            else {
+                eprintln!(
+                    "[dataset] human verdict {sha}: no {} folder for {}; {} left in place",
+                    label.key(),
+                    e.platform.key(),
+                    e.path.display()
+                );
                 continue;
             };
-            let Some(name) = e.path.file_name().map(|n| n.to_os_string()) else { continue };
+            let Some(name) = e.path.file_name().map(|n| n.to_os_string()) else {
+                continue;
+            };
             let target = match free_name(&dir, Path::new(&name)) {
                 Some(t) => t,
                 None => continue,
             };
             if let Err(err) = move_verified(&e.path, &target, &sha) {
-                eprintln!("[dataset] human verdict {sha}: could not move {}: {err}", e.path.display());
+                eprintln!(
+                    "[dataset] human verdict {sha}: could not move {}: {err}",
+                    e.path.display()
+                );
                 continue;
             }
             let line = serde_json::json!({
@@ -1063,15 +1242,31 @@ impl Dataset {
                 "to": target.display().to_string(),
                 "reason": "human verdict",
             });
-            eprintln!("[dataset] human verdict: {} -> {}", e.path.display(), target.display());
-            if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(self.moves_file()) {
+            eprintln!(
+                "[dataset] human verdict: {} -> {}",
+                e.path.display(),
+                target.display()
+            );
+            if let Ok(mut f) = std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(self.moves_file())
+            {
                 let _ = writeln!(f, "{line}");
             }
             if let (Ok(meta), Ok(mut f)) = (
                 std::fs::metadata(&target),
-                std::fs::OpenOptions::new().create(true).append(true).open(self.cache_file()),
+                std::fs::OpenOptions::new()
+                    .create(true)
+                    .append(true)
+                    .open(self.cache_file()),
             ) {
-                let c = CacheLine { p: target.to_string_lossy().into_owned(), s: meta.len(), m: unix_secs(meta.modified().ok()), h: sha.clone() };
+                let c = CacheLine {
+                    p: target.to_string_lossy().into_owned(),
+                    s: meta.len(),
+                    m: unix_secs(meta.modified().ok()),
+                    h: sha.clone(),
+                };
                 if let Ok(s) = serde_json::to_string(&c) {
                     let _ = writeln!(f, "{s}");
                 }
@@ -1085,7 +1280,8 @@ impl Dataset {
         }
         drop(index);
         if moved > 0 {
-            self.moved_by_human.fetch_add(moved as u64, Ordering::Relaxed);
+            self.moved_by_human
+                .fetch_add(moved as u64, Ordering::Relaxed);
             self.drop_conflicts_for(&sha);
         }
         moved
@@ -1099,7 +1295,11 @@ impl Dataset {
     /// is a conflict, not a duplicate: left alone (a human verdict settles it).
     fn remove_duplicates(&self, map: &mut HashMap<String, Vec<Entry>>) -> usize {
         let mut removed = 0;
-        let mut log = std::fs::OpenOptions::new().create(true).append(true).open(self.moves_file()).ok();
+        let mut log = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(self.moves_file())
+            .ok();
         for (sha, entries) in map.iter_mut() {
             if entries.len() < 2 {
                 continue;
@@ -1108,14 +1308,23 @@ impl Dataset {
                 for label in Label::ALL {
                     // Remembered files of unreachable folders are never moved.
                     let mut same: Vec<usize> = (0..entries.len())
-                        .filter(|&i| entries[i].platform == platform && entries[i].label == label && !entries[i].offline)
+                        .filter(|&i| {
+                            entries[i].platform == platform
+                                && entries[i].label == label
+                                && !entries[i].offline
+                        })
                         .collect();
                     if same.len() < 2 {
                         continue;
                     }
                     same.sort_by_key(|&i| {
                         let e = &entries[i];
-                        (e.source != Source::Public, e.ours, e.added, e.path.as_os_str().len())
+                        (
+                            e.source != Source::Public,
+                            e.ours,
+                            e.added,
+                            e.path.as_os_str().len(),
+                        )
                     });
                     let keep = entries[same[0]].path.clone();
                     let mut gone: Vec<usize> = Vec::new();
@@ -1124,7 +1333,10 @@ impl Dataset {
                         let backup = match self.to_backup(platform, label, dup, sha) {
                             Ok(b) => b,
                             Err(err) => {
-                                eprintln!("[dataset] could not move duplicate {} to the backup folder: {err}", dup.display());
+                                eprintln!(
+                                    "[dataset] could not move duplicate {} to the backup folder: {err}",
+                                    dup.display()
+                                );
                                 continue;
                             }
                         };
@@ -1154,8 +1366,10 @@ impl Dataset {
             }
         }
         if removed > 0 {
-            self.duplicates_removed.fetch_add(removed as u64, Ordering::Relaxed);
-            self.indexed_files.fetch_sub(removed as u64, Ordering::Relaxed);
+            self.duplicates_removed
+                .fetch_add(removed as u64, Ordering::Relaxed);
+            self.indexed_files
+                .fetch_sub(removed as u64, Ordering::Relaxed);
         }
         removed
     }
@@ -1163,22 +1377,30 @@ impl Dataset {
     /// Where a file goes for a human verdict: same platform and label, the folder with
     /// the same display name first, else the first own folder, else the first folder;
     /// only folders that exist here.
-    fn human_target(&self, platform: Platform, label: Label, group: Option<&str>) -> Option<(PathBuf, Source, Option<Arc<str>>)> {
+    fn human_target(
+        &self,
+        platform: Platform,
+        label: Label,
+        group: Option<&str>,
+    ) -> Option<(PathBuf, Source, Option<Arc<str>>)> {
         let l = self.paths.list(platform, label);
-        let folders: Vec<(&PathBuf, Source, Option<&String>)> = l
-            .0
-            .iter()
-            .enumerate()
-            // Only folders that are here: an unreachable one (another PC, the cloud
-            // server) is never created by a move.
-            .filter(|(_, (p, _))| !p.as_os_str().is_empty() && p.is_dir())
-            .map(|(i, (p, s))| (p, *s, l.1.get(i).and_then(|n| n.as_ref())))
-            .collect();
+        let folders: Vec<(&PathBuf, Source, Option<&String>)> =
+            l.0.iter()
+                .enumerate()
+                // Only folders that are here: an unreachable one (another PC, the cloud
+                // server) is never created by a move.
+                .filter(|(_, (p, _))| !p.as_os_str().is_empty() && p.is_dir())
+                .map(|(i, (p, s))| (p, *s, l.1.get(i).and_then(|n| n.as_ref())))
+                .collect();
         let pick = group
             .and_then(|g| folders.iter().find(|f| f.2.is_some_and(|n| n == g)))
             .or_else(|| folders.iter().find(|f| f.1 == Source::Own))
             .or_else(|| folders.first())?;
-        Some((pick.0.clone(), pick.1, pick.2.map(|n| Arc::from(n.as_str()))))
+        Some((
+            pick.0.clone(),
+            pick.1,
+            pick.2.map(|n| Arc::from(n.as_str())),
+        ))
     }
 
     /// Backup folder for files taken out of a dataset folder (duplicates): next to the
@@ -1196,17 +1418,28 @@ impl Dataset {
             .cloned()
             .or_else(|| path.parent().map(Path::to_path_buf))
             .unwrap_or_default();
-        let name = root.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| "dataset".into());
+        let name = root
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_else(|| "dataset".into());
         let kind = match platform {
             Platform::Windows => "pe",
             Platform::Android => "apk",
             Platform::JavaScript => "js",
         };
-        root.parent().unwrap_or(&root).join(format!("{BACKUP_PREFIX}{name}_{kind}"))
+        root.parent()
+            .unwrap_or(&root)
+            .join(format!("{BACKUP_PREFIX}{name}_{kind}"))
     }
 
     /// Moves a dataset file to its backup folder (nothing is deleted). Returns where.
-    fn to_backup(&self, platform: Platform, label: Label, path: &Path, sha_upper: &str) -> Result<PathBuf, String> {
+    fn to_backup(
+        &self,
+        platform: Platform,
+        label: Label,
+        path: &Path,
+        sha_upper: &str,
+    ) -> Result<PathBuf, String> {
         let dir = self.backup_dir(platform, label, path);
         let name = path.file_name().ok_or("no file name")?;
         let target = free_name(&dir, Path::new(name)).ok_or("no free name in the backup folder")?;
@@ -1222,12 +1455,17 @@ impl Dataset {
     /// Conflict lines about a hash a human verdict has settled.
     fn drop_conflicts_for(&self, sha: &str) {
         let path = self.conflicts_file();
-        let Ok(text) = std::fs::read_to_string(&path) else { return };
+        let Ok(text) = std::fs::read_to_string(&path) else {
+            return;
+        };
         let kept: Vec<&str> = text
             .lines()
             .filter(|l| {
-                !serde_json::from_str::<serde_json::Value>(l)
-                    .is_ok_and(|v| v["sha256"].as_str().is_some_and(|h| h.eq_ignore_ascii_case(sha)))
+                !serde_json::from_str::<serde_json::Value>(l).is_ok_and(|v| {
+                    v["sha256"]
+                        .as_str()
+                        .is_some_and(|h| h.eq_ignore_ascii_case(sha))
+                })
             })
             .collect();
         if kept.len() != text.lines().count() {
@@ -1239,7 +1477,15 @@ impl Dataset {
         }
     }
 
-    fn record_conflict(&self, kind: &str, sha: &str, platform: Platform, wanted: Option<Label>, source: &str, paths: &[PathBuf]) {
+    fn record_conflict(
+        &self,
+        kind: &str,
+        sha: &str,
+        platform: Platform,
+        wanted: Option<Label>,
+        source: &str,
+        paths: &[PathBuf],
+    ) {
         self.conflicts.fetch_add(1, Ordering::Relaxed);
         let line = serde_json::json!({
             "time": chrono::Utc::now().to_rfc3339(),
@@ -1251,7 +1497,11 @@ impl Dataset {
             "files": paths.iter().map(|p| p.display().to_string()).collect::<Vec<_>>(),
         });
         eprintln!("[dataset] label conflict ({kind}) {sha}: {}", line["files"]);
-        if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(self.conflicts_file()) {
+        if let Ok(mut f) = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(self.conflicts_file())
+        {
             let _ = writeln!(f, "{line}");
         }
     }
@@ -1273,7 +1523,8 @@ fn label_idx(l: Label) -> usize {
 }
 
 fn unix_secs(t: Option<std::time::SystemTime>) -> u64 {
-    t.and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok()).map_or(0, |d| d.as_secs())
+    t.and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .map_or(0, |d| d.as_secs())
 }
 
 fn now_secs() -> u64 {
@@ -1290,8 +1541,13 @@ fn free_name(dir: &Path, name: &Path) -> Option<PathBuf> {
         return Some(first);
     }
     let stem = name.file_stem()?.to_string_lossy().into_owned();
-    let ext = name.extension().map(|e| format!(".{}", e.to_string_lossy())).unwrap_or_default();
-    (2..10_000).map(|n| dir.join(format!("{stem} ({n}){ext}"))).find(|p| !p.exists())
+    let ext = name
+        .extension()
+        .map(|e| format!(".{}", e.to_string_lossy()))
+        .unwrap_or_default();
+    (2..10_000)
+        .map(|n| dir.join(format!("{stem} ({n}){ext}")))
+        .find(|p| !p.exists())
 }
 
 /// Moves `from` to `to` without losing it: a rename, or across drives a copy that is
@@ -1305,7 +1561,11 @@ fn move_verified(from: &Path, to: &Path, sha_upper: &str) -> Result<(), String> 
     match sha256_file(to) {
         Some(h) if h.eq_ignore_ascii_case(sha_upper) => {
             if let Err(e) = std::fs::remove_file(from) {
-                eprintln!("[dataset] copied to {} but could not remove {}: {e}", to.display(), from.display());
+                eprintln!(
+                    "[dataset] copied to {} but could not remove {}: {e}",
+                    to.display(),
+                    from.display()
+                );
             }
             Ok(())
         }
@@ -1317,7 +1577,9 @@ fn move_verified(from: &Path, to: &Path, sha_upper: &str) -> Result<(), String> 
 }
 
 fn is_ours(path: &Path, sha_upper: &str) -> bool {
-    path.file_stem().and_then(|s| s.to_str()).is_some_and(|s| s.eq_ignore_ascii_case(sha_upper))
+    path.file_stem()
+        .and_then(|s| s.to_str())
+        .is_some_and(|s| s.eq_ignore_ascii_case(sha_upper))
 }
 
 pub(crate) fn sha256_file(path: &Path) -> Option<String> {
@@ -1343,13 +1605,18 @@ pub(crate) fn walk_files(dir: &Path, skip: &[PathBuf]) -> Vec<PathBuf> {
     let mut out = Vec::new();
     let mut stack = vec![dir.to_path_buf()];
     while let Some(d) = stack.pop() {
-        let Ok(rd) = std::fs::read_dir(&d) else { continue };
+        let Ok(rd) = std::fs::read_dir(&d) else {
+            continue;
+        };
         for e in rd.flatten() {
             let Ok(ft) = e.file_type() else { continue };
             let p = e.path();
             if ft.is_dir() {
                 let n = e.file_name().to_string_lossy().to_ascii_lowercase();
-                if n.starts_with('.') || n.starts_with(BACKUP_PREFIX) || skip.iter().any(|s| same_path(s, &p)) {
+                if n.starts_with('.')
+                    || n.starts_with(BACKUP_PREFIX)
+                    || skip.iter().any(|s| same_path(s, &p))
+                {
                     continue;
                 }
                 stack.push(p);
@@ -1364,7 +1631,10 @@ pub(crate) fn walk_files(dir: &Path, skip: &[PathBuf]) -> Vec<PathBuf> {
 /// Path text for comparisons: `/` separators, no trailing one, lower case (Windows
 /// paths are case-insensitive).
 fn path_key(p: &Path) -> String {
-    p.to_string_lossy().replace('\\', "/").trim_end_matches('/').to_lowercase()
+    p.to_string_lossy()
+        .replace('\\', "/")
+        .trim_end_matches('/')
+        .to_lowercase()
 }
 
 fn same_path(a: &Path, b: &Path) -> bool {
@@ -1406,7 +1676,8 @@ mod tests {
     }
 
     fn setup(name: &str) -> (PathBuf, Dataset) {
-        let root = std::env::temp_dir().join(format!("multron_dataset_{name}_{}", std::process::id()));
+        let root =
+            std::env::temp_dir().join(format!("multron_dataset_{name}_{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
         std::fs::create_dir_all(root.join("mal")).unwrap();
         std::fs::create_dir_all(root.join("clean")).unwrap();
@@ -1427,20 +1698,35 @@ mod tests {
         std::fs::write(root.join("mal").join("m.exe"), &a).unwrap();
         std::fs::write(root.join("clean").join("c.exe"), &a).unwrap();
         ds.build_index();
-        assert_eq!(ds.status().conflicts, 1, "the same content under both labels already");
+        assert_eq!(
+            ds.status().conflicts,
+            1,
+            "the same content under both labels already"
+        );
         // The digest cache lets a second index reuse the hashes.
-        let cache = std::fs::read_to_string(root.join("state").join("dataset_index.jsonl")).unwrap();
+        let cache =
+            std::fs::read_to_string(root.join("state").join("dataset_index.jsonl")).unwrap();
         assert_eq!(cache.lines().count(), 2);
         let _ = std::fs::remove_dir_all(&root);
     }
 
     #[test]
     fn old_config_format_is_own() {
-        let p: DatasetPaths =
-            serde_json::from_str(r#"{ "windows_malware": "C:\\data\\mal", "android_clean": null }"#).unwrap();
+        let p: DatasetPaths = serde_json::from_str(
+            r#"{ "windows_malware": "C:\\data\\mal", "android_clean": null }"#,
+        )
+        .unwrap();
         assert_eq!(p.windows_malware, FolderList::own("C:\\data\\mal"));
         assert_eq!(p.android_clean, FolderList::default());
-        assert_eq!(p.folders(), vec![(Platform::Windows, Label::Malware, Source::Own, PathBuf::from("C:\\data\\mal"))]);
+        assert_eq!(
+            p.folders(),
+            vec![(
+                Platform::Windows,
+                Label::Malware,
+                Source::Own,
+                PathBuf::from("C:\\data\\mal")
+            )]
+        );
         assert!(p.any());
     }
 
@@ -1460,7 +1746,12 @@ mod tests {
             }"#,
         )
         .unwrap();
-        let mal: Vec<_> = p.folders().into_iter().filter(|f| f.1 == Label::Malware).map(|f| (f.2, f.3)).collect();
+        let mal: Vec<_> = p
+            .folders()
+            .into_iter()
+            .filter(|f| f.1 == Label::Malware)
+            .map(|f| (f.2, f.3))
+            .collect();
         assert_eq!(
             mal,
             vec![
@@ -1472,14 +1763,28 @@ mod tests {
             "a folder listed twice is walked once"
         );
         // Copies go to the first own folder, never to a public one.
-        assert!(serde_json::from_str::<DatasetPaths>(r#"{ "windows_malware": { "path": "x", "source": "mine" } }"#).is_err());
+        assert!(
+            serde_json::from_str::<DatasetPaths>(
+                r#"{ "windows_malware": { "path": "x", "source": "mine" } }"#
+            )
+            .is_err()
+        );
     }
 
     /// own + public folders for windows malware / clean and an own android folder.
     fn setup_sources(name: &str) -> (PathBuf, Dataset) {
-        let root = std::env::temp_dir().join(format!("multron_dataset_{name}_{}", std::process::id()));
+        let root =
+            std::env::temp_dir().join(format!("multron_dataset_{name}_{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
-        for d in ["mal_own", "mal_pub", "mal_pub2", "clean_own", "clean_pub", "apk_own", "state"] {
+        for d in [
+            "mal_own",
+            "mal_pub",
+            "mal_pub2",
+            "clean_own",
+            "clean_pub",
+            "apk_own",
+            "state",
+        ] {
             std::fs::create_dir_all(root.join(d)).unwrap();
         }
         let paths = DatasetPaths {
@@ -1491,7 +1796,13 @@ mod tests {
                 ],
                 vec![None; 3],
             ),
-            windows_clean: FolderList(vec![(root.join("clean_own"), Source::Own), (root.join("clean_pub"), Source::Public)], vec![None; 2]),
+            windows_clean: FolderList(
+                vec![
+                    (root.join("clean_own"), Source::Own),
+                    (root.join("clean_pub"), Source::Public),
+                ],
+                vec![None; 2],
+            ),
             android_malware: FolderList::own(root.join("apk_own")),
             ..Default::default()
         };
@@ -1501,7 +1812,12 @@ mod tests {
 
     fn counts(st: &PublicStats, platform: &str, label: &str) -> (u64, u64, u64, u64) {
         let c = &st.cells[platform][label];
-        (c.counts.own_only, c.counts.public_only, c.counts.both, c.total)
+        (
+            c.counts.own_only,
+            c.counts.public_only,
+            c.counts.both,
+            c.total,
+        )
     }
 
     #[test]
@@ -1540,7 +1856,10 @@ mod tests {
         let e = pe(14);
         std::fs::write(root.join("mal_own").join("e.exe"), &e).unwrap();
         ds.build_index();
-        assert_eq!(counts(&ds.public_stats(&[]).unwrap(), "windows", "malware"), (1, 2, 1, 4));
+        assert_eq!(
+            counts(&ds.public_stats(&[]).unwrap(), "windows", "malware"),
+            (1, 2, 1, 4)
+        );
         let _ = std::fs::remove_dir_all(&root);
     }
 
@@ -1557,16 +1876,35 @@ mod tests {
         let cell = &st.cells["all"]["all"];
         assert_eq!(st.days, STATS_DAYS);
         assert_eq!(cell.daily.len(), STATS_DAYS);
-        let today = chrono::DateTime::from_timestamp(now as i64, 0).unwrap().format("%Y-%m-%d").to_string();
+        let today = chrono::DateTime::from_timestamp(now as i64, 0)
+            .unwrap()
+            .format("%Y-%m-%d")
+            .to_string();
         let last = cell.daily.last().unwrap();
         assert_eq!(last.date, today, "newest day last");
-        assert_eq!((last.counts.own_only, last.counts.public_only, last.counts.both), (0, 1, 1));
-        assert!(cell.daily[..STATS_DAYS - 1].iter().all(|d| d.counts.total() == 0));
+        assert_eq!(
+            (
+                last.counts.own_only,
+                last.counts.public_only,
+                last.counts.both
+            ),
+            (0, 1, 1)
+        );
+        assert!(
+            cell.daily[..STATS_DAYS - 1]
+                .iter()
+                .all(|d| d.counts.total() == 0)
+        );
         assert!(cell.daily.windows(2).all(|w| w[0].date < w[1].date));
         // 40 days later: the totals stay, the files are out of the window.
         let later = ds.public_stats_at(now + 40 * 86_400, &[]);
         assert_eq!(later.cells["all"]["all"].total, 2);
-        assert!(later.cells["all"]["all"].daily.iter().all(|d| d.counts.total() == 0));
+        assert!(
+            later.cells["all"]["all"]
+                .daily
+                .iter()
+                .all(|d| d.counts.total() == 0)
+        );
         let _ = std::fs::remove_dir_all(&root);
     }
 
@@ -1580,29 +1918,66 @@ mod tests {
         let json = serde_json::to_string(&ds.public_stats(&[]).unwrap()).unwrap();
         let root_s = root.to_string_lossy();
         assert!(!json.contains(root_s.as_ref()));
-        for needle in ["secret_name", "other_secret", "mal_own", "clean_pub", "multron_dataset", ".exe"] {
+        for needle in [
+            "secret_name",
+            "other_secret",
+            "mal_own",
+            "clean_pub",
+            "multron_dataset",
+            ".exe",
+        ] {
             assert!(!json.contains(needle), "{needle} leaked");
         }
         assert!(!json.contains(&sha(&a)) && !json.contains(&sha(&a).to_ascii_lowercase()));
         // Only counts, dates and the fixed keys.
         let v: serde_json::Value = serde_json::from_str(&json).unwrap();
         let cell = &v["cells"]["windows"]["malware"];
-        let mut keys: Vec<&str> = cell.as_object().unwrap().keys().map(String::as_str).collect();
+        let mut keys: Vec<&str> = cell
+            .as_object()
+            .unwrap()
+            .keys()
+            .map(String::as_str)
+            .collect();
         keys.sort();
-        assert_eq!(keys, ["both", "daily", "own_only", "public_only", "total", "users_only"]);
-        let mut day_keys: Vec<&str> = cell["daily"][0].as_object().unwrap().keys().map(String::as_str).collect();
+        assert_eq!(
+            keys,
+            [
+                "both",
+                "daily",
+                "own_only",
+                "public_only",
+                "total",
+                "users_only"
+            ]
+        );
+        let mut day_keys: Vec<&str> = cell["daily"][0]
+            .as_object()
+            .unwrap()
+            .keys()
+            .map(String::as_str)
+            .collect();
         day_keys.sort();
-        assert_eq!(day_keys, ["both", "date", "own_only", "public_only", "users_only"]);
+        assert_eq!(
+            day_keys,
+            ["both", "date", "own_only", "public_only", "users_only"]
+        );
         let _ = std::fs::remove_dir_all(&root);
     }
 
     #[test]
     fn nested_folder_keeps_its_own_source_and_name_and_dot_folders_are_skipped() {
-        let root = std::env::temp_dir().join(format!("multron_dataset_nested_{}", std::process::id()));
+        let root =
+            std::env::temp_dir().join(format!("multron_dataset_nested_{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
         let benign = root.join("dataset").join("benign");
         let fdroid = benign.join("F-Droid");
-        for d in [benign.join("Play"), fdroid.join("repo"), fdroid.join(".cache"), benign.join(".git"), root.join("state")] {
+        for d in [
+            benign.join("Play"),
+            fdroid.join("repo"),
+            fdroid.join(".cache"),
+            benign.join(".git"),
+            root.join("state"),
+        ] {
             std::fs::create_dir_all(d).unwrap();
         }
         let json = serde_json::json!({
@@ -1612,9 +1987,21 @@ mod tests {
             ]
         });
         let paths: DatasetPaths = serde_json::from_value(json).unwrap();
-        assert_eq!(paths.name_of(Platform::Android, Label::Clean, &fdroid).as_deref(), Some("F-Droid"));
-        assert_eq!(paths.nested_in(Platform::Android, Label::Clean, &benign), vec![fdroid.clone()]);
-        assert!(paths.nested_in(Platform::Android, Label::Clean, &fdroid).is_empty());
+        assert_eq!(
+            paths
+                .name_of(Platform::Android, Label::Clean, &fdroid)
+                .as_deref(),
+            Some("F-Droid")
+        );
+        assert_eq!(
+            paths.nested_in(Platform::Android, Label::Clean, &benign),
+            vec![fdroid.clone()]
+        );
+        assert!(
+            paths
+                .nested_in(Platform::Android, Label::Clean, &fdroid)
+                .is_empty()
+        );
         std::fs::write(benign.join("Play").join("a.apk"), pe(40)).unwrap();
         std::fs::write(fdroid.join("repo").join("b.apk"), pe(41)).unwrap();
         // Same content in both: own and public -> "both", counted once per group.
@@ -1627,15 +2014,32 @@ mod tests {
         ds.remove_dups.store(false, Ordering::Relaxed); // counts copies on purpose
         ds.build_index();
         let st = ds.public_stats(&[]).unwrap();
-        assert_eq!(counts(&st, "android", "clean"), (1, 1, 1, 3), "F-Droid files are public, not 'both'");
-        assert_eq!(ds.status().indexed_files, 4, "each file indexed once; .cache / .git skipped");
+        assert_eq!(
+            counts(&st, "android", "clean"),
+            (1, 1, 1, 3),
+            "F-Droid files are public, not 'both'"
+        );
+        assert_eq!(
+            ds.status().indexed_files,
+            4,
+            "each file indexed once; .cache / .git skipped"
+        );
         let g = |name: &str| st.groups[name]["android"]["clean"].total;
         assert_eq!((g("Own benign"), g("F-Droid")), (2, 2));
         assert_eq!(st.groups["F-Droid"]["all"]["all"].total, 2);
-        assert_eq!(st.groups["F-Droid"]["android"]["clean"].daily.len(), STATS_DAYS);
-        assert!(!st.groups["F-Droid"].contains_key("windows"), "empty filters are left out");
+        assert_eq!(
+            st.groups["F-Droid"]["android"]["clean"].daily.len(),
+            STATS_DAYS
+        );
+        assert!(
+            !st.groups["F-Droid"].contains_key("windows"),
+            "empty filters are left out"
+        );
         let json = serde_json::to_string(&st).unwrap();
-        assert!(!json.contains("dataset") && !json.contains("repo"), "names only, never paths");
+        assert!(
+            !json.contains("dataset") && !json.contains("repo"),
+            "names only, never paths"
+        );
         let _ = std::fs::remove_dir_all(&root);
     }
 
@@ -1646,23 +2050,56 @@ mod tests {
         std::fs::write(root.join("mal_own").join("a.exe"), &a).unwrap();
         ds.build_index();
         let now = now_secs();
-        let first_seen = chrono::DateTime::from_timestamp(now as i64, 0).unwrap().to_rfc3339();
+        let first_seen = chrono::DateTime::from_timestamp(now as i64, 0)
+            .unwrap()
+            .to_rfc3339();
         let users = vec![
             // Already in the own malware folder: not counted again.
             UserFile::new(&sha(&a), "malicious", &["a.exe"], &first_seen),
-            UserFile::new(&sha(&b).to_ascii_lowercase(), "malicious", &["b.dll"], &first_seen),
+            UserFile::new(
+                &sha(&b).to_ascii_lowercase(),
+                "malicious",
+                &["b.dll"],
+                &first_seen,
+            ),
             UserFile::new(&sha(&b), "malicious", &["b.dll"], &first_seen),
             UserFile::new(&"C".repeat(64), "unknown", &["photo.jpg"], &first_seen),
             UserFile::new(&"D".repeat(64), "clean", &["app.apk"], "not a date"),
         ];
         let st = ds.public_stats_at(now, &users);
-        let c = |p: &str, l: &str| (st.cells[p][l].counts.own_only, st.cells[p][l].counts.users_only, st.cells[p][l].total);
-        assert_eq!(c("windows", "malware"), (1, 1, 2), "a once (own), b once (users)");
-        assert_eq!(c("all", "all"), (1, 3, 4), "unknown and unnamed platforms count under all");
+        let c = |p: &str, l: &str| {
+            (
+                st.cells[p][l].counts.own_only,
+                st.cells[p][l].counts.users_only,
+                st.cells[p][l].total,
+            )
+        };
+        assert_eq!(
+            c("windows", "malware"),
+            (1, 1, 2),
+            "a once (own), b once (users)"
+        );
+        assert_eq!(
+            c("all", "all"),
+            (1, 3, 4),
+            "unknown and unnamed platforms count under all"
+        );
         assert_eq!(c("android", "clean"), (0, 1, 1));
         assert_eq!(c("android", "malware"), (0, 0, 0));
-        assert_eq!(st.cells["all"]["all"].daily.last().unwrap().counts.users_only, 2, "today; the bad date is not");
-        assert_eq!(st.groups[USERS_GROUP]["all"]["all"].total, 4, "the users group has every hash they sent");
+        assert_eq!(
+            st.cells["all"]["all"]
+                .daily
+                .last()
+                .unwrap()
+                .counts
+                .users_only,
+            2,
+            "today; the bad date is not"
+        );
+        assert_eq!(
+            st.groups[USERS_GROUP]["all"]["all"].total, 4,
+            "the users group has every hash they sent"
+        );
         assert_eq!(st.groups[USERS_GROUP]["windows"]["malware"].total, 2);
         assert_eq!(platform_of_name("Setup.EXE"), Some(Platform::Windows));
         assert_eq!(platform_of_name("readme"), None);
@@ -1676,8 +2113,16 @@ mod tests {
         std::fs::write(root.join("clean_own").join("a.exe"), &a).unwrap();
         ds.build_index();
         let now = now_secs();
-        let first_seen = chrono::DateTime::from_timestamp(now as i64, 0).unwrap().to_rfc3339();
-        let arch = |sha: String| ArchivedSample { sha256: sha, platform: Platform::Windows, label: Label::Clean, added: now, group: r"usbdosyalar\clean".into() };
+        let first_seen = chrono::DateTime::from_timestamp(now as i64, 0)
+            .unwrap()
+            .to_rfc3339();
+        let arch = |sha: String| ArchivedSample {
+            sha256: sha,
+            platform: Platform::Windows,
+            label: Label::Clean,
+            added: now,
+            group: r"usbdosyalar\clean".into(),
+        };
         // a is also in the own clean folder; b exists only in the archive index (deleted from disk).
         let archived = vec![arch(sha(&a)), arch(sha(&b).to_ascii_lowercase())];
         // Both were uploaded by users too: counted once, not as users_only.
@@ -1703,12 +2148,28 @@ mod tests {
         )).unwrap();
         ds.build_index();
         assert_eq!(ds.status().indexed_files, 0);
-        assert_eq!(ds.status().conflicts, 0, "two empty files under both labels are no conflict");
+        assert_eq!(
+            ds.status().conflicts,
+            0,
+            "two empty files under both labels are no conflict"
+        );
         let left = ds.recent_conflicts(10);
-        assert_eq!(left.len(), 1, "old empty-file line pruned, label conflict kept");
+        assert_eq!(
+            left.len(),
+            1,
+            "old empty-file line pruned, label conflict kept"
+        );
         assert_eq!(left[0]["sha256"], "AB");
-        let users = [UserFile::new(&EMPTY_SHA256.to_ascii_lowercase(), "unknown", &[] as &[&str], "")];
-        assert_eq!(ds.public_stats(&users).unwrap().cells["all"]["all"].total, 0);
+        let users = [UserFile::new(
+            &EMPTY_SHA256.to_ascii_lowercase(),
+            "unknown",
+            &[] as &[&str],
+            "",
+        )];
+        assert_eq!(
+            ds.public_stats(&users).unwrap().cells["all"]["all"].total,
+            0
+        );
         let _ = std::fs::remove_dir_all(&root);
     }
 
@@ -1722,30 +2183,66 @@ mod tests {
         std::fs::write(root.join("mal_pub").join("x.exe"), &a).unwrap();
         std::fs::write(root.join("mal_pub2").join("y.exe"), &a).unwrap();
         std::fs::write(root.join("clean_own").join("x.exe"), pe(41)).unwrap();
-        std::fs::write(root.join("state").join("dataset_conflicts.jsonl"), format!("{{\"kind\":\"label\",\"sha256\":\"{}\"}}\n", sha(&a))).unwrap();
+        std::fs::write(
+            root.join("state").join("dataset_conflicts.jsonl"),
+            format!("{{\"kind\":\"label\",\"sha256\":\"{}\"}}\n", sha(&a)),
+        )
+        .unwrap();
         // Before the index: queued, applied when it is ready.
-        assert_eq!(ds.apply_human_verdicts(&[(sha(&a).to_ascii_lowercase(), "clean".into())]), 0);
+        assert_eq!(
+            ds.apply_human_verdicts(&[(sha(&a).to_ascii_lowercase(), "clean".into())]),
+            0
+        );
         ds.build_index();
-        assert!(!root.join("mal_pub").join("x.exe").exists() && !root.join("mal_pub2").join("y.exe").exists());
-        assert_eq!(std::fs::read(root.join("clean_own").join("x (2).exe")).unwrap(), a, "name taken: suffixed, not overwritten");
-        assert!(!root.join("clean_own").join("y.exe").exists(), "second copy: a duplicate, removed");
-        assert_eq!(std::fs::read(root.join("clean_own").join("x.exe")).unwrap(), pe(41));
+        assert!(
+            !root.join("mal_pub").join("x.exe").exists()
+                && !root.join("mal_pub2").join("y.exe").exists()
+        );
+        assert_eq!(
+            std::fs::read(root.join("clean_own").join("x (2).exe")).unwrap(),
+            a,
+            "name taken: suffixed, not overwritten"
+        );
+        assert!(
+            !root.join("clean_own").join("y.exe").exists(),
+            "second copy: a duplicate, removed"
+        );
+        assert_eq!(
+            std::fs::read(root.join("clean_own").join("x.exe")).unwrap(),
+            pe(41)
+        );
         let clean_files = std::fs::read_dir(root.join("clean_own")).unwrap().count();
         assert_eq!(clean_files, 2, "exactly one file per content");
         assert_eq!(ds.status().moved_by_human, 2);
-        assert!(ds.recent_conflicts(10).is_empty(), "settled conflict removed");
+        assert!(
+            ds.recent_conflicts(10).is_empty(),
+            "settled conflict removed"
+        );
         let moves = std::fs::read_to_string(ds.moves_file()).unwrap();
         assert_eq!(moves.lines().count(), 2);
-        assert!(moves.contains("\"action\":\"moved\"") && moves.contains("\"action\":\"duplicate_removed\"") && moves.contains("duplicate_of"));
+        assert!(
+            moves.contains("\"action\":\"moved\"")
+                && moves.contains("\"action\":\"duplicate_removed\"")
+                && moves.contains("duplicate_of")
+        );
         let st = ds.public_stats(&[]).unwrap();
         assert_eq!(st.cells["windows"]["malware"].total, 0);
-        assert_eq!(st.cells["windows"]["clean"].counts.own_only, 2, "x.exe (41) and the moved content");
+        assert_eq!(
+            st.cells["windows"]["clean"].counts.own_only, 2,
+            "x.exe (41) and the moved content"
+        );
         // Again, or "suspicious": nothing to do.
         assert_eq!(ds.apply_human_verdict(&sha(&a), Label::Clean), 0);
-        assert_eq!(ds.apply_human_verdicts(&[(sha(&a), "suspicious".into())]), 0);
+        assert_eq!(
+            ds.apply_human_verdicts(&[(sha(&a), "suspicious".into())]),
+            0
+        );
         // Flipped back to malware: the one file moves to the own malware folder.
         assert_eq!(ds.apply_human_verdict(&sha(&a), Label::Malware), 1);
-        assert_eq!(std::fs::read(root.join("mal_own").join("x (2).exe")).unwrap(), a);
+        assert_eq!(
+            std::fs::read(root.join("mal_own").join("x (2).exe")).unwrap(),
+            a
+        );
         // Content already under the verdict's label: the other copy is removed, not moved.
         let (root2, ds2) = setup_sources("human2");
         std::fs::write(root2.join("mal_own").join("m.exe"), &a).unwrap();
@@ -1753,8 +2250,15 @@ mod tests {
         ds2.build_index();
         assert_eq!(ds2.apply_human_verdict(&sha(&a), Label::Clean), 1);
         assert!(!root2.join("mal_own").join("m.exe").exists());
-        assert_eq!(std::fs::read(root2.join("clean_own").join("c.exe")).unwrap(), a, "the existing copy stays");
-        assert_eq!(std::fs::read_dir(root2.join("clean_own")).unwrap().count(), 1);
+        assert_eq!(
+            std::fs::read(root2.join("clean_own").join("c.exe")).unwrap(),
+            a,
+            "the existing copy stays"
+        );
+        assert_eq!(
+            std::fs::read_dir(root2.join("clean_own")).unwrap().count(),
+            1
+        );
         let _ = std::fs::remove_dir_all(&root2);
         let _ = std::fs::remove_dir_all(&root);
     }
@@ -1775,16 +2279,35 @@ mod tests {
         std::fs::write(root.join("clean_own").join("c.exe"), &c).unwrap();
         ds.build_index();
         assert!(root.join("mal_pub").join("a.exe").exists());
-        assert!(!root.join("mal_own").join("Trojan.A.vir").exists() && !root.join("mal_own").join("Bazaar.A.vir").exists());
+        assert!(
+            !root.join("mal_own").join("Trojan.A.vir").exists()
+                && !root.join("mal_own").join("Bazaar.A.vir").exists()
+        );
         assert!(root.join("mal_own").join("original.exe").exists());
-        assert!(!root.join("mal_own").join(format!("{}.exe", sha(&b))).exists());
-        assert!(root.join("mal_own").join("c.exe").exists() && root.join("clean_own").join("c.exe").exists());
+        assert!(
+            !root
+                .join("mal_own")
+                .join(format!("{}.exe", sha(&b)))
+                .exists()
+        );
+        assert!(
+            root.join("mal_own").join("c.exe").exists()
+                && root.join("clean_own").join("c.exe").exists()
+        );
         assert_eq!(ds.status().duplicates_removed, 3);
         assert_eq!(ds.status().indexed_files, 4);
         let log = std::fs::read_to_string(ds.moves_file()).unwrap();
-        assert_eq!(log.lines().filter(|l| l.contains("\"action\":\"duplicate_removed\"")).count(), 3);
+        assert_eq!(
+            log.lines()
+                .filter(|l| l.contains("\"action\":\"duplicate_removed\""))
+                .count(),
+            3
+        );
         assert!(log.contains("Trojan.A.vir") && log.contains("duplicate_of"));
-        assert_eq!(counts(&ds.public_stats(&[]).unwrap(), "windows", "malware"), (2, 1, 0, 3));
+        assert_eq!(
+            counts(&ds.public_stats(&[]).unwrap(), "windows", "malware"),
+            (2, 1, 0, 3)
+        );
         let _ = std::fs::remove_dir_all(&root);
     }
 
@@ -1795,7 +2318,10 @@ mod tests {
         std::fs::write(root.join("mal_own").join("a.vir"), &a).unwrap();
         std::fs::write(root.join("mal_own").join("b.vir"), &b).unwrap();
         ds.build_index();
-        assert_eq!(counts(&ds.public_stats(&[]).unwrap(), "windows", "malware").3, 2);
+        assert_eq!(
+            counts(&ds.public_stats(&[]).unwrap(), "windows", "malware").3,
+            2
+        );
         // The folder goes away (another PC / the cloud server); a copy of b shows up in
         // a reachable folder of the same label.
         std::fs::rename(root.join("mal_own"), root.join("moved_away")).unwrap();
@@ -1803,23 +2329,45 @@ mod tests {
         let paths = ds.paths.clone();
         let again = Dataset::new(paths.clone(), root.join("state"));
         again.build_index();
-        assert_eq!(counts(&again.public_stats(&[]).unwrap(), "windows", "malware").3, 2, "a and b still counted");
-        assert!(root.join("mal_pub").join("b_copy.vir").exists(), "a remembered file never makes a reachable one a duplicate");
+        assert_eq!(
+            counts(&again.public_stats(&[]).unwrap(), "windows", "malware").3,
+            2,
+            "a and b still counted"
+        );
+        assert!(
+            root.join("mal_pub").join("b_copy.vir").exists(),
+            "a remembered file never makes a reachable one a duplicate"
+        );
         // A human verdict never moves a remembered file, and never creates its folder.
         assert_eq!(again.apply_human_verdict(&sha(&a), Label::Clean), 0);
         assert!(!root.join("mal_own").exists());
         // Still remembered after another start (the cache keeps the lines).
         let third = Dataset::new(paths, root.join("state"));
         third.build_index();
-        assert_eq!(counts(&third.public_stats(&[]).unwrap(), "windows", "malware").3, 2);
+        assert_eq!(
+            counts(&third.public_stats(&[]).unwrap(), "windows", "malware").3,
+            2
+        );
         let _ = std::fs::remove_dir_all(&root);
     }
 
     #[test]
     fn path_nesting_is_case_and_separator_insensitive() {
-        assert!(is_inside(Path::new("C:\\Data\\Benign\\F-Droid"), Path::new("c:/data/benign/")));
-        assert!(!is_inside(Path::new("C:\\Data\\Benign2"), Path::new("C:\\Data\\Benign")));
-        assert!(!is_inside(Path::new("C:\\Data\\Benign"), Path::new("C:\\Data\\Benign")));
-        assert!(same_path(Path::new("C:\\Data\\x\\"), Path::new("c:/data/X")));
+        assert!(is_inside(
+            Path::new("C:\\Data\\Benign\\F-Droid"),
+            Path::new("c:/data/benign/")
+        ));
+        assert!(!is_inside(
+            Path::new("C:\\Data\\Benign2"),
+            Path::new("C:\\Data\\Benign")
+        ));
+        assert!(!is_inside(
+            Path::new("C:\\Data\\Benign"),
+            Path::new("C:\\Data\\Benign")
+        ));
+        assert!(same_path(
+            Path::new("C:\\Data\\x\\"),
+            Path::new("c:/data/X")
+        ));
     }
 }

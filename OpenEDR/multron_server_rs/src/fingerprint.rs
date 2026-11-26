@@ -17,13 +17,40 @@ pub const SMART_WL_MAX_DIST_EP_MOVED: u32 = 10;
 
 /// Imports whose appearance in a "new version" of a clean file is a red flag.
 pub const DANGEROUS_IMPORTS: &[&str] = &[
-    "virtualallocex", "virtualprotectex", "writeprocessmemory", "createremotethread", "createremotethreadex",
-    "ntwritevirtualmemory", "ntcreatethreadex", "rtlcreateuserthread", "queueuserapc", "ntqueueapcthread",
-    "setthreadcontext", "ntunmapviewofsection", "zwunmapviewofsection", "ntmapviewofsection",
-    "setwindowshookexa", "setwindowshookexw", "getasynckeystate", "urldownloadtofilea", "urldownloadtofilew",
-    "internetopenurla", "internetopenurlw", "winhttpsendrequest", "cryptencrypt", "bcryptencrypt",
-    "adjusttokenprivileges", "createservicea", "createservicew", "isdebuggerpresent", "loadlibrarya",
-    "loadlibraryw", "getprocaddress", "winexec", "shellexecutea", "shellexecutew",
+    "virtualallocex",
+    "virtualprotectex",
+    "writeprocessmemory",
+    "createremotethread",
+    "createremotethreadex",
+    "ntwritevirtualmemory",
+    "ntcreatethreadex",
+    "rtlcreateuserthread",
+    "queueuserapc",
+    "ntqueueapcthread",
+    "setthreadcontext",
+    "ntunmapviewofsection",
+    "zwunmapviewofsection",
+    "ntmapviewofsection",
+    "setwindowshookexa",
+    "setwindowshookexw",
+    "getasynckeystate",
+    "urldownloadtofilea",
+    "urldownloadtofilew",
+    "internetopenurla",
+    "internetopenurlw",
+    "winhttpsendrequest",
+    "cryptencrypt",
+    "bcryptencrypt",
+    "adjusttokenprivileges",
+    "createservicea",
+    "createservicew",
+    "isdebuggerpresent",
+    "loadlibrarya",
+    "loadlibraryw",
+    "getprocaddress",
+    "winexec",
+    "shellexecutea",
+    "shellexecutew",
 ];
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -87,7 +114,11 @@ impl Fingerprint {
                 .as_array()
                 .into_iter()
                 .flatten()
-                .map(|x| Section { name: s(&x["name"]), perms: s(&x["perms"]), packed: x["class"].as_str() == Some("packed") })
+                .map(|x| Section {
+                    name: s(&x["name"]),
+                    perms: s(&x["perms"]),
+                    packed: x["class"].as_str() == Some("packed"),
+                })
                 .collect(),
             import_count: pe["import_count"].as_u64().unwrap_or(0),
             imphash: r["hashes"]["imphash"].as_str().map(str::to_string),
@@ -121,7 +152,10 @@ pub fn injection_guard(cand: &Fingerprint, reference: &Fingerprint) -> Result<()
     }
     let ratio = cand.size as f64 / (reference.size.max(1)) as f64;
     if !(0.85..=1.15).contains(&ratio) {
-        return Err(format!("size changed too much ({} vs {} bytes)", cand.size, reference.size));
+        return Err(format!(
+            "size changed too much ({} vs {} bytes)",
+            cand.size, reference.size
+        ));
     }
     // Script / installer stubs (AutoIt, NSIS, SFX...) keep their real content in a
     // compressed resource or overlay: the stub code dominates TLSH, so two very
@@ -139,7 +173,10 @@ pub fn injection_guard(cand: &Fingerprint, reference: &Fingerprint) -> Result<()
     }
     for (c, r) in cand.sections.iter().zip(reference.sections.iter()) {
         if c.name != r.name || c.perms != r.perms {
-            return Err(format!("section {} / {} differs (name or permissions)", c.name, r.name));
+            return Err(format!(
+                "section {} / {} differs (name or permissions)",
+                c.name, r.name
+            ));
         }
         if c.packed && !r.packed {
             return Err(format!("section {} became packed/encrypted", c.name));
@@ -148,7 +185,11 @@ pub fn injection_guard(cand: &Fingerprint, reference: &Fingerprint) -> Result<()
     if cand.entry_section != reference.entry_section {
         return Err("entry point moved to another section".into());
     }
-    if let Some(bad) = cand.dangerous_imports.difference(&reference.dangerous_imports).next() {
+    if let Some(bad) = cand
+        .dangerous_imports
+        .difference(&reference.dangerous_imports)
+        .next()
+    {
         return Err(format!("new sensitive import {bad}"));
     }
     if cand.imphash != reference.imphash {
@@ -167,11 +208,18 @@ pub fn injection_guard(cand: &Fingerprint, reference: &Fingerprint) -> Result<()
     if co > 1024 && cand.overlay_entropy >= 7.2 && reference.overlay_entropy < 7.2 {
         return Err("overlay became encrypted / compressed".into());
     }
-    let new_ind: Vec<&String> = cand.serious_indicators.difference(&reference.serious_indicators).collect();
+    let new_ind: Vec<&String> = cand
+        .serious_indicators
+        .difference(&reference.serious_indicators)
+        .collect();
     if !new_ind.is_empty() {
         return Err(format!(
             "new static indicators: {}",
-            new_ind.iter().map(|s| s.as_str()).collect::<Vec<_>>().join(", ")
+            new_ind
+                .iter()
+                .map(|s| s.as_str())
+                .collect::<Vec<_>>()
+                .join(", ")
         ));
     }
     Ok(())
@@ -189,7 +237,10 @@ pub struct ApkFp {
 impl ApkFp {
     pub fn from_report(r: &Value) -> Option<Self> {
         let info: crate::apk::ApkInfo = serde_json::from_value(r["apk"].clone()).ok()?;
-        Some(ApkFp { size: r["size"].as_u64().unwrap_or(0), info })
+        Some(ApkFp {
+            size: r["size"].as_u64().unwrap_or(0),
+            info,
+        })
     }
 }
 
@@ -213,7 +264,10 @@ pub fn apk_guard(cand: &ApkFp, reference: &ApkFp) -> Result<(), String> {
     }
     let ratio = cand.size as f64 / (reference.size.max(1)) as f64;
     if !(0.85..=1.15).contains(&ratio) {
-        return Err(format!("size changed too much ({} vs {} bytes)", cand.size, reference.size));
+        return Err(format!(
+            "size changed too much ({} vs {} bytes)",
+            cand.size, reference.size
+        ));
     }
     if c.dex_count != r.dex_count {
         return Err("number of DEX files differs".into());
@@ -221,7 +275,11 @@ pub fn apk_guard(cand: &ApkFp, reference: &ApkFp) -> Result<(), String> {
     if let Some(p) = c.permissions.difference(&r.permissions).next() {
         return Err(format!("new permission {p}"));
     }
-    for (kind, cs, rs) in [("service", &c.services, &r.services), ("receiver", &c.receivers, &r.receivers), ("provider", &c.providers, &r.providers)] {
+    for (kind, cs, rs) in [
+        ("service", &c.services, &r.services),
+        ("receiver", &c.receivers, &r.receivers),
+        ("provider", &c.providers, &r.providers),
+    ] {
         if let Some(n) = cs.difference(rs).next() {
             return Err(format!("new {kind} {n}"));
         }
@@ -262,7 +320,9 @@ pub fn accept(d: u32, cand: &Structure, reference: &Structure) -> Result<(), Str
             // A moved entry point is how file infectors and code caves usually take
             // control; allow it only for an even closer match.
             if c.entry_point != r.entry_point && d > SMART_WL_MAX_DIST_EP_MOVED {
-                return Err(format!("entry point moved and distance {d} > {SMART_WL_MAX_DIST_EP_MOVED}"));
+                return Err(format!(
+                    "entry point moved and distance {d} > {SMART_WL_MAX_DIST_EP_MOVED}"
+                ));
             }
             injection_guard(c, r)
         }

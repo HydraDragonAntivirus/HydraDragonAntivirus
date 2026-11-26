@@ -41,8 +41,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tlsh::{FuzzyHashType, Tlsh};
 
-use crate::fingerprint::{accept, RefLine, Structure};
 pub use crate::fingerprint::SMART_WL_MAX_DIST;
+use crate::fingerprint::{RefLine, Structure, accept};
 /// "Similar files" shown to people.
 pub const SIMILAR_MAX_DIST: u32 = 80;
 /// Analyst TLSH signatures: a file this close to an analyst-confirmed malicious file
@@ -55,12 +55,17 @@ const ANALYST_TLSH_SIZE_FACTOR: f64 = 1.5;
 /// signed drivers, so the default is 10.
 pub const TLSH_BLACKLIST_DISTANCES: [u32; 5] = [5, 10, 15, 20, 30];
 pub const TLSH_BLACKLIST_DEFAULT_DIST: u32 = 10;
-static TLSH_BLACKLIST_MAX_DIST: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(TLSH_BLACKLIST_DEFAULT_DIST);
+static TLSH_BLACKLIST_MAX_DIST: std::sync::atomic::AtomicU32 =
+    std::sync::atomic::AtomicU32::new(TLSH_BLACKLIST_DEFAULT_DIST);
 
 /// Sets the TLSH blacklist distance; a value not in `TLSH_BLACKLIST_DISTANCES` takes
 /// the default. Returns the value used.
 pub fn set_blacklist_max_dist(d: u32) -> u32 {
-    let d = if TLSH_BLACKLIST_DISTANCES.contains(&d) { d } else { TLSH_BLACKLIST_DEFAULT_DIST };
+    let d = if TLSH_BLACKLIST_DISTANCES.contains(&d) {
+        d
+    } else {
+        TLSH_BLACKLIST_DEFAULT_DIST
+    };
     TLSH_BLACKLIST_MAX_DIST.store(d, std::sync::atomic::Ordering::Relaxed);
     d
 }
@@ -130,10 +135,18 @@ struct KnownList {
 
 impl KnownList {
     fn new(all: Vec<KnownTlsh>) -> Self {
-        let mut named_sized: Vec<usize> = (0..all.len()).filter(|&i| all[i].threat.is_some() && all[i].size > 0).collect();
+        let mut named_sized: Vec<usize> = (0..all.len())
+            .filter(|&i| all[i].threat.is_some() && all[i].size > 0)
+            .collect();
         named_sized.sort_by_key(|&i| all[i].size);
-        let named_unsized = (0..all.len()).filter(|&i| all[i].threat.is_some() && all[i].size == 0).collect();
-        KnownList { all, named_sized, named_unsized }
+        let named_unsized = (0..all.len())
+            .filter(|&i| all[i].threat.is_some() && all[i].size == 0)
+            .collect();
+        KnownList {
+            all,
+            named_sized,
+            named_unsized,
+        }
     }
 
     fn has_named(&self) -> bool {
@@ -142,8 +155,12 @@ impl KnownList {
 
     fn named_candidates(&self, len: f64) -> impl Iterator<Item = (usize, &KnownTlsh)> {
         let size = |i: &usize| self.all[*i].size as f64;
-        let lo = self.named_sized.partition_point(|i| size(i) * ANALYST_TLSH_SIZE_FACTOR < len);
-        let hi = self.named_sized.partition_point(|i| size(i) <= len * ANALYST_TLSH_SIZE_FACTOR);
+        let lo = self
+            .named_sized
+            .partition_point(|i| size(i) * ANALYST_TLSH_SIZE_FACTOR < len);
+        let hi = self
+            .named_sized
+            .partition_point(|i| size(i) <= len * ANALYST_TLSH_SIZE_FACTOR);
         self.named_sized[lo..hi.max(lo)]
             .iter()
             .chain(self.named_unsized.iter())
@@ -203,12 +220,21 @@ fn parse_blacklist_line(l: &str) -> Option<BlacklistLine> {
         return None;
     }
     let field = |x: &str| {
-        let n: String = x.trim().chars().filter(|c| !c.is_control()).take(260).collect();
+        let n: String = x
+            .trim()
+            .chars()
+            .filter(|c| !c.is_control())
+            .take(260)
+            .collect();
         (!n.is_empty() && !n.eq_ignore_ascii_case("n/a")).then_some(n)
     };
     let digest = |head: &str| {
         let head = head.trim();
-        let t = if head.len() == 70 { format!("T1{head}") } else { head.to_string() };
+        let t = if head.len() == 70 {
+            format!("T1{head}")
+        } else {
+            head.to_string()
+        };
         t.to_ascii_uppercase().parse::<Tlsh>().ok()
     };
     if l.starts_with('{') {
@@ -227,7 +253,14 @@ fn parse_blacklist_line(l: &str) -> Option<BlacklistLine> {
     // Only ':' (or TAB) separates fields; old lists with other comma columns have none.
     let sep = match rest.chars().next() {
         Some(c @ (':' | '\t')) => c,
-        _ => return Some(BlacklistLine { tlsh, file: None, virus: None, size: 0 }),
+        _ => {
+            return Some(BlacklistLine {
+                tlsh,
+                file: None,
+                virus: None,
+                size: 0,
+            });
+        }
     };
     let rest = &rest[1..];
     let (file, virus) = match rest.split_once(sep) {
@@ -236,7 +269,12 @@ fn parse_blacklist_line(l: &str) -> Option<BlacklistLine> {
         // abuse.ch tlsh_db: the one name is the family
         None => (None, field(rest)),
     };
-    Some(BlacklistLine { tlsh, file, virus, size: 0 })
+    Some(BlacklistLine {
+        tlsh,
+        file,
+        virus,
+        size: 0,
+    })
 }
 
 #[derive(Default)]
@@ -333,7 +371,11 @@ fn tlsh_file(name: &str) -> std::path::PathBuf {
     if !new.exists() {
         let old = crate::human_review::analyst_dir().join(name);
         if old.exists() {
-            eprintln!("[similarity] using {} (move it to {})", old.display(), new.display());
+            eprintln!(
+                "[similarity] using {} (move it to {})",
+                old.display(),
+                new.display()
+            );
             return old;
         }
     }
@@ -351,16 +393,30 @@ impl SimilarityIndex {
             let mut files = idx.files.write().unwrap();
             let mut seen = idx.seen.write().unwrap();
             for line in BufReader::new(f).lines().map_while(Result::ok) {
-                let Ok(v) = serde_json::from_str::<Value>(&line) else { continue };
-                let (Some(sha), Some(t)) = (v["sha256"].as_str(), v["tlsh"].as_str()) else { continue };
-                let Ok(tlsh) = t.parse::<Tlsh>() else { continue };
+                let Ok(v) = serde_json::from_str::<Value>(&line) else {
+                    continue;
+                };
+                let (Some(sha), Some(t)) = (v["sha256"].as_str(), v["tlsh"].as_str()) else {
+                    continue;
+                };
+                let Ok(tlsh) = t.parse::<Tlsh>() else {
+                    continue;
+                };
                 if seen.insert(sha.to_ascii_lowercase()) {
-                    files.push(Entry { sha256: sha.to_ascii_lowercase(), tlsh, size: v["size"].as_u64().unwrap_or(0) });
+                    files.push(Entry {
+                        sha256: sha.to_ascii_lowercase(),
+                        tlsh,
+                        size: v["size"].as_u64().unwrap_or(0),
+                    });
                 }
             }
         }
         if !crate::config::is_archive() {
-            *idx.writer.lock().unwrap() = OpenOptions::new().create(true).append(true).open(index_path()).ok();
+            *idx.writer.lock().unwrap() = OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(index_path())
+                .ok();
         }
         idx.reload_known_malware();
         idx.reload_corpus_refs();
@@ -378,11 +434,21 @@ impl SimilarityIndex {
             seen.clear();
         }
         for line in lines {
-            let Ok(v) = serde_json::from_str::<Value>(line) else { continue };
-            let (Some(sha), Some(t)) = (v["sha256"].as_str(), v["tlsh"].as_str()) else { continue };
-            let Ok(tlsh) = t.parse::<Tlsh>() else { continue };
+            let Ok(v) = serde_json::from_str::<Value>(line) else {
+                continue;
+            };
+            let (Some(sha), Some(t)) = (v["sha256"].as_str(), v["tlsh"].as_str()) else {
+                continue;
+            };
+            let Ok(tlsh) = t.parse::<Tlsh>() else {
+                continue;
+            };
             if seen.insert(sha.to_ascii_lowercase()) {
-                files.push(Entry { sha256: sha.to_ascii_lowercase(), tlsh, size: v["size"].as_u64().unwrap_or(0) });
+                files.push(Entry {
+                    sha256: sha.to_ascii_lowercase(),
+                    tlsh,
+                    size: v["size"].as_u64().unwrap_or(0),
+                });
             }
         }
     }
@@ -393,14 +459,22 @@ impl SimilarityIndex {
         let mut by_sha: HashMap<String, AnalystSig> = HashMap::new();
         if let Ok(f) = std::fs::File::open(analyst_tlsh_path()) {
             for line in BufReader::new(f).lines().map_while(Result::ok) {
-                let Ok(v) = serde_json::from_str::<Value>(&line) else { continue };
-                let Some(sha) = v["sha256"].as_str().map(str::to_ascii_lowercase) else { continue };
+                let Ok(v) = serde_json::from_str::<Value>(&line) else {
+                    continue;
+                };
+                let Some(sha) = v["sha256"].as_str().map(str::to_ascii_lowercase) else {
+                    continue;
+                };
                 if v["removed"].as_bool() == Some(true) {
                     by_sha.remove(&sha);
                     continue;
                 }
-                let Ok(meta) = serde_json::from_value::<AnalystTlsh>(v) else { continue };
-                let Ok(tlsh) = meta.tlsh.parse::<Tlsh>() else { continue };
+                let Ok(meta) = serde_json::from_value::<AnalystTlsh>(v) else {
+                    continue;
+                };
+                let Ok(tlsh) = meta.tlsh.parse::<Tlsh>() else {
+                    continue;
+                };
                 by_sha.insert(sha, AnalystSig { meta, tlsh });
             }
         }
@@ -413,7 +487,11 @@ impl SimilarityIndex {
     }
 
     fn append_analyst_line(v: &Value) {
-        if let Ok(mut f) = OpenOptions::new().create(true).append(true).open(analyst_tlsh_path()) {
+        if let Ok(mut f) = OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(analyst_tlsh_path())
+        {
             let _ = writeln!(f, "{v}");
         }
     }
@@ -421,7 +499,9 @@ impl SimilarityIndex {
     /// Adds (or replaces) the signature of one analyst-confirmed malicious file.
     pub fn add_analyst_sig(&self, mut meta: AnalystTlsh) -> bool {
         meta.sha256 = meta.sha256.to_ascii_lowercase();
-        let Ok(tlsh) = meta.tlsh.parse::<Tlsh>() else { return false };
+        let Ok(tlsh) = meta.tlsh.parse::<Tlsh>() else {
+            return false;
+        };
         let mut sigs = self.analyst_sigs.write().unwrap();
         sigs.retain(|s| s.meta.sha256 != meta.sha256);
         Self::append_analyst_line(&serde_json::to_value(&meta).unwrap_or_default());
@@ -500,10 +580,18 @@ impl SimilarityIndex {
         let mut v = Vec::new();
         if let Ok(f) = std::fs::File::open(path) {
             for line in BufReader::new(f).lines().map_while(Result::ok) {
-                let Ok(r) = serde_json::from_str::<RefLine>(&line) else { continue };
-                let Ok(t) = r.tlsh.parse::<Tlsh>() else { continue };
+                let Ok(r) = serde_json::from_str::<RefLine>(&line) else {
+                    continue;
+                };
+                let Ok(t) = r.tlsh.parse::<Tlsh>() else {
+                    continue;
+                };
                 let Some(st) = r.structure() else { continue };
-                v.push(CorpusRef { sha256: r.sha256.to_ascii_lowercase(), tlsh: t, st });
+                v.push(CorpusRef {
+                    sha256: r.sha256.to_ascii_lowercase(),
+                    tlsh: t,
+                    st,
+                });
             }
         }
         let n = v.len();
@@ -527,7 +615,10 @@ impl SimilarityIndex {
                 .flatten()
                 .map(|e| e.path())
                 .filter(|p| {
-                    let n = p.file_name().map(|n| n.to_string_lossy().to_ascii_lowercase()).unwrap_or_default();
+                    let n = p
+                        .file_name()
+                        .map(|n| n.to_string_lossy().to_ascii_lowercase())
+                        .unwrap_or_default();
                     n.starts_with("tlsh_blacklist")
                         && (n.ends_with(".txt") || n.ends_with(".jsonl"))
                         && n != "tlsh_blacklist.txt"
@@ -543,13 +634,25 @@ impl SimilarityIndex {
             let before = list.len();
             let text = std::fs::read_to_string(&path).unwrap_or_default();
             for b in text.lines().filter_map(parse_blacklist_line) {
-                let threat = b.virus.as_ref().and_then(|v| threats.entry(v.clone()).or_insert_with(|| Some(crate::naming::threat_from_name(v))).clone());
-                list.push(KnownTlsh { tlsh: b.tlsh, file: b.file, threat, size: b.size });
+                let threat = b.virus.as_ref().and_then(|v| {
+                    threats
+                        .entry(v.clone())
+                        .or_insert_with(|| Some(crate::naming::threat_from_name(v)))
+                        .clone()
+                });
+                list.push(KnownTlsh {
+                    tlsh: b.tlsh,
+                    file: b.file,
+                    threat,
+                    size: b.size,
+                });
             }
             let named = list[before..].iter().filter(|k| k.threat.is_some()).count();
             eprintln!(
                 "[similarity] {}: {} digests, {named} with a virus name (flag matches)",
-                path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default(),
+                path.file_name()
+                    .map(|n| n.to_string_lossy().into_owned())
+                    .unwrap_or_default(),
                 list.len() - before
             );
         }
@@ -586,12 +689,21 @@ impl SimilarityIndex {
 
     /// The file itself (same SHA-256) is in the verified benign corpus.
     pub fn in_benign_corpus(&self, sha256: &str) -> bool {
-        self.corpus_shas.read().unwrap().contains(&sha256.to_ascii_lowercase())
+        self.corpus_shas
+            .read()
+            .unwrap()
+            .contains(&sha256.to_ascii_lowercase())
     }
 
     pub fn tlsh_of(&self, sha256: &str) -> Option<String> {
         let sha = sha256.to_ascii_lowercase();
-        self.files.read().unwrap().all.iter().find(|e| e.sha256 == sha).map(|e| e.tlsh.to_string())
+        self.files
+            .read()
+            .unwrap()
+            .all
+            .iter()
+            .find(|e| e.sha256 == sha)
+            .map(|e| e.tlsh.to_string())
     }
 
     /// Adds a file once (called after its static report is built).
@@ -602,15 +714,31 @@ impl SimilarityIndex {
             return;
         }
         if let Some(f) = self.writer.lock().unwrap().as_mut() {
-            let _ = writeln!(f, "{}", serde_json::json!({ "sha256": sha, "tlsh": tlsh, "size": size }));
+            let _ = writeln!(
+                f,
+                "{}",
+                serde_json::json!({ "sha256": sha, "tlsh": tlsh, "size": size })
+            );
             let _ = f.flush();
         }
-        self.files.write().unwrap().push(Entry { sha256: sha, tlsh: t, size });
+        self.files.write().unwrap().push(Entry {
+            sha256: sha,
+            tlsh: t,
+            size,
+        });
     }
 
     /// Nearest files (not `exclude_sha`), closest first, at most `limit`.
-    pub fn nearest(&self, tlsh: &str, max_dist: u32, limit: usize, exclude_sha: &str) -> Vec<SimilarFile> {
-        let Ok(q) = tlsh.parse::<Tlsh>() else { return Vec::new() };
+    pub fn nearest(
+        &self,
+        tlsh: &str,
+        max_dist: u32,
+        limit: usize,
+        exclude_sha: &str,
+    ) -> Vec<SimilarFile> {
+        let Ok(q) = tlsh.parse::<Tlsh>() else {
+            return Vec::new();
+        };
         let ex = exclude_sha.to_ascii_lowercase();
         let mut out: Vec<SimilarFile> = self
             .files
@@ -654,8 +782,14 @@ impl SimilarityIndex {
     /// Distance first: a TLSH compare is a few table lookups, while `is_clean` looks
     /// up (and copies) a human review, which on every one of hundreds of thousands
     /// of indexed files made this the slowest part of a scan.
-    pub fn clean_references(&self, tlsh: &str, is_clean: impl Fn(&str) -> bool) -> Vec<(String, u32)> {
-        let Ok(q) = tlsh.parse::<Tlsh>() else { return Vec::new() };
+    pub fn clean_references(
+        &self,
+        tlsh: &str,
+        is_clean: impl Fn(&str) -> bool,
+    ) -> Vec<(String, u32)> {
+        let Ok(q) = tlsh.parse::<Tlsh>() else {
+            return Vec::new();
+        };
         let near: Vec<(String, u32)> = self
             .files
             .read()
@@ -712,7 +846,10 @@ pub fn smart_whitelist(
     let t = std::time::Instant::now();
     for (sha, d) in clean {
         trace.reports_loaded += 1;
-        if let Some(st) = crate::reports::load(&sha).as_ref().and_then(Structure::from_report) {
+        if let Some(st) = crate::reports::load(&sha)
+            .as_ref()
+            .and_then(Structure::from_report)
+        {
             refs.push((d, sha, st, "analyst-verified clean"));
         }
     }
@@ -737,8 +874,18 @@ pub fn smart_whitelist(
         trace.refs_tried += 1;
         match accept(d, &cand, &st) {
             Ok(()) => {
-                let what = if matches!(st, Structure::Apk(_)) { "DEX TLSH" } else { "TLSH" };
-                return Some((sha.clone(), d, format!("Smart whitelist: {what} distance {d} to {origin} {sha}; structure unchanged")));
+                let what = if matches!(st, Structure::Apk(_)) {
+                    "DEX TLSH"
+                } else {
+                    "TLSH"
+                };
+                return Some((
+                    sha.clone(),
+                    d,
+                    format!(
+                        "Smart whitelist: {what} distance {d} to {origin} {sha}; structure unchanged"
+                    ),
+                ));
             }
             Err(r) => last_reason = r,
         }
@@ -755,7 +902,10 @@ pub type VerdictLookup<'a> = &'a dyn Fn(&str) -> (String, String, Option<String>
 pub fn fill_verdicts(list: &mut [SimilarFile], lookup: VerdictLookup<'_>) {
     let mut cache: HashMap<String, (String, String, Option<String>)> = HashMap::new();
     for s in list.iter_mut().filter(|s| !s.sha256.is_empty()) {
-        let v = cache.entry(s.sha256.clone()).or_insert_with(|| lookup(&s.sha256)).clone();
+        let v = cache
+            .entry(s.sha256.clone())
+            .or_insert_with(|| lookup(&s.sha256))
+            .clone();
         s.verdict = v.0;
         s.verdict_source = v.1;
         s.threat_name = v.2;
@@ -781,8 +931,14 @@ mod tests {
                 let pos = 8 + (x as usize % (t.len() - 8));
                 t[pos] = b"0123456789ABCDEF"[(x >> 40) as usize % 16];
             }
-            let Ok(tlsh) = std::str::from_utf8(&t).unwrap().parse::<Tlsh>() else { continue };
-            files.push(Entry { sha256: format!("{i:064x}"), tlsh, size: 0 });
+            let Ok(tlsh) = std::str::from_utf8(&t).unwrap().parse::<Tlsh>() else {
+                continue;
+            };
+            files.push(Entry {
+                sha256: format!("{i:064x}"),
+                tlsh,
+                size: 0,
+            });
         }
         let index = SimilarityIndex::default();
         {
@@ -818,8 +974,15 @@ mod tests {
         want.truncate(8);
         assert_eq!(got, want);
         assert!(!got.is_empty());
-        assert!(lookups.get() < index.files.read().unwrap().all.len() / 2, "{} review lookups", lookups.get());
-        eprintln!("clean_references over 300k files: {took:?}, {} review lookups", lookups.get());
+        assert!(
+            lookups.get() < index.files.read().unwrap().all.len() / 2,
+            "{} review lookups",
+            lookups.get()
+        );
+        eprintln!(
+            "clean_references over 300k files: {took:?}, {} review lookups",
+            lookups.get()
+        );
     }
 
     #[test]
@@ -843,13 +1006,23 @@ mod tests {
                 let pos = 8 + (r as usize % (t.len() - 8));
                 t[pos] = hex[(r >> 40) as usize % 16];
             }
-            let Ok(tlsh) = std::str::from_utf8(&t).unwrap().parse::<Tlsh>() else { continue };
-            index.push(Entry { sha256: format!("{i:064x}"), tlsh, size: 0 });
+            let Ok(tlsh) = std::str::from_utf8(&t).unwrap().parse::<Tlsh>() else {
+                continue;
+            };
+            index.push(Entry {
+                sha256: format!("{i:064x}"),
+                tlsh,
+                size: 0,
+            });
         }
         let q = query.parse::<Tlsh>().unwrap();
         for max in [SMART_WL_MAX_DIST, SIMILAR_MAX_DIST, 300, 800] {
             let t = std::time::Instant::now();
-            let got: Vec<(u32, u32)> = index.near(&q, max).into_iter().map(|(i, _, d)| (i, d)).collect();
+            let got: Vec<(u32, u32)> = index
+                .near(&q, max)
+                .into_iter()
+                .map(|(i, _, d)| (i, d))
+                .collect();
             let took = t.elapsed();
             let t = std::time::Instant::now();
             let want: Vec<(u32, u32)> = index
@@ -863,7 +1036,11 @@ mod tests {
                 .collect();
             let full = t.elapsed();
             assert_eq!(got, want, "max distance {max}");
-            eprintln!("max {max}: {} near of {}, buckets {took:?}, full scan {full:?}", got.len(), index.all.len());
+            eprintln!(
+                "max {max}: {} near of {}, buckets {took:?}, full scan {full:?}",
+                got.len(),
+                index.all.len()
+            );
         }
     }
 
@@ -872,12 +1049,26 @@ mod tests {
         let t = "T1AAB36A0A33D420FDD0575274CDB69A15D3B2BC2A4274934F27A47B6A1F733926D2E722";
         assert_eq!(t.len(), 72);
         let b = parse_blacklist_line(&format!("{{\"tlsh\":\"{t}\",\"file_name\":\"fatura: ocak.exe\",\"virus\":\"Spyware.Win32.AgentTesla\",\"size\":1234}}")).unwrap();
-        assert_eq!((b.file.as_deref(), b.virus.as_deref(), b.size), (Some("fatura: ocak.exe"), Some("Spyware.Win32.AgentTesla"), 1234));
-        let b = parse_blacklist_line(&format!("{t}:fatura ocak.exe:Spyware.Win32.AgentTesla\r")).unwrap();
-        assert_eq!((b.file.as_deref(), b.virus.as_deref()), (Some("fatura ocak.exe"), Some("Spyware.Win32.AgentTesla")));
+        assert_eq!(
+            (b.file.as_deref(), b.virus.as_deref(), b.size),
+            (
+                Some("fatura: ocak.exe"),
+                Some("Spyware.Win32.AgentTesla"),
+                1234
+            )
+        );
+        let b = parse_blacklist_line(&format!("{t}:fatura ocak.exe:Spyware.Win32.AgentTesla\r"))
+            .unwrap();
+        assert_eq!(
+            (b.file.as_deref(), b.virus.as_deref()),
+            (Some("fatura ocak.exe"), Some("Spyware.Win32.AgentTesla"))
+        );
         let b = parse_blacklist_line(&format!("{t}:AgentTesla")).unwrap();
         assert_eq!((b.file, b.virus.as_deref()), (None, Some("AgentTesla")));
-        assert_eq!(parse_blacklist_line(&format!("{t}:n/a")).unwrap().virus, None);
+        assert_eq!(
+            parse_blacklist_line(&format!("{t}:n/a")).unwrap().virus,
+            None
+        );
         assert_eq!(parse_blacklist_line(t).unwrap().virus, None);
         assert!(parse_blacklist_line(&format!("# {t}")).is_none());
         assert!(parse_blacklist_line("not a digest:x.exe:Trojan.Win32.X").is_none());

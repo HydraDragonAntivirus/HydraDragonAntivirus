@@ -37,8 +37,12 @@ fn load() -> HashMap<String, PrivateSample> {
     let mut m = HashMap::new();
     if let Ok(f) = std::fs::File::open(path()) {
         for line in BufReader::new(f).lines().map_while(Result::ok) {
-            let Ok(v) = serde_json::from_str::<serde_json::Value>(&line) else { continue };
-            let Some(sha) = v["sha256"].as_str().map(str::to_ascii_lowercase) else { continue };
+            let Ok(v) = serde_json::from_str::<serde_json::Value>(&line) else {
+                continue;
+            };
+            let Some(sha) = v["sha256"].as_str().map(str::to_ascii_lowercase) else {
+                continue;
+            };
             if v["private"].as_bool() == Some(false) {
                 m.remove(&sha);
             } else if let Ok(s) = serde_json::from_value::<PrivateSample>(v) {
@@ -47,13 +51,19 @@ fn load() -> HashMap<String, PrivateSample> {
         }
     }
     if !m.is_empty() {
-        eprintln!("[private] {} private samples (details hidden from the public API)", m.len());
+        eprintln!(
+            "[private] {} private samples (details hidden from the public API)",
+            m.len()
+        );
     }
     m
 }
 
 fn append(v: &serde_json::Value) -> std::io::Result<()> {
-    let mut f = std::fs::OpenOptions::new().create(true).append(true).open(path())?;
+    let mut f = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path())?;
     writeln!(f, "{v}")
 }
 
@@ -63,7 +73,11 @@ pub fn is_private(sha256: &str) -> bool {
 }
 
 pub fn get(sha256: &str) -> Option<PrivateSample> {
-    samples().read().unwrap().get(&sha256.trim().to_ascii_lowercase()).cloned()
+    samples()
+        .read()
+        .unwrap()
+        .get(&sha256.trim().to_ascii_lowercase())
+        .cloned()
 }
 
 /// Newest first.
@@ -81,7 +95,9 @@ pub fn set(sha256: &str, private: bool, analyst: &str, note: &str) -> std::io::R
         if g.remove(&sha).is_none() {
             return Ok(false);
         }
-        append(&serde_json::json!({ "sha256": sha, "private": false, "analyst": analyst, "added": chrono::Utc::now().to_rfc3339() }))?;
+        append(
+            &serde_json::json!({ "sha256": sha, "private": false, "analyst": analyst, "added": chrono::Utc::now().to_rfc3339() }),
+        )?;
         return Ok(true);
     }
     let s = PrivateSample {
@@ -98,8 +114,15 @@ pub fn set(sha256: &str, private: bool, analyst: &str, note: &str) -> std::io::R
 /// What a public report keeps of a private sample: what identifies the file
 /// (hashes, size, type), nothing taken from its content.
 pub fn redact_report(report: &mut serde_json::Value) {
-    let Some(o) = report.as_object_mut() else { return };
-    o.retain(|k, _| matches!(k.as_str(), "version" | "generated_at" | "size" | "file_type" | "mime" | "hashes"));
+    let Some(o) = report.as_object_mut() else {
+        return;
+    };
+    o.retain(|k, _| {
+        matches!(
+            k.as_str(),
+            "version" | "generated_at" | "size" | "file_type" | "mime" | "hashes"
+        )
+    });
 }
 
 #[cfg(test)]

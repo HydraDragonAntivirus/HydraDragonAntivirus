@@ -5,24 +5,24 @@ use std::sync::atomic::{AtomicI64, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex as StdMutex};
 use std::time::Duration;
 
+use axum::Router;
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::extract::{ConnectInfo, DefaultBodyLimit, Path, Query, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
-use axum::Router;
 use chrono::Utc;
 use futures_util::{SinkExt, StreamExt};
 use hex::ToHex;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use tokio::sync::{mpsc, oneshot, RwLock, Semaphore};
+use tokio::sync::{RwLock, Semaphore, mpsc, oneshot};
 use tower_http::cors::{Any, CorsLayer};
 
 use crate::budget::ByteBudget;
-use crate::cache::{now_secs, parse_sha, CachedVerdict, Sha, VerdictCache};
-use crate::config::{app_dir, CliArgs};
-use crate::engine_adapter::{EngineAdapter, ResultMessage, ENGINE_NAME};
+use crate::cache::{CachedVerdict, Sha, VerdictCache, now_secs, parse_sha};
+use crate::config::{CliArgs, app_dir};
+use crate::engine_adapter::{ENGINE_NAME, EngineAdapter, ResultMessage};
 use crate::events::{Event, EventLog};
 use crate::limits::{LimitSettings, LiveLimits};
 use crate::ratelimit::{Bucket, RateLimiter};
@@ -325,7 +325,14 @@ impl Drop for ScanQueueGuard {
 }
 
 impl ScanQueueList {
-    pub fn add(self: &Arc<Self>, file: &str, size: i64, sha256: &str, client: &str, session: i64) -> ScanQueueGuard {
+    pub fn add(
+        self: &Arc<Self>,
+        file: &str,
+        size: i64,
+        sha256: &str,
+        client: &str,
+        session: i64,
+    ) -> ScanQueueGuard {
         let id = self.next.fetch_add(1, Ordering::Relaxed);
         self.map.lock().unwrap().insert(
             id,
@@ -340,7 +347,10 @@ impl ScanQueueList {
                 started_at: None,
             },
         );
-        ScanQueueGuard { list: Arc::clone(self), id }
+        ScanQueueGuard {
+            list: Arc::clone(self),
+            id,
+        }
     }
 
     pub fn mark_started(&self, id: u64) {
@@ -391,7 +401,12 @@ impl ScanServer {
         } else {
             None
         };
-        let cache = VerdictCache::new(cfg.cache_entries, cfg.cache_days, cfg.unknown_cache_hours, cache_file);
+        let cache = VerdictCache::new(
+            cfg.cache_entries,
+            cfg.cache_days,
+            cfg.unknown_cache_hours,
+            cache_file,
+        );
         if cache.len() > 0 {
             eprintln!("[cache] {} verdicts loaded", cache.len());
         }
@@ -415,7 +430,8 @@ impl ScanServer {
         let rest_limiter = RestRateLimiter::new();
 
         let allow_brotli_upload = std::sync::atomic::AtomicBool::new(!cfg.no_brotli_upload);
-        let allow_lzma_upload = std::sync::atomic::AtomicBool::new(cfg.lzma_upload_flag().unwrap_or(false));
+        let allow_lzma_upload =
+            std::sync::atomic::AtomicBool::new(cfg.lzma_upload_flag().unwrap_or(false));
 
         Arc::new(Self {
             limiter,
@@ -450,9 +466,13 @@ impl ScanServer {
             offload: Arc::new(crate::offload::Offload::default()),
             mirror: Arc::new(crate::archive::Mirror::default()),
             scan_queue: Arc::new(ScanQueueList::default()),
-            edr_telemetry: Arc::new(crate::edr_telemetry::EdrTelemetryStore::open(&app_dir().join(
-                if crate::config::is_archive() { "edr_telemetry.archive.db" } else { "edr_telemetry.db" },
-            ))),
+            edr_telemetry: Arc::new(crate::edr_telemetry::EdrTelemetryStore::open(
+                &app_dir().join(if crate::config::is_archive() {
+                    "edr_telemetry.archive.db"
+                } else {
+                    "edr_telemetry.db"
+                }),
+            )),
             edr_telemetry_buckets: StdMutex::new(HashMap::new()),
         })
     }
@@ -506,7 +526,8 @@ impl ScanServer {
     /// Flip maintenance mode. In-flight scans finish; new ones are refused
     /// with a message until it is switched back off ("getting_updated" refuses nothing).
     pub fn set_maintenance(&self, mode: &str) {
-        self.maintenance.store(Self::maintenance_code(mode), Ordering::Relaxed);
+        self.maintenance
+            .store(Self::maintenance_code(mode), Ordering::Relaxed);
     }
 
     pub fn router(self: &Arc<Self>, path: &str) -> Router {
@@ -538,11 +559,18 @@ impl ScanServer {
             )
             .route(
                 "/api/v1/client-disinfect",
-                post(handle_client_disinfect).route_layer(DefaultBodyLimit::max(DISINFECT_MAX_BYTES)),
+                post(handle_client_disinfect)
+                    .route_layer(DefaultBodyLimit::max(DISINFECT_MAX_BYTES)),
             )
             .route("/api/v1/restore/:sha256", get(handle_restore_download))
-            .route("/api/v1/reviews/request/:sha256", post(handle_review_request))
-            .route("/api/v1/scan/url", post(handle_scan_url).get(handle_scan_url_get))
+            .route(
+                "/api/v1/reviews/request/:sha256",
+                post(handle_review_request),
+            )
+            .route(
+                "/api/v1/scan/url",
+                post(handle_scan_url).get(handle_scan_url_get),
+            )
             .route(
                 "/api/v1/edr/report",
                 post(handle_edr_report).route_layer(DefaultBodyLimit::max(EDR_MAX_REPORT_BYTES)),
@@ -554,55 +582,63 @@ impl ScanServer {
             // EDR telemetry from OpenEDR clients (the dashboard reads it on its own port).
             .route(
                 "/api/v1/edr/telemetry/behavior",
-                post(handle_public_edr_behavior).route_layer(DefaultBodyLimit::max(EDR_MAX_BEHAVIOR_BYTES)),
+                post(handle_public_edr_behavior)
+                    .route_layer(DefaultBodyLimit::max(EDR_MAX_BEHAVIOR_BYTES)),
             )
             .route(
                 "/api/v1/edr/telemetry/network-flows",
-                post(handle_public_edr_flows).route_layer(DefaultBodyLimit::max(EDR_MAX_FLOWS_BYTES)),
+                post(handle_public_edr_flows)
+                    .route_layer(DefaultBodyLimit::max(EDR_MAX_FLOWS_BYTES)),
             )
             .route(
                 "/api/v1/edr/telemetry/system",
-                post(handle_public_edr_system).route_layer(DefaultBodyLimit::max(EDR_MAX_SYSTEM_BYTES)),
+                post(handle_public_edr_system)
+                    .route_layer(DefaultBodyLimit::max(EDR_MAX_SYSTEM_BYTES)),
             )
             .route(
                 "/api/v1/edr/telemetry/killchain",
-                post(handle_public_edr_killchain).route_layer(DefaultBodyLimit::max(EDR_MAX_KILLCHAIN_BYTES)),
+                post(handle_public_edr_killchain)
+                    .route_layer(DefaultBodyLimit::max(EDR_MAX_KILLCHAIN_BYTES)),
             )
             .route(
                 "/api/v1/edr/telemetry/events",
-                post(handle_public_edr_events).route_layer(DefaultBodyLimit::max(EDR_MAX_EVENTS_BYTES)),
+                post(handle_public_edr_events)
+                    .route_layer(DefaultBodyLimit::max(EDR_MAX_EVENTS_BYTES)),
             )
-            .layer(axum::middleware::from_fn_with_state(Arc::clone(self), ban_guard))
+            .layer(axum::middleware::from_fn_with_state(
+                Arc::clone(self),
+                ban_guard,
+            ))
             .layer(cors)
             .with_state(Arc::clone(self))
     }
 
-/// Numeric code of a maintenance mode name (unknown names = off).
-pub fn maintenance_code(mode: &str) -> u8 {
-    match mode {
-        "maintenance" => 1,
-        "updating" => 2,
-        "getting_updated" => 3,
-        "switching" => 4,
-        _ => 0,
+    /// Numeric code of a maintenance mode name (unknown names = off).
+    pub fn maintenance_code(mode: &str) -> u8 {
+        match mode {
+            "maintenance" => 1,
+            "updating" => 2,
+            "getting_updated" => 3,
+            "switching" => 4,
+            _ => 0,
+        }
     }
-}
 
-/// Liveness: `{status: ok | maintenance, maintenance, maintenanceMode, ...}`.
-async fn handle_health(State(server): State<Arc<ScanServer>>) -> impl IntoResponse {
-    axum::Json(serde_json::json!({
-        "status": if server.maintenance() { "maintenance" } else { "ok" },
-        "maintenance": server.maintenance(),
-        "maintenanceMode": server.maintenance_mode(),
-        "updating": server.updating(),
-        "message": if server.maintenance_mode() != "off" { server.maintenance_message() } else { "" },
-        "uptimeSecs": server.uptime_secs(),
-        "uptimeTotal": crate::uptime::json(),
-        "engine": ENGINE_NAME,
-        "protocol": PROTOCOL_VERSION,
-        "archive": crate::config::is_archive(),
-    }))
-}
+    /// Liveness: `{status: ok | maintenance, maintenance, maintenanceMode, ...}`.
+    async fn handle_health(State(server): State<Arc<ScanServer>>) -> impl IntoResponse {
+        axum::Json(serde_json::json!({
+            "status": if server.maintenance() { "maintenance" } else { "ok" },
+            "maintenance": server.maintenance(),
+            "maintenanceMode": server.maintenance_mode(),
+            "updating": server.updating(),
+            "message": if server.maintenance_mode() != "off" { server.maintenance_message() } else { "" },
+            "uptimeSecs": server.uptime_secs(),
+            "uptimeTotal": crate::uptime::json(),
+            "engine": ENGINE_NAME,
+            "protocol": PROTOCOL_VERSION,
+            "archive": crate::config::is_archive(),
+        }))
+    }
 
     pub async fn get_clients(&self) -> Vec<ClientInfo> {
         let guard = self.sessions.read().await;
@@ -649,7 +685,8 @@ async fn handle_health(State(server): State<Arc<ScanServer>>) -> impl IntoRespon
     }
 
     pub fn log_info(&self, message: String) {
-        self.events.add(simple_event("info", None, None, Some(message)));
+        self.events
+            .add(simple_event("info", None, None, Some(message)));
     }
 
     /// Verdict without the file: human review, shared verdict cache, then hash
@@ -742,7 +779,10 @@ async fn handle_health(State(server): State<Arc<ScanServer>>) -> impl IntoRespon
                     send_error(&w.tx, Some(w.id), &format!("scan failed: {msg}"));
                 }
                 Outcome::UploadFailed => {
-                    send_json(&w.tx, &serde_json::json!({"type": "need_upload", "id": w.id}));
+                    send_json(
+                        &w.tx,
+                        &serde_json::json!({"type": "need_upload", "id": w.id}),
+                    );
                 }
             }
         }
@@ -795,11 +835,23 @@ impl InflightGuard {
             if g.contains_key(&sha) {
                 false
             } else {
-                g.insert(sha, InflightEntry { token, waiters: Vec::new() });
+                g.insert(
+                    sha,
+                    InflightEntry {
+                        token,
+                        waiters: Vec::new(),
+                    },
+                );
                 true
             }
         };
-        Self { server: Arc::clone(server), sha, token, owner, done: false }
+        Self {
+            server: Arc::clone(server),
+            sha,
+            token,
+            owner,
+            done: false,
+        }
     }
 
     fn complete(mut self, outcome: Outcome) {
@@ -813,7 +865,8 @@ impl InflightGuard {
 impl Drop for InflightGuard {
     fn drop(&mut self) {
         if !self.done && self.owner {
-            self.server.finish_inflight(&self.sha, self.token, &Outcome::UploadFailed);
+            self.server
+                .finish_inflight(&self.sha, self.token, &Outcome::UploadFailed);
         }
     }
 }
@@ -827,8 +880,14 @@ async fn ban_guard(
 ) -> Response {
     // Archive server: read-only, no scans (WebSocket) and no submissions.
     if crate::config::is_archive() {
-        let upgrade = req.headers().get("upgrade").is_some_and(|v| v.as_bytes().eq_ignore_ascii_case(b"websocket"));
-        if upgrade || (req.method() != axum::http::Method::GET && req.method() != axum::http::Method::OPTIONS) {
+        let upgrade = req
+            .headers()
+            .get("upgrade")
+            .is_some_and(|v| v.as_bytes().eq_ignore_ascii_case(b"websocket"));
+        if upgrade
+            || (req.method() != axum::http::Method::GET
+                && req.method() != axum::http::Method::OPTIONS)
+        {
             return (
                 StatusCode::SERVICE_UNAVAILABLE,
                 [("Content-Type", "application/json"), ("Access-Control-Allow-Origin", "*")],
@@ -847,7 +906,10 @@ async fn ban_guard(
 fn extract_client_ip(addr: SocketAddr, headers: &HeaderMap) -> String {
     let mut client_ip = addr.ip().to_string();
     if addr.ip().is_loopback() {
-        if let Some(cf) = headers.get("cf-connecting-ip").and_then(|v| v.to_str().ok()) {
+        if let Some(cf) = headers
+            .get("cf-connecting-ip")
+            .and_then(|v| v.to_str().ok())
+        {
             let cf = cf.trim();
             if !cf.is_empty() && cf.len() <= 64 && cf.parse::<std::net::IpAddr>().is_ok() {
                 client_ip = cf.to_string();
@@ -886,14 +948,21 @@ async fn handle_hash_insights(
                         ("Access-Control-Allow-Origin", "*"),
                     ],
                     serde_json::to_string(&err).unwrap(),
-                ).into_response();
+                )
+                    .into_response();
             }
 
             let review = server.threat_intel.reviews.get(&sha_clean);
             let sha_hist = sha_clean.clone();
             let human = review.as_ref().map(|r| r.to_public_json());
-            let human_verdict = review.as_ref().filter(|r| r.is_completed()).and_then(|r| r.verdict.clone());
-            let human_threat = review.as_ref().filter(|r| r.is_completed()).and_then(|r| r.threat_name.clone());
+            let human_verdict = review
+                .as_ref()
+                .filter(|r| r.is_completed())
+                .and_then(|r| r.verdict.clone());
+            let human_threat = review
+                .as_ref()
+                .filter(|r| r.is_completed())
+                .and_then(|r| r.threat_name.clone());
             let vt = crate::human_review::virustotal_url(&sha_clean);
 
             if let Some(insight) = server.threat_intel.get(&sha_clean) {
@@ -938,7 +1007,8 @@ async fn handle_hash_insights(
                         ("X-RateLimit-Remaining", &header.remaining.to_string()),
                     ],
                     serde_json::to_string_pretty(&response).unwrap(),
-                ).into_response()
+                )
+                    .into_response()
             } else {
                 let response = serde_json::json!({
                     "status": "not_found",
@@ -966,7 +1036,8 @@ async fn handle_hash_insights(
                         ("X-RateLimit-Remaining", &header.remaining.to_string()),
                     ],
                     serde_json::to_string_pretty(&response).unwrap(),
-                ).into_response()
+                )
+                    .into_response()
             }
         }
         Err(retry_after) => {
@@ -987,7 +1058,8 @@ async fn handle_hash_insights(
                     ("X-RateLimit-Remaining", "0"),
                 ],
                 serde_json::to_string(&error_json).unwrap(),
-            ).into_response()
+            )
+                .into_response()
         }
     }
 }
@@ -1012,7 +1084,11 @@ struct SwrCache<T> {
 
 impl<T: Clone + Send + 'static> SwrCache<T> {
     const fn new() -> Self {
-        Self { value: StdMutex::new(None), first: StdMutex::new(()), refreshing: std::sync::atomic::AtomicBool::new(false) }
+        Self {
+            value: StdMutex::new(None),
+            first: StdMutex::new(()),
+            refreshing: std::sync::atomic::AtomicBool::new(false),
+        }
     }
 
     fn get(
@@ -1025,11 +1101,13 @@ impl<T: Clone + Send + 'static> SwrCache<T> {
         if let Some((t, v)) = self.value.lock().unwrap().as_ref() {
             if t.elapsed() >= max_age && !self.refreshing.swap(true, Ordering::AcqRel) {
                 let srv = Arc::clone(server);
-                let spawned = std::thread::Builder::new().name("public-stats".into()).spawn(move || {
-                    let v = compute(&srv);
-                    *self.value.lock().unwrap() = Some((std::time::Instant::now(), v));
-                    self.refreshing.store(false, Ordering::Release);
-                });
+                let spawned = std::thread::Builder::new()
+                    .name("public-stats".into())
+                    .spawn(move || {
+                        let v = compute(&srv);
+                        *self.value.lock().unwrap() = Some((std::time::Instant::now(), v));
+                        self.refreshing.store(false, Ordering::Release);
+                    });
                 if spawned.is_err() {
                     self.refreshing.store(false, Ordering::Release);
                 }
@@ -1059,25 +1137,34 @@ const PUBLIC_STATS_MAX_AGE: Duration = Duration::from_secs(60);
 /// visitor after a start gets numbers at once instead of waiting for the walks.
 pub fn warm_public_stats(server: &Arc<ScanServer>) {
     let srv = Arc::clone(server);
-    let _ = std::thread::Builder::new().name("public-stats-warm".into()).spawn(move || {
-        let t = std::time::Instant::now();
-        let _ = cached_intel_stats(&srv);
-        let _ = cached_absent_unknown(&srv);
-        let _ = cached_type_stats(&srv);
-        let _ = cached_human_stats(&srv);
-        let _ = cached_dataset_stats(&srv);
-        eprintln!("[stats] public statistics ready in {} ms", t.elapsed().as_millis());
-    });
+    let _ = std::thread::Builder::new()
+        .name("public-stats-warm".into())
+        .spawn(move || {
+            let t = std::time::Instant::now();
+            let _ = cached_intel_stats(&srv);
+            let _ = cached_absent_unknown(&srv);
+            let _ = cached_type_stats(&srv);
+            let _ = cached_human_stats(&srv);
+            let _ = cached_dataset_stats(&srv);
+            eprintln!(
+                "[stats] public statistics ready in {} ms",
+                t.elapsed().as_millis()
+            );
+        });
 }
 
 /// Human / AI review numbers for the website (`ReviewStore::public_stats` walks
 /// every review; it ran on the async runtime on every request).
 fn cached_human_stats(server: &Arc<ScanServer>) -> serde_json::Value {
-    HUMAN_STATS.get(server, PUBLIC_STATS_MAX_AGE, |s| s.threat_intel.reviews.public_stats())
+    HUMAN_STATS.get(server, PUBLIC_STATS_MAX_AGE, |s| {
+        s.threat_intel.reviews.public_stats()
+    })
 }
 
 pub fn cached_type_stats(server: &Arc<ScanServer>) -> serde_json::Value {
-    TYPE_STATS.get(server, PUBLIC_STATS_MAX_AGE, |s| s.threat_intel.type_stats(7))
+    TYPE_STATS.get(server, PUBLIC_STATS_MAX_AGE, |s| {
+        s.threat_intel.type_stats(7)
+    })
 }
 
 /// Unknown hashes whose file the server does not have (never uploaded, dropped by the
@@ -1085,7 +1172,11 @@ pub fn cached_type_stats(server: &Arc<ScanServer>) -> serde_json::Value {
 /// Cached for 60 s like the type statistics.
 fn cached_absent_unknown(server: &Arc<ScanServer>) -> usize {
     ABSENT_UNKNOWN.get(server, PUBLIC_STATS_MAX_AGE, |s| {
-        s.threat_intel.unknown_hashes().iter().filter(|h| !s.engine.is_kept(h)).count()
+        s.threat_intel
+            .unknown_hashes()
+            .iter()
+            .filter(|h| !s.engine.is_kept(h))
+            .count()
     })
 }
 
@@ -1111,7 +1202,12 @@ async fn handle_insights_stats(State(server): State<Arc<ScanServer>>) -> Respons
     let Ok((stats, absent, types, human)) = tokio::task::spawn_blocking(move || {
         let stats = cached_intel_stats(&srv);
         let absent = cached_absent_unknown(&srv).min(stats.unknown_count);
-        (stats, absent, cached_type_stats(&srv), cached_human_stats(&srv))
+        (
+            stats,
+            absent,
+            cached_type_stats(&srv),
+            cached_human_stats(&srv),
+        )
     })
     .await
     else {
@@ -1171,9 +1267,15 @@ async fn ws_handler(
 }
 
 async fn reject(mut socket: WebSocket, msg: &str) {
-    let err = ErrorMessage { r#type: "error", id: None, message: msg };
+    let err = ErrorMessage {
+        r#type: "error",
+        id: None,
+        message: msg,
+    };
     let _ = socket
-        .send(Message::Text(serde_json::to_string(&err).unwrap_or_default()))
+        .send(Message::Text(
+            serde_json::to_string(&err).unwrap_or_default(),
+        ))
         .await;
     let _ = socket.close().await;
 }
@@ -1214,7 +1316,12 @@ async fn handle_socket(socket: WebSocket, server: Arc<ScanServer>, client_ip: St
         .await
         .insert(session_id, Arc::clone(&session_handle));
 
-    server.events.add(simple_event("connect", Some(session_id), Some(client_ip.clone()), None));
+    server.events.add(simple_event(
+        "connect",
+        Some(session_id),
+        Some(client_ip.clone()),
+        None,
+    ));
 
     let run_res = tokio::select! {
         res = run_session(socket, Arc::clone(&server), Arc::clone(&session_handle)) => res,
@@ -1239,9 +1346,12 @@ async fn handle_socket(socket: WebSocket, server: Arc<ScanServer>, client_ip: St
     if let Err(e) = run_res {
         msg.push_str(&format!(", {}", e));
     }
-    server
-        .events
-        .add(simple_event("disconnect", Some(session_id), Some(client_ip), Some(msg)));
+    server.events.add(simple_event(
+        "disconnect",
+        Some(session_id),
+        Some(client_ip),
+        Some(msg),
+    ));
 }
 
 pub(crate) fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
@@ -1330,7 +1440,11 @@ async fn session_loop(
         return Err("invalid token".into());
     }
     if !server.engine.ready() {
-        send_error(out, None, "the scan engine is still loading, try again in a minute");
+        send_error(
+            out,
+            None,
+            "the scan engine is still loading, try again in a minute",
+        );
         return Err("engine not ready".into());
     }
 
@@ -1418,13 +1532,21 @@ async fn session_loop(
 
         match msg.r#type.as_str() {
             "check" => {
-                if !check_bucket.take(msg.items.len().max(1) as f64, check_rate() * 2.0, check_rate()) {
+                if !check_bucket.take(
+                    msg.items.len().max(1) as f64,
+                    check_rate() * 2.0,
+                    check_rate(),
+                ) {
                     return flood("hash checks");
                 }
                 let items = msg.items;
                 let max_bytes = server.limits.max_bytes();
-                if tokio::runtime::Handle::current().runtime_flavor() == tokio::runtime::RuntimeFlavor::MultiThread {
-                    tokio::task::block_in_place(|| handle_check(server, session, out, items, max_bytes))?
+                if tokio::runtime::Handle::current().runtime_flavor()
+                    == tokio::runtime::RuntimeFlavor::MultiThread
+                {
+                    tokio::task::block_in_place(|| {
+                        handle_check(server, session, out, items, max_bytes)
+                    })?
                 } else {
                     handle_check(server, session, out, items, max_bytes)?
                 }
@@ -1433,7 +1555,17 @@ async fn session_loop(
                 if server.maintenance() {
                     send_error(out, Some(msg.id), server.maintenance_message());
                 } else {
-                    handle_scan(ws_rx, out, server, session, &slots, &scan_slots, msg, server.limits.max_bytes()).await?;
+                    handle_scan(
+                        ws_rx,
+                        out,
+                        server,
+                        session,
+                        &slots,
+                        &scan_slots,
+                        msg,
+                        server.limits.max_bytes(),
+                    )
+                    .await?;
                 }
             }
             "scan_url" => {
@@ -1500,7 +1632,8 @@ async fn session_loop(
                         if let Some((title, description)) = detail {
                             res_msg["rule_title"] = serde_json::Value::String(title);
                             if !description.is_empty() {
-                                res_msg["rule_description"] = serde_json::Value::String(description);
+                                res_msg["rule_description"] =
+                                    serde_json::Value::String(description);
                             }
                         }
                         send_json(out, &res_msg);
@@ -1518,7 +1651,10 @@ async fn session_loop(
                 } else {
                     msg.name
                 };
-                match server.engine.check_registry_content(&path, &msg.value_name, &msg.value_data) {
+                match server
+                    .engine
+                    .check_registry_content(&path, &msg.value_name, &msg.value_data)
+                {
                     Ok(report) => {
                         let res_msg = serde_json::json!({
                             "type": "registry_content_result",
@@ -1568,12 +1704,25 @@ async fn session_loop(
                 if server.maintenance() {
                     send_error(out, Some(msg.id), server.maintenance_message());
                 } else {
-                    handle_scan_evtx(ws_rx, out, server, session, &slots, msg, server.limits.max_bytes()).await?;
+                    handle_scan_evtx(
+                        ws_rx,
+                        out,
+                        server,
+                        session,
+                        &slots,
+                        msg,
+                        server.limits.max_bytes(),
+                    )
+                    .await?;
                 }
             }
             "report_fp" | "report_fn" => {
                 if !report_bucket.take(1.0, REPORT_BURST, REPORTS_PER_SEC) {
-                    send_error(out, Some(msg.id), "too many reports, try again in a few minutes");
+                    send_error(
+                        out,
+                        Some(msg.id),
+                        "too many reports, try again in a few minutes",
+                    );
                     continue;
                 }
                 handle_verdict_report(server, session, out, &msg, msg.r#type == "report_fn");
@@ -1624,14 +1773,24 @@ fn handle_check(
         if let Some(mut r) = server.known_opts(&sha, &sha_hex, it.rescan) {
             r.id = it.id;
             record_result(server, session, &r, &name, it.size);
-            server.threat_intel.add_folder(&sha_hex, &session.address, &it.folder, &it.path);
+            server
+                .threat_intel
+                .add_folder(&sha_hex, &session.address, &it.folder, &it.path);
             send_json(out, &r);
             continue;
         }
 
         if it.size < 0 || it.size > max_bytes {
-            reject_file(server, session, out, it.id, &name, it.size, &sha_hex,
-                &format!("file too large (limit {} MB)", server.limits.max_mb()));
+            reject_file(
+                server,
+                session,
+                out,
+                it.id,
+                &name,
+                it.size,
+                &sha_hex,
+                &format!("file too large (limit {} MB)", server.limits.max_mb()),
+            );
             continue;
         }
 
@@ -1647,7 +1806,9 @@ fn handle_check(
                     size: it.size,
                 });
                 drop(g);
-                server.threat_intel.add_folder(&sha_hex, &session.address, &it.folder, &it.path);
+                server
+                    .threat_intel
+                    .add_folder(&sha_hex, &session.address, &it.folder, &it.path);
                 continue;
             }
         }
@@ -1655,10 +1816,19 @@ fn handle_check(
         server.threat_intel.record_check(
             &sha_hex,
             if name.is_empty() { None } else { Some(&name) },
-            if it.size > 0 { Some(it.size as u64) } else { None },
+            if it.size > 0 {
+                Some(it.size as u64)
+            } else {
+                None
+            },
         );
-        server.threat_intel.add_folder(&sha_hex, &session.address, &it.folder, &it.path);
-        send_json(out, &serde_json::json!({"type": "need_upload", "id": it.id}));
+        server
+            .threat_intel
+            .add_folder(&sha_hex, &session.address, &it.folder, &it.path);
+        send_json(
+            out,
+            &serde_json::json!({"type": "need_upload", "id": it.id}),
+        );
     }
     Ok(())
 }
@@ -1679,17 +1849,27 @@ async fn handle_scan_evtx(
     let id = msg.id;
     let size = msg.size;
     if size < 0 || size > max_bytes {
-        send_error(out, Some(id), &format!("evtx too large (limit {} MB)", server.limits.max_mb()));
+        send_error(
+            out,
+            Some(id),
+            &format!("evtx too large (limit {} MB)", server.limits.max_mb()),
+        );
         return Ok(());
     }
 
-    let _slot = Arc::clone(slots).acquire_owned().await.map_err(|e| e.to_string())?;
+    let _slot = Arc::clone(slots)
+        .acquire_owned()
+        .await
+        .map_err(|e| e.to_string())?;
     send_json(out, &serde_json::json!({"type": "send_file", "id": id}));
 
-    let deadline = tokio::time::Instant::now() + Duration::from_secs(60 + (size / MIN_UPLOAD_BYTES_PER_SEC) as u64);
+    let deadline = tokio::time::Instant::now()
+        + Duration::from_secs(60 + (size / MIN_UPLOAD_BYTES_PER_SEC) as u64);
     let mut data: Vec<u8> = Vec::with_capacity(size as usize);
     while (data.len() as i64) < size {
-        let wait = deadline.saturating_duration_since(tokio::time::Instant::now()).min(Duration::from_secs(120));
+        let wait = deadline
+            .saturating_duration_since(tokio::time::Instant::now())
+            .min(Duration::from_secs(120));
         if wait.is_zero() {
             server.limiter.strike(&session.address);
             send_error(out, Some(id), "upload too slow");
@@ -1710,9 +1890,17 @@ async fn handle_scan_evtx(
     }
 
     let temp_dir = std::env::temp_dir();
-    let temp_path = temp_dir.join(format!("scan_evtx_{}_{}.evtx", id, Utc::now().timestamp_nanos_opt().unwrap_or(0)));
+    let temp_path = temp_dir.join(format!(
+        "scan_evtx_{}_{}.evtx",
+        id,
+        Utc::now().timestamp_nanos_opt().unwrap_or(0)
+    ));
     if let Err(e) = std::fs::write(&temp_path, &data) {
-        send_error(out, Some(id), &format!("failed writing evtx temp file: {}", e));
+        send_error(
+            out,
+            Some(id),
+            &format!("failed writing evtx temp file: {}", e),
+        );
         return Ok(());
     }
 
@@ -1743,7 +1931,8 @@ struct PostScanReportJob {
 }
 
 fn enqueue_post_scan_report(job: PostScanReportJob) {
-    static TX: std::sync::OnceLock<std::sync::mpsc::SyncSender<PostScanReportJob>> = std::sync::OnceLock::new();
+    static TX: std::sync::OnceLock<std::sync::mpsc::SyncSender<PostScanReportJob>> =
+        std::sync::OnceLock::new();
     let tx = TX.get_or_init(|| {
         let (tx, rx) = std::sync::mpsc::sync_channel::<PostScanReportJob>(64);
         let _ = std::thread::Builder::new()
@@ -1810,8 +1999,16 @@ async fn handle_scan(
     }
 
     if msg.size < 0 || msg.size > max_bytes {
-        reject_file(server, session, out, id, &name, msg.size, &sha_hex,
-            &format!("file too large (limit {} MB)", server.limits.max_mb()));
+        reject_file(
+            server,
+            session,
+            out,
+            id,
+            &name,
+            msg.size,
+            &sha_hex,
+            &format!("file too large (limit {} MB)", server.limits.max_mb()),
+        );
         return Ok(());
     }
     let size = msg.size;
@@ -1846,14 +2043,25 @@ async fn handle_scan(
     }
 
     if !server.limiter.take_upload(&session.address, wire) {
-        reject_file(server, session, out, id, &name, size, &sha_hex,
-            "upload limit for this hour reached, try again later");
+        reject_file(
+            server,
+            session,
+            out,
+            id,
+            &name,
+            size,
+            &sha_hex,
+            "upload limit for this hour reached, try again later",
+        );
         return Ok(());
     }
 
     let req_started = std::time::Instant::now();
     let t_slot0 = std::time::Instant::now();
-    let slot = Arc::clone(slots).acquire_owned().await.map_err(|e| e.to_string())?;
+    let slot = Arc::clone(slots)
+        .acquire_owned()
+        .await
+        .map_err(|e| e.to_string())?;
     let budget = server.budget.acquire(size).await;
     let guard = InflightGuard::claim(server, sha);
     let slot_wait_ms = t_slot0.elapsed().as_secs_f64() * 1000.0;
@@ -1905,37 +2113,68 @@ async fn handle_scan(
                     .read_to_end(&mut plain)
             };
             (res.is_ok() && plain.len() as i64 == size).then_some(plain)
-        }).await.ok().flatten();
+        })
+        .await
+        .ok()
+        .flatten();
         let Some(plain) = decoded else {
             server.limiter.strike(&session.address);
-            reject_file(server, session, out, id, &name, size, &sha_hex,
-                "compressed upload could not be decoded to the announced size");
+            reject_file(
+                server,
+                session,
+                out,
+                id,
+                &name,
+                size,
+                &sha_hex,
+                "compressed upload could not be decoded to the announced size",
+            );
             return Ok(());
         };
         data = plain;
-        server.stats.bytes_saved_compression.fetch_add(size - wire, Ordering::Relaxed);
+        server
+            .stats
+            .bytes_saved_compression
+            .fetch_add(size - wire, Ordering::Relaxed);
     }
 
-    let decompress_ms = if compressed { t_decomp0.elapsed().as_secs_f64() * 1000.0 } else { 0.0 };
+    let decompress_ms = if compressed {
+        t_decomp0.elapsed().as_secs_f64() * 1000.0
+    } else {
+        0.0
+    };
     let t_sha0 = std::time::Instant::now();
     let calculated: String = Sha256::digest(&data).encode_hex_upper();
     let sha256_ms = t_sha0.elapsed().as_secs_f64() * 1000.0;
     if calculated != sha_hex {
         server.limiter.strike(&session.address);
-        reject_file(server, session, out, id, &name, size, &sha_hex,
-            "sha256 of the uploaded bytes does not match");
+        reject_file(
+            server,
+            session,
+            out,
+            id,
+            &name,
+            size,
+            &sha_hex,
+            "sha256 of the uploaded bytes does not match",
+        );
         return Ok(());
     }
 
     server.stats.uploads.fetch_add(1, Ordering::Relaxed);
-    server.stats.bytes_uploaded.fetch_add(size, Ordering::Relaxed);
+    server
+        .stats
+        .bytes_uploaded
+        .fetch_add(size, Ordering::Relaxed);
     session.uploads.fetch_add(1, Ordering::Relaxed);
     session.in_flight.fetch_add(1, Ordering::Relaxed);
 
     let (rtx, rrx) = oneshot::channel();
     let engine = Arc::clone(&server.engine);
     let (job_name, job_sha) = (name.clone(), sha_hex.clone());
-    let queue_entry = server.scan_queue.add(&name, size, &sha_hex, &session.address, session.id);
+    let queue_entry = server
+        .scan_queue
+        .add(&name, size, &sha_hex, &session.address, session.id);
     let (queue_list, queue_id) = (Arc::clone(&server.scan_queue), queue_entry.id);
     let scan_slots = Arc::clone(scan_slots);
     let ti = Arc::clone(&server.threat_intel);
@@ -1959,9 +2198,15 @@ async fn handle_scan(
                 queue_list.mark_started(queue_id);
                 let mut report = None;
                 let t_eng0 = std::time::Instant::now();
-                let r = engine.scan_blocking_with(&data, &job_name, client_path.as_deref(), &job_sha, |res| {
-                    report = apply_threat_intel(&ti, &data, &job_name, res);
-                });
+                let r = engine.scan_blocking_with(
+                    &data,
+                    &job_name,
+                    client_path.as_deref(),
+                    &job_sha,
+                    |res| {
+                        report = apply_threat_intel(&ti, &data, &job_name, res);
+                    },
+                );
                 let engine_ms = t_eng0.elapsed().as_secs_f64() * 1000.0;
                 let _ = ttx.send((sched_wait_ms, engine_ms));
                 let _ = rtx.send(r);
@@ -1998,9 +2243,15 @@ async fn handle_scan(
                     id: 0,
                     timestamp: Some(chrono::Utc::now().to_rfc3339()),
                     ecs: Some(serde_json::json!({ "version": "9.5.4" })),
-                    event: Some(serde_json::json!({ "action": "static_analysis", "kind": "event", "category": ["malware", "file"], "outcome": "failure" })),
-                    file: Some(serde_json::json!({ "name": name, "size": size, "hash": { "sha256": sha_hex } })),
-                    antivirus: Some(serde_json::json!({ "engine": ENGINE_NAME, "verdict": "error", "detail": "The scan engine crashed on this file" })),
+                    event: Some(
+                        serde_json::json!({ "action": "static_analysis", "kind": "event", "category": ["malware", "file"], "outcome": "failure" }),
+                    ),
+                    file: Some(
+                        serde_json::json!({ "name": name, "size": size, "hash": { "sha256": sha_hex } }),
+                    ),
+                    antivirus: Some(
+                        serde_json::json!({ "engine": ENGINE_NAME, "verdict": "error", "detail": "The scan engine crashed on this file" }),
+                    ),
                     threat_indicator: None,
                     rule: None,
                     verdict: "error".into(),
@@ -2042,7 +2293,12 @@ async fn handle_scan(
                 sess.scanned.fetch_add(1, Ordering::Relaxed);
                 srv.total_scanned.fetch_add(1, Ordering::Relaxed);
                 srv.total_errors.fetch_add(1, Ordering::Relaxed);
-                let mut ev = simple_event("error", Some(sess.id), Some(sess.address.clone()), Some(e.clone()));
+                let mut ev = simple_event(
+                    "error",
+                    Some(sess.id),
+                    Some(sess.address.clone()),
+                    Some(e.clone()),
+                );
                 ev.file = Some(name);
                 ev.size = Some(size);
                 ev.sha256 = Some(sha_hex);
@@ -2066,7 +2322,12 @@ fn reject_file(
     sha_hex: &str,
     reason: &str,
 ) {
-    let mut ev = simple_event("rejected", Some(session.id), Some(session.address.clone()), Some(reason.to_string()));
+    let mut ev = simple_event(
+        "rejected",
+        Some(session.id),
+        Some(session.address.clone()),
+        Some(reason.to_string()),
+    );
     ev.file = Some(name.to_string());
     ev.size = Some(size);
     ev.sha256 = Some(sha_hex.to_string());
@@ -2076,18 +2337,32 @@ fn reject_file(
 
 /// Counts every answer. Files answered from their hash are only counted, not written to
 /// the live feed (there are far too many), except threats.
-fn record_result(server: &ScanServer, session: &SessionHandle, res: &ResultMessage, file_name: &str, size: i64) {
+fn record_result(
+    server: &ScanServer,
+    session: &SessionHandle,
+    res: &ResultMessage,
+    file_name: &str,
+    size: i64,
+) {
     session.scanned.fetch_add(1, Ordering::Relaxed);
     server.total_scanned.fetch_add(1, Ordering::Relaxed);
 
     // A human verdict is not an engine verdict: count the sighting only, so removing the
     // review later brings back what the engine really said.
-    let engine_verdict = if res.source == "human" { "unknown" } else { res.verdict.as_str() };
+    let engine_verdict = if res.source == "human" {
+        "unknown"
+    } else {
+        res.verdict.as_str()
+    };
     server.threat_intel.record(
         &res.sha256,
         engine_verdict,
         res.threat.as_deref(),
-        if file_name.is_empty() { None } else { Some(file_name) },
+        if file_name.is_empty() {
+            None
+        } else {
+            Some(file_name)
+        },
         if size > 0 { Some(size as u64) } else { None },
         res.score,
     );
@@ -2095,10 +2370,14 @@ fn record_result(server: &ScanServer, session: &SessionHandle, res: &ResultMessa
         server.threat_intel.set_signer(&res.sha256, sg);
     }
     if res.source != "human" {
-        server.threat_intel.set_detections(&res.sha256, &res.verdict, &res.detections, false);
+        server
+            .threat_intel
+            .set_detections(&res.sha256, &res.verdict, &res.detections, false);
     }
     // Which IP sent it (the check message adds the full path to the same entry).
-    server.threat_intel.add_folder(&res.sha256, &session.address, "", "");
+    server
+        .threat_intel
+        .add_folder(&res.sha256, &session.address, "", "");
 
     // Valkyrie-style: files the engine could not settle after a real scan go to the
     // human analysis queue automatically.
@@ -2113,7 +2392,11 @@ fn record_result(server: &ScanServer, session: &SessionHandle, res: &ResultMessa
             &res.sha256,
             "auto",
             Some(&res.verdict),
-            if file_name.is_empty() { None } else { Some(file_name) },
+            if file_name.is_empty() {
+                None
+            } else {
+                Some(file_name)
+            },
         );
     }
 
@@ -2143,7 +2426,11 @@ fn record_result(server: &ScanServer, session: &SessionHandle, res: &ResultMessa
         threat: res.threat.clone(),
         detail: res.detail.clone(),
         sha256: Some(res.sha256.clone()),
-        message: if res.source == "scan" { None } else { Some(res.source.clone()) },
+        message: if res.source == "scan" {
+            None
+        } else {
+            Some(res.source.clone())
+        },
         origin_type: None,
     });
 
@@ -2154,7 +2441,12 @@ fn record_result(server: &ScanServer, session: &SessionHandle, res: &ResultMessa
         }
         let sub_threat_name = obj.detections.first().map(|d| d.name.clone());
         let sub_detail = if !obj.detections.is_empty() {
-            let d_names: Vec<String> = obj.detections.iter().take(4).map(|d| format!("{} ({})", d.name, d.layer)).collect();
+            let d_names: Vec<String> = obj
+                .detections
+                .iter()
+                .take(4)
+                .map(|d| format!("{} ({})", d.name, d.layer))
+                .collect();
             Some(d_names.join(", "))
         } else {
             let kb = (obj.size as f64) / 1024.0;
@@ -2235,7 +2527,10 @@ fn verdict_message(sha_hex: &str, v: CachedVerdict, action: &str, source: &str) 
     ResultMessage {
         r#type: "result".into(),
         id: 0,
-        timestamp: ecs.get("@timestamp").and_then(|t| t.as_str()).map(|s| s.to_string()),
+        timestamp: ecs
+            .get("@timestamp")
+            .and_then(|t| t.as_str())
+            .map(|s| s.to_string()),
         ecs: Some(serde_json::json!({ "version": "9.5.4" })),
         event: ecs.get("event").cloned(),
         file: ecs.get("file").cloned(),
@@ -2270,13 +2565,21 @@ pub fn apply_analyst_tlsh(
     trace: &TiTrace,
     res: &mut ResultMessage,
 ) {
-    if !matches!(res.verdict.as_str(), "unknown" | "possible_clean" | "suspicious") || !ti.similarity.has_analyst_sigs() {
+    if !matches!(
+        res.verdict.as_str(),
+        "unknown" | "possible_clean" | "suspicious"
+    ) || !ti.similarity.has_analyst_sigs()
+    {
         return;
     }
-    if trace.step("server:ti_review_check", |_| ti.reviews.is_completed_clean(&res.sha256)) {
+    if trace.step("server:ti_review_check", |_| {
+        ti.reviews.is_completed_clean(&res.sha256)
+    }) {
         return;
     }
-    let Some(q) = tlsh_query(data, query, trace) else { return };
+    let Some(q) = tlsh_query(data, query, trace) else {
+        return;
+    };
     let hit = trace.step("server:ti_analyst_tlsh", |d| {
         *d = format!("{} signatures", ti.similarity.analyst_sig_count());
         ti.similarity.analyst_match(q, &res.sha256)
@@ -2284,12 +2587,20 @@ pub fn apply_analyst_tlsh(
     let Some((sig, d)) = hit else { return };
     crate::engine_adapter::apply_analyst_hit(
         res,
-        &crate::analyst_engine::AnalystHit { engine: "analyst_tlsh", name: sig.threat.clone(), verdict: "malicious" },
+        &crate::analyst_engine::AnalystHit {
+            engine: "analyst_tlsh",
+            name: sig.threat.clone(),
+            verdict: "malicious",
+        },
     );
     let detail = format!(
         "Analyst TLSH signature: distance {d} to {} (marked malicious by {})",
         sig.sha256,
-        if sig.analyst.is_empty() { "an analyst" } else { sig.analyst.as_str() }
+        if sig.analyst.is_empty() {
+            "an analyst"
+        } else {
+            sig.analyst.as_str()
+        }
     );
     res.detail = Some(detail.clone());
     if let Some(o) = res.antivirus.as_mut().and_then(|a| a.as_object_mut()) {
@@ -2311,13 +2622,21 @@ pub fn apply_tlsh_blacklist(
     trace: &TiTrace,
     res: &mut ResultMessage,
 ) {
-    if !matches!(res.verdict.as_str(), "unknown" | "possible_clean" | "suspicious") || !ti.similarity.has_named_malware() {
+    if !matches!(
+        res.verdict.as_str(),
+        "unknown" | "possible_clean" | "suspicious"
+    ) || !ti.similarity.has_named_malware()
+    {
         return;
     }
-    if trace.step("server:ti_review_check", |_| ti.reviews.is_completed_clean(&res.sha256)) {
+    if trace.step("server:ti_review_check", |_| {
+        ti.reviews.is_completed_clean(&res.sha256)
+    }) {
         return;
     }
-    let Some(q) = tlsh_query(data, query, trace) else { return };
+    let Some(q) = tlsh_query(data, query, trace) else {
+        return;
+    };
     let hit = trace.step("server:ti_tlsh_blacklist", |d| {
         *d = format!("{} named digests", ti.similarity.named_malware_count());
         ti.similarity.blacklist_match(q)
@@ -2328,7 +2647,11 @@ pub fn apply_tlsh_blacklist(
         m.threat,
         m.distance,
         m.tlsh,
-        if m.file.is_empty() { String::new() } else { format!(" ({})", m.file) }
+        if m.file.is_empty() {
+            String::new()
+        } else {
+            format!(" ({})", m.file)
+        }
     );
     if let Some(o) = res.antivirus.as_mut().and_then(|a| a.as_object_mut()) {
         o.insert("tlsh_blacklist_info".into(), serde_json::json!(info));
@@ -2338,14 +2661,24 @@ pub fn apply_tlsh_blacklist(
 /// Analyst imphash signatures (`imphash_sigs`): same limits as the TLSH blacklist —
 /// only raises unknown / possible_clean / suspicious results, never a file an analyst
 /// marked clean. Costs nothing while there are no imphash signatures.
-pub fn apply_imphash_sigs(ti: &crate::threat_intel::ThreatIntelStore, data: &[u8], trace: &TiTrace, res: &mut ResultMessage) {
+pub fn apply_imphash_sigs(
+    ti: &crate::threat_intel::ThreatIntelStore,
+    data: &[u8],
+    trace: &TiTrace,
+    res: &mut ResultMessage,
+) {
     if !crate::imphash_sigs::any() || !data.starts_with(b"MZ") {
         return;
     }
-    if !matches!(res.verdict.as_str(), "unknown" | "possible_clean" | "suspicious") {
+    if !matches!(
+        res.verdict.as_str(),
+        "unknown" | "possible_clean" | "suspicious"
+    ) {
         return;
     }
-    if trace.step("server:ti_review_check", |_| ti.reviews.is_completed_clean(&res.sha256)) {
+    if trace.step("server:ti_review_check", |_| {
+        ti.reviews.is_completed_clean(&res.sha256)
+    }) {
         return;
     }
     let found = trace.step("server:ti_imphash", |d| {
@@ -2357,7 +2690,11 @@ pub fn apply_imphash_sigs(ti: &crate::threat_intel::ThreatIntelStore, data: &[u8
     let before = res.verdict.clone();
     crate::engine_adapter::apply_analyst_hit(
         res,
-        &crate::analyst_engine::AnalystHit { engine: "analyst_imphash", name: sig.threat.clone(), verdict: "malicious" },
+        &crate::analyst_engine::AnalystHit {
+            engine: "analyst_imphash",
+            name: sig.threat.clone(),
+            verdict: "malicious",
+        },
     );
     if res.verdict == before {
         return;
@@ -2368,7 +2705,11 @@ pub fn apply_imphash_sigs(ti: &crate::threat_intel::ThreatIntelStore, data: &[u8
         sig.imphash,
         sig.imports,
         sig.sha256,
-        if sig.analyst.is_empty() { "an analyst" } else { sig.analyst.as_str() }
+        if sig.analyst.is_empty() {
+            "an analyst"
+        } else {
+            sig.analyst.as_str()
+        }
     );
     res.detail = Some(detail.clone());
     if let Some(o) = res.antivirus.as_mut().and_then(|a| a.as_object_mut()) {
@@ -2405,7 +2746,11 @@ fn tlsh_query<'q>(
     trace: &TiTrace,
 ) -> Option<&'q crate::similarity::TlshQuery> {
     query
-        .get_or_init(|| trace.step("server:ti_tlsh_hash", |_| crate::similarity::TlshQuery::of(data)))
+        .get_or_init(|| {
+            trace.step("server:ti_tlsh_hash", |_| {
+                crate::similarity::TlshQuery::of(data)
+            })
+        })
         .as_ref()
 }
 
@@ -2426,7 +2771,11 @@ pub struct TiTrace {
 
 impl TiTrace {
     fn new() -> Self {
-        TiTrace { started: std::time::Instant::now(), inner: Default::default(), steps: Default::default() }
+        TiTrace {
+            started: std::time::Instant::now(),
+            inner: Default::default(),
+            steps: Default::default(),
+        }
     }
 
     fn step<T>(&self, name: &'static str, f: impl FnOnce(&mut String) -> T) -> T {
@@ -2454,10 +2803,23 @@ impl TiTrace {
                     s.self_ns += ns;
                     s.max_ns = s.max_ns.max(ns);
                 }
-                None => stages.push(openedr_static::memtrack::StageTime { name: step, calls: 1, self_ns: ns, cpu_ns: 0, max_ns: ns }),
+                None => stages.push(openedr_static::memtrack::StageTime {
+                    name: step,
+                    calls: 1,
+                    self_ns: ns,
+                    cpu_ns: 0,
+                    max_ns: ns,
+                }),
             }
         }
-        crate::scan_timing::record_stages(name, &res.sha256, size, self.started.elapsed(), Some(&res.verdict), &stages);
+        crate::scan_timing::record_stages(
+            name,
+            &res.sha256,
+            size,
+            self.started.elapsed(),
+            Some(&res.verdict),
+            &stages,
+        );
     }
 
     fn log_if_slow(&self, name: &str, size: usize, res: &ResultMessage) {
@@ -2504,7 +2866,9 @@ pub fn apply_smart_whitelist(
     }
     // The exact file is in the verified benign corpus: that is a known file, not a
     // look-alike, so it is clean (possible_clean is for TLSH neighbours only).
-    if trace.step("server:ti_benign_corpus", |_| ti.similarity.in_benign_corpus(&res.sha256)) {
+    if trace.step("server:ti_benign_corpus", |_| {
+        ti.similarity.in_benign_corpus(&res.sha256)
+    }) {
         crate::engine_adapter::mark_clean(
             res,
             "Known benign: exact SHA-256 match in the verified benign reference corpus".into(),
@@ -2512,7 +2876,10 @@ pub fn apply_smart_whitelist(
         );
         return None;
     }
-    let pre_tlsh = query.get().and_then(|o| o.as_ref()).and_then(|q| q.full_file_digest());
+    let pre_tlsh = query
+        .get()
+        .and_then(|o| o.as_ref())
+        .and_then(|q| q.full_file_digest());
     let pre_sha256 = (!res.sha256.is_empty()).then_some(res.sha256.as_str());
     let rep = trace.step("server:ti_static_report", |_| {
         std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -2550,7 +2917,12 @@ pub fn apply_smart_whitelist(
     Some(rep)
 }
 
-fn simple_event(kind: &str, session: Option<i64>, client: Option<String>, message: Option<String>) -> Event {
+fn simple_event(
+    kind: &str,
+    session: Option<i64>,
+    client: Option<String>,
+    message: Option<String>,
+) -> Event {
     Event {
         seq: 0,
         time: Utc::now(),
@@ -2577,10 +2949,23 @@ fn send_json<T: Serialize>(tx: &Out, v: &T) {
 }
 
 fn send_error(tx: &Out, id: Option<i64>, msg: &str) {
-    send_json(tx, &ErrorMessage { r#type: "error", id, message: msg });
+    send_json(
+        tx,
+        &ErrorMessage {
+            r#type: "error",
+            id,
+            message: msg,
+        },
+    );
 }
 
-fn handle_verdict_report(server: &Arc<ScanServer>, session: &Arc<SessionHandle>, out: &Out, msg: &ClientMessage, false_negative: bool) {
+fn handle_verdict_report(
+    server: &Arc<ScanServer>,
+    session: &Arc<SessionHandle>,
+    out: &Out,
+    msg: &ClientMessage,
+    false_negative: bool,
+) {
     let (source, label) = if false_negative {
         (crate::human_review::FN_SOURCE, "False-negative report")
     } else {
@@ -2613,26 +2998,50 @@ fn handle_verdict_report(server: &Arc<ScanServer>, session: &Arc<SessionHandle>,
         return;
     }
     let Some(insight) = server.threat_intel.get(&sha) else {
-        send_error(out, id, "scan the file first; only files seen by VirusKov can be reported");
+        send_error(
+            out,
+            id,
+            "scan the file first; only files seen by VirusKov can be reported",
+        );
         return;
     };
     let detected = insight.verdict == "malicious" || insight.verdict == "suspicious";
     if false_negative && detected {
-        send_error(out, id, "this file is already detected; only files the engine did not detect can be reported as false negatives");
+        send_error(
+            out,
+            id,
+            "this file is already detected; only files the engine did not detect can be reported as false negatives",
+        );
         return;
     }
     if !false_negative && !detected {
-        send_error(out, id, "only files detected as malicious or suspicious can be reported as false positives");
+        send_error(
+            out,
+            id,
+            "only files detected as malicious or suspicious can be reported as false positives",
+        );
         return;
     }
     let name: String = msg.name.trim().chars().take(260).collect();
-    let name = if name.is_empty() { insight.file_names.first().map(|n| n.to_string()).unwrap_or_default() } else { name };
+    let name = if name.is_empty() {
+        insight
+            .file_names
+            .first()
+            .map(|n| n.to_string())
+            .unwrap_or_default()
+    } else {
+        name
+    };
     match server.threat_intel.reviews.report_user_verdict(
         &sha,
         source,
         label,
         Some(&insight.verdict),
-        if name.is_empty() { None } else { Some(name.as_str()) },
+        if name.is_empty() {
+            None
+        } else {
+            Some(name.as_str())
+        },
         &msg.note,
     ) {
         Ok((r, _)) => {
@@ -2644,14 +3053,22 @@ fn handle_verdict_report(server: &Arc<ScanServer>, session: &Arc<SessionHandle>,
                 session: Some(session.id),
                 client: Some(session.address.clone()),
                 verdict: Some(insight.verdict.to_string()),
-                file: if name.is_empty() { None } else { Some(name.clone()) },
+                file: if name.is_empty() {
+                    None
+                } else {
+                    Some(name.clone())
+                },
                 size: None,
                 ms: None,
                 items: None,
                 threat: None,
                 detail: None,
                 sha256: Some(sha.clone()),
-                message: Some(format!("{}: {}", label.to_lowercase(), if name.is_empty() { &sha } else { &name })),
+                message: Some(format!(
+                    "{}: {}",
+                    label.to_lowercase(),
+                    if name.is_empty() { &sha } else { &name }
+                )),
                 origin_type: None,
             });
         }
@@ -2712,7 +3129,9 @@ fn content_difference_percent(a: &str, b: &str) -> u8 {
     }
     let inter = sa.intersection(&sb).count();
     let union = sa.union(&sb).count().max(1);
-    ((1.0 - inter as f64 / union as f64) * 100.0).round().clamp(0.0, 100.0) as u8
+    ((1.0 - inter as f64 / union as f64) * 100.0)
+        .round()
+        .clamp(0.0, 100.0) as u8
 }
 
 fn merge_url_reports(
@@ -2737,8 +3156,16 @@ fn merge_url_reports(
         }
     }
 
-    let server_ids: HashSet<String> = server.detections.iter().map(|d| d.rule_id.clone()).collect();
-    let client_ids: HashSet<String> = client.detections.iter().map(|d| d.rule_id.clone()).collect();
+    let server_ids: HashSet<String> = server
+        .detections
+        .iter()
+        .map(|d| d.rule_id.clone())
+        .collect();
+    let client_ids: HashSet<String> = client
+        .detections
+        .iter()
+        .map(|d| d.rule_id.clone())
+        .collect();
 
     let mut server_only: Vec<String> = Vec::new();
     let mut client_only: Vec<String> = Vec::new();
@@ -2757,16 +3184,23 @@ fn merge_url_reports(
         }
     }
 
-    let differed = server.verdict != client.verdict
-        || !server_only.is_empty()
-        || !client_only.is_empty();
+    let differed =
+        server.verdict != client.verdict || !server_only.is_empty() || !client_only.is_empty();
 
     // Worst verdict across both single-source scans wins.
     let (mut verdict, mut risk_score, mut verdict_reason) =
         if verdict_rank(&client.verdict) >= verdict_rank(&server.verdict) {
-            (client.verdict.clone(), client.risk_score, client.verdict_reason.clone())
+            (
+                client.verdict.clone(),
+                client.risk_score,
+                client.verdict_reason.clone(),
+            )
         } else {
-            (server.verdict.clone(), server.risk_score, server.verdict_reason.clone())
+            (
+                server.verdict.clone(),
+                server.risk_score,
+                server.verdict_reason.clone(),
+            )
         };
 
     // Difference judgment comes from YAML rules, never from hardcoded logic.
@@ -2776,21 +3210,34 @@ fn merge_url_reports(
         let facts = format!(
             "Content difference: {}%. Client status: {} vs server status: {}. Client-supplied content verdict: {} vs server-fetched verdict: {}. Rules seen only in server fetch: [{}]; rules seen only in client content: [{}].",
             difference_percent,
-            client_status.map(|c| c.to_string()).unwrap_or_else(|| "unknown".to_string()),
-            server_status.map(|s| s.to_string()).unwrap_or_else(|| "unknown".to_string()),
+            client_status
+                .map(|c| c.to_string())
+                .unwrap_or_else(|| "unknown".to_string()),
+            server_status
+                .map(|s| s.to_string())
+                .unwrap_or_else(|| "unknown".to_string()),
             client.verdict,
             server.verdict,
             server_only.join(", "),
             client_only.join(", "),
         );
-        for (mut hit, override_wl, skip_wl) in engine.match_difference_rules(url_trimmed, difference_percent, client_status, server_status, liveness_code)? {
+        for (mut hit, override_wl, skip_wl) in engine.match_difference_rules(
+            url_trimmed,
+            difference_percent,
+            client_status,
+            server_status,
+            liveness_code,
+        )? {
             if skip_wl && server.whitelisted {
                 continue;
             }
             if override_wl && server.whitelisted {
                 server.whitelisted = false;
                 server.whitelist_bypassed = true;
-                server.bypass_reason = Some(format!("Whitelist overridden by threat rule {}", hit.rule_id));
+                server.bypass_reason = Some(format!(
+                    "Whitelist overridden by threat rule {}",
+                    hit.rule_id
+                ));
             }
             hit.details.push_str(&format!(" {}", facts));
             // Rule-driven escalation only: Malicious or Suspicious difference-rule
@@ -2841,9 +3288,13 @@ fn intel_lookup(server: &Arc<ScanServer>, raw: &str) -> Result<serde_json::Value
         .map_err(|_| "intel: target must be an IP address or a certificate SHA-1".to_string())?;
     // Loopback / LAN / reserved addresses are never judged.
     if crate::liveness::is_internal_target(target) {
-        return Ok(serde_json::json!({ "target": ip.to_string(), "kind": "ip", "malicious": false, "reason": null }));
+        return Ok(
+            serde_json::json!({ "target": ip.to_string(), "kind": "ip", "malicious": false, "reason": null }),
+        );
     }
-    let report = server.engine.inspect_url(target, crate::liveness::LIVENESS_UNKNOWN, None)?;
+    let report = server
+        .engine
+        .inspect_url(target, crate::liveness::LIVENESS_UNKNOWN, None)?;
     let malicious = report.verdict == "Malicious";
     Ok(serde_json::json!({
         "target": ip.to_string(),
@@ -2899,7 +3350,9 @@ pub async fn execute_url_scan(
     // `example.com` or `host:8080` has no "://" and is read as https).
     if let Some((scheme, _)) = url_trimmed.split_once("://") {
         if !scheme.eq_ignore_ascii_case("http") && !scheme.eq_ignore_ascii_case("https") {
-            return Err("invalid URL: only http:// and https:// addresses can be scanned".to_string());
+            return Err(
+                "invalid URL: only http:// and https:// addresses can be scanned".to_string(),
+            );
         }
     }
     // Loopback, LAN, cloud metadata and other reserved addresses are not judged: a
@@ -2943,15 +3396,34 @@ pub async fn execute_url_scan(
         (Some(client_body), Some(server_body)) => {
             let pct = content_difference_percent(client_body, server_body);
             difference_percent = Some(pct);
-            let server_report = server.engine.inspect_url(url_trimmed, liveness_code, Some(server_body))?;
-            let client_report = server.engine.inspect_url(url_trimmed, liveness_code, Some(client_body))?;
-            merge_url_reports(&server.engine, url_trimmed, pct, content_status, server_status, liveness_code, server_report, client_report)?
+            let server_report =
+                server
+                    .engine
+                    .inspect_url(url_trimmed, liveness_code, Some(server_body))?;
+            let client_report =
+                server
+                    .engine
+                    .inspect_url(url_trimmed, liveness_code, Some(client_body))?;
+            merge_url_reports(
+                &server.engine,
+                url_trimmed,
+                pct,
+                content_status,
+                server_status,
+                liveness_code,
+                server_report,
+                client_report,
+            )?
         }
         (Some(client_body), None) => {
-            server.engine.inspect_url(url_trimmed, liveness_code, Some(client_body))?
+            server
+                .engine
+                .inspect_url(url_trimmed, liveness_code, Some(client_body))?
         }
         (None, server_body) => {
-            server.engine.inspect_url(url_trimmed, liveness_code, server_body)?
+            server
+                .engine
+                .inspect_url(url_trimmed, liveness_code, server_body)?
         }
     };
     let scan_ms = started.elapsed().as_millis() as i64;
@@ -2982,7 +3454,11 @@ pub async fn execute_url_scan(
         &report.target_url,
         &report.host,
         &report.verdict,
-        report.detections.first().map(|d| d.title.as_str()).filter(|_| report.verdict != "Clean"),
+        report
+            .detections
+            .first()
+            .map(|d| d.title.as_str())
+            .filter(|_| report.verdict != "Clean"),
         &report.verdict_reason,
         report.risk_score,
         &liveness_str,
@@ -3002,18 +3478,26 @@ pub async fn execute_url_scan(
             "suspicious" => 60,
             _ => 0,
         };
-        report.verdict_reason = if note.is_empty() { "Human analysis".to_string() } else { format!("Human analysis: {note}") };
+        report.verdict_reason = if note.is_empty() {
+            "Human analysis".to_string()
+        } else {
+            format!("Human analysis: {note}")
+        };
     }
 
-    let detections_json: Vec<serde_json::Value> = report.detections.iter().map(|d| {
-        serde_json::json!({
-            "rule_id": d.rule_id,
-            "title": d.title,
-            "severity": d.severity,
-            "score": d.score,
-            "details": d.details,
+    let detections_json: Vec<serde_json::Value> = report
+        .detections
+        .iter()
+        .map(|d| {
+            serde_json::json!({
+                "rule_id": d.rule_id,
+                "title": d.title,
+                "severity": d.severity,
+                "score": d.score,
+                "details": d.details,
+            })
         })
-    }).collect();
+        .collect();
 
     let ecs = serde_json::json!({
         "@timestamp": Utc::now().to_rfc3339(),
@@ -3068,12 +3552,20 @@ const MAX_HTTP_URL_SCANS: usize = 8;
 /// Admission for a public URL scan: the per-IP REST quota (the other public endpoints
 /// had it, the URL scan did not), then a free slot. The permit is held until the scan
 /// ends.
-fn url_scan_gate(server: &ScanServer, addr: SocketAddr, headers: &HeaderMap) -> Result<tokio::sync::SemaphorePermit<'static>, Response> {
+fn url_scan_gate(
+    server: &ScanServer,
+    addr: SocketAddr,
+    headers: &HeaderMap,
+) -> Result<tokio::sync::SemaphorePermit<'static>, Response> {
     static SLOTS: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(MAX_HTTP_URL_SCANS);
     let ip = extract_client_ip(addr, headers);
     let key = headers.get("x-api-key").and_then(|v| v.to_str().ok());
     if let Err(retry) = server.rest_limiter.check(&ip, key) {
-        return Err(json_response(StatusCode::TOO_MANY_REQUESTS, serde_json::json!({"status": "error", "retry_after_seconds": retry}), "no-store"));
+        return Err(json_response(
+            StatusCode::TOO_MANY_REQUESTS,
+            serde_json::json!({"status": "error", "retry_after_seconds": retry}),
+            "no-store",
+        ));
     }
     SLOTS.try_acquire().map_err(|_| {
         json_response(StatusCode::SERVICE_UNAVAILABLE, serde_json::json!({"status": "error", "error": "busy: too many URL scans at once, retry in a few seconds"}), "no-store")
@@ -3098,12 +3590,20 @@ async fn handle_scan_url(
         Ok(p) => p,
         Err(r) => return r,
     };
-    match execute_url_scan(&server, &req.url, req.content.as_deref(), req.content_status).await {
+    match execute_url_scan(
+        &server,
+        &req.url,
+        req.content.as_deref(),
+        req.content_status,
+    )
+    .await
+    {
         Ok(ecs_val) => (StatusCode::OK, axum::Json(ecs_val)).into_response(),
         Err(err) => (
             StatusCode::BAD_REQUEST,
             axum::Json(serde_json::json!({ "error": err })),
-        ).into_response(),
+        )
+            .into_response(),
     }
 }
 
@@ -3130,17 +3630,21 @@ async fn handle_scan_url_get(
         Err(err) => (
             StatusCode::BAD_REQUEST,
             axum::Json(serde_json::json!({ "error": err })),
-        ).into_response(),
+        )
+            .into_response(),
     }
 }
-
 
 /// Public list of the latest analyst verdicts plus queue statistics (for the website).
 async fn handle_public_reviews(
     State(server): State<Arc<ScanServer>>,
     axum::extract::Query(q): axum::extract::Query<std::collections::HashMap<String, String>>,
 ) -> Response {
-    let limit = q.get("limit").and_then(|v| v.parse::<usize>().ok()).unwrap_or(20).clamp(1, 50);
+    let limit = q
+        .get("limit")
+        .and_then(|v| v.parse::<usize>().ok())
+        .unwrap_or(20)
+        .clamp(1, 50);
     let reviews = &server.threat_intel.reviews;
     let body = serde_json::json!({
         "status": "success",
@@ -3174,18 +3678,27 @@ async fn handle_review_request(
     let json = |code: StatusCode, v: serde_json::Value| {
         (
             code,
-            [("Content-Type", "application/json"), ("Access-Control-Allow-Origin", "*")],
+            [
+                ("Content-Type", "application/json"),
+                ("Access-Control-Allow-Origin", "*"),
+            ],
             serde_json::to_string(&v).unwrap(),
         )
             .into_response()
     };
     let client_ip = extract_client_ip(addr, &headers);
     if let Err(retry) = server.rest_limiter.check(&client_ip, None) {
-        return json(StatusCode::TOO_MANY_REQUESTS, serde_json::json!({"status": "error", "retry_after_seconds": retry}));
+        return json(
+            StatusCode::TOO_MANY_REQUESTS,
+            serde_json::json!({"status": "error", "retry_after_seconds": retry}),
+        );
     }
     let sha = sha256.trim().to_lowercase();
     if sha.len() != 64 || !sha.chars().all(|c| c.is_ascii_hexdigit()) {
-        return json(StatusCode::BAD_REQUEST, serde_json::json!({"status": "error", "error": "invalid sha256"}));
+        return json(
+            StatusCode::BAD_REQUEST,
+            serde_json::json!({"status": "error", "error": "invalid sha256"}),
+        );
     }
     let Some(insight) = server.threat_intel.get(&sha) else {
         return json(
@@ -3200,12 +3713,21 @@ async fn handle_review_request(
         );
     }
     let name = insight.file_names.first().map(|n| n.as_str());
-    match server.threat_intel.reviews.enqueue(&sha, "user", Some(&insight.verdict), name) {
-        Ok(r) => json(StatusCode::OK, serde_json::json!({"status": "success", "human_analysis": r.to_public_json()})),
-        Err(e) => json(StatusCode::SERVICE_UNAVAILABLE, serde_json::json!({"status": "error", "error": e})),
+    match server
+        .threat_intel
+        .reviews
+        .enqueue(&sha, "user", Some(&insight.verdict), name)
+    {
+        Ok(r) => json(
+            StatusCode::OK,
+            serde_json::json!({"status": "success", "human_analysis": r.to_public_json()}),
+        ),
+        Err(e) => json(
+            StatusCode::SERVICE_UNAVAILABLE,
+            serde_json::json!({"status": "error", "error": e}),
+        ),
     }
 }
-
 
 /// Malware type of a malicious / suspicious verdict (null otherwise), see `naming::classify`.
 pub fn classification_json(verdict: &str, threat: Option<&str>) -> serde_json::Value {
@@ -3232,8 +3754,6 @@ fn valid_sha(s: &str) -> Option<String> {
     let s = s.trim().to_ascii_lowercase();
     (s.len() == 64 && s.chars().all(|c| c.is_ascii_hexdigit())).then_some(s)
 }
-
-
 
 // ── OpenEDR Feedback & Sample Ingestion ──────────────────────────────────────
 
@@ -3305,15 +3825,17 @@ async fn handle_edr_report(
     let already_kept = server.engine.is_kept(&sha);
 
     // Dashboard "EDR Telemetry" tab (threat list and total_threats).
-    server.edr_telemetry.add_threat(&crate::edr_telemetry::ThreatReport {
-        sha256: sha.clone(),
-        file_name: file_name.clone(),
-        original_path: payload.original_path.clone(),
-        detection: detection.clone(),
-        source: source.to_string(),
-        pid: payload.pid,
-        details: serde_json::Value::Null,
-    });
+    server
+        .edr_telemetry
+        .add_threat(&crate::edr_telemetry::ThreatReport {
+            sha256: sha.clone(),
+            file_name: file_name.clone(),
+            original_path: payload.original_path.clone(),
+            detection: detection.clone(),
+            source: source.to_string(),
+            pid: payload.pid,
+            details: serde_json::Value::Null,
+        });
 
     // Record sighting / threat insight
     server.threat_intel.record(
@@ -3381,7 +3903,8 @@ async fn handle_public_edr_behavior(
     if let Some(r) = edr_telemetry_refused(&server, &client_ip, EdrRoute::Behavior) {
         return r;
     }
-    let body = crate::edr_telemetry::ingest_behavior(&server.edr_telemetry, &server.events, payload);
+    let body =
+        crate::edr_telemetry::ingest_behavior(&server.edr_telemetry, &server.events, payload);
     json_response(StatusCode::OK, body, "no-store")
 }
 
@@ -3418,14 +3941,21 @@ async fn handle_public_edr_killchain(
         .and_then(|v| v.to_str().ok())
         .is_some_and(|v| v.eq_ignore_ascii_case("br") || v.eq_ignore_ascii_case("brotli"));
     let error = |status: StatusCode, e: String| {
-        json_response(status, serde_json::json!({"status": "error", "error": e}), "no-store")
+        json_response(
+            status,
+            serde_json::json!({"status": "error", "error": e}),
+            "no-store",
+        )
     };
     let store = Arc::clone(&server.edr_telemetry);
     let result = tokio::task::spawn_blocking(move || {
-        let json = crate::edr_telemetry::killchain_body(&body, brotli).map_err(|e| (StatusCode::BAD_REQUEST, e))?;
-        let batch: crate::edr_telemetry::KillchainBatch =
-            serde_json::from_slice(&json).map_err(|e| (StatusCode::BAD_REQUEST, format!("bad JSON: {e}")))?;
-        let (new, merged) = store.ingest_killchain(&batch).map_err(|e| (StatusCode::SERVICE_UNAVAILABLE, e))?;
+        let json = crate::edr_telemetry::killchain_body(&body, brotli)
+            .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
+        let batch: crate::edr_telemetry::KillchainBatch = serde_json::from_slice(&json)
+            .map_err(|e| (StatusCode::BAD_REQUEST, format!("bad JSON: {e}")))?;
+        let (new, merged) = store
+            .ingest_killchain(&batch)
+            .map_err(|e| (StatusCode::SERVICE_UNAVAILABLE, e))?;
         let repeats: u64 = batch.counts.values().sum();
         Ok::<_, (StatusCode, String)>((new, merged, batch.machine_id, batch.records.len(), repeats))
     })
@@ -3442,14 +3972,21 @@ async fn handle_public_edr_killchain(
                     "Kill chain upload from {machine}: {records} event shapes ({new} new, {merged} merged), {repeats} repeats counted"
                 )),
             ));
-            json_response(StatusCode::OK, serde_json::json!({"status": "ok", "new": new, "merged": merged}), "no-store")
+            json_response(
+                StatusCode::OK,
+                serde_json::json!({"status": "ok", "new": new, "merged": merged}),
+                "no-store",
+            )
         }
         Ok(Err((status, e))) => {
             server.events.add(simple_event(
                 "edr_killchain",
                 None,
                 Some(client_ip),
-                Some(format!("Kill chain upload refused (HTTP {}): {e}", status.as_u16())),
+                Some(format!(
+                    "Kill chain upload refused (HTTP {}): {e}",
+                    status.as_u16()
+                )),
             ));
             error(status, e)
         }
@@ -3477,17 +4014,19 @@ async fn handle_public_edr_events(
     let result = tokio::task::spawn_blocking(move || {
         let json = crate::edr_telemetry::decode_events_body(&body, brotli)
             .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
-        let batch: crate::edr_telemetry::EdrEventBatch =
-            serde_json::from_slice(&json).map_err(|e| (StatusCode::BAD_REQUEST, format!("bad JSON: {e}")))?;
+        let batch: crate::edr_telemetry::EdrEventBatch = serde_json::from_slice(&json)
+            .map_err(|e| (StatusCode::BAD_REQUEST, format!("bad JSON: {e}")))?;
         let resp = crate::edr_telemetry::ingest_edr_events(&store, &events, &batch);
         Ok::<_, (StatusCode, String)>(resp)
     })
     .await;
     match result {
         Ok(Ok(resp)) => json_response(StatusCode::OK, resp, "no-store"),
-        Ok(Err((status, e))) => {
-            json_response(status, serde_json::json!({"status": "error", "error": e}), "no-store")
-        }
+        Ok(Err((status, e))) => json_response(
+            status,
+            serde_json::json!({"status": "error", "error": e}),
+            "no-store",
+        ),
         Err(e) => json_response(
             StatusCode::INTERNAL_SERVER_ERROR,
             serde_json::json!({"status": "error", "error": e.to_string()}),
@@ -3507,7 +4046,8 @@ async fn handle_public_edr_system(
     if let Some(r) = edr_telemetry_refused(&server, &client_ip, EdrRoute::System) {
         return r;
     }
-    let body = crate::edr_telemetry::ingest_system_report(&server.edr_telemetry, &server.events, &payload);
+    let body =
+        crate::edr_telemetry::ingest_system_report(&server.edr_telemetry, &server.events, &payload);
     json_response(StatusCode::OK, body, "no-store")
 }
 
@@ -3600,7 +4140,11 @@ async fn handle_edr_upload(
         .filter(|c| c.is_alphanumeric() || *c == '.' || *c == '_' || *c == '-')
         .take(64)
         .collect();
-    let safe_name = if safe_name.is_empty() { "sample.bin" } else { &safe_name };
+    let safe_name = if safe_name.is_empty() {
+        "sample.bin"
+    } else {
+        &safe_name
+    };
 
     let work_dir = server
         .engine
@@ -3621,10 +4165,16 @@ async fn handle_edr_upload(
         }
         server.engine.kept_index_set(&sha, &dest_path);
         server.engine.kept_files.fetch_add(1, Ordering::Relaxed);
-        server.engine.kept_bytes.fetch_add(raw_bytes.len() as u64, Ordering::Relaxed);
+        server
+            .engine
+            .kept_bytes
+            .fetch_add(raw_bytes.len() as u64, Ordering::Relaxed);
     }
 
-    let detection = q.detection.as_deref().unwrap_or("Malware.OpenEDR.LocalDetection");
+    let detection = q
+        .detection
+        .as_deref()
+        .unwrap_or("Malware.OpenEDR.LocalDetection");
     let source = q.source.as_deref().unwrap_or("openedr_upload");
     server.threat_intel.record(
         &sha,
@@ -3634,18 +4184,21 @@ async fn handle_edr_upload(
         Some(raw_bytes.len() as u64),
         1.0,
     );
-    let _ = server.threat_intel.reviews.enqueue(
-        &sha,
-        source,
-        Some("malicious"),
-        Some(safe_name),
-    );
+    let _ = server
+        .threat_intel
+        .reviews
+        .enqueue(&sha, source, Some("malicious"), Some(safe_name));
 
     server.events.add(simple_event(
         "edr_upload",
         None,
         Some(client_ip),
-        Some(format!("EDR sample saved: {} ({} bytes, br={})", sha, raw_bytes.len(), is_brotli)),
+        Some(format!(
+            "EDR sample saved: {} ({} bytes, br={})",
+            sha,
+            raw_bytes.len(),
+            is_brotli
+        )),
     ));
 
     json_response(
@@ -3660,7 +4213,6 @@ async fn handle_edr_upload(
     )
 }
 
-
 /// Full file page data: VirusKovAlyzer static report + telemetry + human analysis.
 async fn handle_file_report(
     ConnectInfo(addr): ConnectInfo<SocketAddr>,
@@ -3671,17 +4223,28 @@ async fn handle_file_report(
     let ip = extract_client_ip(addr, &headers);
     let key = headers.get("x-api-key").and_then(|v| v.to_str().ok());
     if let Err(retry) = server.rest_limiter.check(&ip, key) {
-        return json_response(StatusCode::TOO_MANY_REQUESTS, serde_json::json!({"status": "error", "retry_after_seconds": retry}), "no-store");
+        return json_response(
+            StatusCode::TOO_MANY_REQUESTS,
+            serde_json::json!({"status": "error", "retry_after_seconds": retry}),
+            "no-store",
+        );
     }
     let Some(sha) = valid_sha(&sha256) else {
-        return json_response(StatusCode::BAD_REQUEST, serde_json::json!({"status": "error", "error": "invalid sha256"}), "no-store");
+        return json_response(
+            StatusCode::BAD_REQUEST,
+            serde_json::json!({"status": "error", "error": "invalid sha256"}),
+            "no-store",
+        );
     };
     let insight = server.threat_intel.get(&sha);
     let review = server.threat_intel.reviews.get(&sha);
     let mut report = crate::reports::load(&sha);
     // Researcher API key holders (`sample_api_keys.txt`).
     let has_key = key.is_some_and(|k| {
-        sample_keys().is_some_and(|keys| keys.iter().any(|x| constant_time_eq(x.as_bytes(), k.as_bytes())))
+        sample_keys().is_some_and(|keys| {
+            keys.iter()
+                .any(|x| constant_time_eq(x.as_bytes(), k.as_bytes()))
+        })
     });
     // Text files (scripts, configs, logs, UTF-8 documents): their "strings" are the
     // content itself, which may hold personal or sensitive data (passwords, tokens,
@@ -3699,16 +4262,30 @@ async fn handle_file_report(
         !has_key && hide_text_strings(report.as_mut())
     };
     if insight.is_none() && review.is_none() && report.is_none() {
-        return json_response(StatusCode::NOT_FOUND, serde_json::json!({"status": "not_found", "sha256": sha, "virustotal": crate::human_review::virustotal_url(&sha)}), "no-store");
+        return json_response(
+            StatusCode::NOT_FOUND,
+            serde_json::json!({"status": "not_found", "sha256": sha, "virustotal": crate::human_review::virustotal_url(&sha)}),
+            "no-store",
+        );
     }
-    let human_verdict = review.as_ref().filter(|r| r.is_completed()).and_then(|r| r.verdict.clone());
+    let human_verdict = review
+        .as_ref()
+        .filter(|r| r.is_completed())
+        .and_then(|r| r.verdict.clone());
     let sha_hist = sha.to_ascii_lowercase();
-    let engine_verdict = insight.as_ref().map(|i| i.verdict.clone()).unwrap_or_else(|| "unknown".into());
-    let verdict = human_verdict.clone().unwrap_or_else(|| engine_verdict.to_string());
+    let engine_verdict = insight
+        .as_ref()
+        .map(|i| i.verdict.clone())
+        .unwrap_or_else(|| "unknown".into());
+    let verdict = human_verdict
+        .clone()
+        .unwrap_or_else(|| engine_verdict.to_string());
     // A human verdict replaces the engine name too (clean review -> no threat name).
     let threat_name = match review.as_ref().filter(|r| r.is_completed()) {
         Some(r) => r.threat_name.clone(),
-        None => insight.as_ref().and_then(|i| i.threat_name.as_ref().map(|t| t.to_string())),
+        None => insight
+            .as_ref()
+            .and_then(|i| i.threat_name.as_ref().map(|t| t.to_string())),
     };
     let mut resp = json_response(
         StatusCode::OK,
@@ -3743,10 +4320,17 @@ async fn handle_file_report(
             // Deleted on request: when, not why (the reason may name the owner).
             "sample_deleted_at": crate::sample_deletions::get(&sha).map(|d| d.deleted_at),
         }),
-        if has_key { "private, no-store" } else { "public, max-age=30" },
+        if has_key {
+            "private, no-store"
+        } else {
+            "public, max-age=30"
+        },
     );
     // The answer depends on the key: never let a cache hand one to the other.
-    resp.headers_mut().insert(axum::http::header::VARY, axum::http::HeaderValue::from_static("X-API-Key"));
+    resp.headers_mut().insert(
+        axum::http::header::VARY,
+        axum::http::HeaderValue::from_static("X-API-Key"),
+    );
     resp
 }
 
@@ -3754,7 +4338,10 @@ async fn handle_file_report(
 /// True when the report was a text file.
 fn hide_text_strings(report: Option<&mut serde_json::Value>) -> bool {
     let Some(r) = report else { return false };
-    let is_text = r.get("mime").and_then(|m| m.as_str()).is_some_and(|m| m.starts_with("text/"));
+    let is_text = r
+        .get("mime")
+        .and_then(|m| m.as_str())
+        .is_some_and(|m| m.starts_with("text/"));
     if is_text {
         if let Some(o) = r.as_object_mut() {
             o.remove("strings");
@@ -3770,9 +4357,16 @@ async fn handle_daily_feed(
     State(server): State<Arc<ScanServer>>,
     axum::extract::Query(q): axum::extract::Query<std::collections::HashMap<String, String>>,
 ) -> Response {
-    let date = q.get("date").cloned().unwrap_or_else(|| chrono::Utc::now().format("%Y-%m-%d").to_string());
+    let date = q
+        .get("date")
+        .cloned()
+        .unwrap_or_else(|| chrono::Utc::now().format("%Y-%m-%d").to_string());
     if chrono::NaiveDate::parse_from_str(&date, "%Y-%m-%d").is_err() {
-        return json_response(StatusCode::BAD_REQUEST, serde_json::json!({"status": "error", "error": "date must be YYYY-MM-DD"}), "no-store");
+        return json_response(
+            StatusCode::BAD_REQUEST,
+            serde_json::json!({"status": "error", "error": "date must be YYYY-MM-DD"}),
+            "no-store",
+        );
     }
     let all = q.get("all").is_some_and(|v| v == "1" || v == "true");
     let rows: Vec<_> = server
@@ -3785,12 +4379,21 @@ async fn handle_daily_feed(
     match q.get("format").map(String::as_str) {
         Some("txt") => (
             StatusCode::OK,
-            [("Content-Type", "text/plain; charset=utf-8"), ("Access-Control-Allow-Origin", "*"), ("Cache-Control", "public, max-age=300")],
-            rows.iter().map(|(i, _, _)| i.sha256.to_lowercase()).collect::<Vec<_>>().join("\n"),
+            [
+                ("Content-Type", "text/plain; charset=utf-8"),
+                ("Access-Control-Allow-Origin", "*"),
+                ("Cache-Control", "public, max-age=300"),
+            ],
+            rows.iter()
+                .map(|(i, _, _)| i.sha256.to_lowercase())
+                .collect::<Vec<_>>()
+                .join("\n"),
         )
             .into_response(),
         Some("csv") => {
-            let mut csv = String::from("first_seen,sha256,verdict,verdict_source,threat_name,file_name,file_size,seen_count,category,platform,family\n");
+            let mut csv = String::from(
+                "first_seen,sha256,verdict,verdict_source,threat_name,file_name,file_size,seen_count,category,platform,family\n",
+            );
             for (i, v, human) in &rows {
                 let esc = |s: &str| format!("\"{}\"", s.replace('"', "\"\""));
                 let threat = match server.threat_intel.reviews.completed(&i.sha256.text()) {
@@ -3806,7 +4409,11 @@ async fn handle_daily_feed(
                     v,
                     if *human { "human" } else { "engine" },
                     esc(threat.as_deref().unwrap_or("")),
-                    esc(if crate::private_samples::is_private(&i.sha256.text()) { "" } else { i.file_names.first().map(|n| n.as_str()).unwrap_or("") }),
+                    esc(if crate::private_samples::is_private(&i.sha256.text()) {
+                        ""
+                    } else {
+                        i.file_names.first().map(|n| n.as_str()).unwrap_or("")
+                    }),
                     i.file_size.unwrap_or(0),
                     i.seen_count,
                     if malicious { c.category } else { "" },
@@ -3816,7 +4423,11 @@ async fn handle_daily_feed(
             }
             (
                 StatusCode::OK,
-                [("Content-Type", "text/csv; charset=utf-8"), ("Access-Control-Allow-Origin", "*"), ("Cache-Control", "public, max-age=300")],
+                [
+                    ("Content-Type", "text/csv; charset=utf-8"),
+                    ("Access-Control-Allow-Origin", "*"),
+                    ("Cache-Control", "public, max-age=300"),
+                ],
                 csv,
             )
                 .into_response()
@@ -3851,7 +4462,8 @@ async fn handle_daily_feed(
 /// Researcher API keys, one per line in `sample_api_keys.txt` next to the executable.
 /// No file (or no keys) means sample downloads are off.
 fn sample_keys() -> Option<Vec<String>> {
-    let text = std::fs::read_to_string(crate::config::app_dir().join("sample_api_keys.txt")).ok()?;
+    let text =
+        std::fs::read_to_string(crate::config::app_dir().join("sample_api_keys.txt")).ok()?;
     let keys: Vec<String> = text
         .lines()
         .map(str::trim)
@@ -3869,14 +4481,32 @@ async fn handle_sample_download(
     State(server): State<Arc<ScanServer>>,
     Path(sha256): Path<String>,
 ) -> Response {
-    let err = |code: StatusCode, msg: &str| json_response(code, serde_json::json!({"status": "error", "error": msg}), "no-store");
-    let Some(keys) = sample_keys() else {
-        return err(StatusCode::FORBIDDEN, "sample sharing is disabled on this server");
+    let err = |code: StatusCode, msg: &str| {
+        json_response(
+            code,
+            serde_json::json!({"status": "error", "error": msg}),
+            "no-store",
+        )
     };
-    let provided = headers.get("x-api-key").and_then(|v| v.to_str().ok()).unwrap_or("");
-    if !keys.iter().any(|k| constant_time_eq(k.as_bytes(), provided.as_bytes())) {
+    let Some(keys) = sample_keys() else {
+        return err(
+            StatusCode::FORBIDDEN,
+            "sample sharing is disabled on this server",
+        );
+    };
+    let provided = headers
+        .get("x-api-key")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+    if !keys
+        .iter()
+        .any(|k| constant_time_eq(k.as_bytes(), provided.as_bytes()))
+    {
         server.limiter.strike(&extract_client_ip(addr, &headers));
-        return err(StatusCode::UNAUTHORIZED, "a valid X-API-Key header is required");
+        return err(
+            StatusCode::UNAUTHORIZED,
+            "a valid X-API-Key header is required",
+        );
     }
     let Some(sha) = valid_sha(&sha256) else {
         return err(StatusCode::BAD_REQUEST, "invalid sha256");
@@ -3889,28 +4519,47 @@ async fn handle_sample_download(
         .or_else(|| server.threat_intel.get(&sha).map(|i| i.verdict.to_string()))
         .unwrap_or_else(|| "unknown".into());
     if verdict != "malicious" && verdict != "suspicious" {
-        return err(StatusCode::FORBIDDEN, "only malicious or suspicious samples are shared");
+        return err(
+            StatusCode::FORBIDDEN,
+            "only malicious or suspicious samples are shared",
+        );
     }
     if crate::private_samples::is_private(&sha) {
         return err(StatusCode::FORBIDDEN, "this sample is private");
     }
     let engine = Arc::clone(&server.engine);
     let sha_upper = sha.to_ascii_uppercase();
-    let data = tokio::task::spawn_blocking(move || engine.read_kept_sample(&sha_upper)).await.ok().flatten();
+    let data = tokio::task::spawn_blocking(move || engine.read_kept_sample(&sha_upper))
+        .await
+        .ok()
+        .flatten();
     let Some(data) = data else {
-        return err(StatusCode::NOT_FOUND, "the sample is not stored on this server");
+        return err(
+            StatusCode::NOT_FOUND,
+            "the sample is not stored on this server",
+        );
     };
     use sha2::Digest;
     let actual: String = sha2::Sha256::digest(&data).encode_hex::<String>();
     if actual != sha {
-        return err(StatusCode::INTERNAL_SERVER_ERROR, "stored sample does not match its hash");
+        return err(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "stored sample does not match its hash",
+        );
     }
-    let zip = crate::sample_zip::build(&format!("{sha}.bin"), &data, crate::sample_zip::SAMPLE_PASSWORD);
+    let zip = crate::sample_zip::build(
+        &format!("{sha}.bin"),
+        &data,
+        crate::sample_zip::SAMPLE_PASSWORD,
+    );
     (
         StatusCode::OK,
         [
             ("Content-Type", "application/zip".to_string()),
-            ("Content-Disposition", format!("attachment; filename=\"{sha}.zip\"")),
+            (
+                "Content-Disposition",
+                format!("attachment; filename=\"{sha}.zip\""),
+            ),
             ("Access-Control-Allow-Origin", "*".to_string()),
             ("Cache-Control", "no-store".to_string()),
         ],
@@ -3918,7 +4567,6 @@ async fn handle_sample_download(
     )
         .into_response()
 }
-
 
 /// Largest file `/api/v1/disinfect` accepts.
 const DISINFECT_MAX_BYTES: usize = 64 * 1024 * 1024;
@@ -3933,15 +4581,37 @@ struct DisinfectQuery {
 }
 
 /// The researcher API key check shared by the sample, disinfect and restore endpoints.
-fn require_sample_key(server: &ScanServer, addr: SocketAddr, headers: &HeaderMap) -> Result<(), Response> {
-    let err = |code: StatusCode, msg: &str| json_response(code, serde_json::json!({"status": "error", "error": msg}), "no-store");
-    let Some(keys) = sample_keys() else {
-        return Err(err(StatusCode::FORBIDDEN, "this endpoint is disabled on this server (no sample_api_keys.txt)"));
+fn require_sample_key(
+    server: &ScanServer,
+    addr: SocketAddr,
+    headers: &HeaderMap,
+) -> Result<(), Response> {
+    let err = |code: StatusCode, msg: &str| {
+        json_response(
+            code,
+            serde_json::json!({"status": "error", "error": msg}),
+            "no-store",
+        )
     };
-    let provided = headers.get("x-api-key").and_then(|v| v.to_str().ok()).unwrap_or("");
-    if !keys.iter().any(|k| constant_time_eq(k.as_bytes(), provided.as_bytes())) {
+    let Some(keys) = sample_keys() else {
+        return Err(err(
+            StatusCode::FORBIDDEN,
+            "this endpoint is disabled on this server (no sample_api_keys.txt)",
+        ));
+    };
+    let provided = headers
+        .get("x-api-key")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+    if !keys
+        .iter()
+        .any(|k| constant_time_eq(k.as_bytes(), provided.as_bytes()))
+    {
         server.limiter.strike(&extract_client_ip(addr, headers));
-        return Err(err(StatusCode::UNAUTHORIZED, "a valid X-API-Key header is required"));
+        return Err(err(
+            StatusCode::UNAUTHORIZED,
+            "a valid X-API-Key header is required",
+        ));
     }
     Ok(())
 }
@@ -3973,7 +4643,11 @@ async fn handle_client_disinfect(
 ) -> Response {
     let ip = extract_client_ip(addr, &headers);
     if let Err(retry) = server.rest_limiter.check(&ip, None) {
-        return json_response(StatusCode::TOO_MANY_REQUESTS, serde_json::json!({"status": "error", "retry_after_seconds": retry}), "no-store");
+        return json_response(
+            StatusCode::TOO_MANY_REQUESTS,
+            serde_json::json!({"status": "error", "retry_after_seconds": retry}),
+            "no-store",
+        );
     }
     let path = disinfect_path(&headers, &q);
     disinfect_response(Arc::clone(&server), q.download, path, body).await
@@ -3988,15 +4662,30 @@ fn disinfect_path(headers: &HeaderMap, q: &DisinfectQuery) -> String {
         .unwrap_or_default()
 }
 
-async fn disinfect_response(server: Arc<ScanServer>, download: Option<String>, path: String, body: axum::body::Bytes) -> Response {
+async fn disinfect_response(
+    server: Arc<ScanServer>,
+    download: Option<String>,
+    path: String,
+    body: axum::body::Bytes,
+) -> Response {
     if body.is_empty() {
-        return json_response(StatusCode::BAD_REQUEST, serde_json::json!({"status": "error", "error": "empty body: send the file"}), "no-store");
+        return json_response(
+            StatusCode::BAD_REQUEST,
+            serde_json::json!({"status": "error", "error": "empty body: send the file"}),
+            "no-store",
+        );
     }
     let ti = Arc::clone(&server.threat_intel);
     let engine = Arc::clone(&server.engine);
-    let res = tokio::task::spawn_blocking(move || crate::disinfect::run(&ti, &engine, &body, &path)).await;
+    let res =
+        tokio::task::spawn_blocking(move || crate::disinfect::run(&ti, &engine, &body, &path))
+            .await;
     let Ok((report, repaired, generic)) = res else {
-        return json_response(StatusCode::INTERNAL_SERVER_ERROR, serde_json::json!({"status": "error", "error": "disinfection failed"}), "no-store");
+        return json_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            serde_json::json!({"status": "error", "error": "disinfection failed"}),
+            "no-store",
+        );
     };
     if download.as_deref() == Some("repaired") {
         let Some(bytes) = repaired else {
@@ -4010,9 +4699,21 @@ async fn disinfect_response(server: Arc<ScanServer>, download: Option<String>, p
             StatusCode::OK,
             [
                 ("Content-Type", "application/octet-stream".to_string()),
-                ("Content-Disposition", format!("attachment; filename=\"{}.repaired.bin\"", report.sha256)),
-                ("X-Malware-Name", report.malware_name.clone().unwrap_or_default()),
-                ("X-Recommended-Action", serde_json::to_value(report.recommended_action).ok().and_then(|v| v.as_str().map(str::to_string)).unwrap_or_default()),
+                (
+                    "Content-Disposition",
+                    format!("attachment; filename=\"{}.repaired.bin\"", report.sha256),
+                ),
+                (
+                    "X-Malware-Name",
+                    report.malware_name.clone().unwrap_or_default(),
+                ),
+                (
+                    "X-Recommended-Action",
+                    serde_json::to_value(report.recommended_action)
+                        .ok()
+                        .and_then(|v| v.as_str().map(str::to_string))
+                        .unwrap_or_default(),
+                ),
                 ("Cache-Control", "no-store".to_string()),
             ],
             bytes,
@@ -4029,22 +4730,39 @@ async fn disinfect_response(server: Arc<ScanServer>, download: Option<String>, p
                 "no-store",
             );
         };
-        let method = report.generic_repair.as_ref().map(|g| g.method).unwrap_or_default();
+        let method = report
+            .generic_repair
+            .as_ref()
+            .map(|g| g.method)
+            .unwrap_or_default();
         return (
             StatusCode::OK,
             [
                 ("Content-Type", "application/octet-stream".to_string()),
-                ("Content-Disposition", format!("attachment; filename=\"{}.generic.bin\"", report.sha256)),
+                (
+                    "Content-Disposition",
+                    format!("attachment; filename=\"{}.generic.bin\"", report.sha256),
+                ),
                 ("X-Generic-Method", method.to_string()),
                 ("X-Recommended", "false".to_string()),
-                ("X-Recommended-Action", serde_json::to_value(report.recommended_action).ok().and_then(|v| v.as_str().map(str::to_string)).unwrap_or_default()),
+                (
+                    "X-Recommended-Action",
+                    serde_json::to_value(report.recommended_action)
+                        .ok()
+                        .and_then(|v| v.as_str().map(str::to_string))
+                        .unwrap_or_default(),
+                ),
                 ("Cache-Control", "no-store".to_string()),
             ],
             bytes,
         )
             .into_response();
     }
-    json_response(StatusCode::OK, serde_json::json!({"status": "success", "result": report}), "no-store")
+    json_response(
+        StatusCode::OK,
+        serde_json::json!({"status": "success", "result": report}),
+        "no-store",
+    )
 }
 
 /// Clean copy for cloud restoration: only files known clean (analyst-verified clean
@@ -4055,7 +4773,13 @@ async fn handle_restore_download(
     State(server): State<Arc<ScanServer>>,
     Path(sha256): Path<String>,
 ) -> Response {
-    let err = |code: StatusCode, msg: &str| json_response(code, serde_json::json!({"status": "error", "error": msg}), "no-store");
+    let err = |code: StatusCode, msg: &str| {
+        json_response(
+            code,
+            serde_json::json!({"status": "error", "error": msg}),
+            "no-store",
+        )
+    };
     if let Err(resp) = require_sample_key(&server, addr, &headers) {
         return resp;
     }
@@ -4063,23 +4787,38 @@ async fn handle_restore_download(
         return err(StatusCode::BAD_REQUEST, "invalid sha256");
     };
     if crate::disinfect::known_clean_source(&server.threat_intel, &sha).is_none() {
-        return err(StatusCode::FORBIDDEN, "only known-clean files are served for restoration");
+        return err(
+            StatusCode::FORBIDDEN,
+            "only known-clean files are served for restoration",
+        );
     }
     let engine = Arc::clone(&server.engine);
     let sha_upper = sha.to_ascii_uppercase();
-    let data = tokio::task::spawn_blocking(move || engine.read_kept_sample(&sha_upper)).await.ok().flatten();
+    let data = tokio::task::spawn_blocking(move || engine.read_kept_sample(&sha_upper))
+        .await
+        .ok()
+        .flatten();
     let Some(data) = data else {
-        return err(StatusCode::NOT_FOUND, "the file is not stored on this server");
+        return err(
+            StatusCode::NOT_FOUND,
+            "the file is not stored on this server",
+        );
     };
     let actual: String = Sha256::digest(&data).encode_hex::<String>();
     if actual != sha {
-        return err(StatusCode::INTERNAL_SERVER_ERROR, "stored file does not match its hash");
+        return err(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "stored file does not match its hash",
+        );
     }
     (
         StatusCode::OK,
         [
             ("Content-Type", "application/octet-stream".to_string()),
-            ("Content-Disposition", format!("attachment; filename=\"{sha}.bin\"")),
+            (
+                "Content-Disposition",
+                format!("attachment; filename=\"{sha}.bin\""),
+            ),
             ("Cache-Control", "no-store".to_string()),
         ],
         data,
@@ -4088,12 +4827,23 @@ async fn handle_restore_download(
 }
 
 /// Closest files by TLSH (from the static report, or the index), with verdicts.
-pub fn similar_files(ti: &crate::threat_intel::ThreatIntelStore, sha: &str, limit: usize) -> Vec<crate::similarity::SimilarFile> {
+pub fn similar_files(
+    ti: &crate::threat_intel::ThreatIntelStore,
+    sha: &str,
+    limit: usize,
+) -> Vec<crate::similarity::SimilarFile> {
     let tlsh = crate::reports::load(sha)
-        .and_then(|r| r["hashes"]["dex_tlsh"].as_str().or(r["hashes"]["tlsh"].as_str()).map(str::to_string))
+        .and_then(|r| {
+            r["hashes"]["dex_tlsh"]
+                .as_str()
+                .or(r["hashes"]["tlsh"].as_str())
+                .map(str::to_string)
+        })
         .or_else(|| ti.similarity.tlsh_of(sha));
     let Some(tlsh) = tlsh else { return Vec::new() };
-    let mut list = ti.similarity.nearest(&tlsh, crate::similarity::SIMILAR_MAX_DIST, limit, sha);
+    let mut list = ti
+        .similarity
+        .nearest(&tlsh, crate::similarity::SIMILAR_MAX_DIST, limit, sha);
     crate::similarity::fill_verdicts(&mut list, &|h: &str| ti.effective(h));
     list
 }
@@ -4108,17 +4858,27 @@ async fn handle_similar(
     let ip = extract_client_ip(addr, &headers);
     let key = headers.get("x-api-key").and_then(|v| v.to_str().ok());
     if let Err(retry) = server.rest_limiter.check(&ip, key) {
-        return json_response(StatusCode::TOO_MANY_REQUESTS, serde_json::json!({"status": "error", "retry_after_seconds": retry}), "no-store");
+        return json_response(
+            StatusCode::TOO_MANY_REQUESTS,
+            serde_json::json!({"status": "error", "retry_after_seconds": retry}),
+            "no-store",
+        );
     }
     let Some(sha) = valid_sha(&sha256) else {
-        return json_response(StatusCode::BAD_REQUEST, serde_json::json!({"status": "error", "error": "invalid sha256"}), "no-store");
+        return json_response(
+            StatusCode::BAD_REQUEST,
+            serde_json::json!({"status": "error", "error": "invalid sha256"}),
+            "no-store",
+        );
     };
     let ti = Arc::clone(&server.threat_intel);
     let s2 = sha.clone();
     let list = if crate::private_samples::is_private(&sha) {
         Vec::new()
     } else {
-        tokio::task::spawn_blocking(move || similar_files(&ti, &s2, 25)).await.unwrap_or_default()
+        tokio::task::spawn_blocking(move || similar_files(&ti, &s2, 25))
+            .await
+            .unwrap_or_default()
     };
     json_response(
         StatusCode::OK,
@@ -4136,7 +4896,10 @@ fn cached_dataset_stats(server: &Arc<ScanServer>) -> serde_json::Value {
 fn compute_dataset_stats(server: &ScanServer) -> serde_json::Value {
     match server.engine.dataset.get() {
         None => serde_json::json!({ "status": "success", "enabled": false, "ready": false }),
-        Some(ds) => match ds.public_stats_with(&server.threat_intel.user_files(), &crate::archived::dataset_samples()) {
+        Some(ds) => match ds.public_stats_with(
+            &server.threat_intel.user_files(),
+            &crate::archived::dataset_samples(),
+        ) {
             None => serde_json::json!({ "status": "success", "enabled": true, "ready": false }),
             Some(st) => serde_json::json!({
                 "status": "success",
@@ -4162,11 +4925,19 @@ async fn handle_dataset_stats(
     let ip = extract_client_ip(addr, &headers);
     let key = headers.get("x-api-key").and_then(|v| v.to_str().ok());
     if let Err(retry) = server.rest_limiter.check(&ip, key) {
-        return json_response(StatusCode::TOO_MANY_REQUESTS, serde_json::json!({"status": "error", "retry_after_seconds": retry}), "no-store");
+        return json_response(
+            StatusCode::TOO_MANY_REQUESTS,
+            serde_json::json!({"status": "error", "retry_after_seconds": retry}),
+            "no-store",
+        );
     }
     let s2 = Arc::clone(&server);
     match tokio::task::spawn_blocking(move || cached_dataset_stats(&s2)).await {
         Ok(v) => json_response(StatusCode::OK, v, "public, max-age=60"),
-        Err(_) => json_response(StatusCode::INTERNAL_SERVER_ERROR, serde_json::json!({"status": "error"}), "no-store"),
+        Err(_) => json_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            serde_json::json!({"status": "error"}),
+            "no-store",
+        ),
     }
 }

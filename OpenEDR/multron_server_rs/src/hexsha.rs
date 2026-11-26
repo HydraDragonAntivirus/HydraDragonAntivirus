@@ -40,11 +40,19 @@ impl Deref for HexText {
 
 impl HexSha {
     pub fn new(s: &str) -> Self {
-        let lower = s.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b));
-        let upper = s.bytes().all(|b| b.is_ascii_digit() || (b'A'..=b'F').contains(&b));
+        let lower = s
+            .bytes()
+            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b));
+        let upper = s
+            .bytes()
+            .all(|b| b.is_ascii_digit() || (b'A'..=b'F').contains(&b));
         let mut bytes = [0u8; 32];
         if s.len() == 64 && (lower || upper) && hex::decode_to_slice(s, &mut bytes).is_ok() {
-            return if lower { HexSha::Lower(bytes) } else { HexSha::Upper(bytes) };
+            return if lower {
+                HexSha::Lower(bytes)
+            } else {
+                HexSha::Upper(bytes)
+            };
         }
         HexSha::Raw(IStr::new(s))
     }
@@ -141,7 +149,14 @@ mod tests {
         let mixed = format!("Ab{}", "ab".repeat(31));
         assert!(matches!(HexSha::new(&lo), HexSha::Lower(_)));
         assert!(matches!(HexSha::new(&up), HexSha::Upper(_)));
-        for t in [lo.as_str(), up.as_str(), mixed.as_str(), "", "not a hash", &"a".repeat(63)] {
+        for t in [
+            lo.as_str(),
+            up.as_str(),
+            mixed.as_str(),
+            "",
+            "not a hash",
+            &"a".repeat(63),
+        ] {
             let h: HexSha = serde_json::from_str(&format!("\"{t}\"")).unwrap();
             assert_eq!(&*h.text(), t);
             assert_eq!(serde_json::to_string(&h).unwrap(), format!("\"{t}\""));
