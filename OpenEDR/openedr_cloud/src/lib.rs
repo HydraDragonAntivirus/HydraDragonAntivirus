@@ -124,7 +124,10 @@ pub extern "C" fn openedr_cloud_scan_bytes(
     }
 
     let name = if !file_name.is_null() {
-        unsafe { CStr::from_ptr(file_name) }.to_str().unwrap_or("sample.bin").to_string()
+        unsafe { CStr::from_ptr(file_name) }
+            .to_str()
+            .unwrap_or("sample.bin")
+            .to_string()
     } else {
         "sample.bin".to_string()
     };
@@ -197,12 +200,18 @@ pub extern "C" fn openedr_static_scan_url(url: *const c_char) -> *mut c_char {
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn openedr_cloud_inspect_url(url: *const c_char, _liveness_code: i32) -> *mut c_char {
+pub extern "C" fn openedr_cloud_inspect_url(
+    url: *const c_char,
+    _liveness_code: i32,
+) -> *mut c_char {
     openedr_cloud_scan_url(url)
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn openedr_static_inspect_url(url: *const c_char, liveness_code: i32) -> *mut c_char {
+pub extern "C" fn openedr_static_inspect_url(
+    url: *const c_char,
+    liveness_code: i32,
+) -> *mut c_char {
     openedr_cloud_inspect_url(url, liveness_code)
 }
 
@@ -338,7 +347,10 @@ pub extern "C" fn openedr_static_check_hosts_file(hosts_path: *const c_char) -> 
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn openedr_cloud_restore_hosts_file(hosts_path: *const c_char, create_backup: i32) -> *mut c_char {
+pub extern "C" fn openedr_cloud_restore_hosts_file(
+    hosts_path: *const c_char,
+    create_backup: i32,
+) -> *mut c_char {
     let custom_p = if !hosts_path.is_null() {
         match unsafe { CStr::from_ptr(hosts_path) }.to_str() {
             Ok(s) => Some(PathBuf::from(s)),
@@ -356,7 +368,10 @@ pub extern "C" fn openedr_cloud_restore_hosts_file(hosts_path: *const c_char, cr
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn openedr_static_restore_hosts_file(hosts_path: *const c_char, create_backup: i32) -> *mut c_char {
+pub extern "C" fn openedr_static_restore_hosts_file(
+    hosts_path: *const c_char,
+    create_backup: i32,
+) -> *mut c_char {
     openedr_cloud_restore_hosts_file(hosts_path, create_backup)
 }
 
@@ -475,7 +490,8 @@ pub extern "C" fn openedr_cloud_check_registry_content(
     } else {
         unsafe { CStr::from_ptr(value_data) }.to_str().unwrap_or("")
     };
-    let report_json = cloud_client::check_registry_content(key_path_str, value_name_str, value_data_str);
+    let report_json =
+        cloud_client::check_registry_content(key_path_str, value_name_str, value_data_str);
     to_c_string(report_json)
 }
 
