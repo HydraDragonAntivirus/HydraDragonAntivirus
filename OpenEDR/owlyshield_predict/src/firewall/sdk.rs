@@ -550,7 +550,9 @@ fn percent_decode(bytes: &[u8]) -> Vec<u8> {
     let mut i = 0;
     while i < bytes.len() {
         if bytes[i] == b'%' && i + 2 < bytes.len() {
-            if let Ok(b) = u8::from_str_radix(std::str::from_utf8(&bytes[i+1..i+3]).unwrap_or(""), 16) {
+            if let Ok(b) =
+                u8::from_str_radix(std::str::from_utf8(&bytes[i + 1..i + 3]).unwrap_or(""), 16)
+            {
                 out.push(b);
                 i += 3;
                 continue;
@@ -602,7 +604,11 @@ pub fn matches_tcp_flags(actual_flags: u8, rule_flags: &str) -> bool {
 impl HexContent {
     /// Finds the match position (match_start, match_end) in `payload`.
     /// `anchor_pos` is the end offset of the previous content match when chaining multiple patterns.
-    pub fn find_match_in(&self, payload: &[u8], anchor_pos: Option<usize>) -> Option<(usize, usize)> {
+    pub fn find_match_in(
+        &self,
+        payload: &[u8],
+        anchor_pos: Option<usize>,
+    ) -> Option<(usize, usize)> {
         let decoded_storage;
         let payload = if self.url_decode {
             decoded_storage = percent_decode(payload);
@@ -694,7 +700,10 @@ impl HexContent {
             let needle_lower: Vec<u8> = needle.iter().map(|b| b.to_ascii_lowercase()).collect();
             let mut res = None;
             for (idx, w) in window.windows(needle_lower.len()).enumerate() {
-                if w.iter().map(|b| b.to_ascii_lowercase()).eq(needle_lower.iter().cloned()) {
+                if w.iter()
+                    .map(|b| b.to_ascii_lowercase())
+                    .eq(needle_lower.iter().cloned())
+                {
                     let match_start = base_start + idx;
                     res = Some((match_start, match_start + needle.len()));
                     break;
@@ -730,7 +739,6 @@ impl HexContent {
         self.find_match_in(payload, None).is_some()
     }
 }
-
 
 // ============================================================================
 // REGEX MATCHING (Feature 15)
@@ -1752,15 +1760,40 @@ impl SdkRule {
                                 let mut all_matched = true;
                                 for c in &self.contents {
                                     let target_buf: &[u8] = match c.buffer.as_deref() {
-                                        Some("http_user_agent") => packet.http_user_agent.as_deref().map(|s| s.as_bytes()).unwrap_or(b""),
-                                        Some("http_referer") => packet.http_referer.as_deref().map(|s| s.as_bytes()).unwrap_or(b""),
-                                        Some("http_content_type") => packet.http_content_type.as_deref().map(|s| s.as_bytes()).unwrap_or(b""),
-                                        Some("http_request_body") => packet.http_request_body.as_deref().map(|s| s.as_bytes()).unwrap_or(b""),
-                                        Some("http_response_body") => packet.http_response_body.as_deref().map(|s| s.as_bytes()).unwrap_or(b""),
-                                        Some("http_path") => packet.http_path.as_deref().map(|s| s.as_bytes()).unwrap_or(b""),
+                                        Some("http_user_agent") => packet
+                                            .http_user_agent
+                                            .as_deref()
+                                            .map(|s| s.as_bytes())
+                                            .unwrap_or(b""),
+                                        Some("http_referer") => packet
+                                            .http_referer
+                                            .as_deref()
+                                            .map(|s| s.as_bytes())
+                                            .unwrap_or(b""),
+                                        Some("http_content_type") => packet
+                                            .http_content_type
+                                            .as_deref()
+                                            .map(|s| s.as_bytes())
+                                            .unwrap_or(b""),
+                                        Some("http_request_body") => packet
+                                            .http_request_body
+                                            .as_deref()
+                                            .map(|s| s.as_bytes())
+                                            .unwrap_or(b""),
+                                        Some("http_response_body") => packet
+                                            .http_response_body
+                                            .as_deref()
+                                            .map(|s| s.as_bytes())
+                                            .unwrap_or(b""),
+                                        Some("http_path") => packet
+                                            .http_path
+                                            .as_deref()
+                                            .map(|s| s.as_bytes())
+                                            .unwrap_or(b""),
                                         _ => payload,
                                     };
-                                    if let Some((_, m_end)) = c.find_match_in(target_buf, last_end) {
+                                    if let Some((_, m_end)) = c.find_match_in(target_buf, last_end)
+                                    {
                                         if !c.negated {
                                             last_end = Some(m_end);
                                             for bj in &self.byte_jump {
@@ -1769,29 +1802,54 @@ impl SdkRule {
                                                 } else {
                                                     bj.offset
                                                 };
-                                                if offset >= 0 && (offset as usize) + bj.count <= target_buf.len() {
-                                                    let slice = &target_buf[offset as usize..(offset as usize) + bj.count];
+                                                if offset >= 0
+                                                    && (offset as usize) + bj.count
+                                                        <= target_buf.len()
+                                                {
+                                                    let slice = &target_buf[offset as usize
+                                                        ..(offset as usize) + bj.count];
                                                     let val: usize = if bj.string {
-                                                        std::str::from_utf8(slice).ok().and_then(|s| s.trim().parse().ok()).unwrap_or(0)
+                                                        std::str::from_utf8(slice)
+                                                            .ok()
+                                                            .and_then(|s| s.trim().parse().ok())
+                                                            .unwrap_or(0)
                                                     } else if bj.count == 1 {
                                                         slice[0] as usize
                                                     } else if bj.count == 2 {
                                                         if bj.big_endian {
-                                                            u16::from_be_bytes([slice[0], slice[1]]) as usize
+                                                            u16::from_be_bytes([slice[0], slice[1]])
+                                                                as usize
                                                         } else {
-                                                            u16::from_le_bytes([slice[0], slice[1]]) as usize
+                                                            u16::from_le_bytes([slice[0], slice[1]])
+                                                                as usize
                                                         }
                                                     } else if bj.count == 4 {
                                                         if bj.big_endian {
-                                                            u32::from_be_bytes([slice[0], slice[1], slice[2], slice[3]]) as usize
+                                                            u32::from_be_bytes([
+                                                                slice[0], slice[1], slice[2],
+                                                                slice[3],
+                                                            ])
+                                                                as usize
                                                         } else {
-                                                            u32::from_le_bytes([slice[0], slice[1], slice[2], slice[3]]) as usize
+                                                            u32::from_le_bytes([
+                                                                slice[0], slice[1], slice[2],
+                                                                slice[3],
+                                                            ])
+                                                                as usize
                                                         }
                                                     } else {
                                                         0
                                                     };
-                                                    let mult = if bj.multiplier > 0 { bj.multiplier } else { 1 };
-                                                    last_end = Some(last_end.unwrap_or(0).saturating_add(val * mult));
+                                                    let mult = if bj.multiplier > 0 {
+                                                        bj.multiplier
+                                                    } else {
+                                                        1
+                                                    };
+                                                    last_end = Some(
+                                                        last_end
+                                                            .unwrap_or(0)
+                                                            .saturating_add(val * mult),
+                                                    );
                                                 }
                                             }
                                         }
@@ -1932,7 +1990,10 @@ impl SdkRule {
                                 }
                             }
                             if let Some(ref matcher) = self.urilen {
-                                let url_len = packet.full_url.as_deref().map(|u| u.len())
+                                let url_len = packet
+                                    .full_url
+                                    .as_deref()
+                                    .map(|u| u.len())
                                     .or_else(|| packet.http_path.as_deref().map(|p| p.len()))
                                     .unwrap_or(0);
                                 if !matcher.matches(url_len) {
@@ -2230,7 +2291,10 @@ impl SdkRuleFile {
                     .unwrap_or(rest)
                     .trim_matches('"')
                     .trim_matches('\'');
-                let metadata_only = rest.split_whitespace().skip(1).any(|t| t == "metadata_only");
+                let metadata_only = rest
+                    .split_whitespace()
+                    .skip(1)
+                    .any(|t| t == "metadata_only");
                 let include_path = base_dir.join(include_path_str);
 
                 let included_file = Self::load_from_file(&include_path)?;
@@ -3333,7 +3397,10 @@ references:
         assert_eq!(rule.classtype.as_deref(), Some("bad-unknown"));
         assert_eq!(rule.rev, Some(4));
         assert_eq!(rule.target.as_deref(), Some("dest_ip"));
-        assert_eq!(rule.threshold.as_deref(), Some("type limit, count 1, seconds 300, track by_src"));
+        assert_eq!(
+            rule.threshold.as_deref(),
+            Some("type limit, count 1, seconds 300, track by_src")
+        );
         assert_eq!(rule.references, vec!["url,www.bing.com"]);
         assert!(rule.domain.unwrap().subdomains);
         assert_eq!(rule.bsize.unwrap().exact, Some(1));

@@ -124,11 +124,23 @@ pub enum Ops {
     Binop([u32; 2]),
     Three([u32; 3]),
     /// TRUNC/SEXT/ZEXT (`cli_bc_cast`).
-    Cast { source: u32, mask: u64, size: u8 },
-    Branch { condition: u32, br_true: u16, br_false: u16 },
+    Cast {
+        source: u32,
+        mask: u64,
+        size: u8,
+    },
+    Branch {
+        condition: u32,
+        br_true: u16,
+        br_false: u16,
+    },
     Jump(u16),
     /// CALL_DIRECT / CALL_API.
-    Call { funcid: u16, is_api: bool, ops: Vec<u32> },
+    Call {
+        funcid: u16,
+        is_api: bool,
+        ops: Vec<u32>,
+    },
     /// GEPN: `ops[0]` is a raw number (element count), the rest are operands.
     GepN(Vec<u32>),
 }
@@ -231,7 +243,11 @@ struct Reader<'a> {
 
 impl<'a> Reader<'a> {
     fn new(buf: &'a mut [u8]) -> Self {
-        Reader { buf, off: 0, ok: true }
+        Reader {
+            buf,
+            off: 0,
+            ok: true,
+        }
     }
 
     fn len(&self) -> usize {
@@ -647,7 +663,9 @@ fn type_size(bc: &Bc, tid: u16) -> u32 {
         TypeKind::Struct | TypeKind::PackedStruct => {
             ty.contained.iter().map(|&c| type_size(bc, c)).sum()
         }
-        TypeKind::Array => ty.num_elements * type_size(bc, ty.contained.first().copied().unwrap_or(0)),
+        TypeKind::Array => {
+            ty.num_elements * type_size(bc, ty.contained.first().copied().unwrap_or(0))
+        }
         _ => 0,
     }
 }
@@ -996,7 +1014,11 @@ fn decode_inst_ops(
             for _ in 0..num_op {
                 ops.push(read_operand(r, func));
             }
-            Ops::Call { funcid, is_api, ops }
+            Ops::Call {
+                funcid,
+                is_api,
+                ops,
+            }
         }
         OP_BC_ZEXT | OP_BC_SEXT | OP_BC_TRUNC => {
             let source = read_operand(r, func);
@@ -1013,7 +1035,11 @@ fn decode_inst_ops(
                 4
             };
             if opcode != OP_BC_SEXT {
-                mask = if mask != 64 { (1u64 << mask) - 1 } else { !0u64 };
+                mask = if mask != 64 {
+                    (1u64 << mask) - 1
+                } else {
+                    !0u64
+                };
             }
             Ops::Cast { source, mask, size }
         }
@@ -1379,11 +1405,15 @@ fn prepare_func(bc: &Bc, func: &mut BcFunc, gmap: &[u32]) -> DResult<()> {
     let map_op = |val: u32| -> DResult<u32> {
         if val & 0x8000_0000 != 0 {
             let o = (val & 0x7fff_ffff) as usize;
-            let goff = *gmap.get(o).ok_or_else(|| malformed("global out of range"))?;
+            let goff = *gmap
+                .get(o)
+                .ok_or_else(|| malformed("global out of range"))?;
             return Ok(0x8000_0000 | goff);
         }
         let o = val as usize;
-        let off = *map.get(o).ok_or_else(|| malformed("operand out of range"))?;
+        let off = *map
+            .get(o)
+            .ok_or_else(|| malformed("operand out of range"))?;
         Ok(off)
     };
     // MAPPTR: a pointer-typed local becomes a stack-pointer (0x40000000 tag).
@@ -1403,7 +1433,15 @@ fn prepare_func(bc: &Bc, func: &mut BcFunc, gmap: &[u32]) -> DResult<()> {
             if (inst.dest as usize) < map.len() {
                 inst.dest = map[inst.dest as usize];
             }
-            let r = remap_inst(inst, bc, &types, &mut consts, num_values, &map_op, &mapptr_op);
+            let r = remap_inst(
+                inst,
+                bc,
+                &types,
+                &mut consts,
+                num_values,
+                &map_op,
+                &mapptr_op,
+            );
             if let Err(e) = r {
                 result = Err(e);
                 break 'outer;
@@ -1425,10 +1463,7 @@ fn remap_inst(
     mapptr_op: &dyn Fn(u32) -> DResult<u32>,
 ) -> DResult<()> {
     match inst.opcode {
-        OP_BC_ADD..=OP_BC_XOR
-        | OP_BC_ICMP_EQ..=OP_BC_ICMP_SLT
-        | OP_BC_COPY
-        | OP_BC_STORE => {
+        OP_BC_ADD..=OP_BC_XOR | OP_BC_ICMP_EQ..=OP_BC_ICMP_SLT | OP_BC_COPY | OP_BC_STORE => {
             if let Ops::Binop(b) = &mut inst.ops {
                 b[0] = map_op(b[0])?;
                 b[1] = map_op(b[1])?;
@@ -1463,7 +1498,12 @@ fn remap_inst(
             }
         }
         OP_BC_CALL_API | OP_BC_CALL_DIRECT => {
-            if let Ops::Call { funcid, is_api, ops } = &mut inst.ops {
+            if let Ops::Call {
+                funcid,
+                is_api,
+                ops,
+            } = &mut inst.ops
+            {
                 if !*is_api {
                     if *funcid as u32 >= bc.num_func {
                         return Err(malformed("call funcid out of range"));
@@ -1625,17 +1665,113 @@ impl<'a> BcCtx<'a> {
 /// `(kind, idx)` per API id, in the exact order of `cli_apicalls[]`. The bytecode
 /// references APIs by this id, so the ordering must match libclamav.
 const API_TABLE: [(u8, u8); 107] = [
-    (0, 0), (1, 0), (1, 1), (0, 1), (1, 2), (1, 3), (2, 0), (1, 4), (1, 5), (1, 6),
-    (1, 7), (1, 8), (1, 9), (1, 10), (2, 1), (1, 11), (2, 2), (3, 0), (2, 3), (1, 12),
-    (4, 0), (2, 4), (2, 5), (5, 0), (0, 2), (0, 3), (0, 4), (2, 6), (2, 7), (2, 8),
-    (2, 9), (2, 10), (6, 0), (0, 5), (2, 11), (6, 1), (0, 6), (2, 12), (7, 0), (2, 13),
-    (2, 14), (2, 15), (2, 16), (2, 17), (2, 18), (0, 7), (7, 1), (7, 2), (7, 3), (7, 4),
-    (8, 0), (0, 8), (1, 13), (1, 14), (1, 15), (1, 16), (0, 9), (9, 0), (9, 1), (9, 2),
-    (9, 3), (2, 19), (6, 2), (2, 20), (9, 4), (5, 1), (5, 2), (5, 3), (5, 4), (2, 21),
-    (2, 22), (1, 17), (9, 5), (9, 6), (8, 1), (7, 5), (5, 5), (5, 6), (2, 23), (2, 24),
-    (2, 25), (6, 3), (2, 26), (2, 27), (0, 10), (2, 28), (5, 7), (5, 8), (8, 2), (5, 9),
-    (5, 10), (5, 11), (9, 7), (2, 29), (2, 30), (0, 11), (2, 31), (9, 8), (2, 32), (2, 33),
-    (1, 18), (0, 12), (2, 34), (2, 35), (0, 13), (2, 36), (2, 37),
+    (0, 0),
+    (1, 0),
+    (1, 1),
+    (0, 1),
+    (1, 2),
+    (1, 3),
+    (2, 0),
+    (1, 4),
+    (1, 5),
+    (1, 6),
+    (1, 7),
+    (1, 8),
+    (1, 9),
+    (1, 10),
+    (2, 1),
+    (1, 11),
+    (2, 2),
+    (3, 0),
+    (2, 3),
+    (1, 12),
+    (4, 0),
+    (2, 4),
+    (2, 5),
+    (5, 0),
+    (0, 2),
+    (0, 3),
+    (0, 4),
+    (2, 6),
+    (2, 7),
+    (2, 8),
+    (2, 9),
+    (2, 10),
+    (6, 0),
+    (0, 5),
+    (2, 11),
+    (6, 1),
+    (0, 6),
+    (2, 12),
+    (7, 0),
+    (2, 13),
+    (2, 14),
+    (2, 15),
+    (2, 16),
+    (2, 17),
+    (2, 18),
+    (0, 7),
+    (7, 1),
+    (7, 2),
+    (7, 3),
+    (7, 4),
+    (8, 0),
+    (0, 8),
+    (1, 13),
+    (1, 14),
+    (1, 15),
+    (1, 16),
+    (0, 9),
+    (9, 0),
+    (9, 1),
+    (9, 2),
+    (9, 3),
+    (2, 19),
+    (6, 2),
+    (2, 20),
+    (9, 4),
+    (5, 1),
+    (5, 2),
+    (5, 3),
+    (5, 4),
+    (2, 21),
+    (2, 22),
+    (1, 17),
+    (9, 5),
+    (9, 6),
+    (8, 1),
+    (7, 5),
+    (5, 5),
+    (5, 6),
+    (2, 23),
+    (2, 24),
+    (2, 25),
+    (6, 3),
+    (2, 26),
+    (2, 27),
+    (0, 10),
+    (2, 28),
+    (5, 7),
+    (5, 8),
+    (8, 2),
+    (5, 9),
+    (5, 10),
+    (5, 11),
+    (9, 7),
+    (2, 29),
+    (2, 30),
+    (0, 11),
+    (2, 31),
+    (9, 8),
+    (2, 32),
+    (2, 33),
+    (1, 18),
+    (0, 12),
+    (2, 34),
+    (2, 35),
+    (0, 13),
+    (2, 36),
+    (2, 37),
 ];
 
 // ---------------------------------------------------------------------------
@@ -1812,7 +1948,11 @@ impl<'a, 'c> Vm<'a, 'c> {
 
     fn execute(&mut self, entry_func: usize, args: &[u64]) -> Result<i64, VmError> {
         // Allocate the entry frame and register it as stack region 0.
-        let f0 = self.bc.funcs.get(entry_func).ok_or_else(|| VmError::Bytecode(format!("no function {entry_func}")))?;
+        let f0 = self
+            .bc
+            .funcs
+            .get(entry_func)
+            .ok_or_else(|| VmError::Bytecode(format!("no function {entry_func}")))?;
         let mut frame_values = vec![0u8; f0.num_bytes as usize];
         // Constants live at the top of the frame (last numConstants*8 bytes).
         let cstart = f0.num_bytes as usize - (f0.num_constants as usize) * 8;
@@ -1993,11 +2133,19 @@ impl<'a, 'c> Vm<'a, 'c> {
     }
 
     fn exec_binop(&mut self, cur: usize, inst: &BcInst, sc: u8) -> Result<(), VmError> {
-        let b = if let Ops::Binop(b) = inst.ops { b } else { return Ok(()) };
+        let b = if let Ops::Binop(b) = inst.ops {
+            b
+        } else {
+            return Ok(());
+        };
         let op0 = self.read_op_sc(cur, b[0], sc)?;
         let op1 = self.read_op_sc(cur, b[1], sc)?;
         let bits = [1u32, 8, 16, 32, 64][sc as usize];
-        let mask = if bits >= 64 { u64::MAX } else { (1u64 << bits) - 1 };
+        let mask = if bits >= 64 {
+            u64::MAX
+        } else {
+            (1u64 << bits) - 1
+        };
         let s0 = signext(op0, bits);
         let s1 = signext(op1, bits);
         let res: u64 = match inst.opcode {
@@ -2041,7 +2189,11 @@ impl<'a, 'c> Vm<'a, 'c> {
     }
 
     fn exec_icmp(&mut self, cur: usize, inst: &BcInst, sc: u8) -> Result<(), VmError> {
-        let b = if let Ops::Binop(b) = inst.ops { b } else { return Ok(()) };
+        let b = if let Ops::Binop(b) = inst.ops {
+            b
+        } else {
+            return Ok(());
+        };
         let op0 = self.read_op_sc(cur, b[0], sc)?;
         let op1 = self.read_op_sc(cur, b[1], sc)?;
         let bits = [1u32, 8, 16, 32, 64][sc as usize];
@@ -2093,10 +2245,18 @@ impl<'a, 'c> Vm<'a, 'c> {
     }
 
     fn exec_gep(&mut self, cur: usize, inst: &BcInst, sc: u8) -> Result<(), VmError> {
-        let t = if let Ops::Three(t) = inst.ops { t } else { return Ok(()) };
+        let t = if let Ops::Three(t) = inst.ops {
+            t
+        } else {
+            return Ok(());
+        };
         let off = self.read_op(cur, t[2], 4)? as i32;
         let stackid = -(cur as i64 + 1);
-        let elsize = if inst.opcode == OP_BC_GEP1 { t[0] as i32 } else { 1 };
+        let elsize = if inst.opcode == OP_BC_GEP1 {
+            t[0] as i32
+        } else {
+            1
+        };
         if sc == 0 {
             // pointer into the current frame (alloca): compose(stackid, base+off)
             let base = t[1] as i64;
@@ -2114,7 +2274,11 @@ impl<'a, 'c> Vm<'a, 'c> {
     }
 
     fn exec_mem(&mut self, cur: usize, inst: &BcInst) -> Result<(), VmError> {
-        let t = if let Ops::Three(t) = inst.ops { t } else { return Ok(()) };
+        let t = if let Ops::Three(t) = inst.ops {
+            t
+        } else {
+            return Ok(());
+        };
         match inst.opcode {
             OP_BC_MEMSET => {
                 let len = self.read_op(cur, t[2], 8)? as usize;
@@ -2248,11 +2412,22 @@ impl<'a, 'c> Vm<'a, 'c> {
         };
         let dest = inst.dest;
         if let Some(host) = self.ctx.host {
-            if let Some(pos) = self.bc.apis.iter().position(|(id, _)| *id as usize == api_id) {
+            if let Some(pos) = self
+                .bc
+                .apis
+                .iter()
+                .position(|(id, _)| *id as usize == api_id)
+            {
                 let name = self.bc.apis[pos].1.as_str();
                 let proto = self.bc.api_tids.get(pos).copied().unwrap_or(0);
-                let arg_tys: Vec<u16> = match self.bc.types.get((proto & 0x7fff).wrapping_sub(65) as usize) {
-                    Some(t) if t.kind == TypeKind::Function => t.contained.iter().skip(1).copied().collect(),
+                let arg_tys: Vec<u16> = match self
+                    .bc
+                    .types
+                    .get((proto & 0x7fff).wrapping_sub(65) as usize)
+                {
+                    Some(t) if t.kind == TypeKind::Function => {
+                        t.contained.iter().skip(1).copied().collect()
+                    }
                     _ => Vec::new(),
                 };
                 let mut args = Vec::with_capacity(ops.len());
@@ -2333,7 +2508,12 @@ impl<'a, 'c> Vm<'a, 'c> {
             // pe_rawaddr(rva)
             14 => {
                 let rva = self.read_op(cur, ops[0], 4)? as u32;
-                let raw = cli_rawaddr(rva, &self.ctx.sections, self.ctx.hdr_size, self.ctx.file_size);
+                let raw = cli_rawaddr(
+                    rva,
+                    &self.ctx.sections,
+                    self.ctx.hdr_size,
+                    self.ctx.file_size,
+                );
                 self.write_dest(cur, dest, 4, raw as u64)?;
             }
             // file_find(data*, len)
@@ -2457,7 +2637,13 @@ impl<'a, 'c> Vm<'a, 'c> {
         Ok(())
     }
 
-    fn file_find(&mut self, cur: usize, data_op: u32, len: u32, limit: i32) -> Result<i32, VmError> {
+    fn file_find(
+        &mut self,
+        cur: usize,
+        data_op: u32,
+        len: u32,
+        limit: i32,
+    ) -> Result<i32, VmError> {
         if len == 0 || len > 1024 || limit <= 0 {
             return Ok(-1);
         }
@@ -2582,7 +2768,12 @@ impl Bc {
     }
 
     /// [`Bc::run`] from function `entry_func`, its arguments set to `args`.
-    pub fn run_entry(&self, ctx: &mut BcCtx, entry_func: usize, args: &[u64]) -> Result<i64, VmError> {
+    pub fn run_entry(
+        &self,
+        ctx: &mut BcCtx,
+        entry_func: usize,
+        args: &[u64],
+    ) -> Result<i64, VmError> {
         if !self.prepared || self.skipped || self.funcs.is_empty() {
             return Err(VmError::Bytecode("bytecode not runnable".into()));
         }
@@ -2886,15 +3077,27 @@ mod tests {
             ty: 32,
             dest: 0,
             interp_op: OP_BC_CALL_API as u8 * 5,
-            ops: Ops::Call { funcid: 200, is_api: true, ops: vec![1] },
+            ops: Ops::Call {
+                funcid: 200,
+                is_api: true,
+                ops: vec![1],
+            },
         };
-        let ret = BcInst { opcode: OP_BC_RET, ty: 32, dest: 0, interp_op: OP_BC_RET as u8 * 5 + 3, ops: Ops::Unary(0) };
+        let ret = BcInst {
+            opcode: OP_BC_RET,
+            ty: 32,
+            dest: 0,
+            interp_op: OP_BC_RET as u8 * 5 + 3,
+            ops: Ops::Unary(0),
+        };
         let mut bc = one_func_bc(vec![call, ret], vec![21], 1);
         bc.uses_apis = vec![200];
         bc.apis = vec![(200, "hds_double".into())];
         bc.api_tids = vec![32];
         bc.prepare_interpreter().unwrap();
-        let (ret, virname) = execute_bytecode_standalone(&bc, b"", Vec::new(), 0, 0, 0, &[], 1000, Some(&Host)).unwrap();
+        let (ret, virname) =
+            execute_bytecode_standalone(&bc, b"", Vec::new(), 0, 0, 0, &[], 1000, Some(&Host))
+                .unwrap();
         assert_eq!((ret, virname), (42, None));
         // Without the host the id is unknown to the ClamAV table: no answer of 42.
         let mut ctx = BcCtx::new(&[]);
@@ -2905,21 +3108,41 @@ mod tests {
     /// return arg0 + arg1.
     #[test]
     fn entry_function_gets_arguments() {
-        let add = BcInst { opcode: OP_BC_ADD, ty: 32, dest: 2, interp_op: OP_BC_ADD as u8 * 5 + 3, ops: Ops::Binop([0, 1]) };
-        let ret = BcInst { opcode: OP_BC_RET, ty: 32, dest: 0, interp_op: OP_BC_RET as u8 * 5 + 3, ops: Ops::Unary(2) };
+        let add = BcInst {
+            opcode: OP_BC_ADD,
+            ty: 32,
+            dest: 2,
+            interp_op: OP_BC_ADD as u8 * 5 + 3,
+            ops: Ops::Binop([0, 1]),
+        };
+        let ret = BcInst {
+            opcode: OP_BC_RET,
+            ty: 32,
+            dest: 0,
+            interp_op: OP_BC_RET as u8 * 5 + 3,
+            ops: Ops::Unary(2),
+        };
         let mut bc = one_func_bc(vec![add, ret], vec![], 1);
         bc.funcs[0].num_args = 2;
         bc.funcs[0].num_values = 3;
         bc.funcs[0].types = vec![32, 32, 32];
         bc.prepare_interpreter().unwrap();
-        let (ret, _) = execute_bytecode_standalone(&bc, b"", Vec::new(), 0, 0, 0, &[40, 2], 1000, None).unwrap();
+        let (ret, _) =
+            execute_bytecode_standalone(&bc, b"", Vec::new(), 0, 0, 0, &[40, 2], 1000, None)
+                .unwrap();
         assert_eq!(ret, 42);
     }
 
     #[test]
     fn standalone_run_times_out() {
         // bb0: jmp bb0 — never ends; max_ops stops it.
-        let jmp = BcInst { opcode: OP_BC_JMP, ty: 0, dest: 0, interp_op: OP_BC_JMP as u8 * 5, ops: Ops::Jump(0) };
+        let jmp = BcInst {
+            opcode: OP_BC_JMP,
+            ty: 0,
+            dest: 0,
+            interp_op: OP_BC_JMP as u8 * 5,
+            ops: Ops::Jump(0),
+        };
         let mut bc = one_func_bc(vec![jmp], vec![], 1);
         bc.prepare_interpreter().unwrap();
         let r = execute_bytecode_standalone(&bc, b"", Vec::new(), 0, 0, 0, &[], 500, None);

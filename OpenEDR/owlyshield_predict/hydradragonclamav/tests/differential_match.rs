@@ -8,7 +8,7 @@
 //! reference uses `Pattern::match_at` (the recursive verifier) at every position,
 //! which is independent of the anchoring/threading logic under test.
 
-use hydradragonclamav::pattern::{compile_pattern_variants, Modifiers, Pattern};
+use hydradragonclamav::pattern::{Modifiers, Pattern, compile_pattern_variants};
 
 struct Rng(u64);
 impl Rng {
@@ -164,106 +164,109 @@ fn differential_find_all_matches_bruteforce() {
     let mut tested = 0usize;
     let mut with_atom = 0usize;
 
-  for seed in seeds {
-    let mut rng = Rng(seed);
-    for it in 0..ITERS {
-        let (body, instance) = gen_pattern(&mut rng);
-        // nocase/fullword sometimes; not wide (wide changes the byte layout, a
-        // separate concern). fullword is exercised against a replicated filter.
-        let modifiers = Modifiers {
-            nocase: rng.below(4) == 0,
-            fullword: rng.below(4) == 0,
-            ..Default::default()
-        };
-        let variants = match compile_pattern_variants(&body, modifiers) {
-            Ok(v) if !v.is_empty() => v,
-            _ => continue,
-        };
-        let p = &variants[0];
-        if p.instructions.is_empty() {
-            continue;
-        }
+    for seed in seeds {
+        let mut rng = Rng(seed);
+        for it in 0..ITERS {
+            let (body, instance) = gen_pattern(&mut rng);
+            // nocase/fullword sometimes; not wide (wide changes the byte layout, a
+            // separate concern). fullword is exercised against a replicated filter.
+            let modifiers = Modifiers {
+                nocase: rng.below(4) == 0,
+                fullword: rng.below(4) == 0,
+                ..Default::default()
+            };
+            let variants = match compile_pattern_variants(&body, modifiers) {
+                Ok(v) if !v.is_empty() => v,
+                _ => continue,
+            };
+            let p = &variants[0];
+            if p.instructions.is_empty() {
+                continue;
+            }
 
-        // Build a buffer: half random, half with the matching instance embedded.
-        let base_len = 6 + rng.below(40);
-        let mut data: Vec<u8> = (0..base_len).map(|_| rng.byte()).collect();
-        if rng.below(2) == 0 && !instance.is_empty() && !modifiers.nocase {
-            let at = rng.below(data.len().max(1));
-            let mut buf = data[..at.min(data.len())].to_vec();
-            buf.extend_from_slice(&instance);
-            buf.extend_from_slice(&data[at.min(data.len())..]);
-            data = buf;
-        }
+            // Build a buffer: half random, half with the matching instance embedded.
+            let base_len = 6 + rng.below(40);
+            let mut data: Vec<u8> = (0..base_len).map(|_| rng.byte()).collect();
+            if rng.below(2) == 0 && !instance.is_empty() && !modifiers.nocase {
+                let at = rng.below(data.len().max(1));
+                let mut buf = data[..at.min(data.len())].to_vec();
+                buf.extend_from_slice(&instance);
+                buf.extend_from_slice(&data[at.min(data.len())..]);
+                data = buf;
+            }
 
-        let reference = brute(p, &data, modifiers.fullword);
-        let full = vec![(0usize, data.len())];
+            let reference = brute(p, &data, modifiers.fullword);
+            let full = vec![(0usize, data.len())];
 
-        // 1) find_all (anchored SIMD fast-path) must equal brute force.
-        let fa = as_pairs(&p.find_all(&data, &full, LIMIT));
-        assert_eq!(
-            fa, reference,
-            "find_all != brute\n  iter={it}\n  body={body}\n  nocase={}\n  data={:02x?}\n  find_all={:?}\n  brute={:?}",
-            modifiers.nocase, data, fa, reference
-        );
+            // 1) find_all (anchored SIMD fast-path) must equal brute force.
+            let fa = as_pairs(&p.find_all(&data, &full, LIMIT));
+            assert_eq!(
+                fa, reference,
+                "find_all != brute\n  iter={it}\n  body={body}\n  nocase={}\n  data={:02x?}\n  find_all={:?}\n  brute={:?}",
+                modifiers.nocase, data, fa, reference
+            );
 
-        // 2) find_all_at (prefilter-threaded) must equal brute force, given hints =
-        //    all occurrences of the indexed atom (exact best_literal, or the
-        //    lowercased nocase run — found in the lowercased buffer), capped at 16.
-        let atom_info: Option<(Vec<u8>, bool)> = p
-            .required_atom()
-            .map(|a| (a.into_iter().take(16).collect::<Vec<u8>>(), false))
-            .or_else(|| {
-                p.required_atom_nocase()
-                    .map(|a| (a.into_iter().take(16).collect::<Vec<u8>>(), true))
-            });
-        if let Some((atom, nocase)) = atom_info {
-            if atom.len() >= 2 {
-                with_atom += 1;
-                // Nocase atoms are matched against the lowercased buffer (same byte
-                // positions), mirroring the prefilter's nocase pass.
-                let hay: Vec<u8> = if nocase {
-                    data.iter().map(|b| b.to_ascii_lowercase()).collect()
-                } else {
-                    data.clone()
-                };
-                let mut hints: Vec<u32> = Vec::new();
-                if hay.len() >= atom.len() {
-                    for i in 0..=hay.len() - atom.len() {
-                        if hay[i..i + atom.len()] == atom[..] {
-                            hints.push(i as u32);
+            // 2) find_all_at (prefilter-threaded) must equal brute force, given hints =
+            //    all occurrences of the indexed atom (exact best_literal, or the
+            //    lowercased nocase run — found in the lowercased buffer), capped at 16.
+            let atom_info: Option<(Vec<u8>, bool)> = p
+                .required_atom()
+                .map(|a| (a.into_iter().take(16).collect::<Vec<u8>>(), false))
+                .or_else(|| {
+                    p.required_atom_nocase()
+                        .map(|a| (a.into_iter().take(16).collect::<Vec<u8>>(), true))
+                });
+            if let Some((atom, nocase)) = atom_info {
+                if atom.len() >= 2 {
+                    with_atom += 1;
+                    // Nocase atoms are matched against the lowercased buffer (same byte
+                    // positions), mirroring the prefilter's nocase pass.
+                    let hay: Vec<u8> = if nocase {
+                        data.iter().map(|b| b.to_ascii_lowercase()).collect()
+                    } else {
+                        data.clone()
+                    };
+                    let mut hints: Vec<u32> = Vec::new();
+                    if hay.len() >= atom.len() {
+                        for i in 0..=hay.len() - atom.len() {
+                            if hay[i..i + atom.len()] == atom[..] {
+                                hints.push(i as u32);
+                            }
                         }
                     }
-                }
-                let fat = as_pairs(&p.find_all_at(&data, &full, LIMIT, &hints));
-                assert_eq!(
-                    fat, reference,
-                    "find_all_at != brute\n  iter={it}\n  body={body}\n  atom={:02x?}\n  data={:02x?}\n  hints={:?}\n  find_all_at={:?}\n  brute={:?}",
-                    atom, data, hints, fat, reference
-                );
-
-                // 3) Restricted-range consistency: find_all and find_all_at must
-                //    agree on an arbitrary sub-range (adjudicates the pat_len vs
-                //    min_len range-bound concern). Compare the two optimized paths.
-                if data.len() >= 4 {
-                    let rs = rng.below(data.len() / 2);
-                    let re = rs + 1 + rng.below(data.len() - rs);
-                    let range = vec![(rs, re)];
-                    let r_fa = as_pairs(&p.find_all(&data, &range, LIMIT));
-                    let r_fat = as_pairs(&p.find_all_at(&data, &range, LIMIT, &hints));
+                    let fat = as_pairs(&p.find_all_at(&data, &full, LIMIT, &hints));
                     assert_eq!(
-                        r_fa, r_fat,
-                        "find_all vs find_all_at diverge on range [{rs},{re})\n  iter={it}\n  body={body}\n  atom={:02x?}\n  data={:02x?}\n  find_all={:?}\n  find_all_at={:?}",
-                        atom, data, r_fa, r_fat
+                        fat, reference,
+                        "find_all_at != brute\n  iter={it}\n  body={body}\n  atom={:02x?}\n  data={:02x?}\n  hints={:?}\n  find_all_at={:?}\n  brute={:?}",
+                        atom, data, hints, fat, reference
                     );
+
+                    // 3) Restricted-range consistency: find_all and find_all_at must
+                    //    agree on an arbitrary sub-range (adjudicates the pat_len vs
+                    //    min_len range-bound concern). Compare the two optimized paths.
+                    if data.len() >= 4 {
+                        let rs = rng.below(data.len() / 2);
+                        let re = rs + 1 + rng.below(data.len() - rs);
+                        let range = vec![(rs, re)];
+                        let r_fa = as_pairs(&p.find_all(&data, &range, LIMIT));
+                        let r_fat = as_pairs(&p.find_all_at(&data, &range, LIMIT, &hints));
+                        assert_eq!(
+                            r_fa, r_fat,
+                            "find_all vs find_all_at diverge on range [{rs},{re})\n  iter={it}\n  body={body}\n  atom={:02x?}\n  data={:02x?}\n  find_all={:?}\n  find_all_at={:?}",
+                            atom, data, r_fa, r_fat
+                        );
+                    }
                 }
             }
+            tested += 1;
         }
-        tested += 1;
     }
-  }
 
     // Sanity: the harness actually exercised a meaningful number of cases.
     assert!(tested > ITERS, "too many skipped: {tested}");
-    assert!(with_atom > 2000, "too few atom-bearing patterns: {with_atom}");
+    assert!(
+        with_atom > 2000,
+        "too few atom-bearing patterns: {with_atom}"
+    );
     eprintln!("differential: {tested} patterns tested, {with_atom} with atoms");
 }

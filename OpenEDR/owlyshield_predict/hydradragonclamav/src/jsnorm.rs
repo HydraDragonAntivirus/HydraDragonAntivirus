@@ -160,7 +160,8 @@ fn ctype(c: u8) -> Class {
         b')' => Class::Special(Tok::ParClose, b')'),
         b'.' => Class::Special(Tok::Dot, b'.'),
         b';' => Class::Special(Tok::Semicolon, b';'),
-        b'!' | b'%' | b'&' | b'*' | b'+' | b'-' | b':' | b'<' | b'=' | b'>' | b'?' | b'^' | b'|' | b'~' => Class::Op,
+        b'!' | b'%' | b'&' | b'*' | b'+' | b'-' | b':' | b'<' | b'=' | b'>' | b'?' | b'^'
+        | b'|' | b'~' => Class::Op,
         _ => Class::Nop,
     }
 }
@@ -181,22 +182,23 @@ fn keyword(word: &[u8]) -> Option<Tok> {
         b"true" => Tok::True,
         b"false" => Tok::False,
         b"null" => Tok::Null,
-        b"break" | b"case" | b"catch" | b"continue" | b"default" | b"delete" | b"do" | b"else" | b"finally"
-        | b"for" | b"if" | b"in" | b"instanceof" | b"new" | b"return" | b"switch" | b"this" | b"throw" | b"try"
-        | b"typeof" | b"void" | b"while" | b"with" => Tok::Other,
-        b"abstract" | b"boolean" | b"byte" | b"char" | b"class" | b"const" | b"debugger" | b"double" | b"enum"
-        | b"export" | b"extends" | b"final" | b"float" | b"goto" | b"implements" | b"import" | b"int"
-        | b"interface" | b"long" | b"native" | b"package" | b"private" | b"protected" | b"public" | b"short"
-        | b"static" | b"super" | b"synchronized" | b"throws" | b"transient" | b"volatile" => Tok::FutureReserved,
+        b"break" | b"case" | b"catch" | b"continue" | b"default" | b"delete" | b"do" | b"else"
+        | b"finally" | b"for" | b"if" | b"in" | b"instanceof" | b"new" | b"return" | b"switch"
+        | b"this" | b"throw" | b"try" | b"typeof" | b"void" | b"while" | b"with" => Tok::Other,
+        b"abstract" | b"boolean" | b"byte" | b"char" | b"class" | b"const" | b"debugger"
+        | b"double" | b"enum" | b"export" | b"extends" | b"final" | b"float" | b"goto"
+        | b"implements" | b"import" | b"int" | b"interface" | b"long" | b"native" | b"package"
+        | b"private" | b"protected" | b"public" | b"short" | b"static" | b"super"
+        | b"synchronized" | b"throws" | b"transient" | b"volatile" => Tok::FutureReserved,
         _ => return None,
     })
 }
 
 /// `operators.gperf`, longest match first.
 const OPERATORS: &[&[u8]] = &[
-    b">>>=", b"===", b">>>", b"!==", b"<<=", b">>=", b"<<", b"<=", b"==", b">=", b">>", b"||", b"--", b"!=", b"&&",
-    b"++", b"*=", b"/=", b"%=", b"+=", b"-=", b"&=", b"^=", b"|=", b"=", b"+", b"&", b":", b"/", b"!", b">", b"<",
-    b"-", b"*", b"|", b"%", b"?", b"~", b"^",
+    b">>>=", b"===", b">>>", b"!==", b"<<=", b">>=", b"<<", b"<=", b"==", b">=", b">>", b"||",
+    b"--", b"!=", b"&&", b"++", b"*=", b"/=", b"%=", b"+=", b"-=", b"&=", b"^=", b"|=", b"=", b"+",
+    b"&", b":", b"/", b"!", b">", b"<", b"-", b"*", b"|", b"%", b"?", b"~", b"^",
 ];
 
 fn hex2int(c: u8) -> i32 {
@@ -229,7 +231,10 @@ fn hex_pair(a: u8, b: u8) -> u8 {
 }
 
 fn hex_quad(s: &[u8]) -> u16 {
-    ((hex2int(s[0]).max(0) << 12) | (hex2int(s[1]).max(0) << 8) | (hex2int(s[2]).max(0) << 4) | hex2int(s[3])) as u16
+    ((hex2int(s[0]).max(0) << 12)
+        | (hex2int(s[1]).max(0) << 8)
+        | (hex2int(s[2]).max(0) << 4)
+        | hex2int(s[3])) as u16
 }
 
 /// ClamAV `cli_unescape`: JavaScript `unescape()` (`%uXXXX`, `%XX`).
@@ -302,14 +307,28 @@ fn append_normalize(buf: &mut Vec<u8>, s: &[u8]) {
 /// C `%g`.
 fn fmt_g(v: f64) -> String {
     if v == 0.0 {
-        return if v.is_sign_negative() { "-0".into() } else { "0".into() };
+        return if v.is_sign_negative() {
+            "-0".into()
+        } else {
+            "0".into()
+        };
     }
     if !v.is_finite() {
-        return if v.is_nan() { "nan".into() } else if v > 0.0 { "inf".into() } else { "-inf".into() };
+        return if v.is_nan() {
+            "nan".into()
+        } else if v > 0.0 {
+            "inf".into()
+        } else {
+            "-inf".into()
+        };
     }
     let exp = v.abs().log10().floor() as i32;
     let trim = |s: String| -> String {
-        if s.contains('.') { s.trim_end_matches('0').trim_end_matches('.').to_string() } else { s }
+        if s.contains('.') {
+            s.trim_end_matches('0').trim_end_matches('.').to_string()
+        } else {
+            s
+        }
     };
     // %e precision 5 rounds; re-derive the exponent from it.
     let e_form = format!("{:.5e}", v);
@@ -341,9 +360,22 @@ impl JsNormalizer {
     pub fn new() -> Self {
         JsNormalizer {
             var_uniq: 0,
-            scopes: vec![Scope { ids: HashMap::new(), parent: None, fsm: Fsm::Base, last_token: None, brackets: 0, blocks: 0 }],
+            scopes: vec![Scope {
+                ids: HashMap::new(),
+                parent: None,
+                fsm: Fsm::Base,
+                last_token: None,
+                brackets: 0,
+                blocks: 0,
+            }],
             current: 0,
-            lexer: Lexer { buf: Vec::new(), state: LexState::Initial, pos: 0, lastpos: usize::MAX, last_state: None },
+            lexer: Lexer {
+                buf: Vec::new(),
+                state: LexState::Initial,
+                pos: 0,
+                lastpos: usize::MAX,
+                last_state: None,
+            },
             tokens: Vec::new(),
             rec: 0,
         }
@@ -414,7 +446,10 @@ impl JsNormalizer {
                     }
                 }
                 Tok::ParOpen => {
-                    if matches!(self.scopes[current].fsm, Fsm::WaitFunctionName | Fsm::WaitParameterList) {
+                    if matches!(
+                        self.scopes[current].fsm,
+                        Fsm::WaitFunctionName | Fsm::WaitParameterList
+                    ) {
                         self.scopes[current].fsm = Fsm::InsideFunctionDecl;
                     }
                 }
@@ -424,7 +459,10 @@ impl JsNormalizer {
                     }
                 }
                 Tok::CurlyOpen => {
-                    if matches!(self.scopes[current].fsm, Fsm::WaitFunctionName | Fsm::WaitParameterList | Fsm::InsideFunctionDecl) {
+                    if matches!(
+                        self.scopes[current].fsm,
+                        Fsm::WaitFunctionName | Fsm::WaitParameterList | Fsm::InsideFunctionDecl
+                    ) {
                         self.scopes[current].fsm = Fsm::Base;
                     }
                     self.scopes[current].blocks += 1;
@@ -437,7 +475,10 @@ impl JsNormalizer {
                     if s.blocks == 0 {
                         if let Some(parent) = s.parent {
                             // `}` then a dummy FUNCTION token marking the function end.
-                            self.tokens.push(Token { kind: Tok::CurlyClose, val: Val::CStr(b"}".to_vec()) });
+                            self.tokens.push(Token {
+                                kind: Tok::CurlyClose,
+                                val: Val::CStr(b"}".to_vec()),
+                            });
                             kind = Tok::Function;
                             val = Val::Scope(None);
                             self.current = parent;
@@ -470,7 +511,10 @@ impl JsNormalizer {
                 Tok::Str => {
                     // Fold "a" + "b".
                     let n = self.tokens.len();
-                    if n > 1 && self.tokens[n - 1].kind == Tok::Plus && self.tokens[n - 2].kind == Tok::Str {
+                    if n > 1
+                        && self.tokens[n - 1].kind == Tok::Plus
+                        && self.tokens[n - 2].kind == Tok::Str
+                    {
                         self.tokens.pop();
                         let add = match &val {
                             Val::Str(s) => s.clone(),
@@ -486,7 +530,9 @@ impl JsNormalizer {
             }
             self.tokens.push(Token { kind, val });
             // ClamAV records the token type read, before any rewrite.
-            let read = if kind == Tok::Function && matches!(self.tokens.last().map(|t| &t.val), Some(Val::Scope(None))) {
+            let read = if kind == Tok::Function
+                && matches!(self.tokens.last().map(|t| &t.val), Some(Val::Scope(None)))
+            {
                 Tok::CurlyClose
             } else if kind == Tok::Unnorm {
                 Tok::Ident
@@ -536,12 +582,14 @@ impl JsNormalizer {
                             return Some(Self::operator(lx, input));
                         }
                         Class::Dq => {
-                            if let Some(t) = Self::string(lx, input, b'"', LexState::DoubleQString) {
+                            if let Some(t) = Self::string(lx, input, b'"', LexState::DoubleQString)
+                            {
                                 return Some(t);
                             }
                         }
                         Class::Sq => {
-                            if let Some(t) = Self::string(lx, input, b'\'', LexState::SingleQString) {
+                            if let Some(t) = Self::string(lx, input, b'\'', LexState::SingleQString)
+                            {
                                 return Some(t);
                             }
                         }
@@ -669,7 +717,10 @@ impl JsNormalizer {
             return Some(if is_float {
                 // atof: the longest valid prefix.
                 let s = String::from_utf8_lossy(&text).into_owned();
-                let v = (1..=s.len()).rev().find_map(|n| s[..n].parse::<f64>().ok()).unwrap_or(0.0);
+                let v = (1..=s.len())
+                    .rev()
+                    .find_map(|n| s[..n].parse::<f64>().ok())
+                    .unwrap_or(0.0);
                 (Tok::NumFloat, Val::Float(v))
             } else {
                 (Tok::NumInt, Val::Int(atoi(&text)))
@@ -686,11 +737,12 @@ impl JsNormalizer {
             lx.pos += 1;
             match id_class(c) {
                 Class::Id => lx.buf.push(c),
-                Class::Op if lx.pos < input.len() && {
-                    let next = input[lx.pos];
-                    lx.pos += 1;
-                    next == b'u'
-                } =>
+                Class::Op
+                    if lx.pos < input.len() && {
+                        let next = input[lx.pos];
+                        lx.pos += 1;
+                        next == b'u'
+                    } =>
                 {
                     lx.buf.push(c);
                 }
@@ -731,7 +783,10 @@ impl JsNormalizer {
             }
         }
         for _ in 0..balance {
-            self.tokens.push(Token { kind: Tok::ParClose, val: Val::CStr(b")".to_vec()) });
+            self.tokens.push(Token {
+                kind: Tok::ParClose,
+                val: Val::CStr(b")".to_vec()),
+            });
         }
         self.run_folders();
         self.run_decoders();
@@ -750,14 +805,24 @@ impl JsNormalizer {
                 && i + 4 <= self.tokens.len()
             {
                 let s = unescape(self.tokens[i + 2].cstring().unwrap_or_default());
-                self.tokens.splice(i..i + 4, [Token { kind: Tok::Str, val: Val::Str(s) }]);
+                self.tokens.splice(
+                    i..i + 4,
+                    [Token {
+                        kind: Tok::Str,
+                        val: Val::Str(s),
+                    }],
+                );
             }
             i += 1;
         }
     }
 
     fn update_scope(&mut self, i: usize) -> bool {
-        if let Some(Token { kind: Tok::Function, val: Val::Scope(s) }) = self.tokens.get(i) {
+        if let Some(Token {
+            kind: Tok::Function,
+            val: Val::Scope(s),
+        }) = self.tokens.get(i)
+        {
             match s {
                 Some(s) => self.current = *s,
                 None => {
@@ -789,13 +854,21 @@ impl JsNormalizer {
                 {
                     res = handle_de(&self.tokens, i, name.as_deref());
                 }
-            } else if i + 2 < cnt && self.tokens[i].kind == Tok::Ident && self.tokens[i + 1].kind == Tok::ParOpen {
+            } else if i + 2 < cnt
+                && self.tokens[i].kind == Tok::Ident
+                && self.tokens[i + 1].kind == Tok::ParOpen
+            {
                 match self.tokens[i].cstring() {
                     Some(b"dF") => res = handle_df(&self.tokens, i + 2),
                     Some(b"eval") => {
                         let start = i + 2;
-                        if start + 1 < cnt && self.tokens[start].string().is_some() && self.tokens[start + 1].kind == Tok::ParClose {
-                            if let Val::Str(s) = std::mem::replace(&mut self.tokens[start].val, Val::None) {
+                        if start + 1 < cnt
+                            && self.tokens[start].string().is_some()
+                            && self.tokens[start + 1].kind == Tok::ParClose
+                        {
+                            if let Val::Str(s) =
+                                std::mem::replace(&mut self.tokens[start].val, Val::None)
+                            {
                                 res = Some((s, start - 2, start + 2, false));
                             }
                         }
@@ -909,7 +982,13 @@ impl JsNormalizer {
 
 /// ClamAV `buf_outs`: lower case, whitespace as a space.
 fn outs(out: &mut Vec<u8>, s: &[u8]) {
-    out.extend(s.iter().map(|&c| if matches!(c, b' ' | 9..=13) { b' ' } else { c.to_ascii_lowercase() }));
+    out.extend(s.iter().map(|&c| {
+        if matches!(c, b' ' | 9..=13) {
+            b' '
+        } else {
+            c.to_ascii_lowercase()
+        }
+    }));
 }
 
 /// ClamAV `match_parameters`, including its loop that checks only the first
@@ -921,14 +1000,20 @@ fn match_parameters(tokens: &[Token], names: &[&[u8]]) -> bool {
     let (mut ti, mut ni, mut remaining) = (1usize, 0usize, names.len());
     while ni < remaining {
         remaining -= 1;
-        let Some(t) = tokens.get(ti) else { return false };
+        let Some(t) = tokens.get(ti) else {
+            return false;
+        };
         if t.kind != Tok::Ident || t.cstring() != Some(names[ni]) {
             return false;
         }
         ti += 1;
         ni += 1;
-        let Some(next) = tokens.get(ti) else { return false };
-        if (remaining > 0 && next.kind != Tok::Comma) || (remaining == 0 && next.kind != Tok::ParClose) {
+        let Some(next) = tokens.get(ti) else {
+            return false;
+        };
+        if (remaining > 0 && next.kind != Tok::Comma)
+            || (remaining == 0 && next.kind != Tok::ParClose)
+        {
             return false;
         }
         ti += 1;
@@ -937,12 +1022,20 @@ fn match_parameters(tokens: &[Token], names: &[&[u8]]) -> bool {
 }
 
 /// Dean Edwards' packer (`eval(function(p,a,c,k,e,r){...}('...',62,..,'a|b'.split('|'),0,{}))`).
-fn handle_de(tokens: &[Token], start: usize, name: Option<&[u8]>) -> Option<(Vec<u8>, usize, usize, bool)> {
+fn handle_de(
+    tokens: &[Token],
+    start: usize,
+    name: Option<&[u8]>,
+) -> Option<(Vec<u8>, usize, usize, bool)> {
     let cnt = tokens.len();
     let mut nesting = 1i64;
     let mut i = start;
     while i < cnt {
-        if let Token { kind: Tok::Function, val: Val::Scope(s) } = &tokens[i] {
+        if let Token {
+            kind: Tok::Function,
+            val: Val::Scope(s),
+        } = &tokens[i]
+        {
             if s.is_some() {
                 nesting += 1;
             } else {
@@ -982,7 +1075,10 @@ fn handle_de(tokens: &[Token], start: usize, name: Option<&[u8]>) -> Option<(Vec
     match name {
         Some(name) => {
             while i + 2 < cnt {
-                if tokens[i].kind == Tok::Ident && tokens[i].cstring() == Some(name) && tokens[i + 1].kind == Tok::ParOpen {
+                if tokens[i].kind == Tok::Ident
+                    && tokens[i].cstring() == Some(name)
+                    && tokens[i + 1].kind == Tok::ParOpen
+                {
                     i += 2;
                     collect(&mut i, &mut text);
                 }
@@ -1016,7 +1112,9 @@ fn handle_de(tokens: &[Token], start: usize, name: Option<&[u8]>) -> Option<(Vec
 
 /// ClamAV `decode_de`: replaces each base-`a` word of `p` with its entry in `k`.
 fn decode_de(tokens: &[Token], params: &[usize], out: &mut Vec<u8>) {
-    let (Some(p), Some(k)) = (tokens[params[0]].cstring(), tokens[params[3]].string()) else { return };
+    let (Some(p), Some(k)) = (tokens[params[0]].cstring(), tokens[params[3]].string()) else {
+        return;
+    };
     let a = tokens[params[1]].ival();
     let words: Vec<&[u8]> = k.split(|&c| c == b'|').collect();
     let mut i = 0;
@@ -1065,7 +1163,10 @@ fn handle_df(tokens: &[Token], start: usize) -> Option<(Vec<u8>, usize, usize, b
     let s = t.string()?;
     let (&last, body) = s.split_last()?;
     let clast = last.wrapping_sub(b'0');
-    let s1: Vec<u8> = unescape(body).into_iter().map(|c| c.wrapping_sub(clast)).collect();
+    let s1: Vec<u8> = unescape(body)
+        .into_iter()
+        .map(|c| c.wrapping_sub(clast))
+        .collect();
     Some((unescape(&s1), start - 2, start + 2, true))
 }
 
@@ -1089,15 +1190,27 @@ mod tests {
 
     #[test]
     fn identifiers_renamed_strings_folded_lowercase() {
-        assert_eq!(norm("var Foo = 'A' + \"b\"; Foo.Bar(Foo);"), "<script>var n000=\"ab\";n000.bar(n000);</script>");
-        assert_eq!(norm("function F(x){ return x+1 }"), "<script>function n000(n001){return n001+1}</script>");
-        assert_eq!(norm("document.write(unknown)"), "<script>document.write(unknown)</script>");
+        assert_eq!(
+            norm("var Foo = 'A' + \"b\"; Foo.Bar(Foo);"),
+            "<script>var n000=\"ab\";n000.bar(n000);</script>"
+        );
+        assert_eq!(
+            norm("function F(x){ return x+1 }"),
+            "<script>function n000(n001){return n001+1}</script>"
+        );
+        assert_eq!(
+            norm("document.write(unknown)"),
+            "<script>document.write(unknown)</script>"
+        );
     }
 
     #[test]
     fn escapes_and_unescape() {
         assert_eq!(norm(r#"x = "\x41B\n";"#), "<script>x=\"ab \";</script>");
-        assert_eq!(norm("unescape('%u4141%41%42')"), "<script>\"\u{4141}ab\"</script>".to_lowercase());
+        assert_eq!(
+            norm("unescape('%u4141%41%42')"),
+            "<script>\"\u{4141}ab\"</script>".to_lowercase()
+        );
     }
 
     #[test]
@@ -1110,8 +1223,14 @@ mod tests {
         // ClamAV quirks: htmlnorm turns newlines into spaces, so `//` ends at a
         // space; an identifier still open at the end of the input is dropped
         // (inside HTML the script always ends with `</script>`).
-        assert_eq!(norm("/* c */ a = 1.50; // x\n b"), "<script>a=1.5;x</script>");
-        assert_eq!(norm("/* c */ a = 1.50; // x\n b;"), "<script>a=1.5;x b;</script>");
+        assert_eq!(
+            norm("/* c */ a = 1.50; // x\n b"),
+            "<script>a=1.5;x</script>"
+        );
+        assert_eq!(
+            norm("/* c */ a = 1.50; // x\n b;"),
+            "<script>a=1.5;x b;</script>"
+        );
         assert_eq!(norm("a=1;//comment\nb"), "<script>a=1;</script>");
         assert_eq!(norm("f(\"abc"), "<script>f(\"abc\")</script>");
         assert_eq!(fmt_g(1e21), "1e+21");

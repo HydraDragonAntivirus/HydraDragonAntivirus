@@ -30,10 +30,9 @@ pub struct FileHashes {
 // ============================================================================
 
 const MD5_SHIFTS: [u32; 64] = [
-    7, 12, 17, 22, 7, 12, 17, 22, 7, 12, 17, 22, 7, 12, 17, 22,
-    5, 9, 14, 20, 5, 9, 14, 20, 5, 9, 14, 20, 5, 9, 14, 20,
-    4, 11, 16, 23, 4, 11, 16, 23, 4, 11, 16, 23, 4, 11, 16, 23,
-    6, 10, 15, 21, 6, 10, 15, 21, 6, 10, 15, 21, 6, 10, 15, 21,
+    7, 12, 17, 22, 7, 12, 17, 22, 7, 12, 17, 22, 7, 12, 17, 22, 5, 9, 14, 20, 5, 9, 14, 20, 5, 9,
+    14, 20, 5, 9, 14, 20, 4, 11, 16, 23, 4, 11, 16, 23, 4, 11, 16, 23, 4, 11, 16, 23, 6, 10, 15,
+    21, 6, 10, 15, 21, 6, 10, 15, 21, 6, 10, 15, 21,
 ];
 
 const MD5_K: [u32; 64] = [
@@ -142,10 +141,7 @@ impl Md5Hasher {
             let temp = d;
             d = c;
             c = b;
-            let sum = a
-                .wrapping_add(f)
-                .wrapping_add(MD5_K[i])
-                .wrapping_add(m[g]);
+            let sum = a.wrapping_add(f).wrapping_add(MD5_K[i]).wrapping_add(m[g]);
             b = b.wrapping_add(sum.rotate_left(MD5_SHIFTS[i]));
             a = temp;
         }
@@ -456,7 +452,8 @@ fn build_dos_device_map() -> HashMap<String, String> {
     let mut target_buf = vec![0u16; 512];
     for letter in b'A'..=b'Z' {
         let drive_utf16: [u16; 3] = [letter as u16, b':' as u16, 0];
-        let copied = unsafe { QueryDosDeviceW(PCWSTR(drive_utf16.as_ptr()), Some(&mut target_buf)) };
+        let copied =
+            unsafe { QueryDosDeviceW(PCWSTR(drive_utf16.as_ptr()), Some(&mut target_buf)) };
         if copied > 0 {
             let end = target_buf
                 .iter()
@@ -507,7 +504,11 @@ pub fn normalize_windows_path(raw: &str) -> Option<String> {
     }
     if lower.starts_with("\\systemroot\\") {
         let windir = std::env::var("SystemRoot").unwrap_or_else(|_| "C:\\Windows".to_string());
-        return Some(format!("{}{}", windir.trim_end_matches('\\'), &norm["\\SystemRoot".len()..]));
+        return Some(format!(
+            "{}{}",
+            windir.trim_end_matches('\\'),
+            &norm["\\SystemRoot".len()..]
+        ));
     }
     if lower.starts_with("system32\\") {
         let windir = std::env::var("SystemRoot").unwrap_or_else(|_| "C:\\Windows".to_string());
@@ -593,7 +594,11 @@ pub fn compute_file_hashes_cached(raw_path: &str) -> Option<FileHashes> {
 
         if first_chunk {
             first_chunk = false;
-            if n >= 2 && chunk[0] == b'M' && chunk[1] == b'Z' && (size as usize) <= MAX_IMPHASH_PE_BYTES {
+            if n >= 2
+                && chunk[0] == b'M'
+                && chunk[1] == b'Z'
+                && (size as usize) <= MAX_IMPHASH_PE_BYTES
+            {
                 let mut v = Vec::with_capacity(size as usize);
                 v.extend_from_slice(chunk);
                 pe_bytes = Some(v);
@@ -607,9 +612,7 @@ pub fn compute_file_hashes_cached(raw_path: &str) -> Option<FileHashes> {
         }
     }
 
-    let imphash = pe_bytes
-        .as_deref()
-        .and_then(compute_imphash_from_bytes);
+    let imphash = pe_bytes.as_deref().and_then(compute_imphash_from_bytes);
 
     let result = FileHashes {
         md5: md5.finalize_hex(),
@@ -695,6 +698,9 @@ mod tests {
         pe[0x282..0x28c].copy_from_slice(b"WriteFile\0");
 
         let expected = md5_hex(b"kernel32.createfilea,kernel32.writefile");
-        assert_eq!(compute_imphash_from_bytes(&pe).as_deref(), Some(expected.as_str()));
+        assert_eq!(
+            compute_imphash_from_bytes(&pe).as_deref(),
+            Some(expected.as_str())
+        );
     }
 }

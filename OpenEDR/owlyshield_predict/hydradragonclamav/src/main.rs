@@ -54,12 +54,19 @@ fn run() -> Result<bool, Box<dyn std::error::Error>> {
 
     // Opt-in memory profiler (set HDC_MEM_STATS=1).
     if std::env::var_os("HDC_MEM_STATS").is_some() {
-        eprintln!("[mem] process working set: {:.1} MB", process_working_set_mb());
+        eprintln!(
+            "[mem] process working set: {:.1} MB",
+            process_working_set_mb()
+        );
         let s = engine.database.pattern_mem_stats();
         let mb = |b: usize| b as f64 / (1024.0 * 1024.0);
         eprintln!(
             "[mem] patterns={} tokens={} ({:.1} MB)  structs={:.1} MB  TOTAL={:.1} MB",
-            s.patterns, s.tokens(), mb(s.token_bytes), mb(s.struct_bytes), mb(s.total_bytes())
+            s.patterns,
+            s.tokens(),
+            mb(s.token_bytes),
+            mb(s.struct_bytes),
+            mb(s.total_bytes())
         );
         eprintln!("[mem] prefilter: {}", engine.prefilter_mem_report());
 
@@ -68,26 +75,38 @@ fn run() -> Result<bool, Box<dyn std::error::Error>> {
         // inside the signature struct, counted under ext_sig_structs). Logical names
         // are still per-name Box<str> (16-byte fat pointer + exact len on the heap).
         let ext_name_bytes: usize = engine.database.name_arena.len();
-        let log_name_bytes: usize = engine.database.logical.iter()
-            .map(|sig| sig.name.len() + 16).sum();
-        let log_subsig_count: usize = engine.database.logical.iter()
-            .map(|sig| sig.subsignatures.len()).sum();
-        
+        let log_name_bytes: usize = engine
+            .database
+            .logical
+            .iter()
+            .map(|sig| sig.name.len() + 16)
+            .sum();
+        let log_subsig_count: usize = engine
+            .database
+            .logical
+            .iter()
+            .map(|sig| sig.subsignatures.len())
+            .sum();
+
         let mut log_subsig_bytes = engine.database.logical.len() * 24;
         for sig in &engine.database.logical {
-            log_subsig_bytes += sig.subsignatures.len() * std::mem::size_of::<hydradragonclamav::logical::Subsignature>();
+            log_subsig_bytes += sig.subsignatures.len()
+                * std::mem::size_of::<hydradragonclamav::logical::Subsignature>();
             for sub in &sig.subsignatures {
                 match sub {
                     hydradragonclamav::logical::Subsignature::Body { offset, .. } => {
                         if offset.is_some() {
-                            log_subsig_bytes += std::mem::size_of::<hydradragonclamav::database::OffsetSpec>();
+                            log_subsig_bytes +=
+                                std::mem::size_of::<hydradragonclamav::database::OffsetSpec>();
                         }
                     }
                     hydradragonclamav::logical::Subsignature::Pcre(_) => {
-                        log_subsig_bytes += std::mem::size_of::<hydradragonclamav::logical::PcreSubsig>();
+                        log_subsig_bytes +=
+                            std::mem::size_of::<hydradragonclamav::logical::PcreSubsig>();
                     }
                     hydradragonclamav::logical::Subsignature::ByteCompare(_) => {
-                        log_subsig_bytes += std::mem::size_of::<hydradragonclamav::logical::ByteCompareSpec>();
+                        log_subsig_bytes +=
+                            std::mem::size_of::<hydradragonclamav::logical::ByteCompareSpec>();
                     }
                     hydradragonclamav::logical::Subsignature::Unsupported(s) => {
                         log_subsig_bytes += s.len();
@@ -98,20 +117,27 @@ fn run() -> Result<bool, Box<dyn std::error::Error>> {
             }
         }
 
-        let ext_box_bytes: usize =
-            engine.database.extended.len() * std::mem::size_of::<hydradragonclamav::database::ExtendedSignature>();
+        let ext_box_bytes: usize = engine.database.extended.len()
+            * std::mem::size_of::<hydradragonclamav::database::ExtendedSignature>();
         eprintln!(
             "[mem] names: ext={:.1}MB log={:.1}MB | ext_sig_structs={:.1}MB | log_subsigs={:.1}MB (count={})",
-            mb(ext_name_bytes), mb(log_name_bytes), mb(ext_box_bytes), mb(log_subsig_bytes), log_subsig_count
+            mb(ext_name_bytes),
+            mb(log_name_bytes),
+            mb(ext_box_bytes),
+            mb(log_subsig_bytes),
+            log_subsig_count
         );
 
         if std::env::var_os("HDC_HOLD").is_some() {
             eprintln!("[mem] holding engine alive for 8s (steady-state sampling)…");
             std::thread::sleep(std::time::Duration::from_secs(8));
-            eprintln!("[mem] held; extended={} logical={}", engine.database.extended.len(), engine.database.logical.len());
+            eprintln!(
+                "[mem] held; extended={} logical={}",
+                engine.database.extended.len(),
+                engine.database.logical.len()
+            );
         }
     }
-
 
     if cli.show_unsupported {
         for item in &engine.database.unsupported {
@@ -231,7 +257,10 @@ fn run() -> Result<bool, Box<dyn std::error::Error>> {
         return Err(Box::new(e));
     }
     if std::env::var_os("HDC_MEM_STATS").is_some() {
-        eprintln!("[mem] AFTER SCAN: {:.1} MB (peak printed below)", process_working_set_mb());
+        eprintln!(
+            "[mem] AFTER SCAN: {:.1} MB (peak printed below)",
+            process_working_set_mb()
+        );
     }
     Ok(any_found)
 }
@@ -425,7 +454,11 @@ fn print_report(report: &LoadReport) {
         ".crb records loaded; .cat (binary) follow-up",
     );
     print_bucket("openioc (ioc)", report.ioc_files, "deferred");
-    print_bucket("config (cfg)", report.config_files, "not a detection database");
+    print_bucket(
+        "config (cfg)",
+        report.config_files,
+        "not a detection database",
+    );
     print_bucket(
         "metadata/passwords",
         report.metadata_files,

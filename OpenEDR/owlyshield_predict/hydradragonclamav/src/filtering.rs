@@ -102,11 +102,7 @@ impl Filter {
         // `if (len > 4) { maxlen = len - 4; if (maxlen == 1) maxlen = 2; } else maxlen = 2;`
         let maxlen = if len > 4 {
             let m = len - 4;
-            if m == 1 {
-                2
-            } else {
-                m
-            }
+            if m == 1 { 2 } else { m }
         } else {
             2
         };

@@ -19,7 +19,7 @@
 //! Only an exact (hamming distance 0) match is supported — same limitation as
 //! ClamAV's current `fuzzy_hash_check`.
 
-use image::{imageops::FilterType::Lanczos3, DynamicImage, GrayImage, Luma};
+use image::{DynamicImage, GrayImage, Luma, imageops::FilterType::Lanczos3};
 use rustdct::DctPlanner;
 
 /// ITU-R 601-2 luma coefficients (Pillow's "L" conversion), matching ClamAV.
@@ -28,9 +28,8 @@ const SRGB_LUMA: [f32; 3] = [299.0 / 1000.0, 587.0 / 1000.0, 114.0 / 1000.0];
 
 #[inline]
 fn rgb_to_luma(rgb: &[u8]) -> u8 {
-    let l = SRGB_LUMA[0] * rgb[0] as f32
-        + SRGB_LUMA[1] * rgb[1] as f32
-        + SRGB_LUMA[2] * rgb[2] as f32;
+    let l =
+        SRGB_LUMA[0] * rgb[0] as f32 + SRGB_LUMA[1] * rgb[1] as f32 + SRGB_LUMA[2] * rgb[2] as f32;
     l.round() as u8
 }
 
@@ -66,7 +65,7 @@ fn plausible_image_magic(buffer: &[u8]) -> bool {
         || m.starts_with(b"\x00\x00\x00\x0c")  // ICO
         || m.starts_with(b"P")
         || m.starts_with(b"ftyp")
-        || m.starts_with(b"\x00\x00\x00\x1c")  // AVIF-ish
+        || m.starts_with(b"\x00\x00\x00\x1c") // AVIF-ish
 }
 
 /// Compute the 64-bit image fuzzy hash of `buffer`, or `None` if it is not a
@@ -166,7 +165,9 @@ pub fn parse_fuzzy_img(raw: &str) -> Result<[u8; 8], String> {
     if algorithm != "fuzzy_img" {
         return Err(format!("unknown fuzzy hash algorithm: {algorithm}"));
     }
-    let hash = parts.next().ok_or_else(|| "missing fuzzy hash".to_string())?;
+    let hash = parts
+        .next()
+        .ok_or_else(|| "missing fuzzy hash".to_string())?;
     let distance: u32 = match parts.next() {
         Some(d) => d
             .parse()

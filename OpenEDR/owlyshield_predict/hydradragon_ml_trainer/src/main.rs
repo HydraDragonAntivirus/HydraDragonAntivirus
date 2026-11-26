@@ -169,11 +169,12 @@ fn collect_pe_samples(dir: &Path, label: usize, samples: &mut Vec<Sample>) {
                 }
             };
 
-            let features: PeFeatureVector = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                ml::pe_features::extract_pe_features(&bytes)
-            }))
-            .ok()
-            .flatten()?;
+            let features: PeFeatureVector =
+                std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    ml::pe_features::extract_pe_features(&bytes)
+                }))
+                .ok()
+                .flatten()?;
 
             Some(Sample {
                 features: features.to_array().to_vec(),
@@ -217,11 +218,12 @@ fn collect_js_samples(dir: &Path, label: usize, samples: &mut Vec<Sample>) {
                 }
             };
 
-            let features: JsFeatureVector = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                ml::js_features::extract_js_features(&source)
-            }))
-            .ok()
-            .flatten()?;
+            let features: JsFeatureVector =
+                std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    ml::js_features::extract_js_features(&source)
+                }))
+                .ok()
+                .flatten()?;
 
             Some(Sample {
                 features: features.to_array().to_vec(),
@@ -362,9 +364,7 @@ fn train_model<B: AutodiffBackend>(
         val_samples.len()
     );
 
-    eprintln!(
-        "balanced batches enabled: 50% malicious / 50% benign per batch step"
-    );
+    eprintln!("balanced batches enabled: 50% malicious / 50% benign per batch step");
 
     let loss_fn = CrossEntropyLoss::new(None, &device);
     let mut model = MalwareNet::<B>::new(&config, &device);
@@ -433,8 +433,8 @@ fn train_model<B: AutodiffBackend>(
 
                 let input = Tensor::<B, 1>::from_floats(features.as_slice(), &device)
                     .reshape([batch_len, config.input_dim]);
-                let targets = Tensor::<B, 1, Int>::from_ints(labels.as_slice(), &device)
-                    .reshape([batch_len]);
+                let targets =
+                    Tensor::<B, 1, Int>::from_ints(labels.as_slice(), &device).reshape([batch_len]);
 
                 let output = model.forward(input);
                 let loss = loss_fn.forward(output.clone(), targets);

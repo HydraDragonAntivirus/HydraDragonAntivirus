@@ -1,5 +1,5 @@
 use crate::database::{OffsetAnchor, OffsetSpec, SourceLocation};
-use crate::pattern::{compile_pattern_variants, Modifiers, Pattern};
+use crate::pattern::{Modifiers, Pattern, compile_pattern_variants};
 use regex::bytes::{Regex, RegexBuilder};
 use std::sync::{Arc, OnceLock};
 
@@ -274,11 +274,7 @@ fn ldb_tokenize(line: &str, delim: u8, token_skip: usize) -> Vec<&str> {
             let c = bytes[i];
             if !within_pcre && c == delim {
                 break;
-            } else if tokens_found > token_skip
-                && i > 0
-                && bytes[i - 1] != b'\\'
-                && c == b'/'
-            {
+            } else if tokens_found > token_skip && i > 0 && bytes[i - 1] != b'\\' && c == b'/' {
                 within_pcre = !within_pcre;
             }
             i += 1;
@@ -318,12 +314,20 @@ pub fn parse_logical_signature(
     // Engine functionality-level gating (readdb.c init_tdb): a signature whose
     // required engine f-level excludes ours can't be evaluated correctly, so skip
     // it (same detection effect as ClamAV not loading it).
-    let engine_out_of_range = tdb
-        .engine
-        .map_or(false, |(min, max)| {
-            crate::bytecode_vm::ENGINE_FLEVEL < min || crate::bytecode_vm::ENGINE_FLEVEL > max
-        });
-    let (file_size, container, nos, ep, icongrp1, icongrp2, handlertype, intermediates, tdb_unsupported) = (
+    let engine_out_of_range = tdb.engine.map_or(false, |(min, max)| {
+        crate::bytecode_vm::ENGINE_FLEVEL < min || crate::bytecode_vm::ENGINE_FLEVEL > max
+    });
+    let (
+        file_size,
+        container,
+        nos,
+        ep,
+        icongrp1,
+        icongrp2,
+        handlertype,
+        intermediates,
+        tdb_unsupported,
+    ) = (
         tdb.file_size,
         tdb.container,
         tdb.nos,
@@ -465,7 +469,11 @@ fn parse_num_range(raw: &str) -> Option<(u64, u64)> {
     }
     if let Some((lo, hi)) = raw.split_once('-') {
         let lo = if lo.is_empty() { 0 } else { lo.parse().ok()? };
-        let hi = if hi.is_empty() { u64::MAX } else { hi.parse().ok()? };
+        let hi = if hi.is_empty() {
+            u64::MAX
+        } else {
+            hi.parse().ok()?
+        };
         if hi < lo {
             return None;
         }
@@ -732,10 +740,7 @@ fn parse_subsignature(raw: &str) -> (Subsignature, Option<String>) {
     }
     if looks_like_byte_compare(raw) {
         return match parse_byte_compare(raw) {
-            Ok(spec) => (
-                Subsignature::ByteCompare(Box::new(spec)),
-                None,
-            ),
+            Ok(spec) => (Subsignature::ByteCompare(Box::new(spec)), None),
             Err(err) => unsupported(raw, &err),
         };
     }
@@ -794,7 +799,10 @@ fn parse_subsignature(raw: &str) -> (Subsignature, Option<String>) {
 
     match compile_pattern_variants(body, modifiers) {
         Ok(patterns) => (
-            Subsignature::Body { offset: offset_opt, patterns: patterns.into() },
+            Subsignature::Body {
+                offset: offset_opt,
+                patterns: patterns.into(),
+            },
             warning,
         ),
         Err(err) => unsupported(raw, &format!("invalid body pattern: {err}")),
@@ -822,9 +830,12 @@ fn looks_like_pcre(raw: &str) -> bool {
     // The trigger prefix must contain only logical-expression characters.
     // Hex body patterns contain [0-9a-fA-F] runs and '?' wildcards that are
     // never valid in a trigger expression, so this rejects them cheaply.
-    raw[..first_slash]
-        .bytes()
-        .all(|b| matches!(b, b'0'..=b'9' | b'(' | b')' | b'&' | b'|' | b'>' | b'<' | b'=' | b' ' | b'\t'))
+    raw[..first_slash].bytes().all(|b| {
+        matches!(
+            b,
+            b'0'..=b'9' | b'(' | b')' | b'&' | b'|' | b'>' | b'<' | b'=' | b' ' | b'\t'
+        )
+    })
 }
 
 fn parse_pcre(raw: &str) -> Result<(LogicalExpr, LazyRegex, bool), String> {
@@ -928,7 +939,8 @@ fn parse_byte_compare(raw: &str) -> Result<ByteCompareSpec, String> {
         return Err("byte-compare offset must start with '>>' or '<<'".to_string());
     };
     let offset_value = parse_int_token(offset_rest)
-        .ok_or_else(|| "byte-compare offset is not a number".to_string())? as usize;
+        .ok_or_else(|| "byte-compare offset is not a number".to_string())?
+        as usize;
 
     let (read_type, exact, num_bytes) = parse_byte_options(parts[1])?;
 
@@ -1497,7 +1509,10 @@ mod tests {
         assert!(warning.is_none());
         match sub {
             Subsignature::Pcre(pcre) => {
-                assert!(pcre.regex.get().is_none(), "invalid regex must fail to compile");
+                assert!(
+                    pcre.regex.get().is_none(),
+                    "invalid regex must fail to compile"
+                );
                 assert!(!pcre.regex.is_match(b"aa"));
             }
             other => panic!("expected PCRE subsig, got {other:?}"),
@@ -1510,6 +1525,9 @@ mod tests {
         println!("OffsetSpec: {}", std::mem::size_of::<OffsetSpec>());
         println!("OffsetAnchor: {}", std::mem::size_of::<OffsetAnchor>());
         println!("PcreSubsig: {}", std::mem::size_of::<PcreSubsig>());
-        println!("ByteCompareSpec: {}", std::mem::size_of::<ByteCompareSpec>());
+        println!(
+            "ByteCompareSpec: {}",
+            std::mem::size_of::<ByteCompareSpec>()
+        );
     }
 }

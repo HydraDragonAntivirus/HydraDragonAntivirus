@@ -16,23 +16,23 @@ use std::io::Write;
 use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 
 #[cfg(target_os = "windows")]
-use windows::core::PCWSTR;
-#[cfg(target_os = "windows")]
 use windows::Win32::Networking::WinHttp::{
-    WinHttpCloseHandle, WinHttpConnect, WinHttpOpen, WinHttpOpenRequest, WinHttpQueryHeaders,
-    WinHttpReadData, WinHttpReceiveResponse, WinHttpSendRequest, WinHttpSetTimeouts,
-    INTERNET_DEFAULT_HTTPS_PORT, INTERNET_DEFAULT_HTTP_PORT, WINHTTP_ACCESS_TYPE_DEFAULT_PROXY,
+    INTERNET_DEFAULT_HTTP_PORT, INTERNET_DEFAULT_HTTPS_PORT, WINHTTP_ACCESS_TYPE_DEFAULT_PROXY,
     WINHTTP_FLAG_SECURE, WINHTTP_OPEN_REQUEST_FLAGS, WINHTTP_QUERY_FLAG_NUMBER,
-    WINHTTP_QUERY_STATUS_CODE,
+    WINHTTP_QUERY_STATUS_CODE, WinHttpCloseHandle, WinHttpConnect, WinHttpOpen, WinHttpOpenRequest,
+    WinHttpQueryHeaders, WinHttpReadData, WinHttpReceiveResponse, WinHttpSendRequest,
+    WinHttpSetTimeouts,
 };
+#[cfg(target_os = "windows")]
+use windows::core::PCWSTR;
 
 pub const MAX_SAMPLE_BYTES: usize = 100 * 1024 * 1024; // 100 MB limit
 
 /// Read Windows MachineGuid from HKLM\SOFTWARE\Microsoft\Cryptography as default endpoint identifier (Zero API Key requirement).
 #[cfg(target_os = "windows")]
 pub fn get_machine_guid() -> String {
-    use winreg::enums::HKEY_LOCAL_MACHINE;
     use winreg::RegKey;
+    use winreg::enums::HKEY_LOCAL_MACHINE;
     let hklm = RegKey::predef(HKEY_LOCAL_MACHINE);
     if let Ok(crypto) = hklm.open_subkey("SOFTWARE\\Microsoft\\Cryptography") {
         if let Ok(guid) = crypto.get_value::<String, _>("MachineGuid") {
@@ -100,12 +100,18 @@ fn log_telemetry_outcome(kind: &str, last: &AtomicU32, res: &Result<(u32, Vec<u8
         return;
     }
     match res {
-        Ok((200, _)) => Logging::info(&format!("[EDR Feedback] {kind} telemetry delivered again (HTTP 200)")),
+        Ok((200, _)) => Logging::info(&format!(
+            "[EDR Feedback] {kind} telemetry delivered again (HTTP 200)"
+        )),
         Ok((st, body)) => {
             let text = String::from_utf8_lossy(&body[..body.len().min(256)]);
-            Logging::warning(&format!("[EDR Feedback] {kind} telemetry endpoint returned HTTP {st}: {text}"));
+            Logging::warning(&format!(
+                "[EDR Feedback] {kind} telemetry endpoint returned HTTP {st}: {text}"
+            ));
         }
-        Err(e) => Logging::warning(&format!("[EDR Feedback] Failed to stream {kind} telemetry: {e}")),
+        Err(e) => Logging::warning(&format!(
+            "[EDR Feedback] Failed to stream {kind} telemetry: {e}"
+        )),
     }
 }
 
@@ -158,7 +164,11 @@ pub fn is_loopback_flow_of_image_under(
 /// bulk of the flow telemetry, so it is left out. Everything else stays: loopback
 /// traffic of any other process (local proxies, tunnels) and the product's own
 /// connections to remote addresses.
-pub fn is_own_loopback_flow(src_ip: &std::net::IpAddr, dst_ip: &std::net::IpAddr, image_path: &str) -> bool {
+pub fn is_own_loopback_flow(
+    src_ip: &std::net::IpAddr,
+    dst_ip: &std::net::IpAddr,
+    image_path: &str,
+) -> bool {
     let Some(root) = own_install_root() else {
         return false;
     };
@@ -188,7 +198,8 @@ pub fn stream_network_flows_async(flows: Vec<NetworkFlowRecord>) {
         .name("edr-network-telemetry".into())
         .spawn(move || {
             let target = resolve_server_target();
-            let telemetry_path = format!("{}/api/v1/edr/telemetry/network-flows", target.path_prefix);
+            let telemetry_path =
+                format!("{}/api/v1/edr/telemetry/network-flows", target.path_prefix);
             let machine_id = get_machine_guid();
             let batch = NetworkFlowBatch {
                 machine_id: machine_id.clone(),
@@ -220,7 +231,6 @@ pub fn stream_network_flows_async(flows: Vec<NetworkFlowRecord>) {
             log_telemetry_outcome("network flow", &LAST_FLOWS_STATUS, &res);
         });
 }
-
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OpsSummary {
@@ -354,7 +364,10 @@ pub fn send_hips_ask(
 /// Send threat alert notification to Pascal GUI.
 pub fn send_threat_alert(threat_name: &str, file_path: &str, reboot_required: bool) -> bool {
     let reboot_flag = if reboot_required { "1" } else { "0" };
-    let msg = format!("THREAT_ALERT:{}|{}|{}\n", threat_name, file_path, reboot_flag);
+    let msg = format!(
+        "THREAT_ALERT:{}|{}|{}\n",
+        threat_name, file_path, reboot_flag
+    );
     send_hips_pipe_raw(&msg)
 }
 
@@ -497,7 +510,10 @@ fn winhttp_post_timeout(
         }
 
         let verb: Vec<u16> = "POST\0".encode_utf16().collect();
-        let wide_path: Vec<u16> = path_and_query.encode_utf16().chain(std::iter::once(0)).collect();
+        let wide_path: Vec<u16> = path_and_query
+            .encode_utf16()
+            .chain(std::iter::once(0))
+            .collect();
         let open_flags = if is_https {
             WINHTTP_FLAG_SECURE
         } else {
@@ -625,7 +641,12 @@ fn winhttp_post_timeout(
 /// POSTs `body` to `path` (under the configured server's prefix) with the endpoint's
 /// identity headers (and the API key when one is set); blocking, for a caller that is
 /// already on its own thread. Returns (HTTP status, response body).
-pub(crate) fn post_to_server(path: &str, content_type: &str, content_encoding: Option<&str>, body: &[u8]) -> Result<(u32, Vec<u8>), String> {
+pub(crate) fn post_to_server(
+    path: &str,
+    content_type: &str,
+    content_encoding: Option<&str>,
+    body: &[u8],
+) -> Result<(u32, Vec<u8>), String> {
     post_to_server_opt(path, content_type, content_encoding, body, None)
 }
 
@@ -664,7 +685,15 @@ fn post_to_server_opt(
     if let Some(ref key) = api_key_opt {
         headers.push(("X-API-Key", key.as_str()));
     }
-    winhttp_post_timeout(&target.host, target.port, target.is_https, &full_path, &headers, body, timeout_ms)
+    winhttp_post_timeout(
+        &target.host,
+        target.port,
+        target.is_https,
+        &full_path,
+        &headers,
+        body,
+        timeout_ms,
+    )
 }
 
 /// Dispatches threat telemetry and sample upload to VirusKov asynchronously.
@@ -816,7 +845,6 @@ pub fn report_threat_async(report: ThreatReport, file_bytes: Option<Vec<u8>>) {
             }
         });
 }
-
 
 /// Stream rich behavioral telemetry to VirusKov cloud and process verdicts to prompt user via Pascal HIPS pipe.
 pub fn stream_behavior_telemetry_async(
@@ -1015,7 +1043,9 @@ fn event_str(event: &serde_json::Value, paths: &[&str]) -> Option<String> {
             v = v.get(key)?;
         }
         match v {
-            serde_json::Value::String(s) if !s.is_empty() && s != "<undefined>" && s != "null" => Some(s.clone()),
+            serde_json::Value::String(s) if !s.is_empty() && s != "<undefined>" && s != "null" => {
+                Some(s.clone())
+            }
             serde_json::Value::Number(n) => Some(n.to_string()),
             _ => None,
         }
@@ -1025,12 +1055,14 @@ fn event_str(event: &serde_json::Value, paths: &[&str]) -> Option<String> {
 /// OpenEDR detections waiting for the worker thread. The worker owns the process
 /// records (file operations, written extensions, ML features), so it is the one
 /// that can attach the kill chain of the detected process to the report.
-static PENDING_DETECTIONS: std::sync::Mutex<Vec<serde_json::Value>> = std::sync::Mutex::new(Vec::new());
+static PENDING_DETECTIONS: std::sync::Mutex<Vec<serde_json::Value>> =
+    std::sync::Mutex::new(Vec::new());
 
 /// The worker loop is running and drains `PENDING_DETECTIONS` every few
 /// milliseconds. When it is not, detections are sent at once without a kill chain
 /// so that none is lost.
-static DETECTION_WORKER_ALIVE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+static DETECTION_WORKER_ALIVE: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
 
 /// More detections than this waiting for the worker means it is stuck: send the
 /// new ones directly instead of growing the queue.
@@ -1051,20 +1083,34 @@ pub fn take_pending_detections() -> Vec<serde_json::Value> {
 
 /// PID of the process an OpenEDR detection event is about (0 when it names none).
 pub fn openedr_detection_pid(event: &serde_json::Value) -> u32 {
-    event_str(event, &["process.pid", "process.id", "childProcess.pid", "childProcess.id"])
-        .and_then(|s| s.parse::<u32>().ok())
-        .unwrap_or(0)
+    event_str(
+        event,
+        &[
+            "process.pid",
+            "process.id",
+            "childProcess.pid",
+            "childProcess.id",
+        ],
+    )
+    .and_then(|s| s.parse::<u32>().ok())
+    .unwrap_or(0)
 }
 
 /// Attaches the kill chain of the detected process to its behavior report: the
 /// forensic trace (`details.killchain_trace`), the file-operation counters and the
 /// process group id.
-fn attach_process_killchain(payload: &mut BehaviorTelemetryPayload, proc: &crate::process::ProcessRecord) {
+fn attach_process_killchain(
+    payload: &mut BehaviorTelemetryPayload,
+    proc: &crate::process::ProcessRecord,
+) {
     payload.gid = proc.gid;
     payload.ops_summary = Some(crate::actions_on_kill::process_ops_summary(proc));
     let trace = crate::actions_on_kill::process_killchain_trace(proc);
     if let Some(details) = payload.details.as_object_mut() {
-        details.insert("killchain_trace".to_string(), serde_json::Value::Object(trace));
+        details.insert(
+            "killchain_trace".to_string(),
+            serde_json::Value::Object(trace),
+        );
     }
 }
 
@@ -1101,7 +1147,8 @@ pub fn stream_openedr_detection_async(event: &serde_json::Value) {
 /// The behavior record of an OpenEDR detection event (field paths as the ptm
 /// policies write them: process.pid / process.id, process.imageFile.*, cmdLine).
 fn behavior_from_openedr_detection(event: &serde_json::Value) -> BehaviorTelemetryPayload {
-    let detection = event_str(event, &["type", "eventType", "title"]).unwrap_or_else(|| "OpenEDR.Detection".to_string());
+    let detection = event_str(event, &["type", "eventType", "title"])
+        .unwrap_or_else(|| "OpenEDR.Detection".to_string());
     let pid = openedr_detection_pid(event);
     let exe_path = event_str(
         event,
@@ -1121,11 +1168,19 @@ fn behavior_from_openedr_detection(event: &serde_json::Value) -> BehaviorTelemet
         .map(str::to_string)
         .or_else(|| event_str(event, &["process.name"]))
         .unwrap_or_else(|| "unknown".to_string());
-    let command_line = event_str(event, &["process.cmdLine", "childProcess.cmdLine"]).unwrap_or_default();
-    let sha256 = event_str(event, &["process.imageFile.rawHash", "process.imageFile.hash", "process.imageHash"])
-        .filter(|h| h.len() == 64 && h.chars().all(|c| c.is_ascii_hexdigit()))
-        .map(|h| h.to_ascii_lowercase())
-        .unwrap_or_default();
+    let command_line =
+        event_str(event, &["process.cmdLine", "childProcess.cmdLine"]).unwrap_or_default();
+    let sha256 = event_str(
+        event,
+        &[
+            "process.imageFile.rawHash",
+            "process.imageFile.hash",
+            "process.imageHash",
+        ],
+    )
+    .filter(|h| h.len() == 64 && h.chars().all(|c| c.is_ascii_hexdigit()))
+    .map(|h| h.to_ascii_lowercase())
+    .unwrap_or_default();
 
     let mut indicators = vec![format!("OpenEDR policy: {detection}")];
     if let Some(base) = event_str(event, &["baseType"]) {
@@ -1136,7 +1191,9 @@ fn behavior_from_openedr_detection(event: &serde_json::Value) -> BehaviorTelemet
     }
     let child_cmd = event_str(event, &["childProcess.cmdLine"]);
 
-    let raw_len = serde_json::to_vec(event).map(|b| b.len()).unwrap_or(usize::MAX);
+    let raw_len = serde_json::to_vec(event)
+        .map(|b| b.len())
+        .unwrap_or(usize::MAX);
     let details = if raw_len <= MAX_DETECTION_DETAILS_BYTES {
         serde_json::json!({ "openedr_event": event, "child_cmdline": child_cmd })
     } else {
@@ -1196,7 +1253,10 @@ mod openedr_detection_tests {
         assert_eq!(p.source, "openedr_detnotif");
         assert!(p.risk_score >= 0.75, "server must count it as malicious");
         assert!(p.indicators.iter().any(|i| i == "baseType: 1000016"));
-        assert!(!p.indicators.iter().any(|i| i.starts_with("target:")), "empty target is skipped");
+        assert!(
+            !p.indicators.iter().any(|i| i.starts_with("target:")),
+            "empty target is skipped"
+        );
         assert_eq!(p.details["child_cmdline"], "explorer.exe GodMode");
         assert!(p.details.get("openedr_event").is_some());
     }
@@ -1212,21 +1272,29 @@ mod openedr_detection_tests {
     #[test]
     fn huge_event_is_not_attached() {
         let big = "x".repeat(MAX_DETECTION_DETAILS_BYTES + 1);
-        let p = behavior_from_openedr_detection(&serde_json::json!({ "type": "T", "processes": [big] }));
+        let p = behavior_from_openedr_detection(
+            &serde_json::json!({ "type": "T", "processes": [big] }),
+        );
         assert!(p.details.get("openedr_event").is_none());
         assert!(p.details.get("openedr_event_omitted_bytes").is_some());
     }
 
     #[test]
     fn detection_carries_the_kill_chain_of_its_process_record() {
-        let event = serde_json::json!({ "type": "MLE_RANSOM_BEHAVIOR", "process": { "pid": 4242 } });
+        let event =
+            serde_json::json!({ "type": "MLE_RANSOM_BEHAVIOR", "process": { "pid": 4242 } });
         assert_eq!(openedr_detection_pid(&event), 4242);
         assert_eq!(openedr_detection_pid(&serde_json::json!({})), 0);
 
-        let mut proc = crate::process::ProcessRecord::new(77, "evil.exe".to_string(), std::path::PathBuf::new());
+        let mut proc = crate::process::ProcessRecord::new(
+            77,
+            "evil.exe".to_string(),
+            std::path::PathBuf::new(),
+        );
         proc.pids.insert(4242);
         proc.ops_written = 9;
-        proc.fpaths_created.insert(r"C:\Users\x\doc.txt.locked".to_string());
+        proc.fpaths_created
+            .insert(r"C:\Users\x\doc.txt.locked".to_string());
         proc.driver_msg_count = 12;
 
         let mut p = behavior_from_openedr_detection(&event);
@@ -1252,17 +1320,16 @@ mod openedr_detection_tests {
         let pending = take_pending_detections();
         assert_eq!(pending.len(), 1);
         assert_eq!(pending[0]["type"], "QUEUED_ONE");
-        assert!(take_pending_detections().is_empty(), "the queue is drained by a take");
+        assert!(
+            take_pending_detections().is_empty(),
+            "the queue is drained by a take"
+        );
         set_detection_worker_alive(false);
     }
 }
 
 /// Stream Sigma/Hayabusa event log threat detection to VirusKov cloud.
-pub fn stream_sigma_detection_async(
-    rule_title: &str,
-    level: &str,
-    details: serde_json::Value,
-) {
+pub fn stream_sigma_detection_async(rule_title: &str, level: &str, details: serde_json::Value) {
     let machine_id = get_machine_guid();
     let now_ts = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -1331,7 +1398,8 @@ pub fn capture_process_thread_stacks(pid: u32) -> Option<String> {
             if !h_mod.is_invalid() {
                 let sym = std::ffi::CString::new("OwlyCaptureThreadStacks").ok();
                 if let Some(s) = sym {
-                    let proc_addr = GetProcAddress(h_mod, windows::core::PCSTR(s.as_ptr() as *const u8));
+                    let proc_addr =
+                        GetProcAddress(h_mod, windows::core::PCSTR(s.as_ptr() as *const u8));
                     if let Some(f) = proc_addr {
                         let func: extern "C" fn(u32, *mut u8, u32) -> u32 = std::mem::transmute(f);
                         let mut buf = vec![0u8; 8192];
@@ -1353,13 +1421,13 @@ pub fn capture_process_thread_stacks(pid: u32) -> Option<String> {
     // 2. Native ToolHelp thread capture fallback
     unsafe {
         use windows::Win32::Foundation::CloseHandle;
-        use windows::Win32::System::Diagnostics::ToolHelp::{
-            CreateToolhelp32Snapshot, Thread32First, Thread32Next, TH32CS_SNAPTHREAD, THREADENTRY32,
-        };
         use windows::Win32::System::Diagnostics::Debug::GetThreadContext;
+        use windows::Win32::System::Diagnostics::ToolHelp::{
+            CreateToolhelp32Snapshot, TH32CS_SNAPTHREAD, THREADENTRY32, Thread32First, Thread32Next,
+        };
         use windows::Win32::System::Threading::{
-            GetCurrentProcessId, GetCurrentThreadId, OpenThread, ResumeThread,
-            SuspendThread, THREAD_GET_CONTEXT, THREAD_SUSPEND_RESUME,
+            GetCurrentProcessId, GetCurrentThreadId, OpenThread, ResumeThread, SuspendThread,
+            THREAD_GET_CONTEXT, THREAD_SUSPEND_RESUME,
         };
 
         let self_pid = GetCurrentProcessId();
@@ -1400,7 +1468,8 @@ pub fn capture_process_thread_stacks(pid: u32) -> Option<String> {
 
         let mut out = String::with_capacity(1024);
         for tid in tids {
-            if let Ok(h_thread) = OpenThread(THREAD_SUSPEND_RESUME | THREAD_GET_CONTEXT, false, tid) {
+            if let Ok(h_thread) = OpenThread(THREAD_SUSPEND_RESUME | THREAD_GET_CONTEXT, false, tid)
+            {
                 if !h_thread.is_invalid() {
                     let prev_suspend = SuspendThread(h_thread);
                     if prev_suspend != u32::MAX {
@@ -1413,7 +1482,10 @@ pub fn capture_process_thread_stacks(pid: u32) -> Option<String> {
                                 if !out.is_empty() {
                                     out.push(';');
                                 }
-                                out.push_str(&format!("tid={}:rip=0x{:x},rsp=0x{:x}", tid, ctx.Rip, ctx.Rsp));
+                                out.push_str(&format!(
+                                    "tid={}:rip=0x{:x},rsp=0x{:x}",
+                                    tid, ctx.Rip, ctx.Rsp
+                                ));
                             }
                         }
                         #[cfg(not(target_arch = "x86_64"))]
@@ -1430,11 +1502,7 @@ pub fn capture_process_thread_stacks(pid: u32) -> Option<String> {
             }
         }
 
-        if out.is_empty() {
-            None
-        } else {
-            Some(out)
-        }
+        if out.is_empty() { None } else { Some(out) }
     }
 }
 
@@ -1532,14 +1600,14 @@ mod urlencoding {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn test_brotli_compression() {
-        let original = b"VirusKov OpenEDR Threat Feedback Test Sample Payload 1234567890".repeat(20);
+        let original =
+            b"VirusKov OpenEDR Threat Feedback Test Sample Payload 1234567890".repeat(20);
         let compressed = compress_brotli(&original).expect("compression should succeed");
         assert!(!compressed.is_empty());
         assert!(compressed.len() < original.len());
@@ -1566,7 +1634,8 @@ mod tests {
         assert!(json.contains("ransom.exe"));
         assert!(json.contains("Ransom.Behavioral.OpenEDR"));
 
-        let deserialized: ThreatReport = serde_json::from_str(&json).expect("deserialization should succeed");
+        let deserialized: ThreatReport =
+            serde_json::from_str(&json).expect("deserialization should succeed");
         assert_eq!(deserialized.sha256, report.sha256);
         assert_eq!(deserialized.pid, Some(1234));
     }
@@ -1575,7 +1644,10 @@ mod tests {
     fn test_url_encoding() {
         assert_eq!(urlencoding::encode("test file.exe"), "test%20file.exe");
         assert_eq!(urlencoding::encode("abc-123_xyz.bin"), "abc-123_xyz.bin");
-        assert_eq!(urlencoding::encode("Trojan:Win32/Wacatac.B!ml"), "Trojan%3AWin32%2FWacatac.B%21ml");
+        assert_eq!(
+            urlencoding::encode("Trojan:Win32/Wacatac.B!ml"),
+            "Trojan%3AWin32%2FWacatac.B%21ml"
+        );
     }
 
     #[test]
@@ -1600,13 +1672,33 @@ mod tests {
         assert!(!is_loopback_flow_of_image_under(&lan, &lo4, svc, root));
 
         // Another process on loopback, even one that borrows the name: kept.
-        assert!(!is_loopback_flow_of_image_under(&lo4, &lo4, r"C:\Users\x\AppData\Local\Temp\edrsvc.exe", root));
-        assert!(!is_loopback_flow_of_image_under(&lo4, &lo4, r"C:\Program Files\HydraDragonAntivirus\OpenEDR-evil\edrsvc.exe", root));
-        assert!(!is_loopback_flow_of_image_under(&lo4, &lo4, r"C:\Windows\System32\svchost.exe", root));
+        assert!(!is_loopback_flow_of_image_under(
+            &lo4,
+            &lo4,
+            r"C:\Users\x\AppData\Local\Temp\edrsvc.exe",
+            root
+        ));
+        assert!(!is_loopback_flow_of_image_under(
+            &lo4,
+            &lo4,
+            r"C:\Program Files\HydraDragonAntivirus\OpenEDR-evil\edrsvc.exe",
+            root
+        ));
+        assert!(!is_loopback_flow_of_image_under(
+            &lo4,
+            &lo4,
+            r"C:\Windows\System32\svchost.exe",
+            root
+        ));
 
         // Unknown image or root: kept.
         assert!(!is_loopback_flow_of_image_under(&lo4, &lo4, "", root));
-        assert!(!is_loopback_flow_of_image_under(&lo4, &lo4, svc, std::path::Path::new("")));
+        assert!(!is_loopback_flow_of_image_under(
+            &lo4,
+            &lo4,
+            svc,
+            std::path::Path::new("")
+        ));
     }
 
     #[test]

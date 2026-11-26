@@ -79,7 +79,8 @@ pub fn parse_pe(data: &[u8]) -> Option<PeInfo> {
     } else {
         0
     };
-    let vinfo = crate::version_info::version_info_offsets(data, res_rva, &sections, size_of_headers);
+    let vinfo =
+        crate::version_info::version_info_offsets(data, res_rva, &sections, size_of_headers);
 
     Some(PeInfo {
         entry_point_offset,

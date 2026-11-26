@@ -124,8 +124,8 @@ fn u16_normalize(u: u16, out: &mut Vec<u8>) {
 }
 
 const TABLE_ORDER: [u8; 64] = [
-    0, 2, 1, 0, 2, 1, 2, 1, 1, 2, 1, 2, 0, 1, 2, 1, 0, 1, 2, 1, 0, 0, 2, 1, 1, 2, 0, 1, 2, 1, 1, 2, 0, 0, 1, 2, 1, 2,
-    1, 0, 1, 0, 0, 2, 1, 0, 1, 2, 0, 1, 2, 1, 0, 0, 2, 1, 1, 0, 0, 2, 1, 0, 1, 2,
+    0, 2, 1, 0, 2, 1, 2, 1, 1, 2, 1, 2, 0, 1, 2, 1, 0, 1, 2, 1, 0, 0, 2, 1, 1, 2, 0, 1, 2, 1, 1, 2,
+    0, 0, 1, 2, 1, 2, 1, 0, 1, 0, 0, 2, 1, 0, 1, 2, 0, 1, 2, 1, 0, 0, 2, 1, 1, 0, 0, 2, 1, 0, 1, 2,
 ];
 
 #[rustfmt::skip]
@@ -269,12 +269,17 @@ pub fn html(data: &[u8]) -> HtmlViews {
     let (mut mbchar, mut mbchar2): (u32, u32) = (0, 0);
     let (mut look_for_screnc, mut in_screnc) = (false, false);
     let mut ptr_screnc: Option<usize> = None;
-    let mut screnc = Screnc { length: 0, table_pos: 0 };
+    let mut screnc = Screnc {
+        length: 0,
+        table_pos: 0,
+    };
     let mut js: Option<(JsNormalizer, usize)> = None; // normalizer, script start
     let mut data_uri: Option<(Vec<u8>, Vec<u8>)> = None; // media type, data
 
     let arg_value = |args: &[(Vec<u8>, Option<Vec<u8>>)], name: &[u8]| -> Option<Vec<u8>> {
-        args.iter().find(|(t, _)| t == name).and_then(|(_, v)| v.clone())
+        args.iter()
+            .find(|(t, _)| t == name)
+            .and_then(|(_, v)| v.clone())
     };
     let arg_add = |args: &mut Vec<(Vec<u8>, Option<Vec<u8>>)>, name: &[u8], val: Option<&[u8]>| {
         let val = val.map(|v| match v.strip_prefix(b"\"") {
@@ -331,7 +336,11 @@ pub fn html(data: &[u8]) -> HtmlViews {
             }
             St::Bit8 => {
                 if c < 0x80 || mbchar >= 0x10000 {
-                    if mbchar == 0xE38082 || mbchar == 0xEFBC8E || mbchar == 0xEFB992 || (mbchar == 0xA1 && matches!(c, 0x43 | 0x44 | 0x4F)) {
+                    if mbchar == 0xE38082
+                        || mbchar == 0xEFBC8E
+                        || mbchar == 0xEFB992
+                        || (mbchar == 0xA1 && matches!(c, 0x43 | 0x44 | 0x4F))
+                    {
                         o2.push(b'.');
                         text.push(b'.');
                         if mbchar == 0xA1 {
@@ -340,7 +349,8 @@ pub fn html(data: &[u8]) -> HtmlViews {
                             continue;
                         }
                     } else {
-                        let (c0, c1, c2) = ((mbchar >> 16) as u8, (mbchar >> 8) as u8, mbchar as u8);
+                        let (c0, c1, c2) =
+                            ((mbchar >> 16) as u8, (mbchar >> 8) as u8, mbchar as u8);
                         if c0 != 0 {
                             o2.push(c0);
                             text.push(c0);
@@ -437,7 +447,11 @@ pub fn html(data: &[u8]) -> HtmlViews {
                 } else {
                     state = St::SkipWs;
                     tag_arg.clear();
-                    next_state = if in_tag == InTag::None { St::TagArg } else { St::ProcessTag };
+                    next_state = if in_tag == InTag::None {
+                        St::TagArg
+                    } else {
+                        St::ProcessTag
+                    };
                 }
             }
             St::TagArg => {
@@ -503,7 +517,11 @@ pub fn html(data: &[u8]) -> HtmlViews {
                     next_state = St::TagArgVal;
                     i += 1;
                 } else if c == b'\'' || c == b'"' {
-                    let q = if c == b'\'' { Quoted::Single } else { Quoted::Double };
+                    let q = if c == b'\'' {
+                        Quoted::Single
+                    } else {
+                        Quoted::Double
+                    };
                     if tag_val.is_empty() {
                         quoted = q;
                         o2.push(b'"');
@@ -539,7 +557,11 @@ pub fn html(data: &[u8]) -> HtmlViews {
                     }
                 } else {
                     if mbchar2 != 0 && (c < 0x80 || mbchar2 >= 0x10000) {
-                        if mbchar2 == 0xE38082 || mbchar2 == 0xEFBC8E || mbchar2 == 0xEFB992 || (mbchar2 == 0xA1 && matches!(c, 0x43 | 0x44 | 0x4F)) {
+                        if mbchar2 == 0xE38082
+                            || mbchar2 == 0xEFBC8E
+                            || mbchar2 == 0xEFB992
+                            || (mbchar2 == 0xA1 && matches!(c, 0x43 | 0x44 | 0x4F))
+                        {
                             o2.push(b'.');
                             push_limited(&mut tag_val, b'.');
                             if mbchar2 == 0xA1 {
@@ -548,7 +570,8 @@ pub fn html(data: &[u8]) -> HtmlViews {
                                 continue;
                             }
                         } else {
-                            let (c0, c1, c2) = ((mbchar2 >> 16) as u8, (mbchar2 >> 8) as u8, mbchar2 as u8);
+                            let (c0, c1, c2) =
+                                ((mbchar2 >> 16) as u8, (mbchar2 >> 8) as u8, mbchar2 as u8);
                             if c0 != 0 {
                                 o2.push(c0);
                             }
@@ -638,7 +661,10 @@ pub fn html(data: &[u8]) -> HtmlViews {
                     in_tag = InTag::Style;
                 } else if tag == b"%@" {
                     let lang = arg_value(&tag_args, b"language").map(|l| l.to_ascii_lowercase());
-                    if matches!(lang.as_deref(), Some(b"jscript.encode") | Some(b"vbscript.encode")) {
+                    if matches!(
+                        lang.as_deref(),
+                        Some(b"jscript.encode") | Some(b"vbscript.encode")
+                    ) {
                         saved_next_state = next_state;
                         next_state = state;
                         look_for_screnc = false;
@@ -700,7 +726,9 @@ pub fn html(data: &[u8]) -> HtmlViews {
                     state = next_state;
                     next_state = St::Bad;
                     i += 1;
-                } else if (c.is_ascii_alphanumeric() || matches!(c, b'_' | b':' | b'-')) && entity.len() < STR_LEN {
+                } else if (c.is_ascii_alphanumeric() || matches!(c, b'_' | b':' | b'-'))
+                    && entity.len() < STR_LEN
+                {
                     entity.push(c);
                     i += 1;
                 } else {
@@ -748,7 +776,11 @@ pub fn html(data: &[u8]) -> HtmlViews {
                         i += 1;
                         continue;
                     }
-                    let inc = if c.is_ascii_digit() { (c - b'0') as i64 } else { (c.to_ascii_lowercase() - b'a' + 10) as i64 };
+                    let inc = if c.is_ascii_digit() {
+                        (c - b'0') as i64
+                    } else {
+                        (c.to_ascii_lowercase() - b'a' + 10) as i64
+                    };
                     if value > i64::MAX - inc {
                         o2.push(value as u8);
                         state = next_state;
@@ -792,7 +824,10 @@ pub fn html(data: &[u8]) -> HtmlViews {
                     next_state = St::Bad;
                     continue;
                 }
-                screnc = Screnc { length: screnc_number(&buf[i..]), table_pos: 0 };
+                screnc = Screnc {
+                    length: screnc_number(&buf[i..]),
+                    table_pos: 0,
+                };
                 state = St::JsDecodeDecrypt;
                 in_screnc = true;
                 next_state = St::Bad;
@@ -809,7 +844,11 @@ pub fn html(data: &[u8]) -> HtmlViews {
             }
             St::Rfc2397Type => {
                 if c == b'\'' || c == b'"' {
-                    let q = if c == b'\'' { Quoted::Single } else { Quoted::Double };
+                    let q = if c == b'\'' {
+                        Quoted::Single
+                    } else {
+                        Quoted::Double
+                    };
                     if !escape && quoted == q {
                         i += 1;
                         state = St::SkipWs;
@@ -911,7 +950,11 @@ pub fn html(data: &[u8]) -> HtmlViews {
                 }
                 length += 1;
                 if c.is_ascii_hexdigit() {
-                    value += if c.is_ascii_digit() { (c - b'0') as i64 } else { (c.to_ascii_lowercase() - b'a' + 10) as i64 };
+                    value += if c.is_ascii_digit() {
+                        (c - b'0') as i64
+                    } else {
+                        (c.to_ascii_lowercase() - b'a' + 10) as i64
+                    };
                 } else {
                     state = next_state;
                 }
@@ -933,7 +976,8 @@ pub fn html(data: &[u8]) -> HtmlViews {
             Some(cp) => u16_normalize(cp, &mut v.nocomment),
             None => {
                 v.nocomment.push(b'&');
-                v.nocomment.extend(entity.iter().map(u8::to_ascii_lowercase));
+                v.nocomment
+                    .extend(entity.iter().map(u8::to_ascii_lowercase));
             }
         }
     }
@@ -991,7 +1035,10 @@ mod tests {
     #[test]
     fn html_views() {
         let v = html(b"<HTML><!-- hidden --><BODY onload='Go()'>Hi &amp; <b>Bye</b> &#x41;&lt;\n<a href=\"HTTP://X.y/Z\">link</a></BODY></HTML>");
-        assert_eq!(s(&v.nocomment), "<html><body onload=\"go()\">hi & <b>bye</b>a< <a href=\"http://x.y/z\">link</a></body></html>");
+        assert_eq!(
+            s(&v.nocomment),
+            "<html><body onload=\"go()\">hi & <b>bye</b>a< <a href=\"http://x.y/z\">link</a></body></html>"
+        );
         assert_eq!(s(&v.notags), " hi bye HTTP://X.y/Z link ");
         assert!(v.javascript.is_empty());
     }
@@ -999,8 +1046,15 @@ mod tests {
     #[test]
     fn script_goes_to_javascript_view() {
         let v = html(b"<html><script>var Abc = 'x' + \"y\";\ndocument.write(Abc);</script></html>");
-        assert_eq!(s(&v.javascript), "<script>var n000=\"xy\";document.write(n000);</script>");
-        assert!(s(&v.nocomment).contains("<script>varabc=\"x\"+\"y\";document.write(abc);</script>"), "{}", s(&v.nocomment));
+        assert_eq!(
+            s(&v.javascript),
+            "<script>var n000=\"xy\";document.write(n000);</script>"
+        );
+        assert!(
+            s(&v.nocomment).contains("<script>varabc=\"x\"+\"y\";document.write(abc);</script>"),
+            "{}",
+            s(&v.nocomment)
+        );
     }
 
     #[test]
@@ -1014,7 +1068,10 @@ mod tests {
         // "#@~^" + length + encoded "alert(1)"-like body is hard to hand-craft:
         // check the decoder round-trips ClamAV's table on a known sample.
         let mut buf = b"//~^CAAAAA==\nzm/\x7fXDb4ZAAAAA==^#~@ rest".to_vec();
-        let mut st = Screnc { length: 8, table_pos: 0 };
+        let mut st = Screnc {
+            length: 8,
+            table_pos: 0,
+        };
         screnc_decode(&mut buf, 13, &mut st);
         assert_eq!(st.length, 0);
         assert!(buf.ends_with(b" rest"));

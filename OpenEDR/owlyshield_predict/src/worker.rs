@@ -1341,7 +1341,9 @@ pub mod worker_instance {
                             if !specs.is_empty() {
                                 for spec in specs {
                                     let key = spec.to_ascii_lowercase();
-                                    if seen.insert(key) && targets.len() < Self::PTM_HOOK_MAX_TARGETS {
+                                    if seen.insert(key)
+                                        && targets.len() < Self::PTM_HOOK_MAX_TARGETS
+                                    {
                                         targets.push(spec);
                                     }
                                 }
@@ -1349,8 +1351,6 @@ pub mod worker_instance {
                             }
                         }
                     }
-
-
 
                     targets
                 })
@@ -1444,12 +1444,13 @@ pub mod worker_instance {
                     continue;
                 }
                 self.dynamic_hook_event_map.insert(event_id, spec.clone());
-                self.dynamic_registered_apis.insert(spec.to_ascii_lowercase());
+                self.dynamic_registered_apis
+                    .insert(spec.to_ascii_lowercase());
                 mapped += 1;
             }
-            self.next_dynamic_hook_event_id = self.next_dynamic_hook_event_id.max(
-                Self::DYNAMIC_HOOK_EVENT_ID_START.saturating_add(specs.len() as u32),
-            );
+            self.next_dynamic_hook_event_id = self
+                .next_dynamic_hook_event_id
+                .max(Self::DYNAMIC_HOOK_EVENT_ID_START.saturating_add(specs.len() as u32));
             Logging::info(&format!(
                 "[DYNAMIC HOOK] Pre-mapped {} hook target(s) from ptm.local.src (0x6000+order, no MONITOR_ALL_APIS needed)",
                 mapped
@@ -1560,11 +1561,7 @@ pub mod worker_instance {
             self.dynamic_hooks_registered = true;
             let message = format!(
                 "[DYNAMIC HOOK] PID {} => mapped={} already={} failed={} wildcard={} (apply owned by OpenEDR)",
-                pid,
-                registered_count,
-                already_registered_count,
-                failed_count,
-                wildcard_count
+                pid, registered_count, already_registered_count, failed_count, wildcard_count
             );
             Logging::debug(&message);
         }

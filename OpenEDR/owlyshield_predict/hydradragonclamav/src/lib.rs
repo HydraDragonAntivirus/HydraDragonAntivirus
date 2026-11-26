@@ -3,8 +3,8 @@ pub mod atomfilter_build;
 pub mod atomscan;
 pub mod bytecode;
 pub mod bytecode_vm;
-pub mod cpu_budget;
 pub mod cert;
+pub mod cpu_budget;
 pub mod database;
 pub mod filtering;
 pub mod fuzzy;
@@ -28,7 +28,7 @@ pub use database::{
     UnsupportedRecord,
 };
 pub use scanner::{
-    Engine, TimingBreakdown, is_apk_zip, is_text_like, ScanMatch, ScanOptions, ScanView,
-    SignatureKind,
+    Engine, ScanMatch, ScanOptions, ScanView, SignatureKind, TimingBreakdown, is_apk_zip,
+    is_text_like,
 };
 pub use yara_scan::YaraEngine;

@@ -2,7 +2,7 @@ use crate::atomscan::InlineVerifyCtx;
 use crate::database::{Database, OffsetAnchor, SourceLocation};
 use crate::logical::Subsignature;
 use crate::pattern::Pattern;
-use crate::pe::{parse_pe, PeInfo};
+use crate::pe::{PeInfo, parse_pe};
 use std::cell::RefCell;
 use std::io;
 use std::path::Path;
@@ -139,10 +139,7 @@ const ANDROID_LOG_INFO: std::os::raw::c_int = 4;
 #[cfg(target_os = "android")]
 fn android_log(msg: &str) {
     use std::ffi::CString;
-    let (Ok(tag), Ok(text)) = (
-        CString::new("HydraDragon-RustTiming"),
-        CString::new(msg),
-    ) else {
+    let (Ok(tag), Ok(text)) = (CString::new("HydraDragon-RustTiming"), CString::new(msg)) else {
         return;
     };
     unsafe { __android_log_write(ANDROID_LOG_INFO, tag.as_ptr(), text.as_ptr()) };
@@ -181,11 +178,21 @@ pub struct SlowAlert {
 
 impl SlowAlert {
     pub fn new(name: &'static str, threshold_ms: u64) -> Self {
-        SlowAlert { name, extra: None, threshold_ms, start: Instant::now() }
+        SlowAlert {
+            name,
+            extra: None,
+            threshold_ms,
+            start: Instant::now(),
+        }
     }
 
     pub fn with_ctx(name: &'static str, extra: impl Into<String>, threshold_ms: u64) -> Self {
-        SlowAlert { name, extra: Some(extra.into()), threshold_ms, start: Instant::now() }
+        SlowAlert {
+            name,
+            extra: Some(extra.into()),
+            threshold_ms,
+            start: Instant::now(),
+        }
     }
 }
 
@@ -194,9 +201,20 @@ impl Drop for SlowAlert {
         let ms = self.start.elapsed().as_millis() as u64;
         if ms > self.threshold_ms {
             if let Some(ref extra) = self.extra {
-                rust_timing_log!("[SLOW-CODE] {} [{}] took {}ms (threshold {}ms)", self.name, extra, ms, self.threshold_ms);
+                rust_timing_log!(
+                    "[SLOW-CODE] {} [{}] took {}ms (threshold {}ms)",
+                    self.name,
+                    extra,
+                    ms,
+                    self.threshold_ms
+                );
             } else {
-                rust_timing_log!("[SLOW-CODE] {} took {}ms (threshold {}ms)", self.name, ms, self.threshold_ms);
+                rust_timing_log!(
+                    "[SLOW-CODE] {} took {}ms (threshold {}ms)",
+                    self.name,
+                    ms,
+                    self.threshold_ms
+                );
             }
         }
     }
@@ -358,9 +376,14 @@ impl Engine {
         let path = path.as_ref();
         let t0 = Instant::now();
         let (mut database, mut report) = Database::load_dir(path)?;
-        rust_timing_log!("from_database_dir :: load_dir={}ms files={} ext={} logical={} container={}",
-            t0.elapsed().as_millis(), report.files_seen, database.extended.len(), database.logical.len(),
-            database.container.len());
+        rust_timing_log!(
+            "from_database_dir :: load_dir={}ms files={} ext={} logical={} container={}",
+            t0.elapsed().as_millis(),
+            report.files_seen,
+            database.extended.len(),
+            database.logical.len(),
+            database.container.len()
+        );
         let bc = crate::bytecode::BytecodeSet::load_from_dir(path);
 
         // The atom filter is a pure function of the loaded signatures and of
@@ -368,7 +391,10 @@ impl Engine {
         // and rebuilt only when either changes.
         let cache = atomfilter_cache_path(path);
         let stamp = cache.as_ref().and_then(|_| atomfilter_stamp(path));
-        let cached = cache.as_deref().zip(stamp.as_ref()).and_then(|(file, stamp)| read_atomfilter_cache(file, stamp));
+        let cached = cache
+            .as_deref()
+            .zip(stamp.as_ref())
+            .and_then(|(file, stamp)| read_atomfilter_cache(file, stamp));
         let from_cache = cached.is_some();
         let (engine, report) = Self::finish_engine_init(&mut database, &mut report, bc, t0, cached);
         if !from_cache {
@@ -388,9 +414,14 @@ impl Engine {
     ) -> (Self, crate::LoadReport) {
         let t0 = Instant::now();
         let (mut database, mut report) = Database::from_bytes_map(files);
-        rust_timing_log!("from_bytes_map :: load_dir={}ms files={} ext={} logical={} container={}",
-            t0.elapsed().as_millis(), report.files_seen, database.extended.len(), database.logical.len(),
-            database.container.len());
+        rust_timing_log!(
+            "from_bytes_map :: load_dir={}ms files={} ext={} logical={} container={}",
+            t0.elapsed().as_millis(),
+            report.files_seen,
+            database.extended.len(),
+            database.logical.len(),
+            database.container.len()
+        );
         let bc = crate::bytecode::BytecodeSet::from_bytes_map(files);
         let (engine, report) = Self::finish_engine_init(&mut database, &mut report, bc, t0, None);
         (engine, report)
@@ -403,11 +434,17 @@ impl Engine {
     ) -> (Self, crate::LoadReport) {
         let t0 = Instant::now();
         let (mut database, mut report) = Database::from_bytes_map(files);
-        rust_timing_log!("from_bytes_map :: load_dir={}ms files={} ext={} logical={} container={}",
-            t0.elapsed().as_millis(), report.files_seen, database.extended.len(), database.logical.len(),
-            database.container.len());
+        rust_timing_log!(
+            "from_bytes_map :: load_dir={}ms files={} ext={} logical={} container={}",
+            t0.elapsed().as_millis(),
+            report.files_seen,
+            database.extended.len(),
+            database.logical.len(),
+            database.container.len()
+        );
         let bc = crate::bytecode::BytecodeSet::from_bytes_map(files);
-        let (engine, report) = Self::finish_engine_init(&mut database, &mut report, bc, t0, Some(atomfilter_cache));
+        let (engine, report) =
+            Self::finish_engine_init(&mut database, &mut report, bc, t0, Some(atomfilter_cache));
         (engine, report)
     }
 
@@ -448,22 +485,37 @@ impl Engine {
                 database.logical.push(sig);
             }
         }
-        rust_timing_log!("from_database_dir :: bytecode={}ms loaded={}", t_bc.elapsed().as_millis(), report.bytecodes_loaded);
+        rust_timing_log!(
+            "from_database_dir :: bytecode={}ms loaded={}",
+            t_bc.elapsed().as_millis(),
+            report.bytecodes_loaded
+        );
         let t_pf = Instant::now();
         // A cache that does not cover exactly these signatures is never used.
         let atomfilter_cache = atomfilter_cache.filter(|cache| {
             let fits = cache.ext_slot.len() == database.extended.len()
                 && cache.log_subsig_slots.len() == database.logical.len()
-                && cache.log_subsig_slots.iter().zip(&database.logical).all(|(slots, sig)| slots.len() == sig.subsignatures.len())
+                && cache
+                    .log_subsig_slots
+                    .iter()
+                    .zip(&database.logical)
+                    .all(|(slots, sig)| slots.len() == sig.subsignatures.len())
                 && cache.slots.iter().all(|slot| match slot.target {
-                    crate::atomfilter::SlotTarget::Extended { sig_index } => (sig_index as usize) < database.extended.len(),
-                    crate::atomfilter::SlotTarget::LogicalSubsig { sig_index, subsig_index } => database
+                    crate::atomfilter::SlotTarget::Extended { sig_index } => {
+                        (sig_index as usize) < database.extended.len()
+                    }
+                    crate::atomfilter::SlotTarget::LogicalSubsig {
+                        sig_index,
+                        subsig_index,
+                    } => database
                         .logical
                         .get(sig_index as usize)
                         .is_some_and(|sig| (subsig_index as usize) < sig.subsignatures.len()),
                 });
             if !fits {
-                rust_timing_log!("atomfilter_build :: cache does not match the signatures, rebuilding");
+                rust_timing_log!(
+                    "atomfilter_build :: cache does not match the signatures, rebuilding"
+                );
             }
             fits
         });
@@ -474,14 +526,26 @@ impl Engine {
             }
             None => {
                 let db = crate::atomfilter_build::AtomFilterBuilder::build(database);
-                rust_timing_log!("from_database_dir :: atomfilter_build={}ms slots={}", t_pf.elapsed().as_millis(), db.slots.len());
+                rust_timing_log!(
+                    "from_database_dir :: atomfilter_build={}ms slots={}",
+                    t_pf.elapsed().as_millis(),
+                    db.slots.len()
+                );
                 db
             }
         };
-        atomfilter_db.literal_slots = crate::atomscan::literal_slots(&atomfilter_db.slots, database);
+        atomfilter_db.literal_slots =
+            crate::atomscan::literal_slots(&atomfilter_db.slots, database);
         rust_timing_log!("from_database_dir :: TOTAL={}ms", t0.elapsed().as_millis());
         let database = std::mem::take(database);
-        (Self { database, atomfilter_db, yara: Vec::new() }, std::mem::take(report))
+        (
+            Self {
+                database,
+                atomfilter_db,
+                yara: Vec::new(),
+            },
+            std::mem::take(report),
+        )
     }
 
     /// Replace all YARA rulesets with a single one compiled from source.
@@ -539,7 +603,21 @@ impl Engine {
         let mut state = ScanState {
             matches: Vec::new(),
         };
-        self.scan_object(data, object_path, None, None, None, None, 0, options, module_meta, &mut state, &mut None, false, false);
+        self.scan_object(
+            data,
+            object_path,
+            None,
+            None,
+            None,
+            None,
+            0,
+            options,
+            module_meta,
+            &mut state,
+            &mut None,
+            false,
+            false,
+        );
         state.matches
     }
 
@@ -552,9 +630,15 @@ impl Engine {
     /// heuristic, archive members, and PCRE / byte-compare / fuzzy subsigs.
     pub fn match_ranges(&self, data: &[u8], m: &ScanMatch, limit: usize) -> Vec<(usize, usize)> {
         let data = &data[..data.len().min(ScanOptions::default().max_scan_bytes)];
-        let pe = if data.starts_with(b"MZ") { parse_pe(data) } else { None };
+        let pe = if data.starts_with(b"MZ") {
+            parse_pe(data)
+        } else {
+            None
+        };
         let mut out: Vec<(usize, usize)> = Vec::new();
-        let push = |offset: Option<&crate::database::OffsetSpec>, patterns: &[Pattern], out: &mut Vec<(usize, usize)>| {
+        let push = |offset: Option<&crate::database::OffsetSpec>,
+                    patterns: &[Pattern],
+                    out: &mut Vec<(usize, usize)>| {
             let vinfo = offset.is_some_and(|o| matches!(o.anchor, OffsetAnchor::VersionInfo));
             let ranges = match offset {
                 None => vec![(0, data.len())],
@@ -569,7 +653,11 @@ impl Engine {
                     return;
                 }
                 for hit in pattern.find_all(data, &ranges, limit - out.len()) {
-                    if vinfo && pe.as_ref().is_none_or(|p| p.vinfo.binary_search(&(hit.start as u32)).is_err()) {
+                    if vinfo
+                        && pe
+                            .as_ref()
+                            .is_none_or(|p| p.vinfo.binary_search(&(hit.start as u32)).is_err())
+                    {
                         continue;
                     }
                     if hit.start < hit.end {
@@ -611,7 +699,21 @@ impl Engine {
             matches: Vec::new(),
         };
         let mut breakdown = TimingBreakdown::default();
-        self.scan_object(data, object_path, None, None, None, None, 0, options, module_meta, &mut state, &mut Some(&mut breakdown), false, false);
+        self.scan_object(
+            data,
+            object_path,
+            None,
+            None,
+            None,
+            None,
+            0,
+            options,
+            module_meta,
+            &mut state,
+            &mut Some(&mut breakdown),
+            false,
+            false,
+        );
         (state.matches, breakdown)
     }
 
@@ -631,7 +733,21 @@ impl Engine {
             matches: Vec::new(),
         };
         let mut breakdown = TimingBreakdown::default();
-        self.scan_object(data, object_path, None, None, None, None, 0, options, module_meta, &mut state, &mut Some(&mut breakdown), false, true);
+        self.scan_object(
+            data,
+            object_path,
+            None,
+            None,
+            None,
+            None,
+            0,
+            options,
+            module_meta,
+            &mut state,
+            &mut Some(&mut breakdown),
+            false,
+            true,
+        );
         (state.matches, breakdown)
     }
 
@@ -654,7 +770,21 @@ impl Engine {
             matches: Vec::new(),
         };
         let mut breakdown = TimingBreakdown::default();
-        self.scan_object(data, object_path, container_type, container_size_real, container_file_pos, container_entry_name, 0, options, module_meta, &mut state, &mut Some(&mut breakdown), false, false);
+        self.scan_object(
+            data,
+            object_path,
+            container_type,
+            container_size_real,
+            container_file_pos,
+            container_entry_name,
+            0,
+            options,
+            module_meta,
+            &mut state,
+            &mut Some(&mut breakdown),
+            false,
+            false,
+        );
         (state.matches, breakdown)
     }
 
@@ -673,7 +803,21 @@ impl Engine {
             matches: Vec::new(),
         };
         let mut breakdown = TimingBreakdown::default();
-        self.scan_object(data, object_path, None, None, None, None, 0, ScanOptions::default(), module_meta, &mut state, &mut Some(&mut breakdown), true, false);
+        self.scan_object(
+            data,
+            object_path,
+            None,
+            None,
+            None,
+            None,
+            0,
+            ScanOptions::default(),
+            module_meta,
+            &mut state,
+            &mut Some(&mut breakdown),
+            true,
+            false,
+        );
         (state.matches, breakdown)
     }
 
@@ -718,9 +862,9 @@ impl Engine {
             return;
         }
 
-        let detected_target = if !self.database.file_type_magic.is_empty()
-        {
-            self.detect_clamav_type(data).and_then(clamav_type_to_target)
+        let detected_target = if !self.database.file_type_magic.is_empty() {
+            self.detect_clamav_type(data)
+                .and_then(clamav_type_to_target)
         } else {
             None
         };
@@ -728,12 +872,11 @@ impl Engine {
         // PE headers are parsed ONCE from the whole truncated file (and only
         // when the MZ magic is present — otherwise `None` with zero parse
         // cost) and shared by every chunk below.
-        let pe_shared: Option<std::sync::Arc<PeInfo>> =
-            if data.len() >= 2 && data[..2] == *b"MZ" {
-                parse_pe(data).map(std::sync::Arc::new)
-            } else {
-                None
-            };
+        let pe_shared: Option<std::sync::Arc<PeInfo>> = if data.len() >= 2 && data[..2] == *b"MZ" {
+            parse_pe(data).map(std::sync::Arc::new)
+        } else {
+            None
+        };
 
         // File-level builtin type, computed once from the whole file and shared
         // by all chunks (a cut chunk's own bytes must never re-type the file).
@@ -764,9 +907,19 @@ impl Engine {
         // signatures look for, so every rule file would be "infected".
         if !skip_clamav && !is_detection_rule_container(data) {
             self.scan_clamav_view(
-                data, object_path, detected_target, builtin_target, ScanView::Raw,
-                container_type, container_size_real, container_file_pos,
-                &container_entry_name, &pe_shared, options, timing, &mut state.matches,
+                data,
+                object_path,
+                detected_target,
+                builtin_target,
+                ScanView::Raw,
+                container_type,
+                container_size_real,
+                container_file_pos,
+                &container_entry_name,
+                &pe_shared,
+                options,
+                timing,
+                &mut state.matches,
             );
 
             // ClamAV normalization (cli_scanhtml / cli_scanscript): target-3 and
@@ -774,9 +927,19 @@ impl Engine {
             // they only match there.
             if options.normalize {
                 self.scan_normalized(
-                    data, object_path, confident_target, container_type, container_size_real,
-                    container_file_pos, &container_entry_name, depth, options, module_meta,
-                    state, timing, skip_yara,
+                    data,
+                    object_path,
+                    confident_target,
+                    container_type,
+                    container_size_real,
+                    container_file_pos,
+                    &container_entry_name,
+                    depth,
+                    options,
+                    module_meta,
+                    state,
+                    timing,
+                    skip_yara,
                 );
             }
 
@@ -784,9 +947,7 @@ impl Engine {
             // flag spoofed protected domains (.pdb/.gdb gated by .wdb allow list).
             // Only meaningful for HTML, and only when a protected-domain DB is loaded.
             // Runs once on the whole file (never per chunk).
-            if !self.database.phishing.protected.is_empty()
-                && looks_like_html(data)
-            {
+            if !self.database.phishing.protected.is_empty() && looks_like_html(data) {
                 self.scan_phishing(data, object_path, &mut state.matches);
             }
 
@@ -830,7 +991,8 @@ impl Engine {
                     state.matches.push(m);
                 }
                 if let (Some(t), Some(bt)) = (t_yara, timing.as_mut()) {
-                    bt.yara_per_engine.push((yara.name.clone(), t.elapsed().as_nanos()));
+                    bt.yara_per_engine
+                        .push((yara.name.clone(), t.elapsed().as_nanos()));
                 }
             }
         }
@@ -839,8 +1001,21 @@ impl Engine {
         // and JavaScript are scanned as child objects, plus ClamAV's PDF
         // heuristics. Not an archive walk: a PDF's active content only exists
         // after decoding, so the caller's extractor never sees it.
-        if options.scan_pdf && depth < options.max_recursion && crate::pdf::header_offset(data).is_some() {
-            self.scan_pdf(data, object_path, depth, options, module_meta, state, timing, skip_clamav, skip_yara);
+        if options.scan_pdf
+            && depth < options.max_recursion
+            && crate::pdf::header_offset(data).is_some()
+        {
+            self.scan_pdf(
+                data,
+                object_path,
+                depth,
+                options,
+                module_meta,
+                state,
+                timing,
+                skip_clamav,
+                skip_yara,
+            );
         }
 
         // NOTE: ZIP member extraction is deliberately NOT done here anymore.
@@ -942,7 +1117,11 @@ impl Engine {
         let is_text = !is_html
             && match confident_target {
                 Some(7) => true,
-                None => is_text_like(data) || data.starts_with(&[0xFF, 0xFE]) || data.starts_with(&[0xFE, 0xFF]),
+                None => {
+                    is_text_like(data)
+                        || data.starts_with(&[0xFF, 0xFE])
+                        || data.starts_with(&[0xFE, 0xFF])
+                }
                 _ => false,
             };
         let mut views: Vec<(Vec<u8>, u32, ScanView)> = Vec::new();
@@ -970,9 +1149,19 @@ impl Engine {
         for (bytes, target, view) in views {
             let mut found = Vec::new();
             self.scan_clamav_view(
-                &bytes, object_path, Some(target), Some(target), view, container_type,
-                container_size_real, container_file_pos, container_entry_name, &None,
-                options, timing, &mut found,
+                &bytes,
+                object_path,
+                Some(target),
+                Some(target),
+                view,
+                container_type,
+                container_size_real,
+                container_file_pos,
+                container_entry_name,
+                &None,
+                options,
+                timing,
+                &mut found,
             );
             for m in found {
                 let dup = state.matches.iter().any(|e| {
@@ -988,8 +1177,19 @@ impl Engine {
             for (i, uri) in data_uris.iter().enumerate() {
                 let child = format!("{object_path}/rfc2397:{i}");
                 self.scan_object(
-                    uri, &child, Some("CL_TYPE_HTML"), Some(data.len() as u64), None, None,
-                    depth + 1, options, module_meta, state, timing, false, skip_yara,
+                    uri,
+                    &child,
+                    Some("CL_TYPE_HTML"),
+                    Some(data.len() as u64),
+                    None,
+                    None,
+                    depth + 1,
+                    options,
+                    module_meta,
+                    state,
+                    timing,
+                    false,
+                    skip_yara,
                 );
             }
         }
@@ -1010,7 +1210,11 @@ impl Engine {
         skip_clamav: bool,
         skip_yara: bool,
     ) {
-        let budget = if options.max_archive_bytes == 0 { options.max_scan_bytes } else { options.max_archive_bytes };
+        let budget = if options.max_archive_bytes == 0 {
+            options.max_scan_bytes
+        } else {
+            options.max_archive_bytes
+        };
         let pdf = crate::pdf::analyze(data, budget);
         if !skip_clamav {
             let mut heuristic = |name: &str| {
@@ -1037,19 +1241,26 @@ impl Engine {
         for child in pdf.children {
             let path = format!("{object_path}/pdf:{}", child.name);
             self.scan_object(
-                &child.data, &path, None, None, None, None, depth + 1, options, module_meta, state, timing, skip_clamav, skip_yara,
+                &child.data,
+                &path,
+                None,
+                None,
+                None,
+                None,
+                depth + 1,
+                options,
+                module_meta,
+                state,
+                timing,
+                skip_clamav,
+                skip_yara,
             );
         }
     }
 
     /// Run the phishing heuristic over an HTML/email object's link pairs,
     /// appending one `ScanMatch` per detected spoof (`Heuristics.Phishing.*`).
-    fn scan_phishing(
-        &self,
-        data: &[u8],
-        object_path: &str,
-        matches: &mut Vec<ScanMatch>,
-    ) {
+    fn scan_phishing(&self, data: &[u8], object_path: &str, matches: &mut Vec<ScanMatch>) {
         for hit in self.database.phishing.scan_html(data) {
             matches.push(ScanMatch {
                 name: hit.name.to_string(),
@@ -1080,9 +1291,19 @@ impl Engine {
                 let name: String = magic
                     .name
                     .chars()
-                    .map(|c| if c.is_ascii_alphanumeric() { c.to_ascii_uppercase() } else { '_' })
+                    .map(|c| {
+                        if c.is_ascii_alphanumeric() {
+                            c.to_ascii_uppercase()
+                        } else {
+                            '_'
+                        }
+                    })
                     .collect();
-                let name = name.split('_').filter(|p| !p.is_empty()).collect::<Vec<_>>().join("_");
+                let name = name
+                    .split('_')
+                    .filter(|p| !p.is_empty())
+                    .collect::<Vec<_>>()
+                    .join("_");
                 if !name.is_empty() {
                     return Some(format!("CL_TYPE_IGNORED_{name}"));
                 }
@@ -1100,7 +1321,8 @@ impl Engine {
     /// Combine with [`crate::yara_scan::is_target_allowed`] to decide whether a
     /// file is a supported/scannable type before scanning it.
     pub fn detect_target(&self, data: &[u8]) -> Option<u32> {
-        self.detect_clamav_type(data).and_then(clamav_type_to_target)
+        self.detect_clamav_type(data)
+            .and_then(clamav_type_to_target)
     }
 
     fn detect_clamav_type(&self, data: &[u8]) -> Option<&str> {
@@ -1126,12 +1348,10 @@ impl Engine {
         None
     }
 
-    fn scan_context(
-        &self,
-        ctx: &ScanContext<'_>,
-        matches: &mut Vec<ScanMatch>,
-    ) {
-        if ctx.data.len() <= 12 { return; }
+    fn scan_context(&self, ctx: &ScanContext<'_>, matches: &mut Vec<ScanMatch>) {
+        if ctx.data.len() <= 12 {
+            return;
+        }
 
         let label = match &ctx.container_entry_name {
             Some(entry) if !entry.is_empty() && !ctx.object_path.ends_with(entry) => {
@@ -1167,9 +1387,7 @@ impl Engine {
         // phases, so the counts are read in place instead of copied.
         let mut scratch = ATOM_SCRATCH.with(|cell| std::mem::take(&mut *cell.borrow_mut()));
         {
-            let file_type_target = ctx.detected_target
-                .or(ctx.builtin_target)
-                .unwrap_or(0);
+            let file_type_target = ctx.detected_target.or(ctx.builtin_target).unwrap_or(0);
             let verify_ctx = InlineVerifyCtx {
                 slots: &self.atomfilter_db.slots,
                 logical: &self.database.logical,
@@ -1182,9 +1400,21 @@ impl Engine {
         let slot_counts = scratch.counts();
         let verify_results = scratch.verify_results();
         let t1 = Instant::now();
-        self.scan_extended(ctx, matches, &slot_counts, verify_results, scratch.touched());
+        self.scan_extended(
+            ctx,
+            matches,
+            &slot_counts,
+            verify_results,
+            scratch.touched(),
+        );
         let t2 = Instant::now();
-        self.scan_logical(ctx, matches, &slot_counts, verify_results, scratch.touched());
+        self.scan_logical(
+            ctx,
+            matches,
+            &slot_counts,
+            verify_results,
+            scratch.touched(),
+        );
         let t3 = Instant::now();
         ATOM_SCRATCH.with(|cell| *cell.borrow_mut() = scratch);
         let size_str = if ctx.data.len() < 1024 {
@@ -1244,7 +1474,6 @@ impl Engine {
         }
     }
 
-
     /// Extended-signature candidates for this buffer, in ascending order:
     /// atom-promoted, plus target-accepted (cheap checks first so the
     /// expensive verifications below only run on these).
@@ -1258,7 +1487,9 @@ impl Engine {
         if let Some(touched) = touched.filter(|_| !db.any_zero_threshold) {
             let mut items: Vec<usize> = db.ext_automatch.iter().map(|&si| si as usize).collect();
             for &slot_id in touched {
-                let Some(slot) = db.slots.get(slot_id as usize) else { continue };
+                let Some(slot) = db.slots.get(slot_id as usize) else {
+                    continue;
+                };
                 if let crate::atomfilter::SlotTarget::Extended { sig_index } = slot.target {
                     if slot_counts.get(slot_id) >= slot.threshold {
                         items.push(sig_index as usize);
@@ -1278,7 +1509,11 @@ impl Engine {
             if !crate::atomscan::ext_matched(*ext_slot, &self.atomfilter_db.slots, slot_counts) {
                 continue;
             }
-            if !target_matches(self.database.extended[si].target, ctx, self.database.ext_name(&self.database.extended[si])) {
+            if !target_matches(
+                self.database.extended[si].target,
+                ctx,
+                self.database.ext_name(&self.database.extended[si]),
+            ) {
                 continue;
             }
             items.push(si);
@@ -1296,9 +1531,13 @@ impl Engine {
     ) {
         let items = self.extended_candidates(ctx, slot_counts, touched);
         let hints = LiteralHints::default();
-        self.par_eval_items(&items, |si, out| {
-            self.scan_one_extended(si, ctx, &hints, out, slot_counts, verify_results);
-        }, matches);
+        self.par_eval_items(
+            &items,
+            |si, out| {
+                self.scan_one_extended(si, ctx, &hints, out, slot_counts, verify_results);
+            },
+            matches,
+        );
     }
 
     /// Evaluate a single extended signature whose atom slot reached threshold.
@@ -1345,7 +1584,12 @@ impl Engine {
         let ranges = if is_vinfo {
             vec![(0, ctx.data.len())]
         } else {
-            signature.offset.scan_ranges_chunk(ctx.total_len, ctx.pe(), ctx.base_offset, ctx.data.len())
+            signature.offset.scan_ranges_chunk(
+                ctx.total_len,
+                ctx.pe(),
+                ctx.base_offset,
+                ctx.data.len(),
+            )
         };
         if ranges.is_empty() {
             return;
@@ -1367,12 +1611,18 @@ impl Engine {
                 // VI: match must start at a version-info offset (`vinfo` holds
                 // FILE offsets, so the chunk-relative hit is shifted back).
                 for hit in pattern.find_all(ctx.data, &ranges, 1) {
-                    if vinfo.binary_search(&((hit.start + ctx.base_offset) as u32)).is_ok() {
+                    if vinfo
+                        .binary_search(&((hit.start + ctx.base_offset) as u32))
+                        .is_ok()
+                    {
                         matched = true;
                         break;
                     }
                 }
-            } else if !match pattern.post_gap_literal().and_then(|lit| hints.get(ctx.data, lit)) {
+            } else if !match pattern
+                .post_gap_literal()
+                .and_then(|lit| hints.get(ctx.data, lit))
+            {
                 Some(at) => pattern.find_all_at(ctx.data, &ranges, 1, &at),
                 None => pattern.find_all(ctx.data, &ranges, 1),
             }
@@ -1412,7 +1662,13 @@ impl Engine {
         slot_counts: &crate::atomscan::SlotCounts,
         verify_results: &[bool],
     ) -> Option<bool> {
-        if !self.atomfilter_db.literal_slots.get(slot_id as usize).copied().unwrap_or(false) {
+        if !self
+            .atomfilter_db
+            .literal_slots
+            .get(slot_id as usize)
+            .copied()
+            .unwrap_or(false)
+        {
             return None;
         }
         if *verify_results.get(slot_id as usize)? {
@@ -1428,7 +1684,11 @@ impl Engine {
     /// `touched`: the slots the sweep counted (None: unknown). Only those can have
     /// reached their threshold (thresholds are at least 1), so with it the loop
     /// below skips the untouched slots of the whole DB.
-    fn logical_candidates(&self, slot_counts: &crate::atomscan::SlotCounts, touched: Option<&[u32]>) -> Vec<usize> {
+    fn logical_candidates(
+        &self,
+        slot_counts: &crate::atomscan::SlotCounts,
+        touched: Option<&[u32]>,
+    ) -> Vec<usize> {
         // Hit-driven selection: a slot whose target is a logical subsig marks
         // that signature as a candidate; extended-sig slots are skipped here
         // (they belong to `scan_extended`). Signatures without indexable
@@ -1445,7 +1705,9 @@ impl Engine {
             }
         };
         for &slot_id in hit_slots {
-            let Some(slot) = self.atomfilter_db.slots.get(slot_id as usize) else { continue };
+            let Some(slot) = self.atomfilter_db.slots.get(slot_id as usize) else {
+                continue;
+            };
             if slot_counts.get(slot_id as crate::atomfilter::SlotId) < slot.threshold {
                 continue;
             }
@@ -1495,7 +1757,10 @@ impl Engine {
                 }
             }
 
-            if sig.expression.can_still_match(&test_counts, &test_evaluated) {
+            if sig
+                .expression
+                .can_still_match(&test_counts, &test_evaluated)
+            {
                 set[si] = true;
             }
         }
@@ -1515,30 +1780,42 @@ impl Engine {
     ) {
         let items = self.logical_candidates(slot_counts, touched);
         let hints = LiteralHints::default();
-        self.par_eval_items(&items, |si, out| {
-            LOGICAL_BUFS.with(|cell| {
-                let mut bufs = cell.borrow_mut();
-                let t = std::time::Instant::now();
-                self.scan_one_logical(si, slot_counts, ctx, out, &mut bufs, verify_results, &hints);
-                let ms = t.elapsed().as_millis();
-                if ms >= 50 {
-                    rust_timing_log!("[SLOW-LOG] {ms}ms {}", self.database.logical[si].name);
-                }
-                if ms >= 20 && !bufs.detail.is_empty() {
-                    let mut line = format!(
-                        "[SIG-DETAIL] {ms}ms {} subsigs=",
-                        self.database.logical[si].name
+        self.par_eval_items(
+            &items,
+            |si, out| {
+                LOGICAL_BUFS.with(|cell| {
+                    let mut bufs = cell.borrow_mut();
+                    let t = std::time::Instant::now();
+                    self.scan_one_logical(
+                        si,
+                        slot_counts,
+                        ctx,
+                        out,
+                        &mut bufs,
+                        verify_results,
+                        &hints,
                     );
-                    for d in &bufs.detail {
-                        line.push_str(&format!(
-                            "[{}:{}:{}us,cnt={},ranges={}]",
-                            d.subsig, d.kind, d.elapsed_us, d.count, d.ranges
-                        ));
+                    let ms = t.elapsed().as_millis();
+                    if ms >= 50 {
+                        rust_timing_log!("[SLOW-LOG] {ms}ms {}", self.database.logical[si].name);
                     }
-                    rust_timing_log!("{}", line);
-                }
-            });
-        }, matches);
+                    if ms >= 20 && !bufs.detail.is_empty() {
+                        let mut line = format!(
+                            "[SIG-DETAIL] {ms}ms {} subsigs=",
+                            self.database.logical[si].name
+                        );
+                        for d in &bufs.detail {
+                            line.push_str(&format!(
+                                "[{}:{}:{}us,cnt={},ranges={}]",
+                                d.subsig, d.kind, d.elapsed_us, d.count, d.ranges
+                            ));
+                        }
+                        rust_timing_log!("{}", line);
+                    }
+                });
+            },
+            matches,
+        );
     }
 
     /// Evaluate `items` (signature indices, ascending) with `eval`, either
@@ -1566,7 +1843,8 @@ impl Engine {
             return;
         }
         // The calling thread only waits for the shards, so its own slot is one of them.
-        let helpers = crate::cpu_budget::helpers(crate::atomscan::MAX_SCAN_THREADS.min(items.len()) - 1);
+        let helpers =
+            crate::cpu_budget::helpers(crate::atomscan::MAX_SCAN_THREADS.min(items.len()) - 1);
         let threads = 1 + helpers.count();
         if threads <= 1 {
             for &si in items {
@@ -1580,23 +1858,25 @@ impl Engine {
         std::thread::scope(|s| {
             let mut handles = Vec::with_capacity(threads);
             for _ in 0..threads {
-                handles.push(s.spawn(|| helpers.run(|| {
-                    let mut local: Vec<(usize, Vec<ScanMatch>)> = Vec::new();
-                    loop {
-                        let c = next.fetch_add(1, Ordering::Relaxed);
-                        if c >= n_chunks {
-                            break;
+                handles.push(s.spawn(|| {
+                    helpers.run(|| {
+                        let mut local: Vec<(usize, Vec<ScanMatch>)> = Vec::new();
+                        loop {
+                            let c = next.fetch_add(1, Ordering::Relaxed);
+                            if c >= n_chunks {
+                                break;
+                            }
+                            let lo = c * PAR_CHUNK_ITEMS;
+                            let hi = ((c + 1) * PAR_CHUNK_ITEMS).min(items.len());
+                            let mut out = Vec::new();
+                            for &si in &items[lo..hi] {
+                                eval(si, &mut out);
+                            }
+                            local.push((c, out));
                         }
-                        let lo = c * PAR_CHUNK_ITEMS;
-                        let hi = ((c + 1) * PAR_CHUNK_ITEMS).min(items.len());
-                        let mut out = Vec::new();
-                        for &si in &items[lo..hi] {
-                            eval(si, &mut out);
-                        }
-                        local.push((c, out));
-                    }
-                    local
-                })));
+                        local
+                    })
+                }));
             }
             let mut parts: Vec<(usize, Vec<ScanMatch>)> = Vec::new();
             for h in handles {
@@ -1668,9 +1948,15 @@ impl Engine {
             // track only the immediate parent, so a single-level intermediate is
             // checked against it; a multi-level chain we cannot confirm and so do
             // not fire on (avoids a false positive, never alerts spuriously).
-            let inner = signature.intermediates.last().map(String::as_str).unwrap_or("");
+            let inner = signature
+                .intermediates
+                .last()
+                .map(String::as_str)
+                .unwrap_or("");
             let inner_ok = inner == "CL_TYPE_ANY"
-                || ctx.container_type.is_some_and(|t| cl_type_to_format(inner) == Some(t));
+                || ctx
+                    .container_type
+                    .is_some_and(|t| cl_type_to_format(inner) == Some(t));
             if !inner_ok || signature.intermediates.len() > 1 {
                 return;
             }
@@ -1770,7 +2056,10 @@ impl Engine {
                     }
                 }
             }
-            if !signature.expression.can_still_match(&bufs.counts, &pre_eval) {
+            if !signature
+                .expression
+                .can_still_match(&bufs.counts, &pre_eval)
+            {
                 return;
             }
         }
@@ -1814,7 +2103,9 @@ impl Engine {
             if counts[i] == 0 {
                 continue; // atom absent → cannot match; leave at 0.
             }
-            if let Some(crate::atomfilter::SubsigSlot::Atom(slot_id)) = sub_slots.and_then(|slots| slots.get(i)).copied() {
+            if let Some(crate::atomfilter::SubsigSlot::Atom(slot_id)) =
+                sub_slots.and_then(|slots| slots.get(i)).copied()
+            {
                 if self.literal_sweep_verdict(slot_id, slot_counts, verify_results) == Some(false) {
                     counts[i] = 0;
                     if !signature.expression.can_still_match(counts, evaluated) {
@@ -1831,7 +2122,11 @@ impl Engine {
                 if let Some(slots) = sub_slots {
                     if i < slots.len() {
                         if let crate::atomfilter::SubsigSlot::Atom(slot_id) = slots[i] {
-                            if verify_results.get(slot_id as usize).copied().unwrap_or(false) {
+                            if verify_results
+                                .get(slot_id as usize)
+                                .copied()
+                                .unwrap_or(false)
+                            {
                                 counts[i] = 1;
                                 if !signature.expression.can_still_match(counts, evaluated) {
                                     return;
@@ -1895,7 +2190,10 @@ impl Engine {
                 let remaining = body_count_limit.saturating_sub(hits);
                 if is_vinfo {
                     for hit in pattern.find_all(ctx.data, &ranges, remaining) {
-                        if vinfo.binary_search(&((hit.start + ctx.base_offset) as u32)).is_ok() {
+                        if vinfo
+                            .binary_search(&((hit.start + ctx.base_offset) as u32))
+                            .is_ok()
+                        {
                             hits += 1;
                             last = Some(hit.start);
                             if hits >= body_count_limit {
@@ -1905,7 +2203,10 @@ impl Engine {
                     }
                 } else {
                     // Same distinct-start count and last start as `count_all`.
-                    let (phits, plast) = match pattern.post_gap_literal().and_then(|lit| hints.get(ctx.data, lit)) {
+                    let (phits, plast) = match pattern
+                        .post_gap_literal()
+                        .and_then(|lit| hints.get(ctx.data, lit))
+                    {
                         Some(at) => {
                             let found = pattern.find_all_at(ctx.data, &ranges, remaining, &at);
                             (found.len(), found.last().map(|m| m.start))
@@ -2050,10 +2351,14 @@ impl Engine {
 
         let eval_matched = signature.expression.eval(counts).matched;
         #[cfg(target_os = "android")]
-        let debug_eval_us = std::time::Instant::now().duration_since(t_after_p2).as_micros();
+        let debug_eval_us = std::time::Instant::now()
+            .duration_since(t_after_p2)
+            .as_micros();
 
         #[cfg(target_os = "android")]
-        let debug_total_us = std::time::Instant::now().duration_since(t_debug).as_micros();
+        let debug_total_us = std::time::Instant::now()
+            .duration_since(t_debug)
+            .as_micros();
         #[cfg(target_os = "android")]
         if debug_total_us >= 20_000 {
             rust_timing_log!(
@@ -2148,9 +2453,7 @@ fn target_matches(target: Option<u32>, ctx: &ScanContext<'_>, sig_name: &str) ->
     if want == 0 {
         // Andr.* signatures: only match ELF(6), text(7), DEX(16), APK(17).
         if sig_name.starts_with("Andr.") {
-            let detected = ctx.detected_target
-                .or(ctx.builtin_target)
-                .unwrap_or(0);
+            let detected = ctx.detected_target.or(ctx.builtin_target).unwrap_or(0);
             return matches!(detected, 6 | 7 | 16 | 17);
         }
         return true;
@@ -2291,7 +2594,12 @@ fn binary_magic_target(d: &[u8]) -> Option<u32> {
     if d.starts_with(&[0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1]) {
         return Some(2);
     }
-    if d.len() >= 4 && matches!(d[..4], [0xfe, 0xed, 0xfa, 0xce | 0xcf] | [0xce | 0xcf, 0xfa, 0xed, 0xfe]) {
+    if d.len() >= 4
+        && matches!(
+            d[..4],
+            [0xfe, 0xed, 0xfa, 0xce | 0xcf] | [0xce | 0xcf, 0xfa, 0xed, 0xfe]
+        )
+    {
         return Some(9);
     }
     if d.len() >= 8 && d[..4] == [0xca, 0xfe, 0xba, 0xbe] {
@@ -2318,16 +2626,27 @@ fn builtin_type_name(d: &[u8]) -> Option<&'static str> {
     if d.starts_with(b"%PDF") {
         return Some("CL_TYPE_PDF");
     }
-    if d.starts_with(b"GIF8") || d.starts_with(&[0x89, b'P', b'N', b'G']) || d.starts_with(&[0xff, 0xd8, 0xff]) {
+    if d.starts_with(b"GIF8")
+        || d.starts_with(&[0x89, b'P', b'N', b'G'])
+        || d.starts_with(&[0xff, 0xd8, 0xff])
+    {
         return Some("CL_TYPE_GRAPHICS");
     }
     if d.len() >= 4 && d[..4] == [0x64, 0x65, 0x78, 0x0a] {
         return Some("CL_TYPE_DEX");
     }
     if d.len() >= 4 && d[..4] == [0x50, 0x4b, 0x03, 0x04] {
-        return Some(if is_apk_zip(d) { "CL_TYPE_APK" } else { "CL_TYPE_ZIP" });
+        return Some(if is_apk_zip(d) {
+            "CL_TYPE_APK"
+        } else {
+            "CL_TYPE_ZIP"
+        });
     }
-    if d.len() >= 3 && (d[0] == b'F' || d[0] == b'C' || d[0] == b'Z') && d[1] == b'W' && d[2] == b'S' {
+    if d.len() >= 3
+        && (d[0] == b'F' || d[0] == b'C' || d[0] == b'Z')
+        && d[1] == b'W'
+        && d[2] == b'S'
+    {
         return Some("CL_TYPE_SWF");
     }
     match binary_magic_target(d) {
@@ -2385,7 +2704,19 @@ fn td_isutf8(buf: &[u8]) -> bool {
         } else if c & 0x40 == 0 {
             return false;
         } else {
-            let following = if c & 0x20 == 0 { 1 } else if c & 0x10 == 0 { 2 } else if c & 0x08 == 0 { 3 } else if c & 0x04 == 0 { 4 } else if c & 0x02 == 0 { 5 } else { return false };
+            let following = if c & 0x20 == 0 {
+                1
+            } else if c & 0x10 == 0 {
+                2
+            } else if c & 0x08 == 0 {
+                3
+            } else if c & 0x04 == 0 {
+                4
+            } else if c & 0x02 == 0 {
+                5
+            } else {
+                return false;
+            };
             for _ in 0..following {
                 i += 1;
                 if i >= buf.len() {
@@ -2415,7 +2746,11 @@ fn td_isutf16(buf: &[u8]) -> u8 {
     let mut bad = 0usize;
     let mut i = 2;
     while i + 1 < buf.len() {
-        let c = if be { buf[i + 1] as u32 + 256 * buf[i] as u32 } else { buf[i] as u32 + 256 * buf[i + 1] as u32 };
+        let c = if be {
+            buf[i + 1] as u32 + 256 * buf[i] as u32
+        } else {
+            buf[i] as u32 + 256 * buf[i + 1] as u32
+        };
         if c == 0xfffe {
             return 0;
         }
@@ -2484,15 +2819,23 @@ pub fn is_text_like(data: &[u8]) -> bool {
         } else if b >= 0x80 {
             let rem = sample.len() - i;
             if b & 0xE0 == 0xC0 && rem >= 2 && sample[i + 1] & 0xC0 == 0x80 {
-                text_bytes += 2; i += 2;
-            } else if b & 0xF0 == 0xE0 && rem >= 3 && sample[i + 1] & 0xC0 == 0x80 && sample[i + 2] & 0xC0 == 0x80 {
-                text_bytes += 3; i += 3;
-            } else if b & 0xF8 == 0xF0 && rem >= 4
+                text_bytes += 2;
+                i += 2;
+            } else if b & 0xF0 == 0xE0
+                && rem >= 3
+                && sample[i + 1] & 0xC0 == 0x80
+                && sample[i + 2] & 0xC0 == 0x80
+            {
+                text_bytes += 3;
+                i += 3;
+            } else if b & 0xF8 == 0xF0
+                && rem >= 4
                 && sample[i + 1] & 0xC0 == 0x80
                 && sample[i + 2] & 0xC0 == 0x80
                 && sample[i + 3] & 0xC0 == 0x80
             {
-                text_bytes += 4; i += 4;
+                text_bytes += 4;
+                i += 4;
             } else {
                 i += 1;
             }
@@ -2538,9 +2881,7 @@ fn looks_like_html(data: &[u8]) -> bool {
         {
             return true; // <html
         }
-        if rest.len() >= 14
-            && rest[1..14].eq_ignore_ascii_case(b"!doctype html")
-        {
+        if rest.len() >= 14 && rest[1..14].eq_ignore_ascii_case(b"!doctype html") {
             return true; // <!doctype html
         }
         if rest.len() >= 7
@@ -2594,7 +2935,12 @@ fn blank_run_len(data: &[u8], pos: usize) -> usize {
 /// yield exactly one chunk covering the whole buffer (today's behavior).
 /// `chunk_size` of 0 disables chunking (single whole-buffer chunk); a
 /// `blank_skip` of 0 disables blank-skipping.
-fn plan_chunks(total: usize, data: &[u8], chunk_size: usize, blank_skip: usize) -> Vec<(usize, usize)> {
+fn plan_chunks(
+    total: usize,
+    data: &[u8],
+    chunk_size: usize,
+    blank_skip: usize,
+) -> Vec<(usize, usize)> {
     debug_assert_eq!(total, data.len());
     if total == 0 {
         return Vec::new();
@@ -2658,9 +3004,20 @@ fn dedup_matches(matches: &mut Vec<ScanMatch>) {
         return;
     }
     matches.sort_by(|a, b| {
-        (&a.name, kind_rank(a.kind), &a.object_path, src_key(&a.source), view_rank(a.view)).cmp(
-            &(&b.name, kind_rank(b.kind), &b.object_path, src_key(&b.source), view_rank(b.view)),
+        (
+            &a.name,
+            kind_rank(a.kind),
+            &a.object_path,
+            src_key(&a.source),
+            view_rank(a.view),
         )
+            .cmp(&(
+                &b.name,
+                kind_rank(b.kind),
+                &b.object_path,
+                src_key(&b.source),
+                view_rank(b.view),
+            ))
     });
     matches.dedup();
 }
@@ -2690,7 +3047,6 @@ fn src_key(s: &SourceLocation) -> (String, usize) {
     (s.path.display().to_string(), s.line)
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2699,15 +3055,21 @@ mod tests {
         SourceLocation,
     };
     use crate::logical::parse_logical_signature;
-    use crate::pattern::{compile_pattern_variants, Modifiers};
+    use crate::pattern::{Modifiers, compile_pattern_variants};
 
     #[test]
     fn text_type_follows_clamav_textdet() {
         assert_eq!(text_type(b"hello\r\n"), Some("CL_TYPE_TEXT_ASCII"));
         // UTF-8 Turkish / Cyrillic and 8-bit code pages are "ASCII" for ClamAV.
-        assert_eq!(text_type("Merhaba dünya, şöyle böyle, ğüşıöç ĞÜŞİÖÇ привет мир".as_bytes()), Some("CL_TYPE_TEXT_ASCII"));
+        assert_eq!(
+            text_type("Merhaba dünya, şöyle böyle, ğüşıöç ĞÜŞİÖÇ привет мир".as_bytes()),
+            Some("CL_TYPE_TEXT_ASCII")
+        );
         assert_eq!(text_type(b"\xfe\xfc\xf0 ok"), Some("CL_TYPE_TEXT_ASCII"));
-        assert_eq!(text_type(b"\xff\xfeh\x00i\x00"), Some("CL_TYPE_TEXT_UTF16LE"));
+        assert_eq!(
+            text_type(b"\xff\xfeh\x00i\x00"),
+            Some("CL_TYPE_TEXT_UTF16LE")
+        );
         assert_eq!(text_type(b"\x7fELF\x02\x01\x01\x00\x00\x00"), None);
     }
 
@@ -2723,14 +3085,20 @@ mod tests {
                 name: crate::database::intern_name(&mut name_arena, "Test.Signature"),
                 target: Some(0),
                 offset: OffsetSpec::any(),
-                patterns: compile_pattern_variants("414243", Modifiers::default()).unwrap().into(),
+                patterns: compile_pattern_variants("414243", Modifiers::default())
+                    .unwrap()
+                    .into(),
                 source: source.clone(),
             }],
             name_arena,
             ..Default::default()
         };
         let atomfilter_db = crate::atomfilter_build::AtomFilterBuilder::build(&database);
-        let engine = Engine { database, atomfilter_db, yara: Vec::new() };
+        let engine = Engine {
+            database,
+            atomfilter_db,
+            yara: Vec::new(),
+        };
         let found = engine.scan_bytes(b"xxABCyyyyyyyyyy", ScanOptions::default());
         assert_eq!(found.len(), 1);
         assert_eq!(found[0].name, "Test.Signature");
@@ -2751,25 +3119,41 @@ mod tests {
                 name: crate::database::intern_name(&mut name_arena, "Test.Signature"),
                 target: Some(0),
                 offset: OffsetSpec::any(),
-                patterns: compile_pattern_variants("414243", Modifiers::default()).unwrap().into(),
+                patterns: compile_pattern_variants("414243", Modifiers::default())
+                    .unwrap()
+                    .into(),
                 source: source.clone(),
             }],
             name_arena,
             ..Default::default()
         };
         let atomfilter_db = crate::atomfilter_build::AtomFilterBuilder::build(&database);
-        let engine = Engine { database, atomfilter_db, yara: Vec::new() };
+        let engine = Engine {
+            database,
+            atomfilter_db,
+            yara: Vec::new(),
+        };
         let data = b"xxABCyyABCzzzzz";
         let found = engine.scan_bytes(data, ScanOptions::default());
         assert_eq!(found.len(), 1);
-        assert_eq!(engine.match_ranges(data, &found[0], 64), vec![(2, 5), (7, 10)]);
-        assert_eq!(engine.match_ranges(data, &found[0], 1), vec![(2, 5)], "limit");
+        assert_eq!(
+            engine.match_ranges(data, &found[0], 64),
+            vec![(2, 5), (7, 10)]
+        );
+        assert_eq!(
+            engine.match_ranges(data, &found[0], 1),
+            vec![(2, 5)],
+            "limit"
+        );
 
         let (engine, _) = engine_with_logical("Test.Logical;Target:0;0&1;64656164;62656566");
         let data = b"..dead....beef..";
         let found = engine.scan_bytes(data, ScanOptions::default());
         assert_eq!(found.len(), 1, "{found:?}");
-        assert_eq!(engine.match_ranges(data, &found[0], 64), vec![(2, 6), (10, 14)]);
+        assert_eq!(
+            engine.match_ranges(data, &found[0], 64),
+            vec![(2, 6), (10, 14)]
+        );
     }
 
     #[test]
@@ -2787,14 +3171,20 @@ mod tests {
                 name: crate::database::intern_name(&mut name_arena, "Test.Signature"),
                 target: Some(0),
                 offset: OffsetSpec::any(),
-                patterns: compile_pattern_variants("414243", Modifiers::default()).unwrap().into(),
+                patterns: compile_pattern_variants("414243", Modifiers::default())
+                    .unwrap()
+                    .into(),
                 source: source.clone(),
             }],
             name_arena,
             ..Default::default()
         };
         let atomfilter_db = crate::atomfilter_build::AtomFilterBuilder::build(&database);
-        let engine = Engine { database, atomfilter_db, yara: Vec::new() };
+        let engine = Engine {
+            database,
+            atomfilter_db,
+            yara: Vec::new(),
+        };
 
         // Atom present → detected.
         let hit = engine.scan_bytes(b"xxABCyyyyyyyyyy", ScanOptions::default());
@@ -2823,15 +3213,26 @@ mod tests {
                 name: crate::database::intern_name(&mut name_arena, "Test.Zip.Child"),
                 target: Some(0),
                 offset: OffsetSpec::any(),
-                patterns: compile_pattern_variants("4d414c57415245", Modifiers::default()).unwrap().into(),
+                patterns: compile_pattern_variants("4d414c57415245", Modifiers::default())
+                    .unwrap()
+                    .into(),
                 source,
             }],
             name_arena,
             ..Default::default()
         };
         let atomfilter_db = crate::atomfilter_build::AtomFilterBuilder::build(&database);
-        let engine = Engine { database, atomfilter_db, yara: Vec::new() };
-        let found = engine.scan_bytes_named(b"..MALWARE......", "root#archive[0]", ScanOptions::default(), &[]);
+        let engine = Engine {
+            database,
+            atomfilter_db,
+            yara: Vec::new(),
+        };
+        let found = engine.scan_bytes_named(
+            b"..MALWARE......",
+            "root#archive[0]",
+            ScanOptions::default(),
+            &[],
+        );
         assert!(found.iter().any(|hit| {
             hit.name == "Test.Zip.Child"
                 && hit.object_path == "root#archive[0]"
@@ -2856,8 +3257,17 @@ mod tests {
             ..Default::default()
         };
         let atomfilter_db = crate::atomfilter_build::AtomFilterBuilder::build(&database);
-        let engine = Engine { database, atomfilter_db, yara: Vec::new() };
-        let hit = |d: &[u8]| engine.scan_bytes(d, ScanOptions::default()).iter().any(|m| m.name == "Test.PcreBytes");
+        let engine = Engine {
+            database,
+            atomfilter_db,
+            yara: Vec::new(),
+        };
+        let hit = |d: &[u8]| {
+            engine
+                .scan_bytes(d, ScanOptions::default())
+                .iter()
+                .any(|m| m.name == "Test.PcreBytes")
+        };
         assert!(hit(b"AAA \xe9\x80\xff ......"));
         assert!(!hit("AAA \u{e9}\u{ff} ......".as_bytes()));
     }
@@ -2878,7 +3288,11 @@ mod tests {
             ..Default::default()
         };
         let atomfilter_db = crate::atomfilter_build::AtomFilterBuilder::build(&database);
-        let engine = Engine { database, atomfilter_db, yara: Vec::new() };
+        let engine = Engine {
+            database,
+            atomfilter_db,
+            yara: Vec::new(),
+        };
         // Body "AAA" present and regex "world" present -> match.
         let found = engine.scan_bytes(b"AAA hello world", ScanOptions::default());
         assert!(found.iter().any(|m| m.name == "Test.Pcre"));
@@ -2903,17 +3317,23 @@ mod tests {
             ..Default::default()
         };
         let atomfilter_db = crate::atomfilter_build::AtomFilterBuilder::build(&database);
-        let engine = Engine { database, atomfilter_db, yara: Vec::new() };
+        let engine = Engine {
+            database,
+            atomfilter_db,
+            yara: Vec::new(),
+        };
         // "SIZE" then 2 LE bytes = 5 (>0) -> match.
         // Pad to 260+ bytes so first-256 sample stays 99% text (>90% for gate).
         let mut data = vec![b'X'; 260];
         data[..4].copy_from_slice(b"SIZE");
-        data[4] = 5; data[5] = 0;
+        data[4] = 5;
+        data[5] = 0;
         data[6..10].copy_from_slice(b"tail");
         let found = engine.scan_bytes(&data, ScanOptions::default());
         assert!(found.iter().any(|m| m.name == "Test.Bc"));
         // 2 LE bytes = 0 -> byte-compare fails.
-        data[4] = 0; data[5] = 0;
+        data[4] = 0;
+        data[5] = 0;
         let none = engine.scan_bytes(&data, ScanOptions::default());
         assert!(none.is_empty());
     }
@@ -2939,10 +3359,16 @@ mod tests {
             ..Default::default()
         };
         let atomfilter_db = crate::atomfilter_build::AtomFilterBuilder::build(&database);
-        let engine = Engine { database, atomfilter_db, yara: Vec::new() };
+        let engine = Engine {
+            database,
+            atomfilter_db,
+            yara: Vec::new(),
+        };
         // Container signatures match extracted children.
         // Drive the extraction-layer path directly via scan_object.
-        let mut state = ScanState { matches: Vec::new() };
+        let mut state = ScanState {
+            matches: Vec::new(),
+        };
         engine.scan_object(
             b"MALWARE-PAYLOAD",
             "root#archive[0]",
@@ -2958,10 +3384,12 @@ mod tests {
             false,
             false,
         );
-        assert!(state
-            .matches
-            .iter()
-            .any(|m| m.name == "Test.Cdb" && m.kind == SignatureKind::Container));
+        assert!(
+            state
+                .matches
+                .iter()
+                .any(|m| m.name == "Test.Cdb" && m.kind == SignatureKind::Container)
+        );
     }
 
     #[test]
@@ -2971,7 +3399,9 @@ mod tests {
                 anchor: OffsetAnchor::Absolute(0),
                 max_shift: None,
             },
-            patterns: compile_pattern_variants("52494646", Modifiers::default()).unwrap().into(),
+            patterns: compile_pattern_variants("52494646", Modifiers::default())
+                .unwrap()
+                .into(),
             clamav_type: "CL_TYPE_RIFF".into(),
             name: "RIFF".into(),
             source: SourceLocation {
@@ -2984,7 +3414,9 @@ mod tests {
             name: crate::database::intern_name(&mut name_arena, "Html.Sig"),
             target: Some(3),
             offset: OffsetSpec::any(),
-            patterns: compile_pattern_variants("4142", Modifiers::default()).unwrap().into(),
+            patterns: compile_pattern_variants("4142", Modifiers::default())
+                .unwrap()
+                .into(),
             source: SourceLocation {
                 path: std::sync::Arc::from(std::path::Path::new("t.ndb")),
                 line: 1,
@@ -2997,14 +3429,22 @@ mod tests {
             ..Default::default()
         };
         let atomfilter_db = crate::atomfilter_build::AtomFilterBuilder::build(&database);
-        let engine = Engine { database, atomfilter_db, yara: Vec::new() };
+        let engine = Engine {
+            database,
+            atomfilter_db,
+            yara: Vec::new(),
+        };
         // "RIFFAB": .ftm types it as a RIFF container (no target mapping, so
         // detected_target stays None); the sig's target 3 (HTML) still gets
         // filtered — either the .ftm type maps to a non-3 target, or (as here)
         // the `detect_builtin_target`/text-heuristic fallback in `target_matches`
         // rejects the mismatch. Confirms strict typing filters unrelated targets
         // without relying on any PE/Windows-executable-specific type.
-        assert!(engine.scan_bytes(b"RIFFAB", ScanOptions::default()).is_empty());
+        assert!(
+            engine
+                .scan_bytes(b"RIFFAB", ScanOptions::default())
+                .is_empty()
+        );
     }
 
     // --- Offset-threading equivalence: the built prefilter (threaded verify +
@@ -3044,7 +3484,9 @@ mod tests {
         // Naive extended scan
         for (_si, sig) in db.extended.iter().enumerate() {
             let ranges = sig.offset.scan_ranges(data.len(), ctx.pe());
-            if ranges.is_empty() { continue; }
+            if ranges.is_empty() {
+                continue;
+            }
             let mut matched = false;
             for pattern in &sig.patterns {
                 if !pattern.find_all(data, &ranges, 1).is_empty() {
@@ -3107,7 +3549,11 @@ mod tests {
                     Subsignature::ByteCompare(spec) => {
                         let trigger_hit = counts.get(spec.trigger_subsig).copied().unwrap_or(0) > 0;
                         if trigger_hit {
-                            let base = last_offsets.get(spec.trigger_subsig).copied().flatten().unwrap_or(0);
+                            let base = last_offsets
+                                .get(spec.trigger_subsig)
+                                .copied()
+                                .flatten()
+                                .unwrap_or(0);
                             if spec.evaluate(data, base) {
                                 counts[i] = 1;
                             }
@@ -3120,7 +3566,10 @@ mod tests {
                 matches.push(sig.name.to_string());
             }
         }
-        let mut v: Vec<String> = matches.into_iter().map(|name| format!("{}@root", name)).collect();
+        let mut v: Vec<String> = matches
+            .into_iter()
+            .map(|name| format!("{}@root", name))
+            .collect();
         v.sort();
         v.dedup();
         v
@@ -3140,7 +3589,8 @@ mod tests {
         };
         let filter_matches = match_keys(&engine.scan_bytes(data, opts));
         assert_eq!(
-            naive, filter_matches,
+            naive,
+            filter_matches,
             "AtomFilterDb scan differed from naive scan on {:?}",
             String::from_utf8_lossy(data)
         );
@@ -3168,21 +3618,48 @@ mod tests {
         };
         let extended = vec![
             // Anchored literal, fixed prefix 0.
-            ext("E.Anchored", 0, OffsetSpec::any(), "4141414142424242", Modifiers::default()),
+            ext(
+                "E.Anchored",
+                0,
+                OffsetSpec::any(),
+                "4141414142424242",
+                Modifiers::default(),
+            ),
             // Masked first byte then literal → required_prefix = 1 (threaded at off-1).
-            ext("E.MaskedPrefix", 0, OffsetSpec::any(), "??48495051", Modifiers::default()),
+            ext(
+                "E.MaskedPrefix",
+                0,
+                OffsetSpec::any(),
+                "??48495051",
+                Modifiers::default(),
+            ),
             // nocase → no required_literal → find_all_at falls back to full scan.
             ext("E.Nocase", 0, OffsetSpec::any(), "6d616c7761726e", nocase),
             // nocase atom made of DIGITS only ("012345") — must still match on a
             // letterless buffer (guards against an "is there a letter?" skip).
-            ext("E.NocaseDigits", 0, OffsetSpec::any(), "303132333435", nocase),
+            ext(
+                "E.NocaseDigits",
+                0,
+                OffsetSpec::any(),
+                "303132333435",
+                nocase,
+            ),
             // Leading wildcard → required_prefix None → fallback path.
-            ext("E.LeadingWild", 0, OffsetSpec::any(), "*5a5a5a5a", Modifiers::default()),
+            ext(
+                "E.LeadingWild",
+                0,
+                OffsetSpec::any(),
+                "*5a5a5a5a",
+                Modifiers::default(),
+            ),
             // Absolute offset 0 only: a match elsewhere must be rejected by ranges.
             ext(
                 "E.AbsZero",
                 0,
-                OffsetSpec { anchor: OffsetAnchor::Absolute(0), max_shift: None },
+                OffsetSpec {
+                    anchor: OffsetAnchor::Absolute(0),
+                    max_shift: None,
+                },
                 "57575757",
                 Modifiers::default(),
             ),
@@ -3190,7 +3667,10 @@ mod tests {
             ext(
                 "E.EofTail",
                 0,
-                OffsetSpec { anchor: OffsetAnchor::EofMinus(8), max_shift: Some(8) },
+                OffsetSpec {
+                    anchor: OffsetAnchor::EofMinus(8),
+                    max_shift: Some(8),
+                },
                 "59595959",
                 Modifiers::default(),
             ),
@@ -3297,30 +3777,37 @@ mod tests {
         // tricky case where the atom is NOT at the match start: subsig 0 is
         // `??powershell` (wildcard then the literal), so a real match starts one
         // byte BEFORE the "powershell" atom — the window must still cover it.
-        let (engine, w) = engine_with_logical(
-            "Test.Or;Target:0;0|1;??706f7765727368656c6c;636572747574696c",
-        );
+        let (engine, w) =
+            engine_with_logical("Test.Or;Target:0;0|1;??706f7765727368656c6c;636572747574696c");
         assert!(w.is_empty());
         // "Xpowershell" (any byte then the literal) → subsig 0 matches.
-        assert!(engine
-            .scan_bytes(b"....Xpowershell....", ScanOptions::default())
-            .iter()
-            .any(|m| m.name == "Test.Or"));
+        assert!(
+            engine
+                .scan_bytes(b"....Xpowershell....", ScanOptions::default())
+                .iter()
+                .any(|m| m.name == "Test.Or")
+        );
         // "certutil" at the very end of the buffer → subsig 1 matches.
-        assert!(engine
-            .scan_bytes(b"junkjunkcertutil", ScanOptions::default())
-            .iter()
-            .any(|m| m.name == "Test.Or"));
+        assert!(
+            engine
+                .scan_bytes(b"junkjunkcertutil", ScanOptions::default())
+                .iter()
+                .any(|m| m.name == "Test.Or")
+        );
         // Atom right at offset 0 (wildcard prefix consumes the byte before it does
         // not exist) — "Apowershell" at start still matches via subsig 0.
-        assert!(engine
-            .scan_bytes(b"Apowershell tail", ScanOptions::default())
-            .iter()
-            .any(|m| m.name == "Test.Or"));
+        assert!(
+            engine
+                .scan_bytes(b"Apowershell tail", ScanOptions::default())
+                .iter()
+                .any(|m| m.name == "Test.Or")
+        );
         // Neither keyword present → no match (window restriction must not invent one).
-        assert!(engine
-            .scan_bytes(b"nothing to see here", ScanOptions::default())
-            .is_empty());
+        assert!(
+            engine
+                .scan_bytes(b"nothing to see here", ScanOptions::default())
+                .is_empty()
+        );
     }
 
     #[test]
@@ -3346,8 +3833,7 @@ mod tests {
         // `(0|1)&(2<3)`: matches when (0 or 1 present) AND subsig 2 occurs < 3
         // times. A non-zero-but-small subsig-2 count satisfies `2<3`, which the
         // max-sibling probe (count = 1<<30) wrongly judges unsatisfiable.
-        let (engine, w) =
-            engine_with_logical("Test.Lt;Target:0;(0|1)&(2<3);4142;5859;4344");
+        let (engine, w) = engine_with_logical("Test.Lt;Target:0;(0|1)&(2<3);4142;5859;4344");
         assert!(w.is_empty());
         // subsig 1 ("XY") present, subsig 0 absent, subsig 2 ("CD") twice (<3) → match.
         let found = engine.scan_bytes(b"XY__CD__CD______", ScanOptions::default());
@@ -3360,19 +3846,24 @@ mod tests {
     #[test]
     fn tdb_container_gates_match() {
         // Sig requires the object to live inside a ZIP container. Body = "MALWARE".
-        let (engine, w) =
-            engine_with_logical("Test.InZip;Engine:1-255,Container:CL_TYPE_ZIP,Target:0;0;4d414c57415245");
+        let (engine, w) = engine_with_logical(
+            "Test.InZip;Engine:1-255,Container:CL_TYPE_ZIP,Target:0;0;4d414c57415245",
+        );
         assert!(w.is_empty());
         // Top-level "MALWARE" (no parent container) → must NOT fire.
-        assert!(engine
-            .scan_bytes(b"xxMALWAREyyyyyy", ScanOptions::default())
-            .is_empty());
+        assert!(
+            engine
+                .scan_bytes(b"xxMALWAREyyyyyy", ScanOptions::default())
+                .is_empty()
+        );
         // Container extraction is done by `collect_buffers` before reaching
         // the engine; it tags each extracted child with its parent's
         // `CL_TYPE_*` via `scan_object`'s `container_type` argument. Drive that
         // path directly: scan the child bytes with `container_type = ZIP` and
         // confirm the `Container:CL_TYPE_ZIP` TDB gate lets the body match fire.
-        let mut state = ScanState { matches: Vec::new() };
+        let mut state = ScanState {
+            matches: Vec::new(),
+        };
         engine.scan_object(
             b"xxMALWAREyyyyyy",
             "root#archive[0]",
@@ -3400,23 +3891,31 @@ mod tests {
         // SWF with both strings present → match.
         let mut swf = b"FWS\x06\x00\x00\x00\x00".to_vec();
         swf.extend_from_slice(b"...VirtualProtect...Kernel32...");
-        assert!(engine
-            .scan_bytes(&swf, ScanOptions::default())
-            .iter()
-            .any(|m| m.name == "Test.Swf"));
+        assert!(
+            engine
+                .scan_bytes(&swf, ScanOptions::default())
+                .iter()
+                .any(|m| m.name == "Test.Swf")
+        );
     }
 
     #[test]
     fn tdb_engine_flevel_gates_loading() {
         // Engine:1-5 excludes our ENGINE_FLEVEL (240) → signature never fires.
         let (engine, _) = engine_with_logical("Test.OldEngine;Engine:1-5,Target:0;0;4142");
-        assert!(engine.scan_bytes(b"xxAByy__________", ScanOptions::default()).is_empty());
+        assert!(
+            engine
+                .scan_bytes(b"xxAByy__________", ScanOptions::default())
+                .is_empty()
+        );
         // Engine:51-255 includes 240 → fires normally.
         let (engine2, _) = engine_with_logical("Test.NewEngine;Engine:51-255,Target:0;0;4142");
-        assert!(engine2
-            .scan_bytes(b"xxAByy__________", ScanOptions::default())
-            .iter()
-            .any(|m| m.name == "Test.NewEngine"));
+        assert!(
+            engine2
+                .scan_bytes(b"xxAByy__________", ScanOptions::default())
+                .iter()
+                .any(|m| m.name == "Test.NewEngine")
+        );
     }
 
     #[test]
@@ -3426,12 +3925,18 @@ mod tests {
         // Sizes stay above the engine's 12-byte minimum (smaller buffers are not
         // scanned at all), so the FileSize gate is what decides here.
         // len 13, below FileSize:15-20 → no match.
-        assert!(engine.scan_bytes(b"xxxxxABxxxxxx", ScanOptions::default()).is_empty());
+        assert!(
+            engine
+                .scan_bytes(b"xxxxxABxxxxxx", ScanOptions::default())
+                .is_empty()
+        );
         // len 17, within range → match.
-        assert!(engine
-            .scan_bytes(b"xxxxxxABxxxxxxxxy", ScanOptions::default())
-            .iter()
-            .any(|m| m.name == "Test.Size"));
+        assert!(
+            engine
+                .scan_bytes(b"xxxxxxABxxxxxxxxy", ScanOptions::default())
+                .iter()
+                .any(|m| m.name == "Test.Size")
+        );
     }
 
     #[test]
@@ -3444,17 +3949,25 @@ mod tests {
             warnings.is_empty(),
             "IconGroup parsed normally; no unsupported-TDB warning"
         );
-        assert!(engine.scan_bytes(b"xxAByy__________", ScanOptions::default()).is_empty());
+        assert!(
+            engine
+                .scan_bytes(b"xxAByy__________", ScanOptions::default())
+                .is_empty()
+        );
     }
 
     #[test]
     fn is_unsupported_archive_detects_rar5() {
-        assert!(is_unsupported_archive(&[0x52, 0x61, 0x72, 0x21, 0x1a, 0x07, 0x01, 0x00]));
+        assert!(is_unsupported_archive(&[
+            0x52, 0x61, 0x72, 0x21, 0x1a, 0x07, 0x01, 0x00
+        ]));
     }
 
     #[test]
     fn is_unsupported_archive_detects_rar15() {
-        assert!(is_unsupported_archive(&[0x52, 0x61, 0x72, 0x21, 0x1a, 0x07, 0x00]));
+        assert!(is_unsupported_archive(&[
+            0x52, 0x61, 0x72, 0x21, 0x1a, 0x07, 0x00
+        ]));
     }
 
     #[test]
@@ -3482,18 +3995,31 @@ mod tests {
                 name: crate::database::intern_name(&mut name_arena, "Test.NoArchive"),
                 target: Some(0),
                 offset: OffsetSpec::any(),
-                patterns: compile_pattern_variants("414243", Modifiers::default()).unwrap().into(),
+                patterns: compile_pattern_variants("414243", Modifiers::default())
+                    .unwrap()
+                    .into(),
                 source,
             }],
             name_arena,
             ..Default::default()
         };
         let atomfilter_db = crate::atomfilter_build::AtomFilterBuilder::build(&database);
-        let engine = Engine { database, atomfilter_db, yara: Vec::new() };
+        let engine = Engine {
+            database,
+            atomfilter_db,
+            yara: Vec::new(),
+        };
 
-        let opts = ScanOptions { scan_archives: false, ..ScanOptions::default() };
+        let opts = ScanOptions {
+            scan_archives: false,
+            ..ScanOptions::default()
+        };
         let found = engine.scan_bytes(b"xxABCyyyyyyyyyy", opts);
-        assert_eq!(found.len(), 1, "scan_archives=false must still scan raw bytes");
+        assert_eq!(
+            found.len(),
+            1,
+            "scan_archives=false must still scan raw bytes"
+        );
     }
 
     #[test]
@@ -3503,7 +4029,10 @@ mod tests {
             line: 1,
         };
         let mut name_arena = String::new();
-        let nocase = Modifiers { nocase: true, ..Modifiers::default() };
+        let nocase = Modifiers {
+            nocase: true,
+            ..Modifiers::default()
+        };
         let database = Database {
             extended: vec![ExtendedSignature {
                 name: crate::database::intern_name(&mut name_arena, "Test.NocaseExt"),
@@ -3516,15 +4045,38 @@ mod tests {
             ..Default::default()
         };
         let atomfilter_db = crate::atomfilter_build::AtomFilterBuilder::build(&database);
-        let engine = Engine { database, atomfilter_db, yara: Vec::new() };
+        let engine = Engine {
+            database,
+            atomfilter_db,
+            yara: Vec::new(),
+        };
 
         // All these should match "abc" (case-insensitively)
-        assert!(engine.scan_bytes(b"ABC!............", ScanOptions::default()).iter().any(|m| m.name == "Test.NocaseExt"));
-        assert!(engine.scan_bytes(b"abc!............", ScanOptions::default()).iter().any(|m| m.name == "Test.NocaseExt"));
-        assert!(engine.scan_bytes(b"AbC!............", ScanOptions::default()).iter().any(|m| m.name == "Test.NocaseExt"));
+        assert!(
+            engine
+                .scan_bytes(b"ABC!............", ScanOptions::default())
+                .iter()
+                .any(|m| m.name == "Test.NocaseExt")
+        );
+        assert!(
+            engine
+                .scan_bytes(b"abc!............", ScanOptions::default())
+                .iter()
+                .any(|m| m.name == "Test.NocaseExt")
+        );
+        assert!(
+            engine
+                .scan_bytes(b"AbC!............", ScanOptions::default())
+                .iter()
+                .any(|m| m.name == "Test.NocaseExt")
+        );
 
         // Should not match when completely absent
-        assert!(engine.scan_bytes(b"xyz!............", ScanOptions::default()).is_empty());
+        assert!(
+            engine
+                .scan_bytes(b"xyz!............", ScanOptions::default())
+                .is_empty()
+        );
     }
 
     #[test]
@@ -3540,21 +4092,27 @@ mod tests {
                     name: crate::database::intern_name(&mut name_arena, "Sig.Alpha"),
                     target: Some(0),
                     offset: OffsetSpec::any(),
-                    patterns: compile_pattern_variants("414141", Modifiers::default()).unwrap().into(),
+                    patterns: compile_pattern_variants("414141", Modifiers::default())
+                        .unwrap()
+                        .into(),
                     source: source.clone(),
                 },
                 ExtendedSignature {
                     name: crate::database::intern_name(&mut name_arena, "Sig.Beta"),
                     target: Some(0),
                     offset: OffsetSpec::any(),
-                    patterns: compile_pattern_variants("424242", Modifiers::default()).unwrap().into(),
+                    patterns: compile_pattern_variants("424242", Modifiers::default())
+                        .unwrap()
+                        .into(),
                     source: source.clone(),
                 },
                 ExtendedSignature {
                     name: crate::database::intern_name(&mut name_arena, "Sig.Gamma"),
                     target: Some(0),
                     offset: OffsetSpec::any(),
-                    patterns: compile_pattern_variants("434343", Modifiers::default()).unwrap().into(),
+                    patterns: compile_pattern_variants("434343", Modifiers::default())
+                        .unwrap()
+                        .into(),
                     source,
                 },
             ],
@@ -3562,7 +4120,11 @@ mod tests {
             ..Default::default()
         };
         let atomfilter_db = crate::atomfilter_build::AtomFilterBuilder::build(&database);
-        let engine = Engine { database, atomfilter_db, yara: Vec::new() };
+        let engine = Engine {
+            database,
+            atomfilter_db,
+            yara: Vec::new(),
+        };
 
         let found = engine.scan_bytes(b"AAABBBCCC_______", ScanOptions::default());
         assert_eq!(found.len(), 3);
@@ -3584,23 +4146,36 @@ mod tests {
                 name: crate::database::intern_name(&mut name_arena, "Test.Eicar"),
                 target: Some(0),
                 offset: OffsetSpec::any(),
-                patterns: compile_pattern_variants(hex, Modifiers::default()).unwrap().into(),
+                patterns: compile_pattern_variants(hex, Modifiers::default())
+                    .unwrap()
+                    .into(),
                 source,
             }],
             name_arena,
             ..Default::default()
         };
         let atomfilter_db = crate::atomfilter_build::AtomFilterBuilder::build(&database);
-        let engine = Engine { database, atomfilter_db, yara: Vec::new() };
+        let engine = Engine {
+            database,
+            atomfilter_db,
+            yara: Vec::new(),
+        };
 
         let eicar = b"X5O!P%@AP[4\\PZX54(P^)7CC)7}$EICAR-STANDARD-ANTIVIRUS-TEST-FILE!$H+H*";
         let hit = engine.scan_bytes(eicar, ScanOptions::default());
-        assert_eq!(hit.len(), 1, "EICAR test signature should detect the EICAR string");
+        assert_eq!(
+            hit.len(),
+            1,
+            "EICAR test signature should detect the EICAR string"
+        );
         assert_eq!(hit[0].name, "Test.Eicar");
 
         // Should not match on a benign string
         let miss = engine.scan_bytes(b"hello world this is not malware", ScanOptions::default());
-        assert!(miss.is_empty(), "EICAR signature must not fire on benign content");
+        assert!(
+            miss.is_empty(),
+            "EICAR signature must not fire on benign content"
+        );
     }
 
     #[test]
@@ -3616,25 +4191,39 @@ mod tests {
             ..Default::default()
         };
         let atomfilter_db = crate::atomfilter_build::AtomFilterBuilder::build(&database);
-        let engine = Engine { database, atomfilter_db, yara: Vec::new() };
+        let engine = Engine {
+            database,
+            atomfilter_db,
+            yara: Vec::new(),
+        };
 
         // Test non-RTF content: must finish instantaneously and not match
         let t0 = std::time::Instant::now();
-        let miss = engine.scan_bytes(b"This is a benign document with no RTF header at all 60 60 60", ScanOptions::default());
+        let miss = engine.scan_bytes(
+            b"This is a benign document with no RTF header at all 60 60 60",
+            ScanOptions::default(),
+        );
         let elapsed = t0.elapsed();
         assert!(miss.is_empty());
-        assert!(elapsed.as_millis() < 50, "Non-RTF file must skip quickly: took {:?}", elapsed);
+        assert!(
+            elapsed.as_millis() < 50,
+            "Non-RTF file must skip quickly: took {:?}",
+            elapsed
+        );
 
         // Test matching RTF content containing {\rt, \object, and hex 6960656078
         // 0:7B5C7274 = {\rt
         // 5C6F626A656374 = \object
         // 3639 3630 3635 3630 3738 = 6960656078
-        let matching_rtf = b"{\\rt\\ansi this is an RTF document \\object some data 6960656078 tail";
+        let matching_rtf =
+            b"{\\rt\\ansi this is an RTF document \\object some data 6960656078 tail";
         let hit = engine.scan_bytes(matching_rtf, ScanOptions::default());
         assert_eq!(hit.len(), 1);
-        assert_eq!(hit[0].name, "TwinWave.EvilDoc.DOCXSTRGOOD.RTFSTR.I_E_X.210820");
+        assert_eq!(
+            hit[0].name,
+            "TwinWave.EvilDoc.DOCXSTRGOOD.RTFSTR.I_E_X.210820"
+        );
     }
-
 }
 
 /// Occurrences of post-gap literals in one buffer, shared by the extended
@@ -3695,7 +4284,11 @@ fn atomfilter_stamp(db: &Path) -> Option<[u8; 32]> {
     use sha2::{Digest, Sha256};
     fn add(h: &mut Sha256, file: &Path) -> io::Result<()> {
         let meta = std::fs::metadata(file)?;
-        let mtime = meta.modified()?.duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0);
+        let mtime = meta
+            .modified()?
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
         let name = file.to_string_lossy();
         h.update((name.len() as u64).to_le_bytes());
         h.update(name.as_bytes());
@@ -3727,11 +4320,24 @@ fn atomfilter_stamp(db: &Path) -> Option<[u8; 32]> {
 fn read_atomfilter_cache(file: &Path, stamp: &[u8; 32]) -> Option<crate::atomfilter::AtomFilterDb> {
     let t = Instant::now();
     let bytes = std::fs::read(file).ok()?;
-    let body = bytes.strip_prefix(ATOMFILTER_CACHE_MAGIC.as_slice())?.strip_prefix(stamp.as_slice())?;
+    let body = bytes
+        .strip_prefix(ATOMFILTER_CACHE_MAGIC.as_slice())?
+        .strip_prefix(stamp.as_slice())?;
     let db = crate::atomfilter::AtomFilterDb::from_bytes(body);
     match &db {
-        Some(_) => { rust_timing_log!("atomfilter_build :: cache read in {}ms ({} MB)", t.elapsed().as_millis(), bytes.len() >> 20); }
-        None => { rust_timing_log!("atomfilter_build :: cache {} is damaged, rebuilding", file.display()); }
+        Some(_) => {
+            rust_timing_log!(
+                "atomfilter_build :: cache read in {}ms ({} MB)",
+                t.elapsed().as_millis(),
+                bytes.len() >> 20
+            );
+        }
+        None => {
+            rust_timing_log!(
+                "atomfilter_build :: cache {} is damaged, rebuilding",
+                file.display()
+            );
+        }
     }
     db
 }
@@ -3752,10 +4358,19 @@ fn write_atomfilter_cache(file: &Path, stamp: &[u8; 32], db: &crate::atomfilter:
         std::fs::rename(&tmp, file)
     })();
     match written {
-        Ok(()) => { rust_timing_log!("atomfilter_build :: cache written in {}ms ({} MB)", t.elapsed().as_millis(), blob.len() >> 20); }
+        Ok(()) => {
+            rust_timing_log!(
+                "atomfilter_build :: cache written in {}ms ({} MB)",
+                t.elapsed().as_millis(),
+                blob.len() >> 20
+            );
+        }
         Err(e) => {
             let _ = std::fs::remove_file(&tmp);
-            rust_timing_log!("atomfilter_build :: cache {} not written: {e}", file.display());
+            rust_timing_log!(
+                "atomfilter_build :: cache {} not written: {e}",
+                file.display()
+            );
         }
     }
 }

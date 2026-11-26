@@ -3,11 +3,11 @@
 //! OpenEDR (`edrsvc.exe`) calls these symbols after loading the DLL
 //! with `LoadLibraryW`. No Windows service is required.
 
+use sha2::Digest;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Sender};
 use std::sync::{Mutex, OnceLock};
 use std::thread;
-use sha2::Digest;
 
 static ENGINE_STOPPED: AtomicBool = AtomicBool::new(false);
 
@@ -178,7 +178,8 @@ pub unsafe extern "C" fn owlyshield_telemetry_submit_event(
     raw_json: *const u8,
     raw_json_len: u32,
 ) -> i32 {
-    let Some(et) = (unsafe { c_utf8_slice(event_type, event_type_len) }).filter(|s| !s.is_empty()) else {
+    let Some(et) = (unsafe { c_utf8_slice(event_type, event_type_len) }).filter(|s| !s.is_empty())
+    else {
         return OWLY_DESERIALIZE_ERROR;
     };
     let Some(exe) = (unsafe { c_utf8_slice(exe_path, exe_path_len) }) else {
@@ -211,7 +212,8 @@ pub unsafe extern "C" fn owlyshield_telemetry_emit_sysop(
     details_json_len: u32,
     sync_flush: u32,
 ) -> i32 {
-    let Some(et) = (unsafe { c_utf8_slice(event_type, event_type_len) }).filter(|s| !s.is_empty()) else {
+    let Some(et) = (unsafe { c_utf8_slice(event_type, event_type_len) }).filter(|s| !s.is_empty())
+    else {
         return OWLY_DESERIALIZE_ERROR;
     };
     let Some(msg) = (unsafe { c_utf8_slice(message, message_len) }) else {
@@ -455,11 +457,15 @@ pub extern "C" fn owlyshield_update_process_verdict(pid: u32, verdict: u8) -> i3
         ));
         if verdict == 2 {
             let mut sys = sysinfo::System::new();
-            sys.refresh_processes(sysinfo::ProcessesToUpdate::Some(&[sysinfo::Pid::from_u32(pid)]), true);
+            sys.refresh_processes(
+                sysinfo::ProcessesToUpdate::Some(&[sysinfo::Pid::from_u32(pid)]),
+                true,
+            );
             if let Some(proc) = sys.process(sysinfo::Pid::from_u32(pid)) {
                 if let Some(exe_path) = proc.exe().map(|p| p.to_path_buf()) {
                     let file_bytes = std::fs::read(&exe_path).ok();
-                    let sha = file_bytes.as_ref()
+                    let sha = file_bytes
+                        .as_ref()
                         .map(|b| {
                             let mut h = sha2::Sha256::new();
                             h.update(b);
@@ -468,7 +474,10 @@ pub extern "C" fn owlyshield_update_process_verdict(pid: u32, verdict: u8) -> i3
                         .unwrap_or_else(|| "unknown".to_string());
                     let report = crate::edr_feedback::ThreatReport {
                         sha256: sha,
-                        file_name: exe_path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| "process.exe".to_string()),
+                        file_name: exe_path
+                            .file_name()
+                            .map(|n| n.to_string_lossy().to_string())
+                            .unwrap_or_else(|| "process.exe".to_string()),
                         original_path: exe_path.to_string_lossy().to_string(),
                         detection: "Behavioral.OpenEDR.MaliciousProcess".to_string(),
                         source: "behavioral_engine".to_string(),
@@ -504,15 +513,17 @@ unsafe extern "system" {
 }
 
 type StaticInitFn = unsafe extern "C" fn(*const std::os::raw::c_char) -> i32;
-type StaticScanFn =
+type StaticScanFn = unsafe extern "C" fn(*const std::os::raw::c_char) -> *mut std::os::raw::c_char;
+type StaticUrlScanFn =
     unsafe extern "C" fn(*const std::os::raw::c_char) -> *mut std::os::raw::c_char;
-type StaticUrlScanFn = unsafe extern "C" fn(*const std::os::raw::c_char) -> *mut std::os::raw::c_char;
 type StaticUrlModelLoadedFn = unsafe extern "C" fn() -> u32;
 type StaticFreeFn = unsafe extern "C" fn(*mut std::os::raw::c_char);
 type StaticSignerFn = unsafe extern "C" fn(*const std::os::raw::c_char) -> u32;
-type StaticEvtxScanFn = unsafe extern "C" fn(*const std::os::raw::c_char) -> *mut std::os::raw::c_char;
+type StaticEvtxScanFn =
+    unsafe extern "C" fn(*const std::os::raw::c_char) -> *mut std::os::raw::c_char;
 type StaticSystemEventsScanFn = unsafe extern "C" fn() -> *mut std::os::raw::c_char;
-type StaticCheckRegistryFn = unsafe extern "C" fn(*const std::os::raw::c_char) -> *mut std::os::raw::c_char;
+type StaticCheckRegistryFn =
+    unsafe extern "C" fn(*const std::os::raw::c_char) -> *mut std::os::raw::c_char;
 type StaticCheckRegistryContentFn = unsafe extern "C" fn(
     *const std::os::raw::c_char,
     *const std::os::raw::c_char,
@@ -628,23 +639,30 @@ fn static_binding() -> Option<StaticBinding> {
             let scan_system_events = if scan_sys_events_ptr.is_null() {
                 None
             } else {
-                Some(std::mem::transmute::<*mut std::ffi::c_void, StaticSystemEventsScanFn>(scan_sys_events_ptr))
+                Some(std::mem::transmute::<
+                    *mut std::ffi::c_void,
+                    StaticSystemEventsScanFn,
+                >(scan_sys_events_ptr))
             };
 
             let check_reg_ptr = sym(b"openedr_static_check_registry\0");
             let check_registry = if check_reg_ptr.is_null() {
                 None
             } else {
-                Some(std::mem::transmute::<*mut std::ffi::c_void, StaticCheckRegistryFn>(check_reg_ptr))
+                Some(std::mem::transmute::<
+                    *mut std::ffi::c_void,
+                    StaticCheckRegistryFn,
+                >(check_reg_ptr))
             };
 
             let check_reg_content_ptr = sym(b"openedr_static_check_registry_content\0");
             let check_registry_content = if check_reg_content_ptr.is_null() {
                 None
             } else {
-                Some(std::mem::transmute::<*mut std::ffi::c_void, StaticCheckRegistryContentFn>(
-                    check_reg_content_ptr,
-                ))
+                Some(std::mem::transmute::<
+                    *mut std::ffi::c_void,
+                    StaticCheckRegistryContentFn,
+                >(check_reg_content_ptr))
             };
 
             Mutex::new(Some(StaticBinding {
@@ -679,10 +697,7 @@ pub(crate) fn static_url_model_loaded() -> bool {
 /// Single-authority signer checks via openedr_static.dll.
 /// Replaces the former duplicate `signer_rules.rs` YAML parsing here:
 /// `signer_rules/` is owned solely by openedr_static.
-fn static_signer_check(
-    f: Option<StaticSignerFn>,
-    signer_name: &str,
-) -> bool {
+fn static_signer_check(f: Option<StaticSignerFn>, signer_name: &str) -> bool {
     let Some(check) = f else {
         return false;
     };
@@ -815,7 +830,8 @@ pub extern "C" fn owlyshield_scan_file_name(
     let (verdict, name) = scan_file_named(&path_buf);
     if verdict == 2 && !name.is_empty() {
         let file_bytes = std::fs::read(&path_buf).ok();
-        let sha = file_bytes.as_ref()
+        let sha = file_bytes
+            .as_ref()
             .map(|b| {
                 let mut h = sha2::Sha256::new();
                 h.update(b);
@@ -824,7 +840,10 @@ pub extern "C" fn owlyshield_scan_file_name(
             .unwrap_or_else(|| "unknown".to_string());
         let report = crate::edr_feedback::ThreatReport {
             sha256: sha,
-            file_name: path_buf.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| "sample.bin".to_string()),
+            file_name: path_buf
+                .file_name()
+                .map(|n| n.to_string_lossy().to_string())
+                .unwrap_or_else(|| "sample.bin".to_string()),
             original_path: path_buf.to_string_lossy().to_string(),
             detection: name.clone(),
             source: "ml_static".to_string(),
@@ -886,9 +905,9 @@ fn scan_url_strings_impl(data: *const u8, len: u32) -> String {
 
     let mut seen = std::collections::HashSet::new();
     let mut tokens: Vec<String> = Vec::new();
-    for raw in text.split(|c: char| {
-        c.is_whitespace() || c.is_control() || "<>\"'|,;()[]{}".contains(c)
-    }) {
+    for raw in
+        text.split(|c: char| c.is_whitespace() || c.is_control() || "<>\"'|,;()[]{}".contains(c))
+    {
         if tokens.len() >= MAX_TOKENS {
             break;
         }
@@ -914,11 +933,13 @@ fn scan_url_strings_impl(data: *const u8, len: u32) -> String {
     .to_string()
 }
 
-
 /// Scan an EVTX file with the Hayabusa (Sigma) engine via openedr_static.
 /// Returns JSON-formatted string on heap. Caller MUST free using `owlyshield_free_string`.
 #[unsafe(no_mangle)]
-pub extern "C" fn owlyshield_scan_evtx(path_ptr: *const u16, path_len: u32) -> *mut std::os::raw::c_char {
+pub extern "C" fn owlyshield_scan_evtx(
+    path_ptr: *const u16,
+    path_len: u32,
+) -> *mut std::os::raw::c_char {
     if path_ptr.is_null() || path_len == 0 || path_len > 32768 {
         return std::ptr::null_mut();
     }
@@ -957,7 +978,10 @@ pub extern "C" fn owlyshield_scan_system_events() -> *mut std::os::raw::c_char {
 /// Check a registry path with the PTM registry engine via openedr_static.
 /// Returns JSON-formatted string on heap. Caller MUST free using `owlyshield_free_string`.
 #[unsafe(no_mangle)]
-pub extern "C" fn owlyshield_check_registry(path_ptr: *const u16, path_len: u32) -> *mut std::os::raw::c_char {
+pub extern "C" fn owlyshield_check_registry(
+    path_ptr: *const u16,
+    path_len: u32,
+) -> *mut std::os::raw::c_char {
     if path_ptr.is_null() || path_len == 0 || path_len > 32768 {
         return std::ptr::null_mut();
     }
@@ -1042,7 +1066,9 @@ pub unsafe extern "C" fn owlyshield_stream_detection(data: *const u8, len: u32) 
     let event: serde_json::Value = match serde_json::from_slice(bytes) {
         Ok(v) => v,
         Err(e) => {
-            Logging::warning(&format!("[Owlyshield FFI] detection event is not JSON: {e}"));
+            Logging::warning(&format!(
+                "[Owlyshield FFI] detection event is not JSON: {e}"
+            ));
             return OWLY_DESERIALIZE_ERROR;
         }
     };
@@ -1071,12 +1097,14 @@ pub extern "C" fn owlyshield_stream_sigma_report(report_json: *const std::os::ra
     }
 
     for item in arr {
-        let rule_title = item.get("rule_title")
+        let rule_title = item
+            .get("rule_title")
             .or_else(|| item.get("title"))
             .or_else(|| item.get("rule_name"))
             .and_then(|v| v.as_str())
             .unwrap_or("Unknown Sigma Detection");
-        let level = item.get("level")
+        let level = item
+            .get("level")
             .and_then(|v| v.as_str())
             .unwrap_or("medium");
         let details_val = item.get("details").cloned().unwrap_or_else(|| item.clone());
