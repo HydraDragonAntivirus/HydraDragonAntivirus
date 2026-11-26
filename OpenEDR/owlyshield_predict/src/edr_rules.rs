@@ -19,8 +19,52 @@ use crate::telemetry_stream::EdrEventRecord;
 
 const DEDUP_WINDOW: Duration = Duration::from_secs(60);
 const DEDUP_MAX_ENTRIES: usize = 4096;
+const SANCTUM_PID_TTL: Duration = Duration::from_secs(600);
+const SANCTUM_PID_CAP: usize = 4096;
 
 static ALERT_DEDUP: OnceLock<Mutex<HashMap<(String, u32, String), Instant>>> = OnceLock::new();
+static SANCTUM_DETECTED_PIDS: OnceLock<Mutex<HashMap<u32, Instant>>> = OnceLock::new();
+
+/// Records that Sanctum flagged a suspicious or hostile behavior for `pid`.
+pub fn record_sanctum_detection(pid: u32) {
+    if pid <= 4 {
+        return;
+    }
+    let cache = SANCTUM_DETECTED_PIDS.get_or_init(|| Mutex::new(HashMap::new()));
+    let Ok(mut map) = cache.lock() else {
+        return;
+    };
+    let now = Instant::now();
+    if map.len() >= SANCTUM_PID_CAP {
+        map.retain(|_, ts| now.duration_since(*ts) < SANCTUM_PID_TTL);
+        if map.len() >= SANCTUM_PID_CAP {
+            map.clear();
+        }
+    }
+    map.insert(pid, now);
+}
+
+/// Returns whether Sanctum flagged `pid` within the active detection TTL.
+pub fn is_pid_sanctum_detected(pid: u32) -> bool {
+    if pid == 0 {
+        return false;
+    }
+    let Some(cache) = SANCTUM_DETECTED_PIDS.get() else {
+        return false;
+    };
+    let Ok(mut map) = cache.lock() else {
+        return false;
+    };
+    let Some(ts) = map.get(&pid).copied() else {
+        return false;
+    };
+    if Instant::now().duration_since(ts) < SANCTUM_PID_TTL {
+        true
+    } else {
+        map.remove(&pid);
+        false
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RuleSeverity {
@@ -94,7 +138,17 @@ const BYOVD_DRIVER_FILES: &[&str] = &[
     "k7rkscan.sys",
 ];
 
-const SECURITY_DRIVER_FILES: &[&str] = &["edrdrv.sys", "wdfilter.sys", "sysmondrv.sys", "windivert"];
+const SECURITY_DRIVER_FILES: &[&str] = &[
+    "edrdrv.sys",
+    "wdfilter.sys",
+    "sysmondrv.sys",
+    "windivert",
+    "sanctum.sys",
+    "sanctum_elam.sys",
+    "mbrfilter.sys",
+    "hyperhv.sys",
+    "reddbgdrv.sys",
+];
 
 const USER_WRITABLE_DIRS: &[&str] = &[
     "\\temp\\",
@@ -626,6 +680,7 @@ fn evaluate_driver(rec: &EdrEventRecord, out: &mut Vec<EdrRuleHit>) {
         &rec.raw,
         &[
             "/driver_path",
+            "/driver/image",
             "/file/rawPath",
             "/file/abstractPath",
             "/file/path",
@@ -638,6 +693,13 @@ fn evaluate_driver(rec: &EdrEventRecord, out: &mut Vec<EdrRuleHit>) {
     };
     let low = text.to_ascii_lowercase();
     let file_base = basename_lower(&path);
+
+    let sub_type = first_str_by_pointers(&rec.raw, &["/subType"]);
+    let drv_action = first_str_by_pointers(&rec.raw, &["/driver/action"]);
+    if sub_type.eq_ignore_ascii_case("HVCI_BLOCK") || drv_action.eq_ignore_ascii_case("BLOCK") {
+        evaluate_sanctum_hvci_block(rec, out);
+        return;
+    }
 
     if rec.event_type == "DRIVER_UNLOADED" {
         if SECURITY_DRIVER_FILES
@@ -863,7 +925,10 @@ fn evaluate_file_downloaded(rec: &EdrEventRecord, out: &mut Vec<EdrRuleHit>) {
 }
 
 fn evaluate_virtual_disk_mount(rec: &EdrEventRecord, out: &mut Vec<EdrRuleHit>) {
-    let path = first_str_by_pointers(&rec.raw, &["/device_path", "/path", "/image_path"]);
+    let path = first_str_by_pointers(
+        &rec.raw,
+        &["/device_path", "/path", "/image_path", "/VhdFileName"],
+    );
     let text = if path.is_empty() {
         rec.details.clone().unwrap_or_default()
     } else {
@@ -885,7 +950,10 @@ fn evaluate_virtual_disk_mount(rec: &EdrEventRecord, out: &mut Vec<EdrRuleHit>) 
 }
 
 fn evaluate_account_or_group(rec: &EdrEventRecord, out: &mut Vec<EdrRuleHit>) {
-    if rec.event_type == "LOCAL_GROUP_MEMBER_ADD" {
+    let is_group_member_add = rec.event_type == "LOCAL_GROUP_MEMBER_ADD"
+        || (rec.event_type == "LOCAL_ACCOUNT_MODIFY"
+            && first_u64_by_pointers(&rec.raw, &["/event_id"]) == Some(4732));
+    if is_group_member_add {
         let text = collect_fields_text(
             &rec.raw,
             &["/group_name", "/TargetUserName"],
@@ -962,13 +1030,353 @@ fn evaluate_group_policy(rec: &EdrEventRecord, out: &mut Vec<EdrRuleHit>) {
     }
 }
 
+fn extract_bool_by_pointers(raw: &Value, ptrs: &[&str]) -> bool {
+    ptrs.iter().any(|ptr| {
+        raw.pointer(ptr).is_some_and(|v| {
+            v.as_bool()
+                .unwrap_or_else(|| v.as_u64().is_some_and(|n| n != 0))
+        })
+    })
+}
+
+fn first_u64_by_pointers(raw: &Value, ptrs: &[&str]) -> Option<u64> {
+    for ptr in ptrs {
+        if let Some(v) = raw.pointer(ptr) {
+            if let Some(n) = v.as_u64() {
+                return Some(n);
+            }
+            if let Some(s) = v.as_str() {
+                let t = s.trim();
+                if let Some(hex) = t.strip_prefix("0x").or_else(|| t.strip_prefix("0X")) {
+                    if let Ok(n) = u64::from_str_radix(hex, 16) {
+                        return Some(n);
+                    }
+                } else if let Ok(n) = t.parse::<u64>() {
+                    return Some(n);
+                }
+            }
+        }
+    }
+    None
+}
+
+fn evaluate_sanctum_ghost_hunt(rec: &EdrEventRecord, out: &mut Vec<EdrRuleHit>) {
+    let syscall = first_str_by_pointers(&rec.raw, &["/syscall_name"]);
+    let hex_payload = first_str_by_pointers(&rec.raw, &["/hex_payload"]);
+    let addr = first_u64_by_pointers(&rec.raw, &["/address"]);
+    let subject = if !syscall.is_empty() && !rec.exe_path.is_empty() {
+        format!("{} ({syscall})", rec.exe_path)
+    } else if !syscall.is_empty() {
+        syscall.clone()
+    } else {
+        rec.exe_path.clone()
+    };
+    let mut indicators = vec!["Sanctum:GhostHunt".to_string()];
+    if !syscall.is_empty() {
+        indicators.push(format!("Syscall:{syscall}"));
+    }
+    if let Some(a) = addr {
+        indicators.push(format!("Address:0x{a:x}"));
+    }
+    if !hex_payload.is_empty() {
+        indicators.push(format!("Payload:{hex_payload}"));
+    }
+    out.push(make_hit(
+        rec,
+        "SANCTUM-001",
+        "EDR.Sanctum.DirectSyscallGhostHunt",
+        "T1106",
+        RuleSeverity::Critical,
+        subject.clone(),
+        format!("Sanctum detected direct/unbacked syscall via Ghost Hunting: {subject}"),
+        indicators,
+    ));
+}
+
+fn evaluate_sanctum_amsi_bypass(rec: &EdrEventRecord, out: &mut Vec<EdrRuleHit>) {
+    let func = first_str_by_pointers(&rec.raw, &["/function_name"]);
+    let addr = first_u64_by_pointers(&rec.raw, &["/offending_address"]);
+    let subject = if !func.is_empty() && !rec.exe_path.is_empty() {
+        format!("{} ({func})", rec.exe_path)
+    } else if !func.is_empty() {
+        func.clone()
+    } else {
+        rec.exe_path.clone()
+    };
+    let mut indicators = vec!["Sanctum:AmsiBypass".to_string()];
+    if !func.is_empty() {
+        indicators.push(format!("Function:{func}"));
+    }
+    if let Some(a) = addr {
+        indicators.push(format!("OffendingAddress:0x{a:x}"));
+    }
+    out.push(make_hit(
+        rec,
+        "SANCTUM-002",
+        "EDR.Sanctum.AmsiBypassDetected",
+        "T1562.001",
+        RuleSeverity::Critical,
+        subject.clone(),
+        format!("Sanctum detected kernel-verified AMSI bypass attempt: {subject}"),
+        indicators,
+    ));
+}
+
+fn evaluate_sanctum_hvci_block(rec: &EdrEventRecord, out: &mut Vec<EdrRuleHit>) {
+    let drv = first_str_by_pointers(
+        &rec.raw,
+        &[
+            "/driver/image",
+            "/file/rawPath",
+            "/file/abstractPath",
+            "/driver_path",
+        ],
+    );
+    let classif = first_str_by_pointers(&rec.raw, &["/driver/classification"]);
+    let subject = if !drv.is_empty() {
+        drv.clone()
+    } else if let Some(d) = rec.details.as_deref().filter(|s| !s.is_empty()) {
+        d.to_string()
+    } else {
+        rec.exe_path.clone()
+    };
+    let mut indicators = vec!["Sanctum:HvciBlock".to_string()];
+    if !drv.is_empty() {
+        indicators.push(format!("Driver:{drv}"));
+    }
+    if !classif.is_empty() {
+        indicators.push(format!("Classification:{classif}"));
+    }
+    out.push(make_hit(
+        rec,
+        "SANCTUM-003",
+        "EDR.Sanctum.HvciOrBlocklistDriverBlocked",
+        "T1068",
+        RuleSeverity::Critical,
+        subject.clone(),
+        format!("Sanctum kernel driver check blocked vulnerable or malicious driver: {subject}"),
+        indicators,
+    ));
+}
+
+fn evaluate_sanctum_etw_ti(rec: &EdrEventRecord, out: &mut Vec<EdrRuleHit>) {
+    let is_suspicious = extract_bool_by_pointers(
+        &rec.raw,
+        &["/suspicious", "/data/EtwThreatIntelligence/suspicious"],
+    );
+    let is_remote = extract_bool_by_pointers(
+        &rec.raw,
+        &["/remote", "/data/EtwThreatIntelligence/remote"],
+    );
+    if !is_suspicious && !is_remote {
+        return;
+    }
+
+    let func = first_str_by_pointers(
+        &rec.raw,
+        &["/function", "/data/EtwThreatIntelligence/function"],
+    );
+    let evt_name = first_str_by_pointers(
+        &rec.raw,
+        &["/event_name", "/data/EtwThreatIntelligence/event_name"],
+    );
+    let target_pid = first_u64_by_pointers(
+        &rec.raw,
+        &[
+            "/target_pid",
+            "/target/pid",
+            "/data/EtwThreatIntelligence/target_pid",
+        ],
+    );
+
+    let severity = if is_remote {
+        RuleSeverity::Critical
+    } else {
+        RuleSeverity::High
+    };
+    let label = if !func.is_empty() {
+        func.clone()
+    } else if !evt_name.is_empty() {
+        evt_name.clone()
+    } else {
+        "ETW:TI".to_string()
+    };
+    let subject = if !rec.exe_path.is_empty() {
+        format!("{} ({label})", rec.exe_path)
+    } else {
+        label
+    };
+    let mut indicators = vec!["Sanctum:EtwThreatIntelligence".to_string()];
+    if !func.is_empty() {
+        indicators.push(format!("Function:{func}"));
+    }
+    if !evt_name.is_empty() {
+        indicators.push(format!("EtwEvent:{evt_name}"));
+    }
+    if is_remote {
+        indicators.push("RemoteOperation:true".to_string());
+    }
+    if let Some(tpid) = target_pid {
+        indicators.push(format!("TargetPid:{tpid}"));
+    }
+
+    out.push(make_hit(
+        rec,
+        "SANCTUM-004",
+        "EDR.Sanctum.EtwThreatIntelSuspiciousActivity",
+        "T1055",
+        severity,
+        subject.clone(),
+        format!("Sanctum ETW:TI flagged suspicious memory/injection API operation: {subject}"),
+        indicators,
+    ));
+}
+
+fn evaluate_sanctum_etw_blinding(rec: &EdrEventRecord, out: &mut Vec<EdrRuleHit>) {
+    let subject = rec
+        .details
+        .clone()
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| "SanctumETWThreatIntelligence".to_string());
+    out.push(make_hit(
+        rec,
+        "SANCTUM-005",
+        "EDR.Sanctum.EtwTiBlindingAttempt",
+        "T1562.006",
+        RuleSeverity::Critical,
+        subject.clone(),
+        format!("Sanctum PPL runner detected ETW Threat-Intelligence blinding attempt: {subject}"),
+        vec!["Sanctum:EtwTiBlinding".to_string()],
+    ));
+}
+
+fn evaluate_mbr_sector0(rec: &EdrEventRecord, out: &mut Vec<EdrRuleHit>) {
+    let alert = first_str_by_pointers(&rec.raw, &["/mbrAlert"]);
+    let sector = first_u64_by_pointers(&rec.raw, &["/sector"]);
+    if rec.event_type == "LLE_DISK_RAW_WRITE_ACCESS" && sector != Some(0) && alert.is_empty() {
+        return;
+    }
+
+    let disk = first_str_by_pointers(&rec.raw, &["/disk", "/path"]);
+    let subject = if !rec.exe_path.is_empty() {
+        rec.exe_path.clone()
+    } else if !alert.is_empty() {
+        alert.clone()
+    } else if !disk.is_empty() {
+        disk.clone()
+    } else if let Some(d) = rec.details.as_deref().filter(|s| !s.is_empty()) {
+        d.to_string()
+    } else {
+        "PhysicalDrive0".to_string()
+    };
+
+    let mut indicators = vec!["MbrFilter:Sector0Write".to_string()];
+    if !disk.is_empty() {
+        indicators.push(format!("Disk:{disk}"));
+    }
+    if !alert.is_empty() {
+        indicators.push(format!("Alert:{alert}"));
+    }
+
+    out.push(make_hit(
+        rec,
+        "MBR-001",
+        "EDR.Ransomware.MbrSector0RawWrite",
+        "T1561.002",
+        RuleSeverity::Critical,
+        subject.clone(),
+        format!("MBRFilter intercepted direct Sector 0 MBR write attempt: {subject}"),
+        indicators,
+    ));
+}
+
+fn is_critical_syscall_msr(msr: u64) -> bool {
+    matches!(msr, 0x176 | 0xC000_0080 | 0xC000_0082 | 0xC000_0083)
+}
+
+fn evaluate_hypervisor(rec: &EdrEventRecord, out: &mut Vec<EdrRuleHit>) {
+    if rec.event_type == "MLE_HYPERVISOR_MSR_TAMPER" {
+        let msr = first_u64_by_pointers(&rec.raw, &["/targetMsr", "/owlyHv/context"]).unwrap_or(0);
+        let subject = if !rec.exe_path.is_empty() {
+            format!("{} (MSR 0x{msr:x})", rec.exe_path)
+        } else {
+            format!("MSR 0x{msr:x}")
+        };
+        out.push(make_hit(
+            rec,
+            "HV-001",
+            "EDR.Hypervisor.SyscallMsrTamper",
+            "T1014",
+            RuleSeverity::Critical,
+            subject.clone(),
+            format!("Hypervisor detected unauthorized syscall MSR / EFER tamper: {subject}"),
+            vec![
+                "Hypervisor:WRMSR".to_string(),
+                format!("TargetMsr:0x{msr:x}"),
+            ],
+        ));
+        return;
+    }
+
+    let hv_ts = first_u64_by_pointers(&rec.raw, &["/owlyHv/timestamp"]).unwrap_or(0);
+    if hv_ts == 0 || rec.pid <= 4 {
+        return;
+    }
+
+    let evt_type = first_u64_by_pointers(&rec.raw, &["/owlyHook/eventType", "/owlyHookEventType"])
+        .unwrap_or(0);
+    let ctx = first_u64_by_pointers(&rec.raw, &["/owlyHv/context"]).unwrap_or(0);
+
+    if evt_type == 65 && is_critical_syscall_msr(ctx) {
+        let subject = if !rec.exe_path.is_empty() {
+            format!("{} (MSR 0x{ctx:x})", rec.exe_path)
+        } else {
+            format!("PID {} (MSR 0x{ctx:x})", rec.pid)
+        };
+        out.push(make_hit(
+            rec,
+            "HV-001",
+            "EDR.Hypervisor.SyscallMsrTamper",
+            "T1014",
+            RuleSeverity::Critical,
+            subject.clone(),
+            format!("Hypervisor trapped syscall MSR / EFER write outside System context: {subject}"),
+            vec![
+                "Hypervisor:WRMSR".to_string(),
+                format!("TargetMsr:0x{ctx:x}"),
+            ],
+        ));
+    } else if evt_type == 0x10 || (0x90..=0x94).contains(&evt_type) {
+        let addr = first_u64_by_pointers(&rec.raw, &["/owlyHv/memoryAddress"]).unwrap_or(0);
+        let subject = if !rec.exe_path.is_empty() {
+            format!("{} (0x{addr:x})", rec.exe_path)
+        } else {
+            format!("PID {} (0x{addr:x})", rec.pid)
+        };
+        out.push(make_hit(
+            rec,
+            "HV-002",
+            "EDR.Hypervisor.EptOrHiddenHookAlert",
+            "T1014",
+            RuleSeverity::High,
+            subject.clone(),
+            format!("Hypervisor detected EPT violation or hidden hook event: {subject}"),
+            vec![
+                format!("HypervisorEvent:0x{evt_type:x}"),
+                format!("Context:0x{ctx:x}"),
+                format!("MemoryAddress:0x{addr:x}"),
+            ],
+        ));
+    }
+}
+
 /// Pure evaluation of a structured telemetry record against real-time EDR rules.
 pub fn evaluate_event(rec: &EdrEventRecord) -> Vec<EdrRuleHit> {
     let mut hits = Vec::new();
     match rec.event_type.as_str() {
         "SCRIPT_BLOCK_ACTIVITY" => evaluate_powershell(rec, &mut hits),
         "PROCESS_TAMPERING" => evaluate_process_tampering(rec, &mut hits),
-        "SHADOW_COPY_DELETE" => {
+        "SHADOW_COPY_DELETE" | "VSS_SHADOW_COPY_DELETED" => {
             let subj = rec
                 .details
                 .clone()
@@ -984,7 +1392,10 @@ pub fn evaluate_event(rec: &EdrEventRecord) -> Vec<EdrRuleHit> {
                 vec!["ShadowCopyDelete".to_string()],
             ));
         }
-        "WMI_EVENT_CONSUMER" | "WMI_EVENT_BINDING" => evaluate_wmi(rec, &mut hits),
+        "WMI_EVENT_CONSUMER"
+        | "WMI_EVENT_BINDING"
+        | "WMI_EVENT_CONSUMER_TO_FILTER"
+        | "WMI_EVENT_FILTER" => evaluate_wmi(rec, &mut hits),
         "BITS_JOB_ACTIVITY" => evaluate_bits(rec, &mut hits),
         "SCHEDULED_TASK_CREATE" | "SCHEDULED_TASK_MODIFY" => evaluate_scheduled_task(rec, &mut hits),
         "SERVICE_CREATE" | "SERVICE_MODIFY" => evaluate_service(rec, &mut hits),
@@ -998,8 +1409,17 @@ pub fn evaluate_event(rec: &EdrEventRecord) -> Vec<EdrRuleHit> {
         "LLE_IMAGE_LOAD" => evaluate_image_load(rec, &mut hits),
         "FILE_DOWNLOADED" => evaluate_file_downloaded(rec, &mut hits),
         "VIRTUAL_DISK_MOUNT" => evaluate_virtual_disk_mount(rec, &mut hits),
-        "LOCAL_GROUP_MEMBER_ADD" | "LOCAL_ACCOUNT_CREATE" => evaluate_account_or_group(rec, &mut hits),
+        "LOCAL_GROUP_MEMBER_ADD" | "LOCAL_ACCOUNT_CREATE" | "LOCAL_ACCOUNT_MODIFY" => {
+            evaluate_account_or_group(rec, &mut hits)
+        }
         "GROUP_POLICY_MODIFY" => evaluate_group_policy(rec, &mut hits),
+        "SANCTUM_GHOST_HUNT" => evaluate_sanctum_ghost_hunt(rec, &mut hits),
+        "SANCTUM_AMSI_BYPASS" => evaluate_sanctum_amsi_bypass(rec, &mut hits),
+        "SANCTUM_HVCI_BLOCK" => evaluate_sanctum_hvci_block(rec, &mut hits),
+        "SANCTUM_ETW_TI" => evaluate_sanctum_etw_ti(rec, &mut hits),
+        "SANCTUM_ETW_BLINDING" => evaluate_sanctum_etw_blinding(rec, &mut hits),
+        "MBR_SECTOR0_RAW_WRITE" | "LLE_DISK_RAW_WRITE_ACCESS" => evaluate_mbr_sector0(rec, &mut hits),
+        "MLE_HYPERVISOR_MSR_TAMPER" | "LLE_DEVICE_IOCTL" => evaluate_hypervisor(rec, &mut hits),
         _ => {}
     }
     hits
@@ -1128,6 +1548,9 @@ fn dispatch_hits(hits: Vec<EdrRuleHit>, context_details: serde_json::Value) {
 /// Evaluates an enriched raw telemetry record and asynchronously dispatches alerts on hit.
 pub fn evaluate_and_dispatch_event(rec: &EdrEventRecord) {
     let hits = evaluate_event(rec);
+    if hits.iter().any(|h| h.rule_id.starts_with("SANCTUM-")) && rec.pid > 4 {
+        record_sanctum_detection(rec.pid);
+    }
     if !hits.is_empty() {
         dispatch_hits(hits, rec.raw.clone());
     }
@@ -1358,5 +1781,332 @@ mod tests {
             Some("fedcba9876543210fedcba9876543210"),
         );
         assert!(evaluate_flow(&benign).is_empty());
+    }
+
+    #[test]
+    fn sanctum_telemetry_rules_and_sdk_condition_work_end_to_end() {
+        use crate::firewall::engine::{PacketInfo, Protocol};
+        use crate::firewall::sdk::RuleCondition;
+        use std::net::{IpAddr, Ipv4Addr};
+
+        let ghost = sample_event(
+            "SANCTUM_GHOST_HUNT",
+            r"C:\Temp\loader.exe",
+            None,
+            json!({
+                "pid": 4242,
+                "syscall_name": "NtAllocateVirtualMemory",
+                "address": 140735275417600u64,
+                "hex_payload": "4c8bd1b818000000"
+            }),
+        );
+        let ghost_hits = evaluate_event(&ghost);
+        assert_eq!(ghost_hits.len(), 1);
+        assert_eq!(ghost_hits[0].rule_name, "EDR.Sanctum.DirectSyscallGhostHunt");
+        assert_eq!(ghost_hits[0].severity, RuleSeverity::Critical);
+
+        let amsi = sample_event(
+            "SANCTUM_AMSI_BYPASS",
+            r"C:\Temp\ps_bypass.exe",
+            None,
+            json!({
+                "pid": 4242,
+                "function_name": "AmsiScanBuffer",
+                "offending_address": 140711111111111u64
+            }),
+        );
+        let amsi_hits = evaluate_event(&amsi);
+        assert_eq!(amsi_hits.len(), 1);
+        assert_eq!(amsi_hits[0].rule_name, "EDR.Sanctum.AmsiBypassDetected");
+        assert_eq!(amsi_hits[0].severity, RuleSeverity::Critical);
+
+        let hvci_direct = sample_event(
+            "SANCTUM_HVCI_BLOCK",
+            r"C:\Temp\dropper.exe",
+            None,
+            json!({
+                "driver": {
+                    "image": r"\SystemRoot\System32\drivers\iqvw64e.sys",
+                    "classification": "BYOVD",
+                    "action": "BLOCK"
+                }
+            }),
+        );
+        let hvci_hits = evaluate_event(&hvci_direct);
+        assert_eq!(hvci_hits.len(), 1);
+        assert_eq!(hvci_hits[0].rule_name, "EDR.Sanctum.HvciOrBlocklistDriverBlocked");
+        assert_eq!(hvci_hits[0].severity, RuleSeverity::Critical);
+
+        let hvci_lle = sample_event(
+            "LLE_DRIVER_LOAD",
+            r"C:\Temp\dropper.exe",
+            None,
+            json!({
+                "subType": "HVCI_BLOCK",
+                "file": { "rawPath": r"\SystemRoot\System32\drivers\rtcore64.sys" },
+                "driver": { "image": r"\SystemRoot\System32\drivers\rtcore64.sys", "action": "BLOCK" }
+            }),
+        );
+        let hvci_lle_hits = evaluate_event(&hvci_lle);
+        assert_eq!(hvci_lle_hits.len(), 1);
+        assert_eq!(hvci_lle_hits[0].rule_name, "EDR.Sanctum.HvciOrBlocklistDriverBlocked");
+        assert_eq!(hvci_lle_hits[0].severity, RuleSeverity::Critical);
+
+        let blinding = sample_event(
+            "SANCTUM_ETW_BLINDING",
+            "sanctum_ppl_runner.exe",
+            Some("ETW:TI trace session was interrupted"),
+            json!({}),
+        );
+        let blind_hits = evaluate_event(&blinding);
+        assert_eq!(blind_hits.len(), 1);
+        assert_eq!(blind_hits[0].rule_name, "EDR.Sanctum.EtwTiBlindingAttempt");
+        assert_eq!(blind_hits[0].severity, RuleSeverity::Critical);
+
+        let unloaded = sample_event(
+            "DRIVER_UNLOADED",
+            "System",
+            None,
+            json!({ "driver_path": r"\SystemRoot\System32\drivers\sanctum.sys" }),
+        );
+        let unloaded_hits = evaluate_event(&unloaded);
+        assert_eq!(unloaded_hits.len(), 1);
+        assert_eq!(unloaded_hits[0].rule_name, "EDR.Driver.SecurityDriverUnloaded");
+        assert_eq!(unloaded_hits[0].severity, RuleSeverity::Critical);
+
+        let ti_remote = sample_event(
+            "SANCTUM_ETW_TI",
+            r"C:\Temp\injector.exe",
+            None,
+            json!({
+                "function": "NtAllocateVirtualMemory",
+                "event_name": "ALLOCVM_REMOTE",
+                "remote": true,
+                "suspicious": true,
+                "target_pid": 780
+            }),
+        );
+        let ti_remote_hits = evaluate_event(&ti_remote);
+        assert_eq!(ti_remote_hits.len(), 1);
+        assert_eq!(ti_remote_hits[0].severity, RuleSeverity::Critical);
+
+        let ti_nested_susp = sample_event(
+            "SANCTUM_ETW_TI",
+            r"C:\Temp\shellcode.exe",
+            None,
+            json!({
+                "data": {
+                    "EtwThreatIntelligence": {
+                        "function": "NtProtectVirtualMemory",
+                        "event_name": "PROTECTVM_LOCAL",
+                        "remote": false,
+                        "suspicious": true
+                    }
+                }
+            }),
+        );
+        let ti_nested_hits = evaluate_event(&ti_nested_susp);
+        assert_eq!(ti_nested_hits.len(), 1);
+        assert_eq!(ti_nested_hits[0].severity, RuleSeverity::High);
+
+        let ti_benign = sample_event(
+            "SANCTUM_ETW_TI",
+            r"C:\Windows\System32\svchost.exe",
+            None,
+            json!({
+                "data": {
+                    "EtwThreatIntelligence": {
+                        "function": "NtAllocateVirtualMemory",
+                        "event_name": "ALLOCVM_LOCAL",
+                        "remote": false,
+                        "suspicious": false
+                    }
+                }
+            }),
+        );
+        assert!(evaluate_event(&ti_benign).is_empty());
+
+        let test_pid = 87654321u32;
+        let pkt = PacketInfo {
+            timestamp: 1_700_000_000,
+            protocol: Protocol::TCP,
+            ip_proto: 6,
+            src_ip: IpAddr::V4(Ipv4Addr::new(10, 0, 0, 5)),
+            dst_ip: IpAddr::V4(Ipv4Addr::new(198, 51, 100, 9)),
+            src_port: 50000,
+            dst_port: 443,
+            size: 128,
+            outbound: true,
+            process_id: test_pid,
+            dns_query: None,
+            hostname: None,
+            full_url: None,
+            tls_handshake: false,
+            http_method: None,
+            http_path: None,
+            http_user_agent: None,
+            http_content_type: None,
+            http_referer: None,
+            payload_entropy: None,
+            payload_sample: None,
+            payload_urls: Vec::new(),
+            payload_domains: Vec::new(),
+            image_path: String::new(),
+            detected_file_type: None,
+            http_request_body: None,
+            http_response_body: None,
+            tcp_flags: None,
+            ja3: None,
+            ja3s: None,
+        };
+        assert!(!RuleCondition::SanctumDetected.matches(&pkt, &[]));
+        record_sanctum_detection(test_pid);
+        assert!(RuleCondition::SanctumDetected.matches(&pkt, &[]));
+
+        let vss_etw = sample_event(
+            "VSS_SHADOW_COPY_DELETED",
+            r"C:\Windows\System32\vssvc.exe",
+            Some("VolumeName=C:"),
+            json!({ "VolumeName": "C:" }),
+        );
+        assert_eq!(evaluate_event(&vss_etw).len(), 1);
+        assert_eq!(
+            evaluate_event(&vss_etw)[0].rule_name,
+            "EDR.Ransomware.ShadowCopyDeletion"
+        );
+
+        let wmi_bind = sample_event(
+            "WMI_EVENT_CONSUMER_TO_FILTER",
+            r"C:\Windows\System32\wbem\wmiprvse.exe",
+            None,
+            json!({ "Operation": "__FilterToConsumerBinding", "consumer": "powershell.exe -enc AAAA" }),
+        );
+        assert_eq!(evaluate_event(&wmi_bind).len(), 1);
+        assert_eq!(
+            evaluate_event(&wmi_bind)[0].rule_name,
+            "EDR.WMI.SuspiciousPermanentConsumer"
+        );
+
+        let vhd_etw = sample_event(
+            "VIRTUAL_DISK_MOUNT",
+            r"C:\Windows\System32\svchost.exe",
+            None,
+            json!({ "VhdFileName": r"C:\Users\alice\Downloads\payload.iso" }),
+        );
+        assert_eq!(evaluate_event(&vhd_etw).len(), 1);
+        assert_eq!(evaluate_event(&vhd_etw)[0].rule_name, "EDR.VirtualDisk.MotwBypassMount");
+
+        let priv_4732 = sample_event(
+            "LOCAL_ACCOUNT_MODIFY",
+            r"C:\Windows\System32\net.exe",
+            Some("Security EventID=4732"),
+            json!({ "event_id": 4732, "TargetUserName": "Administrators" }),
+        );
+        assert_eq!(evaluate_event(&priv_4732).len(), 1);
+        assert_eq!(
+            evaluate_event(&priv_4732)[0].rule_name,
+            "EDR.Account.PrivilegedGroupAddition"
+        );
+
+        let benign_4738 = sample_event(
+            "LOCAL_ACCOUNT_MODIFY",
+            r"C:\Windows\System32\lsass.exe",
+            Some("Security EventID=4738"),
+            json!({ "event_id": 4738, "TargetUserName": "alice" }),
+        );
+        assert!(evaluate_event(&benign_4738).is_empty());
+    }
+
+    #[test]
+    fn mbrfilter_and_hypervisor_rules_and_driver_tamper_work() {
+        let mbr_ev = sample_event(
+            "MBR_SECTOR0_RAW_WRITE",
+            r"C:\Temp\wiper.exe",
+            Some("MBR Sector 0 raw write blocked"),
+            json!({ "disk": r"\\.\PhysicalDrive0", "sector": 0, "mbrAlert": r"DISK:0|C:\Temp\wiper.exe" }),
+        );
+        let mbr_hits = evaluate_event(&mbr_ev);
+        assert_eq!(mbr_hits.len(), 1);
+        assert_eq!(mbr_hits[0].rule_id, "MBR-001");
+        assert_eq!(mbr_hits[0].rule_name, "EDR.Ransomware.MbrSector0RawWrite");
+        assert_eq!(mbr_hits[0].severity, RuleSeverity::Critical);
+
+        let disk_raw_sec0 = sample_event(
+            "LLE_DISK_RAW_WRITE_ACCESS",
+            r"C:\Temp\wiper.exe",
+            None,
+            json!({ "path": r"\\.\PhysicalDrive0", "sector": 0 }),
+        );
+        assert_eq!(evaluate_event(&disk_raw_sec0).len(), 1);
+        assert_eq!(evaluate_event(&disk_raw_sec0)[0].rule_id, "MBR-001");
+
+        let disk_raw_benign = sample_event(
+            "LLE_DISK_RAW_WRITE_ACCESS",
+            r"C:\Windows\System32\defrag.exe",
+            None,
+            json!({ "path": r"\\.\PhysicalDrive0", "sector": 2048 }),
+        );
+        assert!(evaluate_event(&disk_raw_benign).is_empty());
+
+        let hv_wrmsr = sample_event(
+            "LLE_DEVICE_IOCTL",
+            r"C:\Temp\rootkit_loader.exe",
+            None,
+            json!({
+                "owlyHook": { "eventType": 65, "apiFunction": "WRMSR" },
+                "owlyHv": { "timestamp": 133800000000000000u64, "context": 3221225602u64 }
+            }),
+        );
+        let hv_hits = evaluate_event(&hv_wrmsr);
+        assert_eq!(hv_hits.len(), 1);
+        assert_eq!(hv_hits[0].rule_id, "HV-001");
+        assert_eq!(hv_hits[0].severity, RuleSeverity::Critical);
+
+        let mut hv_sys = sample_event(
+            "LLE_DEVICE_IOCTL",
+            "System",
+            None,
+            json!({
+                "owlyHook": { "eventType": 65, "apiFunction": "WRMSR" },
+                "owlyHv": { "timestamp": 133800000000000000u64, "context": 3221225602u64 }
+            }),
+        );
+        hv_sys.pid = 4;
+        assert!(evaluate_event(&hv_sys).is_empty());
+
+        let hv_mle = sample_event(
+            "MLE_HYPERVISOR_MSR_TAMPER",
+            r"C:\Temp\rootkit_loader.exe",
+            None,
+            json!({ "targetMsr": 0xC0000080u64 }),
+        );
+        assert_eq!(evaluate_event(&hv_mle).len(), 1);
+        assert_eq!(evaluate_event(&hv_mle)[0].rule_id, "HV-001");
+
+        let hv_ept = sample_event(
+            "LLE_DEVICE_IOCTL",
+            r"C:\Temp\injector.exe",
+            None,
+            json!({
+                "owlyHook": { "eventType": 0x10 },
+                "owlyHv": { "timestamp": 133800000000000000u64, "context": 7u64, "memoryAddress": 0x1000u64 }
+            }),
+        );
+        let ept_hits = evaluate_event(&hv_ept);
+        assert_eq!(ept_hits.len(), 1);
+        assert_eq!(ept_hits[0].rule_id, "HV-002");
+        assert_eq!(ept_hits[0].severity, RuleSeverity::High);
+
+        for drv in ["MBRFilter.sys", "hyperhv.sys", "RedDbgDrv.sys"] {
+            let unload_ev = sample_event(
+                "DRIVER_UNLOADED",
+                "services.exe",
+                None,
+                json!({ "driver_path": format!(r"C:\Windows\System32\drivers\{drv}") }),
+            );
+            let dhits = evaluate_event(&unload_ev);
+            assert_eq!(dhits.len(), 1, "expected tamper hit for {drv}");
+            assert_eq!(dhits[0].rule_id, "DRV-002");
+        }
     }
 }

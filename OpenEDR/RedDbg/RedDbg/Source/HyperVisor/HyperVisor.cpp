@@ -121,23 +121,30 @@ void HyperVisorSvm::BuildNestedPagingTables(
     }
 }
 
-// Builds the MSR permissions map so that only a write to EFER causes #VMEXIT
-// (ported from SvBuildMsrPermissionsMap in Source/Deps/SimpleSvm). Without the
-// bit below the VMEXIT_MSR handler never sees the EFER write and the guest is
-// able to clear EFER.SVME while it is running:
+// Builds the MSR permissions map so that writes (WRMSR, bit 1) to EFER and the
+// critical syscall-entry MSRs cause #VMEXIT (EFER.SVME protection + tamper telemetry).
 void HyperVisorSvm::BuildMsrPermissionsMap(
     __out SVM::MSRPM* Msrpm)
 {
     constexpr unsigned int BitsPerMsr = 2; // Bit 0 - RDMSR intercept, bit 1 - WRMSR intercept
-    constexpr unsigned int SecondMsrRangeBase = 0xC0000000; // Covered by the Msrpm1 vector
+    constexpr unsigned int LowMsrRangeBase = 0x00000000;    // Covered by Msrpm0 (0x0000..0x1FFF)
+    constexpr unsigned int SecondMsrRangeBase = 0xC0000000; // Covered by Msrpm1 (0xC0000000..0xC0001FFF)
     constexpr unsigned int BitsPerByte = 8;
 
     if (!Msrpm) return;
 
-    // The map comes zeroed from AllocPhys (no intercepts); bits that the
-    // Interceptions callback could have set are preserved.
-    const unsigned int Offset = (static_cast<unsigned int>(AMD::AMD_MSR::MSR_EFER) - SecondMsrRangeBase) * BitsPerMsr + 1;
-    Msrpm->Vectors.Msrpm1[Offset / BitsPerByte] |= static_cast<unsigned char>(1u << (Offset % BitsPerByte));
+    auto setWrmsrIntercept = [](unsigned char* vec, unsigned int msrOffset) {
+        const unsigned int bitOffset = msrOffset * BitsPerMsr + 1;
+        vec[bitOffset / BitsPerByte] |= static_cast<unsigned char>(1u << (bitOffset % BitsPerByte));
+    };
+
+    // High range MSRs (0xC000_0000..0xC000_1FFF)
+    setWrmsrIntercept(Msrpm->Vectors.Msrpm1, static_cast<unsigned int>(AMD::AMD_MSR::MSR_EFER) - SecondMsrRangeBase);
+    setWrmsrIntercept(Msrpm->Vectors.Msrpm1, static_cast<unsigned int>(AMD::AMD_MSR::MSR_LSTAR) - SecondMsrRangeBase);
+    setWrmsrIntercept(Msrpm->Vectors.Msrpm1, static_cast<unsigned int>(AMD::AMD_MSR::MSR_CSTAR) - SecondMsrRangeBase);
+
+    // Low range MSRs (0x0000_0000..0x0000_1FFF)
+    setWrmsrIntercept(Msrpm->Vectors.Msrpm0, static_cast<unsigned int>(AMD::AMD_MSR::MSR_SYSENTER_EIP) - LowMsrRangeBase);
 }
 
 void HyperVisorSvm::FillVmcbSegmentAttributes(

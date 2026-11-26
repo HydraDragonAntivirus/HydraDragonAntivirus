@@ -225,7 +225,7 @@ mod win_impl {
     use super::*;
     use crate::logging::Logging;
     use moka::sync::Cache;
-    use serde_json::{Map, Value, json};
+    use serde_json::{Value, json};
     use std::collections::{HashMap, HashSet};
     use std::ffi::c_void;
     use std::io::Read;
@@ -234,10 +234,10 @@ mod win_impl {
     use std::sync::Mutex;
     use std::sync::atomic::AtomicU64;
     use std::thread;
-    use std::time::Duration;
+    use std::time::{Duration, Instant};
     use windows::Win32::Foundation::{
-        CloseHandle, ERROR_ALREADY_EXISTS, ERROR_INSUFFICIENT_BUFFER, ERROR_SUCCESS,
-        HANDLE, HMODULE, MAX_PATH, RPC_E_CHANGED_MODE, RPC_E_TOO_LATE,
+        CloseHandle, ERROR_SUCCESS, HANDLE, HMODULE, MAX_PATH, RPC_E_CHANGED_MODE,
+        RPC_E_TOO_LATE,
     };
     use windows::Win32::Security::PSECURITY_DESCRIPTOR;
     use windows::Win32::System::Com::{
@@ -248,14 +248,7 @@ mod win_impl {
     };
     use windows::Win32::System::Diagnostics::Debug::ReadProcessMemory;
     use windows::Win32::System::Diagnostics::Etw::{
-        CONTROLTRACE_HANDLE, CloseTrace, ControlTraceW, EVENT_CONTROL_CODE_ENABLE_PROVIDER,
-        EVENT_HEADER_FLAG_32_BIT_HEADER, EVENT_HEADER_FLAG_64_BIT_HEADER, EVENT_MAP_INFO,
-        EVENT_PROPERTY_INFO, EVENT_RECORD, EVENT_TRACE_CONTROL_STOP, EVENT_TRACE_LOGFILEW,
-        EVENT_TRACE_PROPERTIES, EVENT_TRACE_REAL_TIME_MODE, EnableTraceEx2, OpenTraceW,
-        PROCESSTRACE_HANDLE, PROCESS_TRACE_MODE_EVENT_RECORD, PROCESS_TRACE_MODE_REAL_TIME,
-        ProcessTrace, PropertyParamCount, PropertyParamLength, PropertyStruct, StartTraceW,
-        TRACE_EVENT_INFO, TdhFormatProperty, TdhGetEventInformation, TdhGetEventMapInformation,
-        WNODE_FLAG_TRACED_GUID,
+        CONTROLTRACE_HANDLE, ControlTraceW, EVENT_TRACE_CONTROL_QUERY, EVENT_TRACE_PROPERTIES,
     };
     use windows::Win32::System::EventLog::{
         EVT_HANDLE, EVT_SUBSCRIBE_NOTIFY_ACTION, EvtClose, EvtRender, EvtRenderEventXml,
@@ -275,22 +268,10 @@ mod win_impl {
     };
     use windows::core::{BSTR, GUID, PCSTR, PCWSTR, PWSTR};
 
-    const ETW_SESSION_NAME: &str = "OpenEDR-Telemetry-ETW";
+    const SANCTUM_ETW_SESSION_NAME: &str = "SanctumETWThreatIntelligence";
 
-    static ETW_TRACE_HANDLE: AtomicU64 = AtomicU64::new(0);
-    static ETW_PROC_HANDLE: AtomicU64 = AtomicU64::new(0);
     static EVT_SUB_HANDLES: OnceLock<Mutex<Vec<isize>>> = OnceLock::new();
     static PNP_REG_HANDLES: OnceLock<Mutex<Vec<usize>>> = OnceLock::new();
-
-    const GUID_POWERSHELL: GUID = GUID::from_u128(0xa0c1853b_5c40_4b15_8766_3cf1c58f985a);
-    const GUID_WMI_ACTIVITY: GUID = GUID::from_u128(0x1418ef04_b0b4_4623_bf7e_d74ab47bbdaa);
-    const GUID_TASK_SCHEDULER: GUID = GUID::from_u128(0xde7b24ea_73c8_4a09_985d_5bdadcfa9017);
-    const GUID_BITS_CLIENT: GUID = GUID::from_u128(0xef1cc15b_46c1_414e_bb95_e76b077bd51e);
-    const GUID_VHDMP: GUID = GUID::from_u128(0xe2817345_a999_4659_950e_428190f72360);
-    const GUID_GROUP_POLICY: GUID = GUID::from_u128(0xaea1b4fa_97d1_45f2_a64c_4d69fffd92c9);
-    const GUID_WINLOGON: GUID = GUID::from_u128(0xdbe9b383_7cf3_4331_91cc_a3cb16a3b538);
-    const GUID_DNS_CLIENT: GUID = GUID::from_u128(0x1c95126e_7eea_49a9_a3fe_a378b03ddb4d);
-    const GUID_VOLSNAP: GUID = GUID::from_u128(0x8b7d558f_b13d_4700_93b3_2d2234ac634c);
 
     fn to_wide_z(s: &str) -> Vec<u16> {
         let mut v: Vec<u16> = s.encode_utf16().collect();
@@ -307,6 +288,38 @@ mod win_impl {
             len += 1;
         }
         String::from_utf16_lossy(unsafe { std::slice::from_raw_parts(p, len) })
+    }
+
+    fn is_sanctum_etw_session_active() -> bool {
+        static START_MONO: OnceLock<Instant> = OnceLock::new();
+        static LAST_CHECK_SECS: AtomicU64 = AtomicU64::new(u64::MAX);
+        static LAST_ACTIVE: AtomicBool = AtomicBool::new(false);
+
+        let now_secs = START_MONO.get_or_init(Instant::now).elapsed().as_secs();
+        let prev = LAST_CHECK_SECS.load(Ordering::Relaxed);
+        if prev != u64::MAX && now_secs.saturating_sub(prev) < 15 {
+            return LAST_ACTIVE.load(Ordering::Relaxed);
+        }
+
+        let mut props_buf = vec![0u8; size_of::<EVENT_TRACE_PROPERTIES>() + 1024];
+        let props = props_buf.as_mut_ptr() as *mut EVENT_TRACE_PROPERTIES;
+        unsafe {
+            (*props).Wnode.BufferSize = props_buf.len() as u32;
+            (*props).LoggerNameOffset = size_of::<EVENT_TRACE_PROPERTIES>() as u32;
+        }
+        let session_w = to_wide_z(SANCTUM_ETW_SESSION_NAME);
+        let rc = unsafe {
+            ControlTraceW(
+                CONTROLTRACE_HANDLE(0),
+                PCWSTR(session_w.as_ptr()),
+                props,
+                EVENT_TRACE_CONTROL_QUERY,
+            )
+        };
+        let active = rc.0 == ERROR_SUCCESS.0;
+        LAST_ACTIVE.store(active, Ordering::Relaxed);
+        LAST_CHECK_SECS.store(now_secs, Ordering::Relaxed);
+        active
     }
 
     fn pid_exe_cache() -> &'static Cache<u32, String> {
@@ -379,7 +392,6 @@ mod win_impl {
         let _ = EVT_SUB_HANDLES.get_or_init(|| Mutex::new(Vec::new()));
         let _ = PNP_REG_HANDLES.get_or_init(|| Mutex::new(Vec::new()));
 
-        spawn_worker("edr-etw-telemetry", etw_collector_loop);
         spawn_worker("edr-evtlog-push", eventlog_push_setup);
         spawn_worker("edr-pnp-watcher", pnp_device_watcher_loop);
         spawn_worker("edr-driver-diff", driver_diff_loop);
@@ -395,34 +407,6 @@ mod win_impl {
     }
 
     pub fn stop() {
-        let session_w = to_wide_z(ETW_SESSION_NAME);
-        let mut props_buf = vec![0u8; size_of::<EVENT_TRACE_PROPERTIES>() + 1024];
-        let props = props_buf.as_mut_ptr() as *mut EVENT_TRACE_PROPERTIES;
-        unsafe {
-            (*props).Wnode.BufferSize = props_buf.len() as u32;
-            (*props).LoggerNameOffset = size_of::<EVENT_TRACE_PROPERTIES>() as u32;
-            let th = ETW_TRACE_HANDLE.swap(0, Ordering::SeqCst);
-            if th != 0 {
-                let _ = ControlTraceW(
-                    CONTROLTRACE_HANDLE(th),
-                    PCWSTR(session_w.as_ptr()),
-                    props,
-                    EVENT_TRACE_CONTROL_STOP,
-                );
-            } else {
-                let _ = ControlTraceW(
-                    CONTROLTRACE_HANDLE(0),
-                    PCWSTR(session_w.as_ptr()),
-                    props,
-                    EVENT_TRACE_CONTROL_STOP,
-                );
-            }
-            let ph = ETW_PROC_HANDLE.swap(0, Ordering::SeqCst);
-            if ph != 0 && ph != u64::MAX {
-                let _ = CloseTrace(PROCESSTRACE_HANDLE(ph));
-            }
-        }
-
         if let Some(mtx) = EVT_SUB_HANDLES.get() {
             if let Ok(mut list) = mtx.lock() {
                 for h in list.drain(..) {
@@ -449,410 +433,9 @@ mod win_impl {
     }
 
     // ------------------------------------------------------------------------
-    // 1. Real-Time ETW Consumer + TDH Decoder
-    // ------------------------------------------------------------------------
-
-    unsafe fn decode_etw_properties(event: &EVENT_RECORD) -> Map<String, Value> {
-        let mut props_map = Map::new();
-        if event.UserData.is_null() || event.UserDataLength == 0 {
-            return props_map;
-        }
-        let mut info_len = 4096u32;
-        let mut info_buf = vec![0u8; info_len as usize];
-        let mut status = unsafe {
-            TdhGetEventInformation(
-                event,
-                None,
-                Some(info_buf.as_mut_ptr() as *mut TRACE_EVENT_INFO),
-                &mut info_len,
-            )
-        };
-        if status == ERROR_INSUFFICIENT_BUFFER.0 && info_len <= 512 * 1024 {
-            info_buf.resize(info_len as usize, 0);
-            status = unsafe {
-                TdhGetEventInformation(
-                    event,
-                    None,
-                    Some(info_buf.as_mut_ptr() as *mut TRACE_EVENT_INFO),
-                    &mut info_len,
-                )
-            };
-        }
-        if status != ERROR_SUCCESS.0 || info_len < size_of::<TRACE_EVENT_INFO>() as u32 {
-            return props_map;
-        }
-
-        let info = unsafe { &*(info_buf.as_ptr() as *const TRACE_EVENT_INFO) };
-        let prop_count = (info.TopLevelPropertyCount as usize).min(128);
-        let props_arr = info.EventPropertyInfoArray.as_ptr();
-        let ptr_size = if (event.EventHeader.Flags & EVENT_HEADER_FLAG_64_BIT_HEADER as u16) != 0 {
-            8
-        } else if (event.EventHeader.Flags & EVENT_HEADER_FLAG_32_BIT_HEADER as u16) != 0 {
-            4
-        } else {
-            size_of::<usize>() as u32
-        };
-
-        let userdata = unsafe {
-            std::slice::from_raw_parts(event.UserData as *const u8, event.UserDataLength as usize)
-        };
-        let mut offset = 0usize;
-        let mut numeric_vals: HashMap<u16, u32> = HashMap::new();
-
-        for idx in 0..prop_count {
-            if offset >= userdata.len() {
-                break;
-            }
-            let prop: &EVENT_PROPERTY_INFO = unsafe { &*props_arr.add(idx) };
-            if (prop.Flags.0 & PropertyStruct.0) != 0 {
-                break;
-            }
-            let name_off = prop.NameOffset as usize;
-            let prop_name = if name_off > 0 && name_off + 2 <= info_buf.len() {
-                unsafe { utf16_ptr_to_string(info_buf.as_ptr().add(name_off) as *const u16) }
-            } else {
-                format!("prop_{idx}")
-            };
-
-            let array_len = if (prop.Flags.0 & PropertyParamCount.0) != 0 {
-                let c_idx = unsafe { prop.Anonymous2.countPropertyIndex };
-                numeric_vals.get(&c_idx).copied().unwrap_or(1)
-            } else {
-                (unsafe { prop.Anonymous2.count } as u32).max(1)
-            };
-            let prop_len = if (prop.Flags.0 & PropertyParamLength.0) != 0 {
-                let l_idx = unsafe { prop.Anonymous3.lengthPropertyIndex };
-                numeric_vals.get(&l_idx).copied().unwrap_or(0).min(u16::MAX as u32) as u16
-            } else {
-                unsafe { prop.Anonymous3.length }
-            };
-
-            let in_type = unsafe { prop.Anonymous1.nonStructType.InType };
-            let out_type = unsafe { prop.Anonymous1.nonStructType.OutType };
-            let map_name_off = unsafe { prop.Anonymous1.nonStructType.MapNameOffset } as usize;
-
-            let mut map_buf: Option<Vec<u8>> = None;
-            if map_name_off > 0 && map_name_off + 2 <= info_buf.len() {
-                let map_ptr = unsafe { info_buf.as_ptr().add(map_name_off) as *const u16 };
-                let mut msize = 0u32;
-                let ms = unsafe { TdhGetEventMapInformation(event, PCWSTR(map_ptr), None, &mut msize) };
-                if ms == ERROR_INSUFFICIENT_BUFFER.0 && msize > 0 && msize <= 64 * 1024 {
-                    let mut mb = vec![0u8; msize as usize];
-                    if unsafe {
-                        TdhGetEventMapInformation(
-                            event,
-                            PCWSTR(map_ptr),
-                            Some(mb.as_mut_ptr() as *mut EVENT_MAP_INFO),
-                            &mut msize,
-                        )
-                    } == ERROR_SUCCESS.0
-                    {
-                        map_buf = Some(mb);
-                    }
-                }
-            }
-
-            let mut formatted_items = Vec::new();
-            for _ in 0..array_len.min(16) {
-                if offset >= userdata.len() {
-                    break;
-                }
-                let mut out_buf = vec![0u16; 1024];
-                let mut out_bytes = (out_buf.len() * 2) as u32;
-                let mut consumed: u16 = 0;
-                let map_ptr = map_buf
-                    .as_ref()
-                    .map(|b| b.as_ptr() as *const EVENT_MAP_INFO);
-                let mut fstat = unsafe {
-                    TdhFormatProperty(
-                        info,
-                        map_ptr,
-                        ptr_size,
-                        in_type,
-                        out_type,
-                        prop_len,
-                        &userdata[offset..],
-                        &mut out_bytes,
-                        PWSTR(out_buf.as_mut_ptr()),
-                        &mut consumed,
-                    )
-                };
-                if fstat == ERROR_INSUFFICIENT_BUFFER.0 && out_bytes > 0 && out_bytes <= 256 * 1024 {
-                    out_buf.resize((out_bytes as usize + 3) / 2, 0);
-                    out_bytes = (out_buf.len() * 2) as u32;
-                    fstat = unsafe {
-                        TdhFormatProperty(
-                            info,
-                            map_ptr,
-                            ptr_size,
-                            in_type,
-                            out_type,
-                            prop_len,
-                            &userdata[offset..],
-                            &mut out_bytes,
-                            PWSTR(out_buf.as_mut_ptr()),
-                            &mut consumed,
-                        )
-                    };
-                }
-                if fstat != ERROR_SUCCESS.0 {
-                    break;
-                }
-                if consumed == 2 && offset + 2 <= userdata.len() {
-                    numeric_vals.insert(
-                        idx as u16,
-                        u16::from_le_bytes([userdata[offset], userdata[offset + 1]]) as u32,
-                    );
-                } else if consumed == 4 && offset + 4 <= userdata.len() {
-                    numeric_vals.insert(
-                        idx as u16,
-                        u32::from_le_bytes([
-                            userdata[offset],
-                            userdata[offset + 1],
-                            userdata[offset + 2],
-                            userdata[offset + 3],
-                        ]),
-                    );
-                }
-                offset += consumed as usize;
-                let txt = unsafe { utf16_ptr_to_string(out_buf.as_ptr()) }
-                    .trim()
-                    .to_string();
-                if !txt.is_empty() {
-                    formatted_items.push(txt);
-                }
-            }
-
-            if !prop_name.is_empty() && !formatted_items.is_empty() {
-                let val = if formatted_items.len() == 1 {
-                    formatted_items.into_iter().next().unwrap_or_default()
-                } else {
-                    formatted_items.join(", ")
-                };
-                props_map.insert(prop_name, Value::String(val));
-            }
-        }
-        props_map
-    }
-
-    fn classify_etw_event(
-        provider: GUID,
-        event_id: u16,
-        fields: &Map<String, Value>,
-    ) -> Option<&'static str> {
-        if provider == GUID_POWERSHELL {
-            return (event_id == 4104).then_some("SCRIPT_BLOCK_ACTIVITY");
-        }
-        if provider == GUID_WMI_ACTIVITY {
-            return match event_id {
-                5859 => Some("WMI_EVENT_FILTER"),
-                5860 => Some("WMI_EVENT_CONSUMER"),
-                5861 => Some("WMI_EVENT_CONSUMER_TO_FILTER"),
-                5858 => {
-                    let op = fields
-                        .get("Operation")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("")
-                        .to_ascii_lowercase();
-                    if op.contains("__filtertoconsumerbinding") {
-                        Some("WMI_EVENT_CONSUMER_TO_FILTER")
-                    } else if op.contains("__eventfilter") {
-                        Some("WMI_EVENT_FILTER")
-                    } else if op.contains("eventconsumer") {
-                        Some("WMI_EVENT_CONSUMER")
-                    } else {
-                        None
-                    }
-                }
-                _ => None,
-            };
-        }
-        if provider == GUID_TASK_SCHEDULER {
-            return match event_id {
-                106 => Some("SCHEDULED_TASK_CREATE"),
-                140 => Some("SCHEDULED_TASK_MODIFY"),
-                141 => Some("SCHEDULED_TASK_DELETE"),
-                _ => None,
-            };
-        }
-        if provider == GUID_BITS_CLIENT {
-            return matches!(event_id, 3 | 4 | 59 | 60).then_some("BITS_JOB_ACTIVITY");
-        }
-        if provider == GUID_VHDMP {
-            return matches!(event_id, 1 | 2 | 12 | 22 | 23).then_some("VIRTUAL_DISK_MOUNT");
-        }
-        if provider == GUID_GROUP_POLICY {
-            return matches!(event_id, 4000 | 4001 | 4016 | 5016 | 5017 | 8000 | 8001)
-                .then_some("GROUP_POLICY_MODIFY");
-        }
-        if provider == GUID_WINLOGON {
-            return match event_id {
-                1 | 7001 => Some("ACCOUNT_LOGIN"),
-                2 | 7002 => Some("ACCOUNT_LOGOFF"),
-                _ => None,
-            };
-        }
-        if provider == GUID_DNS_CLIENT {
-            let has_q = fields
-                .get("QueryName")
-                .and_then(|v| v.as_str())
-                .is_some_and(|s| !s.is_empty());
-            return (matches!(event_id, 3006 | 3008 | 3010 | 3020) && has_q)
-                .then_some("DNS_QUERY");
-        }
-        if provider == GUID_VOLSNAP {
-            return matches!(event_id, 25 | 33 | 36).then_some("VSS_SHADOW_COPY_DELETED");
-        }
-        None
-    }
-
-    unsafe extern "system" fn etw_event_record_callback(event_ptr: *mut EVENT_RECORD) {
-        if event_ptr.is_null() || STOP_FLAG.load(Ordering::Relaxed) {
-            return;
-        }
-        let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| unsafe {
-            let ev = &*event_ptr;
-            let pid = ev.EventHeader.ProcessId;
-            let event_id = ev.EventHeader.EventDescriptor.Id;
-            let provider = ev.EventHeader.ProviderId;
-            let fields = decode_etw_properties(ev);
-            let Some(out_type) = classify_etw_event(provider, event_id, &fields) else {
-                return;
-            };
-            let exe = query_pid_image(pid);
-            let mut details = format!("etw_event_id={event_id}");
-            for key in [
-                "QueryName",
-                "TaskName",
-                "Name",
-                "NamespaceName",
-                "Path",
-                "jobTitle",
-                "VhdFileName",
-                "VolumeName",
-            ] {
-                if let Some(v) = fields.get(key).and_then(|v| v.as_str()) {
-                    if !v.is_empty() {
-                        details = format!("{key}={v}");
-                        break;
-                    }
-                }
-            }
-            let mut body = fields;
-            body.insert("etw_event_id".to_string(), json!(event_id));
-            body.insert("source".to_string(), json!("etw_realtime"));
-            crate::telemetry_stream::submit_structured(
-                out_type,
-                (pid > 0 && pid != u32::MAX).then_some(pid),
-                (!exe.is_empty()).then_some(exe),
-                Some(details),
-                Value::Object(body),
-            );
-        }));
-    }
-
-    fn enable_etw_provider(trace_handle: CONTROLTRACE_HANDLE, guid: GUID, name: &str) {
-        let rc = unsafe {
-            EnableTraceEx2(
-                trace_handle,
-                &guid,
-                EVENT_CONTROL_CODE_ENABLE_PROVIDER.0,
-                4, // TRACE_LEVEL_INFORMATION
-                u64::MAX,
-                0,
-                0,
-                None,
-            )
-        };
-        if rc.0 != ERROR_SUCCESS.0 {
-            Logging::warning(&format!(
-                "[WindowsTelemetry] ETW EnableTraceEx2({name}) returned win32={}",
-                rc.0
-            ));
-        }
-    }
-
-    fn etw_collector_loop() {
-        let session_w = to_wide_z(ETW_SESSION_NAME);
-        let mut props_buf = vec![0u8; size_of::<EVENT_TRACE_PROPERTIES>() + 1024];
-        let props = props_buf.as_mut_ptr() as *mut EVENT_TRACE_PROPERTIES;
-
-        let init_props = |p: *mut EVENT_TRACE_PROPERTIES, len: usize| unsafe {
-            std::ptr::write_bytes(p as *mut u8, 0, len);
-            (*p).Wnode.BufferSize = len as u32;
-            (*p).Wnode.Flags = WNODE_FLAG_TRACED_GUID;
-            (*p).Wnode.ClientContext = 1;
-            (*p).LogFileMode = EVENT_TRACE_REAL_TIME_MODE;
-            (*p).BufferSize = 64;
-            (*p).MinimumBuffers = 8;
-            (*p).MaximumBuffers = 64;
-            (*p).FlushTimer = 1;
-            (*p).LoggerNameOffset = size_of::<EVENT_TRACE_PROPERTIES>() as u32;
-        };
-
-        init_props(props, props_buf.len());
-        let _ = unsafe {
-            ControlTraceW(
-                CONTROLTRACE_HANDLE(0),
-                PCWSTR(session_w.as_ptr()),
-                props,
-                EVENT_TRACE_CONTROL_STOP,
-            )
-        };
-
-        init_props(props, props_buf.len());
-        let mut trace_handle = CONTROLTRACE_HANDLE(0);
-        let mut rc = unsafe { StartTraceW(&mut trace_handle, PCWSTR(session_w.as_ptr()), props) };
-        if rc.0 == ERROR_ALREADY_EXISTS.0 {
-            init_props(props, props_buf.len());
-            let _ = unsafe {
-                ControlTraceW(
-                    CONTROLTRACE_HANDLE(0),
-                    PCWSTR(session_w.as_ptr()),
-                    props,
-                    EVENT_TRACE_CONTROL_STOP,
-                )
-            };
-            init_props(props, props_buf.len());
-            rc = unsafe { StartTraceW(&mut trace_handle, PCWSTR(session_w.as_ptr()), props) };
-        }
-        if rc.0 != ERROR_SUCCESS.0 {
-            Logging::warning(&format!(
-                "[WindowsTelemetry] ETW StartTraceW failed with win32={} (EvtSubscribe push remains active)",
-                rc.0
-            ));
-            return;
-        }
-        ETW_TRACE_HANDLE.store(trace_handle.0, Ordering::SeqCst);
-
-        enable_etw_provider(trace_handle, GUID_POWERSHELL, "PowerShell");
-        enable_etw_provider(trace_handle, GUID_WMI_ACTIVITY, "WMI-Activity");
-        enable_etw_provider(trace_handle, GUID_TASK_SCHEDULER, "TaskScheduler");
-        enable_etw_provider(trace_handle, GUID_BITS_CLIENT, "Bits-Client");
-        enable_etw_provider(trace_handle, GUID_VHDMP, "VHDMP");
-        enable_etw_provider(trace_handle, GUID_GROUP_POLICY, "GroupPolicy");
-        enable_etw_provider(trace_handle, GUID_WINLOGON, "Winlogon");
-        enable_etw_provider(trace_handle, GUID_DNS_CLIENT, "DNS-Client");
-        enable_etw_provider(trace_handle, GUID_VOLSNAP, "VolSnap");
-
-        let mut logger_w = session_w;
-        let mut logfile = EVENT_TRACE_LOGFILEW::default();
-        logfile.LoggerName = PWSTR(logger_w.as_mut_ptr());
-        logfile.Anonymous1.ProcessTraceMode =
-            PROCESS_TRACE_MODE_REAL_TIME | PROCESS_TRACE_MODE_EVENT_RECORD;
-        logfile.Anonymous2.EventRecordCallback = Some(etw_event_record_callback);
-
-        let proc_handle = unsafe { OpenTraceW(&mut logfile) };
-        if proc_handle.0 == u64::MAX {
-            Logging::warning("[WindowsTelemetry] ETW OpenTraceW failed");
-            return;
-        }
-        ETW_PROC_HANDLE.store(proc_handle.0, Ordering::SeqCst);
-        let _ = unsafe { ProcessTrace(&[proc_handle], None, None) };
-    }
-
-    // ------------------------------------------------------------------------
-    // 2. Real-Time Push EventLog Subscriptions (EvtSubscribe)
+    // 1. Real-Time Push EventLog Subscriptions (EvtSubscribe)
+    //    ETW collection runs in Sanctum's PPL service (SanctumETWThreatIntelligence);
+    //    overlapping channels below auto-activate only as fallback when Sanctum is off.
     // ------------------------------------------------------------------------
 
     fn map_eventlog_to_telemetry(parsed: &ParsedEventXml) -> Option<&'static str> {
@@ -944,6 +527,18 @@ mod win_impl {
             let Some(out_type) = map_eventlog_to_telemetry(&parsed) else {
                 return;
             };
+            let chan_lower = parsed.channel.to_ascii_lowercase();
+            let prov_lower = parsed.provider.to_ascii_lowercase();
+            let etw_covered_overlap = (chan_lower.contains("powershell") && parsed.event_id == 4104)
+                || chan_lower.contains("taskscheduler")
+                || chan_lower.contains("bits-client")
+                || chan_lower.contains("wmi-activity")
+                || (chan_lower == "system"
+                    && prov_lower.contains("volsnap")
+                    && matches!(parsed.event_id, 25 | 33 | 36));
+            if etw_covered_overlap && is_sanctum_etw_session_active() {
+                return;
+            }
             let mut body = parsed.fields.clone();
             body.insert("event_id".to_string(), json!(parsed.event_id));
             body.insert("provider".to_string(), json!(parsed.provider));

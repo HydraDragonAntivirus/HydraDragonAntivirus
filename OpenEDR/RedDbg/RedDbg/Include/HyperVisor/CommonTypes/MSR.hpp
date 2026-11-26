@@ -3,11 +3,12 @@
 namespace AMD
 {
     enum class AMD_MSR : const unsigned int {
+        MSR_SYSENTER_EIP = 0x00000176, // Legacy 32-bit SYSENTER target EIP
         MSR_PAT = 0x00000277, // Extension of the page tables in SVM (nested paging)
-        MSR_EFER = 0xC0000080, // Etended Feature Enable Register
+        MSR_EFER = 0xC0000080, // Extended Feature Enable Register
         MSR_STAR = 0xC0000081, // Legacy mode: address of a SYSCALL instruction
-        MSR_LSTAR = 0xC0000081, // Long mode: address of a SYSCALL instruction
-        MSR_CSTAR = 0xC0000081, // Compatibility mode: address of a SYSCALL instruction
+        MSR_LSTAR = 0xC0000082, // Long mode: address of a SYSCALL instruction
+        MSR_CSTAR = 0xC0000083, // Compatibility mode: address of a SYSCALL instruction
         MSR_VM_CR = 0xC0010114, // Controls global aspects of SVM
         MSR_VM_HSAVE_PA = 0xC0010117, // Physical address of a 4KB block of memory where VMRUN saves host state, and from which #VMEXIT reloads host state
     };

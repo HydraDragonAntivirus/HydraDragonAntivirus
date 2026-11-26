@@ -9,8 +9,10 @@ use strum_macros::EnumIter;
 
 use crate::extensions::ExtensionList;
 
-const SANCTUM_SETTINGS_PATH: &str =
-    r"C:\Program Files\HydraDragonAntivirus\hydradragon\Sanctum\AppData\config.cfg";
+const SANCTUM_SETTINGS_PATHS: &[&str] = &[
+    r"C:\Program Files\HydraDragonAntivirus\OpenEDR\Sanctum\AppData\config.cfg",
+    r"C:\Program Files\HydraDragonAntivirus\hydradragon\Sanctum\AppData\config.cfg",
+];
 
 /// Registry gate (HKLM\SOFTWARE\Owlyshield\TRUST_COMODO_CLOUD = 1) for the
 /// Comodo-cloud trust policy: processes the cloud marked Safe are not fully
@@ -317,9 +319,16 @@ impl Config {
     }
 
     fn read_sanctum_setting_value(key: &str) -> Option<serde_json::Value> {
-        let content = std::fs::read_to_string(SANCTUM_SETTINGS_PATH).ok()?;
-        let root: serde_json::Value = serde_json::from_str(&content).ok()?;
-        root.get(key).cloned()
+        for path in SANCTUM_SETTINGS_PATHS {
+            let Ok(content) = std::fs::read_to_string(path) else {
+                continue;
+            };
+            let Ok(root) = serde_json::from_str::<serde_json::Value>(&content) else {
+                continue;
+            };
+            return root.get(key).cloned();
+        }
+        None
     }
 
     fn parse_u64_setting(value: &str) -> Option<u64> {

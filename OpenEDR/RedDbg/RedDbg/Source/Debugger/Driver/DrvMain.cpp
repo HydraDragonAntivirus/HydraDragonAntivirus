@@ -16,7 +16,51 @@
 
 POWLY_HV_CALLBACK g_OwlyCallback = NULL;
 HANDLE g_PollingThreadHandle = NULL;
-BOOLEAN g_StopPolling = FALSE;
+volatile LONG g_StopPolling = 0;
+
+constexpr ULONG REDDBG_HV_EVT_WRMSR = 0x41UL; // Matches ptm.local.src WRMSR = 65
+constexpr ULONG REDDBG_HV_RING_CAPACITY = 256UL;
+constexpr ULONG REDDBG_HV_RING_MASK = REDDBG_HV_RING_CAPACITY - 1UL;
+
+struct REDDBG_HV_RING_SLOT {
+    volatile LONG Ready; // 0 = empty, 1 = writing, 2 = ready, 3 = draining
+    OWLY_HV_EVENT_DETAILS Details;
+};
+
+static REDDBG_HV_RING_SLOT g_RedDbgHvRing[REDDBG_HV_RING_CAPACITY] = {};
+static volatile LONG g_RedDbgHvRingWriteIdx = 0;
+static ULONG g_RedDbgHvRingReadIdx = 0;
+
+static __forceinline bool IsCanonicalAddress(UINT64 addr) noexcept {
+    const UINT64 top = addr >> 47;
+    return (top == 0ULL) || (top == 0x1FFFFULL);
+}
+
+static VOID RedDbgQueueMsrWriteFromVmexit(UINT32 msr, UINT64 value) {
+    if (InterlockedCompareExchangePointer(reinterpret_cast<volatile PVOID*>(&g_OwlyCallback), nullptr, nullptr) == nullptr) {
+        return;
+    }
+
+    const LONG rawIdx = InterlockedIncrement(&g_RedDbgHvRingWriteIdx) - 1;
+    const ULONG idx = static_cast<ULONG>(rawIdx) & REDDBG_HV_RING_MASK;
+    if (InterlockedCompareExchange(&g_RedDbgHvRing[idx].Ready, 1, 0) != 0) {
+        return;
+    }
+
+    OWLY_HV_EVENT_DETAILS& details = g_RedDbgHvRing[idx].Details;
+    RtlZeroMemory(&details, sizeof(details));
+    const ULONG srcPid = static_cast<ULONG>(reinterpret_cast<ULONG_PTR>(PsGetCurrentProcessId()));
+    details.RawEventType = REDDBG_HV_EVT_WRMSR;
+    details.SourceProcessId = srcPid;
+    details.TargetProcessId = srcPid;
+    details.MemoryAddress = reinterpret_cast<PVOID>(value);
+    details.CoreId = KeGetCurrentProcessorNumber();
+    details.ThreadId = static_cast<ULONG>(reinterpret_cast<ULONG_PTR>(PsGetCurrentThreadId()));
+    details.Context = static_cast<ULONGLONG>(msr);
+    details.EventName = L"WRMSR";
+
+    InterlockedExchange(&g_RedDbgHvRing[idx].Ready, 2);
+}
 
 HyperVisorSvm objHyperVisorSvm;
 Log objLog;
@@ -63,11 +107,10 @@ SVM::PRIVATE_VM_DATA* Interceptions(
 {
 	Private->Guest.ControlArea.InterceptCpuid = TRUE;
 	Private->Guest.ControlArea.InterceptVmrun = TRUE;
-	//Private->Guest.ControlArea.InterceptRdtsc = TRUE;
-	//Private->Guest.ControlArea.InterceptRdtscp = TRUE;
-
-	Private->Guest.ControlArea.InterceptExceptions.Bitmap.InterceptionVectorDB = TRUE;
-	Private->Guest.ControlArea.InterceptExceptions.Bitmap.InterceptionVectorBP = TRUE;
+	// Keep #DB and #BP un-intercepted in EDR production mode so arbitrary
+	// user/kernel breakpoints never arm global TrapFlag single-stepping.
+	Private->Guest.ControlArea.InterceptExceptions.Bitmap.InterceptionVectorDB = FALSE;
+	Private->Guest.ControlArea.InterceptExceptions.Bitmap.InterceptionVectorBP = FALSE;
 	Private->Guest.ControlArea.InterceptMsr = TRUE;
 	Private->Guest.ControlArea.MsrpmBasePa = reinterpret_cast<UINT64>(PhysicalMemory::GetPhysicalAddress(&Private->Msrpm));
 
@@ -292,18 +335,66 @@ extern "C" SVM::VMM_STATUS SvmVmexitHandler(
 	}
 	case SVM::SVM_EXIT_CODE::VMEXIT_MSR://124
 	{
-		if ((Context->Rcx & MAXUINT32) == static_cast<unsigned int>(AMD::AMD_MSR::MSR_EFER) && Private->Guest.ControlArea.ExitInfo1)
+		if (Private->Guest.ControlArea.ExitInfo1 != 0)
 		{
-			AMD::EFER Efer = {};
-			Efer.Value = ((Context->Rdx & MAXUINT32) << 32) | (Context->Rax & MAXUINT32);
-			if (!Efer.Bitmap.SecureVirtualMachineEnable)
+			const unsigned int msr = static_cast<unsigned int>(Context->Rcx & MAXUINT32);
+			const unsigned long long val = ((Context->Rdx & MAXUINT32) << 32) | (Context->Rax & MAXUINT32);
+
+			switch (msr)
 			{
-				InjectEvent(&Private->Guest, INTERRUPT_VECTOR::GeneralProtection, EXCEPTION_VECTOR::FaultTrapException, 0); // #GP (Vector = 13, Type = Exception)
-				// #GP is a fault: RIP must stay on the faulting instruction (see SvHandleMsrAccess in SimpleSvm):
-				Private->Guest.StateSaveArea.Rax = Context->Rax;
-				return Status;
+			case static_cast<unsigned int>(AMD::AMD_MSR::MSR_EFER):
+			{
+				RedDbgQueueMsrWriteFromVmexit(msr, val);
+				AMD::EFER Efer = {};
+				Efer.Value = val;
+				if (!Efer.Bitmap.SecureVirtualMachineEnable)
+				{
+					InjectEvent(&Private->Guest, INTERRUPT_VECTOR::GeneralProtection, EXCEPTION_VECTOR::FaultTrapException, 0);
+					Private->Guest.StateSaveArea.Rax = Context->Rax;
+					return Status;
+				}
+				Private->Guest.StateSaveArea.Efer = Efer.Value;
+				break;
 			}
-			Private->Guest.StateSaveArea.Efer = Efer.Value;
+			case static_cast<unsigned int>(AMD::AMD_MSR::MSR_LSTAR):
+			{
+				RedDbgQueueMsrWriteFromVmexit(msr, val);
+				if (!IsCanonicalAddress(val))
+				{
+					InjectEvent(&Private->Guest, INTERRUPT_VECTOR::GeneralProtection, EXCEPTION_VECTOR::FaultTrapException, 0);
+					Private->Guest.StateSaveArea.Rax = Context->Rax;
+					return Status;
+				}
+				Private->Guest.StateSaveArea.Lstar = val;
+				break;
+			}
+			case static_cast<unsigned int>(AMD::AMD_MSR::MSR_CSTAR):
+			{
+				RedDbgQueueMsrWriteFromVmexit(msr, val);
+				if (!IsCanonicalAddress(val))
+				{
+					InjectEvent(&Private->Guest, INTERRUPT_VECTOR::GeneralProtection, EXCEPTION_VECTOR::FaultTrapException, 0);
+					Private->Guest.StateSaveArea.Rax = Context->Rax;
+					return Status;
+				}
+				Private->Guest.StateSaveArea.Cstar = val;
+				break;
+			}
+			case static_cast<unsigned int>(AMD::AMD_MSR::MSR_SYSENTER_EIP):
+			{
+				RedDbgQueueMsrWriteFromVmexit(msr, val);
+				if (!IsCanonicalAddress(val))
+				{
+					InjectEvent(&Private->Guest, INTERRUPT_VECTOR::GeneralProtection, EXCEPTION_VECTOR::FaultTrapException, 0);
+					Private->Guest.StateSaveArea.Rax = Context->Rax;
+					return Status;
+				}
+				Private->Guest.StateSaveArea.SysenterEip = val;
+				break;
+			}
+			default:
+				break;
+			}
 		}
 		break;
 	}
@@ -419,8 +510,8 @@ void DrvUnload(_In_ PDRIVER_OBJECT DriverObj)
 {
 	UNICODE_STRING DosDeviceName;
 
-	g_StopPolling = TRUE;
-	g_OwlyCallback = NULL;
+	InterlockedExchangePointer(reinterpret_cast<volatile PVOID*>(&g_OwlyCallback), nullptr);
+	InterlockedExchange(&g_StopPolling, 1);
 
 	if (g_PollingThreadHandle != NULL)
 	{
@@ -470,16 +561,9 @@ NTSTATUS DrvCreate(PDEVICE_OBJECT DeviceObject, PIRP Irp)
 	objHyperVisorSvm.PInterceptions = &Interceptions;
 	objHyperVisorSvm.PSvmVmmRun = &SvmVmmRun;
 
-	if (objHyperVisorSvm.IsSvmSupported()) 
-	{ 
-		objFile.CreateFile(
-			L"\\??\\E:\\Trace.out",
-			FILE_GENERIC_WRITE,
-			FILE_ATTRIBUTE_NORMAL,
-			FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
-			FILE_OVERWRITE_IF,
-			FILE_NON_DIRECTORY_FILE | FILE_SYNCHRONOUS_IO_NONALERT);
-		objHyperVisorSvm.VirtualizeAllProcessors(); 
+	if (!objHyperVisorSvm.IsVirtualized() && objHyperVisorSvm.IsSvmSupported())
+	{
+		objHyperVisorSvm.VirtualizeAllProcessors();
 	}
 
 	Irp->IoStatus.Status = STATUS_SUCCESS;
@@ -498,31 +582,39 @@ typedef struct _OWLY_HV_COMM_DATA {
 
 VOID PollingThread(PVOID Context) {
     UNREFERENCED_PARAMETER(Context);
-    while (!g_StopPolling) {
-        if (g_OwlyCallback != NULL) {
-            const int arcCount = objTrace.GetMnemonicArcCount();
-            for (int i = 0; i < arcCount; i++) {
-                TraceMessage<Mnemonic>* arc = objTrace.GetMnemonicsArc(i);
-                if (arc && arc->Reading) {
-                    size_t numEvents = arc->size(sizeof(Mnemonic));
-                    Mnemonic* events = arc->Start;
-                    for (size_t j = 0; j < numEvents; j++) {
-                        OWLY_HV_EVENT_DETAILS details = {0};
-                        details.RawEventType = 1; // Generic instruction trace for now
-                        details.MemoryAddress = (PVOID)events[j].Address;
-                        details.MemorySize = events[j].Length;
-                        details.CoreId = i; // Map arc to core if possible
-                        
-                        // Call the registered callback
-                        g_OwlyCallback(&details);
+    LARGE_INTEGER interval;
+    interval.QuadPart = -250000LL; // 25ms
+
+    while (InterlockedCompareExchange(&g_StopPolling, 0, 0) == 0) {
+        ULONG batchCount = 0;
+
+        while (batchCount < REDDBG_HV_RING_CAPACITY &&
+               InterlockedCompareExchange(&g_StopPolling, 0, 0) == 0)
+        {
+            BOOLEAN drainedOne = FALSE;
+            for (ULONG offset = 0; offset < REDDBG_HV_RING_CAPACITY; offset++) {
+                const ULONG idx = (g_RedDbgHvRingReadIdx + offset) & REDDBG_HV_RING_MASK;
+                if (InterlockedCompareExchange(&g_RedDbgHvRing[idx].Ready, 3, 2) == 2) {
+                    OWLY_HV_EVENT_DETAILS localDetails;
+                    RtlCopyMemory(&localDetails, &g_RedDbgHvRing[idx].Details, sizeof(localDetails));
+                    InterlockedExchange(&g_RedDbgHvRing[idx].Ready, 0);
+                    g_RedDbgHvRingReadIdx = idx + 1UL;
+                    drainedOne = TRUE;
+                    batchCount++;
+
+                    auto cb = reinterpret_cast<POWLY_HV_CALLBACK>(
+                        InterlockedCompareExchangePointer(reinterpret_cast<volatile PVOID*>(&g_OwlyCallback), nullptr, nullptr));
+                    if (cb != NULL) {
+                        cb(&localDetails);
                     }
-                    arc->clear();
-                    arc->Reading = false;
+                    break;
                 }
             }
+            if (!drainedOne) {
+                break;
+            }
         }
-        LARGE_INTEGER interval;
-        interval.QuadPart = -1000000; // 100ms
+
         KeDelayExecutionThread(KernelMode, FALSE, &interval);
     }
     PsTerminateSystemThread(STATUS_SUCCESS);
@@ -548,13 +640,14 @@ NTSTATUS DrvDispatchIoControl(PDEVICE_OBJECT DeviceObject, PIRP Irp)
         if (IrpStack->Parameters.DeviceIoControl.InputBufferLength >= sizeof(OWLY_HV_COMM_DATA)) {
             POWLY_HV_COMM_DATA commData = (POWLY_HV_COMM_DATA)Irp->AssociatedIrp.SystemBuffer;
             if (commData->Magic == 0x4F574C59) {
-                g_OwlyCallback = (POWLY_HV_CALLBACK)commData->CallbackRoutine;
-                DbgPrint("!!! RedDbg: Registered Owlyshield callback at %p\n", g_OwlyCallback);
-                
-                if (g_OwlyCallback != NULL && g_PollingThreadHandle == NULL) {
+                InterlockedExchangePointer(reinterpret_cast<volatile PVOID*>(&g_OwlyCallback), commData->CallbackRoutine);
+                DbgPrint("!!! RedDbg: Registered Owlyshield callback at %p\n", commData->CallbackRoutine);
+
+                if (commData->CallbackRoutine != NULL && g_PollingThreadHandle == NULL) {
+                    InterlockedExchange(&g_StopPolling, 0);
                     Status = PsCreateSystemThread(&g_PollingThreadHandle, THREAD_ALL_ACCESS, NULL, NULL, NULL, PollingThread, NULL);
 					if (!NT_SUCCESS(Status)) {
-						g_OwlyCallback = NULL;
+						InterlockedExchangePointer(reinterpret_cast<volatile PVOID*>(&g_OwlyCallback), nullptr);
 						g_PollingThreadHandle = NULL;
 					}
                 }

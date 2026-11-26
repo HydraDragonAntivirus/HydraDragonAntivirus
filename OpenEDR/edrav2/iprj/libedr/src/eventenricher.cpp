@@ -3199,6 +3199,27 @@ namespace {
 					if (auto optR = variant::getByPathSafe(vEvent, "registry.path"))
 						sDetails = " [Reg: " + std::string(optR.value()) + "]";
 				}
+				// Extract hypervisor context (prior to owlyHook since hypervisor events carry both)
+				else if (vEvent.has("owlyHv"))
+				{
+					unsigned long long evtType = 0;
+					unsigned long long hvCtx = 0;
+					try
+					{
+						if (auto optT = variant::getByPathSafe(vEvent, "owlyHook.eventType"))
+							evtType = static_cast<unsigned long long>(optT.value());
+					}
+					catch (...) {}
+					try
+					{
+						if (auto optC = variant::getByPathSafe(vEvent, "owlyHv.context"))
+							hvCtx = static_cast<unsigned long long>(optC.value());
+					}
+					catch (...) {}
+					char szHv[64] = {};
+					sprintf_s(szHv, " [HV: type=%llu ctx=0x%llx]", evtType, hvCtx);
+					sDetails = szHv;
+				}
 				// Extract API hook function and module
 				else if (vEvent.has("owlyHook"))
 				{
@@ -3315,7 +3336,9 @@ namespace {
 				for (auto& c : sLowerProc) c = (char)::tolower((unsigned char)c);
 				const bool fIsOwnProc = IsPathUnderOwnInstallDir(sLowerProc);
 				const bool fIsMle = (sType.rfind("MLE_", 0) == 0);
-				const bool fDoTelemetry = (!fIsOwnProc || fIsMle) && (GetTelemetrySubmitFn() != nullptr);
+				const bool fAlreadySubmitted =
+					vEvent.has("sanctumTelemetrySubmitted") || vEvent.has("telemetryAlreadySubmitted");
+				const bool fDoTelemetry = !fAlreadySubmitted && (!fIsOwnProc || fIsMle) && (GetTelemetrySubmitFn() != nullptr);
 				const bool fDoTraining = IsTrainingModeEnabled() && IsProcessInTrainingDir(sPath) && IsApiDllInTrainingWatchDir(vEvent);
 				TrainingPipeItem item;
 				item.fDoTraining = fDoTraining;

@@ -455,9 +455,11 @@ static NTSTATUS InitializeHookExcludeRules(VOID)
     (VOID) AddHookExcludeRuleNormalizedUnlocked(L"C:\\Windows\\System32\\drivers\\sanctum.sys", 39);
     (VOID) AddHookExcludeRuleNormalizedUnlocked(L"C:\\Windows\\System32\\drivers\\edrdrv.sys", 38);
     (VOID) AddHookExcludeRuleNormalizedUnlocked(L"C:\\Windows\\System32\\drivers\\OwlyshieldRansomFilter.sys", 55);
-    (VOID) AddHookExcludeRuleNormalizedUnlocked(L"C:\\Windows\\System32\\drivers\\RedDbg.sys", 38);
+    (VOID) AddHookExcludeRuleNormalizedUnlocked(L"C:\\Windows\\System32\\drivers\\RedDbgDrv.sys", 41);
     (VOID) AddHookExcludeRuleNormalizedUnlocked(L"C:\\Windows\\System32\\drivers\\hyperhv.sys", 39);
+    (VOID) AddHookExcludeRuleNormalizedUnlocked(L"C:\\Windows\\System32\\drivers\\MBRFilter.sys", 41);
     (VOID) AddHookExcludeRuleNormalizedUnlocked(L"C:\\Program Files\\HydraDragonAntivirus\\hydradragon\\sanctum", 56);
+    (VOID) AddHookExcludeRuleNormalizedUnlocked(L"C:\\Program Files\\HydraDragonAntivirus\\OpenEDR\\Sanctum", 53);
 
     g_HookExcludeRules.Loaded = TRUE;
 

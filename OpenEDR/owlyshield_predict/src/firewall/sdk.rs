@@ -1055,9 +1055,7 @@ impl RuleCondition {
             }
             RuleCondition::Entropy(matcher) => matcher.matches(packet.payload_entropy),
             RuleCondition::SanctumDetected => {
-                // This condition is typically evaluated by the behavior engine
-                // which has access to Sanctum telemetry.
-                true
+                crate::edr_rules::is_pid_sanctum_detected(packet.process_id)
             }
             RuleCondition::JsonMatch(matcher) => matcher.matches(payload),
         }

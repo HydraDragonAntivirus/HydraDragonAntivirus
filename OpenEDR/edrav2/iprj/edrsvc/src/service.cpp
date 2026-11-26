@@ -511,6 +511,10 @@ Variant WinService::uninstall(Variant vParams)
 		{
 			elamInstallerPath = std::filesystem::path("C:\\Program Files\\HydraDragonAntivirus\\OpenEDR\\Sanctum\\elam_installer.exe");
 		}
+		if (!std::filesystem::exists(elamInstallerPath))
+		{
+			elamInstallerPath = std::filesystem::path("C:\\Program Files\\HydraDragonAntivirus\\hydradragon\\Sanctum\\elam_installer.exe");
+		}
 		if (std::filesystem::exists(elamInstallerPath))
 		{
 			std::string cmd = "\"" + elamInstallerPath.string() + "\" --uninstall";

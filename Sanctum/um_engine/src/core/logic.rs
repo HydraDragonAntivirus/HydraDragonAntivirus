@@ -15,12 +15,72 @@ use shared_no_std::ghost_hunting::NtFunction;
 use shared_std::constants::PIPE_SANCTUM_TELEMETRY;
 use tokio::net::windows::named_pipe::ServerOptions;
 
+fn enrich_and_serialize_sanctum_event<T: serde::Serialize>(
+    value: &T,
+    pid: u32,
+    sanctum_event_type: &str,
+    explicit_proc_path: Option<&str>,
+) -> Option<String> {
+    let mut json_val = serde_json::to_value(value).ok()?;
+    let resolved = explicit_proc_path
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(ToString::to_string)
+        .or_else(|| {
+            if pid > 4 {
+                crate::utils::env::resolve_process_path(pid)
+            } else if pid == 4 {
+                Some("System".to_string())
+            } else {
+                None
+            }
+        })
+        .unwrap_or_default();
+
+    if let Some(obj) = json_val.as_object_mut() {
+        obj.insert(
+            "sanctumEventType".to_string(),
+            serde_json::Value::String(sanctum_event_type.to_string()),
+        );
+        obj.entry("type".to_string())
+            .or_insert_with(|| serde_json::Value::String(sanctum_event_type.to_string()));
+        obj.insert(
+            "process".to_string(),
+            serde_json::json!({
+                "pid": pid,
+                "imageFile": {
+                    "rawPath": resolved,
+                    "abstractPath": resolved,
+                }
+            }),
+        );
+    }
+
+    serde_json::to_string(&json_val).ok()
+}
+
 /// Forward a Syscall event to the OpenEDR behavior engine.
 fn forward_to_owlyshield(
     syscall: &shared_no_std::ghost_hunting::Syscall,
     pipe_tx: &tokio::sync::mpsc::Sender<String>,
 ) {
-    if let Ok(json) = serde_json::to_string(syscall) {
+    let (sanctum_event_type, explicit_proc) = match &syscall.data {
+        NtFunction::EtwThreatIntelligence(ti) => {
+            ("SANCTUM_ETW_TI", Some(ti.process_image.as_str()))
+        }
+        NtFunction::NtCreateThreadEx(_) => ("SANCTUM_SYSCALL_CREATE_THREAD", None),
+        NtFunction::NtWriteVirtualMemory(_) => ("SANCTUM_SYSCALL_WRITE_VM", None),
+        NtFunction::NtOpenProcess(_) => ("SANCTUM_SYSCALL_OPEN_PROCESS", None),
+        NtFunction::NtAllocateVirtualMemory(_) => ("SANCTUM_SYSCALL_ALLOC_VM", None),
+        NtFunction::NetworkActivity(_) => ("SANCTUM_NETWORK_ACTIVITY", None),
+        NtFunction::None => ("SANCTUM_SYSCALL", None),
+    };
+    if let Some(json) = enrich_and_serialize_sanctum_event(
+        syscall,
+        syscall.pid,
+        sanctum_event_type,
+        explicit_proc,
+    ) {
         let _ = pipe_tx.try_send(json + "\n");
     }
 }
@@ -30,7 +90,12 @@ fn forward_amsi_bypass_to_owlyshield(
     attempt: &shared_no_std::driver_ipc::AmsiBypassAttempt,
     pipe_tx: &tokio::sync::mpsc::Sender<String>,
 ) {
-    if let Ok(json) = serde_json::to_string(attempt) {
+    if let Some(json) = enrich_and_serialize_sanctum_event(
+        attempt,
+        attempt.pid,
+        "SANCTUM_AMSI_BYPASS",
+        None,
+    ) {
         let _ = pipe_tx.try_send(json + "\n");
     }
 }
@@ -40,7 +105,12 @@ fn forward_ghost_hunt_to_owlyshield(
     hunt: &shared_no_std::driver_ipc::GhostHunt,
     pipe_tx: &tokio::sync::mpsc::Sender<String>,
 ) {
-    if let Ok(json) = serde_json::to_string(hunt) {
+    if let Some(json) = enrich_and_serialize_sanctum_event(
+        hunt,
+        hunt.pid,
+        "SANCTUM_GHOST_HUNT",
+        None,
+    ) {
         let _ = pipe_tx.try_send(json + "\n");
     }
 }
@@ -73,18 +143,33 @@ fn forward_driver_telemetry_to_openedr(raw_msg: &str, pipe_tx: &tokio::sync::mps
     let publisher = fields.get("publisher").copied().unwrap_or("");
     let issuer = fields.get("issuer").copied().unwrap_or("");
     let classification = fields.get("classification").copied().unwrap_or("");
+    let proc_path = if pid > 4 {
+        crate::utils::env::resolve_process_path(pid).unwrap_or_else(|| image.to_string())
+    } else {
+        image.to_string()
+    };
+    let sanctum_event_type = if event_type == "HVCI_BLOCK" {
+        "SANCTUM_HVCI_BLOCK"
+    } else {
+        "LLE_DRIVER_LOAD"
+    };
 
     let payload = serde_json::json!({
         "type": "LLE_DRIVER_LOAD",
-        "baseType": 1000021,
+        "baseType": 57,
         "eventType": "LLE_DRIVER_LOAD",
         "subType": event_type,
+        "sanctumEventType": sanctum_event_type,
         "process": {
             "pid": pid,
             "imageFile": {
-                "rawPath": image,
-                "abstractPath": image
+                "rawPath": proc_path,
+                "abstractPath": proc_path
             }
+        },
+        "file": {
+            "rawPath": image,
+            "abstractPath": image
         },
         "driver": {
             "image": image,

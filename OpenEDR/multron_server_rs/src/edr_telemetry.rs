@@ -907,7 +907,17 @@ const SERVER_BYOVD_DRIVERS: &[&str] = &[
     "k7rkscan.sys",
 ];
 
-const SERVER_SECURITY_DRIVERS: &[&str] = &["edrdrv.sys", "wdfilter.sys", "sysmondrv.sys", "windivert"];
+const SERVER_SECURITY_DRIVERS: &[&str] = &[
+    "edrdrv.sys",
+    "wdfilter.sys",
+    "sysmondrv.sys",
+    "windivert",
+    "sanctum.sys",
+    "sanctum_elam.sys",
+    "mbrfilter.sys",
+    "hyperhv.sys",
+    "reddbgdrv.sys",
+];
 
 const SERVER_MALICIOUS_PIPES: &[&str] = &[
     "\\msagent_",
@@ -1024,6 +1034,27 @@ fn raw_first_str<'a>(raw: &'a serde_json::Value, pointers: &[&str]) -> &'a str {
     ""
 }
 
+fn raw_first_u64(raw: &serde_json::Value, pointers: &[&str]) -> Option<u64> {
+    for ptr in pointers {
+        if let Some(v) = raw.pointer(ptr) {
+            if let Some(n) = v.as_u64() {
+                return Some(n);
+            }
+            if let Some(s) = v.as_str() {
+                let t = s.trim();
+                if let Some(hex) = t.strip_prefix("0x").or_else(|| t.strip_prefix("0X")) {
+                    if let Ok(n) = u64::from_str_radix(hex, 16) {
+                        return Some(n);
+                    }
+                } else if let Ok(n) = t.parse::<u64>() {
+                    return Some(n);
+                }
+            }
+        }
+    }
+    None
+}
+
 fn evaluate_server_edr_event(
     store: &EdrTelemetryStore,
     events: &EventLog,
@@ -1093,7 +1124,7 @@ fn evaluate_server_edr_event(
                 rec.raw.clone(),
             );
         }
-        "SHADOW_COPY_DELETE" => {
+        "SHADOW_COPY_DELETE" | "VSS_SHADOW_COPY_DELETED" => {
             let subj = rec.details.as_deref().unwrap_or(&rec.exe_path);
             emit_server_rule_alert(
                 store,
@@ -1140,13 +1171,39 @@ fn evaluate_server_edr_event(
         "DRIVER_LOADED" | "LLE_DRIVER_LOAD" | "DRIVER_MODIFIED" => {
             let drv = raw_first_str(
                 &rec.raw,
-                &["/driver_path", "/file/rawPath", "/file/abstractPath", "/file/path"],
+                &[
+                    "/driver_path",
+                    "/driver/image",
+                    "/file/rawPath",
+                    "/file/abstractPath",
+                    "/file/path",
+                ],
             );
             let check = if drv.is_empty() {
                 rec.details.as_deref().unwrap_or("")
             } else {
                 drv
             };
+            let sub_type = raw_first_str(&rec.raw, &["/subType"]);
+            let drv_action = raw_first_str(&rec.raw, &["/driver/action"]);
+            if sub_type.eq_ignore_ascii_case("HVCI_BLOCK") || drv_action.eq_ignore_ascii_case("BLOCK") {
+                emit_server_rule_alert(
+                    store,
+                    events,
+                    machine_id,
+                    rec.pid,
+                    &rec.process_name,
+                    &rec.exe_path,
+                    sha256,
+                    check,
+                    "Server.Sanctum.HvciDriverBlocked",
+                    1.00,
+                    vec!["MITRE:T1068".to_string(), format!("Driver:{check}")],
+                    format!("Sanctum HVCI/blocklist blocked driver load: {check}"),
+                    rec.raw.clone(),
+                );
+                return;
+            }
             let low = check.to_ascii_lowercase();
             let base = check
                 .rsplit(['\\', '/'])
@@ -1209,6 +1266,239 @@ fn evaluate_server_edr_event(
                     0.90,
                     vec!["MITRE:T1071".to_string(), format!("NamedPipe:{check}")],
                     format!("Malicious C2 or exploit named pipe observed: {check}"),
+                    rec.raw.clone(),
+                );
+            }
+        }
+        "SANCTUM_GHOST_HUNT" => {
+            let syscall = raw_first_str(&rec.raw, &["/syscall_name"]);
+            let subj = if syscall.is_empty() {
+                rec.exe_path.as_str()
+            } else {
+                syscall
+            };
+            emit_server_rule_alert(
+                store,
+                events,
+                machine_id,
+                rec.pid,
+                &rec.process_name,
+                &rec.exe_path,
+                sha256,
+                subj,
+                "Server.Sanctum.DirectSyscallGhostHunt",
+                1.00,
+                vec!["MITRE:T1106".to_string(), format!("Syscall:{subj}")],
+                format!("Sanctum detected direct syscall via Ghost Hunting: {subj}"),
+                rec.raw.clone(),
+            );
+        }
+        "SANCTUM_AMSI_BYPASS" => {
+            let func = raw_first_str(&rec.raw, &["/function_name"]);
+            let subj = if func.is_empty() {
+                rec.exe_path.as_str()
+            } else {
+                func
+            };
+            emit_server_rule_alert(
+                store,
+                events,
+                machine_id,
+                rec.pid,
+                &rec.process_name,
+                &rec.exe_path,
+                sha256,
+                subj,
+                "Server.Sanctum.AmsiBypass",
+                1.00,
+                vec!["MITRE:T1562.001".to_string(), format!("Function:{subj}")],
+                format!("Sanctum detected kernel-verified AMSI bypass: {subj}"),
+                rec.raw.clone(),
+            );
+        }
+        "SANCTUM_HVCI_BLOCK" => {
+            let drv = raw_first_str(
+                &rec.raw,
+                &["/driver/image", "/file/rawPath", "/file/abstractPath", "/driver_path"],
+            );
+            let check = if drv.is_empty() {
+                rec.details.as_deref().unwrap_or(rec.exe_path.as_str())
+            } else {
+                drv
+            };
+            emit_server_rule_alert(
+                store,
+                events,
+                machine_id,
+                rec.pid,
+                &rec.process_name,
+                &rec.exe_path,
+                sha256,
+                check,
+                "Server.Sanctum.HvciDriverBlocked",
+                1.00,
+                vec!["MITRE:T1068".to_string(), format!("Driver:{check}")],
+                format!("Sanctum HVCI/blocklist blocked driver: {check}"),
+                rec.raw.clone(),
+            );
+        }
+        "SANCTUM_ETW_BLINDING" => {
+            let subj = rec.details.as_deref().unwrap_or("SanctumETWThreatIntelligence");
+            emit_server_rule_alert(
+                store,
+                events,
+                machine_id,
+                rec.pid,
+                &rec.process_name,
+                &rec.exe_path,
+                sha256,
+                subj,
+                "Server.Sanctum.EtwTiBlinding",
+                1.00,
+                vec!["MITRE:T1562.006".to_string(), format!("EtwBlinding:{subj}")],
+                format!("Sanctum PPL runner reported ETW:TI blinding attempt: {subj}"),
+                rec.raw.clone(),
+            );
+        }
+        "SANCTUM_ETW_TI" => {
+            let has_true = |ptrs: &[&str]| {
+                ptrs.iter().any(|p| {
+                    rec.raw.pointer(p).is_some_and(|v| {
+                        v.as_bool()
+                            .unwrap_or_else(|| v.as_u64().is_some_and(|n| n != 0))
+                    })
+                })
+            };
+            let is_remote = has_true(&["/remote", "/data/EtwThreatIntelligence/remote"]);
+            let is_suspicious = has_true(&["/suspicious", "/data/EtwThreatIntelligence/suspicious"]);
+            if is_remote || is_suspicious {
+                let func = raw_first_str(
+                    &rec.raw,
+                    &["/function", "/data/EtwThreatIntelligence/function"],
+                );
+                let evt_name = raw_first_str(
+                    &rec.raw,
+                    &["/event_name", "/data/EtwThreatIntelligence/event_name"],
+                );
+                let subj = if !func.is_empty() { func } else { evt_name };
+                let score = if is_remote { 0.95 } else { 0.85 };
+                emit_server_rule_alert(
+                    store,
+                    events,
+                    machine_id,
+                    rec.pid,
+                    &rec.process_name,
+                    &rec.exe_path,
+                    sha256,
+                    subj,
+                    "Server.Sanctum.EtwThreatIntel",
+                    score,
+                    vec!["MITRE:T1055".to_string(), format!("EtwTI:{subj}")],
+                    format!("Sanctum ETW:TI flagged suspicious memory/injection operation: {subj}"),
+                    rec.raw.clone(),
+                );
+            }
+        }
+        "MBR_SECTOR0_RAW_WRITE" | "LLE_DISK_RAW_WRITE_ACCESS" => {
+            let alert = raw_first_str(&rec.raw, &["/mbrAlert"]);
+            let sector = raw_first_u64(&rec.raw, &["/sector"]);
+            if rec.event_type == "LLE_DISK_RAW_WRITE_ACCESS"
+                && sector != Some(0)
+                && alert.is_empty()
+            {
+                return;
+            }
+            let disk = raw_first_str(&rec.raw, &["/disk", "/path"]);
+            let subj = if !rec.exe_path.is_empty() {
+                rec.exe_path.as_str()
+            } else if !alert.is_empty() {
+                alert
+            } else if !disk.is_empty() {
+                disk
+            } else {
+                rec.details.as_deref().unwrap_or("PhysicalDrive0")
+            };
+            emit_server_rule_alert(
+                store,
+                events,
+                machine_id,
+                rec.pid,
+                &rec.process_name,
+                &rec.exe_path,
+                sha256,
+                subj,
+                "Server.EDR.MbrSector0RawWrite",
+                1.00,
+                vec!["MITRE:T1561.002".to_string(), format!("MbrWrite:{subj}")],
+                format!("MBRFilter intercepted direct Sector 0 MBR write: {subj}"),
+                rec.raw.clone(),
+            );
+        }
+        "MLE_HYPERVISOR_MSR_TAMPER" => {
+            let msr = raw_first_u64(&rec.raw, &["/targetMsr", "/owlyHv/context"]).unwrap_or(0);
+            let subj = format!("MSR 0x{msr:x}");
+            emit_server_rule_alert(
+                store,
+                events,
+                machine_id,
+                rec.pid,
+                &rec.process_name,
+                &rec.exe_path,
+                sha256,
+                &subj,
+                "Server.Hypervisor.SyscallMsrTamper",
+                1.00,
+                vec!["MITRE:T1014".to_string(), format!("TargetMsr:0x{msr:x}")],
+                format!("Hypervisor detected unauthorized syscall MSR / EFER tamper: {subj}"),
+                rec.raw.clone(),
+            );
+        }
+        "LLE_DEVICE_IOCTL" => {
+            let hv_ts = raw_first_u64(&rec.raw, &["/owlyHv/timestamp"]).unwrap_or(0);
+            if hv_ts == 0 || rec.pid <= 4 {
+                return;
+            }
+            let evt_type =
+                raw_first_u64(&rec.raw, &["/owlyHook/eventType", "/owlyHookEventType"]).unwrap_or(0);
+            let ctx = raw_first_u64(&rec.raw, &["/owlyHv/context"]).unwrap_or(0);
+            let is_crit_msr = matches!(ctx, 0x176 | 0xC000_0080 | 0xC000_0082 | 0xC000_0083);
+            if evt_type == 65 && is_crit_msr {
+                let subj = format!("MSR 0x{ctx:x}");
+                emit_server_rule_alert(
+                    store,
+                    events,
+                    machine_id,
+                    rec.pid,
+                    &rec.process_name,
+                    &rec.exe_path,
+                    sha256,
+                    &subj,
+                    "Server.Hypervisor.SyscallMsrTamper",
+                    1.00,
+                    vec!["MITRE:T1014".to_string(), format!("TargetMsr:0x{ctx:x}")],
+                    format!("Hypervisor trapped syscall MSR / EFER write outside System context: {subj}"),
+                    rec.raw.clone(),
+                );
+            } else if evt_type == 0x10 || (0x90..=0x94).contains(&evt_type) {
+                let addr = raw_first_u64(&rec.raw, &["/owlyHv/memoryAddress"]).unwrap_or(0);
+                let subj = format!("0x{addr:x}");
+                emit_server_rule_alert(
+                    store,
+                    events,
+                    machine_id,
+                    rec.pid,
+                    &rec.process_name,
+                    &rec.exe_path,
+                    sha256,
+                    &subj,
+                    "Server.Hypervisor.EptViolation",
+                    0.90,
+                    vec![
+                        "MITRE:T1014".to_string(),
+                        format!("HypervisorEvent:0x{evt_type:x}"),
+                        format!("Context:0x{ctx:x}"),
+                    ],
+                    format!("Hypervisor detected EPT violation or hidden hook event at {subj}"),
                     rec.raw.clone(),
                 );
             }
@@ -2382,5 +2672,255 @@ mod tests {
         assert_eq!(behaviors.len(), 1);
         assert_eq!(behaviors[0].detection, "Server.TLS.CobaltStrike.MalleableC2");
         assert_eq!(behaviors[0].verdict, "malicious");
+    }
+
+    #[test]
+    fn ingest_edr_events_flags_sanctum_detections_without_benign_etw_ti_fp() {
+        let store = EdrTelemetryStore::new();
+        let events = EventLog::new(false);
+        let batch = EdrEventBatch {
+            machine_id: "machine-sanctum-rules".to_string(),
+            events: vec![
+                EdrEventRecord {
+                    timestamp: 1700000200,
+                    time_iso: "2026-11-26T00:05:00Z".to_string(),
+                    event_type: "SANCTUM_GHOST_HUNT".to_string(),
+                    pid: 6200,
+                    process_name: "loader.exe".to_string(),
+                    exe_path: r"C:\Temp\loader.exe".to_string(),
+                    details: None,
+                    raw: serde_json::json!({
+                        "syscall_name": "NtAllocateVirtualMemory",
+                        "address": 140735275417600u64,
+                        "hex_payload": "4c8bd1b818000000"
+                    }),
+                },
+                EdrEventRecord {
+                    timestamp: 1700000201,
+                    time_iso: "2026-11-26T00:05:01Z".to_string(),
+                    event_type: "SANCTUM_AMSI_BYPASS".to_string(),
+                    pid: 6201,
+                    process_name: "ps_bypass.exe".to_string(),
+                    exe_path: r"C:\Temp\ps_bypass.exe".to_string(),
+                    details: None,
+                    raw: serde_json::json!({
+                        "function_name": "AmsiScanBuffer",
+                        "offending_address": 140711111111111u64
+                    }),
+                },
+                EdrEventRecord {
+                    timestamp: 1700000202,
+                    time_iso: "2026-11-26T00:05:02Z".to_string(),
+                    event_type: "LLE_DRIVER_LOAD".to_string(),
+                    pid: 6202,
+                    process_name: "dropper.exe".to_string(),
+                    exe_path: r"C:\Temp\dropper.exe".to_string(),
+                    details: None,
+                    raw: serde_json::json!({
+                        "subType": "HVCI_BLOCK",
+                        "driver": {
+                            "image": r"\SystemRoot\System32\drivers\iqvw64e.sys",
+                            "action": "BLOCK"
+                        }
+                    }),
+                },
+                EdrEventRecord {
+                    timestamp: 1700000203,
+                    time_iso: "2026-11-26T00:05:03Z".to_string(),
+                    event_type: "SANCTUM_ETW_BLINDING".to_string(),
+                    pid: 6203,
+                    process_name: "sanctum_ppl_runner.exe".to_string(),
+                    exe_path: "sanctum_ppl_runner.exe".to_string(),
+                    details: Some("ETW:TI session interrupted".to_string()),
+                    raw: serde_json::json!({}),
+                },
+                EdrEventRecord {
+                    timestamp: 1700000204,
+                    time_iso: "2026-11-26T00:05:04Z".to_string(),
+                    event_type: "SANCTUM_ETW_TI".to_string(),
+                    pid: 6204,
+                    process_name: "injector.exe".to_string(),
+                    exe_path: r"C:\Temp\injector.exe".to_string(),
+                    details: None,
+                    raw: serde_json::json!({
+                        "data": {
+                            "EtwThreatIntelligence": {
+                                "function": "NtAllocateVirtualMemory",
+                                "event_name": "ALLOCVM_REMOTE",
+                                "remote": true,
+                                "suspicious": true
+                            }
+                        }
+                    }),
+                },
+                EdrEventRecord {
+                    timestamp: 1700000205,
+                    time_iso: "2026-11-26T00:05:05Z".to_string(),
+                    event_type: "SANCTUM_ETW_TI".to_string(),
+                    pid: 6205,
+                    process_name: "svchost.exe".to_string(),
+                    exe_path: r"C:\Windows\System32\svchost.exe".to_string(),
+                    details: None,
+                    raw: serde_json::json!({
+                        "data": {
+                            "EtwThreatIntelligence": {
+                                "function": "NtAllocateVirtualMemory",
+                                "event_name": "ALLOCVM_LOCAL",
+                                "remote": false,
+                                "suspicious": false
+                            }
+                        }
+                    }),
+                },
+                EdrEventRecord {
+                    timestamp: 1700000206,
+                    time_iso: "2026-11-26T00:05:06Z".to_string(),
+                    event_type: "VSS_SHADOW_COPY_DELETED".to_string(),
+                    pid: 6206,
+                    process_name: "vssvc.exe".to_string(),
+                    exe_path: r"C:\Windows\System32\vssvc.exe".to_string(),
+                    details: Some("VolumeName=C:".to_string()),
+                    raw: serde_json::json!({ "VolumeName": "C:" }),
+                },
+            ],
+        };
+        let resp = ingest_edr_events(&store, &events, &batch);
+        assert_eq!(resp["ingested"], 7);
+
+        let behaviors = store.get_behaviors(20, None, None);
+        assert!(behaviors.iter().any(|b| b.detection == "Server.Sanctum.DirectSyscallGhostHunt"));
+        assert!(behaviors.iter().any(|b| b.detection == "Server.Sanctum.AmsiBypass"));
+        assert!(behaviors.iter().any(|b| b.detection == "Server.Sanctum.HvciDriverBlocked"));
+        assert!(behaviors.iter().any(|b| b.detection == "Server.Sanctum.EtwTiBlinding"));
+        assert!(behaviors.iter().any(|b| b.detection == "Server.Sanctum.EtwThreatIntel"));
+        assert!(behaviors.iter().any(|b| b.pid == 6206 && b.detection == "Server.EDR.ShadowCopyDeletion"));
+        assert!(!behaviors.iter().any(|b| b.pid == 6205 && b.detection == "Server.Sanctum.EtwThreatIntel"));
+    }
+
+    #[test]
+    fn ingest_edr_events_flags_mbrfilter_and_hypervisor_and_driver_tamper() {
+        let store = EdrTelemetryStore::new();
+        let events = EventLog::new(false);
+        let batch = EdrEventBatch {
+            machine_id: "machine-mbr-hv".to_string(),
+            events: vec![
+                EdrEventRecord {
+                    timestamp: 1700000300,
+                    time_iso: "2026-11-26T00:06:00Z".to_string(),
+                    event_type: "MBR_SECTOR0_RAW_WRITE".to_string(),
+                    pid: 7100,
+                    process_name: "wiper.exe".to_string(),
+                    exe_path: r"C:\Temp\wiper.exe".to_string(),
+                    details: None,
+                    raw: serde_json::json!({
+                        "disk": r"\\.\PhysicalDrive0",
+                        "sector": 0,
+                        "mbrAlert": r"DISK:0|C:\Temp\wiper.exe"
+                    }),
+                },
+                EdrEventRecord {
+                    timestamp: 1700000301,
+                    time_iso: "2026-11-26T00:06:01Z".to_string(),
+                    event_type: "LLE_DISK_RAW_WRITE_ACCESS".to_string(),
+                    pid: 7101,
+                    process_name: "defrag.exe".to_string(),
+                    exe_path: r"C:\Windows\System32\defrag.exe".to_string(),
+                    details: None,
+                    raw: serde_json::json!({ "path": r"\\.\PhysicalDrive0", "sector": 2048 }),
+                },
+                EdrEventRecord {
+                    timestamp: 1700000302,
+                    time_iso: "2026-11-26T00:06:02Z".to_string(),
+                    event_type: "LLE_DEVICE_IOCTL".to_string(),
+                    pid: 7102,
+                    process_name: "rk_msr.exe".to_string(),
+                    exe_path: r"C:\Temp\rk_msr.exe".to_string(),
+                    details: None,
+                    raw: serde_json::json!({
+                        "owlyHook": { "eventType": 65 },
+                        "owlyHv": { "timestamp": 133800000000000000u64, "context": 0xC0000082u64 }
+                    }),
+                },
+                EdrEventRecord {
+                    timestamp: 1700000303,
+                    time_iso: "2026-11-26T00:06:03Z".to_string(),
+                    event_type: "LLE_DEVICE_IOCTL".to_string(),
+                    pid: 4,
+                    process_name: "System".to_string(),
+                    exe_path: "System".to_string(),
+                    details: None,
+                    raw: serde_json::json!({
+                        "owlyHook": { "eventType": 65 },
+                        "owlyHv": { "timestamp": 133800000000000000u64, "context": 0xC0000082u64 }
+                    }),
+                },
+                EdrEventRecord {
+                    timestamp: 1700000304,
+                    time_iso: "2026-11-26T00:06:04Z".to_string(),
+                    event_type: "MLE_HYPERVISOR_MSR_TAMPER".to_string(),
+                    pid: 7104,
+                    process_name: "rk_efer.exe".to_string(),
+                    exe_path: r"C:\Temp\rk_efer.exe".to_string(),
+                    details: None,
+                    raw: serde_json::json!({ "targetMsr": 0xC0000080u64 }),
+                },
+                EdrEventRecord {
+                    timestamp: 1700000305,
+                    time_iso: "2026-11-26T00:06:05Z".to_string(),
+                    event_type: "LLE_DEVICE_IOCTL".to_string(),
+                    pid: 7105,
+                    process_name: "ept_probe.exe".to_string(),
+                    exe_path: r"C:\Temp\ept_probe.exe".to_string(),
+                    details: None,
+                    raw: serde_json::json!({
+                        "owlyHook": { "eventType": 0x10 },
+                        "owlyHv": { "timestamp": 133800000000000000u64, "context": 7u64, "memoryAddress": 0x2000u64 }
+                    }),
+                },
+                EdrEventRecord {
+                    timestamp: 1700000306,
+                    time_iso: "2026-11-26T00:06:06Z".to_string(),
+                    event_type: "DRIVER_UNLOADED".to_string(),
+                    pid: 7106,
+                    process_name: "services.exe".to_string(),
+                    exe_path: "services.exe".to_string(),
+                    details: None,
+                    raw: serde_json::json!({ "driver_path": r"C:\Windows\System32\drivers\MBRFilter.sys" }),
+                },
+                EdrEventRecord {
+                    timestamp: 1700000307,
+                    time_iso: "2026-11-26T00:06:07Z".to_string(),
+                    event_type: "DRIVER_UNLOADED".to_string(),
+                    pid: 7107,
+                    process_name: "services.exe".to_string(),
+                    exe_path: "services.exe".to_string(),
+                    details: None,
+                    raw: serde_json::json!({ "driver_path": r"C:\Windows\System32\drivers\hyperhv.sys" }),
+                },
+                EdrEventRecord {
+                    timestamp: 1700000308,
+                    time_iso: "2026-11-26T00:06:08Z".to_string(),
+                    event_type: "DRIVER_UNLOADED".to_string(),
+                    pid: 7108,
+                    process_name: "services.exe".to_string(),
+                    exe_path: "services.exe".to_string(),
+                    details: None,
+                    raw: serde_json::json!({ "driver_path": r"C:\Windows\System32\drivers\RedDbgDrv.sys" }),
+                },
+            ],
+        };
+        let resp = ingest_edr_events(&store, &events, &batch);
+        assert_eq!(resp["ingested"], 9);
+
+        let behaviors = store.get_behaviors(30, None, None);
+        assert!(behaviors.iter().any(|b| b.pid == 7100 && b.detection == "Server.EDR.MbrSector0RawWrite"));
+        assert!(!behaviors.iter().any(|b| b.pid == 7101));
+        assert!(behaviors.iter().any(|b| b.pid == 7102 && b.detection == "Server.Hypervisor.SyscallMsrTamper"));
+        assert!(!behaviors.iter().any(|b| b.pid == 4 && b.detection == "Server.Hypervisor.SyscallMsrTamper"));
+        assert!(behaviors.iter().any(|b| b.pid == 7104 && b.detection == "Server.Hypervisor.SyscallMsrTamper"));
+        assert!(behaviors.iter().any(|b| b.pid == 7105 && b.detection == "Server.Hypervisor.EptViolation"));
+        for tamper_pid in [7106u32, 7107, 7108] {
+            assert!(behaviors.iter().any(|b| b.pid == tamper_pid && b.detection == "Server.EDR.SecurityDriverUnloaded"));
+        }
     }
 }

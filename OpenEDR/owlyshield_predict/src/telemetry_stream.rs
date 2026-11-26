@@ -235,6 +235,7 @@ fn extract_best_file_path(raw: &serde_json::Value, exe_path: &str) -> Option<Str
         "/file/uniquePath",
         "/file/renameTarget",
         "/driver_path",
+        "/driver/image",
         "/process/imageFile/abstractPath",
         "/process/imageFile/rawPath",
         "/process/imageFile/path",
@@ -318,6 +319,9 @@ fn should_hash_event(event_type: &str) -> bool {
             | "FILE_DOWNLOADED"
             | "DRIVER_LOADED"
             | "DRIVER_MODIFIED"
+            | "SANCTUM_HVCI_BLOCK"
+            | "MBR_SECTOR0_RAW_WRITE"
+            | "LLE_DISK_RAW_WRITE_ACCESS"
     ) || event_type.starts_with("MLE_")
 }
 

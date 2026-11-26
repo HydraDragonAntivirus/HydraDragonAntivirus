@@ -15,6 +15,8 @@
 #include <libcore/inc/zerotrust.hpp>
 #include <libcore/inc/kstack_resolve.hpp>
 
+#include <atomic>
+#include <cstdint>
 #include <mutex>
 #include <string_view>
 #include <windows.h>
@@ -595,18 +597,23 @@ void SystemMonitorController::ensureMbrFilterDriver()
 	::GetModuleFileNameW(NULL, szModule, MAX_PATH);
 	fs::path appDir = fs::path(szModule).parent_path();
 	fs::path srcPath = appDir / L"MBRFilter.sys";
-
-	if (fs::exists(srcPath) && !fs::exists(destPath))
+	std::error_code ec;
+	if (!fs::exists(srcPath, ec))
 	{
-		std::error_code ec;
-		fs::copy_file(srcPath, destPath, fs::copy_options::overwrite_existing, ec);
-		if (!ec)
+		fs::path fallbackPath = appDir.parent_path() / L"hydradragon" / L"MBRFilter" / L"MBRFilter.sys";
+		if (fs::exists(fallbackPath, ec))
+			srcPath = fallbackPath;
+	}
+
+	if (fs::exists(srcPath, ec))
+	{
+		if (fs::copy_file(srcPath, destPath, fs::copy_options::update_existing, ec) && !ec)
 		{
 			LOGINF("[MBR] Staged MBRFilter.sys to " << destPath.string());
 		}
 	}
 
-	if (!fs::exists(destPath))
+	if (!fs::exists(destPath, ec))
 	{
 		LOGWRN("[MBR] MBRFilter.sys not found at " << destPath.string());
 		return;
@@ -1203,6 +1210,17 @@ void SystemMonitorController::stopThreads()
 		m_hipsDecisionPipeThread.join();
 }
 
+namespace sanctum_bridge {
+void SubmitSanctumTelemetry(
+	const std::string& sEventType,
+	const std::string& sExePath,
+	const std::string& sDetails,
+	const std::string& sJson);
+void SendGuiPipeLine(const std::string& sLine);
+void EnsureProcessDict(Variant& vEvent, uint32_t nPid, const std::string& sProcPath);
+void ForwardToReceiverSafe(const ObjPtr<IDataReceiver>& pReceiver, const Variant& vEvent);
+} // namespace sanctum_bridge
+
 void SystemMonitorController::mbrFilterPipeServerLoop()
 {
 	LOGINF("[MBR] Starting MBRFilter alert pipe listener on \\\\.\\pipe\\Global\\mbr_filter_alerts");
@@ -1234,22 +1252,75 @@ void SystemMonitorController::mbrFilterPipeServerLoop()
 			{
 				std::wstring alertMsg(buffer.data(), dwRead / sizeof(wchar_t));
 				std::string sAlertUtf8 = string::convertWCharToUtf8(alertMsg);
-				LOGLVL(Critical, "[MBR ALERT] Sector 0 write attempt: " << sAlertUtf8);
-
-				// Forward MBR Alert to Pascal GUI
-				try
+				while (!sAlertUtf8.empty() &&
+					(sAlertUtf8.back() == '\0' || sAlertUtf8.back() == '\r' || sAlertUtf8.back() == '\n' ||
+					 sAlertUtf8.back() == ' ' || sAlertUtf8.back() == '\t'))
 				{
-					HANDLE hGuiPipe = ::CreateFileW(L"\\\\.\\pipe\\HydraHipEvent",
-						GENERIC_WRITE, 0, NULL, OPEN_EXISTING, 0, NULL);
-					if (hGuiPipe != INVALID_HANDLE_VALUE)
-					{
-						std::string pipeMsg = "BEHAVIOR_EVENT:PhysicalDrive0|MBR_SECTOR0_RAW_WRITE [Alert: " + sAlertUtf8 + "]\n";
-						DWORD written = 0;
-						::WriteFile(hGuiPipe, pipeMsg.data(), static_cast<DWORD>(pipeMsg.size()), &written, NULL);
-						::CloseHandle(hGuiPipe);
-					}
+					sAlertUtf8.pop_back();
 				}
-				catch (...) {}
+
+				if (!sAlertUtf8.empty())
+				{
+					LOGLVL(Critical, "[MBR ALERT] Sector 0 write attempt: " << sAlertUtf8);
+
+					// Parse "DISK:<num>|<process_path>" emitted by MBRFilter.sys
+					std::string sDiskNum = "0";
+					std::string sProcPath;
+					auto barPos = sAlertUtf8.find('|');
+					if (barPos != std::string::npos)
+					{
+						std::string sLeft = sAlertUtf8.substr(0, barPos);
+						if (sLeft.rfind("DISK:", 0) == 0 && sLeft.size() > 5)
+							sDiskNum = sLeft.substr(5);
+						sProcPath = sAlertUtf8.substr(barPos + 1);
+						while (!sProcPath.empty() && (sProcPath.front() == ' ' || sProcPath.front() == '\t'))
+							sProcPath.erase(sProcPath.begin());
+					}
+					else if (sAlertUtf8.rfind("DISK:", 0) == 0 && sAlertUtf8.size() > 5)
+					{
+						sDiskNum = sAlertUtf8.substr(5);
+					}
+
+					uint64_t nDiskNum = 0;
+					try
+					{
+						nDiskNum = std::stoull(sDiskNum);
+					}
+					catch (...) { nDiskNum = 0; }
+
+					const std::string sDiskPath = "\\\\.\\PhysicalDrive" + std::to_string(nDiskNum);
+					const std::string sEffectiveProc = sProcPath.empty()
+						? ("PhysicalDrive" + std::to_string(nDiskNum))
+						: sProcPath;
+
+					Dictionary vEvent;
+					vEvent.put("baseType", static_cast<uint64_t>(Event::LLE_DISK_RAW_WRITE_ACCESS));
+					vEvent.put("type", "MBR_SECTOR0_RAW_WRITE");
+					vEvent.put("source", "mbrfilter");
+					vEvent.put("tickTime", static_cast<uint64_t>(::GetTickCount64()));
+					vEvent.put("path", sDiskPath);
+					vEvent.put("disk", sDiskPath);
+					vEvent.put("diskNumber", nDiskNum);
+					vEvent.put("sector", static_cast<uint64_t>(0));
+					vEvent.put("mbrAlert", sAlertUtf8);
+					sanctum_bridge::EnsureProcessDict(vEvent, 0, sEffectiveProc);
+
+					try
+					{
+						const std::string sJson = variant::serializeToJson(vEvent, variant::JsonFormat::SingleLine);
+						const std::string sDetails = "MBR Sector 0 raw write blocked by MBRFilter: " + sAlertUtf8;
+						sanctum_bridge::SubmitSanctumTelemetry("MBR_SECTOR0_RAW_WRITE", sEffectiveProc, sDetails, sJson);
+					}
+					catch (...) {}
+
+					vEvent.put("telemetryAlreadySubmitted", true);
+					sanctum_bridge::ForwardToReceiverSafe(m_pReceiver, vEvent);
+
+					sanctum_bridge::SendGuiPipeLine(
+						"THREAT_ALERT:MBRFilter_Sector0Write|" + sEffectiveProc + " (PhysicalDrive" + std::to_string(nDiskNum) + ")");
+					sanctum_bridge::SendGuiPipeLine(
+						"BEHAVIOR_EVENT:" + sEffectiveProc + "|MBR_SECTOR0_RAW_WRITE [Alert: " + sAlertUtf8 + "]");
+				}
 			}
 		}
 
@@ -1410,6 +1481,476 @@ void SystemMonitorController::hipsDecisionPipeServerLoop()
 	LOGINF("[HIPS] HIPS Decision pipe listener stopped");
 }
 
+namespace sanctum_bridge {
+
+typedef void (*SanctumTelemetrySubmitFn)(
+	const uint8_t*, uint32_t,
+	const uint8_t*, uint32_t,
+	const uint8_t*, uint32_t,
+	const uint8_t*, uint32_t);
+
+SanctumTelemetrySubmitFn GetSanctumTelemetrySubmitFn()
+{
+	static std::atomic<SanctumTelemetrySubmitFn> s_fnTelemetry{ nullptr };
+	if (auto cached = s_fnTelemetry.load(std::memory_order_acquire))
+		return cached;
+	HMODULE hDll = ::GetModuleHandleW(L"owlyshield_ransom.dll");
+	if (!hDll)
+		hDll = ::LoadLibraryW(L"owlyshield_ransom.dll");
+	if (hDll)
+	{
+		auto fn = reinterpret_cast<SanctumTelemetrySubmitFn>(
+			::GetProcAddress(hDll, "owlyshield_telemetry_submit_event"));
+		if (fn)
+		{
+			s_fnTelemetry.store(fn, std::memory_order_release);
+			return fn;
+		}
+	}
+	return nullptr;
+}
+
+void SubmitSanctumTelemetry(
+	const std::string& sEventType,
+	const std::string& sExePath,
+	const std::string& sDetails,
+	const std::string& sJson)
+{
+	if (auto fn = GetSanctumTelemetrySubmitFn())
+	{
+		fn(
+			reinterpret_cast<const uint8_t*>(sEventType.data()), static_cast<uint32_t>(sEventType.size()),
+			reinterpret_cast<const uint8_t*>(sExePath.data()), static_cast<uint32_t>(sExePath.size()),
+			reinterpret_cast<const uint8_t*>(sDetails.data()), static_cast<uint32_t>(sDetails.size()),
+			reinterpret_cast<const uint8_t*>(sJson.data()), static_cast<uint32_t>(sJson.size()));
+	}
+}
+
+std::string ResolvePidImagePathUtf8(uint32_t nPid)
+{
+	if (nPid == 0)
+		return "";
+	if (nPid == 4)
+		return "System";
+	HANDLE hProc = ::OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, nPid);
+	if (!hProc)
+		return "";
+	wchar_t wsPath[1024] = {};
+	DWORD cch = static_cast<DWORD>(sizeof(wsPath) / sizeof(wsPath[0]));
+	const BOOL ok = ::QueryFullProcessImageNameW(hProc, 0, wsPath, &cch);
+	::CloseHandle(hProc);
+	if (!ok || cch == 0)
+		return "";
+	const int nUtf8 = ::WideCharToMultiByte(CP_UTF8, 0, wsPath, static_cast<int>(cch), nullptr, 0, nullptr, nullptr);
+	if (nUtf8 <= 0)
+		return "";
+	std::string out(static_cast<size_t>(nUtf8), '\0');
+	::WideCharToMultiByte(CP_UTF8, 0, wsPath, static_cast<int>(cch), &out[0], nUtf8, nullptr, nullptr);
+	return out;
+}
+
+void SendGuiPipeLine(const std::string& sLine)
+{
+	std::string sClean;
+	sClean.reserve(sLine.size() + 1);
+	for (char c : sLine)
+	{
+		if (c == '\r' || c == '\n')
+			sClean.push_back(' ');
+		else
+			sClean.push_back(c);
+	}
+	sClean.push_back('\n');
+
+	HANDLE hGuiPipe = ::CreateFileW(L"\\\\.\\pipe\\HydraHipEvent",
+		GENERIC_WRITE, 0, NULL, OPEN_EXISTING, 0, NULL);
+	if (hGuiPipe != INVALID_HANDLE_VALUE)
+	{
+		DWORD written = 0;
+		::WriteFile(hGuiPipe, sClean.data(), static_cast<DWORD>(sClean.size()), &written, NULL);
+		::CloseHandle(hGuiPipe);
+	}
+}
+
+uint64_t ExtractUint64Safe(const Variant& v, const char* szKey, uint64_t nDefault = 0)
+{
+	if (v.getType() != variant::ValueType::Dictionary || !v.has(szKey))
+		return nDefault;
+	try
+	{
+		const auto val = v.get(szKey);
+		if (val.getType() == variant::ValueType::Integer)
+			return static_cast<uint64_t>(val);
+	}
+	catch (...) {}
+	return nDefault;
+}
+
+std::string ExtractStringSafe(const Variant& v, const char* szKey)
+{
+	if (v.getType() != variant::ValueType::Dictionary || !v.has(szKey))
+		return "";
+	try
+	{
+		const auto val = v.get(szKey);
+		if (val.getType() == variant::ValueType::String)
+			return std::string(val);
+	}
+	catch (...) {}
+	return "";
+}
+
+bool ExtractBoolSafe(const Variant& v, const char* szKey, bool fDefault = false)
+{
+	if (v.getType() != variant::ValueType::Dictionary || !v.has(szKey))
+		return fDefault;
+	try
+	{
+		const auto val = v.get(szKey);
+		if (val.getType() == variant::ValueType::Boolean)
+			return static_cast<bool>(val);
+		if (val.getType() == variant::ValueType::Integer)
+			return static_cast<uint64_t>(val) != 0;
+	}
+	catch (...) {}
+	return fDefault;
+}
+
+std::string ExtractPathSafe(const Variant& v, const char* szDotPath)
+{
+	try
+	{
+		if (auto optP = variant::getByPathSafe(v, szDotPath))
+		{
+			if (optP.value().getType() == variant::ValueType::String)
+				return std::string(optP.value());
+		}
+	}
+	catch (...) {}
+	return "";
+}
+
+void EnsureProcessDict(Variant& vEvent, uint32_t nPid, const std::string& sProcPath)
+{
+	Dictionary vImg;
+	if (!sProcPath.empty())
+	{
+		vImg.put("rawPath", sProcPath);
+		vImg.put("abstractPath", sProcPath);
+		vImg.put("path", sProcPath);
+	}
+	Dictionary vProc;
+	vProc.put("pid", nPid);
+	vProc.put("imageFile", vImg);
+	vEvent.put("process", vProc);
+}
+
+void ForwardToReceiverSafe(const ObjPtr<IDataReceiver>& pReceiver, const Variant& vEvent)
+{
+	if (!pReceiver)
+		return;
+	try
+	{
+		pReceiver->put(vEvent);
+	}
+	catch (const error::Exception& ex)
+	{
+		LOGLVL(Detailed, "Sanctum event skipped by OpenEDR enricher: " << ex.what());
+	}
+	catch (...) {}
+}
+
+void ProcessSanctumJsonLine(const std::string& sLine, const ObjPtr<IDataReceiver>& pReceiver)
+{
+	Variant vEvent;
+	try
+	{
+		vEvent = variant::deserializeFromJson(sLine);
+	}
+	catch (...)
+	{
+		LOGWRN("Failed to parse Sanctum event JSON");
+		return;
+	}
+
+	if (vEvent.getType() != variant::ValueType::Dictionary)
+		return;
+
+	uint32_t nPid = static_cast<uint32_t>(ExtractUint64Safe(vEvent, "pid", 0));
+	if (nPid == 0 && vEvent.has("process"))
+		nPid = static_cast<uint32_t>(ExtractUint64Safe(vEvent.get("process"), "pid", 0));
+
+	std::string sProcPath = ExtractPathSafe(vEvent, "process.imageFile.abstractPath");
+	if (sProcPath.empty()) sProcPath = ExtractPathSafe(vEvent, "process.imageFile.rawPath");
+	if (sProcPath.empty()) sProcPath = ExtractPathSafe(vEvent, "process.imageFile.path");
+	if (sProcPath.empty()) sProcPath = ExtractPathSafe(vEvent, "process.path");
+	if (sProcPath.empty()) sProcPath = ExtractPathSafe(vEvent, "data.EtwThreatIntelligence.process_image");
+	if (sProcPath.empty() && nPid > 0)
+		sProcPath = ResolvePidImagePathUtf8(nPid);
+
+	const uint64_t nTickTime = ExtractUint64Safe(vEvent, "tickTime", static_cast<uint64_t>(::GetTickCount64()));
+	const std::string sType = ExtractStringSafe(vEvent, "type");
+	const std::string sSubType = ExtractStringSafe(vEvent, "subType");
+	const std::string sSanctumType = ExtractStringSafe(vEvent, "sanctumEventType");
+
+	// 1. Driver telemetry (DRIVER_LOAD / HVCI_BLOCK / DRIVER_SERVICE_SET)
+	if (vEvent.has("driver") || sType == "LLE_DRIVER_LOAD" ||
+		sSubType == "DRIVER_LOAD" || sSubType == "HVCI_BLOCK" || sSubType == "DRIVER_SERVICE_SET")
+	{
+		std::string sDriverImg = ExtractPathSafe(vEvent, "driver.image");
+		if (sDriverImg.empty()) sDriverImg = ExtractPathSafe(vEvent, "file.rawPath");
+		const std::string sAction = ExtractPathSafe(vEvent, "driver.action");
+		const std::string sEffectiveProc = sProcPath.empty() ? sDriverImg : sProcPath;
+
+		EnsureProcessDict(vEvent, nPid, sEffectiveProc);
+		if (!vEvent.has("file") && !sDriverImg.empty())
+		{
+			Dictionary vFile;
+			vFile.put("rawPath", sDriverImg);
+			vFile.put("abstractPath", sDriverImg);
+			vEvent.put("file", vFile);
+		}
+		vEvent.put("baseType", static_cast<uint64_t>(Event::LLE_DRIVER_LOAD));
+		vEvent.put("type", "LLE_DRIVER_LOAD");
+		vEvent.put("tickTime", nTickTime);
+
+		if (sSubType == "HVCI_BLOCK" || sAction == "BLOCK")
+		{
+			vEvent.put("sanctumEventType", "SANCTUM_HVCI_BLOCK");
+			const std::string sJson = variant::serializeToJson(vEvent, variant::JsonFormat::SingleLine);
+			const std::string sDetails = "Sanctum HVCI/blocklist blocked driver: " + sDriverImg;
+			SubmitSanctumTelemetry("SANCTUM_HVCI_BLOCK", sEffectiveProc, sDetails, sJson);
+			vEvent.put("sanctumTelemetrySubmitted", true);
+			SendGuiPipeLine("THREAT_ALERT:Sanctum_HVCI_Block|" + sDriverImg + " (" + sEffectiveProc + ")");
+			SendGuiPipeLine("BEHAVIOR_EVENT:" + sEffectiveProc + "|SANCTUM_HVCI_BLOCK [Sanctum/Rust]");
+		}
+		else if (!sEffectiveProc.empty())
+		{
+			SendGuiPipeLine("BEHAVIOR_EVENT:" + sEffectiveProc + "|LLE_DRIVER_LOAD [Sanctum/Rust]");
+		}
+
+		ForwardToReceiverSafe(pReceiver, vEvent);
+		return;
+	}
+
+	// 2. Ghost Hunting (direct / indirect syscall abuse)
+	if ((vEvent.has("syscall_name") && vEvent.has("hex_payload")) || sSanctumType == "SANCTUM_GHOST_HUNT")
+	{
+		const std::string sSyscall = ExtractStringSafe(vEvent, "syscall_name");
+		EnsureProcessDict(vEvent, nPid, sProcPath);
+		vEvent.put("sanctumEventType", "SANCTUM_GHOST_HUNT");
+		vEvent.put("source", "sanctum_ghost_hunt");
+		const std::string sJson = variant::serializeToJson(vEvent, variant::JsonFormat::SingleLine);
+		const std::string sDetails = "Direct syscall detected: " + sSyscall;
+		SubmitSanctumTelemetry("SANCTUM_GHOST_HUNT", sProcPath, sDetails, sJson);
+
+		vEvent.put("sanctumTelemetrySubmitted", true);
+		vEvent.put("baseType", static_cast<uint64_t>(Event::LLE_INJECTION_ACTIVITY));
+		vEvent.put("tickTime", nTickTime);
+		ForwardToReceiverSafe(pReceiver, vEvent);
+
+		SendGuiPipeLine("THREAT_ALERT:Sanctum_GhostHunt|" + sProcPath + " (" + sSyscall + ")");
+		if (!sProcPath.empty())
+			SendGuiPipeLine("BEHAVIOR_EVENT:" + sProcPath + "|SANCTUM_GHOST_HUNT [Sanctum/Rust]");
+		return;
+	}
+
+	// 3. AMSI Bypass Attempt
+	if ((vEvent.has("function_name") && vEvent.has("offending_address")) || sSanctumType == "SANCTUM_AMSI_BYPASS")
+	{
+		const std::string sFunc = ExtractStringSafe(vEvent, "function_name");
+		EnsureProcessDict(vEvent, nPid, sProcPath);
+		vEvent.put("sanctumEventType", "SANCTUM_AMSI_BYPASS");
+		vEvent.put("source", "sanctum_amsi");
+		const std::string sJson = variant::serializeToJson(vEvent, variant::JsonFormat::SingleLine);
+		const std::string sDetails = "AMSI bypass attempt: " + sFunc;
+		SubmitSanctumTelemetry("SANCTUM_AMSI_BYPASS", sProcPath, sDetails, sJson);
+
+		vEvent.put("sanctumTelemetrySubmitted", true);
+		vEvent.put("baseType", static_cast<uint64_t>(Event::LLE_INJECTION_ACTIVITY));
+		vEvent.put("tickTime", nTickTime);
+		ForwardToReceiverSafe(pReceiver, vEvent);
+
+		SendGuiPipeLine("THREAT_ALERT:Sanctum_AmsiBypass|" + sProcPath + " (" + sFunc + ")");
+		if (!sProcPath.empty())
+			SendGuiPipeLine("BEHAVIOR_EVENT:" + sProcPath + "|SANCTUM_AMSI_BYPASS [Sanctum/Rust]");
+		return;
+	}
+
+	// 4. Syscall struct (ETW:TI & Injected DLL hooks)
+	if (vEvent.has("data") && vEvent.has("source"))
+	{
+		EnsureProcessDict(vEvent, nPid, sProcPath);
+		const Variant vData = vEvent.get("data");
+
+		if (vData.getType() == variant::ValueType::Dictionary && vData.has("EtwThreatIntelligence"))
+		{
+			const Variant vTi = vData.get("EtwThreatIntelligence");
+			const std::string sFunc = ExtractStringSafe(vTi, "function");
+			const std::string sEvtName = ExtractStringSafe(vTi, "event_name");
+			const bool fRemote = ExtractBoolSafe(vTi, "remote", false);
+			const bool fSuspicious = ExtractBoolSafe(vTi, "suspicious", false);
+			const uint32_t nTargetPid = static_cast<uint32_t>(ExtractUint64Safe(vTi, "target_pid", 0));
+
+			vEvent.put("sanctumEventType", "SANCTUM_ETW_TI");
+			vEvent.put("function", sFunc);
+			vEvent.put("event_name", sEvtName);
+			vEvent.put("remote", fRemote);
+			vEvent.put("suspicious", fSuspicious);
+			if (nTargetPid != 0)
+			{
+				vEvent.put("target_pid", nTargetPid);
+				Dictionary vTarget;
+				vTarget.put("pid", nTargetPid);
+				vEvent.put("target", vTarget);
+			}
+
+			const std::string sJson = variant::serializeToJson(vEvent, variant::JsonFormat::SingleLine);
+			const std::string sDetails = sFunc + " (" + sEvtName + ")";
+			SubmitSanctumTelemetry("SANCTUM_ETW_TI", sProcPath, sDetails, sJson);
+
+			if (fSuspicious || fRemote)
+			{
+				vEvent.put("sanctumTelemetrySubmitted", true);
+				vEvent.put("baseType", static_cast<uint64_t>(Event::LLE_INJECTION_ACTIVITY));
+				vEvent.put("tickTime", nTickTime);
+				ForwardToReceiverSafe(pReceiver, vEvent);
+				if (!sProcPath.empty())
+					SendGuiPipeLine("BEHAVIOR_EVENT:" + sProcPath + "|SANCTUM_ETW_TI [Sanctum/Rust]");
+			}
+			return;
+		}
+
+		if (vData.getType() == variant::ValueType::Dictionary && vData.has("NtCreateThreadEx"))
+		{
+			const Variant vInner = vData.get("NtCreateThreadEx");
+			const uint32_t nTargetPid = static_cast<uint32_t>(ExtractUint64Safe(vInner, "target_pid", 0));
+			vEvent.put("sanctumEventType", "SANCTUM_SYSCALL_CREATE_THREAD");
+			SubmitSanctumTelemetry("SANCTUM_SYSCALL_CREATE_THREAD", sProcPath, "NtCreateThreadEx",
+				variant::serializeToJson(vEvent, variant::JsonFormat::SingleLine));
+			if (nTargetPid != 0 && nTargetPid != nPid)
+			{
+				Dictionary vTarget;
+				vTarget.put("pid", nTargetPid);
+				vEvent.put("target", vTarget);
+				vEvent.put("sanctumTelemetrySubmitted", true);
+				vEvent.put("baseType", static_cast<uint64_t>(Event::LLE_REMOTE_THREAD_CREATE));
+				vEvent.put("tickTime", nTickTime);
+				ForwardToReceiverSafe(pReceiver, vEvent);
+			}
+			return;
+		}
+
+		if (vData.getType() == variant::ValueType::Dictionary && vData.has("NtWriteVirtualMemory"))
+		{
+			const Variant vInner = vData.get("NtWriteVirtualMemory");
+			const uint32_t nTargetPid = static_cast<uint32_t>(ExtractUint64Safe(vInner, "target_pid", 0));
+			vEvent.put("sanctumEventType", "SANCTUM_SYSCALL_WRITE_VM");
+			SubmitSanctumTelemetry("SANCTUM_SYSCALL_WRITE_VM", sProcPath, "NtWriteVirtualMemory",
+				variant::serializeToJson(vEvent, variant::JsonFormat::SingleLine));
+			if (nTargetPid != 0 && nTargetPid != nPid)
+			{
+				Dictionary vTarget;
+				vTarget.put("pid", nTargetPid);
+				vEvent.put("target", vTarget);
+				vEvent.put("sanctumTelemetrySubmitted", true);
+				vEvent.put("baseType", static_cast<uint64_t>(Event::LLE_PROCESS_MEMORY_WRITE));
+				vEvent.put("tickTime", nTickTime);
+				ForwardToReceiverSafe(pReceiver, vEvent);
+			}
+			return;
+		}
+
+		if (vData.getType() == variant::ValueType::Dictionary && vData.has("NtOpenProcess"))
+		{
+			const Variant vInner = vData.get("NtOpenProcess");
+			const uint32_t nTargetPid = static_cast<uint32_t>(ExtractUint64Safe(vInner, "target_pid", 0));
+			const uint32_t nMask = static_cast<uint32_t>(ExtractUint64Safe(vInner, "desired_mask", 0));
+			vEvent.put("sanctumEventType", "SANCTUM_SYSCALL_OPEN_PROCESS");
+			SubmitSanctumTelemetry("SANCTUM_SYSCALL_OPEN_PROCESS", sProcPath, "NtOpenProcess",
+				variant::serializeToJson(vEvent, variant::JsonFormat::SingleLine));
+			if (nTargetPid != 0 && nTargetPid != nPid)
+			{
+				Dictionary vTarget;
+				vTarget.put("pid", nTargetPid);
+				vEvent.put("target", vTarget);
+				vEvent.put("accessMask", nMask);
+				vEvent.put("sanctumTelemetrySubmitted", true);
+				vEvent.put("baseType", static_cast<uint64_t>(Event::LLE_PROCESS_OPEN));
+				vEvent.put("tickTime", nTickTime);
+				ForwardToReceiverSafe(pReceiver, vEvent);
+			}
+			return;
+		}
+
+		if (vData.getType() == variant::ValueType::Dictionary && vData.has("NtAllocateVirtualMemory"))
+		{
+			const Variant vInner = vData.get("NtAllocateVirtualMemory");
+			const uint32_t nDestPid = static_cast<uint32_t>(ExtractUint64Safe(vInner, "dest_pid", 0));
+			const uint32_t nProtect = static_cast<uint32_t>(ExtractUint64Safe(vInner, "protect_flags", 0));
+			vEvent.put("sanctumEventType", "SANCTUM_SYSCALL_ALLOC_VM");
+			SubmitSanctumTelemetry("SANCTUM_SYSCALL_ALLOC_VM", sProcPath, "NtAllocateVirtualMemory",
+				variant::serializeToJson(vEvent, variant::JsonFormat::SingleLine));
+			if ((nDestPid != 0 && nDestPid != nPid) || (nProtect & 0x40u) != 0)
+			{
+				if (nDestPid != 0)
+				{
+					Dictionary vTarget;
+					vTarget.put("pid", nDestPid);
+					vEvent.put("target", vTarget);
+				}
+				vEvent.put("sanctumTelemetrySubmitted", true);
+				vEvent.put("baseType", static_cast<uint64_t>(Event::LLE_INJECTION_ACTIVITY));
+				vEvent.put("tickTime", nTickTime);
+				ForwardToReceiverSafe(pReceiver, vEvent);
+			}
+			return;
+		}
+
+		if (vData.getType() == variant::ValueType::Dictionary && vData.has("NetworkActivity"))
+		{
+			vEvent.put("sanctumEventType", "SANCTUM_NETWORK_ACTIVITY");
+			SubmitSanctumTelemetry("SANCTUM_NETWORK_ACTIVITY", sProcPath, "Sanctum ETW/WinINet network telemetry",
+				variant::serializeToJson(vEvent, variant::JsonFormat::SingleLine));
+			return;
+		}
+
+		vEvent.put("sanctumEventType", "SANCTUM_SYSCALL");
+		SubmitSanctumTelemetry("SANCTUM_SYSCALL", sProcPath, "",
+			variant::serializeToJson(vEvent, variant::JsonFormat::SingleLine));
+		return;
+	}
+
+	// 5. Fallback / Explicit SANCTUM_* / Sanctum PPL ETW event
+	const std::string sFallbackType = !sSanctumType.empty()
+		? sSanctumType
+		: (!sType.empty() ? sType : "SANCTUM_TELEMETRY");
+	const std::string sDetails = ExtractStringSafe(vEvent, "details");
+	EnsureProcessDict(vEvent, nPid, sProcPath);
+	SubmitSanctumTelemetry(sFallbackType, sProcPath, sDetails,
+		variant::serializeToJson(vEvent, variant::JsonFormat::SingleLine));
+
+	if (sFallbackType == "SANCTUM_ETW_BLINDING")
+	{
+		SendGuiPipeLine("THREAT_ALERT:Sanctum_EtwBlinding|" + (sDetails.empty() ? sFallbackType : sDetails));
+	}
+	if (!sProcPath.empty() && sFallbackType != "DNS_QUERY")
+		SendGuiPipeLine("BEHAVIOR_EVENT:" + sProcPath + "|" + sFallbackType + " [Sanctum/Rust]");
+
+	if (vEvent.has("baseType"))
+	{
+		const uint64_t nBase = ExtractUint64Safe(vEvent, "baseType", 0);
+		if (nBase > 0 && nBase <= 0x3Bu)
+		{
+			vEvent.put("sanctumTelemetrySubmitted", true);
+			vEvent.put("tickTime", nTickTime);
+			ForwardToReceiverSafe(pReceiver, vEvent);
+		}
+	}
+}
+
+} // namespace sanctum_bridge
+
 void SystemMonitorController::sanctumPipeServerLoop()
 {
 	while (!m_fStopSanctumPipe)
@@ -1455,48 +1996,7 @@ void SystemMonitorController::sanctumPipeServerLoop()
 				sCarry.erase(0, nPos + 1);
 
 				if (!sLine.empty())
-				{
-					try
-					{
-						auto vEvent = variant::deserializeFromJson(sLine);
-						if (m_pReceiver)
-							m_pReceiver->put(vEvent);
-
-						// Also broadcast Rust/Sanctum events directly to Pascal GUI
-						try
-						{
-							std::string sSrcPath;
-							if (auto optP = variant::getByPathSafe(vEvent, "process.imageFile.abstractPath"))
-								sSrcPath = std::string(optP.value());
-							else if (auto optP2 = variant::getByPathSafe(vEvent, "process.imageFile.rawPath"))
-								sSrcPath = std::string(optP2.value());
-							else if (auto optP3 = variant::getByPathSafe(vEvent, "process.path"))
-								sSrcPath = std::string(optP3.value());
-
-							std::string sEvtType = vEvent.get("type", std::string());
-							if (sEvtType.empty()) sEvtType = vEvent.get("eventType", std::string());
-							if (sEvtType.empty()) sEvtType = "SANCTUM_TELEMETRY";
-
-							if (!sSrcPath.empty())
-							{
-								HANDLE hGuiPipe = ::CreateFileW(L"\\\\.\\pipe\\HydraHipEvent",
-									GENERIC_WRITE, 0, NULL, OPEN_EXISTING, 0, NULL);
-								if (hGuiPipe != INVALID_HANDLE_VALUE)
-								{
-									std::string pipeMsg = "BEHAVIOR_EVENT:" + sSrcPath + "|" + sEvtType + " [Sanctum/Rust]\n";
-									DWORD written = 0;
-									::WriteFile(hGuiPipe, pipeMsg.data(), static_cast<DWORD>(pipeMsg.size()), &written, NULL);
-									::CloseHandle(hGuiPipe);
-								}
-							}
-						}
-						catch (...) {}
-					}
-					catch (...)
-					{
-						LOGWRN("Failed to parse Sanctum event JSON");
-					}
-				}
+					sanctum_bridge::ProcessSanctumJsonLine(sLine, m_pReceiver);
 			}
 		}
 

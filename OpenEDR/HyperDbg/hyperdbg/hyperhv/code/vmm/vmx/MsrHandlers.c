@@ -321,7 +321,7 @@ MsrHandleSetMsrBitmap(VIRTUAL_MACHINE_STATE * VCpu, UINT32 Msr, BOOLEAN ReadDete
         }
         if (WriteDetection)
         {
-            SetBit(Msr, (unsigned long *)VCpu->MsrBitmapVirtualAddress + 2048);
+            SetBit(Msr, (unsigned long *)(VCpu->MsrBitmapVirtualAddress + 2048));
         }
     }
     else if ((0xC0000000 <= Msr) && (Msr <= 0xC0001FFF))

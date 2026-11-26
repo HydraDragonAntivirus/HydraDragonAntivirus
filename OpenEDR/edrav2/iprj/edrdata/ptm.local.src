@@ -8148,8 +8148,9 @@
 			}
 		}
 		],
-		// Hypervisor signal (OpenEDR/HyperDbg on Intel; OpenEDR/RedDbg on AMD
-		// does not report MSR writes yet): WRMSR to a system call entry MSR
+		// Hypervisor signal (OpenEDR/HyperDbg on Intel and OpenEDR/RedDbgDrv on
+		// AMD both report critical WRMSR = 65 with target MSR index in
+		// @event.owlyHv.context): WRMSR to a system call entry MSR
 		// or to EFER outside the System context by a process that is not
 		// trusted. The event is produced by edrdrv's hypervisor bridge
 		// (QueueHypervisorEvent) and is recognized by the owlyHv dict, whose
