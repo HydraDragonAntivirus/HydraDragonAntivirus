@@ -306,7 +306,18 @@ impl Sample {
     }
 
     pub fn from_bytes(raw: &[u8]) -> UnpackerResult<Self> {
-        let raw_bytes = if !raw.is_empty() && vmpunpacker::detect(raw) {
+        Self::from_bytes_with_options(raw, true)
+    }
+
+    /// Parse a PE image from raw bytes without invoking static VMProtect LZMA
+    /// unpacking first, allowing the Unicorn emulator itself to execute the
+    /// packer or protector loader stub and unpack/resolve imports at runtime.
+    pub fn from_bytes_raw(raw: &[u8]) -> UnpackerResult<Self> {
+        Self::from_bytes_with_options(raw, false)
+    }
+
+    fn from_bytes_with_options(raw: &[u8], static_vmp_unpack: bool) -> UnpackerResult<Self> {
+        let raw_bytes = if static_vmp_unpack && !raw.is_empty() && vmpunpacker::detect(raw) {
             vmpunpacker::unpack(raw).unwrap_or_else(|e| {
                 log::warn!("VMProtect LZMA unpack failed, emulating the packed file: {e}");
                 raw.to_vec()
@@ -2584,10 +2595,100 @@ impl UnpackerEngine {
         Ok(())
     }
 
+    /// The Unicorn instance after `init_uc`, for callers that read emulated memory.
+    pub fn unicorn(&self) -> Option<&Unicorn<'static, ()>> {
+        self.uc.as_ref()
+    }
+
     /// The Unicorn instance after `init_uc`, for callers that add their own hooks
     /// (the disinfector) or read emulated memory after `emu`.
     pub fn unicorn_mut(&mut self) -> Option<&mut Unicorn<'static, ()>> {
         self.uc.as_mut()
+    }
+
+    /// Architecture classification parsed from the sample's PE headers.
+    pub fn pe_arch(&self) -> PeArch {
+        PeArch::from_pe(self.sample.pe_header.machine, self.sample.opt_header.magic)
+    }
+
+    /// Snapshot of all DLL import/hook function addresses registered in the
+    /// active emulator hook state (including dynamically resolved `GetProcAddress` stubs).
+    pub fn dll_exports_snapshot(&self) -> HashMap<String, Vec<(String, u64)>> {
+        self.hook_state.borrow().dllname_to_functionlist.clone()
+    }
+
+    /// Mapped DLL names and base addresses tracked by the active API hook state.
+    pub fn loaded_dll_bases(&self) -> Vec<(String, u64)> {
+        self.hook_state
+            .borrow()
+            .api_state
+            .dll_bases
+            .iter()
+            .map(|(k, &v)| (k.clone(), v))
+            .collect()
+    }
+
+    /// Read all mapped runtime allocation regions inside `[ALLOC_BASE, ALLOC_END)`
+    /// up to `max_total_bytes`.
+    pub fn allocated_memory_snapshots(&self, max_total_bytes: usize) -> Vec<(u64, Vec<u8>)> {
+        let Some(uc) = self.uc.as_ref() else {
+            return Vec::new();
+        };
+        let Ok(regions) = uc.mem_regions() else {
+            return Vec::new();
+        };
+        let mut snapshots = Vec::new();
+        let mut remaining = max_total_bytes;
+        for region in regions {
+            if remaining == 0 {
+                break;
+            }
+            let begin = region.begin;
+            let end = region.end.saturating_add(1);
+            if begin < apicalls::ALLOC_BASE || end > apicalls::ALLOC_END || end <= begin {
+                continue;
+            }
+            let size = usize::try_from(end - begin)
+                .unwrap_or(usize::MAX)
+                .min(remaining);
+            if size == 0 {
+                continue;
+            }
+            if let Ok(bytes) = uc.mem_read_as_vec(begin, size) {
+                remaining = remaining.saturating_sub(bytes.len());
+                snapshots.push((begin, bytes));
+            }
+        }
+        snapshots
+    }
+
+    /// Read the RVA-mapped live image buffer directly from Unicorn memory, page by page,
+    /// zero-filling any unmapped interior pages while failing if the header page is unreadable.
+    pub fn read_image_snapshot(&self) -> UnpackerResult<Vec<u8>> {
+        let uc = self
+            .uc
+            .as_ref()
+            .ok_or_else(|| UnpackerError::EmulatorError("engine not initialized".into()))?;
+        let aligned_size = page_align(self.sample.virtualmemorysize) as usize;
+        if aligned_size == 0 {
+            return Err(UnpackerError::InvalidPeFile("empty virtual image size".into()));
+        }
+        let mut snapshot = vec![0_u8; aligned_size];
+        let mut offset = 0usize;
+        while offset < aligned_size {
+            let chunk_len = (PAGE_SIZE as usize).min(aligned_size - offset);
+            let addr = self.sample.base_addr + offset as u64;
+            if let Err(err) = uc.mem_read(addr, &mut snapshot[offset..offset + chunk_len]) {
+                if offset == 0 {
+                    return Err(UnpackerError::EmulatorError(format!(
+                        "read_image_snapshot header page at {addr:#x}: {err:?}"
+                    )));
+                }
+                snapshot[offset..offset + chunk_len].fill(0);
+            }
+            offset += chunk_len;
+        }
+        Ok(snapshot)
     }
 
     // ------------------------------------------------------------------

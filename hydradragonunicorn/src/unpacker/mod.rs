@@ -9,6 +9,7 @@ pub mod packers;
 pub mod plan;
 pub mod recipe;
 pub mod upx;
+pub mod vid;
 pub mod vm;
 pub mod vm_devirt;
 pub mod vm_ir;

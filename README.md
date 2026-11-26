@@ -409,6 +409,7 @@ HydraDragon uses a **Zero-Disk Rule Architecture** to prevent post-infection tam
 - https://github.com/radareorg/radare2/releases/tag/6.1.4 (radare2-6.1.4-w64.zip)
 - https://github.com/DimaReverse/nuitka-static-unpacker
 - https://github.com/KingKDot/Exorcism-PowershellEdition
+- https://github.com/colby57/vid (Ported into hydradragonunicorn::unpacker::vid with Unicorn emulator-based dumping; MIT License)
 
 - I used these projects to decompile.
 
