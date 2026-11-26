@@ -64,6 +64,12 @@ jobs:
         with:
           workspaces: "OpenEDR/openedr_static -> target"
 
+      - name: Format Rust sources
+        working-directory: OpenEDR/openedr_static
+        run: |
+          rustup component add rustfmt
+          cargo fmt --all
+
       - name: Build openedr_static (Release)
         working-directory: OpenEDR/openedr_static
         run: cargo build --release --verbose
@@ -81,7 +87,11 @@ jobs:
           commit-message: "chore(openedr): update openedr_static.dll in OpenMalwareScannerPortable"
           title: "Update openedr_static.dll in OpenMalwareScannerPortable"
           body: "Automated build of openedr_static.dll placed into OpenMalwareScannerPortable folder."
-          add-paths: OpenMalwareScannerPortable/openedr_static.dll
+          add-paths: |
+            OpenMalwareScannerPortable/openedr_static.dll
+            OpenEDR/openedr_static/src
+            OpenEDR/openedr_static/examples
+            OpenEDR/openedr_static/tests
           branch: "auto-update-openedr-static"
           base: ${{ github.ref_name }}
           delete-branch: true

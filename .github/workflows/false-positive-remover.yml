@@ -28,6 +28,10 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
       - name: Cache Cargo
         uses: Swatinem/rust-cache@v2
+      - name: Format Rust sources
+        run: |
+          rustup component add rustfmt
+          cargo fmt --all
       - name: Cargo check
         run: cargo check
       - name: Build

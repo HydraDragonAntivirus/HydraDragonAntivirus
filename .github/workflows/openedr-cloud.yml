@@ -43,6 +43,12 @@ jobs:
         with:
           workspaces: "OpenEDR/openedr_cloud -> target"
 
+      - name: Format Rust sources
+        working-directory: OpenEDR/openedr_cloud
+        run: |
+          rustup component add rustfmt
+          cargo fmt --all
+
       - name: Build openedr_cloud (Release)
         working-directory: OpenEDR/openedr_cloud
         run: cargo build --release --verbose
@@ -60,7 +66,9 @@ jobs:
           commit-message: "chore(openedr): update openedr_cloud.dll in OpenMalwareScannerPortable"
           title: "Update openedr_cloud.dll in OpenMalwareScannerPortable"
           body: "Automated build of openedr_cloud.dll placed into OpenMalwareScannerPortable folder."
-          add-paths: OpenMalwareScannerPortable/openedr_cloud.dll
+          add-paths: |
+            OpenMalwareScannerPortable/openedr_cloud.dll
+            OpenEDR/openedr_cloud/src
           branch: "auto-update-openedr-cloud"
           base: ${{ github.ref_name }}
           delete-branch: true

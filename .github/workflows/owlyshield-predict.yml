@@ -43,6 +43,15 @@ jobs:
         with:
           workspaces: "OpenEDR/owlyshield_predict -> target"
 
+      - name: Format Rust sources
+        shell: pwsh
+        run: |
+          rustup component add rustfmt
+          cargo fmt --manifest-path OpenEDR/owlyshield_predict/Cargo.toml --all
+          cargo fmt --manifest-path OpenEDR/owlyshield_predict/hydradragonclamav/Cargo.toml --all
+          cargo fmt --manifest-path OpenEDR/owlyshield_predict/hydradragon_ml_trainer/Cargo.toml --all
+          cargo fmt --manifest-path OpenEDR/owlyshield_predict/slc-paths/Cargo.toml --all
+
       - name: Build owlyshield_predict (Release)
         working-directory: OpenEDR/owlyshield_predict
         run: cargo build --release --verbose
@@ -60,7 +69,18 @@ jobs:
           commit-message: "chore(owlyshield): update owlyshield_ransom.dll in edrgui"
           title: "Update owlyshield_ransom.dll in edrgui"
           body: "Automated build of owlyshield_ransom.dll placed into OpenEDR/edrgui folder."
-          add-paths: OpenEDR/edrgui/owlyshield_ransom.dll
+          add-paths: |
+            OpenEDR/edrgui/owlyshield_ransom.dll
+            OpenEDR/owlyshield_predict/src
+            OpenEDR/owlyshield_predict/examples
+            OpenEDR/owlyshield_predict/tests
+            OpenEDR/owlyshield_predict/hydradragonclamav/src
+            OpenEDR/owlyshield_predict/hydradragonclamav/examples
+            OpenEDR/owlyshield_predict/hydradragonclamav/tests
+            OpenEDR/owlyshield_predict/hydradragon_ml_trainer/src
+            OpenEDR/owlyshield_predict/slc-paths/src
+            OpenEDR/owlyshield_predict/slc-paths/benches
+            OpenEDR/owlyshield_predict/slc-paths/tests
           branch: "auto-update-owlyshield-predict"
           base: ${{ github.ref_name }}
           delete-branch: true

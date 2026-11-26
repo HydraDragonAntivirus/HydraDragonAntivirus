@@ -27,6 +27,12 @@ jobs:
         with:
           targets: wasm32-unknown-unknown
 
+      - name: Format Rust sources
+        working-directory: OpenEDR/openedr_web
+        run: |
+          rustup component add rustfmt
+          cargo fmt --all
+
       - name: Build WASM (release)
         working-directory: OpenEDR/openedr_web
         run: cargo build --release --target wasm32-unknown-unknown

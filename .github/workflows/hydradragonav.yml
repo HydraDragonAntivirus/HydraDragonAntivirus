@@ -41,6 +41,11 @@ jobs:
       - uses: actions/checkout@v7
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
+      - name: Format Rust sources
+        shell: pwsh
+        run: |
+          rustup component add rustfmt
+          cargo fmt --manifest-path hydradragonav/Cargo.toml --all
       - name: Build Release
         run: cargo build --release --manifest-path hydradragonav/Cargo.toml
       - name: Stage
@@ -59,7 +64,9 @@ jobs:
         id: check_changes
         uses: ./.github/actions/check-publishable-changes
         with:
-          paths: hydradragon/hydradragonav
+          paths: |
+            hydradragon/hydradragonav
+            hydradragonav/src
       - name: Create PR
         if: steps.check_changes.outputs.changed == 'true'
         uses: peter-evans/create-pull-request@v8

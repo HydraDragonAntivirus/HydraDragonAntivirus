@@ -23,6 +23,12 @@ jobs:
         with:
           toolchain: stable
 
+      - name: Format Rust sources
+        working-directory: hydradragon_yara_x_compile
+        run: |
+          rustup component add rustfmt
+          cargo fmt --all
+
       - name: Build validation tool
         run: cargo build --release
         working-directory: hydradragon_yara_x_compile
