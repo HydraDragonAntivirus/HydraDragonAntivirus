@@ -1733,6 +1733,146 @@ fn install_lzma_hook(
     });
 }
 
+fn parse_runtime_functions(
+    pe: &[u8],
+    opt: &OptionalHeader,
+    sections: &[Section],
+) -> Vec<(u32, u32, u32)> {
+    let Some(exc) = opt.data_directory.get(IMAGE_DIRECTORY_ENTRY_EXCEPTION) else {
+        return Vec::new();
+    };
+    if exc.virtual_address == 0 || exc.size < 12 {
+        return Vec::new();
+    }
+    let Some(eoff) = rva_to_raw(sections, opt.size_of_headers, exc.virtual_address, pe.len()) else {
+        return Vec::new();
+    };
+    let cnt = (exc.size as usize / 12).min(pe.len().saturating_sub(eoff) / 12);
+    let mut rfs = Vec::with_capacity(cnt);
+    for i in 0..cnt {
+        let Some(b) = rd_u32(pe, eoff + i * 12) else {
+            break;
+        };
+        let Some(e) = rd_u32(pe, eoff + i * 12 + 4) else {
+            break;
+        };
+        let Some(u) = rd_u32(pe, eoff + i * 12 + 8) else {
+            break;
+        };
+        if b != 0 && e > b {
+            rfs.push((b, e, u));
+        }
+    }
+    rfs.sort_unstable_by_key(|&(b, _, _)| b);
+    rfs
+}
+
+fn count_lzma_top_value_cmps(code: &[u8]) -> usize {
+    let mut count = 0usize;
+    for i in 0..code.len().saturating_sub(4) {
+        let is_cmp_eax = code[i] == 0x3D && code[i + 1..i + 5] == [0x00, 0x00, 0x00, 0x01];
+        let is_cmp_rm32 = i + 6 <= code.len()
+            && code[i] == 0x81
+            && (0xF8..=0xFF).contains(&code[i + 1])
+            && code[i + 2..i + 6] == [0x00, 0x00, 0x00, 0x01];
+        if is_cmp_eax || is_cmp_rm32 {
+            count += 1;
+        }
+    }
+    count
+}
+
+fn find_static_lzma_candidates(
+    packed_pe: &[u8],
+    packed_opt: &OptionalHeader,
+    packed_secs: &[Section],
+    loader_sec_va: Option<u32>,
+) -> Vec<u64> {
+    let rfs = parse_runtime_functions(packed_pe, packed_opt, packed_secs);
+    if rfs.is_empty() {
+        return Vec::new();
+    }
+    let img_base = packed_opt.image_base;
+    let allowed_ranges: Vec<(u32, u32)> = if let Some(lva) = loader_sec_va {
+        packed_secs
+            .iter()
+            .find(|s| s.virtual_address == lva)
+            .map(|s| {
+                vec![(
+                    s.virtual_address,
+                    s.virtual_address.saturating_add(s.virtual_size.max(s.size_of_raw_data)),
+                )]
+            })
+            .unwrap_or_default()
+    } else {
+        packed_secs
+            .iter()
+            .filter(|s| (s.characteristics & IMAGE_SCN_MEM_EXECUTE) != 0)
+            .map(|s| {
+                (
+                    s.virtual_address,
+                    s.virtual_address.saturating_add(s.virtual_size.max(s.size_of_raw_data)),
+                )
+            })
+            .collect()
+    };
+    if allowed_ranges.is_empty() {
+        return Vec::new();
+    }
+
+    let mut out = Vec::new();
+    let mut seen = HashSet::new();
+    for (idx, &(begin, end, _)) in rfs.iter().enumerate() {
+        if !allowed_ranges.iter().any(|&(sb, se)| begin >= sb && begin < se) {
+            continue;
+        }
+        let span = end.saturating_sub(begin);
+        if !(0x200..=0x10000).contains(&span) {
+            continue;
+        }
+        let Some(raw) = rva_to_raw(packed_secs, packed_opt.size_of_headers, begin, packed_pe.len()) else {
+            continue;
+        };
+        let raw_end = raw.saturating_add(span as usize).min(packed_pe.len());
+        if count_lzma_top_value_cmps(&packed_pe[raw..raw_end]) < 4 {
+            continue;
+        }
+
+        // Walk backward up to 4 contiguous RFs to recover the split prologue (e.g. UNW_FLAG_CHAININFO).
+        let mut back_rvas = Vec::new();
+        let mut cur_idx = idx;
+        let mut cur_b = begin;
+        for _ in 0..4 {
+            if cur_idx == 0 {
+                break;
+            }
+            let (pb, pe, pu) = rfs[cur_idx - 1];
+            if pe == cur_b && (pe - pb) <= 0x2000 {
+                back_rvas.push(pb);
+                cur_idx -= 1;
+                cur_b = pb;
+                let is_primary_prologue =
+                    rva_to_raw(packed_secs, packed_opt.size_of_headers, pu, packed_pe.len())
+                        .and_then(|uoff| packed_pe.get(uoff))
+                        .is_some_and(|&ver_flags| ((ver_flags >> 3) & 0x04) == 0);
+                if is_primary_prologue {
+                    break;
+                }
+            } else {
+                break;
+            }
+        }
+
+        for rva in back_rvas.into_iter().rev().chain(std::iter::once(begin)) {
+            let va = img_base + rva as u64;
+            if seen.insert(va) {
+                out.push(va);
+            }
+        }
+    }
+    out
+}
+
 #[allow(clippy::too_many_arguments)]
 fn run_packed_loader_capture(
     packed_pe: &[u8],
@@ -1746,6 +1886,7 @@ fn run_packed_loader_capture(
     heap_base: u64,
     os_build: u16,
     lzma_hints: &[u64],
+    lzma_hints_verified: bool,
 ) -> Result<LoaderCaptureRun, CaptureErr> {
     let img_base = packed_opt.image_base;
     let map_size = ((packed_opt.size_of_image as u64 + 0xFFF) & !0xFFF).max(0x2000);
@@ -2001,32 +2142,11 @@ fn run_packed_loader_capture(
                 install_lzma_hook(&mut uc, entry_va, Rc::clone(&stream_map), Rc::clone(&state));
             }
         }
-    } else if !stream_map.is_empty() {
+    }
+    if !lzma_hints_verified && !stream_map.is_empty() {
         // Dynamically detect LzmaDecode entry point when byte 0 of any compressed stream is read outside CRC loops.
-        let packed_rfs: Rc<Vec<(u32, u32)>> = Rc::new({
-            let mut v = packed_opt
-                .data_directory
-                .get(IMAGE_DIRECTORY_ENTRY_EXCEPTION)
-                .and_then(|exc| {
-                    if exc.virtual_address == 0 || exc.size < 12 {
-                        return None;
-                    }
-                    let eoff = rva_to_raw(packed_secs, packed_opt.size_of_headers, exc.virtual_address, packed_pe.len())?;
-                    let cnt = (exc.size as usize / 12).min(packed_pe.len().saturating_sub(eoff) / 12);
-                    let mut v = Vec::with_capacity(cnt);
-                    for i in 0..cnt {
-                        let b = rd_u32(packed_pe, eoff + i * 12)?;
-                        let e = rd_u32(packed_pe, eoff + i * 12 + 4)?;
-                        if b != 0 && e > b {
-                            v.push((b, e));
-                        }
-                    }
-                    Some(v)
-                })
-                .unwrap_or_default();
-            v.sort_unstable_by_key(|&(b, _)| b);
-            v
-        });
+        let packed_rfs: Rc<Vec<(u32, u32, u32)>> =
+            Rc::new(parse_runtime_functions(packed_pe, packed_opt, packed_secs));
         let crc_heads: Rc<Vec<u64>> = Rc::new(crc_loops.iter().map(|c| c.loop_head_va).collect());
         let smap_c = Rc::clone(&stream_map);
         let st_c = Rc::clone(&state);
@@ -2056,19 +2176,31 @@ fn run_packed_loader_capture(
                 let rip_rva = rip.saturating_sub(img_base) as u32;
                 let rf_idx_hit = rfs_i
                     .iter()
-                    .position(|&(b, e)| rip_rva >= b && rip_rva < e && (e - b) <= 0x8000);
+                    .position(|&(b, e, _)| rip_rva >= b && rip_rva < e && (e - b) <= 0x8000);
 
                 let mut candidates: Vec<u64> = Vec::new();
                 let mut rf_hit_b: Option<u32> = None;
                 if let Some(idx) = rf_idx_hit {
-                    let (b, _e) = rfs_i[idx];
+                    let (b, _e, _) = rfs_i[idx];
                     rf_hit_b = Some(b);
-                    candidates.push(img_base + b as u64);
-                    if idx > 0 {
-                        let (pb, pe) = rfs_i[idx - 1];
-                        if pe == b && (pe - pb) <= 0x2000 {
-                            candidates.push(img_base + pb as u64);
+                    let mut back_rvas = Vec::new();
+                    let mut cur_idx = idx;
+                    let mut cur_b = b;
+                    for _ in 0..4 {
+                        if cur_idx == 0 {
+                            break;
                         }
+                        let (pb, pe, _) = rfs_i[cur_idx - 1];
+                        if pe == cur_b && (pe - pb) <= 0x2000 {
+                            back_rvas.push(pb);
+                            cur_idx -= 1;
+                            cur_b = pb;
+                        } else {
+                            break;
+                        }
+                    }
+                    for rva in back_rvas.into_iter().rev().chain(std::iter::once(b)) {
+                        candidates.push(img_base + rva as u64);
                     }
                 }
 
@@ -2087,8 +2219,11 @@ fn run_packed_loader_capture(
                                 continue;
                             }
                         }
+                        if q < img_base {
+                            continue;
+                        }
                         let qrva = (q - img_base) as u32;
-                        if let Some(&(b, _e)) = rfs_i.iter().find(|&&(b, e)| qrva > b && qrva <= e && (e - b) <= 0x600) {
+                        if let Some(&(b, _e, _)) = rfs_i.iter().find(|&&(b, e, _)| qrva > b && qrva <= e && (e - b) <= 0x600) {
                             if Some(b) != rf_hit_b {
                                 let cand_va = img_base + b as u64;
                                 if !candidates.contains(&cand_va) {
@@ -2110,13 +2245,14 @@ fn run_packed_loader_capture(
                 if !new_vas.is_empty() {
                     for va in &new_vas {
                         install_lzma_hook(uc, *va, Rc::clone(&smap_i), Rc::clone(&st_i));
+                        let _ = uc.ctl_remove_cache(*va, va.saturating_add(16));
                     }
-                    if out_len >= 1_000_000 {
-                        let mut st = st_i.borrow_mut();
-                        if st.lzma_entry_va.is_none() {
-                            st.lzma_abort_for_retry = true;
-                            let _ = uc.emu_stop();
-                        }
+                }
+                if out_len >= 1_000_000 {
+                    let mut st = st_i.borrow_mut();
+                    if st.lzma_entry_va.is_none() && !st.lzma_hooked_vas.is_empty() {
+                        st.lzma_abort_for_retry = true;
+                        let _ = uc.emu_stop();
                     }
                 }
                 true
@@ -2596,6 +2732,9 @@ fn capture_loader_data_via_packed_loader(
         })
         .unwrap_or_default();
 
+    let static_lzma_hints =
+        find_static_lzma_candidates(packed_pe, &packed_opt, &packed_secs, loader_sec_va);
+
     let run1 = match run_packed_loader_capture(
         packed_pe,
         &packed_opt,
@@ -2607,7 +2746,8 @@ fn capture_loader_data_via_packed_loader(
         loader_sec_va,
         heap1,
         26100,
-        &[],
+        &static_lzma_hints,
+        false,
     ) {
         Ok(r) => r,
         Err(CaptureErr::AbortRetryLzma(cands)) => match run_packed_loader_capture(
@@ -2622,6 +2762,7 @@ fn capture_loader_data_via_packed_loader(
             heap1,
             26100,
             &cands,
+            true,
         ) {
             Ok(r) => r,
             Err(CaptureErr::AbortRetryLzma(_)) => {
@@ -2639,7 +2780,10 @@ fn capture_loader_data_via_packed_loader(
         }
     };
 
-    let hints2: Vec<u64> = run1.lzma_entry_va.into_iter().collect();
+    let (hints2, verified2): (Vec<u64>, bool) = match run1.lzma_entry_va {
+        Some(va) => (vec![va], true),
+        None => (static_lzma_hints, false),
+    };
     let run2 = run_packed_loader_capture(
         packed_pe,
         &packed_opt,
@@ -2652,6 +2796,7 @@ fn capture_loader_data_via_packed_loader(
         heap2,
         19045,
         &hints2,
+        verified2,
     )
     .ok();
 
@@ -3585,5 +3730,79 @@ mod tests {
         assert_eq!(obs_10, 0x1122_3344 ^ (actual_ld_ptr as u32));
         assert_eq!(obs_20, actual_ld_ptr + 0x18);
         assert_eq!(obs_180, count_val);
+    }
+
+    #[test]
+    fn find_static_lzma_candidates_detects_split_chained_lzma_decode() {
+        let mut pe = vec![0x90u8; 0x4000];
+        pe[0..2].copy_from_slice(b"MZ");
+        pe[0x3C..0x40].copy_from_slice(&0x80u32.to_le_bytes());
+        pe[0x80..0x84].copy_from_slice(b"PE\0\0");
+        let coff = 0x84;
+        pe[coff..coff + 2].copy_from_slice(&0x8664u16.to_le_bytes());
+        pe[coff + 2..coff + 4].copy_from_slice(&3u16.to_le_bytes());
+        pe[coff + 16..coff + 18].copy_from_slice(&240u16.to_le_bytes());
+        pe[coff + 18..coff + 20].copy_from_slice(&0x22u16.to_le_bytes());
+
+        let opt = coff + 20;
+        let image_base = 0x1_4000_0000u64;
+        pe[opt..opt + 2].copy_from_slice(&0x20Bu16.to_le_bytes());
+        pe[opt + 16..opt + 20].copy_from_slice(&0x2000u32.to_le_bytes());
+        pe[opt + 24..opt + 32].copy_from_slice(&image_base.to_le_bytes());
+        pe[opt + 32..opt + 36].copy_from_slice(&0x1000u32.to_le_bytes());
+        pe[opt + 36..opt + 40].copy_from_slice(&0x1000u32.to_le_bytes());
+        pe[opt + 56..opt + 60].copy_from_slice(&0x4000u32.to_le_bytes());
+        pe[opt + 60..opt + 64].copy_from_slice(&0x400u32.to_le_bytes());
+        pe[opt + 68..opt + 70].copy_from_slice(&3u16.to_le_bytes());
+        pe[opt + 108..opt + 112].copy_from_slice(&16u32.to_le_bytes());
+        // Zero DataDirectories first, then populate IMAGE_DIRECTORY_ENTRY_EXCEPTION (index 3).
+        pe[opt + 112..opt + 240].fill(0);
+        pe[opt + 136..opt + 140].copy_from_slice(&0x3000u32.to_le_bytes());
+        pe[opt + 140..opt + 144].copy_from_slice(&36u32.to_le_bytes());
+
+        let secs = [
+            (b".text\0\0\0", 0x1000u32, 0x1000u32, 0x6000_0020u32),
+            (b".vmp1\0\0\0", 0x2000u32, 0x2000u32, 0x6800_0060u32),
+            (b".pdata\0\0", 0x3000u32, 0x3000u32, 0x4000_0040u32),
+        ];
+        for (i, (nm, va, raw, chars)) in secs.iter().enumerate() {
+            let o = opt + 240 + i * 40;
+            pe[o..o + 8].copy_from_slice(*nm);
+            pe[o + 8..o + 12].copy_from_slice(&0x1000u32.to_le_bytes());
+            pe[o + 12..o + 16].copy_from_slice(&va.to_le_bytes());
+            pe[o + 16..o + 20].copy_from_slice(&0x1000u32.to_le_bytes());
+            pe[o + 20..o + 24].copy_from_slice(&raw.to_le_bytes());
+            pe[o + 36..o + 40].copy_from_slice(&chars.to_le_bytes());
+        }
+
+        // Unwind info entries in .pdata: flags=0 at 0x3100 and 0x3110, UNW_FLAG_CHAININFO (flags=4) at 0x3120.
+        pe[0x3100..0x3104].copy_from_slice(&[0x01, 0x00, 0x00, 0x00]);
+        pe[0x3110..0x3114].copy_from_slice(&[0x01, 0x04, 0x00, 0x00]);
+        pe[0x3120..0x3124].copy_from_slice(&[0x21, 0x04, 0x00, 0x00]);
+
+        let rfs: &[(u32, u32, u32)] = &[
+            (0x2000, 0x2400, 0x3100),
+            (0x2400, 0x2500, 0x3110),
+            (0x2500, 0x2900, 0x3120),
+        ];
+        for (i, &(b, e, u)) in rfs.iter().enumerate() {
+            let o = 0x3000 + i * 12;
+            pe[o..o + 4].copy_from_slice(&b.to_le_bytes());
+            pe[o + 4..o + 8].copy_from_slice(&e.to_le_bytes());
+            pe[o + 8..o + 12].copy_from_slice(&u.to_le_bytes());
+        }
+
+        // Inject 5 `cmp r8d, 0x01000000` (41 81 F8 00 00 00 01) inside body RF [0x2500..0x2900).
+        let cmp_insn = [0x41u8, 0x81, 0xF8, 0x00, 0x00, 0x00, 0x01];
+        for k in 0..5 {
+            let off = 0x2520 + k * 0x40;
+            pe[off..off + cmp_insn.len()].copy_from_slice(&cmp_insn);
+        }
+
+        let (_dos, _pe_h, opt_p, secs_p) = parse_pe_bytes(&pe).unwrap();
+        let cands = find_static_lzma_candidates(&pe, &opt_p, &secs_p, Some(0x2000));
+        assert_eq!(cands.first().copied(), Some(image_base + 0x2400));
+        assert!(cands.contains(&(image_base + 0x2500)));
+        assert!(!cands.contains(&(image_base + 0x2000)));
     }
 }
