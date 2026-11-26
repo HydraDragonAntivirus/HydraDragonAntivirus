@@ -1,8 +1,8 @@
 use std::io::Read;
 use std::net::TcpStream;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
 use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
@@ -71,10 +71,19 @@ impl CloudConfig {
             }
         }
         if let Ok(pf) = std::env::var("ProgramFiles") {
-            config_paths.push(PathBuf::from(pf).join("HydraDragonAntivirus").join("OpenEDR").join("openedr_cloud.json"));
+            config_paths.push(
+                PathBuf::from(pf)
+                    .join("HydraDragonAntivirus")
+                    .join("OpenEDR")
+                    .join("openedr_cloud.json"),
+            );
         }
         if let Ok(pd) = std::env::var("ProgramData") {
-            config_paths.push(PathBuf::from(pd).join("HydraDragon").join("openedr_cloud.json"));
+            config_paths.push(
+                PathBuf::from(pd)
+                    .join("HydraDragon")
+                    .join("openedr_cloud.json"),
+            );
         }
 
         for path in config_paths {
@@ -196,7 +205,10 @@ impl CloudSession {
                             hello_ok = true;
                             break;
                         } else if msg_type == "error" {
-                            let msg = val.get("message").and_then(|x| x.as_str()).unwrap_or("unknown error");
+                            let msg = val
+                                .get("message")
+                                .and_then(|x| x.as_str())
+                                .unwrap_or("unknown error");
                             self.last_failure = Some(Instant::now());
                             return Err(format!("Cloud rejected handshake: {}", msg));
                         }
@@ -372,7 +384,9 @@ static INTEL_CLIENT: Mutex<Option<CloudSession>> = Mutex::new(None);
 /// the cloud answered, `None` when it could not be asked (offline, timeout,
 /// or a server without `intel` support).
 pub fn check_intel(target: &str) -> Option<bool> {
-    let mut guard = INTEL_CLIENT.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    let mut guard = INTEL_CLIENT
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
     let session = guard.get_or_insert_with(CloudSession::new);
     let req_id = session.next_request_id();
     let socket = session.ensure_connected().ok()?;
@@ -476,7 +490,10 @@ fn parse_result_verdict(val: &serde_json::Value) -> (String, Vec<DetectionItem>)
         }
         if threat_name.is_none() {
             if let Some(dets) = val.get("detections").and_then(|d| d.as_array()) {
-                threat_name = dets.first().and_then(|d| d.get("name")).and_then(|n| n.as_str());
+                threat_name = dets
+                    .first()
+                    .and_then(|d| d.get("name"))
+                    .and_then(|n| n.as_str());
             }
         }
 
@@ -659,16 +676,20 @@ pub fn scan_file_with_hash(path: &Path, precomputed: Option<(&str, u64)>) -> Fil
                             // `path`: the full local path, so the server scans the
                             // upload under it (path-scoped rules such as the
                             // hosts-file PUM rule only match that file).
-                            let scan_req = scan_request(serde_json::json!({
-                                "type": "scan",
-                                "id": req_id,
-                                "sha256": sha256_hex,
-                                "name": file_name,
-                                "size": file_size,
-                                "path": path_str
-                            }), packed.as_ref());
+                            let scan_req = scan_request(
+                                serde_json::json!({
+                                    "type": "scan",
+                                    "id": req_id,
+                                    "sha256": sha256_hex,
+                                    "name": file_name,
+                                    "size": file_size,
+                                    "path": path_str
+                                }),
+                                packed.as_ref(),
+                            );
                             upload = Some((file_bytes, packed));
-                            if let Err(e) = socket.send(Message::Text(scan_req.to_string().into())) {
+                            if let Err(e) = socket.send(Message::Text(scan_req.to_string().into()))
+                            {
                                 session.drop_connection();
                                 return Err(format!("Upload request error: {}", e));
                             }
@@ -705,9 +726,14 @@ pub fn scan_file_with_hash(path: &Path, precomputed: Option<(&str, u64)>) -> Fil
                             if sent_large_upload {
                                 session.abandon_request();
                             }
-                            let err_msg = val.get("message").and_then(|m| m.as_str()).unwrap_or("cloud error");
+                            let err_msg = val
+                                .get("message")
+                                .and_then(|m| m.as_str())
+                                .unwrap_or("cloud error");
                             let err_lower = err_msg.to_ascii_lowercase();
-                            if err_lower.contains("file too large") || err_lower.contains("upload limit") {
+                            if err_lower.contains("file too large")
+                                || err_lower.contains("upload limit")
+                            {
                                 return Ok(("Unknown".to_string(), Vec::new()));
                             }
                             return Err(err_msg.to_string());
@@ -831,15 +857,19 @@ pub fn scan_bytes(data: &[u8], name: &str) -> (String, Vec<DetectionItem>, Strin
                             }
                             timeout = upload_timeout_for_size(size);
                             let packed = pack_upload(data);
-                            let scan_req = scan_request(serde_json::json!({
-                                "type": "scan",
-                                "id": req_id,
-                                "sha256": sha256_hex,
-                                "name": name,
-                                "size": size
-                            }), packed.as_ref());
+                            let scan_req = scan_request(
+                                serde_json::json!({
+                                    "type": "scan",
+                                    "id": req_id,
+                                    "sha256": sha256_hex,
+                                    "name": name,
+                                    "size": size
+                                }),
+                                packed.as_ref(),
+                            );
                             upload = Some((Vec::new(), packed));
-                            if let Err(e) = socket.send(Message::Text(scan_req.to_string().into())) {
+                            if let Err(e) = socket.send(Message::Text(scan_req.to_string().into()))
+                            {
                                 session.drop_connection();
                                 return Err(format!("Upload request error: {}", e));
                             }
@@ -873,9 +903,14 @@ pub fn scan_bytes(data: &[u8], name: &str) -> (String, Vec<DetectionItem>, Strin
                             if sent_large_upload {
                                 session.abandon_request();
                             }
-                            let err_msg = val.get("message").and_then(|m| m.as_str()).unwrap_or("cloud error");
+                            let err_msg = val
+                                .get("message")
+                                .and_then(|m| m.as_str())
+                                .unwrap_or("cloud error");
                             let err_lower = err_msg.to_ascii_lowercase();
-                            if err_lower.contains("file too large") || err_lower.contains("upload limit") {
+                            if err_lower.contains("file too large")
+                                || err_lower.contains("upload limit")
+                            {
                                 return Ok(("Unknown".to_string(), Vec::new()));
                             }
                             return Err(err_msg.to_string());
@@ -947,7 +982,10 @@ pub fn scan_url(url: &str) -> UrlScanReport {
                     let msg_type = val.get("type").and_then(|x| x.as_str()).unwrap_or("");
 
                     if msg_id == req_id && msg_type == "url_result" {
-                        let res_obj = val.get("result").cloned().unwrap_or(serde_json::Value::Null);
+                        let res_obj = val
+                            .get("result")
+                            .cloned()
+                            .unwrap_or(serde_json::Value::Null);
                         // The server answers with an ECS document: the verdict
                         // lives at `antivirus.verdict`, not in a flat
                         // `is_malicious` flag (kept as a fallback for older
@@ -959,13 +997,28 @@ pub fn scan_url(url: &str) -> UrlScanReport {
                             .and_then(|v| v.as_str())
                             .is_some_and(|v| v.eq_ignore_ascii_case("malicious"));
                         let is_mal = ecs_malicious
-                            || res_obj.get("is_malicious").and_then(|m| m.as_bool()).unwrap_or(false);
-                        let prob = res_obj.get("malware_probability").and_then(|p| p.as_f64()).unwrap_or(0.0);
-                        let white = res_obj.get("whitelisted").and_then(|w| w.as_bool()).unwrap_or(!is_mal);
-                        let black = res_obj.get("blacklisted").and_then(|b| b.as_bool()).unwrap_or(is_mal);
+                            || res_obj
+                                .get("is_malicious")
+                                .and_then(|m| m.as_bool())
+                                .unwrap_or(false);
+                        let prob = res_obj
+                            .get("malware_probability")
+                            .and_then(|p| p.as_f64())
+                            .unwrap_or(0.0);
+                        let white = res_obj
+                            .get("whitelisted")
+                            .and_then(|w| w.as_bool())
+                            .unwrap_or(!is_mal);
+                        let black = res_obj
+                            .get("blacklisted")
+                            .and_then(|b| b.as_bool())
+                            .unwrap_or(is_mal);
                         return Ok((is_mal, prob, white, black));
                     } else if msg_id == req_id && msg_type == "error" {
-                        let err_msg = val.get("message").and_then(|m| m.as_str()).unwrap_or("cloud error");
+                        let err_msg = val
+                            .get("message")
+                            .and_then(|m| m.as_str())
+                            .unwrap_or("cloud error");
                         return Err(err_msg.to_string());
                     }
                 }
@@ -980,7 +1033,11 @@ pub fn scan_url(url: &str) -> UrlScanReport {
     match res {
         Ok((is_mal, prob, white, black)) => UrlScanReport {
             target_url: url.to_string(),
-            verdict: if is_mal { "Malicious".to_string() } else { "Clean".to_string() },
+            verdict: if is_mal {
+                "Malicious".to_string()
+            } else {
+                "Clean".to_string()
+            },
             malware_probability: prob,
             is_malicious: is_mal,
             whitelisted: white,
@@ -1055,7 +1112,10 @@ pub fn check_registry(reg_path: &str) -> String {
                         let res_obj = val.get("result").unwrap_or(&val);
                         return Ok(res_obj.to_string());
                     } else if msg_id == req_id && msg_type == "error" {
-                        let err_msg = val.get("message").and_then(|m| m.as_str()).unwrap_or("cloud error");
+                        let err_msg = val
+                            .get("message")
+                            .and_then(|m| m.as_str())
+                            .unwrap_or("cloud error");
                         return Err(err_msg.to_string());
                     }
                 }
@@ -1069,14 +1129,13 @@ pub fn check_registry(reg_path: &str) -> String {
 
     match res {
         Ok(json_str) => json_str,
-        Err(e) => {
-            serde_json::json!({
-                "query_path": reg_path,
-                "matched_patterns": [],
-                "is_pua_autostart": false,
-                "error": e
-            }).to_string()
-        }
+        Err(e) => serde_json::json!({
+            "query_path": reg_path,
+            "matched_patterns": [],
+            "is_pua_autostart": false,
+            "error": e
+        })
+        .to_string(),
     }
 }
 
@@ -1135,7 +1194,10 @@ pub fn check_registry_content(key_path: &str, value_name: &str, value_data: &str
                         let res_obj = val.get("result").unwrap_or(&val);
                         return Ok(res_obj.to_string());
                     } else if msg_id == req_id && msg_type == "error" {
-                        let err_msg = val.get("message").and_then(|m| m.as_str()).unwrap_or("cloud error");
+                        let err_msg = val
+                            .get("message")
+                            .and_then(|m| m.as_str())
+                            .unwrap_or("cloud error");
                         return Err(err_msg.to_string());
                     }
                 }
@@ -1212,9 +1274,15 @@ pub fn get_registry_targets() -> String {
                     let msg_type = val.get("type").and_then(|x| x.as_str()).unwrap_or("");
 
                     if msg_id == req_id && msg_type == "registry_targets_result" {
-                        return Ok(val.get("targets").map(|t| t.to_string()).unwrap_or_else(|| "[]".to_string()));
+                        return Ok(val
+                            .get("targets")
+                            .map(|t| t.to_string())
+                            .unwrap_or_else(|| "[]".to_string()));
                     } else if msg_id == req_id && msg_type == "error" {
-                        let err_msg = val.get("message").and_then(|m| m.as_str()).unwrap_or("cloud error");
+                        let err_msg = val
+                            .get("message")
+                            .and_then(|m| m.as_str())
+                            .unwrap_or("cloud error");
                         return Err(err_msg.to_string());
                     }
                 }
@@ -1247,7 +1315,11 @@ pub fn scan_evtx(path: &Path) -> String {
     let mut hasher = Sha256::new();
     hasher.update(&file_bytes);
     let sha256_hex = hex::encode(hasher.finalize());
-    let file_name = path.file_name().and_then(|n| n.to_str()).unwrap_or("event.evtx").to_string();
+    let file_name = path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("event.evtx")
+        .to_string();
 
     let res = with_client(|session| {
         let req_id = session.next_request_id();
@@ -1302,9 +1374,15 @@ pub fn scan_evtx(path: &Path) -> String {
                                 return Err(format!("Binary upload error: {}", e));
                             }
                         } else if msg_type == "evtx_result" {
-                            return Ok(val.get("matches").map(|m| m.to_string()).unwrap_or_else(|| "[]".to_string()));
+                            return Ok(val
+                                .get("matches")
+                                .map(|m| m.to_string())
+                                .unwrap_or_else(|| "[]".to_string()));
                         } else if msg_type == "error" {
-                            let err_msg = val.get("message").and_then(|m| m.as_str()).unwrap_or("cloud error");
+                            let err_msg = val
+                                .get("message")
+                                .and_then(|m| m.as_str())
+                                .unwrap_or("cloud error");
                             return Err(err_msg.to_string());
                         }
                     }
@@ -1327,10 +1405,17 @@ pub fn scan_evtx(path: &Path) -> String {
 /// by uploading to cloud Hayabusa engine, or queries server system events if available.
 pub fn scan_system_events() -> String {
     let system_root = std::env::var("SystemRoot").unwrap_or_else(|_| r"C:\Windows".to_string());
-    let logs_dir = PathBuf::from(system_root).join("System32").join("winevt").join("Logs");
+    let logs_dir = PathBuf::from(system_root)
+        .join("System32")
+        .join("winevt")
+        .join("Logs");
 
     let mut combined_matches: Vec<serde_json::Value> = Vec::new();
-    let key_logs = ["System.evtx", "Security.evtx", "Microsoft-Windows-Sysmon%4Operational.evtx"];
+    let key_logs = [
+        "System.evtx",
+        "Security.evtx",
+        "Microsoft-Windows-Sysmon%4Operational.evtx",
+    ];
     let mut scanned_local = false;
 
     for log_name in &key_logs {
@@ -1397,9 +1482,15 @@ pub fn scan_system_events() -> String {
                     let msg_type = val.get("type").and_then(|x| x.as_str()).unwrap_or("");
 
                     if msg_id == req_id && msg_type == "evtx_result" {
-                        return Ok(val.get("matches").map(|m| m.to_string()).unwrap_or_else(|| "[]".to_string()));
+                        return Ok(val
+                            .get("matches")
+                            .map(|m| m.to_string())
+                            .unwrap_or_else(|| "[]".to_string()));
                     } else if msg_id == req_id && msg_type == "error" {
-                        let err_msg = val.get("message").and_then(|m| m.as_str()).unwrap_or("cloud error");
+                        let err_msg = val
+                            .get("message")
+                            .and_then(|m| m.as_str())
+                            .unwrap_or("cloud error");
                         return Err(err_msg.to_string());
                     }
                 }
@@ -1426,7 +1517,9 @@ mod brotli_upload_tests {
     #[test]
     fn packed_upload_decodes_to_the_original_and_is_raw_when_not_offered() {
         let _guard = BROTLI_TEST_GUARD.lock().unwrap();
-        let data: Vec<u8> = (0..200_000u32).flat_map(|i| (i % 251).to_le_bytes()).collect();
+        let data: Vec<u8> = (0..200_000u32)
+            .flat_map(|i| (i % 251).to_le_bytes())
+            .collect();
         BROTLI_UPLOAD.store(false, Ordering::Relaxed);
         assert!(pack_upload(&data).is_none());
         BROTLI_UPLOAD.store(true, Ordering::Relaxed);
@@ -1434,10 +1527,15 @@ mod brotli_upload_tests {
         assert!(packed.len() < data.len());
         // The server decodes with brotli_decompressor, which `brotli` re-exports.
         let mut plain = Vec::new();
-        brotli::Decompressor::new(&packed[..], 64 * 1024).read_to_end(&mut plain).unwrap();
+        brotli::Decompressor::new(&packed[..], 64 * 1024)
+            .read_to_end(&mut plain)
+            .unwrap();
         assert_eq!(plain, data);
         assert!(pack_upload(&data[..100]).is_none(), "tiny uploads go raw");
-        let req = scan_request(serde_json::json!({"type": "scan", "size": data.len()}), Some(&packed));
+        let req = scan_request(
+            serde_json::json!({"type": "scan", "size": data.len()}),
+            Some(&packed),
+        );
         assert_eq!(req["encoding"], "br");
         assert_eq!(req["csize"], packed.len());
         BROTLI_UPLOAD.store(false, Ordering::Relaxed);

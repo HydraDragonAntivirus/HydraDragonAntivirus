@@ -1,6 +1,6 @@
+use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use std::time::Instant;
-use serde::{Deserialize, Serialize};
 
 pub const DEFAULT_WINDOWS_HOSTS_TEMPLATE: &str = r#"# Copyright (c) 1993-2009 Microsoft Corp.
 #
@@ -117,7 +117,8 @@ pub fn check_hosts_file(custom_path: Option<&Path>) -> HostsCheckReport {
         }
 
         let ip = parts[0].trim().to_lowercase();
-        let is_loopback = ip == "127.0.0.1" || ip == "0.0.0.0" || ip == "::1" || ip.starts_with("127.");
+        let is_loopback =
+            ip == "127.0.0.1" || ip == "0.0.0.0" || ip == "::1" || ip.starts_with("127.");
 
         for &domain_raw in &parts[1..] {
             let domain = domain_raw.trim().to_lowercase();
@@ -197,14 +198,18 @@ pub fn restore_hosts_file(custom_path: Option<&Path>, create_backup: bool) -> Ho
                 hosts_path: path_str,
                 success: true,
                 backup_path: backup_path_str,
-                message: "Hosts file successfully restored to clean Microsoft Windows default.".to_string(),
+                message: "Hosts file successfully restored to clean Microsoft Windows default."
+                    .to_string(),
             }
         }
         Err(e) => HostsRestoreReport {
             hosts_path: path_str,
             success: false,
             backup_path: backup_path_str,
-            message: format!("Failed to restore hosts file (Administrator privileges required): {}", e),
+            message: format!(
+                "Failed to restore hosts file (Administrator privileges required): {}",
+                e
+            ),
         },
     }
 }
