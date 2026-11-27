@@ -58,6 +58,18 @@ pub struct VmpRebuildReport {
     pub warnings: Vec<String>,
 }
 
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct VmpCrcRepairReport {
+    pub table1_found: usize,
+    pub table1_entries_total: usize,
+    pub table1_entries_updated: usize,
+    pub table2_found: usize,
+    pub table2_entries_total: usize,
+    pub table2_entries_updated: usize,
+    pub outer_crc_slots_updated: usize,
+    pub crc_key: Option<u32>,
+}
+
 #[derive(Debug, Clone)]
 struct ImportRecord {
     dll_name: String,
@@ -1075,13 +1087,29 @@ fn analyze_crc32_loop_at(bytes: &[u8], base_va: u64, dec_start: usize) -> Option
         return None;
     }
 
-    // If pointer or length register wasn't captured forward, also inspect [loop_head .. dec_start].
-    if (ptr_iced.is_none() || len_iced.is_none()) && (head - base_va) < dec_start as u64 {
+    // Inspect [loop_head .. dec_start] to prefer the byte-load base register (`movzx idx, byte ptr [ptr]` /
+    // `mov idx_8, byte ptr [ptr]`) as `ptr_reg` over junk `inc` instructions, and capture `len_reg` if missed.
+    let mut pre: Vec<iced_x86::Instruction> = Vec::new();
+    let mut mem_ptr_iced: Option<Register> = None;
+    if (head - base_va) < dec_start as u64 {
         let head_off = (head - base_va) as usize;
-        let pre = decode_crc_window(bytes, base_va, head_off, 32);
+        pre = decode_crc_window(bytes, base_va, head_off, 32);
         for ins in &pre {
             if ins.ip() >= hit_va {
                 break;
+            }
+            if matches!(ins.mnemonic(), Mnemonic::Movzx | Mnemonic::Mov)
+                && ins.op_count() >= 2
+                && ins.op0_kind() == OpKind::Register
+                && ins.op0_register().full_register() == idx_iced
+                && ins.op1_kind() == OpKind::Memory
+                && ins.memory_base() != Register::None
+                && ins.memory_index() == Register::None
+            {
+                let r = ins.memory_base().full_register();
+                if r != Register::RSP && r != idx_iced && r != tbl && r != crc {
+                    mem_ptr_iced = Some(r);
+                }
             }
             if ptr_iced.is_none() && ins.op0_kind() == OpKind::Register {
                 let r = ins.op0_register().full_register();
@@ -1094,7 +1122,18 @@ fn analyze_crc32_loop_at(bytes: &[u8], base_va: u64, dec_start: usize) -> Option
                     ptr_iced = Some(r);
                 }
             }
-            if len_iced.is_none() && ins.op0_kind() == OpKind::Register {
+        }
+    }
+
+    let old_ptr_iced = ptr_iced;
+    if let Some(real_ptr) = mem_ptr_iced {
+        ptr_iced = Some(real_ptr);
+    }
+
+    if len_iced.is_none() || len_iced == ptr_iced || (mem_ptr_iced.is_some() && mem_ptr_iced != old_ptr_iced) {
+        len_iced = None;
+        for ins in pre.iter().take_while(|ins| ins.ip() < hit_va).chain(fwd.iter()) {
+            if ins.op0_kind() == OpKind::Register {
                 let r = ins.op0_register().full_register();
                 if (ins.mnemonic() == Mnemonic::Dec
                     || (ins.mnemonic() == Mnemonic::Sub && is_imm_one(ins, 1))
@@ -3472,6 +3511,628 @@ pub fn rebuild_vmp_pe(
     })
 }
 
+const VMP_CRC32_TABLE: [u32; 256] = {
+    let mut tbl = [0u32; 256];
+    let mut i = 0usize;
+    while i < 256 {
+        let mut c = i as u32;
+        let mut bit = 0;
+        while bit < 8 {
+            c = if (c & 1) != 0 {
+                (c >> 1) ^ 0xEDB8_8320
+            } else {
+                c >> 1
+            };
+            bit += 1;
+        }
+        tbl[i] = c;
+        i += 1;
+    }
+    tbl
+};
+
+/// VMProtect's IEEE CRC32 variant (`0xEDB88320` polynomial, `init = 0`, final `!crc`).
+#[inline]
+fn vmp_crc32(data: &[u8]) -> u32 {
+    let mut crc = 0u32;
+    for &b in data {
+        crc = VMP_CRC32_TABLE[((crc ^ b as u32) & 0xFF) as usize] ^ (crc >> 8);
+    }
+    !crc
+}
+
+fn build_flat_image(pe: &[u8], opt: &OptionalHeader, sections: &[Section], limit_size: usize) -> Vec<u8> {
+    let mut img = vec![0u8; limit_size];
+    let hdr_copy = (opt.size_of_headers as usize).min(pe.len()).min(limit_size);
+    img[..hdr_copy].copy_from_slice(&pe[..hdr_copy]);
+    for s in sections {
+        if s.pointer_to_raw_data == 0 || s.size_of_raw_data == 0 {
+            continue;
+        }
+        let src = s.pointer_to_raw_data as usize;
+        let dst = s.virtual_address as usize;
+        if src >= pe.len() || dst >= limit_size {
+            continue;
+        }
+        let len = (s.size_of_raw_data as usize)
+            .min(pe.len() - src)
+            .min(limit_size - dst);
+        img[dst..dst + len].copy_from_slice(&pe[src..src + len]);
+    }
+    img
+}
+
+fn write_rva_slice(
+    pe: &mut [u8],
+    opt: &OptionalHeader,
+    sections: &[Section],
+    rva: u32,
+    src: &[u8],
+) -> bool {
+    let Some(rva_end) = rva.checked_add(src.len() as u32) else {
+        return false;
+    };
+    if rva_end <= opt.size_of_headers {
+        let start = rva as usize;
+        let end = start + src.len();
+        if end <= pe.len() {
+            pe[start..end].copy_from_slice(src);
+            return true;
+        }
+        return false;
+    }
+    for s in sections {
+        if s.pointer_to_raw_data == 0 || s.size_of_raw_data == 0 {
+            continue;
+        }
+        let sec_end = s.virtual_address.saturating_add(s.size_of_raw_data);
+        if rva >= s.virtual_address && rva_end <= sec_end {
+            let raw = (s.pointer_to_raw_data + (rva - s.virtual_address)) as usize;
+            let raw_end = raw + src.len();
+            if raw_end <= pe.len() {
+                pe[raw..raw_end].copy_from_slice(src);
+                return true;
+            }
+            return false;
+        }
+    }
+    false
+}
+
+/// Collects all RVA import/IAT target slots populated at runtime by `.vmpinit` so
+/// `vm_devirt` treats them as mutable instead of constant-folding stale disk values.
+pub fn collect_vmp_mutable_slot_rvas(unpacked_pe: &[u8], packed_pe: &[u8]) -> Vec<u32> {
+    let Ok((_dos, pe_hdr, opt, sections)) = parse_pe_bytes(unpacked_pe) else {
+        return Vec::new();
+    };
+    let is_pe64 = pe_hdr.machine == 0x8664 || opt.magic == 0x20B;
+    let (_pdos, _pph, packed_opt, packed_secs) =
+        parse_pe_bytes(packed_pe).unwrap_or_else(|_| (_dos, pe_hdr.clone(), opt.clone(), sections.clone()));
+    let loader_sec = find_loader_section(&sections, packed_opt.address_of_entry_point)
+        .or_else(|| find_loader_section(&packed_secs, packed_opt.address_of_entry_point));
+
+    let mut slots: Vec<u32> = extract_original_iat(unpacked_pe, &opt, &sections, is_pe64)
+        .into_iter()
+        .map(|r| r.dst_slot_rva)
+        .collect();
+    if let Some(ref lsec) = loader_sec {
+        let (_k32, vmp_recs) = find_vmp_import_tables(unpacked_pe, &opt, &sections, lsec, is_pe64);
+        slots.extend(vmp_recs.into_iter().map(|r| r.dst_slot_rva));
+    }
+    slots.sort_unstable();
+    slots.dedup();
+    slots
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Table1CrcMode {
+    Neg,
+    Raw,
+    XorKey,
+}
+
+#[inline]
+fn encode_t1_crc(crc: u32, key: u32, mode: Table1CrcMode) -> u32 {
+    match mode {
+        Table1CrcMode::Neg => crc.wrapping_neg(),
+        Table1CrcMode::Raw => crc,
+        Table1CrcMode::XorKey => crc ^ key,
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum OuterCrcMode {
+    Raw,
+    Neg,
+    Not,
+    XorKey,
+}
+
+#[inline]
+fn encode_outer_crc(crc: u32, key: u32, mode: OuterCrcMode) -> u32 {
+    match mode {
+        OuterCrcMode::Raw => crc,
+        OuterCrcMode::Neg => crc.wrapping_neg(),
+        OuterCrcMode::Not => !crc,
+        OuterCrcMode::XorKey => crc ^ key,
+    }
+}
+
+struct DiscoveredTable1 {
+    start_rva: u32,
+    end_rva: u32,
+    key: u32,
+    mode: Table1CrcMode,
+}
+
+struct DiscoveredTable2 {
+    start_rva: u32,
+    end_rva: u32,
+    key: u32,
+    entries: Vec<(u32, u32, u32)>,
+}
+
+fn discover_table1_ranges(orig_img: &[u8], orig_secs: &[Section]) -> Vec<DiscoveredTable1> {
+    let img_len = orig_img.len();
+    let img_len_u32 = img_len as u32;
+    let mut found = Vec::new();
+
+    for sec in orig_secs {
+        if (sec.characteristics & IMAGE_SCN_MEM_EXECUTE) == 0 || sec.size_of_raw_data < 72 {
+            continue;
+        }
+        let sec_va = sec.virtual_address;
+        let sec_raw_end = sec_va.saturating_add(sec.size_of_raw_data).min(img_len_u32);
+        if sec_raw_end < sec_va + 72 {
+            continue;
+        }
+
+        let mut end_cands = Vec::with_capacity(5);
+        let cand_vs = sec_va.saturating_add(sec.virtual_size);
+        if cand_vs >= sec_va + 72 && cand_vs <= sec_raw_end {
+            end_cands.push(cand_vs);
+        }
+        if let Some(last_nz) = orig_img[sec_va as usize..sec_raw_end as usize]
+            .iter()
+            .rposition(|&b| b != 0)
+        {
+            let nz_end = sec_va + last_nz as u32 + 1;
+            for pad in 0..=3u32 {
+                let cand = nz_end.saturating_add(pad);
+                if cand >= sec_va + 72 && cand <= sec_raw_end && !end_cands.contains(&cand) {
+                    end_cands.push(cand);
+                }
+            }
+        }
+
+        'cand_loop: for end_rva in end_cands {
+            let pos = end_rva - 12;
+            let Some(d0) = rd_u32(orig_img, pos as usize) else {
+                continue;
+            };
+            let Some(d1) = rd_u32(orig_img, pos as usize + 4) else {
+                continue;
+            };
+            let Some(d2) = rd_u32(orig_img, pos as usize + 8) else {
+                continue;
+            };
+            let x = d0 ^ d1;
+            let max_sz = (pos - sec_va).min(0x4000);
+
+            for sz in 12u32..=max_sz {
+                if ((pos - sz) ^ sz) != x {
+                    continue;
+                }
+                let cand_k = d1 ^ sz;
+                let rva = d0 ^ cand_k;
+                if rva != pos - sz {
+                    continue;
+                }
+                let crc = vmp_crc32(&orig_img[rva as usize..pos as usize]);
+                for mode in [Table1CrcMode::Neg, Table1CrcMode::Raw, Table1CrcMode::XorKey] {
+                    if encode_t1_crc(crc, cand_k, mode) != d2 {
+                        continue;
+                    }
+                    let mut chain_ok = true;
+                    for back in 1..=5u32 {
+                        if pos - back * 12 < sec_va {
+                            chain_ok = false;
+                            break;
+                        }
+                        let p = (pos - back * 12) as usize;
+                        let a = rd_u32(orig_img, p).unwrap();
+                        let b = rd_u32(orig_img, p + 4).unwrap();
+                        let c = rd_u32(orig_img, p + 8).unwrap();
+                        let r2 = a ^ cand_k;
+                        let s2 = b ^ cand_k;
+                        if s2 == 0 || (r2 as usize).saturating_add(s2 as usize) > img_len {
+                            chain_ok = false;
+                            break;
+                        }
+                        let crc2 = vmp_crc32(&orig_img[r2 as usize..r2 as usize + s2 as usize]);
+                        if encode_t1_crc(crc2, cand_k, mode) != c {
+                            chain_ok = false;
+                            break;
+                        }
+                    }
+                    if !chain_ok {
+                        continue;
+                    }
+
+                    // Walk backwards while every 12-byte entry checks out against `orig_img`.
+                    let mut start_rva = end_rva - 6 * 12;
+                    while start_rva >= sec_va + 12 {
+                        let p = (start_rva - 12) as usize;
+                        let a = rd_u32(orig_img, p).unwrap();
+                        let b = rd_u32(orig_img, p + 4).unwrap();
+                        let c = rd_u32(orig_img, p + 8).unwrap();
+                        let r = a ^ cand_k;
+                        let s = b ^ cand_k;
+                        if s == 0 || (r as usize).saturating_add(s as usize) > img_len {
+                            break;
+                        }
+                        let entry_crc = vmp_crc32(&orig_img[r as usize..r as usize + s as usize]);
+                        if encode_t1_crc(entry_crc, cand_k, mode) != c {
+                            break;
+                        }
+                        start_rva -= 12;
+                    }
+
+                    found.push(DiscoveredTable1 {
+                        start_rva,
+                        end_rva,
+                        key: cand_k,
+                        mode,
+                    });
+                    break 'cand_loop;
+                }
+            }
+        }
+    }
+
+    found
+}
+
+fn discover_table2_ranges(
+    orig_img: &[u8],
+    orig_secs: &[Section],
+    t1_ranges: &[DiscoveredTable1],
+) -> Vec<DiscoveredTable2> {
+    let img_len = orig_img.len();
+    let mut keys: Vec<u32> = t1_ranges.iter().map(|t| t.key).collect();
+    keys.sort_unstable();
+    keys.dedup();
+
+    let mut found = Vec::new();
+    for key in keys {
+        let rol_k0 = key.rotate_left(7);
+        for sec in orig_secs {
+            if sec.pointer_to_raw_data == 0 || sec.size_of_raw_data < 24 {
+                continue;
+            }
+            let sec_start = sec.virtual_address as usize;
+            let sec_end = (sec.virtual_address as usize)
+                .saturating_add(sec.size_of_raw_data as usize)
+                .min(img_len);
+            if sec_end < sec_start + 24 {
+                continue;
+            }
+
+            let mut off = sec_start;
+            while off + 24 <= sec_end {
+                if let Some(t1) = t1_ranges
+                    .iter()
+                    .find(|t| off >= t.start_rva as usize && off < t.end_rva as usize)
+                {
+                    off = t1.end_rva as usize;
+                    continue;
+                }
+
+                let w0 = u32::from_le_bytes(orig_img[off..off + 4].try_into().unwrap());
+                let rva0 = w0 ^ key;
+                if (rva0 as usize) >= img_len {
+                    off += 1;
+                    continue;
+                }
+                let k1 = rol_k0 ^ rva0;
+                let w1 = u32::from_le_bytes(orig_img[off + 4..off + 8].try_into().unwrap());
+                let sz0 = w1 ^ k1;
+                if sz0 == 0 || (rva0 as usize).saturating_add(sz0 as usize) > img_len {
+                    off += 1;
+                    continue;
+                }
+
+                let k2 = k1.rotate_left(7) ^ sz0;
+                let w2 = u32::from_le_bytes(orig_img[off + 8..off + 12].try_into().unwrap());
+                let crc0 = w2 ^ k2;
+                let k3 = k2.rotate_left(7) ^ crc0;
+                let w3 = u32::from_le_bytes(orig_img[off + 12..off + 16].try_into().unwrap());
+                let rva1 = w3 ^ k3;
+                if (rva1 as usize) >= img_len {
+                    off += 1;
+                    continue;
+                }
+
+                let k4 = k3.rotate_left(7) ^ rva1;
+                let w4 = u32::from_le_bytes(orig_img[off + 16..off + 20].try_into().unwrap());
+                let sz1 = w4 ^ k4;
+                if sz1 == 0 || (rva1 as usize).saturating_add(sz1 as usize) > img_len {
+                    off += 1;
+                    continue;
+                }
+
+                let k5 = k4.rotate_left(7) ^ sz1;
+                let w5 = u32::from_le_bytes(orig_img[off + 20..off + 24].try_into().unwrap());
+                let crc1 = w5 ^ k5;
+
+                if vmp_crc32(&orig_img[rva0 as usize..rva0 as usize + sz0 as usize]) != crc0
+                    || vmp_crc32(&orig_img[rva1 as usize..rva1 as usize + sz1 as usize]) != crc1
+                {
+                    off += 1;
+                    continue;
+                }
+
+                // Decode all contiguous 12-byte rolling-XOR entries starting at `off`.
+                let mut entries = Vec::new();
+                let mut cur = off;
+                let mut k = key;
+                while cur + 12 <= sec_end {
+                    let ew0 = u32::from_le_bytes(orig_img[cur..cur + 4].try_into().unwrap());
+                    let rva = ew0 ^ k;
+                    let nk1 = k.rotate_left(7) ^ rva;
+                    let ew1 = u32::from_le_bytes(orig_img[cur + 4..cur + 8].try_into().unwrap());
+                    let sz = ew1 ^ nk1;
+                    let nk2 = nk1.rotate_left(7) ^ sz;
+                    let ew2 = u32::from_le_bytes(orig_img[cur + 8..cur + 12].try_into().unwrap());
+                    let exp_crc = ew2 ^ nk2;
+                    let nk3 = nk2.rotate_left(7) ^ exp_crc;
+
+                    if sz == 0 || (rva as usize).saturating_add(sz as usize) > img_len {
+                        break;
+                    }
+                    if vmp_crc32(&orig_img[rva as usize..rva as usize + sz as usize]) != exp_crc {
+                        break;
+                    }
+                    entries.push((rva, sz, exp_crc));
+                    k = nk3;
+                    cur += 12;
+                }
+
+                if entries.len() >= 2 {
+                    found.push(DiscoveredTable2 {
+                        start_rva: off as u32,
+                        end_rva: cur as u32,
+                        key,
+                        entries,
+                    });
+                    off = cur;
+                } else {
+                    off += 1;
+                }
+            }
+        }
+    }
+
+    found
+}
+
+fn is_rva_covered(merged: &[(u32, u32)], slot_rva: u32, width: u32) -> bool {
+    let slot_end = slot_rva.saturating_add(width);
+    let mut idx = merged.partition_point(|&(lo, _)| lo < slot_end);
+    while idx > 0 {
+        idx -= 1;
+        let (lo, hi) = merged[idx];
+        if hi <= slot_rva {
+            break;
+        }
+        if lo < slot_end && hi > slot_rva {
+            return true;
+        }
+    }
+    false
+}
+
+/// Repairs VMProtect 3.8+ 3-layer CRC tables (`Table 1` inline vCrc table, `Table 2`
+/// rolling-key bulk CRC table, and `Table 2`'s outer self-CRC slot) after `.text`
+/// devirtualization patches.
+pub fn repair_vmp_crc_tables(
+    patched_pe: &mut [u8],
+    orig_unpacked_pe: &[u8],
+) -> UnpackerResult<VmpCrcRepairReport> {
+    let (_od, _op, orig_opt, orig_secs) = parse_pe_bytes(orig_unpacked_pe)?;
+    let (_pd, _pp, patched_opt, patched_secs) = parse_pe_bytes(patched_pe)?;
+
+    let img_len = orig_opt.size_of_image as usize;
+    if img_len < 0x2000 {
+        return Ok(VmpCrcRepairReport::default());
+    }
+
+    let orig_img = build_flat_image(orig_unpacked_pe, &orig_opt, &orig_secs, img_len);
+    let mut patched_img = build_flat_image(patched_pe, &patched_opt, &patched_secs, img_len);
+
+    let t1_list = discover_table1_ranges(&orig_img, &orig_secs);
+    if t1_list.is_empty() {
+        return Ok(VmpCrcRepairReport::default());
+    }
+    let t2_list = discover_table2_ranges(&orig_img, &orig_secs, &t1_list);
+
+    // Build merged interval set covering all hashed Table 1 + Table 2 spans and the tables themselves.
+    let mut raw_intervals: Vec<(u32, u32)> = Vec::new();
+    for t1 in &t1_list {
+        raw_intervals.push((t1.start_rva, t1.end_rva));
+        let mut pos = t1.start_rva as usize;
+        while pos + 12 <= t1.end_rva as usize {
+            let d0 = u32::from_le_bytes(orig_img[pos..pos + 4].try_into().unwrap());
+            let d1 = u32::from_le_bytes(orig_img[pos + 4..pos + 8].try_into().unwrap());
+            let rva = d0 ^ t1.key;
+            let sz = d1 ^ t1.key;
+            raw_intervals.push((rva, rva.saturating_add(sz)));
+            pos += 12;
+        }
+    }
+    for t2 in &t2_list {
+        raw_intervals.push((t2.start_rva, t2.end_rva));
+        for &(rva, sz, _) in &t2.entries {
+            raw_intervals.push((rva, rva.saturating_add(sz)));
+        }
+    }
+    raw_intervals.sort_unstable();
+    let mut covered_intervals: Vec<(u32, u32)> = Vec::with_capacity(raw_intervals.len());
+    for (lo, hi) in raw_intervals {
+        if hi <= lo {
+            continue;
+        }
+        if let Some(last) = covered_intervals.last_mut() {
+            if lo <= last.1 {
+                last.1 = last.1.max(hi);
+                continue;
+            }
+        }
+        covered_intervals.push((lo, hi));
+    }
+
+    // Step C: Locate uncovered Layer 3 outer self-CRC slot(s) for each Table 2 on `orig_img`.
+    let mut t2_outer_slots: Vec<Vec<(u32, OuterCrcMode)>> = Vec::with_capacity(t2_list.len());
+    for t2 in &t2_list {
+        let old_t2_crc = vmp_crc32(&orig_img[t2.start_rva as usize..t2.end_rva as usize]);
+        let mut matched_slots = Vec::new();
+        for mode in [
+            OuterCrcMode::Raw,
+            OuterCrcMode::Neg,
+            OuterCrcMode::Not,
+            OuterCrcMode::XorKey,
+        ] {
+            let needle = encode_outer_crc(old_t2_crc, t2.key, mode).to_le_bytes();
+            let mut mode_hits = Vec::new();
+            for sec in &orig_secs {
+                if sec.pointer_to_raw_data == 0 || sec.size_of_raw_data < 4 {
+                    continue;
+                }
+                let start = sec.virtual_address as usize;
+                let end = (sec.virtual_address as usize)
+                    .saturating_add(sec.size_of_raw_data as usize)
+                    .min(img_len);
+                if end < start + 4 {
+                    continue;
+                }
+                let orig_sec = &orig_img[start..end];
+                let mut rel = 0usize;
+                while rel + 4 <= orig_sec.len() {
+                    let Some(pos) = orig_sec[rel..].iter().position(|&b| b == needle[0]) else {
+                        break;
+                    };
+                    let idx = rel + pos;
+                    if idx + 4 > orig_sec.len() {
+                        break;
+                    }
+                    if orig_sec[idx..idx + 4] == needle {
+                        let slot_rva = (start + idx) as u32;
+                        if patched_img[slot_rva as usize..slot_rva as usize + 4] == needle
+                            && !is_rva_covered(&covered_intervals, slot_rva, 4)
+                        {
+                            mode_hits.push((slot_rva, mode));
+                            if mode_hits.len() > 4 {
+                                break;
+                            }
+                        }
+                    }
+                    rel = idx + 1;
+                }
+                if mode_hits.len() > 4 {
+                    break;
+                }
+            }
+            if (1..=4).contains(&mode_hits.len()) {
+                matched_slots = mode_hits;
+                break;
+            }
+        }
+        t2_outer_slots.push(matched_slots);
+    }
+
+    // Step D.1: Update Layer 1 (Table 1) in ascending order (handles forward self-check chains).
+    let mut table1_entries_total = 0usize;
+    let mut updated_t1_offsets: HashSet<u32> = HashSet::new();
+    for t1 in &t1_list {
+        table1_entries_total += ((t1.end_rva - t1.start_rva) / 12) as usize;
+        for _pass in 0..3 {
+            let mut changed = 0usize;
+            let mut pos = t1.start_rva as usize;
+            while pos + 12 <= t1.end_rva as usize {
+                let d0 = u32::from_le_bytes(patched_img[pos..pos + 4].try_into().unwrap());
+                let d1 = u32::from_le_bytes(patched_img[pos + 4..pos + 8].try_into().unwrap());
+                let d2 = u32::from_le_bytes(patched_img[pos + 8..pos + 12].try_into().unwrap());
+                let rva = d0 ^ t1.key;
+                let sz = d1 ^ t1.key;
+                if (rva as usize).saturating_add(sz as usize) <= img_len {
+                    let new_crc = vmp_crc32(&patched_img[rva as usize..rva as usize + sz as usize]);
+                    let new_d2 = encode_t1_crc(new_crc, t1.key, t1.mode);
+                    if new_d2 != d2 {
+                        patched_img[pos + 8..pos + 12].copy_from_slice(&new_d2.to_le_bytes());
+                        updated_t1_offsets.insert(pos as u32);
+                        changed += 1;
+                    }
+                }
+                pos += 12;
+            }
+            if changed == 0 {
+                break;
+            }
+        }
+        write_rva_slice(
+            patched_pe,
+            &patched_opt,
+            &patched_secs,
+            t1.start_rva,
+            &patched_img[t1.start_rva as usize..t1.end_rva as usize],
+        );
+    }
+
+    // Step D.2: Recompute & re-encrypt Layer 2 (Table 2) after Table 1, then update Layer 3 slots.
+    let mut table2_entries_total = 0usize;
+    let mut table2_entries_updated = 0usize;
+    let mut outer_crc_slots_updated = 0usize;
+
+    for (t2, slots) in t2_list.iter().zip(t2_outer_slots.iter()) {
+        table2_entries_total += t2.entries.len();
+        let mut new_raw = Vec::with_capacity((t2.end_rva - t2.start_rva) as usize);
+        let mut k = t2.key;
+        for &(rva, sz, old_crc) in &t2.entries {
+            let new_crc = vmp_crc32(&patched_img[rva as usize..rva as usize + sz as usize]);
+            if new_crc != old_crc {
+                table2_entries_updated += 1;
+            }
+            for plain_w in [rva, sz, new_crc] {
+                let enc_w = plain_w ^ k;
+                new_raw.extend_from_slice(&enc_w.to_le_bytes());
+                k = k.rotate_left(7) ^ plain_w;
+            }
+        }
+        patched_img[t2.start_rva as usize..t2.end_rva as usize].copy_from_slice(&new_raw);
+        write_rva_slice(patched_pe, &patched_opt, &patched_secs, t2.start_rva, &new_raw);
+
+        let new_t2_crc = vmp_crc32(&new_raw);
+        for &(slot_rva, mode) in slots {
+            let enc_slot = encode_outer_crc(new_t2_crc, t2.key, mode).to_le_bytes();
+            patched_img[slot_rva as usize..slot_rva as usize + 4].copy_from_slice(&enc_slot);
+            if write_rva_slice(patched_pe, &patched_opt, &patched_secs, slot_rva, &enc_slot) {
+                outer_crc_slots_updated += 1;
+            }
+        }
+    }
+
+    Ok(VmpCrcRepairReport {
+        table1_found: t1_list.len(),
+        table1_entries_total,
+        table1_entries_updated: updated_t1_offsets.len(),
+        table2_found: t2_list.len(),
+        table2_entries_total,
+        table2_entries_updated,
+        outer_crc_slots_updated,
+        crc_key: t1_list.first().map(|t| t.key),
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -3884,5 +4545,172 @@ mod tests {
         assert_eq!(cands.first().copied(), Some(image_base + 0x2400));
         assert!(cands.contains(&(image_base + 0x2500)));
         assert!(!cands.contains(&(image_base + 0x2000)));
+    }
+
+    #[test]
+    fn find_crc32_loops_prefers_movzx_base_over_junk_inc() {
+        // Junk `inc ecx` (colliding with len_reg!) before `inc rsi` and `dec rcx` must not poison ptr_reg/len_reg.
+        let mut code = vec![0x90u8; 0x60];
+        let loop_bytes: &[u8] = &[
+            0x44, 0x0F, 0xB6, 0x06,             // movzx r8d, byte ptr [rsi]
+            0x45, 0x33, 0xC1,                   // xor r8d, r9d
+            0x41, 0x81, 0xE0, 0xFF, 0x00, 0x00, 0x00, // and r8d, 0xff
+            0x47, 0x8B, 0x04, 0x83,             // mov r8d, dword ptr [r11 + r8*4]
+            0x41, 0xC1, 0xE9, 0x08,             // shr r9d, 8
+            0x45, 0x33, 0xC8,                   // xor r9d, r8d
+            0xFF, 0xC1,                         // inc ecx (junk inc!)
+            0x48, 0xFF, 0xC6,                   // inc rsi (real ptr_reg)
+            0x48, 0xFF, 0xC9,                   // dec rcx (real len_reg)
+            0x75, 0xDC,                         // jnz loop_head (-0x24 from next insn at +0x34 => +0x10)
+        ];
+        code[0x10..0x10 + loop_bytes.len()].copy_from_slice(loop_bytes);
+        let base_va = 0x1_4300_0000u64;
+        let loops = find_crc32_loops(&code, base_va);
+        assert_eq!(loops.len(), 1);
+        assert_eq!(loops[0].ptr_reg, RegisterX86::RSI);
+        assert_eq!(loops[0].len_reg, RegisterX86::RCX);
+    }
+
+    #[test]
+    fn repair_vmp_crc_tables_updates_table1_chain_table2_rolling_and_outer_crc() {
+        let mut pe = vec![0u8; 0x3000];
+        pe[0..2].copy_from_slice(b"MZ");
+        pe[0x3C..0x40].copy_from_slice(&0x80u32.to_le_bytes());
+        pe[0x80..0x84].copy_from_slice(b"PE\0\0");
+        let coff = 0x84;
+        pe[coff..coff + 2].copy_from_slice(&0x8664u16.to_le_bytes());
+        pe[coff + 2..coff + 4].copy_from_slice(&2u16.to_le_bytes());
+        pe[coff + 16..coff + 18].copy_from_slice(&240u16.to_le_bytes());
+        pe[coff + 18..coff + 20].copy_from_slice(&0x22u16.to_le_bytes());
+
+        let opt = coff + 20;
+        let image_base = 0x1_4000_0000u64;
+        pe[opt..opt + 2].copy_from_slice(&0x20Bu16.to_le_bytes());
+        pe[opt + 16..opt + 20].copy_from_slice(&0x1000u32.to_le_bytes());
+        pe[opt + 24..opt + 32].copy_from_slice(&image_base.to_le_bytes());
+        pe[opt + 32..opt + 36].copy_from_slice(&0x1000u32.to_le_bytes());
+        pe[opt + 36..opt + 40].copy_from_slice(&0x1000u32.to_le_bytes());
+        pe[opt + 56..opt + 60].copy_from_slice(&0x3000u32.to_le_bytes());
+        pe[opt + 60..opt + 64].copy_from_slice(&0x400u32.to_le_bytes());
+        pe[opt + 68..opt + 70].copy_from_slice(&3u16.to_le_bytes());
+        pe[opt + 108..opt + 112].copy_from_slice(&16u32.to_le_bytes());
+
+        // `.vmp0` virtual_size = 0x600 so Table 1 sits right at 0x2600 - 7*12 = 0x25AC..0x2600.
+        let secs = [
+            (b".text\0\0\0", 0x1000u32, 0x1000u32, 0x1000u32, 0x6000_0020u32),
+            (b".vmp0\0\0\0", 0x0600u32, 0x2000u32, 0x2000u32, 0x6000_0020u32),
+        ];
+        for (i, (nm, vsz, va, raw, chars)) in secs.iter().enumerate() {
+            let o = opt + 240 + i * 40;
+            pe[o..o + 8].copy_from_slice(*nm);
+            pe[o + 8..o + 12].copy_from_slice(&vsz.to_le_bytes());
+            pe[o + 12..o + 16].copy_from_slice(&va.to_le_bytes());
+            pe[o + 16..o + 20].copy_from_slice(&0x1000u32.to_le_bytes());
+            pe[o + 20..o + 24].copy_from_slice(&raw.to_le_bytes());
+            pe[o + 36..o + 40].copy_from_slice(&chars.to_le_bytes());
+        }
+
+        // Fill `.text` [0x1000..0x1800) and `.vmp0` [0x2000..0x25AC) with deterministic bytes.
+        for i in 0x1000..0x1800usize {
+            pe[i] = ((i.wrapping_mul(37) ^ (i >> 3)) & 0xFF) as u8;
+        }
+        for i in 0x2000..0x25ACusize {
+            pe[i] = ((i.wrapping_mul(19) ^ (i >> 2)) | 1) as u8;
+        }
+
+        let key = 0x2FB9_9F03u32;
+        let t1_start = 0x25ACusize; // 7 entries ending at 0x2600
+        let t1_spans: &[(usize, usize)] = &[
+            (0x1000, 0x80), // overlapped by patch 1
+            (0x1100, 0x40), // overlapped by patch 2
+            (0x1200, 0x60), // overlapped by patch 3
+            (0x1300, 0x20), // untouched
+            (0x2500, 0xDC), // entry #4 @ 0x25DC: self-check covering #0..#3 before #4
+            (0x25DC, 12),   // entry #5 @ 0x25E8: checks #4
+            (0x25E8, 12),   // entry #6 @ 0x25F4: checks #5 (`rva + sz == pos`)
+        ];
+        for (idx, &(rva, sz)) in t1_spans.iter().enumerate() {
+            let pos = t1_start + idx * 12;
+            let crc = vmp_crc32(&pe[rva..rva + sz]);
+            let d0 = (rva as u32) ^ key;
+            let d1 = (sz as u32) ^ key;
+            let d2 = crc.wrapping_neg();
+            pe[pos..pos + 4].copy_from_slice(&d0.to_le_bytes());
+            pe[pos + 4..pos + 8].copy_from_slice(&d1.to_le_bytes());
+            pe[pos + 8..pos + 12].copy_from_slice(&d2.to_le_bytes());
+        }
+
+        // Table 2 placed unaligned at 0x2103: 3 entries covering .text + Table 1.
+        let t2_start = 0x2103usize;
+        let t2_spans: &[(usize, usize)] = &[
+            (0x1000, 0x200), // touched directly in .text
+            (0x1300, 0x40),  // untouched in .text
+            (0x25A0, 0x60),  // overlaps Table 1 [0x25AC..0x2600)
+        ];
+        let mut k = key;
+        let mut pos2 = t2_start;
+        for &(rva, sz) in t2_spans {
+            let crc = vmp_crc32(&pe[rva..rva + sz]);
+            for plain_w in [rva as u32, sz as u32, crc] {
+                let enc_w = plain_w ^ k;
+                pe[pos2..pos2 + 4].copy_from_slice(&enc_w.to_le_bytes());
+                k = k.rotate_left(7) ^ plain_w;
+                pos2 += 4;
+            }
+        }
+        let t2_end = pos2;
+
+        // Layer 3 outer CRC stored in uncovered `.text` slot @ 0x1900.
+        let outer_slot = 0x1900usize;
+        let old_t2_crc = vmp_crc32(&pe[t2_start..t2_end]);
+        pe[outer_slot..outer_slot + 4].copy_from_slice(&old_t2_crc.to_le_bytes());
+
+        // Simulate `.devirt` patches inside `.text`.
+        let mut patched = pe.clone();
+        patched[0x1020..0x1025].copy_from_slice(&[0xE9, 0x11, 0x22, 0x33, 0x44]);
+        patched[0x1110..0x1115].copy_from_slice(&[0xE8, 0x55, 0x66, 0x77, 0x88]);
+        patched[0x1210..0x1215].copy_from_slice(&[0xE8, 0x99, 0xAA, 0xBB, 0xCC]);
+
+        let rep = repair_vmp_crc_tables(&mut patched, &pe).unwrap();
+        assert_eq!(rep.table1_found, 1);
+        assert_eq!(rep.table1_entries_total, 7);
+        // 3 patched .text entries + entry #4 unchanged (checks before T1)? Wait: #4 is [0x2500..0x25AC) unchanged, #5 checks #4 unchanged, #6 checks #5 unchanged!
+        // Let's check actual updated count: wait -- did #5 or #6 change? Wait #4 covers [0x2500..0x25DC) which covers #0..#3! So #4, #5, #6 ALL change!
+        assert_eq!(rep.table1_entries_updated, 6);
+        assert_eq!(rep.table2_found, 1);
+        assert_eq!(rep.table2_entries_total, 3);
+        assert_eq!(rep.table2_entries_updated, 2);
+        assert_eq!(rep.outer_crc_slots_updated, 1);
+        assert_eq!(rep.crc_key, Some(key));
+
+        // Verify 100% of re-decoded Table 1 entries against patched PE.
+        for idx in 0..7usize {
+            let p = t1_start + idx * 12;
+            let rva = (rd_u32(&patched, p).unwrap() ^ key) as usize;
+            let sz = (rd_u32(&patched, p + 4).unwrap() ^ key) as usize;
+            let d2 = rd_u32(&patched, p + 8).unwrap();
+            let got = vmp_crc32(&patched[rva..rva + sz]).wrapping_neg();
+            assert_eq!(d2, got, "Table 1 entry {idx} mismatch after repair");
+        }
+
+        // Verify 100% of re-decrypted Table 2 entries and Layer 3 outer CRC.
+        let mut dec_k = key;
+        let mut p2 = t2_start;
+        for idx in 0..3usize {
+            let mut plain = [0u32; 3];
+            for slot in &mut plain {
+                let w = rd_u32(&patched, p2).unwrap();
+                let pw = w ^ dec_k;
+                *slot = pw;
+                dec_k = dec_k.rotate_left(7) ^ pw;
+                p2 += 4;
+            }
+            let got = vmp_crc32(&patched[plain[0] as usize..(plain[0] + plain[1]) as usize]);
+            assert_eq!(plain[2], got, "Table 2 entry {idx} mismatch after repair");
+        }
+        assert_eq!(
+            rd_u32(&patched, outer_slot).unwrap(),
+            vmp_crc32(&patched[t2_start..t2_end])
+        );
     }
 }

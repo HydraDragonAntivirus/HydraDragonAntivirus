@@ -130,6 +130,19 @@ fn run_binary_devirt(
             println!("  [vmp_rebuild warning] {w}");
         }
     }
+    if let Some(ref cr) = rep.crc_repair {
+        println!(
+            "VMP CRC repair: table1={} ({} entries, {} updated) | table2={} ({} entries, {} updated) | outer_crc_slots={} | key={:?}",
+            cr.table1_found,
+            cr.table1_entries_total,
+            cr.table1_entries_updated,
+            cr.table2_found,
+            cr.table2_entries_total,
+            cr.table2_entries_updated,
+            cr.outer_crc_slots_updated,
+            cr.crc_key.map(|k| format!("{k:#x}")),
+        );
+    }
 
     if !rep.bailout_reasons.is_empty() {
         println!("\nTop bailout reasons:");
