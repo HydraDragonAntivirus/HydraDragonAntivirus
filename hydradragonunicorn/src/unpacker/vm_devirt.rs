@@ -22,7 +22,7 @@ use iced_x86::code_asm::{
 };
 use iced_x86::{
     BlockEncoderOptions, ConditionCode, Decoder, DecoderOptions, FlowControl, Formatter,
-    Instruction, IntelFormatter, Mnemonic, OpKind, Register,
+    Instruction, IntelFormatter, MemorySize, Mnemonic, OpKind, Register,
 };
 use serde::Serialize;
 
@@ -654,9 +654,135 @@ fn decode_function_ranges(
 }
 
 /// Discovers VM entry stubs and indirect-branch trampolines across primary host sections.
+fn ranges_overlap(a: u32, b: u32, ranges: &[(u32, u32)]) -> bool {
+    ranges.iter().any(|&(s, e)| a < e && s < b)
+}
+
+fn is_mov_rsp_disp_imm64(ins: &Instruction, expected_disp: u64) -> bool {
+    ins.mnemonic() == Mnemonic::Mov
+        && ins.op0_kind() == OpKind::Memory
+        && ins.memory_base() == Register::RSP
+        && ins.memory_index() == Register::None
+        && matches!(ins.segment_prefix(), Register::None | Register::SS)
+        && ins.memory_size() == MemorySize::UInt64
+        && ins.memory_displacement64() == expected_disp
+        && ins.op1_kind().is_imm()
+}
+
+fn insn_chain_contiguous_no_interior_target(
+    insns: &[Instruction],
+    from: usize,
+    to: usize,
+    branch_targets: &HashSet<u32>,
+    image_base: u64,
+) -> bool {
+    for idx in from..to {
+        let cur_rva = (insns[idx].ip() - image_base) as u32;
+        let next_rva = (insns[idx + 1].ip() - image_base) as u32;
+        if cur_rva + insns[idx].len() as u32 != next_rva {
+            return false;
+        }
+        if branch_targets.contains(&next_rva) {
+            return false;
+        }
+        if ((cur_rva + 1)..next_rva).any(|b| branch_targets.contains(&b)) {
+            return false;
+        }
+    }
+    true
+}
+
+fn find_x64_vmenter_key_prefix(
+    insns: &[Instruction],
+    w_idx: usize,
+    branch_targets: &HashSet<u32>,
+    image_base: u64,
+) -> Option<usize> {
+    if w_idx == 0 {
+        return None;
+    }
+    let prev = insns[w_idx - 1];
+    // Pattern A: `push imm`
+    if prev.mnemonic() == Mnemonic::Push
+        && prev.op0_kind().is_imm()
+        && insn_chain_contiguous_no_interior_target(insns, w_idx - 1, w_idx, branch_targets, image_base)
+    {
+        return Some(w_idx - 1);
+    }
+    // Pattern B: `mov qword ptr [rsp], imm`
+    if is_mov_rsp_disp_imm64(&prev, 0)
+        && insn_chain_contiguous_no_interior_target(insns, w_idx - 1, w_idx, branch_targets, image_base)
+    {
+        return Some(w_idx - 1);
+    }
+    // Pattern C: `mov qword ptr [rsp + k], imm; [0..=3 balanced safe insns]; lea rsp, [rsp + k]`
+    if w_idx >= 2
+        && prev.mnemonic() == Mnemonic::Lea
+        && prev.op0_kind() == OpKind::Register
+        && prev.op0_register() == Register::RSP
+        && prev.op1_kind() == OpKind::Memory
+        && prev.memory_base() == Register::RSP
+        && prev.memory_index() == Register::None
+        && insn_chain_contiguous_no_interior_target(insns, w_idx - 1, w_idx, branch_targets, image_base)
+    {
+        let k = prev.memory_displacement64();
+        if k > 0 && k <= 0x200 && k % 8 == 0 {
+            for between in 0..=3usize {
+                if w_idx < 2 + between {
+                    break;
+                }
+                let mov_idx = w_idx - 2 - between;
+                if !insn_chain_contiguous_no_interior_target(
+                    insns,
+                    mov_idx,
+                    w_idx,
+                    branch_targets,
+                    image_base,
+                ) {
+                    break;
+                }
+                let mut depth = 0i32;
+                let mut mid_ok = true;
+                for ins in &insns[(mov_idx + 1)..(w_idx - 1)] {
+                    match ins.mnemonic() {
+                        Mnemonic::Nop => {}
+                        Mnemonic::Push
+                            if ins.op0_kind() == OpKind::Memory
+                                && ins.memory_base() == Register::RSP
+                                && ins.memory_index() == Register::None
+                                && matches!(ins.segment_prefix(), Register::None | Register::SS) =>
+                        {
+                            depth += 1;
+                        }
+                        Mnemonic::Popfq => {
+                            if depth <= 0 {
+                                mid_ok = false;
+                                break;
+                            }
+                            depth -= 1;
+                        }
+                        _ => {
+                            mid_ok = false;
+                            break;
+                        }
+                    }
+                }
+                if !mid_ok {
+                    continue;
+                }
+                if depth == 0 && is_mov_rsp_disp_imm64(&insns[mov_idx], k) {
+                    return Some(mov_idx);
+                }
+            }
+        }
+    }
+    None
+}
+
 pub fn discover_vm_entries(view: &PeImageView, cfg: &BinaryDevirtConfig) -> Vec<DiscoveredEntry> {
     let mut entries = Vec::new();
     let mut seen_patch_rvas = HashSet::new();
+    let mut claimed_ranges: Vec<(u32, u32)> = Vec::new();
 
     let primary_secs: Vec<&SectionMeta> = view
         .sections
@@ -716,7 +842,10 @@ pub fn discover_vm_entries(view: &PeImageView, cfg: &BinaryDevirtConfig) -> Vec<
                     }
                     let patch_rva = (pdata_insns[start_idx].ip() - view.image_base) as u32;
                     let patch_size = (jmp_end_rva - patch_rva) as usize;
-                    if seen_patch_rvas.insert(patch_rva) {
+                    if !ranges_overlap(patch_rva, jmp_end_rva, &claimed_ranges)
+                        && seen_patch_rvas.insert(patch_rva)
+                    {
+                        claimed_ranges.push((patch_rva, jmp_end_rva));
                         entries.push(DiscoveredEntry {
                             kind: VmEntryKind::IndirectBranchTrampoline,
                             patch_rva,
@@ -731,6 +860,7 @@ pub fn discover_vm_entries(view: &PeImageView, cfg: &BinaryDevirtConfig) -> Vec<
                     let mut patch_rva = rva;
                     let mut patch_size = ins_len;
                     let mut lift_start_rva = target_rva;
+                    let mut effective_is_call = is_call;
                     if w_idx > 0 && view.bitness == 32 {
                         let prev = pdata_insns[w_idx - 1];
                         let prev_rva = (prev.ip() - view.image_base) as u32;
@@ -743,13 +873,35 @@ pub fn discover_vm_entries(view: &PeImageView, cfg: &BinaryDevirtConfig) -> Vec<
                             patch_size = prev.len() + ins_len;
                             lift_start_rva = prev_rva;
                         }
+                    } else if view.bitness == 64 {
+                        if let Some(start_idx) = find_x64_vmenter_key_prefix(
+                            &pdata_insns,
+                            w_idx,
+                            &branch_targets,
+                            view.image_base,
+                        ) {
+                            let prefix_rva = (pdata_insns[start_idx].ip() - view.image_base) as u32;
+                            let prefix_end = rva + ins_len as u32;
+                            if !ranges_overlap(prefix_rva, prefix_end, &claimed_ranges)
+                                && !seen_patch_rvas.contains(&prefix_rva)
+                            {
+                                patch_rva = prefix_rva;
+                                patch_size = (prefix_end - prefix_rva) as usize;
+                                lift_start_rva = prefix_rva;
+                                effective_is_call = false;
+                            }
+                        }
                     }
-                    if seen_patch_rvas.insert(patch_rva) {
+                    let patch_end = patch_rva + patch_size as u32;
+                    if !ranges_overlap(patch_rva, patch_end, &claimed_ranges)
+                        && seen_patch_rvas.insert(patch_rva)
+                    {
+                        claimed_ranges.push((patch_rva, patch_end));
                         entries.push(DiscoveredEntry {
                             kind: VmEntryKind::CrossSectionVmEnter,
                             patch_rva,
                             patch_size,
-                            is_call,
+                            is_call: effective_is_call,
                             lift_start_rva,
                             target_rva,
                         });
@@ -776,13 +928,53 @@ pub fn discover_vm_entries(view: &PeImageView, cfg: &BinaryDevirtConfig) -> Vec<
                             let is_call = op == 0xE8;
                             match classify_vm_target(view, dst) {
                                 StubClassify::VmEnter if cfg.include_vmenters => {
-                                    if seen_patch_rvas.insert(rva) {
+                                    let mut patch_rva = rva;
+                                    let mut patch_size = 5usize;
+                                    let mut lift_start_rva = target_rva;
+                                    let mut effective_is_call = is_call;
+                                    if view.bitness == 64 && pos >= sec_rva_start + 8 {
+                                        let cand_pos = pos - 8;
+                                        let cand_rva = cand_pos as u32;
+                                        let slice = &view.image_mem[cand_pos..pos];
+                                        let mut dec = Decoder::with_ip(
+                                            view.bitness,
+                                            slice,
+                                            view.image_base + cand_pos as u64,
+                                            DecoderOptions::NONE,
+                                        );
+                                        if dec.can_decode() {
+                                            let di = dec.decode();
+                                            if !di.is_invalid()
+                                                && dec.position() == 8
+                                                && di.len() == 8
+                                                && is_mov_rsp_disp_imm64(&di, 0)
+                                                && !(cand_pos..(pos + 5))
+                                                    .any(|r| covered_starts.contains(&(r as u32)))
+                                                && !ranges_overlap(
+                                                    cand_rva,
+                                                    rva + 5,
+                                                    &claimed_ranges,
+                                                )
+                                                && !seen_patch_rvas.contains(&cand_rva)
+                                            {
+                                                patch_rva = cand_rva;
+                                                patch_size = 13;
+                                                lift_start_rva = cand_rva;
+                                                effective_is_call = false;
+                                            }
+                                        }
+                                    }
+                                    let patch_end = patch_rva + patch_size as u32;
+                                    if !ranges_overlap(patch_rva, patch_end, &claimed_ranges)
+                                        && seen_patch_rvas.insert(patch_rva)
+                                    {
+                                        claimed_ranges.push((patch_rva, patch_end));
                                         entries.push(DiscoveredEntry {
                                             kind: VmEntryKind::CrossSectionVmEnter,
-                                            patch_rva: rva,
-                                            patch_size: 5,
-                                            is_call,
-                                            lift_start_rva: target_rva,
+                                            patch_rva,
+                                            patch_size,
+                                            is_call: effective_is_call,
+                                            lift_start_rva,
                                             target_rva,
                                         });
                                     }
@@ -819,7 +1011,11 @@ pub fn discover_vm_entries(view: &PeImageView, cfg: &BinaryDevirtConfig) -> Vec<
                                     }
                                     let patch_rva = best_start as u32;
                                     let patch_size = (pos - best_start) + 5;
-                                    if seen_patch_rvas.insert(patch_rva) {
+                                    let patch_end = patch_rva + patch_size as u32;
+                                    if !ranges_overlap(patch_rva, patch_end, &claimed_ranges)
+                                        && seen_patch_rvas.insert(patch_rva)
+                                    {
+                                        claimed_ranges.push((patch_rva, patch_end));
                                         entries.push(DiscoveredEntry {
                                             kind: VmEntryKind::IndirectBranchTrampoline,
                                             patch_rva,
@@ -1499,6 +1695,113 @@ struct SymState {
     folded_vm_qword_addrs: HashSet<u64>,
 }
 
+/// Signed interval `(min_off, max_off)` relative to `StackBase` for a stack space
+/// with statically bounded alignment padding (rejects run-time `aligned_dyn` frames).
+fn stack_space_offset_bounds(state: &SymState, space: StackSpace) -> Option<(i64, i64)> {
+    let mut lo = 0i64;
+    let mut hi = 0i64;
+    let mut cur = space;
+    for _ in 0..16 {
+        match cur {
+            StackSpace::CallerStack => return Some((lo, hi)),
+            StackSpace::AlignedScratch(id) => {
+                if state.aligned_dyn.get(id as usize).copied().flatten().is_some() {
+                    return None;
+                }
+                let &(parent, off, mask) = state.aligned_defs.get(id as usize)?;
+                let pad = !mask;
+                if pad > 4095 || (pad & pad.wrapping_add(1)) != 0 {
+                    return None;
+                }
+                lo = lo.checked_add(off)?.checked_sub(pad as i64)?;
+                hi = hi.checked_add(off)?;
+                cur = parent;
+            }
+        }
+    }
+    None
+}
+
+/// Folds unsigned/equality comparisons between two 64-bit stack pointers when their
+/// alignment-bounded intervals around `StackBase` prove a constant result without wrap.
+fn try_fold_stack_ptr_cmp(
+    state: &SymState,
+    arena: &ExprArena,
+    pred: CondPred,
+    lhs: ExprId,
+    rhs: ExprId,
+) -> Option<bool> {
+    let (sp_l, off_l) = arena.as_stack_offset(lhs)?;
+    let (sp_r, off_r) = arena.as_stack_offset(rhs)?;
+    let (bl_lo, bl_hi) = stack_space_offset_bounds(state, sp_l)?;
+    let (br_lo, br_hi) = stack_space_offset_bounds(state, sp_r)?;
+    let l_lo = bl_lo.checked_add(off_l)?;
+    let l_hi = bl_hi.checked_add(off_l)?;
+    let r_lo = br_lo.checked_add(off_r)?;
+    let r_hi = br_hi.checked_add(off_r)?;
+    const BOUND: i64 = 0x10_0000;
+    if l_lo < -BOUND || l_hi > BOUND || r_lo < -BOUND || r_hi > BOUND {
+        return None;
+    }
+    match pred {
+        CondPred::Eq => {
+            if l_lo == l_hi && r_lo == r_hi && l_lo == r_lo {
+                Some(true)
+            } else if l_hi < r_lo || l_lo > r_hi {
+                Some(false)
+            } else {
+                None
+            }
+        }
+        CondPred::Ne => {
+            if l_lo == l_hi && r_lo == r_hi && l_lo == r_lo {
+                Some(false)
+            } else if l_hi < r_lo || l_lo > r_hi {
+                Some(true)
+            } else {
+                None
+            }
+        }
+        CondPred::Ult => {
+            if l_hi < r_lo {
+                Some(true)
+            } else if l_lo >= r_hi {
+                Some(false)
+            } else {
+                None
+            }
+        }
+        CondPred::Ule => {
+            if l_hi <= r_lo {
+                Some(true)
+            } else if l_lo > r_hi {
+                Some(false)
+            } else {
+                None
+            }
+        }
+        CondPred::Ugt => {
+            if l_lo > r_hi {
+                Some(true)
+            } else if l_hi <= r_lo {
+                Some(false)
+            } else {
+                None
+            }
+        }
+        CondPred::Uge => {
+            if l_lo >= r_hi {
+                Some(true)
+            } else if l_hi < r_lo {
+                Some(false)
+            } else {
+                None
+            }
+        }
+        _ => None,
+    }
+}
+
 impl SymState {
     fn new(arena: &mut ExprArena, start_va: u64, is_call: bool, ret_va_if_call: u64) -> Self {
         let mut regs = [ExprId(0); 16];
@@ -1660,13 +1963,21 @@ impl SymState {
                 let rb = arena.zext_mask(*rhs, w);
                 let sa = arena.sext(*lhs, w * 8);
                 let sb = arena.sext(*rhs, w * 8);
+                let fold_ptr = |arena: &mut ExprArena, pred: CondPred| -> Option<ExprId> {
+                    if w == 8 {
+                        if let Some(res) = try_fold_stack_ptr_cmp(self, arena, pred, la, rb) {
+                            return Some(arena.const_u64(u64::from(res)));
+                        }
+                    }
+                    Some(arena.cmp(pred, la, rb))
+                };
                 match cc {
-                    ConditionCode::e => Some(arena.cmp(CondPred::Eq, la, rb)),
-                    ConditionCode::ne => Some(arena.cmp(CondPred::Ne, la, rb)),
-                    ConditionCode::b => Some(arena.cmp(CondPred::Ult, la, rb)),
-                    ConditionCode::be => Some(arena.cmp(CondPred::Ule, la, rb)),
-                    ConditionCode::a => Some(arena.cmp(CondPred::Ugt, la, rb)),
-                    ConditionCode::ae => Some(arena.cmp(CondPred::Uge, la, rb)),
+                    ConditionCode::e => fold_ptr(arena, CondPred::Eq),
+                    ConditionCode::ne => fold_ptr(arena, CondPred::Ne),
+                    ConditionCode::b => fold_ptr(arena, CondPred::Ult),
+                    ConditionCode::be => fold_ptr(arena, CondPred::Ule),
+                    ConditionCode::a => fold_ptr(arena, CondPred::Ugt),
+                    ConditionCode::ae => fold_ptr(arena, CondPred::Uge),
                     ConditionCode::l => Some(arena.cmp(CondPred::Slt, sa, sb)),
                     ConditionCode::le => Some(arena.cmp(CondPred::Sle, sa, sb)),
                     ConditionCode::g => Some(arena.cmp(CondPred::Sgt, sa, sb)),
@@ -4891,17 +5202,17 @@ fn lift_vm_entry_cfg_inner(
                                 };
                             }
                         }
-                        if !arena.contains_opaque(ret_val) {
-                            if let Some(rsp_delta) = check_pure_rsp_delta(&arena, new_rsp) {
-                                let pending = state.collect_pending_caller_stores(rsp_delta);
-                                break IrTerm::ExitComputedJmp {
-                                    target: ret_val,
-                                    rsp_delta,
-                                    final_regs: state.regs,
-                                    final_xmms: state.xmms,
-                                    pending_caller_stores: pending,
-                                };
-                            }
+                    }
+                    if !arena.contains_opaque(ret_val) {
+                        if let Some(rsp_delta) = check_pure_rsp_delta(&arena, new_rsp) {
+                            let pending = state.collect_pending_caller_stores(rsp_delta);
+                            break IrTerm::ExitComputedJmp {
+                                target: ret_val,
+                                rsp_delta,
+                                final_regs: state.regs,
+                                final_xmms: state.xmms,
+                                pending_caller_stores: pending,
+                            };
                         }
                     }
                     if cfg.collect_diagnostics && bailout_detail.is_none() {
@@ -4910,6 +5221,9 @@ fn lift_vm_entry_cfg_inner(
                         let rs = expr_brief(&arena, new_rsp, 0);
                         pending_diag_detail = Some(format!("{ins_str} | ret_val={rv} | rsp={rs}"));
                     }
+                    // Restore pre-ret RSP so jumping back to `cur_ip` (`ret` / `ret imm16`)
+                    // executes the original return with the exact pre-ret stack pointer.
+                    state.write_reg(&mut arena, ArchReg::Rsp, RegSlice::Full64, rsp);
                     break exit_to_vm_or_bailout(cfg, &state, &mut arena, view, cur_ip, "unresolved_ret".into());
                 }
                 FlowControl::Next => {
@@ -5112,6 +5426,11 @@ fn lift_vm_entry_cfg_inner(
                     let ax_v = state.read_reg(&mut arena, view.bitness, ArchReg::Rax, RegSlice::Low16);
                     let r = arena.sext(ax_v, 16);
                     state.write_reg(&mut arena, ArchReg::Rax, RegSlice::Low32, r);
+                }
+                Mnemonic::Cbw => {
+                    let al_v = state.read_reg(&mut arena, view.bitness, ArchReg::Rax, RegSlice::Low8);
+                    let r = arena.sext(al_v, 8);
+                    state.write_reg(&mut arena, ArchReg::Rax, RegSlice::Low16, r);
                 }
                 Mnemonic::Cwd => {
                     let ax_v = state.read_reg(&mut arena, view.bitness, ArchReg::Rax, RegSlice::Low16);
@@ -14347,6 +14666,360 @@ mod tests {
         };
         for c in [0u64, 1, 5, 65] {
             assert_eq!(run(&devirt_pe, c), run(&orig_pe, c));
+        }
+    }
+
+    fn build_two_exec_pe64_with_pdata(
+        text_code: &[u8],
+        vmp_code: &[u8],
+        pdata_entries: &[(u32, u32, u32)],
+        oep_rva: u32,
+    ) -> Vec<u8> {
+        let mut pe = vec![0u8; 0x4400];
+        pe[0..2].copy_from_slice(b"MZ");
+        pe[0x3C..0x40].copy_from_slice(&0x80u32.to_le_bytes());
+        pe[0x80..0x84].copy_from_slice(b"PE\0\0");
+        let coff = 0x84;
+        pe[coff..coff + 2].copy_from_slice(&0x8664u16.to_le_bytes());
+        pe[coff + 2..coff + 4].copy_from_slice(&4u16.to_le_bytes());
+        pe[coff + 16..coff + 18].copy_from_slice(&240u16.to_le_bytes());
+        pe[coff + 18..coff + 20].copy_from_slice(&0x22u16.to_le_bytes());
+
+        let opt = coff + 20;
+        pe[opt..opt + 2].copy_from_slice(&0x20Bu16.to_le_bytes());
+        pe[opt + 16..opt + 20].copy_from_slice(&oep_rva.to_le_bytes());
+        pe[opt + 24..opt + 32].copy_from_slice(&0x1_4000_0000u64.to_le_bytes());
+        pe[opt + 32..opt + 36].copy_from_slice(&0x1000u32.to_le_bytes());
+        pe[opt + 36..opt + 40].copy_from_slice(&0x200u32.to_le_bytes());
+        pe[opt + 56..opt + 60].copy_from_slice(&0x5000u32.to_le_bytes());
+        pe[opt + 60..opt + 64].copy_from_slice(&0x400u32.to_le_bytes());
+        pe[opt + 68..opt + 70].copy_from_slice(&3u16.to_le_bytes());
+        pe[opt + 108..opt + 112].copy_from_slice(&16u32.to_le_bytes());
+        // EXCEPTION directory (index 3) at VA=0x4000
+        let exc_dir_off = opt + 112 + 3 * 8;
+        let exc_size = (pdata_entries.len() * 12) as u32;
+        pe[exc_dir_off..exc_dir_off + 4].copy_from_slice(&0x4000u32.to_le_bytes());
+        pe[exc_dir_off + 4..exc_dir_off + 8].copy_from_slice(&exc_size.to_le_bytes());
+
+        let secs = [
+            (b".text\0\0\0", 0x1000u32, 0x0400u32, 0x6000_0020u32),
+            (b".vmp0\0\0\0", 0x2000u32, 0x1400u32, 0x6000_0020u32),
+            (b".data\0\0\0", 0x3000u32, 0x2400u32, 0xC000_0040u32),
+            (b".pdata\0\0", 0x4000u32, 0x3400u32, 0x4000_0040u32),
+        ];
+        for (i, (nm, va, rptr, sec_chars)) in secs.iter().enumerate() {
+            let o = opt + 240 + i * 40;
+            pe[o..o + 8].copy_from_slice(*nm);
+            pe[o + 8..o + 12].copy_from_slice(&0x1000u32.to_le_bytes());
+            pe[o + 12..o + 16].copy_from_slice(&va.to_le_bytes());
+            pe[o + 16..o + 20].copy_from_slice(&0x1000u32.to_le_bytes());
+            pe[o + 20..o + 24].copy_from_slice(&rptr.to_le_bytes());
+            pe[o + 36..o + 40].copy_from_slice(&sec_chars.to_le_bytes());
+        }
+
+        pe[0x400..0x400 + text_code.len().min(0x1000)].copy_from_slice(&text_code[..text_code.len().min(0x1000)]);
+        pe[0x1400..0x1400 + vmp_code.len().min(0x1000)].copy_from_slice(&vmp_code[..vmp_code.len().min(0x1000)]);
+        for (idx, &(beg, end, unwind)) in pdata_entries.iter().enumerate() {
+            let off = 0x3400 + idx * 12;
+            pe[off..off + 4].copy_from_slice(&beg.to_le_bytes());
+            pe[off + 4..off + 8].copy_from_slice(&end.to_le_bytes());
+            pe[off + 8..off + 12].copy_from_slice(&unwind.to_le_bytes());
+        }
+        pe
+    }
+
+    #[test]
+    fn unresolved_ret_exit_to_vm_preserves_rsp_e2e() {
+        use gpr32::*;
+        use gpr64::*;
+        let base = 0x1_4000_0000u64;
+
+        let mut text_sec = vec![0xCCu8; 0x200];
+        let fn0 = assemble_at(64, base + 0x1000, |a| {
+            a.call(base + 0x2000)?;
+            a.ret()
+        });
+        text_sec[..fn0.len()].copy_from_slice(&fn0);
+
+        let mut vmp_sec = vec![0xCCu8; 0x400];
+        let epilog0 = assemble_at(64, base + 0x2200, |a| {
+            a.add(rax, 100)?;
+            a.mov(rsp, rbp)?;
+            a.pop(rbp)?;
+            a.ret()
+        });
+        let epilog1 = assemble_at(64, base + 0x2240, |a| {
+            a.add(rax, 200)?;
+            a.mov(rsp, rbp)?;
+            a.pop(rbp)?;
+            a.ret()
+        });
+        vmp_sec[0x200..0x200 + epilog0.len()].copy_from_slice(&epilog0);
+        vmp_sec[0x240..0x240 + epilog1.len()].copy_from_slice(&epilog1);
+
+        let stub = assemble_at(64, base + 0x2000, |a| {
+            a.push(rbp)?;
+            a.mov(rbp, rsp)?;
+            a.and(rsp, -16)?;
+            a.sub(rsp, 0x30)?;
+            a.mov(r10, rcx)?;
+            a.and(r10d, 1)?;
+            a.mov(r11, base + 0x3000)?;
+            a.mov(r8, qword_ptr(r11 + r10 * 8))?; // runtime target in RW .data
+            a.mov(qword_ptr(rsp + 0x10), 0xCAFEi32)?;
+            a.mov(qword_ptr(rsp), r8)?;
+            a.mov(rax, rcx)?;
+            for k in 0..8 {
+                a.add(rax, k + 1)?;
+                a.sub(rax, k + 1)?;
+            }
+            a.add(rax, 10)?;
+            a.ret_1(8) // unresolved [rsp] + non-pure AlignedScratch RSP -> ExitToVm at ret 8
+        });
+        vmp_sec[..stub.len()].copy_from_slice(&stub);
+
+        let mut orig_pe = build_two_exec_pe64(&text_sec, &vmp_sec, 0x1000);
+        orig_pe[0x2400..0x2408].copy_from_slice(&(base + 0x2200).to_le_bytes());
+        orig_pe[0x2408..0x2410].copy_from_slice(&(base + 0x2240).to_le_bytes());
+
+        let (devirt_pe, report) = devirtualize_pe_bytes(&orig_pe, BinaryDevirtConfig::default()).unwrap();
+        assert_eq!(report.devirtualized_vmenters, 1, "bailouts={:?}", report.bailout_reasons);
+        assert_eq!(report.hybrid_vm_exits, 1, "report={report:?}");
+
+        for rcx_in in [0u64, 1, 2, 7] {
+            let orig = run_rcx_case(&orig_pe, base + 0x1000, rcx_in);
+            let want = rcx_in + 10 + if (rcx_in & 1) == 0 { 100 } else { 200 };
+            assert_eq!(orig.0, want, "orig rcx={rcx_in}");
+            assert_eq!(run_rcx_case(&devirt_pe, base + 0x1000, rcx_in), orig, "devirt rcx={rcx_in}");
+        }
+    }
+
+    #[test]
+    fn ret_imm_computed_jmp_e2e() {
+        use gpr64::*;
+        let base = 0x1_4000_0000u64;
+
+        let mut text_sec = vec![0xCCu8; 0x200];
+        let fn0 = assemble_at(64, base + 0x1000, |a| {
+            a.call(base + 0x2000)?;
+            a.ret()
+        });
+        let target0 = assemble_at(64, base + 0x1040, |a| {
+            a.add(rax, 11)?;
+            a.ret()
+        });
+        let target1 = assemble_at(64, base + 0x1060, |a| {
+            a.add(rax, 22)?;
+            a.ret()
+        });
+        text_sec[..fn0.len()].copy_from_slice(&fn0);
+        text_sec[0x40..0x40 + target0.len()].copy_from_slice(&target0);
+        text_sec[0x60..0x60 + target1.len()].copy_from_slice(&target1);
+
+        let mut vmp_sec = vec![0xCCu8; 0x400];
+        let stub = assemble_at(64, base + 0x2000, |a| {
+            a.sub(rsp, 0x10)?;
+            a.mov(r10, rcx)?;
+            a.and(r10, 1)?;
+            a.mov(r11, base + 0x3000)?;
+            a.mov(r8, qword_ptr(r11 + r10 * 8))?; // runtime target in RW .data
+            a.mov(qword_ptr(rsp), r8)?;
+            a.mov(rax, rcx)?;
+            for k in 0..8 {
+                a.add(rax, k + 2)?;
+                a.sub(rax, k + 2)?;
+            }
+            a.ret_1(8)
+        });
+        vmp_sec[..stub.len()].copy_from_slice(&stub);
+
+        let mut orig_pe = build_two_exec_pe64(&text_sec, &vmp_sec, 0x1000);
+        orig_pe[0x2400..0x2408].copy_from_slice(&(base + 0x1040).to_le_bytes());
+        orig_pe[0x2408..0x2410].copy_from_slice(&(base + 0x1060).to_le_bytes());
+
+        let (devirt_pe, report) = devirtualize_pe_bytes(&orig_pe, BinaryDevirtConfig::default()).unwrap();
+        assert_eq!(report.devirtualized_total, 1, "bailouts={:?}", report.bailout_reasons);
+        assert_eq!(report.hybrid_vm_exits, 0, "expected native ExitComputedJmp, got {report:?}");
+
+        for rcx_in in [0u64, 1, 8, 9] {
+            let orig = run_rcx_case(&orig_pe, base + 0x1000, rcx_in);
+            assert_eq!(run_rcx_case(&devirt_pe, base + 0x1000, rcx_in), orig, "rcx={rcx_in}");
+        }
+    }
+
+    #[test]
+    fn cbw_sign_extends_al_preserving_upper_rax_e2e() {
+        use gpr64::*;
+        use gpr8::*;
+        let base = 0x1_4000_0000u64;
+
+        let mut text_sec = vec![0xCCu8; 0x200];
+        let fn0 = assemble_at(64, base + 0x1000, |a| {
+            a.call(base + 0x2000)?;
+            a.ret()
+        });
+        text_sec[..fn0.len()].copy_from_slice(&fn0);
+
+        let mut vmp_sec = vec![0xCCu8; 0x400];
+        let stub = assemble_at(64, base + 0x2000, |a| {
+            a.push(rbx)?;
+            a.push(r10)?;
+            a.mov(rax, 0x1122_3344_5566_7788u64)?;
+            for k in 0..8 {
+                a.add(rcx, k + 1)?;
+                a.sub(rcx, k + 1)?;
+            }
+            a.mov(al, cl)?;
+            a.cbw()?;
+            a.pop(r10)?;
+            a.pop(rbx)?;
+            a.ret()
+        });
+        vmp_sec[..stub.len()].copy_from_slice(&stub);
+
+        let orig_pe = build_two_exec_pe64(&text_sec, &vmp_sec, 0x1000);
+        let (devirt_pe, report) = devirtualize_pe_bytes(&orig_pe, BinaryDevirtConfig::default()).unwrap();
+        assert_eq!(report.devirtualized_total, 1, "bailouts={:?}", report.bailout_reasons);
+        assert_eq!(report.hybrid_vm_exits, 0, "expected native cbw without ExitToVm, got {report:?}");
+
+        for c in [0x00u64, 0x7f, 0x80, 0xff] {
+            let orig = run_rcx_case(&orig_pe, base + 0x1000, c);
+            let dev = run_rcx_case(&devirt_pe, base + 0x1000, c);
+            assert_eq!(dev, orig, "c={c:#x}");
+            assert_eq!(dev.0 >> 16, 0x1122_3344_5566u64, "upper RAX clobbered for c={c:#x}");
+        }
+    }
+
+    #[test]
+    fn stack_guard_aligned_frame_cmp_folds_dead_movsb_e2e() {
+        use gpr32::*;
+        use gpr64::*;
+        let base = 0x1_4000_0000u64;
+
+        let mut text_sec = vec![0xCCu8; 0x200];
+        let fn0 = assemble_at(64, base + 0x1000, |a| {
+            a.call(base + 0x2000)?;
+            a.ret()
+        });
+        // Wrapper that enters `fn0` with an 8-byte-misaligned RSP (simulating arbitrary alignment)
+        let fn_mis = assemble_at(64, base + 0x1020, |a| {
+            a.sub(rsp, 8)?;
+            a.call(base + 0x1000)?;
+            a.add(rsp, 8)?;
+            a.ret()
+        });
+        text_sec[..fn0.len()].copy_from_slice(&fn0);
+        text_sec[0x20..0x20 + fn_mis.len()].copy_from_slice(&fn_mis);
+
+        let mut vmp_sec = vec![0xCCu8; 0x400];
+        let stub = assemble_at(64, base + 0x2000, |a| {
+            let mut fast = a.create_label();
+            a.push(rbp)?;
+            a.push(rdi)?;
+            a.push(rsi)?;
+            a.mov(rbp, rsp)?;
+            a.sub(rsp, 0x200)?;
+            a.and(rsp, -16)?;
+            a.lea(r9, ptr(rbp) - 0x40)?;
+            a.lea(r10, ptr(rsp) + 0x1a8)?;
+            a.cmp(r9, r10)?;
+            a.ja(fast)?;
+            // Dead stack-expansion slow path: must be folded away completely!
+            a.mov(ecx, 0x10)?;
+            a.mov(rdi, rsp)?;
+            a.mov(rsi, rbp)?;
+            a.rep().movsb()?;
+            a.set_label(&mut fast)?;
+            a.xor(r9d, r9d)?;
+            a.xor(r10d, r10d)?;
+            a.lea(rax, ptr(rcx) + 77)?;
+            for k in 0..8 {
+                a.add(rax, k + 3)?;
+                a.sub(rax, k + 3)?;
+            }
+            a.mov(rsp, rbp)?;
+            a.pop(rsi)?;
+            a.pop(rdi)?;
+            a.pop(rbp)?;
+            a.ret()
+        });
+        vmp_sec[..stub.len()].copy_from_slice(&stub);
+
+        let orig_pe = build_two_exec_pe64(&text_sec, &vmp_sec, 0x1000);
+        let (devirt_pe, report) = devirtualize_pe_bytes(&orig_pe, BinaryDevirtConfig::default()).unwrap();
+        assert_eq!(report.devirtualized_total, 1, "bailouts={:?}", report.bailout_reasons);
+        assert_eq!(report.hybrid_vm_exits, 0, "expected dead rep movsb folded, got {report:?}");
+
+        for entry in [base + 0x1000, base + 0x1020] {
+            for rcx_in in [0u64, 5, 123] {
+                let orig = run_rcx_case(&orig_pe, entry, rcx_in);
+                assert_eq!(run_rcx_case(&devirt_pe, entry, rcx_in), orig, "entry={entry:#x} rcx={rcx_in}");
+            }
+        }
+    }
+
+    #[test]
+    fn x64_vmenter_mov_rsp_imm_lea_rsp_prefix_e2e() {
+        use gpr64::*;
+        let base = 0x1_4000_0000u64;
+
+        let mut text_sec = vec![0xCCu8; 0x200];
+        let fn0 = assemble_at(64, base + 0x1000, |a| {
+            a.sub(rsp, 0x18)?;
+            a.mov(qword_ptr(rsp + 0x10), 2i32)?;
+            a.push(qword_ptr(rsp))?;
+            a.popfq()?;
+            a.lea(rsp, ptr(rsp) + 0x10)?;
+            a.call(base + 0x2000)?;
+            a.ret()
+        });
+        text_sec[..fn0.len()].copy_from_slice(&fn0);
+
+        let mut vmp_sec = vec![0xCCu8; 0x400];
+        let handler = assemble_at(64, base + 0x2100, |a| {
+            a.mov(rax, rcx)?;
+            for k in 0..8 {
+                a.add(rax, k + 5)?;
+                a.sub(rax, k + 5)?;
+            }
+            a.add(rax, 0x55)?;
+            a.ret_1(8)
+        });
+        let stub = assemble_at(64, base + 0x2000, |a| {
+            // Sub rsp keeps classify_vm_target identifying this stub as VmEnter rather than short Trampoline.
+            // Key sits at [rsp + 0x10] after sub rsp, 8 (+8 ret_va).
+            a.sub(rsp, 8)?;
+            a.mov(r10, qword_ptr(rsp + 0x10))?;
+            a.mov(r11, base + 0x2200)?;
+            a.mov(r10, qword_ptr(r11 + r10 * 8))?;
+            a.add(rsp, 8)?;
+            a.jmp(r10)
+        });
+        vmp_sec[..stub.len()].copy_from_slice(&stub);
+        vmp_sec[0x100..0x100 + handler.len()].copy_from_slice(&handler);
+        // Dispatch table at .vmp0+0x200 (slot 2 -> handler at base + 0x2100)
+        vmp_sec[0x210..0x218].copy_from_slice(&(base + 0x2100).to_le_bytes());
+
+        let orig_pe = build_two_exec_pe64_with_pdata(
+            &text_sec,
+            &vmp_sec,
+            &[(0x1000, 0x1000 + fn0.len() as u32, 0)],
+            0x1000,
+        );
+        let view = PeImageView::from_pe_bytes(&orig_pe).unwrap();
+        let discovered = discover_vm_entries(&view, &BinaryDevirtConfig::default());
+        assert_eq!(discovered.len(), 1);
+        assert_eq!(discovered[0].patch_rva, 0x1004, "expected Pattern C prefix start, got {:?}", discovered[0]);
+        assert!(!discovered[0].is_call);
+
+        let (devirt_pe, report) = devirtualize_pe_bytes(&orig_pe, BinaryDevirtConfig::default()).unwrap();
+        assert_eq!(report.devirtualized_vmenters, 1, "bailouts={:?}", report.bailout_reasons);
+        assert_eq!(report.hybrid_vm_exits, 0, "expected full static resolution of Pattern C key, got {report:?}");
+
+        for rcx_in in [0u64, 10, 0x1234] {
+            let orig = run_rcx_case(&orig_pe, base + 0x1000, rcx_in);
+            assert_eq!(orig.0, rcx_in + 0x55);
+            assert_eq!(run_rcx_case(&devirt_pe, base + 0x1000, rcx_in), orig, "rcx={rcx_in}");
         }
     }
 }
