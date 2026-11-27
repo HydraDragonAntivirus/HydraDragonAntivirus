@@ -1470,9 +1470,6 @@ struct CaptureState {
     lzma_entry_va: Option<u64>,
     lzma_hooked_vas: HashSet<u64>,
     lzma_abort_for_retry: bool,
-    last_block: u64,
-    runtime_entered: bool,
-    lazy_maps: u32,
 }
 
 fn load_loader_dll_by_name(
@@ -1895,7 +1892,6 @@ fn run_packed_loader_capture(
     let map_size = ((packed_opt.size_of_image as u64 + 0xFFF) & !0xFFF).max(0x2000);
     let img_end = (img_base + map_size + 0xFF_FFFF) & !0xFF_FFFF;
 
-    let crc_full = std::env::var_os("HDU_CRC_FULL").is_some();
     let mut uc = Unicorn::new(Arch::X86, Mode::MODE_64)
         .map_err(|e| CaptureErr::Fatal(format!("Unicorn init failed: {e:?}")))?;
     uc.mem_map(img_base, map_size, Prot::ALL)
@@ -2086,26 +2082,9 @@ fn run_packed_loader_capture(
         lzma_entry_va: None,
         lzma_hooked_vas: HashSet::new(),
         lzma_abort_for_retry: false,
-        last_block: 0,
-        runtime_entered: false,
-        lazy_maps: 0,
     }));
 
-    // CRC-enumeration scratch page: a self-referential zero-ish page so that any API we don't
-    // model, once the runtime is running, can return a valid non-null pointer whose every
-    // dereference yields the same valid address (no null-deref chains).
-    const CRC_SCRATCH: u64 = 0x5EAF_0000;
-    if crc_full {
-        let _ = uc.mem_map(CRC_SCRATCH & !0xFFF, 0x2000, Prot::ALL);
-        let mut sp = vec![0u8; 0x2000];
-        for ch in sp.chunks_exact_mut(8) {
-            ch.copy_from_slice(&CRC_SCRATCH.to_le_bytes());
-        }
-        let _ = uc.mem_write(CRC_SCRATCH & !0xFFF, &sp);
-    }
-
     // 1. CRC32 Loop Fast-Forward Hooks
-    let imgb_crc = img_base;
     for cl in crc_loops.iter().copied() {
         let _ = uc.add_code_hook(cl.loop_head_va, cl.loop_head_va, move |uc, _addr, _sz| {
             let len = uc.reg_read(cl.len_reg as i32).unwrap_or(0);
@@ -2116,26 +2095,6 @@ fn run_packed_loader_capture(
             let tbl_va = uc.reg_read(cl.tbl_reg as i32).unwrap_or(0);
             if ptr_va < 0x1_0000 || tbl_va < 0x1_0000 {
                 return;
-            }
-            // Diagnostic: capture every CRC check that reads .text ([.text]=RVA 0x1000..0x39000)
-            // so the devirt .text can be CRC-compensated. Deduped by (table, start, len).
-            if std::env::var_os("HDU_CRC_LOG").is_some()
-                && ptr_va >= imgb_crc + 0x1000 && ptr_va < imgb_crc + 0x39000
-            {
-                thread_local! {
-                    static SEEN: std::cell::RefCell<std::collections::HashSet<(u64, u64, u64)>> =
-                        std::cell::RefCell::new(std::collections::HashSet::new());
-                }
-                let crc_in = uc.reg_read(cl.crc_reg as i32).unwrap_or(0) as u32;
-                SEEN.with(|s| {
-                    if s.borrow_mut().insert((tbl_va, ptr_va, len)) {
-                        eprintln!(
-                            "[crc-check] tbl_rva={:#x} start_rva={:#x} len={:#x} end_rva={:#x} xor_imm={:#x} crc_in={:#x}",
-                            tbl_va - imgb_crc, ptr_va - imgb_crc, len - 1,
-                            (ptr_va - imgb_crc) + (len - 1), cl.crc_xor_imm, crc_in
-                        );
-                    }
-                });
             }
             let mut tbl_bytes = [0u8; 1024];
             if uc.mem_read(tbl_va, &mut tbl_bytes).is_err() {
@@ -2167,44 +2126,6 @@ fn run_packed_loader_capture(
             let _ = uc.reg_write(cl.ptr_reg as i32, ptr_va.wrapping_add(n as u64));
             let _ = uc.reg_write(cl.len_reg as i32, 1);
         });
-    }
-
-    // Targeted CRC-reader probes (HDU_CRC_LOG): the late .text integrity readers captured on
-    // real hardware (0x4600c2/tbl 0x10e10, 0x4e66e0/tbl 0x235b1a0, 0xbccb6e/tbl 0x199f0,
-    // 0x3fcbb3, plus the 0x2588fc8 subroutine entry). When any fires, dump GP regs and flag the
-    // register that points into .text and a plausible length, to recover each check's region
-    // without needing a faithful full-runtime run.
-    if std::env::var_os("HDU_CRC_LOG").is_some() {
-        let txt_lo = img_base + 0x1000;
-        let txt_hi = img_base + 0x39000;
-        for &rva in &[0x4600c2u32, 0x4e66e0, 0xbccb6e, 0x3fcbb3, 0x2589472, 0x4600d1] {
-            let va = img_base + rva as u64;
-            let _ = uc.add_code_hook(va, va, move |uc, a, _sz| {
-                thread_local! {
-                    static SEEN: std::cell::RefCell<std::collections::HashSet<(u64, u64)>> =
-                        std::cell::RefCell::new(std::collections::HashSet::new());
-                }
-                let rd = |id: RegisterX86| uc.reg_read(id as i32).unwrap_or(0);
-                let regs = [
-                    ("rax", rd(RegisterX86::RAX)), ("rbx", rd(RegisterX86::RBX)),
-                    ("rcx", rd(RegisterX86::RCX)), ("rdx", rd(RegisterX86::RDX)),
-                    ("rsi", rd(RegisterX86::RSI)), ("rdi", rd(RegisterX86::RDI)),
-                    ("r8", rd(RegisterX86::R8)), ("r9", rd(RegisterX86::R9)),
-                    ("r10", rd(RegisterX86::R10)), ("r11", rd(RegisterX86::R11)),
-                    ("r12", rd(RegisterX86::R12)), ("r13", rd(RegisterX86::R13)),
-                ];
-                let ptr = regs.iter().find(|(_, v)| *v >= txt_lo && *v < txt_hi).map(|(_, v)| *v);
-                if let Some(p) = ptr {
-                    let key = (a, p);
-                    SEEN.with(|s| {
-                        if s.borrow_mut().insert(key) {
-                            let regstr: String = regs.iter().map(|(n, v)| format!("{n}={v:#x} ")).collect();
-                            eprintln!("[crc-reader] head={:#x} ptr_rva={:#x} regs: {regstr}", a - img_base, p - img_base);
-                        }
-                    });
-                }
-            });
-        }
     }
 
     // Install LZMA fast-forward hooks.
@@ -2356,27 +2277,10 @@ fn run_packed_loader_capture(
         move |uc, a, _sz| {
             let fn_name = st_synth.borrow().synth_stubs.get(&a).cloned();
             if let Some(nm) = fn_name {
-                if crc_full {
-                    let rsp = uc.reg_read(RegisterX86::RSP as i32).unwrap_or(0);
-                    let mut rb = [0u8; 8];
-                    let _ = uc.mem_read(rsp, &mut rb);
-                    eprintln!(
-                        "[crc-api] synth {a:#x} {nm} retaddr={:#x} rcx={:#x} rdx={:#x} r8={:#x} r9={:#x}",
-                        u64::from_le_bytes(rb),
-                        uc.reg_read(RegisterX86::RCX as i32).unwrap_or(0),
-                        uc.reg_read(RegisterX86::RDX as i32).unwrap_or(0),
-                        uc.reg_read(RegisterX86::R8 as i32).unwrap_or(0),
-                        uc.reg_read(RegisterX86::R9 as i32).unwrap_or(0),
-                    );
-                }
                 handle_loader_api(uc, &st_synth, img_base, heap_base, &nm);
-                if crc_full {
-                    eprintln!("[crc-api]   -> rax={:#x}", uc.reg_read(RegisterX86::RAX as i32).unwrap_or(0));
-                }
             }
         },
     );
-
 
     // 3. SYSCALL Hook
     let st_sys = Rc::clone(&state);
@@ -2625,42 +2529,6 @@ fn run_packed_loader_capture(
     let packed_pe_seh = packed_pe.to_vec();
     let packed_opt_seh = packed_opt.clone();
     let packed_secs_seh = packed_secs.to_vec();
-    // Trace the exact call instruction that computes the garbage target 0xbc796.
-    if crc_full {
-        for off in 0x751e8u64..=0x751f8 {
-            let va = img_base + off;
-            let _ = uc.add_code_hook(va, va, move |uc, a, _sz| {
-                thread_local! { static N: std::cell::Cell<u32> = std::cell::Cell::new(0); }
-                let n = N.with(|c| { let v = c.get(); c.set(v + 1); v });
-                if n < 8 {
-                    let mut code = [0u8; 16];
-                    let _ = uc.mem_read(a, &mut code);
-                    let r = |id: RegisterX86| uc.reg_read(id as i32).unwrap_or(0);
-                    eprintln!(
-                        "[crc-callsite] rip_rva={:#x} bytes={} rax={:#x} rbx={:#x} rcx={:#x} rdx={:#x} rsi={:#x} rdi={:#x} r8={:#x} r9={:#x} r10={:#x} r11={:#x}",
-                        a - 0x1_4000_0000u64,
-                        code.iter().map(|b| format!("{b:02x}")).collect::<String>(),
-                        r(RegisterX86::RAX), r(RegisterX86::RBX), r(RegisterX86::RCX), r(RegisterX86::RDX),
-                        r(RegisterX86::RSI), r(RegisterX86::RDI), r(RegisterX86::R8), r(RegisterX86::R9),
-                        r(RegisterX86::R10), r(RegisterX86::R11)
-                    );
-                }
-            });
-        }
-    }
-    if crc_full {
-        let imgb_w = img_base;
-        let _ = uc.add_mem_hook(UcHookType::MEM_WRITE, 1, 0, move |uc, _t, addr, size, value| {
-            let v = value as u64 & if size >= 8 { u64::MAX } else { 0xFFFF_FFFF };
-            if v == 0xbc796 || (v & 0xFFFF_FFFF) == 0xbc796 {
-                let rip = uc.reg_read(RegisterX86::RIP as i32).unwrap_or(0);
-                eprintln!("[crc-w796] rip={:#x} (rva {:#x}) wrote {value:#x} to {addr:#x} (size {size})",
-                    rip, rip.wrapping_sub(imgb_w));
-            }
-            true
-        });
-    }
-
     let st_intr = Rc::clone(&state);
     let _ = uc.add_intr_hook(move |uc, intno| {
         let rip = uc.reg_read(RegisterX86::RIP as i32).unwrap_or(0);
@@ -2683,11 +2551,8 @@ fn run_packed_loader_capture(
         let _ = uc.emu_stop();
     });
 
-    // 5. Stop hooks on VMProtectRuntime candidates and OEP.
-    // Diagnostic (HDU_CRC_FULL): skip the runtime-candidate stops so emulation flows THROUGH
-    // the runtime wrapper (where the late .text CRC checks live), stopping only at OEP, to
-    // enumerate every active CRC check for compensation.
-    let mut stop_rvas: Vec<u32> = if crc_full { Vec::new() } else { rt_cands.to_vec() };
+    // 5. Stop hooks on VMProtectRuntime candidates and OEP
+    let mut stop_rvas: Vec<u32> = rt_cands.to_vec();
     if !stop_rvas.contains(&oep_rva) {
         stop_rvas.push(oep_rva);
     }
@@ -2704,20 +2569,6 @@ fn run_packed_loader_capture(
         });
     }
 
-    // CRC-enumeration (HDU_CRC_FULL): flag when the runtime wrapper is entered (do NOT stop),
-    // and from then on treat any unmodeled system-DLL call as a no-op returning the scratch
-    // pointer, so the runtime keeps running and all late .text CRC checks execute. Gating on
-    // runtime_entered keeps the loader/unpack phase (and the early checks) untouched.
-    if crc_full {
-        for &rva in rt_cands {
-            let va = img_base + rva as u64;
-            let st_rt = Rc::clone(&state);
-            let _ = uc.add_code_hook(va, va, move |_uc, _addr, _sz| {
-                st_rt.borrow_mut().runtime_entered = true;
-            });
-        }
-    }
-
     // Abort cleanly on unmapped memory fault
     let st_unm = Rc::clone(&state);
     let _ = uc.add_mem_hook(
@@ -2725,104 +2576,18 @@ fn run_packed_loader_capture(
         1,
         0,
         move |uc, t, addr, sz, _v| {
-            // CRC-enumeration (HDU_CRC_FULL): tolerate the runtime's data access to memory the
-            // emulation never mapped — lazily map the faulting page (zero-filled) and continue,
-            // so the runtime keeps running and all late .text CRC checks execute. Only an
-            // instruction FETCH from unmapped memory is a true wild jump worth aborting on.
-            let is_fetch = matches!(t, unicorn_engine::unicorn_const::MemType::FETCH_UNMAPPED);
-            if crc_full && !is_fetch && addr >= 0x1000 {
-                let mut s = st_unm.borrow_mut();
-                if s.lazy_maps < 200_000 {
-                    s.lazy_maps += 1;
-                    drop(s);
-                    let page = addr & !0xFFF;
-                    let _ = uc.mem_map(page, 0x1000, Prot::ALL);
-                    let _ = uc.mem_write(page, &[0u8; 0x1000]);
-                    return true;
-                }
-            }
-            // A wild FETCH into unmapped memory after the runtime started = a bad import the
-            // emulation mis-resolved. Instead of aborting, pretend the call returned (clean ret,
-            // rax=scratch) so the runtime keeps going toward the late .text CRC checks. Capped so
-            // a genuine runaway still ends.
-            if crc_full && is_fetch {
-                let mut s = st_unm.borrow_mut();
-                if s.runtime_entered && s.lazy_maps < 300_000 {
-                    s.lazy_maps += 1;
-                    let nth = s.lazy_maps;
-                    // Identify the intended call: which loaded DLL (and export offset) does the
-                    // wild target fall in, so we can model that API faithfully.
-                    let nearest = s
-                        .loaded_dlls
-                        .iter()
-                        .filter(|(_, d)| addr >= d.base)
-                        .min_by_key(|(_, d)| addr - d.base)
-                        .map(|(k, d)| (k.clone(), d.base));
-                    drop(s);
-                    if nth <= 40 {
-                        let r = |id: RegisterX86| uc.reg_read(id as i32).unwrap_or(0);
-                        let rsp = r(RegisterX86::RSP);
-                        let mut rb = [0u8; 8];
-                        let _ = uc.mem_read(rsp, &mut rb);
-                        let near = nearest
-                            .map(|(k, b)| format!("{k}+{:#x}", addr - b))
-                            .unwrap_or_else(|| "?".into());
-                        eprintln!(
-                            "[crc-wild] target={addr:#x} ({near}) retaddr={:#x} rax={:#x} rcx={:#x} rdx={:#x} r8={:#x} r9={:#x} rbx={:#x} rsi={:#x} rdi={:#x}",
-                            u64::from_le_bytes(rb), r(RegisterX86::RAX), r(RegisterX86::RCX),
-                            r(RegisterX86::RDX), r(RegisterX86::R8), r(RegisterX86::R9),
-                            r(RegisterX86::RBX), r(RegisterX86::RSI), r(RegisterX86::RDI)
-                        );
-                    }
-                    let rsp = uc.reg_read(RegisterX86::RSP as i32).unwrap_or(0);
-                    let mut rb = [0u8; 8];
-                    if rsp >= 0x1000 && uc.mem_read(rsp, &mut rb).is_ok() {
-                        let ret = u64::from_le_bytes(rb);
-                        let _ = uc.reg_write(RegisterX86::RSP as i32, rsp + 8);
-                        let _ = uc.reg_write(RegisterX86::RAX as i32, CRC_SCRATCH);
-                        let _ = uc.reg_write(RegisterX86::RIP as i32, ret);
-                        return true;
-                    }
-                }
-            }
             let rip = uc.reg_read(RegisterX86::RIP as i32).unwrap_or(0);
             let mut s = st_unm.borrow_mut();
             s.aborted = true;
             if s.abort_reason.is_none() {
                 s.abort_reason = Some(format!("unmapped mem ({t:?}) addr={addr:#x} sz={sz} at rip={rip:#x}"));
             }
-            if crc_full {
-                let r = |id: RegisterX86| uc.reg_read(id as i32).unwrap_or(0);
-                let rsp = r(RegisterX86::RSP);
-                let mut stk = [0u8; 0x40];
-                let _ = uc.mem_read(rsp, &mut stk);
-                let mut sv = String::new();
-                for ch in stk.chunks_exact(8) {
-                    sv.push_str(&format!("{:#x} ", u64::from_le_bytes(ch.try_into().unwrap())));
-                }
-                eprintln!(
-                    "[crc-abort] {t:?} fetch={addr:#x} rip={rip:#x} last_block={:#x} rax={:#x} rbx={:#x} rcx={:#x} rdx={:#x} rsi={:#x} rdi={:#x} r8={:#x} r9={:#x} r10={:#x} r11={:#x} rbp={:#x} rsp={:#x}\n[crc-abort] stack: {sv}",
-                    s.last_block, r(RegisterX86::RAX), r(RegisterX86::RBX), r(RegisterX86::RCX), r(RegisterX86::RDX),
-                    r(RegisterX86::RSI), r(RegisterX86::RDI), r(RegisterX86::R8), r(RegisterX86::R9),
-                    r(RegisterX86::R10), r(RegisterX86::R11), r(RegisterX86::RBP), rsp
-                );
-            }
             false
         },
     );
-    // Track the last basic block (cheap: one callback per block, not per instruction) so the
-    // unmapped-fetch abort can report where the wild jump came from.
-    if crc_full {
-        let st_blk = Rc::clone(&state);
-        let _ = uc.add_block_hook(1, 0, move |_uc, addr, _sz| {
-            st_blk.borrow_mut().last_block = addr;
-        });
-    }
 
     let ep_va = img_base + packed_opt.address_of_entry_point as u64;
-    // Huge instruction budget in CRC-enumeration mode so the runtime wrapper's checks all run.
-    let insn_budget: u64 = if crc_full { 2_000_000_000 } else { 240_000_000 };
-    let emu_res = uc.emu_start(ep_va, stop_addr, insn_budget, 0);
+    let emu_res = uc.emu_start(ep_va, stop_addr, 240_000_000, 0);
 
     let s = state.borrow();
     if s.aborted {
