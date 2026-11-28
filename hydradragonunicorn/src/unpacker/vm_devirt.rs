@@ -78,7 +78,7 @@ impl Default for BinaryDevirtConfig {
             max_blocks_per_entry: 64,
             max_insns_per_block: 4_000,
             max_total_insns_per_entry: 25_000,
-            max_inline_depth: 512,
+            max_inline_depth: 4096,
             include_trampolines: true,
             include_vmenters: true,
             extra_entry_rvas: Vec::new(),
@@ -1258,10 +1258,10 @@ pub struct VmExit {
     pub rsp_delta: i64,
     /// Caller-stack slots and temporary slots, both as `(offset, value)`.
     pub pending: Vec<(i64, ExprId)>,
-    /// Aligned slots: `(temporary offset, base index, offset from that base, kept
+    /// Aligned or caller-stack partial slots: `(temporary offset, Some(base index) or None for caller stack, offset from that base, kept
     /// bytes)`. Bit `j` of the last field set: byte `j` of the slot was never written
     /// and keeps what memory holds; only the other bytes are stored (0 = whole qword).
-    pub temp_stores: Vec<(i64, u32, i64, u8)>,
+    pub temp_stores: Vec<(i64, Option<u32>, i64, u8)>,
     /// Aligned slots written straight in step 3, without a temporary: `(base index,
     /// offset from that base, value)` - a constant, or a register that holds the value
     /// as its final one.
@@ -2409,7 +2409,11 @@ fn composed_rflags(state: &SymState, arena: &mut ExprArena) -> Option<ExprId> {
     } else {
         return None;
     };
-    match &state.flags {
+    composed_rflags_for(&state.flags, state, arena, sys_base)
+}
+
+fn composed_rflags_for(flags: &FlagState, state: &SymState, arena: &mut ExprArena, sys_base: ExprId) -> Option<ExprId> {
+    match flags {
         FlagState::Entry => {
             if !state.system_flags_changed {
                 Some(arena.entry_rflags())
@@ -2417,16 +2421,25 @@ fn composed_rflags(state: &SymState, arena: &mut ExprArena) -> Option<ExprId> {
                 None
             }
         }
+        FlagState::Rflags(v) => (!state.system_flags_changed).then_some(*v),
+        FlagState::PoppedRflags(v) => {
+            if let Some(c) = arena.as_const(*v) {
+                if (c & !0x0024_4DD5u64) != 0x202u64 {
+                    return None;
+                }
+            }
+            Some(*v)
+        }
         FlagState::TestBitwise { val, width } => {
             let res = arena.zext_mask(*val, *width);
-            let zf = state.eval_cond_code(arena, ConditionCode::e)?;
-            let sf = state.eval_cond_code(arena, ConditionCode::s)?;
+            let zf = state.eval_cond_code_for_flags(flags, arena, ConditionCode::e)?;
+            let sf = state.eval_cond_code_for_flags(flags, arena, ConditionCode::s)?;
             let pf = parity_flag(arena, res);
             // CF = OF = 0; AF = 0 (see above).
             Some(rflags_from_status(arena, sys_base, [None, Some(pf), None, Some(zf), Some(sf), None]))
         }
         FlagState::SubCmp { .. } | FlagState::Add { .. } => {
-            let (l, r, res) = match &state.flags {
+            let (l, r, res) = match flags {
                 FlagState::SubCmp { lhs, rhs, width } => {
                     let la = arena.zext_mask(*lhs, *width);
                     let rb = arena.zext_mask(*rhs, *width);
@@ -2442,17 +2455,53 @@ fn composed_rflags(state: &SymState, arena: &mut ExprArena) -> Option<ExprId> {
                 }
                 _ => unreachable!(),
             };
-            let cf = state.eval_cond_code(arena, ConditionCode::b)?;
+            let cf = state.eval_cond_code_for_flags(flags, arena, ConditionCode::b)?;
             let pf = parity_flag(arena, res);
-            let zf = state.eval_cond_code(arena, ConditionCode::e)?;
-            let sf = state.eval_cond_code(arena, ConditionCode::s)?;
-            let of = state.eval_cond_code(arena, ConditionCode::o)?;
+            let zf = state.eval_cond_code_for_flags(flags, arena, ConditionCode::e)?;
+            let sf = state.eval_cond_code_for_flags(flags, arena, ConditionCode::s)?;
+            let of = state.eval_cond_code_for_flags(flags, arena, ConditionCode::o)?;
             // AF: the carry out of bit 3 = bit 4 of lhs ^ rhs ^ result.
             let x1 = arena.xor(l, r);
             let x2 = arena.xor(x1, res);
             let x3 = arena.shr_const(x2, 4);
             let af = arena.and_const(x3, 1);
             Some(rflags_from_status(arena, sys_base, [Some(cf), Some(pf), Some(af), Some(zf), Some(sf), Some(of)]))
+        }
+        FlagState::IncDec { res, is_inc, cf, width } => {
+            let cf_bit = (*cf)?;
+            let zr = arena.zext_mask(*res, *width);
+            let pf = parity_flag(arena, zr);
+            let zero = arena.const_u64(0);
+            let lo_nib = arena.and_const(zr, 0xF);
+            let af_cmp = arena.const_u64(if *is_inc { 0 } else { 0xF });
+            let af = arena.cmp(CondPred::Eq, lo_nib, af_cmp);
+            let zf = arena.cmp(CondPred::Eq, zr, zero);
+            let sf = state.eval_cond_code_for_flags(flags, arena, ConditionCode::s)?;
+            let of = state.eval_cond_code_for_flags(flags, arena, ConditionCode::o)?;
+            Some(rflags_from_status(arena, sys_base, [Some(cf_bit), Some(pf), Some(af), Some(zf), Some(sf), Some(of)]))
+        }
+        FlagState::Shift { res, width, cf: Some(cf_bit), of: Some(of_bit) } => {
+            let zr = arena.zext_mask(*res, *width);
+            let pf = parity_flag(arena, zr);
+            let zf = state.eval_cond_code_for_flags(flags, arena, ConditionCode::e)?;
+            let sf = state.eval_cond_code_for_flags(flags, arena, ConditionCode::s)?;
+            Some(rflags_from_status(arena, sys_base, [Some(*cf_bit), Some(pf), None, Some(zf), Some(sf), Some(*of_bit)]))
+        }
+        FlagState::CarryOverride { base, cf, of } => {
+            if matches!(of, Some(None)) {
+                return None;
+            }
+            let base_rf = composed_rflags_for(base, state, arena, sys_base)?;
+            let mut rf = arena.and_const(base_rf, !1u64);
+            let cf_b = arena.and_const(*cf, 1);
+            rf = arena.or(rf, cf_b);
+            if let Some(Some(of_bit)) = of {
+                rf = arena.and_const(rf, !(1u64 << 11));
+                let ob = arena.and_const(*of_bit, 1);
+                let sh = arena.shl_const(ob, 11);
+                rf = arena.or(rf, sh);
+            }
+            Some(rf)
         }
         _ => None,
     }
@@ -3122,26 +3171,35 @@ fn split_partly_written_slot(arena: &mut ExprArena, val: ExprId) -> Option<(Expr
     /// (value with the unknown zeroed, bytes that are the unknown's) - as an
     /// expression that only exists for the planner, so it is rebuilt as a tree of
     /// existing node ids where possible.
-    fn split(arena: &ExprArena, id: ExprId, unknown: ExprId) -> Option<(Option<ExprId>, u8)> {
+    fn split(arena: &mut ExprArena, id: ExprId, unknown: ExprId) -> Option<(Option<ExprId>, u8)> {
         if id == unknown {
             return Some((None, 0xFF));
         }
-        match arena.get(id) {
+        if !arena.contains_opaque(id) {
+            return Some((Some(id), 0));
+        }
+        match arena.get(id).clone() {
             ExprNode::And(a, b) => {
-                let (x, m) = if let Some(m) = arena.as_const(*b) { (*a, m) } else { (*b, arena.as_const(*a)?) };
+                let (x, m) = if let Some(m) = arena.as_const(b) { (a, m) } else { (b, arena.as_const(a)?) };
                 let bm = byte_mask(m)?;
                 let (rest, keep) = split(arena, x, unknown)?;
                 // Bytes the mask clears are written (as 0); the others stay as they were.
                 match rest {
                     // `x & m` with x the unknown alone: the written part is zero.
                     None => Some((None, keep & bm)),
-                    Some(r) if keep == 0 => Some((Some(id).filter(|_| r == x), 0)),
-                    Some(_) => None,
+                    Some(r) => {
+                        let new_keep = keep & bm;
+                        if r == x && new_keep == keep {
+                            Some((Some(id), new_keep))
+                        } else {
+                            Some((Some(arena.and_const(r, m)), new_keep))
+                        }
+                    }
                 }
             }
             ExprNode::Or(a, b) => {
-                let (ra, ka) = split(arena, *a, unknown)?;
-                let (rb, kb) = split(arena, *b, unknown)?;
+                let (ra, ka) = split(arena, a, unknown)?;
+                let (rb, kb) = split(arena, b, unknown)?;
                 // A byte may hold the unknown on one side only, and the other side must
                 // be known zero there.
                 if ka & kb != 0 {
@@ -3155,22 +3213,17 @@ fn split_partly_written_slot(arena: &mut ExprArena, val: ExprId) -> Option<(Expr
                 }
                 let rest = match (ra, rb) {
                     (None, r) | (r, None) => r,
-                    (Some(_), Some(_)) => {
-                        // Both sides written: only when neither holds the unknown.
-                        if ka == 0 && kb == 0 {
+                    (Some(a_r), Some(b_r)) => {
+                        if a_r == a && b_r == b {
                             Some(id)
                         } else {
-                            return None;
+                            Some(arena.or(a_r, b_r))
                         }
                     }
                 };
                 Some((rest, ka | kb))
             }
-            _ => {
-                let mut v = Vec::new();
-                opaques(arena, id, &mut v, &mut HashSet::new());
-                if v.is_empty() { Some((Some(id), 0)) } else { None }
-            }
+            _ => None,
         }
     }
 
@@ -3319,12 +3372,19 @@ fn plan_vm_exit(state: &SymState, arena: &mut ExprArena, view: &PeImageView, va:
     }
 
     let mut caller: Vec<(i64, ExprId)> = Vec::new();
-    let mut aligned: Vec<(u32, i64, ExprId, u8)> = Vec::new();
+    let mut aligned: Vec<(Option<u32>, i64, ExprId, u8)> = Vec::new();
     for (&(space, off), &val) in &state.stack.slots {
         match space {
             StackSpace::CallerStack => {
                 if state.entry_caller_slot_versions.get(&off) != Some(&val) {
-                    caller.push((off, val));
+                    if matches!(arena.get(val), ExprNode::Opaque(_)) {
+                        continue;
+                    }
+                    if let Some((v, keep)) = split_partly_written_slot(arena, val) {
+                        aligned.push((None, off, v, keep));
+                    } else {
+                        caller.push((off, val));
+                    }
                 }
             }
             StackSpace::AlignedScratch(k) => {
@@ -3335,7 +3395,7 @@ fn plan_vm_exit(state: &SymState, arena: &mut ExprArena, view: &PeImageView, va:
                 // Partly written: store only the written bytes (a value that still
                 // depends on unknown memory stays as it is and fails the soundness check).
                 let (v, keep) = split_partly_written_slot(arena, val).unwrap_or((val, 0));
-                aligned.push((k, off, v, keep));
+                aligned.push((Some(k), off, v, keep));
             }
         }
     }
@@ -3371,7 +3431,14 @@ fn plan_vm_exit(state: &SymState, arena: &mut ExprArena, view: &PeImageView, va:
                 flag_vals = vec![*v];
                 flags_kind = Some((3, 8));
             }
-            _ => return None,
+            _ => {
+                if let Some(rf) = composed_rflags(state, arena) {
+                    flag_vals = vec![rf];
+                    flags_kind = Some((3, 8));
+                } else {
+                    return None;
+                }
+            }
         }
         if !matches!(flags_kind, Some((_, 1 | 2 | 4 | 8))) {
             return None;
@@ -3391,8 +3458,12 @@ fn plan_vm_exit(state: &SymState, arena: &mut ExprArena, view: &PeImageView, va:
     for &(o, _) in &caller {
         lowest = lowest.min(o);
     }
-    for &(k, o, _, _) in &aligned {
-        lowest = lowest.min(lower[k as usize].checked_add(o)?);
+    for &(k_opt, o, _, _) in &aligned {
+        let base_lo = match k_opt {
+            Some(k) => lower[k as usize].checked_add(o)?,
+            None => o,
+        };
+        lowest = lowest.min(base_lo);
     }
     let final_lower = match final_base {
         Some(k) => lower[k as usize].checked_add(final_off)?,
@@ -3411,23 +3482,25 @@ fn plan_vm_exit(state: &SymState, arena: &mut ExprArena, view: &PeImageView, va:
     let mut temp_stores = Vec::with_capacity(aligned.len());
     let mut direct_stores = Vec::new();
     let mut t = temp_start;
-    for &(k, o, val, keep) in &aligned {
+    for &(k_opt, o, val, keep) in &aligned {
         if keep == 0 {
-            if let Some(c) = arena.as_const(val) {
-                direct_stores.push((k, o, DirectVal::Imm(c)));
-                continue;
-            }
-            let held = ArchReg::ALL[..16]
-                .iter()
-                .copied()
-                .find(|&r| !matches!(r, ArchReg::Rax | ArchReg::Rcx | ArchReg::Rsp) && state.regs[r.idx()] == val);
-            if let Some(r) = held {
-                direct_stores.push((k, o, DirectVal::Reg(r)));
-                continue;
+            if let Some(k) = k_opt {
+                if let Some(c) = arena.as_const(val) {
+                    direct_stores.push((k, o, DirectVal::Imm(c)));
+                    continue;
+                }
+                let held = ArchReg::ALL[..16]
+                    .iter()
+                    .copied()
+                    .find(|&r| !matches!(r, ArchReg::Rax | ArchReg::Rcx | ArchReg::Rsp) && state.regs[r.idx()] == val);
+                if let Some(r) = held {
+                    direct_stores.push((k, o, DirectVal::Reg(r)));
+                    continue;
+                }
             }
         }
         pending.push((t, val));
-        temp_stores.push((t, k, o, keep));
+        temp_stores.push((t, k_opt, o, keep));
         t += 8;
     }
     let mut flag_offs = Vec::with_capacity(flag_vals.len());
@@ -5072,7 +5145,9 @@ fn lift_vm_entry_cfg_inner(
                             state.write_reg(&mut arena, ArchReg::Rsp, RegSlice::Full64, new_rsp);
                             let ret_const = arena.const_u64(next_ip);
                             write_memory_expr(&mut state, &mut arena, &mut effects, new_rsp, word_bytes, ret_const);
-                            state.inline_depth += 1;
+                            if target_va != next_ip {
+                                state.inline_depth += 1;
+                            }
                             state.ip = target_va;
                             continue;
                         }
@@ -6446,48 +6521,93 @@ fn lift_vm_entry_cfg_inner(
                     let Some(cnt_raw) = read_operand(view, &mut state, &mut arena, &ins, next_ip, 2) else {
                         break IrTerm::Bailout("shld_cnt".into());
                     };
-                    let Some(cnt_v) = arena.as_const(cnt_raw) else {
-                        break IrTerm::Bailout("shld_nonconst_cnt".into());
-                    };
-                    let c = cnt_v & mask_cnt;
-                    if c == 0 {
-                        continue;
-                    }
-                    if w == 2 && c > 16 {
-                        // Architecturally undefined on 16-bit operands when count > 16; emit opaque so dead
-                        // VMProtect junk vanishes while any live use is still rejected by soundness validation.
-                        let opq = arena.opaque();
-                        if !write_operand(&mut state, &mut arena, &mut effects, view.bitness, &ins, next_ip, 0, opq) {
+                    if let Some(cnt_v) = arena.as_const(cnt_raw) {
+                        let c = cnt_v & mask_cnt;
+                        if c == 0 {
+                            continue;
+                        }
+                        if w == 2 && c > 16 {
+                            // Architecturally undefined on 16-bit operands when count > 16; emit opaque so dead
+                            // VMProtect junk vanishes while any live use is still rejected by soundness validation.
+                            let opq = arena.opaque();
+                            if !write_operand(&mut state, &mut arena, &mut effects, view.bitness, &ins, next_ip, 0, opq) {
+                                break IrTerm::Bailout("shld_write".into());
+                            }
+                            state.set_flags(FlagState::Unknown);
+                            continue;
+                        }
+                        let Some(dst_v) = read_operand(view, &mut state, &mut arena, &ins, next_ip, 0) else {
+                            break IrTerm::Bailout("shld_dst".into());
+                        };
+                        let Some(src_v) = read_operand(view, &mut state, &mut arena, &ins, next_ip, 1) else {
+                            break IrTerm::Bailout("shld_src".into());
+                        };
+                        let dm = arena.zext_mask(dst_v, w);
+                        let sm = arena.zext_mask(src_v, w);
+                        let res = if c == bits {
+                            sm
+                        } else if m == Mnemonic::Shld {
+                            let hi = arena.shl_const(dm, c);
+                            let lo = arena.shr_const(sm, bits - c);
+                            let comb = arena.or(hi, lo);
+                            arena.zext_mask(comb, w)
+                        } else {
+                            let lo = arena.shr_const(dm, c);
+                            let hi = arena.shl_const(sm, bits - c);
+                            let comb = arena.or(lo, hi);
+                            arena.zext_mask(comb, w)
+                        };
+                        if !write_operand(&mut state, &mut arena, &mut effects, view.bitness, &ins, next_ip, 0, res) {
+                            break IrTerm::Bailout("shld_write".into());
+                        }
+                        state.set_flags(FlagState::TestBitwise { val: res, width: w });
+                    } else {
+                        if w == 2 {
+                            break IrTerm::Bailout("shld_nonconst_cnt".into());
+                        }
+                        let Some(dst_v) = read_operand(view, &mut state, &mut arena, &ins, next_ip, 0) else {
+                            break IrTerm::Bailout("shld_dst".into());
+                        };
+                        let Some(src_v) = read_operand(view, &mut state, &mut arena, &ins, next_ip, 1) else {
+                            break IrTerm::Bailout("shld_src".into());
+                        };
+                        let dm = arena.zext_mask(dst_v, w);
+                        let sm = arena.zext_mask(src_v, w);
+                        let c = arena.and_const(cnt_raw, mask_cnt);
+                        let res = if w == 4 {
+                            if m == Mnemonic::Shld {
+                                let hi_dm = arena.shl_const(dm, 32);
+                                let comb = arena.or(hi_dm, sm);
+                                let shifted = arena.shl(comb, c);
+                                let hi = arena.shr_const(shifted, 32);
+                                arena.zext_mask(hi, 4)
+                            } else {
+                                let hi_sm = arena.shl_const(sm, 32);
+                                let comb = arena.or(hi_sm, dm);
+                                let shifted = arena.shr(comb, c);
+                                arena.zext_mask(shifted, 4)
+                            }
+                        } else {
+                            let zero = arena.const_u64(0);
+                            let sixty_four = arena.const_u64(64);
+                            let c_is_zero = arena.cmp(CondPred::Eq, c, zero);
+                            let inv_c = arena.sub(sixty_four, c);
+                            let shifted = if m == Mnemonic::Shld {
+                                let hi = arena.shl(dm, c);
+                                let lo = arena.shr(sm, inv_c);
+                                arena.or(hi, lo)
+                            } else {
+                                let lo = arena.shr(dm, c);
+                                let hi = arena.shl(sm, inv_c);
+                                arena.or(lo, hi)
+                            };
+                            arena.select(c_is_zero, dm, shifted)
+                        };
+                        if !write_operand(&mut state, &mut arena, &mut effects, view.bitness, &ins, next_ip, 0, res) {
                             break IrTerm::Bailout("shld_write".into());
                         }
                         state.set_flags(FlagState::Unknown);
-                        continue;
                     }
-                    let Some(dst_v) = read_operand(view, &mut state, &mut arena, &ins, next_ip, 0) else {
-                        break IrTerm::Bailout("shld_dst".into());
-                    };
-                    let Some(src_v) = read_operand(view, &mut state, &mut arena, &ins, next_ip, 1) else {
-                        break IrTerm::Bailout("shld_src".into());
-                    };
-                    let dm = arena.zext_mask(dst_v, w);
-                    let sm = arena.zext_mask(src_v, w);
-                    let res = if c == bits {
-                        sm
-                    } else if m == Mnemonic::Shld {
-                        let hi = arena.shl_const(dm, c);
-                        let lo = arena.shr_const(sm, bits - c);
-                        let comb = arena.or(hi, lo);
-                        arena.zext_mask(comb, w)
-                    } else {
-                        let lo = arena.shr_const(dm, c);
-                        let hi = arena.shl_const(sm, bits - c);
-                        let comb = arena.or(lo, hi);
-                        arena.zext_mask(comb, w)
-                    };
-                    if !write_operand(&mut state, &mut arena, &mut effects, view.bitness, &ins, next_ip, 0, res) {
-                        break IrTerm::Bailout("shld_write".into());
-                    }
-                    state.set_flags(FlagState::TestBitwise { val: res, width: w });
                 }
                 Mnemonic::Bsf | Mnemonic::Bsr => {
                     let w = op_width_bytes(&ins, view.bitness, 1);
@@ -9249,17 +9369,29 @@ fn emit_vm_exit(a: &mut CodeAssembler, exit: &VmExit, target: u64) -> Result<(),
             DirectVal::Reg(r) => a.mov(qword_ptr(rax + d32(o)?), to_asm64(r)).map_err(err)?,
         }
     }
-    for &(t, k, o, keep) in &exit.temp_stores {
-        load_base(a, k, &mut in_rax)?;
-        if keep == 0 {
-            a.mov(rcx, qword_ptr(rsp + temp(t)?)).map_err(err)?;
-            a.mov(qword_ptr(rax + d32(o)?), rcx).map_err(err)?;
-        } else {
-            // Only the written bytes; the kept ones are the original memory.
-            for j in 0..8i64 {
-                if keep & (1 << j) == 0 {
-                    a.mov(gpr8::cl, byte_ptr(rsp + temp(t + j)?)).map_err(err)?;
-                    a.mov(byte_ptr(rax + d32(o + j)?), gpr8::cl).map_err(err)?;
+    for &(t, k_opt, o, keep) in &exit.temp_stores {
+        match k_opt {
+            Some(k) => {
+                load_base(a, k, &mut in_rax)?;
+                if keep == 0 {
+                    a.mov(rcx, qword_ptr(rsp + temp(t)?)).map_err(err)?;
+                    a.mov(qword_ptr(rax + d32(o)?), rcx).map_err(err)?;
+                } else {
+                    // Only the written bytes; the kept ones are the original memory.
+                    for j in 0..8i64 {
+                        if keep & (1 << j) == 0 {
+                            a.mov(gpr8::cl, byte_ptr(rsp + temp(t + j)?)).map_err(err)?;
+                            a.mov(byte_ptr(rax + d32(o + j)?), gpr8::cl).map_err(err)?;
+                        }
+                    }
+                }
+            }
+            None => {
+                for j in 0..8i64 {
+                    if keep & (1 << j) == 0 {
+                        a.mov(gpr8::cl, byte_ptr(rsp + temp(t + j)?)).map_err(err)?;
+                        a.mov(byte_ptr(rsp + temp(o + j)?), gpr8::cl).map_err(err)?;
+                    }
                 }
             }
         }
@@ -10214,10 +10346,38 @@ pub fn devirtualize_pe_bytes(
         if collect_diagnostics {
             let (bip, detail) = lifted_ref.bailout_detail.as_ref().map_or_else(
                 || {
+                    let extra = if reason == "opaque_in_caller_store" {
+                        let mut found = String::new();
+                        for b in &lifted_ref.blocks {
+                            let pairs: &[(i64, ExprId)] = match &b.term {
+                                IrTerm::ExitRet { pending_caller_stores, .. }
+                                | IrTerm::ExitJmp { pending_caller_stores, .. }
+                                | IrTerm::ExitCall { pending_caller_stores, .. }
+                                | IrTerm::ExitIndirectMem { pending_caller_stores, .. }
+                                | IrTerm::ExitComputedJmp { pending_caller_stores, .. }
+                                | IrTerm::MidCall { pending_caller_stores, .. } => pending_caller_stores,
+                                IrTerm::ExitToVm { exit, .. } => &exit.pending,
+                                _ => &[],
+                            };
+                            if let Some(&(off, val)) = pairs.iter().find(|&&(_, v)| lifted_ref.arena.contains_opaque(v)) {
+                                found = format!(" | term={} off={off:#x} expr={}", match &b.term {
+                                    IrTerm::ExitToVm { .. } => "ExitToVm",
+                                    IrTerm::ExitRet { .. } => "ExitRet",
+                                    IrTerm::ExitJmp { .. } => "ExitJmp",
+                                    IrTerm::ExitCall { .. } => "ExitCall",
+                                    _ => "Other",
+                                }, expr_brief(&lifted_ref.arena, val, 0));
+                                break;
+                            }
+                        }
+                        found
+                    } else {
+                        String::new()
+                    };
                     (
                         image_base + entry.target_rva as u64,
                         format!(
-                            "post_lift({reason}) blks={} insns={}",
+                            "post_lift({reason}) blks={} insns={}{extra}",
                             lifted_ref.blocks.len(),
                             lifted_ref.raw_vm_insns
                         ),
@@ -15292,5 +15452,132 @@ mod tests {
         let runtime_slot_val = (base + 0x1060).wrapping_sub(key_i32 as u64);
         assert_eq!(run_with_slot(&pe, runtime_slot_val), 0x8888);
         assert_eq!(run_with_slot(&devirt_pe, runtime_slot_val), 0x8888);
+    }
+
+    #[test]
+    fn shld_shrd_nonconst_cl_count_e2e() {
+        use gpr32::*;
+        use gpr64::*;
+        let base = 0x1_4000_0000u64;
+        let mut text_sec = vec![0xCCu8; 0x200];
+        let fn0 = assemble_at(64, base + 0x1000, |a| a.jmp(base + 0x2000));
+        text_sec[..fn0.len()].copy_from_slice(&fn0);
+
+        let mut vmp_sec = vec![0xCCu8; 0x400];
+        let stub = assemble_at(64, base + 0x2000, |a| {
+            // rcx = count, rdx = hi/src, r8 = dst
+            a.push(rbx)?;
+            a.push(rbp)?;
+            a.mov(eax, r8d)?;
+            a.shld(eax, edx, gpr8::cl)?;
+            a.mov(r9d, r8d)?;
+            a.shrd(r9d, edx, gpr8::cl)?;
+            for k in 0..30i32 {
+                a.add(rax, k + 1)?;
+                a.sub(rax, k + 1)?;
+            }
+            a.xor(rax, r9)?;
+            a.pop(rbp)?;
+            a.pop(rbx)?;
+            a.ret()
+        });
+        vmp_sec[..stub.len()].copy_from_slice(&stub);
+
+        let orig_pe = build_two_exec_pe64(&text_sec, &vmp_sec, 0x1000);
+        let (devirt_pe, report) = devirtualize_pe_bytes(
+            &orig_pe,
+            BinaryDevirtConfig {
+                rebuild_runnable_pe: false,
+                ..BinaryDevirtConfig::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(report.devirtualized_total, 1, "bailouts: {:?}", report.bailout_reasons);
+
+        for (cnt, src, dst) in [(0u64, 0xA5A5_1234u64, 0xDEAD_BEEFu64), (5, 0x1234_5678, 0x9ABC_DEF0), (31, 0x8000_0001, 0x7FFF_FFFE), (37, 0xCAFE_BABE, 0x1122_3344)] {
+            let run = |pe: &[u8]| {
+                let s = Sample::from_bytes(pe).unwrap();
+                let mut eng = UnpackerEngine::new(s, "mem");
+                eng.init_uc().unwrap();
+                eng.call_function(base + 0x1000, &[cnt, src, dst], 100_000, 2_000).unwrap()
+            };
+            assert_eq!(run(&devirt_pe), run(&orig_pe), "mismatch for cnt={cnt}");
+        }
+    }
+
+    #[test]
+    fn partly_written_caller_slot_nested_and_bytewise_on_vm_exit_e2e() {
+        use gpr64::*;
+        let base = 0x1_4000_0000u64;
+        let mut text_sec = vec![0xCCu8; 0x200];
+        let fn0 = assemble_at(64, base + 0x1000, |a| {
+            // Initialize caller stack slot at [rsp - 0x20] with sentinel 0x1122334455667788 before entering VM
+            a.mov(rax, 0x1122_3344_5566_7788u64)?;
+            a.mov(qword_ptr(rsp - 0x20), rax)?;
+            a.jmp(base + 0x2000)
+        });
+        text_sec[..fn0.len()].copy_from_slice(&fn0);
+        let exit_ret = assemble_at(64, base + 0x1040, |a| a.ret());
+        text_sec[0x40..0x40 + exit_ret.len()].copy_from_slice(&exit_ret);
+
+        let mut vmp_sec = vec![0xCCu8; 0x400];
+        let stub = assemble_at(64, base + 0x2000, |a| {
+            // Read uninitialized CallerStack slot first, then do nested sub-qword writes with non-0xff mask (0x0f)
+            a.push(rbx)?;
+            a.push(rbp)?;
+            a.mov(r11, qword_ptr(rsp - 0x10))?;
+            a.mov(r11, 0u64)?;
+            a.mov(gpr8::al, gpr8::cl)?;
+            a.and(gpr8::al, 0x0f)?;
+            a.mov(byte_ptr(rsp - 0x10), gpr8::al)?;
+            a.mov(byte_ptr(rsp - 0x0f), 0xAB)?;
+            for k in 0..30i32 {
+                a.add(rax, k + 3)?;
+                a.sub(rax, k + 3)?;
+            }
+            // Symbolic jmp target to force ExitToVm
+            a.mov(r8, rdx)?;
+            a.and(r8, 0x20)?;
+            a.mov(r10, base + 0x2300)?;
+            a.add(r10, r8)?;
+            a.jmp(r10)
+        });
+        assert!(stub.len() < 0x300);
+        vmp_sec[..stub.len()].copy_from_slice(&stub);
+        for (off, add) in [(0x300usize, 1i32), (0x320, 2)] {
+            let h = assemble_at(64, base + 0x2000 + off as u64, |a| {
+                a.pop(rbp)?;
+                a.pop(rbx)?;
+                a.mov(rax, qword_ptr(rsp - 0x20))?;
+                a.add(rax, add)?;
+                a.jmp(base + 0x1040)
+            });
+            vmp_sec[off..off + h.len()].copy_from_slice(&h);
+        }
+
+        let orig_pe = build_two_exec_pe64(&text_sec, &vmp_sec, 0x1000);
+        let (devirt_pe, report) = devirtualize_pe_bytes(
+            &orig_pe,
+            BinaryDevirtConfig {
+                rebuild_runnable_pe: false,
+                ..BinaryDevirtConfig::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(report.devirtualized_total, 1, "bailouts: {:?}", report.bailout_reasons);
+        assert_eq!(report.hybrid_vm_exits, 1);
+
+        for (rcx_in, rdx_in) in [(0x55u64, 0u64), (0xAA, 0x20)] {
+            let run = |pe: &[u8]| {
+                let s = Sample::from_bytes(pe).unwrap();
+                let mut eng = UnpackerEngine::new(s, "mem");
+                eng.init_uc().unwrap();
+                eng.call_function(base + 0x1000, &[rcx_in, rdx_in], 100_000, 2_000).unwrap()
+            };
+            let add = if (rdx_in & 0x20) != 0 { 2 } else { 1 };
+            let want = (0x1122_3344_5566_AB00u64 | (rcx_in & 0x0f)) + add;
+            assert_eq!(run(&orig_pe), want);
+            assert_eq!(run(&devirt_pe), want);
+        }
     }
 }

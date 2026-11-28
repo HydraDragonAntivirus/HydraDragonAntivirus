@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use unicorn_engine::{Prot, Unicorn};
 
 /// String argument encoding type.
@@ -530,6 +530,23 @@ pub struct ApiState {
     /// Where a section is mapped: every view of it is that memory (a writable and an
     /// executable view of one section is how JIT code is written and then run).
     pub section_views: HashMap<u64, (u64, u64)>,
+    /// Demand log of APIs that reached the fallback arm (no real handler): normalized
+    /// name -> (times called, pure_unknown). `pure_unknown` is true when there is no
+    /// `ApiStubSpec` at all (reached `guess_default_return`); false when a spec exists
+    /// but only its constant `default_ret` is returned (a semi-stub with no behavior).
+    /// Populated by `handle_api_call`; read after a run to see what a sample still needs.
+    pub unimplemented_apis: BTreeMap<String, (u64, bool)>,
+    /// Object names passed to the native open calls (`NtOpenFile`, `NtOpenSection`), in
+    /// call order, as `"<kind> <name>"`. Shows what a self-check / anti-tamper reads.
+    pub opened_objects: Vec<String>,
+    /// How many `cpuid` / `rdtsc(p)` instructions the run executed: CPU-level environment
+    /// fingerprinting a VMProtect-style anti-tamper uses, which no API trace would show.
+    pub cpuid_count: u64,
+    pub rdtsc_count: u64,
+    /// Monotonic fake timestamp handed to each `rdtsc`, advanced by a small, realistic
+    /// amount per read so a VMProtect timing check sees a plausible cycle delta (not the
+    /// zero or astronomical delta Unicorn's own TSC would give, which reads as "emulated").
+    pub fake_tsc: u64,
 }
 
 impl Default for ApiState {
@@ -556,6 +573,11 @@ impl Default for ApiState {
             scratch: HashMap::new(),
             sections: HashMap::new(),
             section_views: HashMap::new(),
+            unimplemented_apis: BTreeMap::new(),
+            opened_objects: Vec::new(),
+            cpuid_count: 0,
+            rdtsc_count: 0,
+            fake_tsc: 100_000_000,
         }
     }
 }
@@ -1159,6 +1181,35 @@ fn host_image(path: &str, is_64: bool) -> Option<Vec<u8>> {
     Some(crate::unpacker::engine::get_memory_mapped_image(&data, &sections, size, opt.size_of_headers))
 }
 
+/// Read the `ObjectName` (a `UNICODE_STRING`) out of an `OBJECT_ATTRIBUTES` pointer,
+/// as the native `Nt*` open calls take it. Layout differs by bitness:
+/// `OBJECT_ATTRIBUTES.ObjectName` is at +0x10 (x64) / +0x08 (x86); the `UNICODE_STRING`
+/// holds `Length` (bytes, u16) at +0 and `Buffer` at +0x08 (x64) / +0x04 (x86).
+fn oa_object_name(uc: &Unicorn<'_, ()>, oa_ptr: u64, is_64: bool) -> Option<String> {
+    if oa_ptr < 0x10000 {
+        return None;
+    }
+    let ptr = if is_64 { 8usize } else { 4 };
+    let rd_ptr = |p: u64| -> Option<u64> {
+        let mut b = [0u8; 8];
+        uc.mem_read(p, &mut b[..ptr]).ok()?;
+        Some(u64::from_le_bytes(b))
+    };
+    let name_off = if is_64 { 0x10 } else { 0x08 };
+    let us = rd_ptr(oa_ptr + name_off)?;
+    if us < 0x10000 {
+        return None;
+    }
+    let mut lenb = [0u8; 2];
+    uc.mem_read(us, &mut lenb).ok()?;
+    let len_chars = (u16::from_le_bytes(lenb) as usize / 2).clamp(1, 1024);
+    let buf = rd_ptr(us + if is_64 { 0x08 } else { 0x04 })?;
+    if buf < 0x10000 {
+        return None;
+    }
+    read_wide_string(uc, buf, len_chars)
+}
+
 /// printf into `buf` (at most `count` units with the NUL, at most `max` characters),
 /// arguments read one by one from the `va_list` at `va`. Returns the characters
 /// written, or -1 when it did not fit (as the `_s` / `n` variants do).
@@ -1534,6 +1585,80 @@ pub fn handle_api_call(
             0
         }
         "ntunmapviewofsection" | "ntunmapviewofsectionex" => 0,
+        // NtOpenFile(*handle, access, *object_attributes, *io_status, share, options):
+        // hand back a file handle whose backing NT path is the OBJECT_ATTRIBUTES name, so a
+        // later NtCreateSection on it can find the path. IoStatusBlock := {Status 0, FILE_OPENED}.
+        "ntopenfile" => {
+            let (handle_p, oa, ios) = (arg(args, 0), arg(args, 2), arg(args, 3));
+            let path = oa_object_name(uc, oa, api_state.is_64).unwrap_or_default();
+            api_state.opened_objects.push(format!("file {path}"));
+            // A clean machine has no debugger/monitor/VM driver device, so opening one must
+            // fail — succeeding makes an anti-debug probe conclude it is being watched and bail.
+            // Match the device leaf name (`\??\TitanHide`, `\Device\SICE`, ...).
+            let leaf = path.trim_end_matches('\0').rsplit(['\\', '/']).next().unwrap_or("").to_ascii_lowercase();
+            const ANTI_ANALYSIS_DEVICES: &[&str] = &[
+                "titanhide", "sice", "ntice", "siwvid", "siwdebug", "syser", "syserboot", "syserdbgmsg",
+                "ntfirevxd", "iceext", "regvxg", "regsys", "filevxg", "filem", "trw", "dbgmsg",
+                "httpdebuggersdk", "extrem", "vboxguest", "vboxmouse", "vmci", "vmmemctl",
+                "sandboxie", "sbiedll", "prochide",
+            ];
+            if ANTI_ANALYSIS_DEVICES.contains(&leaf.as_str()) {
+                let ptr = if api_state.is_64 { 8 } else { 4 };
+                if ios >= 0x10000 {
+                    let _ = uc.mem_write(ios, &0xC000_0034u64.to_le_bytes()[..ptr]); // Status
+                    let _ = uc.mem_write(ios + ptr as u64, &0u64.to_le_bytes()[..ptr]);
+                }
+                return 0xC000_0034; // STATUS_OBJECT_NAME_NOT_FOUND
+            }
+            let h = api_state.next_file_handle;
+            api_state.next_file_handle = h.wrapping_add(4);
+            api_state.file_handles.insert(h, (path, false));
+            let ptr = if api_state.is_64 { 8 } else { 4 };
+            if handle_p >= 0x10000 {
+                let _ = uc.mem_write(handle_p, &h.to_le_bytes()[..ptr]);
+            }
+            if ios >= 0x10000 {
+                let _ = uc.mem_write(ios, &0u64.to_le_bytes()[..ptr]); // Status = STATUS_SUCCESS
+                let _ = uc.mem_write(ios + ptr as u64, &1u64.to_le_bytes()[..ptr]); // Information = FILE_OPENED
+            }
+            0
+        }
+        // NtOpenSection(*handle, access, *object_attributes): register a section whose name
+        // is the OBJECT_ATTRIBUTES name. A `\KnownDlls\<name>.dll` section is an image view of
+        // the real system DLL, so NtMapViewOfSection maps its true bytes (anti-tamper reads them).
+        "ntopensection" => {
+            let (handle_p, oa) = (arg(args, 0), arg(args, 2));
+            let name = oa_object_name(uc, oa, api_state.is_64);
+            api_state.opened_objects.push(format!("section {}", name.as_deref().unwrap_or("<unnamed>")));
+            let is_knowndll = name.as_deref().is_some_and(|n| n.to_ascii_lowercase().contains("knowndlls"));
+            let path = name.as_deref().map(|n| {
+                let base = n.rsplit('\\').next().unwrap_or(n);
+                if is_knowndll && base.to_ascii_lowercase().ends_with(".dll") {
+                    format!("{SYSTEM_DIR}\\{base}")
+                } else {
+                    n.to_string()
+                }
+            });
+            let h = api_state.next_file_handle;
+            api_state.next_file_handle = h.wrapping_add(4);
+            api_state.sections.insert(h, (path, 0, is_knowndll));
+            let ptr = if api_state.is_64 { 8 } else { 4 };
+            if handle_p >= 0x10000 {
+                let _ = uc.mem_write(handle_p, &h.to_le_bytes()[..ptr]);
+            }
+            0
+        }
+        // NtRaiseHardError(status, n_params, mask, *params, valid_response, *response): never
+        // actually raise (that would be a fatal dialog / silent kill). Report it handled and
+        // answer ResponseReturnToCaller(0); the sample's own ExitProcess, if any, still runs.
+        "ntraiseharderror" => {
+            let resp_p = arg(args, 5);
+            if resp_p >= 0x10000 {
+                let _ = uc.mem_write(resp_p, &0u32.to_le_bytes());
+            }
+            log::info!("NtRaiseHardError(status={:#x}) suppressed", arg(args, 0));
+            0
+        }
         // --- printf family reading a va_list (UCRT and msvcrt) ---
         // UCRT: (options, buffer, count, [max_count,] format, locale, va_list)
         "stdio_common_vsprintf" | "stdio_common_vsprintf_s" | "stdio_common_vsnprintf_s" | "stdio_common_vswprintf" | "stdio_common_vswprintf_s"
@@ -1581,11 +1706,50 @@ pub fn handle_api_call(
             // Zeroed answers: no debug port, no debugger, nothing found.
             let (buf, len, ret_p) = if norm == "ntquerysysteminformation" { (arg(args, 1), arg(args, 2), arg(args, 3)) } else { (arg(args, 2), arg(args, 3), arg(args, 4)) };
             let n = len.min(0x10000);
+            // Anti-debug classes of NtQueryInformationProcess need the *clean* answer, which is
+            // not always zero: a zeroed ProcessDebugFlags reads as "being debugged".
+            if norm == "ntqueryinformationprocess" {
+                let class = arg(args, 1);
+                match class {
+                    // ProcessDebugObjectHandle: no debug object -> NULL handle, STATUS_PORT_NOT_SET.
+                    0x1F => {
+                        if buf >= 0x10000 && n > 0 {
+                            let _ = uc.mem_write(buf, &vec![0u8; n as usize]);
+                        }
+                        if ret_p >= 0x10000 {
+                            let _ = uc.mem_write(ret_p, &(n as u32).to_le_bytes());
+                        }
+                        return 0xC000_0353; // STATUS_PORT_NOT_SET
+                    }
+                    // ProcessDebugFlags: 1 == NoDebugInherit set == not being debugged.
+                    0x1E => {
+                        if buf >= 0x10000 && n >= 4 {
+                            let _ = uc.mem_write(buf, &1u32.to_le_bytes());
+                        }
+                        if ret_p >= 0x10000 {
+                            let _ = uc.mem_write(ret_p, &4u32.to_le_bytes());
+                        }
+                        return 0;
+                    }
+                    _ => {}
+                }
+            }
             if buf >= 0x10000 && n > 0 {
                 let _ = uc.mem_write(buf, &vec![0u8; n as usize]);
             }
             if ret_p >= 0x10000 {
                 let _ = uc.mem_write(ret_p, &(n as u32).to_le_bytes());
+            }
+            0
+        }
+        // NtWriteFile(handle, event, apc, apc_ctx, *io_status, buffer, length, *offset, key):
+        // accept the write (the emulated FS keeps nothing); IoStatusBlock := {0, length}.
+        "ntwritefile" | "ntreadfile" => {
+            let (ios, len) = (arg(args, 4), arg(args, 6));
+            let ptr = if api_state.is_64 { 8 } else { 4 };
+            if ios >= 0x10000 {
+                let _ = uc.mem_write(ios, &0u64.to_le_bytes()[..ptr]); // Status = STATUS_SUCCESS
+                let _ = uc.mem_write(ios + ptr as u64, &len.to_le_bytes()[..ptr]); // Information = bytes
             }
             0
         }
@@ -2355,11 +2519,19 @@ pub fn handle_api_call(
 
         // --- Fallback ---
         _ => {
-            if let Some(spec) = get_api_spec(api_name) {
-                spec.default_ret
+            let (ret, pure_unknown) = if let Some(spec) = get_api_spec(api_name) {
+                (spec.default_ret, false)
             } else {
-                guess_default_return(api_name)
-            }
+                (guess_default_return(api_name), true)
+            };
+            let entry = api_state
+                .unimplemented_apis
+                .entry(api_name.to_string())
+                .or_insert((0, pure_unknown));
+            entry.0 = entry.0.saturating_add(1);
+            // Once seen with a real spec, keep it marked as a semi-stub rather than pure-unknown.
+            entry.1 &= pure_unknown;
+            ret
         }
     }
 }

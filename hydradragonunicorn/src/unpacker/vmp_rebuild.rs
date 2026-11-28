@@ -3088,18 +3088,40 @@ fn emit_vmpinit_section(
     vp_slot_rva: Option<u32>,
 ) -> UnpackerResult<u32> {
     // Code sections currently left executable+writable (so the fixup loop and the VMProtect
-    // runtime can write to them). After the runtime returns, `.vmpinit` relocks these to
-    // PAGE_EXECUTE_READ so the sample's own anti-tamper (which VirtualQuery-scans its image
-    // for executable+writable pages and reports "Code 75") finds none.
-    let relock_spans: Vec<(u32, u32)> = {
+    // runtime can write to them). After the runtime returns, `.vmpinit` relocks these:
+    // - Pure code spans -> PAGE_EXECUTE_READ (0x20) so anti-tamper (Code 75) finds no RWX pages.
+    // - Known runtime data sub-spans (e.g. CRT critical sections and allocator globals at 0x89000..0x8d000
+    //   enclosing `g_loader_data_rva`) -> PAGE_READWRITE (0x04) so CRT locks can be acquired/released without crashing.
+    const PAGE_READWRITE: u32 = 0x04;
+    const PAGE_EXECUTE_READ: u32 = 0x20;
+    let relock_spans: Vec<(u32, u32, u32)> = {
         let (_d, _p, _o, secs) = parse_pe_bytes(pe)?;
-        secs.iter()
-            .filter(|s| {
-                (s.characteristics & IMAGE_SCN_MEM_EXECUTE) != 0
-                    && (s.characteristics & IMAGE_SCN_MEM_WRITE) != 0
-            })
-            .map(|s| (s.virtual_address, s.virtual_size.max(s.size_of_raw_data).max(1)))
-            .collect()
+        let mut spans = Vec::new();
+        let g_rva = ld_plan.as_ref().and_then(|p| p.g_loader_data_rva);
+        for s in secs.iter().filter(|s| {
+            (s.characteristics & IMAGE_SCN_MEM_EXECUTE) != 0
+                && (s.characteristics & IMAGE_SCN_MEM_WRITE) != 0
+        }) {
+            let va = s.virtual_address;
+            let sz = s.virtual_size.max(s.size_of_raw_data).max(1);
+            let end = va.saturating_add(sz);
+            if let Some(gr) = g_rva {
+                let d_start = (gr & !0xFFF).saturating_sub(0x1000);
+                let d_end = (gr & !0xFFF).saturating_add(0x3000);
+                if gr >= va && gr < end && d_start >= va && d_end <= end {
+                    if d_start > va {
+                        spans.push((va, d_start - va, PAGE_EXECUTE_READ));
+                    }
+                    spans.push((d_start, d_end - d_start, PAGE_READWRITE));
+                    if end > d_end {
+                        spans.push((d_end, end - d_end, PAGE_EXECUTE_READ));
+                    }
+                    continue;
+                }
+            }
+            spans.push((va, sz, PAGE_EXECUTE_READ));
+        }
+        spans
     };
 
     // Move the LoaderData template into its own writable, non-executable `.vmpdata` section,
@@ -3263,20 +3285,19 @@ fn emit_vmpinit_section(
             a.mov(r11, image_base).map_err(|e| UnpackerError::General(e.to_string()))?;
         }
 
-        // 3b. Relock executable+writable code sections to PAGE_EXECUTE_READ before handing
-        // control to OEP, so the sample's own memory-patch scan ("Code 75") finds no
-        // executable+writable page. The runtime has finished its writes by now; if the VM
-        // needs to write a protected region later it re-VirtualProtects it itself, matching
-        // the original's posture. lpflOldProtect is the scratch DWORD in `.vmpdata`.
+        // 3b. Relock executable+writable code sections before handing control to OEP, so the
+        // sample's own memory-patch scan ("Code 75") finds no executable+writable page.
+        // Pure code spans are relocked to PAGE_EXECUTE_READ (0x20).
+        // Known runtime data sub-spans (e.g. CRT critical sections around g_loader_data_rva)
+        // are relocked to PAGE_READWRITE (0x04) so CRT locks can be used without memory faults.
         if let Some(vp) = vp_slot_rva {
-            const PAGE_EXECUTE_READ: u32 = 0x20;
-            for (va, size) in &relock_spans {
+            for &(va, size, prot) in &relock_spans {
                 a.mov(r11, image_base).map_err(|e| UnpackerError::General(e.to_string()))?;
-                a.mov(rcx, image_base + *va as u64)
+                a.mov(rcx, image_base + va as u64)
                     .map_err(|e| UnpackerError::General(e.to_string()))?;
-                a.mov(rdx, *size as u64)
+                a.mov(rdx, size as u64)
                     .map_err(|e| UnpackerError::General(e.to_string()))?;
-                a.mov(r8d, PAGE_EXECUTE_READ)
+                a.mov(r8d, prot)
                     .map_err(|e| UnpackerError::General(e.to_string()))?;
                 a.lea(r9, qword_ptr(r11 + scratch_rva as i64))
                     .map_err(|e| UnpackerError::General(e.to_string()))?;

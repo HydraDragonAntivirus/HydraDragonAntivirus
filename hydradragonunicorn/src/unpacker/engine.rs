@@ -1374,6 +1374,31 @@ impl UnpackerEngine {
         &self.behavior_trace.calls
     }
 
+    /// APIs this run reached the fallback arm for (no real handler): normalized name
+    /// -> (times called, pure_unknown). `pure_unknown` true = no `ApiStubSpec` at all
+    /// (a guessed return); false = a spec exists but only its constant return is used.
+    /// This is the demand list for extending `apicalls::handle_api_call`.
+    pub fn unimplemented_apis(&self) -> std::collections::BTreeMap<String, (u64, bool)> {
+        self.hook_state.borrow().api_state.unimplemented_apis.clone()
+    }
+
+    /// Object names the run passed to `NtOpenFile` / `NtOpenSection`, in call order.
+    pub fn opened_objects(&self) -> Vec<String> {
+        self.hook_state.borrow().api_state.opened_objects.clone()
+    }
+
+    /// (cpuid, rdtsc/rdtscp) instruction counts for the run — CPU fingerprinting usage.
+    pub fn cpu_probe_counts(&self) -> (u64, u64) {
+        let st = self.hook_state.borrow();
+        (st.api_state.cpuid_count, st.api_state.rdtsc_count)
+    }
+
+    /// Live instruction count from the hook state (survives the `continue_unpacking` path,
+    /// where the synced `self.insn_count` can read back as 0).
+    pub fn live_insn_count(&self) -> u64 {
+        self.hook_state.borrow().insn_count
+    }
+
     pub fn unique_blocks(&self) -> usize {
         self.unique_blocks
     }
@@ -2312,6 +2337,42 @@ impl UnpackerEngine {
             .map_err(|e| UnpackerError::EmulatorError(format!("add_code_hook: {:?}", e)))?;
 
         self.hook_ids.push(code_hook);
+
+        // CPUID / RDTSC: CPU-level environment fingerprinting a VMProtect-style anti-tamper
+        // uses directly, not through any API. We hand `rdtsc` a monotonic fake timestamp with
+        // a small, realistic per-read delta: Unicorn's own TSC jumps implausibly (or not at
+        // all) between two reads, which a timing check reads as "being emulated/stepped" and
+        // bails. The callback writes EDX:EAX and advances RIP past the 2-byte `rdtsc` (0F 31)
+        // so Unicorn does not then overwrite the value with its own.
+        {
+            let hs_cpuid = Rc::clone(&self.hook_state);
+            if let Ok(h) = uc.add_insn_sys_hook(X86Insn::CPUID, 1, 0, move |_uc| {
+                hs_cpuid.borrow_mut().api_state.cpuid_count += 1;
+            }) {
+                self.hook_ids.push(h);
+            }
+            let hs_rdtsc = Rc::clone(&self.hook_state);
+            if let Ok(h) = uc.add_insn_sys_hook(X86Insn::RDTSC, 1, 0, move |uc| {
+                let tsc = {
+                    let mut g = hs_rdtsc.borrow_mut();
+                    g.api_state.rdtsc_count += 1;
+                    // ~1500 cycles per read: a short code span between two reads stays well
+                    // under any "too slow" threshold, and is never the 0 delta of a stuck TSC.
+                    g.api_state.fake_tsc = g.api_state.fake_tsc.wrapping_add(1500);
+                    g.api_state.fake_tsc
+                };
+                let _ = uc.reg_write(RegisterX86::RAX as i32, tsc & 0xFFFF_FFFF);
+                let _ = uc.reg_write(RegisterX86::RDX as i32, tsc >> 32);
+                // Unicorn runs its own `rdtsc` after this hook and would overwrite EDX:EAX, so
+                // step over the 2-byte `rdtsc` (0F 31) to keep our value. Confirmed necessary:
+                // without this skip the VMProtect timing check still sees Unicorn's TSC and bails.
+                if let Ok(rip) = uc.reg_read(RegisterX86::RIP as i32) {
+                    let _ = uc.reg_write(RegisterX86::RIP as i32, rip + 2);
+                }
+            }) {
+                self.hook_ids.push(h);
+            }
+        }
 
         // Block hook: once per basic block instead of once per instruction. Stops,
         // per-section execution (bytes) and write-execute: a block that runs code from
