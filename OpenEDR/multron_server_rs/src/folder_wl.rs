@@ -91,7 +91,11 @@ fn add_excluded(v: &mut Vec<PathBuf>, p: Option<&Path>) {
 
 /// Lower-case extension ("" when none).
 pub fn ext_of(path: &Path) -> String {
-    path.extension().and_then(|e| e.to_str()).map(|e| e.to_ascii_lowercase()).filter(|e| e.len() <= 12).unwrap_or_default()
+    path.extension()
+        .and_then(|e| e.to_str())
+        .map(|e| e.to_ascii_lowercase())
+        .filter(|e| e.len() <= 12)
+        .unwrap_or_default()
 }
 
 /// Folder browser for the dashboard: sub-folders of `path`, or the drives / root when
@@ -132,7 +136,12 @@ pub fn list_dir(path: &str) -> Result<serde_json::Value, String> {
 
 /// Walks `root` (no symlinks / junctions, skips `excluded`), calling `f` for each file.
 /// Stops after `MAX_FILES` files or when `stop` returns true.
-fn walk(root: &Path, excluded: &[PathBuf], stop: &dyn Fn() -> bool, f: &mut dyn FnMut(&Path, u64)) -> u64 {
+fn walk(
+    root: &Path,
+    excluded: &[PathBuf],
+    stop: &dyn Fn() -> bool,
+    f: &mut dyn FnMut(&Path, u64),
+) -> u64 {
     let mut stack = vec![root.to_path_buf()];
     let mut n = 0u64;
     while let Some(dir) = stack.pop() {
@@ -144,7 +153,9 @@ fn walk(root: &Path, excluded: &[PathBuf], stop: &dyn Fn() -> bool, f: &mut dyn 
                 continue;
             }
         }
-        let Ok(rd) = std::fs::read_dir(&dir) else { continue };
+        let Ok(rd) = std::fs::read_dir(&dir) else {
+            continue;
+        };
         for e in rd.flatten() {
             let Ok(ft) = e.file_type() else { continue };
             if ft.is_symlink() {
@@ -165,7 +176,10 @@ fn walk(root: &Path, excluded: &[PathBuf], stop: &dyn Fn() -> bool, f: &mut dyn 
     n
 }
 
-fn check_root(path: &str, extra_excluded: &[Option<&Path>]) -> Result<(PathBuf, Vec<PathBuf>), String> {
+fn check_root(
+    path: &str,
+    extra_excluded: &[Option<&Path>],
+) -> Result<(PathBuf, Vec<PathBuf>), String> {
     let root = PathBuf::from(path.trim());
     if !root.is_absolute() || !root.is_dir() {
         return Err(format!("{} is not a folder on this server", path.trim()));
@@ -183,7 +197,11 @@ fn check_root(path: &str, extra_excluded: &[Option<&Path>]) -> Result<(PathBuf, 
 
 /// File types in a folder: extension -> files, bytes and files over `max_bytes`
 /// (0 = no limit). Metadata only, no hashing.
-pub fn scan_types(path: &str, max_bytes: u64, extra_excluded: &[Option<&Path>]) -> Result<serde_json::Value, String> {
+pub fn scan_types(
+    path: &str,
+    max_bytes: u64,
+    extra_excluded: &[Option<&Path>],
+) -> Result<serde_json::Value, String> {
     let (root, excluded) = check_root(path, extra_excluded)?;
     let mut by: BTreeMap<String, (u64, u64, u64)> = BTreeMap::new();
     let n = walk(&root, &excluded, &|| false, &mut |p, len| {
@@ -199,7 +217,9 @@ pub fn scan_types(path: &str, max_bytes: u64, extra_excluded: &[Option<&Path>]) 
         .map(|(ext, (files, bytes, over))| serde_json::json!({ "ext": ext, "files": files, "bytes": bytes, "tooLarge": over }))
         .collect();
     types.sort_by(|a, b| b["files"].as_u64().cmp(&a["files"].as_u64()));
-    Ok(serde_json::json!({ "path": root.to_string_lossy(), "files": n, "capped": n >= MAX_FILES, "types": types }))
+    Ok(
+        serde_json::json!({ "path": root.to_string_lossy(), "files": n, "capped": n >= MAX_FILES, "types": types }),
+    )
 }
 
 fn sha256_file(path: &Path, buf: &mut [u8], stop: &AtomicBool) -> Option<String> {
@@ -220,7 +240,13 @@ fn sha256_file(path: &Path, buf: &mut [u8], stop: &AtomicBool) -> Option<String>
 
 /// Starts hashing the files of `exts` ("" = no extension) under `path` in the background.
 /// Files larger than `max_bytes` (0 = no limit) are skipped and counted.
-pub fn start(path: &str, exts: &[String], max_bytes: u64, extra_excluded: &[Option<&Path>], log: impl Fn(String) + Send + 'static) -> Result<(), String> {
+pub fn start(
+    path: &str,
+    exts: &[String],
+    max_bytes: u64,
+    extra_excluded: &[Option<&Path>],
+    log: impl Fn(String) + Send + 'static,
+) -> Result<(), String> {
     let (root, excluded) = check_root(path, extra_excluded)?;
     if exts.is_empty() {
         return Err("pick at least one file type".into());
@@ -230,7 +256,14 @@ pub fn start(path: &str, exts: &[String], max_bytes: u64, extra_excluded: &[Opti
         return Err("a folder is already being hashed".into());
     }
     job.stop.store(false, Ordering::Relaxed);
-    for a in [&job.total_files, &job.total_bytes, &job.done_files, &job.done_bytes, &job.unreadable, &job.too_large] {
+    for a in [
+        &job.total_files,
+        &job.total_bytes,
+        &job.done_files,
+        &job.done_bytes,
+        &job.unreadable,
+        &job.too_large,
+    ] {
         a.store(0, Ordering::Relaxed);
     }
     job.max_bytes.store(max_bytes, Ordering::Relaxed);
@@ -239,7 +272,10 @@ pub fn start(path: &str, exts: &[String], max_bytes: u64, extra_excluded: &[Opti
     job.hashes.lock().unwrap().clear();
     *job.started_at.lock().unwrap() = Some(chrono::Utc::now().to_rfc3339());
     *job.finished_at.lock().unwrap() = None;
-    let exts: HashSet<String> = exts.iter().map(|e| e.trim().trim_start_matches('.').to_ascii_lowercase()).collect();
+    let exts: HashSet<String> = exts
+        .iter()
+        .map(|e| e.trim().trim_start_matches('.').to_ascii_lowercase())
+        .collect();
     let spawned = std::thread::Builder::new().name("folder-whitelist".into()).spawn(move || {
         let job = &*JOB;
         // Pass 1: list, so the dashboard can show progress.
@@ -318,16 +354,32 @@ mod tests {
         std::fs::write(base.join("big.exe"), vec![0u8; 2048]).unwrap();
         let t = scan_types(&base.to_string_lossy(), 1024, &[Some(inc.as_path())]).unwrap();
         assert_eq!(t["files"], 4);
-        let exe = t["types"].as_array().unwrap().iter().find(|x| x["ext"] == "exe").unwrap().clone();
+        let exe = t["types"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|x| x["ext"] == "exe")
+            .unwrap()
+            .clone();
         assert_eq!(exe["tooLarge"], 1);
         assert!(check_root(&inc.to_string_lossy(), &[Some(inc.as_path())]).is_err());
-        start(&base.to_string_lossy(), &["exe".into(), ".dll".into()], 1024, &[Some(inc.as_path())], |_| {}).unwrap();
+        start(
+            &base.to_string_lossy(),
+            &["exe".into(), ".dll".into()],
+            1024,
+            &[Some(inc.as_path())],
+            |_| {},
+        )
+        .unwrap();
         while JOB.is_running() {
             std::thread::sleep(std::time::Duration::from_millis(10));
         }
         let mut h = JOB.hashes();
         h.sort();
-        let mut want = vec![hex::encode(Sha256::digest(b"hello")), hex::encode(Sha256::digest(b"world"))];
+        let mut want = vec![
+            hex::encode(Sha256::digest(b"hello")),
+            hex::encode(Sha256::digest(b"world")),
+        ];
         want.sort();
         assert_eq!(h, want);
         assert_eq!(JOB.status()["tooLarge"], 1);

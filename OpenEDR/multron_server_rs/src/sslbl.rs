@@ -8,18 +8,18 @@
 //!   dashboard; it overlays the shipped layer (automatically migrated from
 //!   legacy `analyst_signatures/sslbl.jsonl` if present).
 
+use axum::{
+    Json,
+    http::StatusCode,
+    response::{IntoResponse, Response},
+};
+use chrono::Utc;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::{BufRead, BufReader, Write};
 use std::path::PathBuf;
 use std::sync::{OnceLock, RwLock};
-use axum::{
-    http::StatusCode,
-    response::{IntoResponse, Response},
-    Json,
-};
-use chrono::Utc;
-use serde::{Deserialize, Serialize};
 
 const SSLBL_FILE: &str = "sslbl.jsonl";
 
@@ -102,11 +102,7 @@ impl SslblStore {
                 }
                 match std::fs::rename(&old_path, &new_path) {
                     Ok(()) => {
-                        tracing::info!(
-                            "[sslbl] Migrated legacy {:?} -> {:?}",
-                            old_path,
-                            new_path
-                        );
+                        tracing::info!("[sslbl] Migrated legacy {:?} -> {:?}", old_path, new_path);
                         return new_path;
                     }
                     Err(e) => {
@@ -149,17 +145,24 @@ impl SslblStore {
                 .map(|t| chrono::DateTime::<Utc>::from(t).to_rfc3339())
                 .unwrap_or_default();
             for (sha1, reason) in parse_abusech_csv(&text) {
-                map.insert(sha1.clone(), SslblEntry {
-                    sha1,
-                    reason,
-                    added_at: added_at.clone(),
-                    analyst: "abuse.ch_feed".to_string(),
-                    builtin: true,
-                });
+                map.insert(
+                    sha1.clone(),
+                    SslblEntry {
+                        sha1,
+                        reason,
+                        added_at: added_at.clone(),
+                        analyst: "abuse.ch_feed".to_string(),
+                        builtin: true,
+                    },
+                );
                 loaded += 1;
             }
         }
-        tracing::info!("[sslbl] Loaded {} shipped SSL blacklist entries from {:?}", loaded, dir);
+        tracing::info!(
+            "[sslbl] Loaded {} shipped SSL blacklist entries from {:?}",
+            loaded,
+            dir
+        );
     }
 
     pub fn load(&self) {
@@ -187,7 +190,11 @@ impl SslblStore {
                 map.insert(sha1, entry);
             }
         }
-        tracing::info!("[sslbl] Loaded {} SSL blacklist entries from {:?}", map.len(), p);
+        tracing::info!(
+            "[sslbl] Loaded {} SSL blacklist entries from {:?}",
+            map.len(),
+            p
+        );
     }
 
     pub fn save(&self) -> std::io::Result<()> {
@@ -266,13 +273,16 @@ impl SslblStore {
             if map.get(&sha1).is_some_and(|e| e.builtin) {
                 continue;
             }
-            map.insert(sha1.clone(), SslblEntry {
-                sha1,
-                reason,
-                added_at: now_str.clone(),
-                analyst: "abuse.ch_feed".to_string(),
-                builtin: false,
-            });
+            map.insert(
+                sha1.clone(),
+                SslblEntry {
+                    sha1,
+                    reason,
+                    added_at: now_str.clone(),
+                    analyst: "abuse.ch_feed".to_string(),
+                    builtin: false,
+                },
+            );
             added += 1;
         }
         drop(map);
@@ -317,7 +327,11 @@ fn default_reason() -> String {
 pub async fn handle_add_sslbl(Json(body): Json<SslblAddBody>) -> Response {
     match sslbl_store().add(&body.sha1, &body.reason, &body.analyst) {
         Ok(entry) => Json(serde_json::json!({ "ok": true, "entry": entry })).into_response(),
-        Err(e) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({ "error": e }))).into_response(),
+        Err(e) => (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({ "error": e })),
+        )
+            .into_response(),
     }
 }
 

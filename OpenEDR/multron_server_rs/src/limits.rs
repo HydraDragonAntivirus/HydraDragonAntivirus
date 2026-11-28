@@ -131,17 +131,43 @@ impl LiveLimits {
         }
     }
 
-    pub fn max_mb(&self) -> i64 { self.max_mb.load(R) }
-    pub fn max_bytes(&self) -> i64 { self.max_mb() * 1024 * 1024 }
-    pub fn max_inflight_mb(&self) -> i64 { self.max_inflight_mb.load(R) }
-    pub fn max_conns(&self) -> usize { self.max_conns.load(R) }
-    pub fn max_per_ip(&self) -> usize { self.max_per_ip.load(R) }
-    pub fn pipeline(&self) -> usize { self.pipeline.load(R) }
-    pub fn max_check_batch(&self) -> usize { self.max_check_batch.load(R) }
-    pub fn connects_per_min(&self) -> u32 { self.connects_per_min.load(R) }
-    pub fn upload_mb_per_hour(&self) -> u32 { self.upload_mb_per_hour.load(R) }
-    pub fn msgs_per_sec(&self) -> u32 { self.msgs_per_sec.load(R) }
-    pub fn checks_per_sec(&self) -> u32 { self.checks_per_sec.load(R) }
-    pub fn ban_strikes(&self) -> u32 { self.ban_strikes.load(R) }
-    pub fn ban_minutes(&self) -> u64 { self.ban_minutes.load(R) }
+    pub fn max_mb(&self) -> i64 {
+        self.max_mb.load(R)
+    }
+    pub fn max_bytes(&self) -> i64 {
+        self.max_mb() * 1024 * 1024
+    }
+    pub fn max_inflight_mb(&self) -> i64 {
+        self.max_inflight_mb.load(R)
+    }
+    pub fn max_conns(&self) -> usize {
+        self.max_conns.load(R)
+    }
+    pub fn max_per_ip(&self) -> usize {
+        self.max_per_ip.load(R)
+    }
+    pub fn pipeline(&self) -> usize {
+        self.pipeline.load(R)
+    }
+    pub fn max_check_batch(&self) -> usize {
+        self.max_check_batch.load(R)
+    }
+    pub fn connects_per_min(&self) -> u32 {
+        self.connects_per_min.load(R)
+    }
+    pub fn upload_mb_per_hour(&self) -> u32 {
+        self.upload_mb_per_hour.load(R)
+    }
+    pub fn msgs_per_sec(&self) -> u32 {
+        self.msgs_per_sec.load(R)
+    }
+    pub fn checks_per_sec(&self) -> u32 {
+        self.checks_per_sec.load(R)
+    }
+    pub fn ban_strikes(&self) -> u32 {
+        self.ban_strikes.load(R)
+    }
+    pub fn ban_minutes(&self) -> u64 {
+        self.ban_minutes.load(R)
+    }
 }

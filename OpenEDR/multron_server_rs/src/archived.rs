@@ -60,10 +60,21 @@ fn default_category() -> String {
 
 impl ArchivedDir {
     fn display_name(&self) -> String {
-        if let Some(n) = self.name.as_deref().map(str::trim).filter(|n| !n.is_empty()) {
+        if let Some(n) = self
+            .name
+            .as_deref()
+            .map(str::trim)
+            .filter(|n| !n.is_empty())
+        {
             return n.chars().take(48).collect();
         }
-        let parts: Vec<String> = self.path.iter().rev().take(2).map(|p| p.to_string_lossy().into_owned()).collect();
+        let parts: Vec<String> = self
+            .path
+            .iter()
+            .rev()
+            .take(2)
+            .map(|p| p.to_string_lossy().into_owned())
+            .collect();
         parts.into_iter().rev().collect::<Vec<_>>().join("\\")
     }
 }
@@ -87,7 +98,10 @@ pub struct ArchivedFile {
 
 impl ArchivedFile {
     pub fn platform(&self) -> Option<Platform> {
-        PLATFORM_KINDS.iter().find(|(k, _)| *k == self.kind).map(|(_, p)| *p)
+        PLATFORM_KINDS
+            .iter()
+            .find(|(k, _)| *k == self.kind)
+            .map(|(_, p)| *p)
     }
 }
 
@@ -113,24 +127,37 @@ fn store() -> &'static RwLock<HashMap<String, ArchivedFile>> {
 }
 
 pub fn get(sha: &str) -> Option<ArchivedFile> {
-    store().read().unwrap().get(&sha.to_ascii_uppercase()).cloned()
+    store()
+        .read()
+        .unwrap()
+        .get(&sha.to_ascii_uppercase())
+        .cloned()
 }
 
 /// The sample was archived from this work-folder category.
 pub fn is_archived(sha: &str, category: &str) -> bool {
-    store().read().unwrap().get(&sha.to_ascii_uppercase()).is_some_and(|a| a.category == category)
+    store()
+        .read()
+        .unwrap()
+        .get(&sha.to_ascii_uppercase())
+        .is_some_and(|a| a.category == category)
 }
 
 /// (SHA-256, category) of every sample remembered in the `kept_archived.jsonl` of
 /// another server folder (the archive mirror's target).
 pub fn archived_in(server_dir: &Path) -> HashSet<(String, String)> {
-    read_index(&server_dir.join(INDEX_FILE)).into_values().map(|a| (a.sha256, a.category)).collect()
+    read_index(&server_dir.join(INDEX_FILE))
+        .into_values()
+        .map(|a| (a.sha256, a.category))
+        .collect()
 }
 
 /// `archived_dirs.json` next to the server (empty when absent or unreadable).
 pub fn configured_dirs() -> Vec<ArchivedDir> {
     let path = crate::config::app_dir().join(CONFIG_FILE);
-    let Ok(text) = std::fs::read_to_string(&path) else { return Vec::new() };
+    let Ok(text) = std::fs::read_to_string(&path) else {
+        return Vec::new();
+    };
     match serde_json::from_str::<Vec<ArchivedDir>>(&text) {
         Ok(v) => v,
         Err(e) => {
@@ -144,18 +171,27 @@ pub fn configured_dirs() -> Vec<ArchivedDir> {
 fn sha_from_name(path: &Path) -> Option<String> {
     let name = path.file_name()?.to_string_lossy();
     let sha = name.get(..64)?;
-    (sha.chars().all(|c| c.is_ascii_hexdigit()) && name.as_bytes().get(64) == Some(&b'_')).then(|| sha.to_ascii_uppercase())
+    (sha.chars().all(|c| c.is_ascii_hexdigit()) && name.as_bytes().get(64) == Some(&b'_'))
+        .then(|| sha.to_ascii_uppercase())
 }
 
 /// Remembers every file of the folders that is not remembered yet. Folders that are not
 /// reachable are skipped (their entries stay). Returns (new entries, files seen).
 pub fn index_dirs(dirs: &[ArchivedDir]) -> (u64, u64) {
     let index = index_path();
-    let mut out = std::fs::OpenOptions::new().create(true).append(true).open(&index).ok();
+    let mut out = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&index)
+        .ok();
     let (mut added, mut seen) = (0u64, 0u64);
     for dir in dirs {
         if !dir.path.is_dir() {
-            eprintln!("[archived] {} is not reachable; its {} remembered files stay counted", dir.path.display(), count_group(&dir.display_name()));
+            eprintln!(
+                "[archived] {} is not reachable; its {} remembered files stay counted",
+                dir.path.display(),
+                count_group(&dir.display_name())
+            );
             continue;
         }
         let group = dir.display_name();
@@ -164,15 +200,24 @@ pub fn index_dirs(dirs: &[ArchivedDir]) -> (u64, u64) {
             let path_text = path.to_string_lossy().into_owned();
             let named = sha_from_name(&path);
             if let Some(sha) = &named {
-                if store().read().unwrap().get(sha).is_some_and(|a| a.path == path_text) {
+                if store()
+                    .read()
+                    .unwrap()
+                    .get(sha)
+                    .is_some_and(|a| a.path == path_text)
+                {
                     continue;
                 }
             }
-            let Ok(meta) = std::fs::metadata(&path) else { continue };
+            let Ok(meta) = std::fs::metadata(&path) else {
+                continue;
+            };
             if meta.len() == 0 {
                 continue;
             }
-            let Some(sha) = named.or_else(|| crate::dataset::sha256_file(&path)) else { continue };
+            let Some(sha) = named.or_else(|| crate::dataset::sha256_file(&path)) else {
+                continue;
+            };
             if sha == crate::dataset::EMPTY_SHA256 {
                 continue;
             }
@@ -182,11 +227,14 @@ pub fn index_dirs(dirs: &[ArchivedDir]) -> (u64, u64) {
                 .and_then(|rel| {
                     let mut c = rel.components();
                     let first = c.next()?;
-                    c.next().map(|_| first.as_os_str().to_string_lossy().to_ascii_lowercase())
+                    c.next()
+                        .map(|_| first.as_os_str().to_string_lossy().to_ascii_lowercase())
                 })
                 .unwrap_or_default();
             let secs = |t: std::io::Result<std::time::SystemTime>| {
-                t.ok().and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok()).map_or(0, |d| d.as_secs())
+                t.ok()
+                    .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                    .map_or(0, |d| d.as_secs())
             };
             let a = ArchivedFile {
                 sha256: sha.clone(),
@@ -214,7 +262,12 @@ pub fn index_dirs(dirs: &[ArchivedDir]) -> (u64, u64) {
 }
 
 fn count_group(group: &str) -> usize {
-    store().read().unwrap().values().filter(|a| a.group == group).count()
+    store()
+        .read()
+        .unwrap()
+        .values()
+        .filter(|a| a.group == group)
+        .count()
 }
 
 /// Indexes the configured folders in the background (normal start, not on the
@@ -224,15 +277,17 @@ pub fn start() {
     if dirs.is_empty() {
         return;
     }
-    let _ = std::thread::Builder::new().name("archived-index".into()).spawn(move || {
-        let started = std::time::Instant::now();
-        let (added, seen) = index_dirs(&dirs);
-        eprintln!(
-            "[archived] {} remembered files ({added} new, {seen} on disk now) in {:.1}s",
-            store().read().unwrap().len(),
-            started.elapsed().as_secs_f64()
-        );
-    });
+    let _ = std::thread::Builder::new()
+        .name("archived-index".into())
+        .spawn(move || {
+            let started = std::time::Instant::now();
+            let (added, seen) = index_dirs(&dirs);
+            eprintln!(
+                "[archived] {} remembered files ({added} new, {seen} on disk now) in {:.1}s",
+                store().read().unwrap().len(),
+                started.elapsed().as_secs_f64()
+            );
+        });
 }
 
 /// Dashboard figures per archive folder: files, GB and files per type (most first).
@@ -250,7 +305,13 @@ pub fn counts() -> serde_json::Value {
         g.category = a.category.clone();
         g.files += 1;
         g.bytes += a.size;
-        *g.kinds.entry(if a.kind.is_empty() { "other".to_string() } else { a.kind.clone() }).or_default() += 1;
+        *g.kinds
+            .entry(if a.kind.is_empty() {
+                "other".to_string()
+            } else {
+                a.kind.clone()
+            })
+            .or_default() += 1;
     }
     let list: Vec<serde_json::Value> = groups
         .into_iter()

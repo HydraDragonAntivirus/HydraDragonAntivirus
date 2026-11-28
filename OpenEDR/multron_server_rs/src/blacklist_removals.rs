@@ -59,8 +59,12 @@ fn load() -> HashMap<String, BlacklistRemoval> {
     let mut m = HashMap::new();
     if let Ok(f) = std::fs::File::open(path()) {
         for line in BufReader::new(f).lines().map_while(Result::ok) {
-            let Ok(v) = serde_json::from_str::<serde_json::Value>(&line) else { continue };
-            let Some(hash) = v["hash"].as_str().map(str::to_ascii_lowercase) else { continue };
+            let Ok(v) = serde_json::from_str::<serde_json::Value>(&line) else {
+                continue;
+            };
+            let Some(hash) = v["hash"].as_str().map(str::to_ascii_lowercase) else {
+                continue;
+            };
             if v["removed"].as_bool() == Some(false) {
                 m.remove(&hash);
             } else if let Ok(mut r) = serde_json::from_value::<BlacklistRemoval>(v) {
@@ -76,7 +80,10 @@ fn load() -> HashMap<String, BlacklistRemoval> {
 }
 
 fn append(v: &serde_json::Value) -> std::io::Result<()> {
-    let mut f = std::fs::OpenOptions::new().create(true).append(true).open(path())?;
+    let mut f = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path())?;
     writeln!(f, "{v}")
 }
 
@@ -99,7 +106,11 @@ pub fn is_removed(hash: &str) -> bool {
 }
 
 pub fn get(hash: &str) -> Option<BlacklistRemoval> {
-    removals().read().unwrap().get(&hash.trim().to_ascii_lowercase()).cloned()
+    removals()
+        .read()
+        .unwrap()
+        .get(&hash.trim().to_ascii_lowercase())
+        .cloned()
 }
 
 /// Newest first.
@@ -113,7 +124,10 @@ pub fn list() -> Vec<BlacklistRemoval> {
 pub fn remove_hash(hash: &str, analyst: &str, reason: &str) -> std::io::Result<bool> {
     let h = hash.trim().to_ascii_lowercase();
     let Some(htype) = classify_hash(&h) else {
-        return Err(std::io::Error::new(std::io::ErrorKind::InvalidInput, "unsupported hash format (must be 32, 40, or 64 hex chars)"));
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "unsupported hash format (must be 32, 40, or 64 hex chars)",
+        ));
     };
     let mut g = removals().write().unwrap();
     let r = BlacklistRemoval {

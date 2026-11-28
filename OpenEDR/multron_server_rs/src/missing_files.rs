@@ -49,7 +49,11 @@ pub fn record(sha: &str, reason: &str, detail: String) {
         at: chrono::Utc::now().to_rfc3339(),
     };
     if let Ok(line) = serde_json::to_string(&x) {
-        if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(path()) {
+        if let Ok(mut f) = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(path())
+        {
             let _ = writeln!(f, "{line}");
         }
     }
@@ -67,7 +71,12 @@ pub fn clear(sha: &str) {
 }
 
 pub fn get(sha: &str) -> Option<Missing> {
-    map().read().unwrap().get(&sha.to_ascii_lowercase()).cloned().filter(|m| m.reason != "kept")
+    map()
+        .read()
+        .unwrap()
+        .get(&sha.to_ascii_lowercase())
+        .cloned()
+        .filter(|m| m.reason != "kept")
 }
 
 fn quota_verdict(detail: &str) -> Option<(&str, &str)> {
@@ -90,7 +99,9 @@ pub fn verdict_hashes(verdicts: &[&str]) -> Vec<(String, String)> {
         .filter(|m| m.reason == "quota")
         .filter_map(|m| {
             let (v, _) = quota_verdict(&m.detail)?;
-            verdicts.contains(&v).then(|| (m.sha256.to_ascii_uppercase(), v.to_string()))
+            verdicts
+                .contains(&v)
+                .then(|| (m.sha256.to_ascii_uppercase(), v.to_string()))
         })
         .collect()
 }
@@ -101,11 +112,15 @@ pub fn set_unknown(sha: &str) -> bool {
     let key = sha.to_ascii_lowercase();
     let updated = {
         let mut g = map().write().unwrap();
-        let Some(m) = g.get_mut(&key) else { return false };
+        let Some(m) = g.get_mut(&key) else {
+            return false;
+        };
         if m.reason != "quota" {
             return false;
         }
-        let Some((v, rest)) = quota_verdict(&m.detail) else { return false };
+        let Some((v, rest)) = quota_verdict(&m.detail) else {
+            return false;
+        };
         if v == "unknown" {
             return false;
         }
@@ -113,7 +128,11 @@ pub fn set_unknown(sha: &str) -> bool {
         m.clone()
     };
     if let Ok(line) = serde_json::to_string(&updated) {
-        if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(path()) {
+        if let Ok(mut f) = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(path())
+        {
             let _ = writeln!(f, "{line}");
         }
     }
@@ -123,8 +142,15 @@ pub fn set_unknown(sha: &str) -> bool {
 /// Error text for "this file is not kept on the server".
 pub fn explain(sha: &str) -> String {
     if let Some(a) = crate::archived::get(sha) {
-        let kind = if a.kind.is_empty() { String::new() } else { format!(", {}", a.kind) };
-        return format!("this file is not kept on the server: archived to {} ({}{kind})", a.group, a.category);
+        let kind = if a.kind.is_empty() {
+            String::new()
+        } else {
+            format!(", {}", a.kind)
+        };
+        return format!(
+            "this file is not kept on the server: archived to {} ({}{kind})",
+            a.group, a.category
+        );
     }
     match get(sha) {
         Some(m) if m.reason == "offloaded" => format!("this file is not kept on the server: moved by offload to {} ({})", m.detail, m.at),

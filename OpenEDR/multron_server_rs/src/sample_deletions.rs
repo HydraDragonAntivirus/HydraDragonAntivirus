@@ -75,7 +75,10 @@ fn load() -> HashMap<String, SampleDeletion> {
 
 fn append(d: &SampleDeletion) -> std::io::Result<()> {
     let line = serde_json::to_string(d).map_err(std::io::Error::other)?;
-    let mut f = std::fs::OpenOptions::new().create(true).append(true).open(path())?;
+    let mut f = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path())?;
     writeln!(f, "{line}")
 }
 
@@ -91,7 +94,11 @@ pub fn is_deleted(sha256: &str) -> bool {
 }
 
 pub fn get(sha256: &str) -> Option<SampleDeletion> {
-    deletions().read().unwrap().get(&sha256.trim().to_ascii_lowercase()).cloned()
+    deletions()
+        .read()
+        .unwrap()
+        .get(&sha256.trim().to_ascii_lowercase())
+        .cloned()
 }
 
 /// Newest first.
@@ -102,7 +109,12 @@ pub fn list() -> Vec<SampleDeletion> {
 }
 
 /// Deletes the sample `sha256` as the module docs say. The reason is required.
-pub fn delete(engine: &crate::engine_adapter::EngineAdapter, sha256: &str, reason: &str, analyst: &str) -> Result<SampleDeletion, String> {
+pub fn delete(
+    engine: &crate::engine_adapter::EngineAdapter,
+    sha256: &str,
+    reason: &str,
+    analyst: &str,
+) -> Result<SampleDeletion, String> {
     let sha = sha256.trim().to_ascii_lowercase();
     if sha.len() != 64 || !sha.bytes().all(|c| c.is_ascii_hexdigit()) {
         return Err("invalid sha256".into());
@@ -113,23 +125,38 @@ pub fn delete(engine: &crate::engine_adapter::EngineAdapter, sha256: &str, reaso
     }
     // Logged before anything is removed, and remembered at once: a scan of the same
     // file racing this one must not keep it again, and a crash half way leaves the record.
-    let mut d = SampleDeletion { sha256: sha.clone(), reason, analyst: analyst.to_string(), deleted_at: chrono::Utc::now().to_rfc3339(), removed: Vec::new() };
+    let mut d = SampleDeletion {
+        sha256: sha.clone(),
+        reason,
+        analyst: analyst.to_string(),
+        deleted_at: chrono::Utc::now().to_rfc3339(),
+        removed: Vec::new(),
+    };
     append(&d).map_err(|e| format!("nothing deleted: the log could not be written: {e}"))?;
     deletions().write().unwrap().insert(sha.clone(), d.clone());
     // More than one copy when the same file was kept under two categories.
     for _ in 0..8 {
-        let Some(k) = engine.find_kept(&sha.to_ascii_uppercase()) else { break };
+        let Some(k) = engine.find_kept(&sha.to_ascii_uppercase()) else {
+            break;
+        };
         let shown = k.path.display().to_string();
         if engine.forget_kept(&k).is_none() {
             return Err(format!("could not delete {shown}"));
         }
         d.removed.push(shown);
     }
-    if let Some(p) = crate::reports::remove(&sha).map_err(|e| format!("could not delete the static report: {e}"))? {
+    if let Some(p) = crate::reports::remove(&sha)
+        .map_err(|e| format!("could not delete the static report: {e}"))?
+    {
         d.removed.push(p.display().to_string());
     }
     let _ = append(&d);
     deletions().write().unwrap().insert(sha.clone(), d.clone());
-    let _ = crate::private_samples::set(&sha, true, analyst, &format!("deleted on request: {}", d.reason));
+    let _ = crate::private_samples::set(
+        &sha,
+        true,
+        analyst,
+        &format!("deleted on request: {}", d.reason),
+    );
     Ok(d)
 }

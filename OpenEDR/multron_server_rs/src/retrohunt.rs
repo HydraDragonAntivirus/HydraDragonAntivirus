@@ -37,7 +37,9 @@ const MAX_HUNT_THREADS: usize = 8;
 
 /// Workers of one hunt: the cores minus one for the live scans, 1..=MAX_HUNT_THREADS.
 fn hunt_threads() -> usize {
-    std::thread::available_parallelism().map_or(1, |n| n.get().saturating_sub(1)).clamp(1, MAX_HUNT_THREADS)
+    std::thread::available_parallelism()
+        .map_or(1, |n| n.get().saturating_sub(1))
+        .clamp(1, MAX_HUNT_THREADS)
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -119,45 +121,85 @@ impl Matcher {
             }
             SigKind::ClamNdb | SigKind::ClamLdb => {
                 let mut files = std::collections::HashMap::new();
-                files.insert(format!("retrohunt.{}", kind.ext()), source.as_bytes().to_vec());
+                files.insert(
+                    format!("retrohunt.{}", kind.ext()),
+                    source.as_bytes().to_vec(),
+                );
                 let (engine, report) = ClamEngine::from_bytes_map(&files);
                 if report.extended_loaded + report.logical_loaded + report.db_loaded == 0 {
                     return Err("hydradragonclamav loaded no signature".into());
                 }
                 Ok(Matcher::Clam(engine))
             }
-            SigKind::HydraSig => RuleSet::from_yaml_str(source).map(Matcher::Sig).map_err(|e| format!("{e:#}")),
-            SigKind::Firewall => Err("firewall rules filter network traffic, they do not scan static file archives".into()),
+            SigKind::HydraSig => RuleSet::from_yaml_str(source)
+                .map(Matcher::Sig)
+                .map_err(|e| format!("{e:#}")),
+            SigKind::Firewall => Err(
+                "firewall rules filter network traffic, they do not scan static file archives"
+                    .into(),
+            ),
             // Signer rules match Authenticode metadata the full engine extracts, not
             // bytes a standalone matcher can see; registry / URL / Sigma rules judge
             // live events. None of them can be hunted over stored files on their own.
-            SigKind::Signer | SigKind::Registry | SigKind::Url | SigKind::Sigma => {
-                Err(format!("{} rules are not file content rules and cannot be retrohunted", kind.id()))
-            }
+            SigKind::Signer | SigKind::Registry | SigKind::Url | SigKind::Sigma => Err(format!(
+                "{} rules are not file content rules and cannot be retrohunted",
+                kind.id()
+            )),
         }
     }
 
     /// Names of the matching rules (empty = no match). Takes the file by value:
     /// HydraDragonSig scans an owned buffer, so it is moved in, not copied.
-    fn scan(&self, yara: &mut Option<yara_x::Scanner<'_>>, data: Vec<u8>, name: &str) -> Vec<String> {
+    fn scan(
+        &self,
+        yara: &mut Option<yara_x::Scanner<'_>>,
+        data: Vec<u8>,
+        name: &str,
+    ) -> Vec<String> {
         match self {
             Matcher::Yara(_) => {
-                let Some(sc) = yara.as_mut() else { return Vec::new() };
+                let Some(sc) = yara.as_mut() else {
+                    return Vec::new();
+                };
                 match sc.scan(&data) {
-                    Ok(r) => r.matching_rules().map(|m| m.identifier().to_string()).collect(),
+                    Ok(r) => r
+                        .matching_rules()
+                        .map(|m| m.identifier().to_string())
+                        .collect(),
                     Err(_) => Vec::new(),
                 }
             }
             Matcher::Clam(engine) => engine
-                .scan_bytes_named(&data, if name.is_empty() { "file" } else { name }, ClamScanOptions::default(), &[])
+                .scan_bytes_named(
+                    &data,
+                    if name.is_empty() { "file" } else { name },
+                    ClamScanOptions::default(),
+                    &[],
+                )
                 .into_iter()
                 .map(|m| m.name)
                 .collect(),
             Matcher::Sig(rules) => {
-                let ctx = MemoryScanContext { buffer: data, identifier: name.to_string(), base_address: None };
-                match hydradragonsig::scan_memory_owned(ctx, rules, &hydradragonsig::ScanOptions::default()) {
-                    Ok(r) if matches!(r.verdict, SigVerdict::Malware | SigVerdict::Pua | SigVerdict::Suspicious) => {
-                        vec![r.threat_name.unwrap_or_else(|| "HydraDragonSig rule".into())]
+                let ctx = MemoryScanContext {
+                    buffer: data,
+                    identifier: name.to_string(),
+                    base_address: None,
+                };
+                match hydradragonsig::scan_memory_owned(
+                    ctx,
+                    rules,
+                    &hydradragonsig::ScanOptions::default(),
+                ) {
+                    Ok(r)
+                        if matches!(
+                            r.verdict,
+                            SigVerdict::Malware | SigVerdict::Pua | SigVerdict::Suspicious
+                        ) =>
+                    {
+                        vec![
+                            r.threat_name
+                                .unwrap_or_else(|| "HydraDragonSig rule".into()),
+                        ]
                     }
                     _ => Vec::new(),
                 }
@@ -189,7 +231,13 @@ impl RetroHunt {
     }
 
     fn update_many(&self, ids: &[u64], f: impl Fn(&mut Hunt)) {
-        for h in self.hunts.lock().unwrap().iter_mut().filter(|h| ids.contains(&h.id)) {
+        for h in self
+            .hunts
+            .lock()
+            .unwrap()
+            .iter_mut()
+            .filter(|h| ids.contains(&h.id))
+        {
             f(h);
         }
     }
@@ -210,7 +258,13 @@ pub fn start_match_only(server: &Arc<ScanServer>, kind: SigKind, name: &str, sou
     start_with(server, kind, name, source, false)
 }
 
-fn start_with(server: &Arc<ScanServer>, kind: SigKind, name: &str, source: &str, rescan: bool) -> u64 {
+fn start_with(
+    server: &Arc<ScanServer>,
+    kind: SigKind,
+    name: &str,
+    source: &str,
+    rescan: bool,
+) -> u64 {
     let rh = &server.retrohunt;
     let id = rh.next_id.fetch_add(1, Ordering::Relaxed) + 1;
     {
@@ -234,7 +288,10 @@ fn start_with(server: &Arc<ScanServer>, kind: SigKind, name: &str, source: &str,
         });
         // Drop the oldest finished hunts beyond the history size.
         while hunts.len() > HISTORY {
-            match hunts.iter().rposition(|h| h.state != "running" && h.state != "queued") {
+            match hunts
+                .iter()
+                .rposition(|h| h.state != "running" && h.state != "queued")
+            {
                 Some(i) => {
                     hunts.remove(i);
                 }
@@ -242,7 +299,12 @@ fn start_with(server: &Arc<ScanServer>, kind: SigKind, name: &str, source: &str,
             }
         }
     }
-    rh.queue.lock().unwrap().push_back(Job { id, kind, source: source.to_string(), rescan });
+    rh.queue.lock().unwrap().push_back(Job {
+        id,
+        kind,
+        source: source.to_string(),
+        rescan,
+    });
     if !rh.worker.swap(true, Ordering::SeqCst) {
         let srv = Arc::clone(server);
         let spawned = std::thread::Builder::new()
@@ -304,8 +366,20 @@ fn run(srv: &Arc<ScanServer>, job: &Job) {
 
     // One entry per SHA-256 (a duplicate is the same file in another folder).
     let mut seen = HashSet::new();
-    let files: Vec<_> = srv.engine.list_kept().into_iter().filter(|k| seen.insert(k.sha256.to_ascii_uppercase())).collect();
-    let name = rh.hunts.lock().unwrap().iter().find(|h| h.id == job.id).map(|h| h.name.clone()).unwrap_or_default();
+    let files: Vec<_> = srv
+        .engine
+        .list_kept()
+        .into_iter()
+        .filter(|k| seen.insert(k.sha256.to_ascii_uppercase()))
+        .collect();
+    let name = rh
+        .hunts
+        .lock()
+        .unwrap()
+        .iter()
+        .find(|h| h.id == job.id)
+        .map(|h| h.name.clone())
+        .unwrap_or_default();
     let threads = hunt_threads().min(files.len().max(1));
     srv.log_info(format!(
         "retrohunt #{} started: {} {name} over {} kept files, {threads} thread(s)",
@@ -337,7 +411,9 @@ fn run(srv: &Arc<ScanServer>, job: &Job) {
                         stopped.store(true, Ordering::Relaxed);
                         break;
                     }
-                    let Some(k) = files.get(next.fetch_add(1, Ordering::Relaxed)) else { break };
+                    let Some(k) = files.get(next.fetch_add(1, Ordering::Relaxed)) else {
+                        break;
+                    };
                     hunt_file(srv, job, &matcher, &mut yara, k);
                 }
             });
@@ -349,12 +425,22 @@ fn run(srv: &Arc<ScanServer>, job: &Job) {
         h.state = if stopped { "stopped" } else { "done" };
         h.finished_at = Some(now());
         summary = if h.match_only {
-            format!("{} of {} files, {} matched (match only)", h.done, h.total, h.matched)
+            format!(
+                "{} of {} files, {} matched (match only)",
+                h.done, h.total, h.matched
+            )
         } else {
-            format!("{} of {} files, {} matched, {} verdicts changed", h.done, h.total, h.matched, h.changed)
+            format!(
+                "{} of {} files, {} matched, {} verdicts changed",
+                h.done, h.total, h.matched, h.changed
+            )
         };
     });
-    srv.log_info(format!("retrohunt #{} {}: {name}: {summary}", job.id, if stopped { "stopped" } else { "finished" }));
+    srv.log_info(format!(
+        "retrohunt #{} {}: {name}: {summary}",
+        job.id,
+        if stopped { "stopped" } else { "finished" }
+    ));
 }
 
 /// Matches one kept file and, on a match, rescans it and records it in the hunt.
@@ -380,7 +466,11 @@ fn hunt_file(
         return;
     }
     let sha = k.sha256.to_ascii_lowercase();
-    let old = srv.threat_intel.get(&sha).map(|i| i.verdict.to_string()).unwrap_or_else(|| "unknown".into());
+    let old = srv
+        .threat_intel
+        .get(&sha)
+        .map(|i| i.verdict.to_string())
+        .unwrap_or_else(|| "unknown".into());
     let mut m = HuntMatch {
         sha256: sha.clone(),
         file_name: k.name.clone(),
@@ -407,7 +497,10 @@ fn hunt_file(
     } else {
         // Match only: the current verdict stays as it is.
         m.new_verdict = m.old_verdict.clone();
-        m.threat = srv.threat_intel.get(&sha).and_then(|i| i.threat_name.map(String::from));
+        m.threat = srv
+            .threat_intel
+            .get(&sha)
+            .and_then(|i| i.threat_name.map(String::from));
     }
     let changed = job.rescan && m.error.is_none() && m.old_verdict != m.new_verdict;
     rh.update(job.id, |h| {
@@ -426,31 +519,61 @@ mod tests {
 
     #[test]
     fn yara_matcher_hits_only_matching_data() {
-        let m = Matcher::build(SigKind::Yara, "rule Hunt_Test { strings: $a = \"RETROHUNT-MARK\" condition: $a }").unwrap();
+        let m = Matcher::build(
+            SigKind::Yara,
+            "rule Hunt_Test { strings: $a = \"RETROHUNT-MARK\" condition: $a }",
+        )
+        .unwrap();
         let Matcher::Yara(rules) = &m else { panic!() };
         let mut sc = Some(yara_x::Scanner::new(rules));
-        assert_eq!(m.scan(&mut sc, b"xx RETROHUNT-MARK yy".to_vec(), "a"), vec!["Hunt_Test".to_string()]);
+        assert_eq!(
+            m.scan(&mut sc, b"xx RETROHUNT-MARK yy".to_vec(), "a"),
+            vec!["Hunt_Test".to_string()]
+        );
         assert!(m.scan(&mut sc, b"nothing here".to_vec(), "b").is_empty());
         assert!(Matcher::build(SigKind::Yara, "rule broken {").is_err());
     }
 
     #[test]
     fn clamav_ndb_matcher() {
-        let hex: String = b"RETROHUNT-MARK".iter().map(|b| format!("{b:02x}")).collect();
-        let m = Matcher::build(SigKind::ClamNdb, &format!("Trojan.Win32.Hunt.A:0:*:{hex}\n")).unwrap();
+        let hex: String = b"RETROHUNT-MARK"
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect();
+        let m = Matcher::build(
+            SigKind::ClamNdb,
+            &format!("Trojan.Win32.Hunt.A:0:*:{hex}\n"),
+        )
+        .unwrap();
         let mut none = None;
-        assert_eq!(m.scan(&mut none, b"xx RETROHUNT-MARK yy".to_vec(), "a.bin"), vec!["Trojan.Win32.Hunt.A".to_string()]);
-        assert!(m.scan(&mut none, b"nothing here".to_vec(), "b.bin").is_empty());
+        assert_eq!(
+            m.scan(&mut none, b"xx RETROHUNT-MARK yy".to_vec(), "a.bin"),
+            vec!["Trojan.Win32.Hunt.A".to_string()]
+        );
+        assert!(
+            m.scan(&mut none, b"nothing here".to_vec(), "b.bin")
+                .is_empty()
+        );
     }
 
     #[test]
     fn clamav_ldb_matcher() {
         let h = |s: &[u8]| s.iter().map(|b| format!("{b:02x}")).collect::<String>();
-        let src = format!("Trojan.Win32.Hunt.B;Engine:51-255,Target:0;0&1;{};{}\n", h(b"FIRST-PART"), h(b"SECOND-PART"));
+        let src = format!(
+            "Trojan.Win32.Hunt.B;Engine:51-255,Target:0;0&1;{};{}\n",
+            h(b"FIRST-PART"),
+            h(b"SECOND-PART")
+        );
         let m = Matcher::build(SigKind::ClamLdb, &src).unwrap();
         let mut none = None;
-        assert_eq!(m.scan(&mut none, b"a FIRST-PART b SECOND-PART c".to_vec(), "a.bin"), vec!["Trojan.Win32.Hunt.B".to_string()]);
-        assert!(m.scan(&mut none, b"a FIRST-PART only".to_vec(), "b.bin").is_empty());
+        assert_eq!(
+            m.scan(&mut none, b"a FIRST-PART b SECOND-PART c".to_vec(), "a.bin"),
+            vec!["Trojan.Win32.Hunt.B".to_string()]
+        );
+        assert!(
+            m.scan(&mut none, b"a FIRST-PART only".to_vec(), "b.bin")
+                .is_empty()
+        );
     }
 
     #[test]
@@ -458,7 +581,17 @@ mod tests {
         let src = "rules:\n  - id: ANALYST-HUNT\n    title: \"Trojan.Win32.Hunt.C\"\n    severity: high\n    verdict: malware\n    confidence: 90\n    score: 90\n    family: \"Trojan.Win32.Hunt.C\"\n    logic: all\n    conditions:\n      - type: string_set\n        min: 2\n        nocase: true\n        values:\n          - \"first-unique-mark\"\n          - \"second-unique-mark\"\n";
         let m = Matcher::build(SigKind::HydraSig, src).unwrap();
         let mut none = None;
-        assert_eq!(m.scan(&mut none, b"..FIRST-UNIQUE-MARK..second-unique-mark..".to_vec(), "a.bin"), vec!["Trojan.Win32.Hunt.C".to_string()]);
-        assert!(m.scan(&mut none, b"..first-unique-mark only..".to_vec(), "b.bin").is_empty());
+        assert_eq!(
+            m.scan(
+                &mut none,
+                b"..FIRST-UNIQUE-MARK..second-unique-mark..".to_vec(),
+                "a.bin"
+            ),
+            vec!["Trojan.Win32.Hunt.C".to_string()]
+        );
+        assert!(
+            m.scan(&mut none, b"..first-unique-mark only..".to_vec(), "b.bin")
+                .is_empty()
+        );
     }
 }

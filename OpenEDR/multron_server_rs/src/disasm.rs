@@ -4,8 +4,8 @@
 //! files (architecture, image base, entry point, sections / segments) so code is shown
 //! at its virtual address; any other file is decoded as raw bytes from offset 0.
 
-use iced_x86::{Decoder, DecoderOptions, FlowControl, Formatter, IntelFormatter, OpKind};
 use capstone::prelude::*;
+use iced_x86::{Decoder, DecoderOptions, FlowControl, Formatter, IntelFormatter, OpKind};
 use serde::Serialize;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -60,22 +60,27 @@ fn u16le(d: &[u8], o: usize) -> Option<u16> {
     d.get(o..o + 2).map(|b| u16::from_le_bytes([b[0], b[1]]))
 }
 fn u32le(d: &[u8], o: usize) -> Option<u32> {
-    d.get(o..o + 4).map(|b| u32::from_le_bytes([b[0], b[1], b[2], b[3]]))
+    d.get(o..o + 4)
+        .map(|b| u32::from_le_bytes([b[0], b[1], b[2], b[3]]))
 }
 fn u64le(d: &[u8], o: usize) -> Option<u64> {
-    d.get(o..o + 8).map(|b| u64::from_le_bytes(b.try_into().unwrap()))
+    d.get(o..o + 8)
+        .map(|b| u64::from_le_bytes(b.try_into().unwrap()))
 }
 
 impl Layout {
     pub fn of(data: &[u8]) -> Layout {
-        let mut l = pe(data).or_else(|| elf(data)).or_else(|| macho(data)).unwrap_or(Layout {
-            format: "raw",
-            arch: None,
-            image_base: 0,
-            entry: None,
-            regions: Vec::new(),
-            imports: Default::default(),
-        });
+        let mut l = pe(data)
+            .or_else(|| elf(data))
+            .or_else(|| macho(data))
+            .unwrap_or(Layout {
+                format: "raw",
+                arch: None,
+                image_base: 0,
+                entry: None,
+                regions: Vec::new(),
+                imports: Default::default(),
+            });
         if l.format == "PE" {
             l.imports = pe_imports(data, &l);
         }
@@ -89,7 +94,12 @@ impl Layout {
                 return r.va + (off - r.offset);
             }
         }
-        if self.format == "PE" && self.regions.iter().all(|r| off < r.offset || r.file_size == 0) {
+        if self.format == "PE"
+            && self
+                .regions
+                .iter()
+                .all(|r| off < r.offset || r.file_size == 0)
+        {
             return self.image_base + off;
         }
         // Outside every region: show the file offset.
@@ -107,7 +117,13 @@ impl Layout {
         }
         if self.format == "PE" && va >= self.image_base {
             let off = va - self.image_base;
-            let first = self.regions.iter().filter(|r| r.file_size > 0).map(|r| r.offset).min().unwrap_or(u64::MAX);
+            let first = self
+                .regions
+                .iter()
+                .filter(|r| r.file_size > 0)
+                .map(|r| r.offset)
+                .min()
+                .unwrap_or(u64::MAX);
             if off < first {
                 return Some(off);
             }
@@ -133,7 +149,11 @@ fn pe(d: &[u8]) -> Option<Layout> {
     let opt = nt + 24;
     let magic = u16le(d, opt)?;
     let entry_rva = u32le(d, opt + 16)? as u64;
-    let image_base = if magic == 0x20b { u64le(d, opt + 24)? } else { u32le(d, opt + 28)? as u64 };
+    let image_base = if magic == 0x20b {
+        u64le(d, opt + 24)?
+    } else {
+        u32le(d, opt + 28)? as u64
+    };
     let arch = match machine {
         0x14c => Some(Arch::X86),
         0x8664 => Some(Arch::X64),
@@ -147,7 +167,9 @@ fn pe(d: &[u8]) -> Option<Layout> {
     for i in 0..nsec.min(96) {
         let s = st + i * 40;
         let Some(raw) = d.get(s..s + 8) else { break };
-        let name = String::from_utf8_lossy(raw).trim_end_matches('\0').to_string();
+        let name = String::from_utf8_lossy(raw)
+            .trim_end_matches('\0')
+            .to_string();
         let ch = u32le(d, s + 36).unwrap_or(0);
         regions.push(Region {
             name,
@@ -159,8 +181,19 @@ fn pe(d: &[u8]) -> Option<Layout> {
         });
     }
     // ARMNT entry points have the Thumb bit set.
-    let entry_rva = if arch == Some(Arch::Thumb) { entry_rva & !1 } else { entry_rva };
-    Some(Layout { format: "PE", arch, image_base, entry: (entry_rva != 0).then_some(image_base + entry_rva), regions, imports: Default::default() })
+    let entry_rva = if arch == Some(Arch::Thumb) {
+        entry_rva & !1
+    } else {
+        entry_rva
+    };
+    Some(Layout {
+        format: "PE",
+        arch,
+        image_base,
+        entry: (entry_rva != 0).then_some(image_base + entry_rva),
+        regions,
+        imports: Default::default(),
+    })
 }
 
 fn elf(d: &[u8]) -> Option<Layout> {
@@ -170,15 +203,29 @@ fn elf(d: &[u8]) -> Option<Layout> {
     let is64 = *d.get(4)? == 2;
     let machine = u16le(d, 18)?;
     let (entry, phoff, phentsize, phnum) = if is64 {
-        (u64le(d, 24)?, u64le(d, 32)? as usize, u16le(d, 54)? as usize, u16le(d, 56)? as usize)
+        (
+            u64le(d, 24)?,
+            u64le(d, 32)? as usize,
+            u16le(d, 54)? as usize,
+            u16le(d, 56)? as usize,
+        )
     } else {
-        (u32le(d, 24)? as u64, u32le(d, 28)? as usize, u16le(d, 42)? as usize, u16le(d, 44)? as usize)
+        (
+            u32le(d, 24)? as u64,
+            u32le(d, 28)? as usize,
+            u16le(d, 42)? as usize,
+            u16le(d, 44)? as usize,
+        )
     };
     let arch = match machine {
         3 => Some(Arch::X86),
         0x3e => Some(Arch::X64),
         0xb7 => Some(Arch::Arm64),
-        0x28 => Some(if entry & 1 == 1 { Arch::Thumb } else { Arch::Arm }),
+        0x28 => Some(if entry & 1 == 1 {
+            Arch::Thumb
+        } else {
+            Arch::Arm
+        }),
         _ => None,
     };
     let mut regions = Vec::new();
@@ -188,15 +235,46 @@ fn elf(d: &[u8]) -> Option<Layout> {
             continue; // PT_LOAD only
         }
         let (flags, offset, vaddr, filesz, memsz) = if is64 {
-            (u32le(d, p + 4)?, u64le(d, p + 8)?, u64le(d, p + 16)?, u64le(d, p + 32)?, u64le(d, p + 40)?)
+            (
+                u32le(d, p + 4)?,
+                u64le(d, p + 8)?,
+                u64le(d, p + 16)?,
+                u64le(d, p + 32)?,
+                u64le(d, p + 40)?,
+            )
         } else {
-            (u32le(d, p + 24)?, u32le(d, p + 4)? as u64, u32le(d, p + 8)? as u64, u32le(d, p + 16)? as u64, u32le(d, p + 20)? as u64)
+            (
+                u32le(d, p + 24)?,
+                u32le(d, p + 4)? as u64,
+                u32le(d, p + 8)? as u64,
+                u32le(d, p + 16)? as u64,
+                u32le(d, p + 20)? as u64,
+            )
         };
-        let perm = format!("{}{}{}", if flags & 4 != 0 { 'r' } else { '-' }, if flags & 2 != 0 { 'w' } else { '-' }, if flags & 1 != 0 { 'x' } else { '-' });
-        regions.push(Region { name: format!("LOAD{} {perm}", regions.len()), va: vaddr, vsize: memsz, offset, file_size: filesz, exec: flags & 1 != 0 });
+        let perm = format!(
+            "{}{}{}",
+            if flags & 4 != 0 { 'r' } else { '-' },
+            if flags & 2 != 0 { 'w' } else { '-' },
+            if flags & 1 != 0 { 'x' } else { '-' }
+        );
+        regions.push(Region {
+            name: format!("LOAD{} {perm}", regions.len()),
+            va: vaddr,
+            vsize: memsz,
+            offset,
+            file_size: filesz,
+            exec: flags & 1 != 0,
+        });
     }
     let image_base = regions.iter().map(|r| r.va).min().unwrap_or(0);
-    Some(Layout { format: "ELF", arch, image_base, entry: (entry != 0).then_some(entry & !1), regions, imports: Default::default() })
+    Some(Layout {
+        format: "ELF",
+        arch,
+        image_base,
+        entry: (entry != 0).then_some(entry & !1),
+        regions,
+        imports: Default::default(),
+    })
 }
 
 fn macho(d: &[u8]) -> Option<Layout> {
@@ -226,14 +304,32 @@ fn macho(d: &[u8]) -> Option<Layout> {
         }
         match cmd {
             0x19 => {
-                let name = String::from_utf8_lossy(d.get(p + 8..p + 24)?).trim_end_matches('\0').to_string();
+                let name = String::from_utf8_lossy(d.get(p + 8..p + 24)?)
+                    .trim_end_matches('\0')
+                    .to_string();
                 let prot = u32le(d, p + 60)?;
-                regions.push(Region { name, va: u64le(d, p + 24)?, vsize: u64le(d, p + 32)?, offset: u64le(d, p + 40)?, file_size: u64le(d, p + 48)?, exec: prot & 4 != 0 });
+                regions.push(Region {
+                    name,
+                    va: u64le(d, p + 24)?,
+                    vsize: u64le(d, p + 32)?,
+                    offset: u64le(d, p + 40)?,
+                    file_size: u64le(d, p + 48)?,
+                    exec: prot & 4 != 0,
+                });
             }
             0x1 => {
-                let name = String::from_utf8_lossy(d.get(p + 8..p + 24)?).trim_end_matches('\0').to_string();
+                let name = String::from_utf8_lossy(d.get(p + 8..p + 24)?)
+                    .trim_end_matches('\0')
+                    .to_string();
                 let prot = u32le(d, p + 44)?;
-                regions.push(Region { name, va: u32le(d, p + 24)? as u64, vsize: u32le(d, p + 28)? as u64, offset: u32le(d, p + 32)? as u64, file_size: u32le(d, p + 36)? as u64, exec: prot & 4 != 0 });
+                regions.push(Region {
+                    name,
+                    va: u32le(d, p + 24)? as u64,
+                    vsize: u32le(d, p + 28)? as u64,
+                    offset: u32le(d, p + 32)? as u64,
+                    file_size: u32le(d, p + 36)? as u64,
+                    exec: prot & 4 != 0,
+                });
             }
             0x8000_0028 => entryoff = u64le(d, p + 8),
             _ => {}
@@ -241,39 +337,80 @@ fn macho(d: &[u8]) -> Option<Layout> {
         p += size;
     }
     regions.retain(|r| r.vsize > 0 || r.file_size > 0);
-    let image_base = regions.iter().find(|r| r.offset == 0 && r.file_size > 0).map(|r| r.va).unwrap_or(0);
-    let entry = entryoff.and_then(|off| regions.iter().find(|r| off >= r.offset && off < r.offset + r.file_size).map(|r| r.va + off - r.offset));
-    Some(Layout { format: "Mach-O", arch, image_base, entry, regions, imports: Default::default() })
+    let image_base = regions
+        .iter()
+        .find(|r| r.offset == 0 && r.file_size > 0)
+        .map(|r| r.va)
+        .unwrap_or(0);
+    let entry = entryoff.and_then(|off| {
+        regions
+            .iter()
+            .find(|r| off >= r.offset && off < r.offset + r.file_size)
+            .map(|r| r.va + off - r.offset)
+    });
+    Some(Layout {
+        format: "Mach-O",
+        arch,
+        image_base,
+        entry,
+        regions,
+        imports: Default::default(),
+    })
 }
 
 /// Import address table of a PE: every IAT slot address -> "dll!name".
 fn pe_imports(d: &[u8], l: &Layout) -> std::collections::HashMap<u64, String> {
     let mut out = std::collections::HashMap::new();
-    let (Some(nt), true) = (u32le(d, 0x3c).map(|v| v as usize), l.format == "PE") else { return out };
+    let (Some(nt), true) = (u32le(d, 0x3c).map(|v| v as usize), l.format == "PE") else {
+        return out;
+    };
     let opt = nt + 24;
     let is64 = u16le(d, opt) == Some(0x20b);
     // Data directory 1 = imports.
     let dirs = opt + if is64 { 112 } else { 96 };
-    let Some(imp_rva) = u32le(d, dirs + 8) else { return out };
+    let Some(imp_rva) = u32le(d, dirs + 8) else {
+        return out;
+    };
     if imp_rva == 0 {
         return out;
     }
     let off_of = |rva: u64| l.va_to_off(l.image_base + rva).map(|o| o as usize);
     let cstr = |o: usize| -> String {
-        d.get(o..).map(|s| s.iter().take(256).take_while(|b| **b != 0).map(|b| *b as char).collect()).unwrap_or_default()
+        d.get(o..)
+            .map(|s| {
+                s.iter()
+                    .take(256)
+                    .take_while(|b| **b != 0)
+                    .map(|b| *b as char)
+                    .collect()
+            })
+            .unwrap_or_default()
     };
-    let Some(mut desc) = off_of(imp_rva as u64) else { return out };
+    let Some(mut desc) = off_of(imp_rva as u64) else {
+        return out;
+    };
     for _ in 0..4096 {
-        let (Some(oft), Some(name_rva), Some(ft)) = (u32le(d, desc), u32le(d, desc + 12), u32le(d, desc + 16)) else { break };
+        let (Some(oft), Some(name_rva), Some(ft)) =
+            (u32le(d, desc), u32le(d, desc + 12), u32le(d, desc + 16))
+        else {
+            break;
+        };
         if name_rva == 0 && ft == 0 {
             break;
         }
-        let dll = off_of(name_rva as u64).map(cstr).unwrap_or_default().to_ascii_lowercase();
+        let dll = off_of(name_rva as u64)
+            .map(cstr)
+            .unwrap_or_default()
+            .to_ascii_lowercase();
         let lookup = if oft != 0 { oft } else { ft };
         if let Some(mut t) = off_of(lookup as u64) {
             let step = if is64 { 8 } else { 4 };
             for i in 0..65_536u64 {
-                let v = if is64 { u64le(d, t) } else { u32le(d, t).map(|x| x as u64) };
+                let v = if is64 {
+                    u64le(d, t)
+                } else {
+                    u32le(d, t).map(|x| x as u64)
+                };
                 let Some(v) = v else { break };
                 if v == 0 {
                     break;
@@ -282,7 +419,9 @@ fn pe_imports(d: &[u8], l: &Layout) -> std::collections::HashMap<u64, String> {
                 let func = if by_ordinal {
                     format!("#{}", v & 0xffff)
                 } else {
-                    off_of(v & 0x7fff_ffff).map(|o| cstr(o + 2)).unwrap_or_default()
+                    off_of(v & 0x7fff_ffff)
+                        .map(|o| cstr(o + 2))
+                        .unwrap_or_default()
                 };
                 out.insert(l.image_base + ft as u64 + i * step, format!("{dll}!{func}"));
                 t += step as usize;
@@ -313,7 +452,13 @@ const MAX_INSNS: usize = 2000;
 
 /// Decodes `count` instructions starting at file offset `start` (shown at the
 /// address the layout gives that offset).
-pub fn disassemble(data: &[u8], layout: &Layout, arch: Arch, start: u64, count: usize) -> Vec<Insn> {
+pub fn disassemble(
+    data: &[u8],
+    layout: &Layout,
+    arch: Arch,
+    start: u64,
+    count: usize,
+) -> Vec<Insn> {
     let count = count.clamp(1, MAX_INSNS);
     let start = (start as usize).min(data.len());
     // Never run past the region the start offset is in (into the next section).
@@ -328,7 +473,13 @@ pub fn disassemble(data: &[u8], layout: &Layout, arch: Arch, start: u64, count: 
     let code = &data[start..end];
     match arch {
         Arch::X86 | Arch::X64 => {
-            let mut v = x86(code, start as u64, va, if arch == Arch::X64 { 64 } else { 32 }, count);
+            let mut v = x86(
+                code,
+                start as u64,
+                va,
+                if arch == Arch::X64 { 64 } else { 32 },
+                count,
+            );
             if !layout.imports.is_empty() {
                 name_imports(data, layout, arch, &mut v);
             }
@@ -340,7 +491,10 @@ pub fn disassemble(data: &[u8], layout: &Layout, arch: Arch, start: u64, count: 
 }
 
 fn hex_bytes(b: &[u8]) -> String {
-    b.iter().map(|x| format!("{x:02x}")).collect::<Vec<_>>().join(" ")
+    b.iter()
+        .map(|x| format!("{x:02x}"))
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 fn x86(code: &[u8], off: u64, va: u64, bits: u32, count: usize) -> Vec<Insn> {
@@ -367,12 +521,26 @@ fn x86(code: &[u8], off: u64, va: u64, bits: u32, count: usize) -> Vec<Insn> {
         }
         let (flow, target) = match insn.flow_control() {
             FlowControl::Call | FlowControl::IndirectCall => ("call", near_target(&insn)),
-            FlowControl::UnconditionalBranch | FlowControl::IndirectBranch => ("jmp", near_target(&insn)),
+            FlowControl::UnconditionalBranch | FlowControl::IndirectBranch => {
+                ("jmp", near_target(&insn))
+            }
             FlowControl::ConditionalBranch => ("jcc", near_target(&insn)),
             FlowControl::Return => ("ret", None),
-            _ => ("", insn.is_ip_rel_memory_operand().then(|| insn.ip_rel_memory_address())),
+            _ => (
+                "",
+                insn.is_ip_rel_memory_operand()
+                    .then(|| insn.ip_rel_memory_address()),
+            ),
         };
-        out.push(Insn { offset: off + pos as u64, va: insn.ip(), bytes: hex_bytes(bytes), text, flow, target, symbol: None });
+        out.push(Insn {
+            offset: off + pos as u64,
+            va: insn.ip(),
+            bytes: hex_bytes(bytes),
+            text,
+            flow,
+            target,
+            symbol: None,
+        });
     }
     out
 }
@@ -383,7 +551,9 @@ fn mem_address(insn: &iced_x86::Instruction) -> Option<u64> {
         return Some(insn.ip_rel_memory_address());
     }
     let has_mem = (0..insn.op_count()).any(|i| insn.op_kind(i) == OpKind::Memory);
-    (has_mem && insn.memory_base() == iced_x86::Register::None && insn.memory_index() == iced_x86::Register::None)
+    (has_mem
+        && insn.memory_base() == iced_x86::Register::None
+        && insn.memory_index() == iced_x86::Register::None)
         .then(|| insn.memory_displacement64())
 }
 
@@ -392,13 +562,23 @@ fn mem_address(insn: &iced_x86::Instruction) -> Option<u64> {
 fn name_imports(data: &[u8], layout: &Layout, arch: Arch, insns: &mut [Insn]) {
     let bits = if arch == Arch::X64 { 64 } else { 32 };
     for ins in insns.iter_mut() {
-        let mut dec = Decoder::with_ip(bits, data.get(ins.offset as usize..).unwrap_or(&[]), ins.va, DecoderOptions::NONE);
+        let mut dec = Decoder::with_ip(
+            bits,
+            data.get(ins.offset as usize..).unwrap_or(&[]),
+            ins.va,
+            DecoderOptions::NONE,
+        );
         let i = dec.decode();
         let mut sym = mem_address(&i).and_then(|a| layout.imports.get(&a).cloned());
         if sym.is_none() && (ins.flow == "call" || ins.flow == "jmp") {
             // call thunk -> jmp [IAT]
             if let Some(t) = ins.target.and_then(|t| layout.va_to_off(t)) {
-                let mut td = Decoder::with_ip(bits, data.get(t as usize..).unwrap_or(&[]), ins.target.unwrap(), DecoderOptions::NONE);
+                let mut td = Decoder::with_ip(
+                    bits,
+                    data.get(t as usize..).unwrap_or(&[]),
+                    ins.target.unwrap(),
+                    DecoderOptions::NONE,
+                );
                 let ti = td.decode();
                 if ti.flow_control() == FlowControl::IndirectBranch {
                     sym = mem_address(&ti).and_then(|a| layout.imports.get(&a).cloned());
@@ -414,8 +594,12 @@ fn name_imports(data: &[u8], layout: &Layout, arch: Arch, insns: &mut [Insn]) {
 
 fn near_target(insn: &iced_x86::Instruction) -> Option<u64> {
     match insn.op0_kind() {
-        OpKind::NearBranch16 | OpKind::NearBranch32 | OpKind::NearBranch64 => Some(insn.near_branch_target()),
-        _ => insn.is_ip_rel_memory_operand().then(|| insn.ip_rel_memory_address()),
+        OpKind::NearBranch16 | OpKind::NearBranch32 | OpKind::NearBranch64 => {
+            Some(insn.near_branch_target())
+        }
+        _ => insn
+            .is_ip_rel_memory_operand()
+            .then(|| insn.ip_rel_memory_address()),
     }
 }
 
@@ -426,8 +610,19 @@ fn imm_target(ops: &str) -> Option<u64> {
     let i = ops.rfind('#')?;
     let v = &ops[i + 1..];
     match v.strip_prefix("0x") {
-        Some(hex) => u64::from_str_radix(&hex.chars().take_while(|c| c.is_ascii_hexdigit()).collect::<String>(), 16).ok(),
-        None => v.chars().take_while(|c| c.is_ascii_digit()).collect::<String>().parse().ok(),
+        Some(hex) => u64::from_str_radix(
+            &hex.chars()
+                .take_while(|c| c.is_ascii_hexdigit())
+                .collect::<String>(),
+            16,
+        )
+        .ok(),
+        None => v
+            .chars()
+            .take_while(|c| c.is_ascii_digit())
+            .collect::<String>()
+            .parse()
+            .ok(),
     }
 }
 
@@ -443,20 +638,33 @@ fn arm_flow(mnemonic: &str, ops: &str) -> &'static str {
         "ret" | "eret" => "ret",
         "b" | "br" | "bx" => "jmp",
         _ if m.starts_with("b.") || m.starts_with("cb") || m.starts_with("tb") => "jcc",
-        _ if m.starts_with('b') && m.len() == 3 && !matches!(m, "bic" | "bfi" | "bfc" | "brk" | "bkpt") => "jcc", // beq, bne, ...
+        _ if m.starts_with('b')
+            && m.len() == 3
+            && !matches!(m, "bic" | "bfi" | "bfc" | "brk" | "bkpt") =>
+        {
+            "jcc"
+        } // beq, bne, ...
         _ => "",
     }
 }
 
 fn arm64(code: &[u8], off: u64, va: u64, count: usize) -> Vec<Insn> {
-    match Capstone::new().arm64().mode(arch::arm64::ArchMode::Arm).build() {
+    match Capstone::new()
+        .arm64()
+        .mode(arch::arm64::ArchMode::Arm)
+        .build()
+    {
         Ok(cs) => arm_decode(&cs, code, off, va, 4, count),
         Err(_) => Vec::new(),
     }
 }
 
 fn arm32(code: &[u8], off: u64, va: u64, thumb: bool, count: usize) -> Vec<Insn> {
-    let mode = if thumb { arch::arm::ArchMode::Thumb } else { arch::arm::ArchMode::Arm };
+    let mode = if thumb {
+        arch::arm::ArchMode::Thumb
+    } else {
+        arch::arm::ArchMode::Arm
+    };
     match Capstone::new().arm().mode(mode).build() {
         Ok(cs) => arm_decode(&cs, code, off, va, if thumb { 2 } else { 4 }, count),
         Err(_) => Vec::new(),
@@ -465,7 +673,14 @@ fn arm32(code: &[u8], off: u64, va: u64, thumb: bool, count: usize) -> Vec<Insn>
 
 /// One instruction at a time, so bytes capstone cannot decode are shown (`.inst`, one
 /// `step` long) and decoding goes on after them instead of stopping there.
-fn arm_decode(cs: &Capstone, code: &[u8], off: u64, va: u64, step: usize, count: usize) -> Vec<Insn> {
+fn arm_decode(
+    cs: &Capstone,
+    code: &[u8],
+    off: u64,
+    va: u64,
+    step: usize,
+    count: usize,
+) -> Vec<Insn> {
     let mut out = Vec::new();
     let mut pos = 0usize;
     while pos + step <= code.len() && out.len() < count {
@@ -474,16 +689,40 @@ fn arm_decode(cs: &Capstone, code: &[u8], off: u64, va: u64, step: usize, count:
         let insn = one.as_ref().and_then(|v| v.iter().next());
         let Some(i) = insn else {
             let text = format!(".inst {}", hex_bytes(&code[pos..pos + step]));
-            out.push(Insn { offset: off + pos as u64, va: addr, bytes: hex_bytes(&code[pos..pos + step]), text, flow: "", target: None, symbol: None });
+            out.push(Insn {
+                offset: off + pos as u64,
+                va: addr,
+                bytes: hex_bytes(&code[pos..pos + step]),
+                text,
+                flow: "",
+                target: None,
+                symbol: None,
+            });
             pos += step;
             continue;
         };
         let (m, ops) = (i.mnemonic().unwrap_or(""), i.op_str().unwrap_or(""));
-        let text = if ops.is_empty() { m.to_string() } else { format!("{m} {ops}") };
+        let text = if ops.is_empty() {
+            m.to_string()
+        } else {
+            format!("{m} {ops}")
+        };
         let flow = arm_flow(m, ops);
-        let target = if (flow.is_empty() || flow == "ret") && !m.starts_with("adr") { None } else { imm_target(ops) };
+        let target = if (flow.is_empty() || flow == "ret") && !m.starts_with("adr") {
+            None
+        } else {
+            imm_target(ops)
+        };
         let len = i.len().max(1).min(code.len() - pos);
-        out.push(Insn { offset: off + pos as u64, va: addr, bytes: hex_bytes(&code[pos..pos + len]), text, flow, target, symbol: None });
+        out.push(Insn {
+            offset: off + pos as u64,
+            va: addr,
+            bytes: hex_bytes(&code[pos..pos + len]),
+            text,
+            flow,
+            target,
+            symbol: None,
+        });
         pos += len;
     }
     out
@@ -494,7 +733,14 @@ mod tests {
     use super::*;
 
     fn raw() -> Layout {
-        Layout { format: "raw", arch: None, image_base: 0, entry: None, regions: Vec::new(), imports: Default::default() }
+        Layout {
+            format: "raw",
+            arch: None,
+            image_base: 0,
+            entry: None,
+            regions: Vec::new(),
+            imports: Default::default(),
+        }
     }
 
     #[test]
@@ -507,10 +753,21 @@ mod tests {
     #[test]
     fn undecodable_bytes_are_shown_and_skipped() {
         // A32: an undefined word, then b . ; Thumb: pop {r4, pc} returns
-        let v = disassemble(&[0xff, 0xff, 0xff, 0xff, 0xfe, 0xff, 0xff, 0xea], &raw(), Arch::Arm, 0, 10);
+        let v = disassemble(
+            &[0xff, 0xff, 0xff, 0xff, 0xfe, 0xff, 0xff, 0xea],
+            &raw(),
+            Arch::Arm,
+            0,
+            10,
+        );
         assert_eq!(v.len(), 2, "{v:?}");
         assert!(v[0].text.starts_with(".inst"), "{}", v[0].text);
-        assert_eq!((v[1].va, v[1].flow, v[1].target), (4, "jmp", Some(4)), "{}", v[1].text);
+        assert_eq!(
+            (v[1].va, v[1].flow, v[1].target),
+            (4, "jmp", Some(4)),
+            "{}",
+            v[1].text
+        );
         let v = disassemble(&[0x10, 0xbd], &raw(), Arch::Thumb, 0, 1);
         assert_eq!(v[0].flow, "ret", "{}", v[0].text);
     }
@@ -530,7 +787,9 @@ mod tests {
     #[test]
     fn arm64_and_arm() {
         // nop; bl +8; ret
-        let code = [0x1f, 0x20, 0x03, 0xd5, 0x02, 0x00, 0x00, 0x94, 0xc0, 0x03, 0x5f, 0xd6];
+        let code = [
+            0x1f, 0x20, 0x03, 0xd5, 0x02, 0x00, 0x00, 0x94, 0xc0, 0x03, 0x5f, 0xd6,
+        ];
         let v = disassemble(&code, &raw(), Arch::Arm64, 0, 10);
         assert_eq!(v[0].text, "nop");
         assert_eq!((v[1].flow, v[1].target), ("call", Some(4 + 8)));
@@ -569,7 +828,10 @@ mod tests {
         d[s + 20..s + 24].copy_from_slice(&0x200u32.to_le_bytes());
         d[s + 36..s + 40].copy_from_slice(&0x6000_0020u32.to_le_bytes());
         let l = Layout::of(&d);
-        assert_eq!((l.format, l.arch, l.entry), ("PE", Some(Arch::X64), Some(0x1_4000_1010)));
+        assert_eq!(
+            (l.format, l.arch, l.entry),
+            ("PE", Some(Arch::X64), Some(0x1_4000_1010))
+        );
         assert_eq!(l.va_to_off(0x1_4000_1010), Some(0x210));
         assert_eq!(l.off_to_va(0x210), 0x1_4000_1010);
         assert_eq!(l.va_to_off(0x1_4000_0080), Some(0x80), "headers");

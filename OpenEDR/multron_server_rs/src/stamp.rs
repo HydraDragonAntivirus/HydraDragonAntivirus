@@ -29,7 +29,10 @@ fn format_nanos(n: i64) -> String {
 
 impl Stamp {
     pub fn new(s: &str) -> Self {
-        if let Some(n) = DateTime::parse_from_rfc3339(s).ok().and_then(|d| d.timestamp_nanos_opt()) {
+        if let Some(n) = DateTime::parse_from_rfc3339(s)
+            .ok()
+            .and_then(|d| d.timestamp_nanos_opt())
+        {
             if format_nanos(n) == s {
                 return Stamp::Utc(n);
             }
@@ -139,19 +142,36 @@ mod tests {
 
     #[test]
     fn round_trips_every_text_and_orders_by_time() {
-        for t in ["2026-10-09T15:51:33.443392800+00:00", "2026-10-09T15:51:33.485502+00:00", "2026-10-10T13:21:46.607+00:00", "2026-10-10T13:21:46+00:00"] {
+        for t in [
+            "2026-10-09T15:51:33.443392800+00:00",
+            "2026-10-09T15:51:33.485502+00:00",
+            "2026-10-10T13:21:46.607+00:00",
+            "2026-10-10T13:21:46+00:00",
+        ] {
             let s = Stamp::new(t);
             assert!(matches!(s, Stamp::Utc(_)), "{t}");
             assert_eq!(s.to_string(), t);
             assert_eq!(serde_json::to_string(&s).unwrap(), format!("\"{t}\""));
         }
         // Not the to_rfc3339 form: kept as text, unchanged.
-        for t in ["2026-10-09T15:51:33Z", "2026-10-09T18:51:33.400+03:00", "t2", ""] {
+        for t in [
+            "2026-10-09T15:51:33Z",
+            "2026-10-09T18:51:33.400+03:00",
+            "t2",
+            "",
+        ] {
             let s: Stamp = serde_json::from_str(&format!("\"{t}\"")).unwrap();
             assert!(matches!(s, Stamp::Raw(_)), "{t}");
             assert_eq!(s.to_string(), t);
         }
-        assert!(Stamp::new("2026-10-09T15:51:33.485502+00:00") < Stamp::new("2026-10-09T15:51:33.5+00:00".replace(".5", ".500001").as_str()));
+        assert!(
+            Stamp::new("2026-10-09T15:51:33.485502+00:00")
+                < Stamp::new(
+                    "2026-10-09T15:51:33.5+00:00"
+                        .replace(".5", ".500001")
+                        .as_str()
+                )
+        );
         assert!(Stamp::new("2026-10-09T15:51:33.443392800+00:00").starts_with("2026-10-09"));
         assert!(Stamp::new("").is_empty() && !Stamp::new("2026-10-10T13:21:46+00:00").is_empty());
         assert_eq!(std::mem::size_of::<Stamp>(), 16);

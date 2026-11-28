@@ -16,7 +16,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::time::Duration;
 
-use rusqlite::{params, Connection, OpenFlags};
+use rusqlite::{Connection, OpenFlags, params};
 
 use crate::cache::Sha;
 
@@ -79,7 +79,10 @@ fn tune(conn: &Connection, cache_kib: i64) -> Res<()> {
 }
 
 fn open_read(path: &Path, cache_kib: i64) -> Res<Connection> {
-    let conn = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX)?;
+    let conn = Connection::open_with_flags(
+        path,
+        OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
+    )?;
     tune(&conn, cache_kib)?;
     Ok(conn)
 }
@@ -94,7 +97,11 @@ fn open_read(path: &Path, cache_kib: i64) -> Res<Connection> {
 /// Busy (a long read still running): the copied part stays copied, retried later.
 pub(crate) fn truncate_wal(conn: &Connection, wait: Duration) -> Res<bool> {
     conn.busy_timeout(wait)?;
-    let done = conn.query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |r| r.get::<_, i64>(0)).map(|busy| busy == 0);
+    let done = conn
+        .query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |r| {
+            r.get::<_, i64>(0)
+        })
+        .map(|busy| busy == 0);
     conn.busy_timeout(Duration::from_secs(30))?;
     done
 }
@@ -183,15 +190,30 @@ impl InsightDb {
         if upgrade {
             upgrade_layout(&conn, path);
         }
-        let n = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4).clamp(1, LOOKUP_CONNECTIONS);
-        let lookup = (0..n).map(|_| open_read(path, LOOKUP_CACHE_KIB).map(Mutex::new)).collect::<Res<Vec<_>>>()?;
-        Ok(Self { path: path.to_path_buf(), write: Some(Mutex::new(conn)), lookup, last_truncate: Mutex::new(std::time::Instant::now()) })
+        let n = std::thread::available_parallelism()
+            .map(|n| n.get())
+            .unwrap_or(4)
+            .clamp(1, LOOKUP_CONNECTIONS);
+        let lookup = (0..n)
+            .map(|_| open_read(path, LOOKUP_CACHE_KIB).map(Mutex::new))
+            .collect::<Res<Vec<_>>>()?;
+        Ok(Self {
+            path: path.to_path_buf(),
+            write: Some(Mutex::new(conn)),
+            lookup,
+            last_truncate: Mutex::new(std::time::Instant::now()),
+        })
     }
 
     /// Opens an existing database for reading only (the standby's first look).
     pub fn open_readonly(path: &Path) -> Res<Self> {
         let lookup = open_read(path, SCAN_CACHE_KIB)?;
-        Ok(Self { path: path.to_path_buf(), write: None, lookup: vec![Mutex::new(lookup)], last_truncate: Mutex::new(std::time::Instant::now()) })
+        Ok(Self {
+            path: path.to_path_buf(),
+            write: None,
+            lookup: vec![Mutex::new(lookup)],
+            last_truncate: Mutex::new(std::time::Instant::now()),
+        })
     }
 
     /// After a write: at most once a minute, the WAL is copied into the database and
@@ -233,12 +255,19 @@ impl InsightDb {
     }
 
     pub fn count(&self) -> Res<u64> {
-        self.lookup(|c| c.query_row("SELECT COUNT(*) FROM insights", [], |r| r.get::<_, i64>(0)).map(|n| n as u64))
+        self.lookup(|c| {
+            c.query_row("SELECT COUNT(*) FROM insights", [], |r| r.get::<_, i64>(0))
+                .map(|n| n as u64)
+        })
     }
 
     /// Highest `seq` written so far (0 when empty).
     pub fn max_seq(&self) -> Res<i64> {
-        self.lookup(|c| c.query_row("SELECT COALESCE(MAX(seq), 0) FROM insights", [], |r| r.get(0)))
+        self.lookup(|c| {
+            c.query_row("SELECT COALESCE(MAX(seq), 0) FROM insights", [], |r| {
+                r.get(0)
+            })
+        })
     }
 
     /// The JSON of one hash.
@@ -254,7 +283,8 @@ impl InsightDb {
     }
 
     pub fn meta(&self, key: &str) -> Option<String> {
-        self.lookup(|c| c.query_row("SELECT value FROM meta WHERE key = ?1", [key], |r| r.get(0))).ok()
+        self.lookup(|c| c.query_row("SELECT value FROM meta WHERE key = ?1", [key], |r| r.get(0)))
+            .ok()
     }
 
     pub fn set_meta(&self, key: &str, value: &str) -> Res<()> {
@@ -270,7 +300,10 @@ impl InsightDb {
         let mut c = self.writer()?;
         let tx = c.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
         {
-            let mut seq: i64 = tx.query_row("SELECT COALESCE(MAX(seq), 0) FROM insights", [], |r| r.get(0))?;
+            let mut seq: i64 =
+                tx.query_row("SELECT COALESCE(MAX(seq), 0) FROM insights", [], |r| {
+                    r.get(0)
+                })?;
             let mut st = tx.prepare_cached(
                 "INSERT INTO insights(sha, seq, data, verdict, threat, first_seen, last_seen, seen_count, not_scanned, cols_seq)
                  VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?2)
@@ -342,11 +375,22 @@ impl InsightDb {
                 "UPDATE insights SET verdict = ?3, threat = ?4, first_seen = ?5, last_seen = ?6, seen_count = ?7, not_scanned = ?8, cols_seq = ?2
                  WHERE sha = ?1 AND seq = ?2",
             )?;
-            let mut done = tx.prepare_cached("UPDATE insights SET cols_seq = ?2 WHERE sha = ?1 AND seq = ?2")?;
+            let mut done =
+                tx.prepare_cached("UPDATE insights SET cols_seq = ?2 WHERE sha = ?1 AND seq = ?2")?;
             for (seq, sha, row) in rows {
                 match row {
                     Some(row) => {
-                        if st.execute(params![&sha[..], seq, row.verdict, row.threat, row.first_seen, row.last_seen, row.seen_count, row.not_scanned as i64])? > 0 {
+                        if st.execute(params![
+                            &sha[..],
+                            seq,
+                            row.verdict,
+                            row.threat,
+                            row.first_seen,
+                            row.last_seen,
+                            row.seen_count,
+                            row.not_scanned as i64
+                        ])? > 0
+                        {
                             write_sightings(&tx, row)?;
                         }
                     }
@@ -368,7 +412,9 @@ impl InsightDb {
             let mut st = c.prepare("SELECT sha, data FROM insights")?;
             let mut rows = st.query([])?;
             while let Some(row) = rows.next()? {
-                let Ok(sha) = Sha::try_from(row.get_ref(0)?.as_blob()?) else { continue };
+                let Ok(sha) = Sha::try_from(row.get_ref(0)?.as_blob()?) else {
+                    continue;
+                };
                 f(sha, row.get_ref(1)?.as_blob()?);
             }
             Ok(())
@@ -379,7 +425,8 @@ impl InsightDb {
     /// `(seq, json)`. The change feed for the archive mirror and the standby.
     pub fn changes_since(&self, seq: i64, limit: usize) -> Res<Vec<(i64, Vec<u8>)>> {
         self.scan(|c| {
-            let mut st = c.prepare("SELECT seq, data FROM insights WHERE seq > ?1 ORDER BY seq LIMIT ?2")?;
+            let mut st =
+                c.prepare("SELECT seq, data FROM insights WHERE seq > ?1 ORDER BY seq LIMIT ?2")?;
             let rows = st.query_map(params![seq, limit as i64], |r| Ok((r.get(0)?, r.get(1)?)))?;
             rows.collect()
         })
@@ -387,7 +434,13 @@ impl InsightDb {
 }
 
 fn widen_verdict_index(conn: &Connection) {
-    let columns: i64 = conn.query_row("SELECT COUNT(*) FROM pragma_index_info('insights_verdict')", [], |r| r.get(0)).unwrap_or(2);
+    let columns: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM pragma_index_info('insights_verdict')",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap_or(2);
     if columns >= 2 {
         return;
     }
@@ -405,10 +458,16 @@ fn widen_verdict_index(conn: &Connection) {
 
 fn upgrade_layout(conn: &Connection, path: &Path) {
     let without_rowid = conn
-        .query_row("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'insights'", [], |r| r.get::<_, String>(0))
+        .query_row(
+            "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'insights'",
+            [],
+            |r| r.get::<_, String>(0),
+        )
         .map(|sql| sql.to_ascii_uppercase().contains("WITHOUT ROWID"))
         .unwrap_or(false);
-    let page: i64 = conn.query_row("PRAGMA page_size", [], |r| r.get(0)).unwrap_or(PAGE_SIZE);
+    let page: i64 = conn
+        .query_row("PRAGMA page_size", [], |r| r.get(0))
+        .unwrap_or(PAGE_SIZE);
     if !without_rowid {
         widen_verdict_index(conn);
     }
@@ -416,7 +475,10 @@ fn upgrade_layout(conn: &Connection, path: &Path) {
         return;
     }
     let started = std::time::Instant::now();
-    eprintln!("[telemetry] moving {} to the faster layout (once)", path.display());
+    eprintln!(
+        "[telemetry] moving {} to the faster layout (once)",
+        path.display()
+    );
     let _ = conn.pragma_update(None, "cache_size", -UPGRADE_CACHE_KIB);
     if without_rowid {
         let moved = conn.execute_batch(&format!(
@@ -445,12 +507,20 @@ fn upgrade_layout(conn: &Connection, path: &Path) {
             eprintln!("[telemetry] layout change failed, keeping the old one: {e}");
             return;
         }
-        eprintln!("[telemetry] table moved in {:.1} s", started.elapsed().as_secs_f64());
+        eprintln!(
+            "[telemetry] table moved in {:.1} s",
+            started.elapsed().as_secs_f64()
+        );
     }
     if page < PAGE_SIZE {
-        let alone = conn.pragma_update_and_check(None, "journal_mode", "DELETE", |r| r.get::<_, String>(0)).map(|m| m.eq_ignore_ascii_case("delete")).unwrap_or(false);
+        let alone = conn
+            .pragma_update_and_check(None, "journal_mode", "DELETE", |r| r.get::<_, String>(0))
+            .map(|m| m.eq_ignore_ascii_case("delete"))
+            .unwrap_or(false);
         if alone {
-            let vacuumed = conn.pragma_update(None, "page_size", PAGE_SIZE).and_then(|_| conn.execute_batch("VACUUM"));
+            let vacuumed = conn
+                .pragma_update(None, "page_size", PAGE_SIZE)
+                .and_then(|_| conn.execute_batch("VACUUM"));
             if let Err(e) = vacuumed {
                 eprintln!("[telemetry] page size change failed, keeping {page}: {e}");
             }
@@ -460,14 +530,22 @@ fn upgrade_layout(conn: &Connection, path: &Path) {
         }
     }
     let _ = conn.pragma_update(None, "cache_size", -WRITE_CACHE_KIB);
-    eprintln!("[telemetry] layout ready in {:.1} s", started.elapsed().as_secs_f64());
+    eprintln!(
+        "[telemetry] layout ready in {:.1} s",
+        started.elapsed().as_secs_f64()
+    );
 }
 
 fn write_sightings(tx: &Connection, row: &InsightRow) -> Res<()> {
-    let mut stored: std::collections::HashMap<(String, String), (String, String, i64)> = std::collections::HashMap::new();
+    let mut stored: std::collections::HashMap<(String, String), (String, String, i64)> =
+        std::collections::HashMap::new();
     {
-        let mut read = tx.prepare_cached("SELECT ip, path, first_seen, last_seen, count FROM sightings WHERE sha = ?1")?;
-        let rows = read.query_map([&row.sha[..]], |r| Ok(((r.get(0)?, r.get(1)?), (r.get(2)?, r.get(3)?, r.get(4)?))))?;
+        let mut read = tx.prepare_cached(
+            "SELECT ip, path, first_seen, last_seen, count FROM sightings WHERE sha = ?1",
+        )?;
+        let rows = read.query_map([&row.sha[..]], |r| {
+            Ok(((r.get(0)?, r.get(1)?), (r.get(2)?, r.get(3)?, r.get(4)?)))
+        })?;
         for r in rows {
             let (key, value) = r?;
             stored.insert(key, value);
@@ -478,15 +556,26 @@ fn write_sightings(tx: &Connection, row: &InsightRow) -> Res<()> {
          ON CONFLICT(sha, ip, path) DO UPDATE SET first_seen = excluded.first_seen, last_seen = excluded.last_seen, count = excluded.count",
     )?;
     for s in &row.sightings {
-        let unchanged = stored
-            .remove(&(s.ip.clone(), s.path.clone()))
-            .is_some_and(|(first, last, count)| first == s.first_seen && last == s.last_seen && count == s.count);
+        let unchanged =
+            stored
+                .remove(&(s.ip.clone(), s.path.clone()))
+                .is_some_and(|(first, last, count)| {
+                    first == s.first_seen && last == s.last_seen && count == s.count
+                });
         if !unchanged {
-            write.execute(params![&row.sha[..], s.ip, s.path, s.first_seen, s.last_seen, s.count])?;
+            write.execute(params![
+                &row.sha[..],
+                s.ip,
+                s.path,
+                s.first_seen,
+                s.last_seen,
+                s.count
+            ])?;
         }
     }
     if !stored.is_empty() {
-        let mut remove = tx.prepare_cached("DELETE FROM sightings WHERE sha = ?1 AND ip = ?2 AND path = ?3")?;
+        let mut remove =
+            tx.prepare_cached("DELETE FROM sightings WHERE sha = ?1 AND ip = ?2 AND path = ?3")?;
         for (ip, path) in stored.keys() {
             remove.execute(params![&row.sha[..], ip, path])?;
         }
@@ -518,7 +607,13 @@ mod tests {
             not_scanned: false,
             sightings: sightings
                 .iter()
-                .map(|(ip, path)| SightingRow { ip: ip.to_string(), path: path.to_string(), first_seen: String::new(), last_seen: String::new(), count: 1 })
+                .map(|(ip, path)| SightingRow {
+                    ip: ip.to_string(),
+                    path: path.to_string(),
+                    first_seen: String::new(),
+                    last_seen: String::new(),
+                    count: 1,
+                })
                 .collect(),
         }
     }
@@ -527,15 +622,28 @@ mod tests {
     fn upsert_replaces_in_place_and_orders_changes() {
         let db = InsightDb::open(&tmp("upsert")).unwrap();
         let (a, b) = ([1u8; 32], [2u8; 32]);
-        db.upsert_batch(&[row(a, "a1", "clean", &[]), row(b, "b1", "clean", &[])]).unwrap();
+        db.upsert_batch(&[row(a, "a1", "clean", &[]), row(b, "b1", "clean", &[])])
+            .unwrap();
         db.upsert_batch(&[row(a, "a2", "malicious", &[])]).unwrap();
         assert_eq!(db.count().unwrap(), 2, "one row per hash");
         assert_eq!(db.max_seq().unwrap(), 3);
         let all = db.changes_since(0, 10).unwrap();
-        assert_eq!(all, vec![(2, b"b1".to_vec()), (3, b"a2".to_vec())], "the replaced copy is gone, newest change last");
+        assert_eq!(
+            all,
+            vec![(2, b"b1".to_vec()), (3, b"a2".to_vec())],
+            "the replaced copy is gone, newest change last"
+        );
         assert_eq!(db.changes_since(2, 10).unwrap(), vec![(3, b"a2".to_vec())]);
         assert_eq!(db.get(&a).unwrap().as_deref(), Some(&b"a2"[..]));
-        let v: String = db.lookup(|c| c.query_row("SELECT verdict FROM insights WHERE sha = ?1", [&a[..]], |r| r.get(0))).unwrap();
+        let v: String = db
+            .lookup(|c| {
+                c.query_row(
+                    "SELECT verdict FROM insights WHERE sha = ?1",
+                    [&a[..]],
+                    |r| r.get(0),
+                )
+            })
+            .unwrap();
         assert_eq!(v, "malicious", "columns follow the record");
     }
 
@@ -543,9 +651,24 @@ mod tests {
     fn sightings_are_replaced_with_the_record() {
         let db = InsightDb::open(&tmp("sight")).unwrap();
         let a = [3u8; 32];
-        db.upsert_batch(&[row(a, "x", "clean", &[("1.1.1.1", "C:\\a"), ("2.2.2.2", "")])]).unwrap();
-        db.upsert_batch(&[row(a, "y", "clean", &[("1.1.1.1", "C:\\b")])]).unwrap();
-        let n: i64 = db.lookup(|c| c.query_row("SELECT COUNT(*) FROM sightings WHERE sha = ?1", [&a[..]], |r| r.get(0))).unwrap();
+        db.upsert_batch(&[row(
+            a,
+            "x",
+            "clean",
+            &[("1.1.1.1", "C:\\a"), ("2.2.2.2", "")],
+        )])
+        .unwrap();
+        db.upsert_batch(&[row(a, "y", "clean", &[("1.1.1.1", "C:\\b")])])
+            .unwrap();
+        let n: i64 = db
+            .lookup(|c| {
+                c.query_row(
+                    "SELECT COUNT(*) FROM sightings WHERE sha = ?1",
+                    [&a[..]],
+                    |r| r.get(0),
+                )
+            })
+            .unwrap();
         assert_eq!(n, 1);
     }
 
@@ -561,15 +684,27 @@ mod tests {
             count,
         };
         let mut r = row(a, "x", "clean", &[]);
-        r.sightings = vec![sighting("1.1.1.1", "t1", 1), sighting("2.2.2.2", "t1", 1), sighting("3.3.3.3", "t1", 1)];
+        r.sightings = vec![
+            sighting("1.1.1.1", "t1", 1),
+            sighting("2.2.2.2", "t1", 1),
+            sighting("3.3.3.3", "t1", 1),
+        ];
         db.upsert_batch(&[r]).unwrap();
         let mut r = row(a, "y", "clean", &[]);
-        r.sightings = vec![sighting("1.1.1.1", "t2", 2), sighting("2.2.2.2", "t1", 1), sighting("4.4.4.4", "t2", 1)];
+        r.sightings = vec![
+            sighting("1.1.1.1", "t2", 2),
+            sighting("2.2.2.2", "t1", 1),
+            sighting("4.4.4.4", "t2", 1),
+        ];
         db.upsert_batch(&[r]).unwrap();
         let rows: Vec<(String, String, i64)> = db
             .lookup(|c| {
-                let mut st = c.prepare("SELECT ip, last_seen, count FROM sightings WHERE sha = ?1 ORDER BY ip")?;
-                let v = st.query_map([&a[..]], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?.collect();
+                let mut st = c.prepare(
+                    "SELECT ip, last_seen, count FROM sightings WHERE sha = ?1 ORDER BY ip",
+                )?;
+                let v = st
+                    .query_map([&a[..]], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?
+                    .collect();
                 v
             })
             .unwrap();
@@ -591,13 +726,32 @@ mod tests {
         db.upsert_batch(&[row(a, "x", "clean", &[])]).unwrap();
         assert!(db.stale_rows(&[0u8; 32], 10).unwrap().is_empty());
         // What a version without the columns writes: a new seq, columns untouched.
-        db.writer().unwrap().execute("UPDATE insights SET seq = seq + 1, data = x'7a' WHERE sha = ?1", [&a[..]]).unwrap();
+        db.writer()
+            .unwrap()
+            .execute(
+                "UPDATE insights SET seq = seq + 1, data = x'7a' WHERE sha = ?1",
+                [&a[..]],
+            )
+            .unwrap();
         let stale = db.stale_rows(&[0u8; 32], 10).unwrap();
         assert_eq!(stale.len(), 1);
         let (sha, seq, _) = &stale[0];
-        db.fill_columns(&[(*seq, *sha, Some(row(a, "z", "malicious", &[("9.9.9.9", "")])))]).unwrap();
+        db.fill_columns(&[(
+            *seq,
+            *sha,
+            Some(row(a, "z", "malicious", &[("9.9.9.9", "")])),
+        )])
+        .unwrap();
         assert!(db.stale_rows(&[0u8; 32], 10).unwrap().is_empty());
-        let v: String = db.lookup(|c| c.query_row("SELECT verdict FROM insights WHERE sha = ?1", [&a[..]], |r| r.get(0))).unwrap();
+        let v: String = db
+            .lookup(|c| {
+                c.query_row(
+                    "SELECT verdict FROM insights WHERE sha = ?1",
+                    [&a[..]],
+                    |r| r.get(0),
+                )
+            })
+            .unwrap();
         assert_eq!(v, "malicious");
     }
 
@@ -616,10 +770,12 @@ mod tests {
     fn readonly_sees_what_the_writer_wrote() {
         let p = tmp("ro");
         let w = InsightDb::open(&p).unwrap();
-        w.upsert_batch(&[row([9u8; 32], "z", "clean", &[])]).unwrap();
+        w.upsert_batch(&[row([9u8; 32], "z", "clean", &[])])
+            .unwrap();
         let r = InsightDb::open_readonly(&p).unwrap();
         assert_eq!(r.max_seq().unwrap(), 1);
-        w.upsert_batch(&[row([8u8; 32], "w", "clean", &[])]).unwrap();
+        w.upsert_batch(&[row([8u8; 32], "w", "clean", &[])])
+            .unwrap();
         assert_eq!(r.changes_since(1, 10).unwrap().len(), 1);
         assert!(r.set_meta("k", "v").is_err(), "read-only");
     }
@@ -635,18 +791,42 @@ mod tests {
                  CREATE INDEX insights_seq ON insights(seq);",
             )
             .unwrap();
-            c.execute("INSERT INTO insights(sha, seq, data) VALUES(?1, 1, x'61')", [&[1u8; 32][..]]).unwrap();
+            c.execute(
+                "INSERT INTO insights(sha, seq, data) VALUES(?1, 1, x'61')",
+                [&[1u8; 32][..]],
+            )
+            .unwrap();
         }
         let db = InsightDb::open_upgraded(&p).unwrap();
-        let sql: String = db.lookup(|c| c.query_row("SELECT sql FROM sqlite_master WHERE name = 'insights'", [], |r| r.get(0))).unwrap();
+        let sql: String = db
+            .lookup(|c| {
+                c.query_row(
+                    "SELECT sql FROM sqlite_master WHERE name = 'insights'",
+                    [],
+                    |r| r.get(0),
+                )
+            })
+            .unwrap();
         assert!(!sql.to_ascii_uppercase().contains("WITHOUT ROWID"));
-        let page: i64 = db.lookup(|c| c.query_row("PRAGMA page_size", [], |r| r.get(0))).unwrap();
+        let page: i64 = db
+            .lookup(|c| c.query_row("PRAGMA page_size", [], |r| r.get(0)))
+            .unwrap();
         assert_eq!(page, PAGE_SIZE);
-        let mode: String = db.lookup(|c| c.query_row("PRAGMA journal_mode", [], |r| r.get(0))).unwrap();
+        let mode: String = db
+            .lookup(|c| c.query_row("PRAGMA journal_mode", [], |r| r.get(0)))
+            .unwrap();
         assert_eq!(mode, "wal");
         assert_eq!(db.get(&[1u8; 32]).unwrap().as_deref(), Some(&b"a"[..]));
-        assert_eq!(db.stale_rows(&[0u8; 32], 10).unwrap().len(), 1, "columns are still filled later");
-        db.upsert_batch(&[row([1u8; 32], "b", "clean", &[]), row([2u8; 32], "c", "clean", &[])]).unwrap();
+        assert_eq!(
+            db.stale_rows(&[0u8; 32], 10).unwrap().len(),
+            1,
+            "columns are still filled later"
+        );
+        db.upsert_batch(&[
+            row([1u8; 32], "b", "clean", &[]),
+            row([2u8; 32], "c", "clean", &[]),
+        ])
+        .unwrap();
         assert_eq!(db.count().unwrap(), 2);
         assert_eq!(db.max_seq().unwrap(), 3);
     }
@@ -656,7 +836,8 @@ mod tests {
         let p = tmp("verdict_index");
         {
             let db = InsightDb::open(&p).unwrap();
-            db.upsert_batch(&[row([1u8; 32], "a", "malicious", &[])]).unwrap();
+            db.upsert_batch(&[row([1u8; 32], "a", "malicious", &[])])
+                .unwrap();
             db.writer().unwrap().execute_batch("DROP INDEX insights_verdict; CREATE INDEX insights_verdict ON insights(verdict);").unwrap();
         }
         let db = InsightDb::open_upgraded(&p).unwrap();

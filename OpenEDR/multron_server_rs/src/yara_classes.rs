@@ -48,8 +48,12 @@ fn load() -> HashMap<String, RuleClassEntry> {
     let mut m = HashMap::new();
     if let Ok(f) = std::fs::File::open(path()) {
         for line in BufReader::new(f).lines().map_while(Result::ok) {
-            let Ok(v) = serde_json::from_str::<serde_json::Value>(&line) else { continue };
-            let Some(key) = v["rule"].as_str().map(|r| r.trim().to_ascii_lowercase()) else { continue };
+            let Ok(v) = serde_json::from_str::<serde_json::Value>(&line) else {
+                continue;
+            };
+            let Some(key) = v["rule"].as_str().map(|r| r.trim().to_ascii_lowercase()) else {
+                continue;
+            };
             if v["removed"].as_bool() == Some(true) {
                 m.remove(&key);
             } else if let Ok(e) = serde_json::from_value::<RuleClassEntry>(v) {
@@ -65,14 +69,20 @@ fn load() -> HashMap<String, RuleClassEntry> {
 /// Hands the classes to the engine. Called at start and after every change.
 pub fn apply() {
     let g = entries().read().unwrap();
-    openedr_static::yara::set_analyst_rule_classes(g.values().filter_map(|e| Some((e.rule.clone(), parse_class(&e.class)?))));
+    openedr_static::yara::set_analyst_rule_classes(
+        g.values()
+            .filter_map(|e| Some((e.rule.clone(), parse_class(&e.class)?))),
+    );
     if !g.is_empty() {
         eprintln!("[yara] {} analyst rule classes in use", g.len());
     }
 }
 
 fn append(v: &serde_json::Value) -> std::io::Result<()> {
-    let mut f = std::fs::OpenOptions::new().create(true).append(true).open(path())?;
+    let mut f = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path())?;
     writeln!(f, "{v}")
 }
 
@@ -86,7 +96,10 @@ pub fn list() -> Vec<RuleClassEntry> {
 /// Sets the class of `rule`. Rule names are YARA identifiers: letters, digits, `_`.
 pub fn set(rule: &str, class: &str, note: &str, analyst: &str) -> Result<RuleClassEntry, String> {
     let rule = rule.trim();
-    if rule.is_empty() || rule.len() > 128 || !rule.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
+    if rule.is_empty()
+        || rule.len() > 128
+        || !rule.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+    {
         return Err("rule name: a YARA rule identifier (letters, digits, _)".into());
     }
     let Some(_) = parse_class(class) else {
@@ -100,7 +113,10 @@ pub fn set(rule: &str, class: &str, note: &str, analyst: &str) -> Result<RuleCla
         added: chrono::Utc::now().to_rfc3339(),
     };
     append(&serde_json::to_value(&e).map_err(|x| x.to_string())?).map_err(|x| x.to_string())?;
-    entries().write().unwrap().insert(rule.to_ascii_lowercase(), e.clone());
+    entries()
+        .write()
+        .unwrap()
+        .insert(rule.to_ascii_lowercase(), e.clone());
     apply();
     Ok(e)
 }

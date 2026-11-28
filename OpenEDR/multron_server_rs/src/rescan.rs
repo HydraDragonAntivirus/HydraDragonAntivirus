@@ -133,7 +133,9 @@ pub fn rescan_one(server: &Arc<ScanServer>, sha_hex: &str) -> Result<Change, Str
             reset_unkept_one(server, &sha_up);
             server.cache.forget(&[sha].into_iter().collect());
         }
-        return Err(format!("{why}; marked not scanned (the last verdict stays) so the client sends it again"));
+        return Err(format!(
+            "{why}; marked not scanned (the last verdict stays) so the client sends it again"
+        ));
     };
     let data = kept.read().ok_or("the kept file could not be read")?;
     let data_len = data.len() as u64;
@@ -141,46 +143,84 @@ pub fn rescan_one(server: &Arc<ScanServer>, sha_hex: &str) -> Result<Change, Str
     if actual != sha_up {
         return Err("the kept file does not match its SHA-256 (damaged?)".into());
     }
-    let old_verdict = server.threat_intel.get(&sha_up).map(|i| i.verdict.to_string()).unwrap_or_else(|| "unknown".into());
+    let old_verdict = server
+        .threat_intel
+        .get(&sha_up)
+        .map(|i| i.verdict.to_string())
+        .unwrap_or_else(|| "unknown".into());
 
     let ti = Arc::clone(&server.threat_intel);
     let mut report = None;
-    let res = server.engine.scan_blocking_opts(&data, &kept.name, &sha_up, false, |res| {
-        report = crate::scan_server::apply_threat_intel(&ti, &data, &kept.name, res);
-    })?;
+    let res = server
+        .engine
+        .scan_blocking_opts(&data, &kept.name, &sha_up, false, |res| {
+            report = crate::scan_server::apply_threat_intel(&ti, &data, &kept.name, res);
+        })?;
 
     // The kept file sits in the folder of the effective verdict: a human verdict wins.
-    let human = server.threat_intel.reviews.completed(&sha_up).and_then(|r| r.verdict);
+    let human = server
+        .threat_intel
+        .reviews
+        .completed(&sha_up)
+        .and_then(|r| r.verdict);
     match human.as_deref() {
         Some(v) => server.engine.relabel_kept(&sha_up, v),
         // Engine verdict: XOR-filter hits stay in their folder until an analyst decides.
-        None => server.engine.relabel_kept_to(&sha_up, crate::engine_adapter::KeptFile::category_for_result(&res)),
+        None => server.engine.relabel_kept_to(
+            &sha_up,
+            crate::engine_adapter::KeptFile::category_for_result(&res),
+        ),
     }
     server.remember(sha, &res);
     if server.threat_intel.get(&sha_up).is_none() {
         // Kept on disk but missing from the list (e.g. telemetry lost): add it, so it is
         // counted in the statistics and shows up in human analysis.
-        server.threat_intel.record(&sha_up.to_ascii_lowercase(), &res.verdict, res.threat.as_deref(), Some(&kept.name), Some(data_len), res.score);
+        server.threat_intel.record(
+            &sha_up.to_ascii_lowercase(),
+            &res.verdict,
+            res.threat.as_deref(),
+            Some(&kept.name),
+            Some(data_len),
+            res.score,
+        );
     } else {
-        server.threat_intel.set_engine_verdict(&sha_up, &res.verdict, res.threat.as_deref(), res.score);
+        server.threat_intel.set_engine_verdict(
+            &sha_up,
+            &res.verdict,
+            res.threat.as_deref(),
+            res.score,
+        );
     }
     if let Some(sg) = res.signer.as_ref() {
         server.threat_intel.set_signer(&sha_up, sg);
     }
-    server.threat_intel.set_detections(&sha_up, &res.verdict, &res.detections, true);
+    server
+        .threat_intel
+        .set_detections(&sha_up, &res.verdict, &res.detections, true);
 
     // Fresh static report (a newer analyzer may add fields) and TLSH index entry.
     if report.is_none() {
-        report = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| crate::analyzer::analyze(&data, &kept.name))).ok();
+        report = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            crate::analyzer::analyze(&data, &kept.name)
+        }))
+        .ok();
     }
     if let Some(rep) = report.as_ref() {
         crate::reports::replace(rep);
         if let Some(t) = rep.hashes.similarity_tlsh() {
-            server.threat_intel.similarity.add(&rep.hashes.sha256, t, rep.size);
+            server
+                .threat_intel
+                .similarity
+                .add(&rep.hashes.sha256, t, rep.size);
         }
     }
     if crate::human_review::AUTO_QUEUE_VERDICTS.contains(&res.verdict.as_str()) {
-        let _ = server.threat_intel.reviews.enqueue(&sha_up.to_ascii_lowercase(), "rescan", Some(&res.verdict), Some(&kept.name));
+        let _ = server.threat_intel.reviews.enqueue(
+            &sha_up.to_ascii_lowercase(),
+            "rescan",
+            Some(&res.verdict),
+            Some(&kept.name),
+        );
     }
 
     let change = Change {
@@ -200,13 +240,22 @@ pub fn rescan_one(server: &Arc<ScanServer>, sha_hex: &str) -> Result<Change, Str
         change.file_name,
         change.old_verdict,
         change.new_verdict,
-        change.threat.as_deref().map(|t| format!(" {t}")).unwrap_or_default()
+        change
+            .threat
+            .as_deref()
+            .map(|t| format!(" {t}"))
+            .unwrap_or_default()
     ));
     Ok(change)
 }
 
 /// `rescan_one` plus a dashboard log entry (also for failures).
-pub fn rescan_logged(server: &Arc<ScanServer>, sha_hex: &str, source: &'static str, run: u64) -> Result<Change, String> {
+pub fn rescan_logged(
+    server: &Arc<ScanServer>,
+    sha_hex: &str,
+    source: &'static str,
+    run: u64,
+) -> Result<Change, String> {
     let t = std::time::Instant::now();
     let r = rescan_one(server, sha_hex);
     let ms = t.elapsed().as_millis() as u64;
@@ -234,7 +283,11 @@ pub fn rescan_logged(server: &Arc<ScanServer>, sha_hex: &str, source: &'static s
             LogEntry {
                 sha256: sha.to_ascii_lowercase(),
                 file_name: kept.as_ref().map(|k| k.name.clone()).unwrap_or_default(),
-                old_verdict: server.threat_intel.get(&sha.to_ascii_lowercase()).map(|i| i.verdict.to_string()).unwrap_or_else(|| "unknown".into()),
+                old_verdict: server
+                    .threat_intel
+                    .get(&sha.to_ascii_lowercase())
+                    .map(|i| i.verdict.to_string())
+                    .unwrap_or_else(|| "unknown".into()),
                 new_verdict: String::new(),
                 threat: None,
                 detail: None,
@@ -277,14 +330,21 @@ fn parse_categories(categories: &[String]) -> Result<Vec<&'static str>, String> 
                 v.extend(["malicious", "suspicious"]);
                 continue;
             }
-            let c = CATEGORIES.iter().find(|k| **k == c.as_str()).ok_or_else(|| format!("unknown category {c}"))?;
+            let c = CATEGORIES
+                .iter()
+                .find(|k| **k == c.as_str())
+                .ok_or_else(|| format!("unknown category {c}"))?;
             v.push(*c);
         }
         v
     })
 }
 
-pub fn start_bulk_from(server: &Arc<ScanServer>, categories: &[String], source: &'static str) -> Result<usize, String> {
+pub fn start_bulk_from(
+    server: &Arc<ScanServer>,
+    categories: &[String],
+    source: &'static str,
+) -> Result<usize, String> {
     let cats = parse_categories(categories)?;
     let files: Vec<String> = server
         .engine
@@ -294,7 +354,13 @@ pub fn start_bulk_from(server: &Arc<ScanServer>, categories: &[String], source: 
         .map(|k| k.sha256)
         .collect();
     let label = cats.join(", ");
-    spawn_bulk(server, files, cats.iter().map(|c| c.to_string()).collect(), label, source)
+    spawn_bulk(
+        server,
+        files,
+        cats.iter().map(|c| c.to_string()).collect(),
+        label,
+        source,
+    )
 }
 
 /// One kept file with what is wrong with it.
@@ -313,7 +379,8 @@ pub struct AuditItem {
 /// Groups the kept files by SHA-256 and returns the ones that are duplicate (the same
 /// file in more than one place of multron_incoming) or not listed (no telemetry entry).
 pub fn kept_problems(server: &Arc<ScanServer>) -> Vec<AuditItem> {
-    let mut by_sha: std::collections::BTreeMap<String, AuditItem> = std::collections::BTreeMap::new();
+    let mut by_sha: std::collections::BTreeMap<String, AuditItem> =
+        std::collections::BTreeMap::new();
     for k in server.engine.list_kept() {
         let e = by_sha.entry(k.sha256.clone()).or_insert_with(|| AuditItem {
             sha256: k.sha256.to_ascii_lowercase(),
@@ -344,8 +411,13 @@ pub fn kept_audit(server: &Arc<ScanServer>) -> serde_json::Value {
     let mut per = serde_json::Map::new();
     for c in CATEGORIES {
         let inc = items.iter().filter(|i| i.categories.contains(&c));
-        let (dup, nl) = inc.fold((0usize, 0usize), |(d, n), i| (d + i.duplicate as usize, n + i.not_listed as usize));
-        per.insert(c.to_string(), serde_json::json!({ "duplicate": dup, "not_listed": nl }));
+        let (dup, nl) = inc.fold((0usize, 0usize), |(d, n), i| {
+            (d + i.duplicate as usize, n + i.not_listed as usize)
+        });
+        per.insert(
+            c.to_string(),
+            serde_json::json!({ "duplicate": dup, "not_listed": nl }),
+        );
     }
     serde_json::json!({
         "ok": true,
@@ -365,7 +437,12 @@ fn reset_unkept_one(server: &ScanServer, sha: &str) {
     // The last verdict stays: the file shows as "not scanned" until it is scanned again.
     server.threat_intel.mark_not_scanned(sha, "unkept");
     crate::missing_files::set_unknown(sha);
-    if server.threat_intel.reviews.get(sha).is_some_and(|r| !r.is_completed()) {
+    if server
+        .threat_intel
+        .reviews
+        .get(sha)
+        .is_some_and(|r| !r.is_completed())
+    {
         server.threat_intel.reviews.remove(sha);
     }
 }
@@ -375,14 +452,25 @@ fn reset_unkept_one(server: &ScanServer, sha: &str) {
 /// rescan cannot check them again, so their old verdict stays in the statistics and is
 /// still given to clients that send the hash. (upper-case hex, verdict).
 fn unkept_threats(server: &Arc<ScanServer>, verdicts: &[&str]) -> Vec<(String, String)> {
-    let kept: std::collections::HashSet<String> =
-        server.engine.list_kept().into_iter().map(|k| k.sha256.to_ascii_uppercase()).collect();
+    let kept: std::collections::HashSet<String> = server
+        .engine
+        .list_kept()
+        .into_iter()
+        .map(|k| k.sha256.to_ascii_uppercase())
+        .collect();
     let mut seen = std::collections::HashSet::new();
     let mut out = Vec::new();
-    let pending = server.threat_intel.reviews.pending(usize::MAX).into_iter().filter_map(|r| {
-        let v = r.engine_verdict?;
-        verdicts.contains(&v.as_str()).then(|| (r.sha256.to_ascii_uppercase(), v))
-    });
+    let pending = server
+        .threat_intel
+        .reviews
+        .pending(usize::MAX)
+        .into_iter()
+        .filter_map(|r| {
+            let v = r.engine_verdict?;
+            verdicts
+                .contains(&v.as_str())
+                .then(|| (r.sha256.to_ascii_uppercase(), v))
+        });
     for (sha, v) in server
         .threat_intel
         .engine_verdict_hashes(verdicts)
@@ -426,7 +514,11 @@ fn unkept_reason(sha: &str) -> &'static str {
 /// unkept queue entries are removed,
 /// and their cached verdict is dropped, so the next client that has the file uploads it
 /// and it is scanned with the current engine. Dashboard button only.
-pub fn unkept_threats_report(server: &Arc<ScanServer>, verdicts: &[String], apply: bool) -> Result<serde_json::Value, String> {
+pub fn unkept_threats_report(
+    server: &Arc<ScanServer>,
+    verdicts: &[String],
+    apply: bool,
+) -> Result<serde_json::Value, String> {
     let mut wanted: Vec<&str> = Vec::new();
     for v in verdicts {
         let k = UNKEPT_VERDICTS
@@ -441,8 +533,10 @@ pub fn unkept_threats_report(server: &Arc<ScanServer>, verdicts: &[String], appl
         wanted = DEFAULT_UNKEPT_VERDICTS.to_vec();
     }
     let shas = unkept_threats(server, &wanted);
-    let mut reasons: std::collections::BTreeMap<&'static str, usize> = std::collections::BTreeMap::new();
-    let mut per_verdict: std::collections::BTreeMap<String, usize> = std::collections::BTreeMap::new();
+    let mut reasons: std::collections::BTreeMap<&'static str, usize> =
+        std::collections::BTreeMap::new();
+    let mut per_verdict: std::collections::BTreeMap<String, usize> =
+        std::collections::BTreeMap::new();
     for (sha, v) in &shas {
         *reasons.entry(unkept_reason(sha)).or_default() += 1;
         *per_verdict.entry(v.clone()).or_default() += 1;
@@ -466,7 +560,8 @@ pub fn unkept_threats_report(server: &Arc<ScanServer>, verdicts: &[String], appl
         for (sha, _) in &shas {
             reset_unkept_one(server, sha);
         }
-        let set: std::collections::HashSet<_> = shas.iter().filter_map(|(s, _)| parse_sha(s)).collect();
+        let set: std::collections::HashSet<_> =
+            shas.iter().filter_map(|(s, _)| parse_sha(s)).collect();
         uncached = server.cache.forget(&set);
         server.log_info(format!(
             "{} {} hashes without a kept file marked not scanned, last verdict kept ({uncached} cached verdicts dropped)",
@@ -487,7 +582,11 @@ pub fn unkept_threats_report(server: &Arc<ScanServer>, verdicts: &[String], appl
 
 /// Rescans the duplicate and/or not-listed kept files of `categories` (one rescan per
 /// SHA-256). `kinds`: "duplicate", "not_listed" (empty = both).
-pub fn start_bulk_problems(server: &Arc<ScanServer>, categories: &[String], kinds: &[String]) -> Result<usize, String> {
+pub fn start_bulk_problems(
+    server: &Arc<ScanServer>,
+    categories: &[String],
+    kinds: &[String],
+) -> Result<usize, String> {
     let cats = parse_categories(categories)?;
     let want_dup = kinds.is_empty() || kinds.iter().any(|k| k == "duplicate");
     let want_nl = kinds.is_empty() || kinds.iter().any(|k| k == "not_listed");
@@ -508,7 +607,13 @@ pub fn start_bulk_problems(server: &Arc<ScanServer>, categories: &[String], kind
         _ => "not listed",
     };
     let label = format!("{what}: {}", cats.join(", "));
-    spawn_bulk(server, files, cats.iter().map(|c| c.to_string()).collect(), label, "bulk")
+    spawn_bulk(
+        server,
+        files,
+        cats.iter().map(|c| c.to_string()).collect(),
+        label,
+        "bulk",
+    )
 }
 
 /// Upper bound of the bulk-rescan workers.
@@ -517,10 +622,18 @@ const MAX_RESCAN_THREADS: usize = 4;
 /// Bulk-rescan workers: half the cores (the other half stays with the client scans),
 /// 1..=MAX_RESCAN_THREADS.
 fn rescan_threads() -> usize {
-    std::thread::available_parallelism().map_or(1, |n| n.get() / 2).clamp(1, MAX_RESCAN_THREADS)
+    std::thread::available_parallelism()
+        .map_or(1, |n| n.get() / 2)
+        .clamp(1, MAX_RESCAN_THREADS)
 }
 
-fn spawn_bulk(server: &Arc<ScanServer>, mut files: Vec<String>, cats: Vec<String>, label: String, source: &'static str) -> Result<usize, String> {
+fn spawn_bulk(
+    server: &Arc<ScanServer>,
+    mut files: Vec<String>,
+    cats: Vec<String>,
+    label: String,
+    source: &'static str,
+) -> Result<usize, String> {
     // One rescan per SHA-256: two workers must not move the same file at once.
     let mut seen = std::collections::HashSet::new();
     files.retain(|f| seen.insert(f.to_ascii_uppercase()));
@@ -556,24 +669,27 @@ fn spawn_bulk(server: &Arc<ScanServer>, mut files: Vec<String>, cats: Vec<String
                         .spawn_scoped(s, move || {
                             crate::scheduler::lower_thread_priority();
                             loop {
-                            if bulk.stop.load(Ordering::Relaxed) {
-                                break;
-                            }
-                            let Some(sha) = files.get(next.fetch_add(1, Ordering::Relaxed)) else { break };
-                            // Counted against the CPU budget like an engine worker.
-                            let _slot = hydradragonclamav::cpu_budget::worker();
-                            match rescan_logged(srv, sha, source, run) {
-                                Ok(c) => {
-                                    if c.old_verdict != c.new_verdict {
-                                        bulk.changed.fetch_add(1, Ordering::Relaxed);
-                                        bulk.push_change(c);
+                                if bulk.stop.load(Ordering::Relaxed) {
+                                    break;
+                                }
+                                let Some(sha) = files.get(next.fetch_add(1, Ordering::Relaxed))
+                                else {
+                                    break;
+                                };
+                                // Counted against the CPU budget like an engine worker.
+                                let _slot = hydradragonclamav::cpu_budget::worker();
+                                match rescan_logged(srv, sha, source, run) {
+                                    Ok(c) => {
+                                        if c.old_verdict != c.new_verdict {
+                                            bulk.changed.fetch_add(1, Ordering::Relaxed);
+                                            bulk.push_change(c);
+                                        }
+                                    }
+                                    Err(_) => {
+                                        bulk.failed.fetch_add(1, Ordering::Relaxed);
                                     }
                                 }
-                                Err(_) => {
-                                    bulk.failed.fetch_add(1, Ordering::Relaxed);
-                                }
-                            }
-                            bulk.done.fetch_add(1, Ordering::Relaxed);
+                                bulk.done.fetch_add(1, Ordering::Relaxed);
                             }
                         });
                     if let Err(e) = worker {

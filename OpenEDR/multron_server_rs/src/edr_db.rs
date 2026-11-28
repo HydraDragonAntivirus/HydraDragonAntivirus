@@ -16,12 +16,13 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::time::Duration;
 
-use rusqlite::{params, params_from_iter, types::Value as SqlValue, Connection, OpenFlags};
+use rusqlite::{Connection, OpenFlags, params, params_from_iter, types::Value as SqlValue};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
 use crate::edr_telemetry::{
-    EdrStats, StoredBehavior, StoredEdrEvent, StoredFlow, StoredKillchainEvent, StoredSystemReport, StoredThreat,
+    EdrStats, StoredBehavior, StoredEdrEvent, StoredFlow, StoredKillchainEvent, StoredSystemReport,
+    StoredThreat,
 };
 
 type Res<T> = rusqlite::Result<T>;
@@ -259,7 +260,11 @@ impl EdrDb {
         tune(&conn, WRITE_CACHE_KIB)?;
         conn.pragma_update(None, "journal_mode", "WAL")?;
         conn.pragma_update(None, "synchronous", "NORMAL")?;
-        conn.pragma_update(None, "journal_size_limit", crate::insight_db::WAL_SIZE_LIMIT)?;
+        conn.pragma_update(
+            None,
+            "journal_size_limit",
+            crate::insight_db::WAL_SIZE_LIMIT,
+        )?;
         let _ = crate::insight_db::truncate_wal(&conn, Duration::from_secs(5));
         conn.execute_batch(
             "CREATE TABLE IF NOT EXISTS behaviors (
@@ -331,7 +336,9 @@ impl EdrDb {
             ("event_time", "TEXT"),
         ] {
             if !have.iter().any(|c| c == col) {
-                conn.execute_batch(&format!("ALTER TABLE killchain_machines ADD COLUMN {col} {decl}"))?;
+                conn.execute_batch(&format!(
+                    "ALTER TABLE killchain_machines ADD COLUMN {col} {decl}"
+                ))?;
             }
         }
         let have_kc: Vec<String> = conn
@@ -344,7 +351,9 @@ impl EdrDb {
             ("search", "TEXT NOT NULL DEFAULT ''"),
         ] {
             if !have_kc.iter().any(|c| c == col) {
-                conn.execute_batch(&format!("ALTER TABLE killchain_events ADD COLUMN {col} {decl}"))?;
+                conn.execute_batch(&format!(
+                    "ALTER TABLE killchain_events ADD COLUMN {col} {decl}"
+                ))?;
             }
         }
         conn.execute_batch(
@@ -356,9 +365,16 @@ impl EdrDb {
              CREATE INDEX IF NOT EXISTS killchain_machines_summary ON killchain_machines(machine, count, first_seen, last_seen);
              CREATE INDEX IF NOT EXISTS killchain_machines_order ON killchain_machines(machine, event_date, event_time, key);",
         )?;
-        let read = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX)?;
+        let read = Connection::open_with_flags(
+            path,
+            OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
+        )?;
         tune(&read, READ_CACHE_KIB)?;
-        Ok(Self { path: path.to_path_buf(), write: Mutex::new(conn), read: Mutex::new(read) })
+        Ok(Self {
+            path: path.to_path_buf(),
+            write: Mutex::new(conn),
+            read: Mutex::new(read),
+        })
     }
 
     /// Opens an independent read-only WAL connection so bulk streaming exports never block live queries.
@@ -376,7 +392,11 @@ impl EdrDb {
     pub fn insert_behavior(&self, b: &StoredBehavior) -> Res<u64> {
         let conn = self.write.lock().unwrap_or_else(|e| e.into_inner());
         conn.prepare_cached("INSERT INTO behaviors (verdict, search, data) VALUES (?1, ?2, ?3)")?
-            .execute(params![b.verdict.to_ascii_lowercase(), behavior_search_text(b), to_json(b)?])?;
+            .execute(params![
+                b.verdict.to_ascii_lowercase(),
+                behavior_search_text(b),
+                to_json(b)?
+            ])?;
         Ok(conn.last_insert_rowid() as u64)
     }
 
@@ -397,7 +417,8 @@ impl EdrDb {
     /// Writes `t` and returns its row id (the record's id).
     pub fn insert_threat(&self, t: &StoredThreat) -> Res<u64> {
         let conn = self.write.lock().unwrap_or_else(|e| e.into_inner());
-        conn.prepare_cached("INSERT INTO threats (data) VALUES (?1)")?.execute(params![to_json(t)?])?;
+        conn.prepare_cached("INSERT INTO threats (data) VALUES (?1)")?
+            .execute(params![to_json(t)?])?;
         Ok(conn.last_insert_rowid() as u64)
     }
 
@@ -434,8 +455,10 @@ impl EdrDb {
     /// Writes a system diagnostic report and returns its row id.
     pub fn insert_system_report(&self, r: &StoredSystemReport) -> Res<u64> {
         let conn = self.write.lock().unwrap_or_else(|e| e.into_inner());
-        conn.prepare_cached("INSERT INTO system_reports (machine_id, time_iso, data) VALUES (?1, ?2, ?3)")?
-            .execute(params![r.machine_id, r.time_iso, to_json(r)?])?;
+        conn.prepare_cached(
+            "INSERT INTO system_reports (machine_id, time_iso, data) VALUES (?1, ?2, ?3)",
+        )?
+        .execute(params![r.machine_id, r.time_iso, to_json(r)?])?;
         Ok(conn.last_insert_rowid() as u64)
     }
 
@@ -493,7 +516,14 @@ impl EdrDb {
                     r.exe,
                     r.search
                 ])?;
-                machine.execute(params![r.key, machine_id, r.count as i64, now, r.date, r.time])?;
+                machine.execute(params![
+                    r.key,
+                    machine_id,
+                    r.count as i64,
+                    now,
+                    r.date,
+                    r.time
+                ])?;
             }
             let mut bump = tx.prepare_cached(
                 "UPDATE killchain_events SET count = count + ?2, last_seen = ?3 WHERE key = ?1",
@@ -501,7 +531,14 @@ impl EdrDb {
             for (key, count) in counts {
                 if bump.execute(params![key, *count as i64, now])? > 0 {
                     added_events = added_events.saturating_add(*count);
-                    machine.execute(params![key, machine_id, *count as i64, now, None::<String>, None::<String>])?;
+                    machine.execute(params![
+                        key,
+                        machine_id,
+                        *count as i64,
+                        now,
+                        None::<String>,
+                        None::<String>
+                    ])?;
                 }
             }
         }
@@ -512,9 +549,11 @@ impl EdrDb {
     /// (distinct kill chain event shapes, events they stand for).
     pub fn killchain_totals(&self) -> Res<(u64, u64)> {
         let conn = self.read.lock().unwrap_or_else(|e| e.into_inner());
-        conn.query_row("SELECT COUNT(*), COALESCE(SUM(count), 0) FROM killchain_events", [], |r| {
-            Ok((r.get::<_, i64>(0)? as u64, r.get::<_, i64>(1)? as u64))
-        })
+        conn.query_row(
+            "SELECT COUNT(*), COALESCE(SUM(count), 0) FROM killchain_events",
+            [],
+            |r| Ok((r.get::<_, i64>(0)? as u64, r.get::<_, i64>(1)? as u64)),
+        )
     }
 
     /// Recent/filtered kill chain event shapes for dashboard browsing and inspection.
@@ -720,7 +759,9 @@ impl EdrDb {
                     false
                 };
                 if !encoded {
-                    let Ok(serde_json::Value::Object(mut obj)) = serde_json::from_str::<serde_json::Value>(&data) else {
+                    let Ok(serde_json::Value::Object(mut obj)) =
+                        serde_json::from_str::<serde_json::Value>(&data)
+                    else {
                         continue;
                     };
                     if let Some(d) = d_opt {
@@ -767,13 +808,16 @@ impl EdrDb {
                         line_buf.extend_from_slice(br#","key":"#);
                     }
                     serde_json::to_writer(&mut line_buf, &key).is_ok()
-                        && write!(&mut line_buf, r#","count":{count},"machines":{machines}}}"#).is_ok()
+                        && write!(&mut line_buf, r#","count":{count},"machines":{machines}}}"#)
+                            .is_ok()
                 } else {
                     false
                 };
                 if !fast_ok {
                     line_buf.clear();
-                    let Ok(serde_json::Value::Object(mut obj)) = serde_json::from_str::<serde_json::Value>(&data) else {
+                    let Ok(serde_json::Value::Object(mut obj)) =
+                        serde_json::from_str::<serde_json::Value>(&data)
+                    else {
                         continue;
                     };
                     obj.insert("key".into(), key.into());
@@ -815,7 +859,9 @@ impl EdrDb {
 
     /// Machines that uploaded kill chain events: (machine, distinct events,
     /// events counted, first upload, last upload), most recent first.
-    pub fn killchain_machines(&self) -> Res<Vec<(String, u64, u64, Option<String>, Option<String>)>> {
+    pub fn killchain_machines(
+        &self,
+    ) -> Res<Vec<(String, u64, u64, Option<String>, Option<String>)>> {
         let conn = self.read.lock().unwrap_or_else(|e| e.into_inner());
         let mut st = conn.prepare(
             "SELECT machine, COUNT(*), COALESCE(SUM(count), 0), MIN(first_seen), MAX(last_seen)
@@ -838,11 +884,18 @@ impl EdrDb {
     pub fn stats(&self) -> Res<EdrStats> {
         let conn = self.read.lock().unwrap_or_else(|e| e.into_inner());
         let count = |verdict: &str| -> Res<u64> {
-            conn.query_row("SELECT COUNT(*) FROM behaviors WHERE verdict = ?1", [verdict], |r| r.get::<_, i64>(0))
-                .map(|n| n as u64)
+            conn.query_row(
+                "SELECT COUNT(*) FROM behaviors WHERE verdict = ?1",
+                [verdict],
+                |r| r.get::<_, i64>(0),
+            )
+            .map(|n| n as u64)
         };
         let total = |table: &str| -> Res<u64> {
-            conn.query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |r| r.get::<_, i64>(0)).map(|n| n as u64)
+            conn.query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |r| {
+                r.get::<_, i64>(0)
+            })
+            .map(|n| n as u64)
         };
         let total_behaviors = total("behaviors")?;
         let malicious_behaviors = count("malicious")?;
@@ -858,7 +911,8 @@ impl EdrDb {
             total_behaviors,
             malicious_behaviors,
             suspicious_behaviors,
-            clean_behaviors: total_behaviors.saturating_sub(malicious_behaviors + suspicious_behaviors),
+            clean_behaviors: total_behaviors
+                .saturating_sub(malicious_behaviors + suspicious_behaviors),
             total_flows: total("flows")?,
             total_threats: total("threats")?,
             total_events: total("edr_events")?,
@@ -868,7 +922,12 @@ impl EdrDb {
     }
 
     /// Newest behaviors first. `verdict` is lowercase; `search` is lowercase and not empty.
-    pub fn behaviors(&self, limit: usize, verdict: Option<&str>, search: Option<&str>) -> Res<Vec<StoredBehavior>> {
+    pub fn behaviors(
+        &self,
+        limit: usize,
+        verdict: Option<&str>,
+        search: Option<&str>,
+    ) -> Res<Vec<StoredBehavior>> {
         let conn = self.read.lock().unwrap_or_else(|e| e.into_inner());
         let limit = limit as i64;
         let set_id = |b: &mut StoredBehavior, id| b.id = id;
@@ -891,9 +950,12 @@ impl EdrDb {
                 &[&q, &limit],
                 set_id,
             ),
-            (None, None) => {
-                query_rows(&conn, "SELECT id, data FROM behaviors ORDER BY id DESC LIMIT ?1", &[&limit], set_id)
-            }
+            (None, None) => query_rows(
+                &conn,
+                "SELECT id, data FROM behaviors ORDER BY id DESC LIMIT ?1",
+                &[&limit],
+                set_id,
+            ),
         }
     }
 
@@ -909,7 +971,12 @@ impl EdrDb {
                 &[&q, &limit],
                 set_id,
             ),
-            None => query_rows(&conn, "SELECT id, data FROM flows ORDER BY id DESC LIMIT ?1", &[&limit], set_id),
+            None => query_rows(
+                &conn,
+                "SELECT id, data FROM flows ORDER BY id DESC LIMIT ?1",
+                &[&limit],
+                set_id,
+            ),
         }
     }
 
@@ -917,9 +984,12 @@ impl EdrDb {
     pub fn threats(&self, limit: usize) -> Res<Vec<StoredThreat>> {
         let conn = self.read.lock().unwrap_or_else(|e| e.into_inner());
         let limit = limit as i64;
-        query_rows(&conn, "SELECT id, data FROM threats ORDER BY id DESC LIMIT ?1", &[&limit], |t: &mut StoredThreat, id| {
-            t.id = id
-        })
+        query_rows(
+            &conn,
+            "SELECT id, data FROM threats ORDER BY id DESC LIMIT ?1",
+            &[&limit],
+            |t: &mut StoredThreat, id| t.id = id,
+        )
     }
 
     /// Newest raw lossless EDR events first, filtered dynamically.
@@ -934,16 +1004,28 @@ impl EdrDb {
         let conn = self.read.lock().unwrap_or_else(|e| e.into_inner());
         let mut conds: Vec<String> = Vec::new();
         let mut args: Vec<SqlValue> = Vec::new();
-        append_edr_event_conds(&mut conds, &mut args, event_type, machine_id, sysops_only, search);
+        append_edr_event_conds(
+            &mut conds,
+            &mut args,
+            event_type,
+            machine_id,
+            sysops_only,
+            search,
+        );
         args.push(SqlValue::Integer(limit as i64));
         let where_sql = if conds.is_empty() {
             String::new()
         } else {
             format!("WHERE {}", conds.join(" AND "))
         };
-        let sql = format!("SELECT id, data FROM edr_events {where_sql} ORDER BY id DESC LIMIT ?{}", args.len());
+        let sql = format!(
+            "SELECT id, data FROM edr_events {where_sql} ORDER BY id DESC LIMIT ?{}",
+            args.len()
+        );
         let mut st = conn.prepare(&sql)?;
-        let rows = st.query_map(params_from_iter(args), |r| Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?)))?;
+        let rows = st.query_map(params_from_iter(args), |r| {
+            Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?))
+        })?;
         let mut out = Vec::new();
         for row in rows {
             let (id, data) = row?;
@@ -984,7 +1066,8 @@ impl EdrDb {
         } else {
             format!("WHERE {}", conds.join(" AND "))
         };
-        let sql = format!("SELECT id, data FROM edr_events {where_sql} ORDER BY id ASC {limit_sql}");
+        let sql =
+            format!("SELECT id, data FROM edr_events {where_sql} ORDER BY id ASC {limit_sql}");
         let mut st = conn.prepare(&sql)?;
         let mut rows = st.query(params_from_iter(args))?;
         let mut line_buf = Vec::with_capacity(8192);
@@ -1075,7 +1158,10 @@ fn append_killchain_conds(
             ));
         }
     }
-    if let Some(q) = search.map(|s| s.trim().to_lowercase()).filter(|s| !s.is_empty()) {
+    if let Some(q) = search
+        .map(|s| s.trim().to_lowercase())
+        .filter(|s| !s.is_empty())
+    {
         args.push(SqlValue::Text(q));
         let p = args.len();
         conds.push(format!(
@@ -1117,7 +1203,10 @@ fn append_edr_event_conds(
         args.push(SqlValue::Text(m.to_string()));
         conds.push(format!("machine_id = ?{}", args.len()));
     }
-    if let Some(q) = search.map(|s| s.trim().to_lowercase()).filter(|s| !s.is_empty()) {
+    if let Some(q) = search
+        .map(|s| s.trim().to_lowercase())
+        .filter(|s| !s.is_empty())
+    {
         args.push(SqlValue::Text(q));
         conds.push(format!("instr(search, ?{}) > 0", args.len()));
     }
@@ -1137,7 +1226,12 @@ fn decode_killchain_record(
     data: &str,
 ) -> Option<StoredKillchainEvent> {
     let val: serde_json::Value = serde_json::from_str(data).ok()?;
-    let get_str = |k: &str| val.get(k).and_then(|v| v.as_str()).unwrap_or("").to_string();
+    let get_str = |k: &str| {
+        val.get(k)
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string()
+    };
     Some(StoredKillchainEvent {
         key,
         count,

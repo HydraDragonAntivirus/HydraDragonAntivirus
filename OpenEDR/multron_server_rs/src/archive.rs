@@ -56,7 +56,12 @@ pub const LOG_FILES: [&str; 5] = [
     "analyst_signatures/human_verdicts.jsonl",
 ];
 /// Folders mirrored with everything in them (the work folder is added separately).
-pub const MIRROR_DIRS: [&str; 4] = ["analyst_signatures", "tlsh_signatures", "firewall_signatures", "reports"];
+pub const MIRROR_DIRS: [&str; 4] = [
+    "analyst_signatures",
+    "tlsh_signatures",
+    "firewall_signatures",
+    "reports",
+];
 /// Written into the target after each complete run; the archive shows it.
 pub const MIRROR_STAMP: &str = "archive_mirror.json";
 const TMP_DIR: &str = ".mirror_tmp";
@@ -116,7 +121,10 @@ fn now() -> String {
 }
 
 fn mtime_ns(m: &fs::Metadata) -> u128 {
-    m.modified().ok().and_then(|t| t.duration_since(UNIX_EPOCH).ok()).map_or(0, |d| d.as_nanos())
+    m.modified()
+        .ok()
+        .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
+        .map_or(0, |d| d.as_nanos())
 }
 
 fn seen_path() -> PathBuf {
@@ -151,7 +159,9 @@ impl Mirror {
     /// a hash). Where it got to is kept per target in the database's `meta`; a run cut
     /// short writes some lines again next time, which changes nothing.
     fn export_insights(&self, target: &Path) -> io::Result<u64> {
-        let Some(db) = self.insights.read().unwrap().clone() else { return Ok(0) };
+        let Some(db) = self.insights.read().unwrap().clone() else {
+            return Ok(0);
+        };
         let key = format!("mirror_seq:{}", target.display());
         let mut seq: i64 = db.meta(&key).and_then(|v| v.parse().ok()).unwrap_or(0);
         let dst = target.join("threat_insights.jsonl");
@@ -177,7 +187,8 @@ impl Mirror {
             f.sync_data()?;
             bytes += out.len() as u64;
             seq = last;
-            db.set_meta(&key, &seq.to_string()).map_err(io::Error::other)?;
+            db.set_meta(&key, &seq.to_string())
+                .map_err(io::Error::other)?;
         }
         Ok(bytes)
     }
@@ -206,30 +217,41 @@ impl Mirror {
     /// Background thread: a run every 5 minutes and on `run_now`.
     pub fn spawn(self: &Arc<Self>, log: impl Fn(String) + Send + 'static) {
         let me = Arc::clone(self);
-        let _ = std::thread::Builder::new().name("archive-mirror".into()).spawn(move || {
-            // First run shortly after start, when the server is up.
-            std::thread::sleep(Duration::from_secs(20));
-            let mut was_reachable: Option<bool> = None;
-            loop {
-                if !me.target().is_empty() {
-                    me.stop.store(false, Ordering::Relaxed);
-                    let reachable = me.run_once();
-                    if was_reachable != Some(reachable) {
-                        let s = me.stats.lock().unwrap().clone();
-                        log(if reachable {
-                            format!("archive mirror: {} copied, {} appended, {:.1} MB, {} failed", s.copied, s.appended, s.bytes as f64 / 1048576.0, s.failed)
-                        } else {
-                            format!("archive mirror: {} not reachable, will try again", me.target())
-                        });
-                        was_reachable = Some(reachable);
+        let _ = std::thread::Builder::new()
+            .name("archive-mirror".into())
+            .spawn(move || {
+                // First run shortly after start, when the server is up.
+                std::thread::sleep(Duration::from_secs(20));
+                let mut was_reachable: Option<bool> = None;
+                loop {
+                    if !me.target().is_empty() {
+                        me.stop.store(false, Ordering::Relaxed);
+                        let reachable = me.run_once();
+                        if was_reachable != Some(reachable) {
+                            let s = me.stats.lock().unwrap().clone();
+                            log(if reachable {
+                                format!(
+                                    "archive mirror: {} copied, {} appended, {:.1} MB, {} failed",
+                                    s.copied,
+                                    s.appended,
+                                    s.bytes as f64 / 1048576.0,
+                                    s.failed
+                                )
+                            } else {
+                                format!(
+                                    "archive mirror: {} not reachable, will try again",
+                                    me.target()
+                                )
+                            });
+                            was_reachable = Some(reachable);
+                        }
                     }
+                    let (m, c) = &me.wake;
+                    let g = m.lock().unwrap();
+                    let (mut g, _) = c.wait_timeout_while(g, INTERVAL, |w| !*w).unwrap();
+                    *g = false;
                 }
-                let (m, c) = &me.wake;
-                let g = m.lock().unwrap();
-                let (mut g, _) = c.wait_timeout_while(g, INTERVAL, |w| !*w).unwrap();
-                *g = false;
-            }
-        });
+            });
     }
 
     /// One pass over everything. False when the target is not reachable.
@@ -238,7 +260,12 @@ impl Mirror {
         let target = PathBuf::from(self.target());
         {
             let mut s = self.stats.lock().unwrap();
-            *s = MirrorStats { last_complete: s.last_complete.clone(), running: true, started_at: Some(now()), ..Default::default() };
+            *s = MirrorStats {
+                last_complete: s.last_complete.clone(),
+                running: true,
+                started_at: Some(now()),
+                ..Default::default()
+            };
         }
         let finish = |reachable: bool, err: String| {
             let mut s = self.stats.lock().unwrap();
@@ -251,7 +278,13 @@ impl Mirror {
             }
         };
         if !target.is_absolute() || !target.is_dir() {
-            finish(false, format!("{} is not reachable (archive PC off or share not connected)", target.display()));
+            finish(
+                false,
+                format!(
+                    "{} is not reachable (archive PC off or share not connected)",
+                    target.display()
+                ),
+            );
             return false;
         }
         if same_dir(&target, &app_dir()) {
@@ -265,7 +298,10 @@ impl Mirror {
         }
 
         let mut seen = self.seen.lock().unwrap().take().unwrap_or_else(|| {
-            fs::read_to_string(seen_path()).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default()
+            fs::read_to_string(seen_path())
+                .ok()
+                .and_then(|t| serde_json::from_str(&t).ok())
+                .unwrap_or_default()
         });
 
         self.stats.lock().unwrap().current = "threat_insights.jsonl".into();
@@ -291,7 +327,12 @@ impl Mirror {
         for d in MIRROR_DIRS {
             walk(&root.join(d), d, &mut jobs);
         }
-        let work = self.work_dir.read().unwrap().clone().unwrap_or_else(|| root.join("multron_incoming"));
+        let work = self
+            .work_dir
+            .read()
+            .unwrap()
+            .clone()
+            .unwrap_or_else(|| root.join("multron_incoming"));
         walk(&work, "multron_incoming", &mut jobs);
 
         // Samples already in the archive, by SHA-256: a file that moved to another
@@ -307,7 +348,9 @@ impl Mirror {
             }
             if let Some(sha) = rel.strip_prefix("multron_incoming/").and_then(sample_sha) {
                 if let Some(cat) = category_of(Path::new(&rel)) {
-                    if moved_out.contains(&(sha.clone(), cat.to_string())) || crate::archived::is_archived(&sha, cat) {
+                    if moved_out.contains(&(sha.clone(), cat.to_string()))
+                        || crate::archived::is_archived(&sha, cat)
+                    {
                         continue;
                     }
                 }
@@ -319,10 +362,18 @@ impl Mirror {
                     let file_name = rel.rsplit('/').next().unwrap_or("");
                     let src_len = fs::metadata(&src).map(|m| m.len()).ok();
                     let found = archived.get(&sha).and_then(|v| {
-                        v.iter().find(|p| p.file_name().is_some_and(|n| n.to_string_lossy() == file_name) && fs::metadata(p).map(|m| m.len()).ok() == src_len).cloned()
+                        v.iter()
+                            .find(|p| {
+                                p.file_name()
+                                    .is_some_and(|n| n.to_string_lossy() == file_name)
+                                    && fs::metadata(p).map(|m| m.len()).ok() == src_len
+                            })
+                            .cloned()
                     });
                     if let Some(old) = found {
-                        if dst.parent().is_some_and(|d| fs::create_dir_all(d).is_ok()) && fs::rename(&old, &dst).is_ok() {
+                        if dst.parent().is_some_and(|d| fs::create_dir_all(d).is_ok())
+                            && fs::rename(&old, &dst).is_ok()
+                        {
                             if let Some(v) = archived.get_mut(&sha) {
                                 v.retain(|p| p != &old);
                                 v.push(dst.clone());
@@ -336,7 +387,8 @@ impl Mirror {
             let r = if LOG_FILES.contains(&rel.as_str()) {
                 sync_log(&src, &dst, prev)
             } else {
-                sync_file(&src, &dst, &tmp, prev.map(|p| (p.0, p.1))).map(|o| o.map(|(a, b, c, d)| (a, b, c, d, 0)))
+                sync_file(&src, &dst, &tmp, prev.map(|p| (p.0, p.1)))
+                    .map(|o| o.map(|(a, b, c, d)| (a, b, c, d, 0)))
             };
             match r {
                 Ok(Some((outcome, len, mt, bytes, fp))) => {
@@ -364,7 +416,10 @@ impl Mirror {
             }
         }
 
-        let _ = fs::write(seen_path(), serde_json::to_string(&seen).unwrap_or_default());
+        let _ = fs::write(
+            seen_path(),
+            serde_json::to_string(&seen).unwrap_or_default(),
+        );
         *self.seen.lock().unwrap() = Some(seen);
         if lost {
             finish(false, "the target went away during the run".into());
@@ -383,10 +438,20 @@ impl Mirror {
                 "time": now(), "checked": s.checked, "copied": s.copied, "appended": s.appended,
                 "bytes": s.bytes, "failed": s.failed, "moved": s.moved, "duplicates_removed": s.duplicates_removed,
             });
-            let _ = fs::write(target.join(MIRROR_STAMP), serde_json::to_string_pretty(&stamp).unwrap_or_default());
+            let _ = fs::write(
+                target.join(MIRROR_STAMP),
+                serde_json::to_string_pretty(&stamp).unwrap_or_default(),
+            );
             self.stats.lock().unwrap().last_complete = Some(now());
         }
-        finish(true, if stopped { "stopped".into() } else { String::new() });
+        finish(
+            true,
+            if stopped {
+                "stopped".into()
+            } else {
+                String::new()
+            },
+        );
         true
     }
 }
@@ -398,12 +463,20 @@ impl Mirror {
     /// folder of its current verdict; otherwise the plain one, then the newest.
     /// Returns (files removed, bytes freed).
     pub fn dedupe_now(&self) -> Result<(u64, u64), String> {
-        let _busy = self.busy.try_lock().map_err(|_| "a copy run is going on; duplicates are removed at its end".to_string())?;
+        let _busy = self
+            .busy
+            .try_lock()
+            .map_err(|_| "a copy run is going on; duplicates are removed at its end".to_string())?;
         let target = PathBuf::from(self.target());
         if !target.is_absolute() || !target.is_dir() {
             return Err(format!("{} is not reachable", target.display()));
         }
-        let work = self.work_dir.read().unwrap().clone().unwrap_or_else(|| app_dir().join("multron_incoming"));
+        let work = self
+            .work_dir
+            .read()
+            .unwrap()
+            .clone()
+            .unwrap_or_else(|| app_dir().join("multron_incoming"));
         let r = self.dedupe_in(&target, &work);
         let mut s = self.stats.lock().unwrap();
         s.duplicates_removed += r.0;
@@ -432,8 +505,13 @@ impl Mirror {
                 .filter(|p| copies.contains(p))
                 .cloned()
                 .or_else(|| {
-                    let cat = crate::engine_adapter::KeptFile::category_for(&verdict_of.as_ref().and_then(|f| f(&sha))?);
-                    let in_cat: Vec<&PathBuf> = copies.iter().filter(|p| category_of(p) == Some(cat)).collect();
+                    let cat = crate::engine_adapter::KeptFile::category_for(
+                        &verdict_of.as_ref().and_then(|f| f(&sha))?,
+                    );
+                    let in_cat: Vec<&PathBuf> = copies
+                        .iter()
+                        .filter(|p| category_of(p) == Some(cat))
+                        .collect();
                     best_copy(&in_cat)
                 })
                 .or_else(|| best_copy(&copies.iter().collect::<Vec<_>>()));
@@ -454,7 +532,8 @@ impl Mirror {
 fn sample_sha(rel_or_name: &str) -> Option<String> {
     let name = rel_or_name.rsplit(['/', '\\']).next()?;
     let sha = name.get(..64)?;
-    (sha.chars().all(|c| c.is_ascii_hexdigit()) && name.as_bytes().get(64) == Some(&b'_')).then(|| sha.to_ascii_uppercase())
+    (sha.chars().all(|c| c.is_ascii_hexdigit()) && name.as_bytes().get(64) == Some(&b'_'))
+        .then(|| sha.to_ascii_uppercase())
 }
 
 fn category_of(p: &Path) -> Option<&'static str> {
@@ -464,7 +543,9 @@ fn category_of(p: &Path) -> Option<&'static str> {
         parent = parent.parent()?;
     }
     let dir = parent.file_name()?.to_string_lossy().to_string();
-    crate::engine_adapter::KeptFile::CATEGORIES.into_iter().find(|c| *c == dir)
+    crate::engine_adapter::KeptFile::CATEGORIES
+        .into_iter()
+        .find(|c| *c == dir)
 }
 
 /// Plain over `.xz`, then the newest.
@@ -546,8 +627,14 @@ fn tail_hash(p: &Path, len: u64) -> io::Result<u64> {
 
 /// A `LOG_FILES` database: only added to in the archive (see the module docs).
 /// Returns (outcome, source length copied, source mtime, bytes written, tail hash).
-fn sync_log(src: &Path, dst: &Path, prev: Option<SeenFile>) -> io::Result<Option<(Outcome, u64, u128, u64, u64)>> {
-    let Ok(sm) = fs::metadata(src) else { return Ok(None) };
+fn sync_log(
+    src: &Path,
+    dst: &Path,
+    prev: Option<SeenFile>,
+) -> io::Result<Option<(Outcome, u64, u128, u64, u64)>> {
+    let Ok(sm) = fs::metadata(src) else {
+        return Ok(None);
+    };
     let (slen, smt) = (sm.len(), mtime_ns(&sm));
     let dlen = fs::metadata(dst).ok().map(|m| m.len());
     let Some(dlen) = dlen else {
@@ -562,9 +649,19 @@ fn sync_log(src: &Path, dst: &Path, prev: Option<SeenFile>) -> io::Result<Option
     // tail; on a first run against an archive, the archive's own copy when it is a
     // copy of this source so far.
     let from = match prev {
-        Some(SeenFile(plen, pmt, pfp)) if plen == slen && pmt == smt => return Ok(Some((Outcome::Same, slen, smt, 0, pfp))),
-        Some(SeenFile(plen, _, pfp)) if pfp != 0 && plen <= slen && tail_hash(src, plen)? == pfp => Some(plen),
-        Some(SeenFile(plen, _, 0)) if plen == dlen && dlen <= slen && same_tail(src, dst, dlen)? => Some(dlen),
+        Some(SeenFile(plen, pmt, pfp)) if plen == slen && pmt == smt => {
+            return Ok(Some((Outcome::Same, slen, smt, 0, pfp)));
+        }
+        Some(SeenFile(plen, _, pfp))
+            if pfp != 0 && plen <= slen && tail_hash(src, plen)? == pfp =>
+        {
+            Some(plen)
+        }
+        Some(SeenFile(plen, _, 0))
+            if plen == dlen && dlen <= slen && same_tail(src, dst, dlen)? =>
+        {
+            Some(dlen)
+        }
         None if dlen <= slen && same_tail(src, dst, dlen)? => Some(dlen),
         _ => None,
     };
@@ -578,7 +675,10 @@ fn sync_log(src: &Path, dst: &Path, prev: Option<SeenFile>) -> io::Result<Option
         None => {
             // A new or rewritten source: added whole after the archive's lines.
             if dlen > 0 && !ends_with_newline(dst, dlen)? {
-                OpenOptions::new().append(true).open(dst)?.write_all(b"\n")?;
+                OpenOptions::new()
+                    .append(true)
+                    .open(dst)?
+                    .write_all(b"\n")?;
             }
             let n = append_from(src, dst, 0, slen)?;
             Ok(Some((Outcome::Appended, slen, smt, n, fp)))
@@ -602,8 +702,15 @@ fn ends_with_newline(p: &Path, len: u64) -> io::Result<bool> {
 /// Copies one file if it changed since `prev` (length, mtime of the source when last
 /// copied). Grown files whose already copied part still matches get only the new
 /// bytes. Returns None when the source does not exist (any more).
-fn sync_file(src: &Path, dst: &Path, tmp_dir: &Path, prev: Option<(u64, u128)>) -> io::Result<Option<(Outcome, u64, u128, u64)>> {
-    let Ok(sm) = fs::metadata(src) else { return Ok(None) };
+fn sync_file(
+    src: &Path,
+    dst: &Path,
+    tmp_dir: &Path,
+    prev: Option<(u64, u128)>,
+) -> io::Result<Option<(Outcome, u64, u128, u64)>> {
+    let Ok(sm) = fs::metadata(src) else {
+        return Ok(None);
+    };
     let (slen, smt) = (sm.len(), mtime_ns(&sm));
     let dm = fs::metadata(dst).ok();
     let dlen = dm.as_ref().map(|m| m.len());
@@ -623,7 +730,13 @@ fn sync_file(src: &Path, dst: &Path, tmp_dir: &Path, prev: Option<(u64, u128)>) 
     if let Some(p) = dst.parent() {
         fs::create_dir_all(p)?;
     }
-    let tmp = tmp_dir.join(format!("{}_{}.part", std::process::id(), SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_nanos())));
+    let tmp = tmp_dir.join(format!(
+        "{}_{}.part",
+        std::process::id(),
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_or(0, |d| d.as_nanos())
+    ));
     let n = (|| -> io::Result<u64> {
         let mut r = File::open(src)?;
         let mut w = File::create(&tmp)?;
@@ -685,7 +798,12 @@ pub enum TailRead {
 
 impl Tail {
     pub fn new(path: PathBuf) -> Self {
-        Self { path, offset: 0, check: Vec::new(), fresh: true }
+        Self {
+            path,
+            offset: 0,
+            check: Vec::new(),
+            fresh: true,
+        }
     }
 
     /// Follows only what is added after the first `len` bytes (seamless update: the
@@ -701,7 +819,9 @@ impl Tail {
         };
         let start = len.saturating_sub(1 << 20);
         let mut buf = Vec::new();
-        if f.seek(SeekFrom::Start(start)).is_err() || (&mut f).take(len - start).read_to_end(&mut buf).is_err() {
+        if f.seek(SeekFrom::Start(start)).is_err()
+            || (&mut f).take(len - start).read_to_end(&mut buf).is_err()
+        {
             return t;
         }
         match buf.iter().rposition(|&b| b == b'\n') {
@@ -718,7 +838,12 @@ impl Tail {
 
     /// Continues from a position `state` gave (the archive keeps it across restarts).
     pub fn resume(path: PathBuf, offset: u64, check: Vec<u8>) -> Self {
-        Self { path, offset, check, fresh: false }
+        Self {
+            path,
+            offset,
+            check,
+            fresh: false,
+        }
     }
 
     /// Where reading got to: (offset, the last bytes before it).
@@ -747,7 +872,10 @@ impl Tail {
             reset = true;
         } else if self.offset > 0 && !self.check.is_empty() {
             let mut buf = vec![0u8; self.check.len()];
-            let ok = f.seek(SeekFrom::Start(self.offset - self.check.len() as u64)).is_ok() && f.read_exact(&mut buf).is_ok();
+            let ok = f
+                .seek(SeekFrom::Start(self.offset - self.check.len() as u64))
+                .is_ok()
+                && f.read_exact(&mut buf).is_ok();
             if !ok || buf != self.check {
                 reset = true;
             }
@@ -758,7 +886,9 @@ impl Tail {
         }
         let mut buf = Vec::new();
         if len > self.offset && f.seek(SeekFrom::Start(self.offset)).is_ok() {
-            let _ = (&mut f).take((len - self.offset).min(max)).read_to_end(&mut buf);
+            let _ = (&mut f)
+                .take((len - self.offset).min(max))
+                .read_to_end(&mut buf);
             // No line break in the part: read on to the end of that line.
             if len - self.offset > max && !buf.contains(&b'\n') {
                 let mut rest = Vec::new();
@@ -828,7 +958,9 @@ pub fn info_json() -> serde_json::Value {
 
 fn stamp_time() -> Option<String> {
     let t = fs::read_to_string(app_dir().join(MIRROR_STAMP)).ok()?;
-    serde_json::from_str::<serde_json::Value>(&t).ok()?["time"].as_str().map(str::to_string)
+    serde_json::from_str::<serde_json::Value>(&t).ok()?["time"]
+        .as_str()
+        .map(str::to_string)
 }
 
 const ARCHIVE_TAIL_KEY: &str = "archive_jsonl_position";
@@ -853,7 +985,10 @@ fn follow_insights(ti: &crate::threat_intel::ThreatIntelStore, tail: &mut Tail) 
         any = true;
         ti.flush(Duration::from_secs(600));
         let (offset, check) = tail.state();
-        let _ = ti.db().set_meta(ARCHIVE_TAIL_KEY, &serde_json::json!([offset, hex::encode(check)]).to_string());
+        let _ = ti.db().set_meta(
+            ARCHIVE_TAIL_KEY,
+            &serde_json::json!([offset, hex::encode(check)]).to_string(),
+        );
         if lines.is_empty() {
             break;
         }
@@ -865,56 +1000,67 @@ fn follow_insights(ti: &crate::threat_intel::ThreatIntelStore, tail: &mut Tail) 
 
 /// Archive mode: follows the mirrored files every minute.
 pub fn spawn_reloader(server: Arc<crate::scan_server::ScanServer>) {
-    let _ = std::thread::Builder::new().name("archive-reload".into()).spawn(move || {
-        let ti = Arc::clone(&server.threat_intel);
-        let root = app_dir();
-        // The archive's own database holds what was read; it goes on from there.
-        let mut insights = match ti.db().meta(ARCHIVE_TAIL_KEY).and_then(|v| serde_json::from_str::<(u64, String)>(&v).ok()) {
-            Some((offset, check)) => Tail::resume(root.join("threat_insights.jsonl"), offset, hex::decode(check).unwrap_or_default()),
-            None => Tail::new(root.join("threat_insights.jsonl")),
-        };
-        let mut reviews = Tail::new(crate::human_review::analyst_dir().join("human_verdicts.jsonl"));
-        let mut cache = Tail::new(root.join("multron_cache.jsonl"));
-        let mut tlsh = Tail::new(root.join("tlsh_index.jsonl"));
-        let sig_paths = vec![
-            root.join("tlsh_signatures"),
-            crate::human_review::analyst_dir(),
-            crate::sslbl::firewall_signatures_dir(),
-        ];
-        let mut sig_fp = fingerprint(&sig_paths);
-        let bans_path = root.join("ip_bans.json");
-        let mut bans_fp = fingerprint(std::slice::from_ref(&bans_path));
-        loop {
-            let feed = |t: &mut Tail, f: &dyn Fn(&[String], bool)| match t.read() {
-                TailRead::Same => {}
-                TailRead::New(l) => f(&l, false),
-                TailRead::Reset(l) => f(&l, true),
+    let _ = std::thread::Builder::new()
+        .name("archive-reload".into())
+        .spawn(move || {
+            let ti = Arc::clone(&server.threat_intel);
+            let root = app_dir();
+            // The archive's own database holds what was read; it goes on from there.
+            let mut insights = match ti
+                .db()
+                .meta(ARCHIVE_TAIL_KEY)
+                .and_then(|v| serde_json::from_str::<(u64, String)>(&v).ok())
+            {
+                Some((offset, check)) => Tail::resume(
+                    root.join("threat_insights.jsonl"),
+                    offset,
+                    hex::decode(check).unwrap_or_default(),
+                ),
+                None => Tail::new(root.join("threat_insights.jsonl")),
             };
-            follow_insights(&ti, &mut insights);
-            feed(&mut reviews, &|l, r| ti.reviews.archive_ingest(l, r));
-            feed(&mut cache, &|l, r| server.cache.archive_ingest(l, r));
-            feed(&mut tlsh, &|l, r| ti.similarity.archive_ingest_index(l, r));
-            let fp = fingerprint(&sig_paths);
-            if fp != sig_fp {
-                ti.similarity.reload_known_malware();
-                ti.similarity.reload_corpus_refs();
-                ti.similarity.reload_analyst_sigs();
-                crate::sslbl::sslbl_store().load();
-                sig_fp = fp;
+            let mut reviews =
+                Tail::new(crate::human_review::analyst_dir().join("human_verdicts.jsonl"));
+            let mut cache = Tail::new(root.join("multron_cache.jsonl"));
+            let mut tlsh = Tail::new(root.join("tlsh_index.jsonl"));
+            let sig_paths = vec![
+                root.join("tlsh_signatures"),
+                crate::human_review::analyst_dir(),
+                crate::sslbl::firewall_signatures_dir(),
+            ];
+            let mut sig_fp = fingerprint(&sig_paths);
+            let bans_path = root.join("ip_bans.json");
+            let mut bans_fp = fingerprint(std::slice::from_ref(&bans_path));
+            loop {
+                let feed = |t: &mut Tail, f: &dyn Fn(&[String], bool)| match t.read() {
+                    TailRead::Same => {}
+                    TailRead::New(l) => f(&l, false),
+                    TailRead::Reset(l) => f(&l, true),
+                };
+                follow_insights(&ti, &mut insights);
+                feed(&mut reviews, &|l, r| ti.reviews.archive_ingest(l, r));
+                feed(&mut cache, &|l, r| server.cache.archive_ingest(l, r));
+                feed(&mut tlsh, &|l, r| ti.similarity.archive_ingest_index(l, r));
+                let fp = fingerprint(&sig_paths);
+                if fp != sig_fp {
+                    ti.similarity.reload_known_malware();
+                    ti.similarity.reload_corpus_refs();
+                    ti.similarity.reload_analyst_sigs();
+                    crate::sslbl::sslbl_store().load();
+                    sig_fp = fp;
+                }
+                let fp = fingerprint(std::slice::from_ref(&bans_path));
+                if fp != bans_fp {
+                    server.ip_bans.reload();
+                    bans_fp = fp;
+                }
+                *INFO.write().unwrap() = Some(ArchiveInfo {
+                    data_as_of: stamp_time(),
+                    last_reload: Some(now()),
+                    insights: ti.stats().total_unique_hashes,
+                });
+                std::thread::sleep(Duration::from_secs(60));
             }
-            let fp = fingerprint(std::slice::from_ref(&bans_path));
-            if fp != bans_fp {
-                server.ip_bans.reload();
-                bans_fp = fp;
-            }
-            *INFO.write().unwrap() = Some(ArchiveInfo {
-                data_as_of: stamp_time(),
-                last_reload: Some(now()),
-                insights: ti.stats().total_unique_hashes,
-            });
-            std::thread::sleep(Duration::from_secs(60));
-        }
-    });
+        });
 }
 
 #[cfg(test)]
@@ -922,7 +1068,14 @@ mod tests {
     use super::*;
 
     fn tmpdir(tag: &str) -> PathBuf {
-        let d = std::env::temp_dir().join(format!("arch_{tag}_{}_{}", std::process::id(), SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()));
+        let d = std::env::temp_dir().join(format!(
+            "arch_{tag}_{}_{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
         fs::create_dir_all(&d).unwrap();
         d
     }
@@ -937,7 +1090,10 @@ mod tests {
         assert_eq!(r.0, Outcome::Copied);
         assert_eq!(fs::read_to_string(&dst).unwrap(), "one\n");
         let prev = Some((r.1, r.2));
-        assert_eq!(sync_file(&src, &dst, &tmp, prev).unwrap().unwrap().0, Outcome::Same);
+        assert_eq!(
+            sync_file(&src, &dst, &tmp, prev).unwrap().unwrap().0,
+            Outcome::Same
+        );
         // grown: only the new bytes
         fs::write(&src, "one\ntwo\n").unwrap();
         let r = sync_file(&src, &dst, &tmp, prev).unwrap().unwrap();
@@ -945,49 +1101,83 @@ mod tests {
         assert_eq!(fs::read_to_string(&dst).unwrap(), "one\ntwo\n");
         // rewritten (compacted): copied again
         fs::write(&src, "ONE\ntwo\nthree\n").unwrap();
-        let r = sync_file(&src, &dst, &tmp, Some((r.1, r.2))).unwrap().unwrap();
+        let r = sync_file(&src, &dst, &tmp, Some((r.1, r.2)))
+            .unwrap()
+            .unwrap();
         assert_eq!(r.0, Outcome::Copied);
         assert_eq!(fs::read_to_string(&dst).unwrap(), "ONE\ntwo\nthree\n");
-        assert!(sync_file(&d.join("missing"), &dst, &tmp, None).unwrap().is_none());
+        assert!(
+            sync_file(&d.join("missing"), &dst, &tmp, None)
+                .unwrap()
+                .is_none()
+        );
         assert_eq!(fs::read_dir(&tmp).unwrap().count(), 0, "no temp files left");
     }
 
     #[test]
     fn logs_are_only_added_to() {
         let d = tmpdir("log");
-        let (src, dst) = (d.join("threat_insights.jsonl"), d.join("arch/threat_insights.jsonl"));
+        let (src, dst) = (
+            d.join("threat_insights.jsonl"),
+            d.join("arch/threat_insights.jsonl"),
+        );
         // the archive already holds older data than this (fresh) main server
         fs::create_dir_all(d.join("arch")).unwrap();
         fs::write(&dst, "old1\nold2\nold3\n").unwrap();
         fs::write(&src, "new1\n").unwrap();
         let r = sync_log(&src, &dst, None).unwrap().unwrap();
         assert_eq!(r.0, Outcome::Appended);
-        assert_eq!(fs::read_to_string(&dst).unwrap(), "old1\nold2\nold3\nnew1\n");
+        assert_eq!(
+            fs::read_to_string(&dst).unwrap(),
+            "old1\nold2\nold3\nnew1\n"
+        );
         let prev = Some(SeenFile(r.1, r.2, r.4));
-        assert_eq!(sync_log(&src, &dst, prev).unwrap().unwrap().0, Outcome::Same);
+        assert_eq!(
+            sync_log(&src, &dst, prev).unwrap().unwrap().0,
+            Outcome::Same
+        );
         // grown: only the new bytes
         fs::write(&src, "new1\nnew2\n").unwrap();
         let r = sync_log(&src, &dst, prev).unwrap().unwrap();
         assert_eq!((r.0, r.3), (Outcome::Appended, 5));
-        assert_eq!(fs::read_to_string(&dst).unwrap(), "old1\nold2\nold3\nnew1\nnew2\n");
+        assert_eq!(
+            fs::read_to_string(&dst).unwrap(),
+            "old1\nold2\nold3\nnew1\nnew2\n"
+        );
         // rewritten here (compacted, or started again): added whole, nothing replaced
         fs::write(&src, "x\n").unwrap();
-        let r = sync_log(&src, &dst, Some(SeenFile(r.1, r.2, r.4))).unwrap().unwrap();
+        let r = sync_log(&src, &dst, Some(SeenFile(r.1, r.2, r.4)))
+            .unwrap()
+            .unwrap();
         assert_eq!(r.0, Outcome::Appended);
-        assert_eq!(fs::read_to_string(&dst).unwrap(), "old1\nold2\nold3\nnew1\nnew2\nx\n");
+        assert_eq!(
+            fs::read_to_string(&dst).unwrap(),
+            "old1\nold2\nold3\nnew1\nnew2\nx\n"
+        );
         // a normal mirror (archive = copy of this file) keeps only appending
         let (s2, d2) = (d.join("b.jsonl"), d.join("arch/b.jsonl"));
         fs::write(&s2, "a\nb\n").unwrap();
         fs::write(&d2, "a\n").unwrap();
         let r = sync_log(&s2, &d2, None).unwrap().unwrap();
-        assert_eq!((r.0, fs::read_to_string(&d2).unwrap()), (Outcome::Appended, "a\nb\n".to_string()));
+        assert_eq!(
+            (r.0, fs::read_to_string(&d2).unwrap()),
+            (Outcome::Appended, "a\nb\n".to_string())
+        );
         // older state (no tail hash) whose copy matches: continues
         fs::write(&s2, "a\nb\nc\n").unwrap();
-        let r = sync_log(&s2, &d2, Some(SeenFile(4, 1, 0))).unwrap().unwrap();
-        assert_eq!((r.0, fs::read_to_string(&d2).unwrap()), (Outcome::Appended, "a\nb\nc\n".to_string()));
+        let r = sync_log(&s2, &d2, Some(SeenFile(4, 1, 0)))
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            (r.0, fs::read_to_string(&d2).unwrap()),
+            (Outcome::Appended, "a\nb\nc\n".to_string())
+        );
         // missing in the archive: copied
         let d3 = d.join("arch/new/c.jsonl");
-        assert_eq!(sync_log(&s2, &d3, None).unwrap().unwrap().0, Outcome::Copied);
+        assert_eq!(
+            sync_log(&s2, &d3, None).unwrap().unwrap().0,
+            Outcome::Copied
+        );
         assert_eq!(fs::read_to_string(&d3).unwrap(), "a\nb\nc\n");
         // old state files ([len, mtime]) still load
         let old: Seen = serde_json::from_str(r#"{"x.jsonl":[10,20]}"#).unwrap();
@@ -1007,7 +1197,10 @@ mod tests {
         fs::write(&p, "z\n").unwrap();
         assert!(matches!(t.read(), TailRead::Reset(l) if l == ["z"]));
         fs::write(&p, "y\nlonger file now\n").unwrap();
-        assert!(matches!(t.read(), TailRead::Reset(l) if l == ["y", "longer file now"]), "same length start changed");
+        assert!(
+            matches!(t.read(), TailRead::Reset(l) if l == ["y", "longer file now"]),
+            "same length start changed"
+        );
     }
 
     #[test]
@@ -1025,25 +1218,57 @@ mod tests {
         assert!(m.run_once());
         // the verdict changed here: the file moved to malicious/
         fs::create_dir_all(work.join("malicious")).unwrap();
-        fs::rename(work.join("unknown").join(format!("{sha}_x.exe")), work.join("malicious").join(format!("{sha}_x.exe"))).unwrap();
+        fs::rename(
+            work.join("unknown").join(format!("{sha}_x.exe")),
+            work.join("malicious").join(format!("{sha}_x.exe")),
+        )
+        .unwrap();
         assert!(m.run_once());
         let st = m.status();
         assert_eq!(st["moved"], 1, "{st}");
-        assert_eq!(st["duplicates_removed"], 0, "moved, not copied: nothing to remove");
-        assert!(target.join(format!("multron_incoming/malicious/{sha}_x.exe")).exists());
-        assert!(!target.join(format!("multron_incoming/unknown/{sha}_x.exe")).exists());
+        assert_eq!(
+            st["duplicates_removed"], 0,
+            "moved, not copied: nothing to remove"
+        );
+        assert!(
+            target
+                .join(format!("multron_incoming/malicious/{sha}_x.exe"))
+                .exists()
+        );
+        assert!(
+            !target
+                .join(format!("multron_incoming/unknown/{sha}_x.exe"))
+                .exists()
+        );
 
         // leftovers from older runs (offloaded file, no longer here): verdict decides
         let sha2 = "CD".repeat(32);
         for cat in ["unknown", "suspicious"] {
             fs::create_dir_all(target.join("multron_incoming").join(cat)).unwrap();
-            fs::write(target.join("multron_incoming").join(cat).join(format!("{sha2}_y.dll")), b"MZ2").unwrap();
+            fs::write(
+                target
+                    .join("multron_incoming")
+                    .join(cat)
+                    .join(format!("{sha2}_y.dll")),
+                b"MZ2",
+            )
+            .unwrap();
         }
         let want = sha2.clone();
-        m.set_verdict_lookup(Arc::new(move |s: &str| (s == want).then(|| "suspicious".to_string())));
+        m.set_verdict_lookup(Arc::new(move |s: &str| {
+            (s == want).then(|| "suspicious".to_string())
+        }));
         assert_eq!(m.dedupe_now().unwrap().0, 1);
-        assert!(target.join(format!("multron_incoming/suspicious/{sha2}_y.dll")).exists());
-        assert!(!target.join(format!("multron_incoming/unknown/{sha2}_y.dll")).exists());
+        assert!(
+            target
+                .join(format!("multron_incoming/suspicious/{sha2}_y.dll"))
+                .exists()
+        );
+        assert!(
+            !target
+                .join(format!("multron_incoming/unknown/{sha2}_y.dll"))
+                .exists()
+        );
         assert_eq!(m.dedupe_now().unwrap().0, 0);
     }
 
@@ -1059,7 +1284,10 @@ mod tests {
         *m.target.write().unwrap() = target.to_string_lossy().to_string();
         m.set_work_dir(Some(work.clone()));
         assert!(m.run_once());
-        assert_eq!(fs::read(target.join("multron_incoming/malicious/AB_x.exe")).unwrap(), b"MZ");
+        assert_eq!(
+            fs::read(target.join("multron_incoming/malicious/AB_x.exe")).unwrap(),
+            b"MZ"
+        );
         assert!(target.join(MIRROR_STAMP).exists());
         // removed at the source: stays in the archive
         fs::remove_file(work.join("malicious").join("AB_x.exe")).unwrap();

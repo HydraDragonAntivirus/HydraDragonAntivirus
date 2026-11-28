@@ -1,5 +1,5 @@
 use std::collections::{HashMap, VecDeque};
-use std::panic::{catch_unwind, AssertUnwindSafe};
+use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
 
@@ -93,7 +93,9 @@ impl FairScheduler {
             {
                 let inner = &mut *g;
                 while let Some(sid) = inner.order.pop_front() {
-                    let Some(q) = inner.queues.get_mut(&sid) else { continue };
+                    let Some(q) = inner.queues.get_mut(&sid) else {
+                        continue;
+                    };
                     let job = q.pop_front();
                     let empty = q.is_empty();
                     if empty {

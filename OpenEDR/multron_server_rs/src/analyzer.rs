@@ -204,66 +204,249 @@ pub struct KeywordHit {
 /// is left out on purpose: ssh-keygen ships with Git and OpenSSH.
 /// (severity, id, label, keywords)
 pub const STRING_RULES: &[(&str, &str, &str, &[&str])] = &[
-    ("high", "str_activator", "Unlicensed Windows/Office activator", &[
-        "get.activated.win", "massgrave", "massgrave.dev", "kms_vl_all", "kmspico", "kmsauto", "kms38",
-        "hwid_activation", "ohook_activation", "microsoft-activation-scripts", "slmgr /skms", "slmgr.vbs /skms",
-        "aact.exe", "kmstools",
-    ]),
-    ("high", "str_offer_downloader", "Pay-per-install offer downloader", &[
-        "r=offer_execution", "offer_execution_fail", "r=offer_exists", "&d=inno&", "offer_accepted", "offer_declined",
-        "offerid=", "&offer_id=", "installcore", "opencandy", "{tmp}\\eld0.exe",
-    ]),
-    ("high", "str_homepage_hijack", "Browser start page / search hijack", &[
-        "internet explorer\\main\\start page", "\\main\\start page", "\\main\\search page",
-        "homepage_is_newtabpage", "default_search_provider_data", "restore_on_startup",
-        "wz123.com",
-    ]),
-    ("high", "str_proxyware", "Proxyware / bandwidth sharing", &[
-        "microleaves", "worldproxypool", "honeygain", "pawns.app", "iproyal", "packetstream", "peer2profit",
-        "earnapp", "luminati.io", "brightdata", "bright sdk", "proxyrack", "repocket", "traffmonetizer",
-    ]),
-    ("high", "str_stealer_targets", "Browser / wallet / messenger data paths (stealer)", &[
-        "\\local storage\\leveldb", "\\login data", "\\web data", "wallet.dat", "\\exodus\\exodus.wallet",
-        "\\atomic\\local storage", "nkbihfbeogaeaoehlefnkodbefgpgknn", "\\telegram desktop\\tdata",
-        "discord.com/api/webhooks", "api.telegram.org/bot", "\\electrum\\wallets",
-    ]),
-    ("high", "str_defender_tamper", "Turns off or excludes Microsoft Defender", &[
-        "add-mppreference -exclusionpath", "add-mppreference -exclusionprocess", "set-mppreference -disablerealtimemonitoring",
-        "disableantispyware\" /t reg_dword /d 1", "disablerealtimemonitoring\" /t reg_dword /d 1", "-disableioavprotection $true",
-    ]),
-    ("high", "str_anti_forensics", "Clears event logs / USN journal / free space", &[
-        "wevtutil cl ", "wevtutil.exe cl ", "clear-eventlog -logname", "fsutil usn deletejournal", "cipher /w:",
-        "remove-item -path $env:windir\\system32\\winevt",
-    ]),
-    ("high", "str_destructive", "Destroys the system or user data", &[
-        "format c: /", "del /f /s /q c:\\", "del /s /f /q c:\\", "rd /s /q c:\\windows", "rmdir /s /q c:\\windows",
-        "takeown /f c:\\windows\\system32", "icacls c:\\windows\\system32", "bootstatuspolicy ignoreallfailures",
-        "bcdedit /delete", "bootsect /nt60 all /mbr", "diskpart /s",
-    ]),
-    ("low", "str_raw_disk", "Raw disk / volume access (MBR, boot sector, wipers; also Windows and disk tools)", &[
-        "\\\\.\\physicaldrive", "\\\\.\\harddisk", "\\device\\harddisk", "\\\\.\\globalroot\\device",
-        "\\\\?\\globalroot\\device", "\\\\.\\c:", "\\\\.\\physicalmemory", "\\device\\physicalmemory",
-    ]),
-    ("medium", "str_crack", "Crack / keygen / patched software", &[
-        "pre-patched", "keygen by", "\\keygen\\", "[keygen]", "cracked by", "patched by", "crack by", "\\crack\\", "getintopc",
-        "serial generator", "license bypass", "loader by", "repack by", "anti-crack",
-    ]),
-    ("medium", "str_cheat_loader", "Game cheat loader / injector", &[
-        "injecting...", "load_product", "c_loader@loader", "manualmap", "manual map", "kdmapper", "dll injector",
-        "aimbot", "wallhack", "esp_enabled", "triggerbot",
-    ]),
-    ("medium", "str_device_unlock", "Phone FRP / iCloud / MDM bypass tool", &[
-        "frp bypass", "frp reset", "remove frp", "samfrp", "frp unlock", "google account lock", "icloud bypass",
-        "mdm bypass", "iremoval", "checkm8", "unlock tool", "bypass frp",
-    ]),
-    ("medium", "str_download_exec", "Downloads and runs code in memory", &[
-        "| iex", "|iex", "irm http", "iwr http", "downloadstring(", "invoke-expression (new-object",
-        "-urlcache -split -f http", "bitsadmin /transfer", "mshta http", "mshta vbscript",
-    ]),
-    ("medium", "str_bundler", "Bundled adware / PUA installer", &[
-        "drpsu", "driverpack solution", "driverpack.io", "drp.su", "internet-start.net", "searcherbar", "supported by advertising",
-        "the offers listed below", "optional offer", "sponsored software",
-    ]),
+    (
+        "high",
+        "str_activator",
+        "Unlicensed Windows/Office activator",
+        &[
+            "get.activated.win",
+            "massgrave",
+            "massgrave.dev",
+            "kms_vl_all",
+            "kmspico",
+            "kmsauto",
+            "kms38",
+            "hwid_activation",
+            "ohook_activation",
+            "microsoft-activation-scripts",
+            "slmgr /skms",
+            "slmgr.vbs /skms",
+            "aact.exe",
+            "kmstools",
+        ],
+    ),
+    (
+        "high",
+        "str_offer_downloader",
+        "Pay-per-install offer downloader",
+        &[
+            "r=offer_execution",
+            "offer_execution_fail",
+            "r=offer_exists",
+            "&d=inno&",
+            "offer_accepted",
+            "offer_declined",
+            "offerid=",
+            "&offer_id=",
+            "installcore",
+            "opencandy",
+            "{tmp}\\eld0.exe",
+        ],
+    ),
+    (
+        "high",
+        "str_homepage_hijack",
+        "Browser start page / search hijack",
+        &[
+            "internet explorer\\main\\start page",
+            "\\main\\start page",
+            "\\main\\search page",
+            "homepage_is_newtabpage",
+            "default_search_provider_data",
+            "restore_on_startup",
+            "wz123.com",
+        ],
+    ),
+    (
+        "high",
+        "str_proxyware",
+        "Proxyware / bandwidth sharing",
+        &[
+            "microleaves",
+            "worldproxypool",
+            "honeygain",
+            "pawns.app",
+            "iproyal",
+            "packetstream",
+            "peer2profit",
+            "earnapp",
+            "luminati.io",
+            "brightdata",
+            "bright sdk",
+            "proxyrack",
+            "repocket",
+            "traffmonetizer",
+        ],
+    ),
+    (
+        "high",
+        "str_stealer_targets",
+        "Browser / wallet / messenger data paths (stealer)",
+        &[
+            "\\local storage\\leveldb",
+            "\\login data",
+            "\\web data",
+            "wallet.dat",
+            "\\exodus\\exodus.wallet",
+            "\\atomic\\local storage",
+            "nkbihfbeogaeaoehlefnkodbefgpgknn",
+            "\\telegram desktop\\tdata",
+            "discord.com/api/webhooks",
+            "api.telegram.org/bot",
+            "\\electrum\\wallets",
+        ],
+    ),
+    (
+        "high",
+        "str_defender_tamper",
+        "Turns off or excludes Microsoft Defender",
+        &[
+            "add-mppreference -exclusionpath",
+            "add-mppreference -exclusionprocess",
+            "set-mppreference -disablerealtimemonitoring",
+            "disableantispyware\" /t reg_dword /d 1",
+            "disablerealtimemonitoring\" /t reg_dword /d 1",
+            "-disableioavprotection $true",
+        ],
+    ),
+    (
+        "high",
+        "str_anti_forensics",
+        "Clears event logs / USN journal / free space",
+        &[
+            "wevtutil cl ",
+            "wevtutil.exe cl ",
+            "clear-eventlog -logname",
+            "fsutil usn deletejournal",
+            "cipher /w:",
+            "remove-item -path $env:windir\\system32\\winevt",
+        ],
+    ),
+    (
+        "high",
+        "str_destructive",
+        "Destroys the system or user data",
+        &[
+            "format c: /",
+            "del /f /s /q c:\\",
+            "del /s /f /q c:\\",
+            "rd /s /q c:\\windows",
+            "rmdir /s /q c:\\windows",
+            "takeown /f c:\\windows\\system32",
+            "icacls c:\\windows\\system32",
+            "bootstatuspolicy ignoreallfailures",
+            "bcdedit /delete",
+            "bootsect /nt60 all /mbr",
+            "diskpart /s",
+        ],
+    ),
+    (
+        "low",
+        "str_raw_disk",
+        "Raw disk / volume access (MBR, boot sector, wipers; also Windows and disk tools)",
+        &[
+            "\\\\.\\physicaldrive",
+            "\\\\.\\harddisk",
+            "\\device\\harddisk",
+            "\\\\.\\globalroot\\device",
+            "\\\\?\\globalroot\\device",
+            "\\\\.\\c:",
+            "\\\\.\\physicalmemory",
+            "\\device\\physicalmemory",
+        ],
+    ),
+    (
+        "medium",
+        "str_crack",
+        "Crack / keygen / patched software",
+        &[
+            "pre-patched",
+            "keygen by",
+            "\\keygen\\",
+            "[keygen]",
+            "cracked by",
+            "patched by",
+            "crack by",
+            "\\crack\\",
+            "getintopc",
+            "serial generator",
+            "license bypass",
+            "loader by",
+            "repack by",
+            "anti-crack",
+        ],
+    ),
+    (
+        "medium",
+        "str_cheat_loader",
+        "Game cheat loader / injector",
+        &[
+            "injecting...",
+            "load_product",
+            "c_loader@loader",
+            "manualmap",
+            "manual map",
+            "kdmapper",
+            "dll injector",
+            "aimbot",
+            "wallhack",
+            "esp_enabled",
+            "triggerbot",
+        ],
+    ),
+    (
+        "medium",
+        "str_device_unlock",
+        "Phone FRP / iCloud / MDM bypass tool",
+        &[
+            "frp bypass",
+            "frp reset",
+            "remove frp",
+            "samfrp",
+            "frp unlock",
+            "google account lock",
+            "icloud bypass",
+            "mdm bypass",
+            "iremoval",
+            "checkm8",
+            "unlock tool",
+            "bypass frp",
+        ],
+    ),
+    (
+        "medium",
+        "str_download_exec",
+        "Downloads and runs code in memory",
+        &[
+            "| iex",
+            "|iex",
+            "irm http",
+            "iwr http",
+            "downloadstring(",
+            "invoke-expression (new-object",
+            "-urlcache -split -f http",
+            "bitsadmin /transfer",
+            "mshta http",
+            "mshta vbscript",
+        ],
+    ),
+    (
+        "medium",
+        "str_bundler",
+        "Bundled adware / PUA installer",
+        &[
+            "drpsu",
+            "driverpack solution",
+            "driverpack.io",
+            "drp.su",
+            "internet-start.net",
+            "searcherbar",
+            "supported by advertising",
+            "the offers listed below",
+            "optional offer",
+            "sponsored software",
+        ],
+    ),
 ];
 
 // ---------------------------------------------------------------- entry point
@@ -314,27 +497,37 @@ pub fn analyze_with_hashes(
         }
     }
     let helpers = hydradragonclamav::cpu_budget::helpers(5);
-    let ((pe, mut indicators), strings, md5_hex, sha1_hex, tlsh, crc, sha256_hex, entropy) = std::thread::scope(|s| {
-        let mut left = helpers.count();
-        let pe = part(s, &helpers, &mut left, || {
-            let mut ind = Vec::new();
-            (parse_pe(data, &mut ind, true), ind)
+    let ((pe, mut indicators), strings, md5_hex, sha1_hex, tlsh, crc, sha256_hex, entropy) =
+        std::thread::scope(|s| {
+            let mut left = helpers.count();
+            let pe = part(s, &helpers, &mut left, || {
+                let mut ind = Vec::new();
+                (parse_pe(data, &mut ind, true), ind)
+            });
+            let strings = part(s, &helpers, &mut left, || extract_strings(data));
+            let tlsh = if let Some(t) = pre_tlsh {
+                Part::Done(Some(t.to_string()))
+            } else {
+                part(s, &helpers, &mut left, || tlsh_digest(data))
+            };
+            let sha1_hex = part(s, &helpers, &mut left, || hex::encode(sha1(data)));
+            let md5_hex = part(s, &helpers, &mut left, || hex::encode(md5(data)));
+            let crc = format!("{:08X}", crc32(data));
+            let sha256_hex = pre_sha256
+                .map(|h| h.to_ascii_lowercase())
+                .unwrap_or_else(|| hex::encode(Sha256::digest(data)));
+            let entropy = round2(shannon(data));
+            (
+                pe.get(),
+                strings.get(),
+                md5_hex.get(),
+                sha1_hex.get(),
+                tlsh.get(),
+                crc,
+                sha256_hex,
+                entropy,
+            )
         });
-        let strings = part(s, &helpers, &mut left, || extract_strings(data));
-        let tlsh = if let Some(t) = pre_tlsh {
-            Part::Done(Some(t.to_string()))
-        } else {
-            part(s, &helpers, &mut left, || tlsh_digest(data))
-        };
-        let sha1_hex = part(s, &helpers, &mut left, || hex::encode(sha1(data)));
-        let md5_hex = part(s, &helpers, &mut left, || hex::encode(md5(data)));
-        let crc = format!("{:08X}", crc32(data));
-        let sha256_hex = pre_sha256
-            .map(|h| h.to_ascii_lowercase())
-            .unwrap_or_else(|| hex::encode(Sha256::digest(data)));
-        let entropy = round2(shannon(data));
-        (pe.get(), strings.get(), md5_hex.get(), sha1_hex.get(), tlsh.get(), crc, sha256_hex, entropy)
-    });
     drop(helpers);
     let (file_type, mime) = detect_type(data, file_name);
     let imphash = pe.as_ref().and_then(|p| imphash(&p.imports));
@@ -369,7 +562,11 @@ pub fn analyze_with_hashes(
             dex_tlsh: dex_tlsh(data),
         },
         pe,
-        apk: if data.starts_with(b"PK\x03\x04") { crate::apk::parse(data) } else { None },
+        apk: if data.starts_with(b"PK\x03\x04") {
+            crate::apk::parse(data)
+        } else {
+            None
+        },
         strings,
         indicators,
     }
@@ -421,7 +618,11 @@ pub fn analyze_light(data: &[u8], file_name: &str) -> FileReport {
             dex_tlsh: dex_tlsh(data),
         },
         pe,
-        apk: if data.starts_with(b"PK\x03\x04") { crate::apk::parse(data) } else { None },
+        apk: if data.starts_with(b"PK\x03\x04") {
+            crate::apk::parse(data)
+        } else {
+            None
+        },
         strings: StringsInfo::default(),
         indicators,
     }
@@ -430,19 +631,27 @@ pub fn analyze_light(data: &[u8], file_name: &str) -> FileReport {
 // ---------------------------------------------------------------- small readers
 
 fn rd_u16(d: &[u8], off: usize) -> Option<u16> {
-    d.get(off..off.checked_add(2)?).map(|b| u16::from_le_bytes([b[0], b[1]]))
+    d.get(off..off.checked_add(2)?)
+        .map(|b| u16::from_le_bytes([b[0], b[1]]))
 }
 fn rd_u32(d: &[u8], off: usize) -> Option<u32> {
-    d.get(off..off.checked_add(4)?).map(|b| u32::from_le_bytes([b[0], b[1], b[2], b[3]]))
+    d.get(off..off.checked_add(4)?)
+        .map(|b| u32::from_le_bytes([b[0], b[1], b[2], b[3]]))
 }
 fn rd_u64(d: &[u8], off: usize) -> Option<u64> {
     let b = d.get(off..off.checked_add(8)?)?;
-    Some(u64::from_le_bytes([b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7]]))
+    Some(u64::from_le_bytes([
+        b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7],
+    ]))
 }
 /// NUL-terminated ASCII at `off`, at most `max` bytes, printable only.
 fn rd_cstr(d: &[u8], off: usize, max: usize) -> Option<String> {
     let tail = d.get(off..)?;
-    let end = tail.iter().take(max).position(|&c| c == 0).unwrap_or(tail.len().min(max));
+    let end = tail
+        .iter()
+        .take(max)
+        .position(|&c| c == 0)
+        .unwrap_or(tail.len().min(max));
     let s = &tail[..end];
     if s.is_empty() || !s.iter().all(|&c| (0x20..0x7f).contains(&c)) {
         return None;
@@ -463,10 +672,14 @@ pub fn shannon(d: &[u8]) -> f64 {
         counts[b as usize] += 1;
     }
     let n = d.len() as f64;
-    counts.iter().filter(|&&c| c > 0).map(|&c| {
-        let p = c as f64 / n;
-        -p * p.log2()
-    }).sum()
+    counts
+        .iter()
+        .filter(|&&c| c > 0)
+        .map(|&c| {
+            let p = c as f64 / n;
+            -p * p.log2()
+        })
+        .sum()
 }
 
 // ---------------------------------------------------------------- file type
@@ -475,22 +688,37 @@ fn detect_type(d: &[u8], name: &str) -> (String, &'static str) {
     let starts = |m: &[u8]| d.starts_with(m);
     let ext = name.rsplit('.').next().unwrap_or("").to_ascii_lowercase();
     if starts(b"MZ") {
-        return ("MZ executable".into(), "application/vnd.microsoft.portable-executable");
+        return (
+            "MZ executable".into(),
+            "application/vnd.microsoft.portable-executable",
+        );
     }
     if starts(b"\x7fELF") {
         return ("ELF executable".into(), "application/x-elf");
     }
-    if starts(&[0xCF, 0xFA, 0xED, 0xFE]) || starts(&[0xCE, 0xFA, 0xED, 0xFE]) || starts(&[0xCA, 0xFE, 0xBA, 0xBE]) {
+    if starts(&[0xCF, 0xFA, 0xED, 0xFE])
+        || starts(&[0xCE, 0xFA, 0xED, 0xFE])
+        || starts(&[0xCA, 0xFE, 0xBA, 0xBE])
+    {
         return ("Mach-O binary".into(), "application/x-mach-binary");
     }
     if starts(b"PK\x03\x04") {
-        let kind = if d.windows(19).take(4096).any(|w| w == b"AndroidManifest.xml") || ext == "apk" {
+        let kind = if d
+            .windows(19)
+            .take(4096)
+            .any(|w| w == b"AndroidManifest.xml")
+            || ext == "apk"
+        {
             "Android package (APK)"
         } else if d.windows(5).take(4096).any(|w| w == b"word/") {
             "Office Open XML document"
         } else if d.windows(3).take(4096).any(|w| w == b"xl/") {
             "Office Open XML spreadsheet"
-        } else if ext == "jar" || d.windows(20).take(4096).any(|w| w == b"META-INF/MANIFEST.MF") {
+        } else if ext == "jar"
+            || d.windows(20)
+                .take(4096)
+                .any(|w| w == b"META-INF/MANIFEST.MF")
+        {
             "Java archive (JAR)"
         } else {
             "ZIP archive"
@@ -498,7 +726,10 @@ fn detect_type(d: &[u8], name: &str) -> (String, &'static str) {
         return (kind.into(), "application/zip");
     }
     if starts(&[0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1]) {
-        return ("OLE2 compound document (legacy Office / MSI)".into(), "application/x-ole-storage");
+        return (
+            "OLE2 compound document (legacy Office / MSI)".into(),
+            "application/x-ole-storage",
+        );
     }
     if starts(b"%PDF") {
         return ("PDF document".into(), "application/pdf");
@@ -513,7 +744,10 @@ fn detect_type(d: &[u8], name: &str) -> (String, &'static str) {
         return ("GZIP data".into(), "application/gzip");
     }
     if starts(b"MSCF") {
-        return ("Microsoft Cabinet".into(), "application/vnd.ms-cab-compressed");
+        return (
+            "Microsoft Cabinet".into(),
+            "application/vnd.ms-cab-compressed",
+        );
     }
     if starts(b"L\x00\x00\x00\x01\x14\x02\x00") {
         return ("Windows shortcut (LNK)".into(), "application/x-ms-shortcut");
@@ -537,7 +771,11 @@ fn detect_type(d: &[u8], name: &str) -> (String, &'static str) {
         return (s.into(), "text/plain");
     }
     let sample = &d[..d.len().min(4096)];
-    if !sample.is_empty() && sample.iter().all(|&c| c == b'\n' || c == b'\r' || c == b'\t' || (0x20..0x7f).contains(&c) || c >= 0x80) {
+    if !sample.is_empty()
+        && sample.iter().all(|&c| {
+            c == b'\n' || c == b'\r' || c == b'\t' || (0x20..0x7f).contains(&c) || c >= 0x80
+        })
+    {
         return ("Text".into(), "text/plain");
     }
     ("Data".into(), "application/octet-stream")
@@ -633,7 +871,10 @@ fn parse_pe(d: &[u8], ind: &mut Vec<Indicator>, full: bool) -> Option<PeInfo> {
         if i >= ndd {
             return (0, 0);
         }
-        (rd_u32(d, dd_off + i * 8).unwrap_or(0), rd_u32(d, dd_off + i * 8 + 4).unwrap_or(0))
+        (
+            rd_u32(d, dd_off + i * 8).unwrap_or(0),
+            rd_u32(d, dd_off + i * 8 + 4).unwrap_or(0),
+        )
     };
 
     // ---- sections
@@ -645,9 +886,13 @@ fn parse_pe(d: &[u8], ind: &mut Vec<Indicator>, full: bool) -> Option<PeInfo> {
     let mut all_sec_raw: Vec<u8> = Vec::new();
     for i in 0..nsec.min(MAX_SECTIONS) {
         let o = sec_start + i * 40;
-        let Some(raw_name) = d.get(o..o + 8) else { break };
+        let Some(raw_name) = d.get(o..o + 8) else {
+            break;
+        };
         let name_end = raw_name.iter().position(|&c| c == 0).unwrap_or(8);
-        let mut name: String = String::from_utf8_lossy(&raw_name[..name_end]).trim().to_string();
+        let mut name: String = String::from_utf8_lossy(&raw_name[..name_end])
+            .trim()
+            .to_string();
         if name.is_empty() {
             name = format!("sec_{i}");
         }
@@ -658,7 +903,11 @@ fn parse_pe(d: &[u8], ind: &mut Vec<Indicator>, full: bool) -> Option<PeInfo> {
         let sch = rd_u32(d, o + 36).unwrap_or(0);
         let start = raw_ptr as usize;
         let end = (start + raw_size as usize).min(d.len());
-        let ent = if start < end { round2(shannon(&d[start..end])) } else { 0.0 };
+        let ent = if start < end {
+            round2(shannon(&d[start..end]))
+        } else {
+            0.0
+        };
         let (sec_md5, sec_crc32) = if full && start < end && raw_size > 0 {
             let slice = &d[start..end];
             all_sec_raw.extend_from_slice(slice);
@@ -674,36 +923,79 @@ fn parse_pe(d: &[u8], ind: &mut Vec<Indicator>, full: bool) -> Option<PeInfo> {
         let r = sch & 0x4000_0000 != 0;
         let w = sch & 0x8000_0000 != 0;
         let mut flags = Vec::new();
-        if sch & 0x20 != 0 { flags.push("code"); }
-        if sch & 0x40 != 0 { flags.push("initialized_data"); }
-        if sch & 0x80 != 0 { flags.push("uninitialized_data"); }
-        if sch & 0x0200_0000 != 0 { flags.push("discardable"); }
-        if sch & 0x1000_0000 != 0 { flags.push("shared"); }
-        let class = if ent >= 7.2 { "packed" } else if ent >= 6.5 { "dense" } else { "normal" };
+        if sch & 0x20 != 0 {
+            flags.push("code");
+        }
+        if sch & 0x40 != 0 {
+            flags.push("initialized_data");
+        }
+        if sch & 0x80 != 0 {
+            flags.push("uninitialized_data");
+        }
+        if sch & 0x0200_0000 != 0 {
+            flags.push("discardable");
+        }
+        if sch & 0x1000_0000 != 0 {
+            flags.push("shared");
+        }
+        let class = if ent >= 7.2 {
+            "packed"
+        } else if ent >= 6.5 {
+            "dense"
+        } else {
+            "normal"
+        };
 
         if x && w {
-            ind.push(Indicator { severity: "medium", id: "wx_section", detail: format!("Section {name} is writable and executable") });
+            ind.push(Indicator {
+                severity: "medium",
+                id: "wx_section",
+                detail: format!("Section {name} is writable and executable"),
+            });
         }
         if ent >= 7.2 && raw_size >= 1024 {
-            ind.push(Indicator { severity: "medium", id: "packed_section", detail: format!("Section {name} entropy {ent:.2} (packed or encrypted)") });
+            ind.push(Indicator {
+                severity: "medium",
+                id: "packed_section",
+                detail: format!("Section {name} entropy {ent:.2} (packed or encrypted)"),
+            });
         }
         if raw_size == 0 && vsize > 0x10000 && x {
             ind.push(Indicator { severity: "low", id: "virtual_exec_section", detail: format!("Executable section {name} has no raw data ({vsize} bytes in memory): typical of unpacking stubs") });
         }
         let lname = name.to_ascii_lowercase();
         let packer = [
-            ("upx", "UPX"), (".aspack", "ASPack"), (".adata", "ASPack"), (".themida", "Themida"), (".winlice", "WinLicense"),
-            (".vmp", "VMProtect"), (".enigma", "Enigma Protector"), (".mpress", "MPRESS"), (".petite", "Petite"),
-            (".nsp", "NsPack"), ("pec", "PECompact"), (".boom", "The Boomerang"), (".perplex", "Perplex"),
+            ("upx", "UPX"),
+            (".aspack", "ASPack"),
+            (".adata", "ASPack"),
+            (".themida", "Themida"),
+            (".winlice", "WinLicense"),
+            (".vmp", "VMProtect"),
+            (".enigma", "Enigma Protector"),
+            (".mpress", "MPRESS"),
+            (".petite", "Petite"),
+            (".nsp", "NsPack"),
+            ("pec", "PECompact"),
+            (".boom", "The Boomerang"),
+            (".perplex", "Perplex"),
         ]
         .iter()
         .find(|(p, _)| lname.starts_with(p))
         .map(|(_, n)| *n);
         if let Some(p) = packer {
-            ind.push(Indicator { severity: "low", id: "packer_section", detail: format!("Section name {name} suggests {p}") });
+            ind.push(Indicator {
+                severity: "low",
+                id: "packer_section",
+                detail: format!("Section name {name} suggests {p}"),
+            });
         }
 
-        secs.push(Sec { va, vsize, raw_ptr, raw_size });
+        secs.push(Sec {
+            va,
+            vsize,
+            raw_ptr,
+            raw_size,
+        });
         sections.push(SectionInfo {
             index: i,
             name,
@@ -716,27 +1008,50 @@ fn parse_pe(d: &[u8], ind: &mut Vec<Indicator>, full: bool) -> Option<PeInfo> {
             crc32: sec_crc32,
             entropy: ent,
             class,
-            perms: format!("{}{}{}", if r { 'R' } else { '-' }, if w { 'W' } else { '-' }, if x { 'X' } else { '-' }),
+            perms: format!(
+                "{}{}{}",
+                if r { 'R' } else { '-' },
+                if w { 'W' } else { '-' },
+                if x { 'X' } else { '-' }
+            ),
             flags,
         });
     }
     let (sections_md5, sections_crc32) = if full && !all_sec_raw.is_empty() {
-        (hex::encode(md5(&all_sec_raw)), format!("{:08X}", crc32(&all_sec_raw)))
+        (
+            hex::encode(md5(&all_sec_raw)),
+            format!("{:08X}", crc32(&all_sec_raw)),
+        )
     } else {
         (String::new(), String::new())
     };
 
     // entry section
-    let entry_section = secs.iter().position(|s| entry >= s.va && entry < s.va.saturating_add(s.vsize.max(s.raw_size))).map(|i| sections[i].name.clone());
+    let entry_section = secs
+        .iter()
+        .position(|s| entry >= s.va && entry < s.va.saturating_add(s.vsize.max(s.raw_size)))
+        .map(|i| sections[i].name.clone());
     if entry != 0 {
         match &entry_section {
-            None => ind.push(Indicator { severity: "medium", id: "entry_outside_sections", detail: format!("Entry point 0x{entry:08X} is outside every section") }),
+            None => ind.push(Indicator {
+                severity: "medium",
+                id: "entry_outside_sections",
+                detail: format!("Entry point 0x{entry:08X} is outside every section"),
+            }),
             Some(n) => {
                 let i = sections.iter().position(|s| &s.name == n).unwrap_or(0);
                 if sections[i].perms.contains('W') {
-                    ind.push(Indicator { severity: "medium", id: "entry_in_writable", detail: format!("Entry point is in writable section {n}") });
+                    ind.push(Indicator {
+                        severity: "medium",
+                        id: "entry_in_writable",
+                        detail: format!("Entry point is in writable section {n}"),
+                    });
                 } else if i == sections.len() - 1 && sections.len() > 1 {
-                    ind.push(Indicator { severity: "low", id: "entry_in_last_section", detail: format!("Entry point is in the last section ({n})") });
+                    ind.push(Indicator {
+                        severity: "low",
+                        id: "entry_in_last_section",
+                        detail: format!("Entry point is in the last section ({n})"),
+                    });
                 }
             }
         }
@@ -756,7 +1071,11 @@ fn parse_pe(d: &[u8], ind: &mut Vec<Indicator>, full: bool) -> Option<PeInfo> {
                     break;
                 }
                 desc += 20;
-                let Some(dll) = rva_to_off(&secs, name_rva, size_headers).and_then(|o| rd_cstr(d, o, 256)) else { continue };
+                let Some(dll) =
+                    rva_to_off(&secs, name_rva, size_headers).and_then(|o| rd_cstr(d, o, 256))
+                else {
+                    continue;
+                };
                 let thunk_rva = if oft != 0 { oft } else { ft };
                 let mut funcs = Vec::new();
                 if let Some(mut t) = rva_to_off(&secs, thunk_rva, size_headers) {
@@ -776,7 +1095,9 @@ fn parse_pe(d: &[u8], ind: &mut Vec<Indicator>, full: bool) -> Option<PeInfo> {
                         let f = if ord_flag {
                             format!("ord{}", val & 0xFFFF)
                         } else {
-                            match rva_to_off(&secs, (val & 0x7FFF_FFFF) as u32, size_headers).and_then(|o| rd_cstr(d, o + 2, 512)) {
+                            match rva_to_off(&secs, (val & 0x7FFF_FFFF) as u32, size_headers)
+                                .and_then(|o| rd_cstr(d, o + 2, 512))
+                            {
                                 Some(n) => n,
                                 None => break,
                             }
@@ -785,7 +1106,10 @@ fn parse_pe(d: &[u8], ind: &mut Vec<Indicator>, full: bool) -> Option<PeInfo> {
                         import_count += 1;
                     }
                 }
-                imports.push(ImportDll { dll, functions: funcs });
+                imports.push(ImportDll {
+                    dll,
+                    functions: funcs,
+                });
             }
         }
     }
@@ -796,7 +1120,9 @@ fn parse_pe(d: &[u8], ind: &mut Vec<Indicator>, full: bool) -> Option<PeInfo> {
     let mut export_name = None;
     if exp_rva != 0 {
         if let Some(eo) = rva_to_off(&secs, exp_rva, size_headers) {
-            export_name = rd_u32(d, eo + 12).and_then(|r| rva_to_off(&secs, r, size_headers)).and_then(|o| rd_cstr(d, o, 256));
+            export_name = rd_u32(d, eo + 12)
+                .and_then(|r| rva_to_off(&secs, r, size_headers))
+                .and_then(|o| rd_cstr(d, o, 256));
             let base = rd_u32(d, eo + 16).unwrap_or(1);
             let nfuncs = (rd_u32(d, eo + 20).unwrap_or(0) as usize).min(MAX_EXPORTS);
             let nnames = (rd_u32(d, eo + 24).unwrap_or(0) as usize).min(MAX_EXPORTS);
@@ -806,7 +1132,12 @@ fn parse_pe(d: &[u8], ind: &mut Vec<Indicator>, full: bool) -> Option<PeInfo> {
             let mut named: BTreeMap<usize, String> = BTreeMap::new();
             if let (Some(n), Some(o)) = (names, ords) {
                 for i in 0..nnames {
-                    let Some(name) = rd_u32(d, n + i * 4).and_then(|r| rva_to_off(&secs, r, size_headers)).and_then(|off| rd_cstr(d, off, 512)) else { continue };
+                    let Some(name) = rd_u32(d, n + i * 4)
+                        .and_then(|r| rva_to_off(&secs, r, size_headers))
+                        .and_then(|off| rd_cstr(d, off, 512))
+                    else {
+                        continue;
+                    };
                     if let Some(idx) = rd_u16(d, o + i * 2) {
                         named.insert(idx as usize, name);
                     }
@@ -842,52 +1173,124 @@ fn parse_pe(d: &[u8], ind: &mut Vec<Indicator>, full: bool) -> Option<PeInfo> {
         overlay_offset = (sec_rva as u64 + sec_size as u64).min(d.len() as u64);
     }
     let overlay_size = d.len() as u64 - overlay_offset;
-    let overlay_entropy = if overlay_size > 0 { Some(round2(shannon(&d[overlay_offset as usize..]))) } else { None };
+    let overlay_entropy = if overlay_size > 0 {
+        Some(round2(shannon(&d[overlay_offset as usize..])))
+    } else {
+        None
+    };
     if overlay_size > 1024 {
-        let sev = if overlay_entropy.unwrap_or(0.0) >= 7.2 { "medium" } else { "low" };
-        ind.push(Indicator { severity: sev, id: "overlay", detail: format!("{overlay_size} bytes appended after the last section (entropy {:.2})", overlay_entropy.unwrap_or(0.0)) });
+        let sev = if overlay_entropy.unwrap_or(0.0) >= 7.2 {
+            "medium"
+        } else {
+            "low"
+        };
+        ind.push(Indicator {
+            severity: sev,
+            id: "overlay",
+            detail: format!(
+                "{overlay_size} bytes appended after the last section (entropy {:.2})",
+                overlay_entropy.unwrap_or(0.0)
+            ),
+        });
     }
     let is_dotnet = data_dir(14).0 != 0;
 
     // ---- header-level indicators
     let now = chrono::Utc::now().timestamp();
     if timestamp == 0 {
-        ind.push(Indicator { severity: "info", id: "zero_timestamp", detail: "Compile timestamp is zero (stripped or reproducible build)".into() });
+        ind.push(Indicator {
+            severity: "info",
+            id: "zero_timestamp",
+            detail: "Compile timestamp is zero (stripped or reproducible build)".into(),
+        });
     } else if (timestamp as i64) > now + 86400 {
-        ind.push(Indicator { severity: "low", id: "future_timestamp", detail: "Compile timestamp is in the future (forged)".into() });
+        ind.push(Indicator {
+            severity: "low",
+            id: "future_timestamp",
+            detail: "Compile timestamp is in the future (forged)".into(),
+        });
     }
     if !is_dotnet && imports.is_empty() && !sections.is_empty() {
-        ind.push(Indicator { severity: "medium", id: "no_imports", detail: "No import table: imports are resolved at runtime (packer or shellcode loader)".into() });
+        ind.push(Indicator {
+            severity: "medium",
+            id: "no_imports",
+            detail: "No import table: imports are resolved at runtime (packer or shellcode loader)"
+                .into(),
+        });
     } else if !is_dotnet && import_count > 0 && import_count < 10 {
-        ind.push(Indicator { severity: "low", id: "few_imports", detail: format!("Only {import_count} imported functions") });
+        ind.push(Indicator {
+            severity: "low",
+            id: "few_imports",
+            detail: format!("Only {import_count} imported functions"),
+        });
     }
     if dllch & 0x0040 == 0 {
-        ind.push(Indicator { severity: "info", id: "no_aslr", detail: "ASLR (DYNAMIC_BASE) disabled".into() });
+        ind.push(Indicator {
+            severity: "info",
+            id: "no_aslr",
+            detail: "ASLR (DYNAMIC_BASE) disabled".into(),
+        });
     }
 
     let is_dll = chars & 0x2000 != 0;
     let mut characteristics = Vec::new();
-    if chars & 0x0002 != 0 { characteristics.push("executable_image"); }
-    if is_dll { characteristics.push("dll"); }
-    if chars & 0x0020 != 0 { characteristics.push("large_address_aware"); }
-    if chars & 0x0100 != 0 { characteristics.push("32bit_machine"); }
-    if chars & 0x1000 != 0 { characteristics.push("system"); }
-    if chars & 0x0001 != 0 { characteristics.push("relocs_stripped"); }
+    if chars & 0x0002 != 0 {
+        characteristics.push("executable_image");
+    }
+    if is_dll {
+        characteristics.push("dll");
+    }
+    if chars & 0x0020 != 0 {
+        characteristics.push("large_address_aware");
+    }
+    if chars & 0x0100 != 0 {
+        characteristics.push("32bit_machine");
+    }
+    if chars & 0x1000 != 0 {
+        characteristics.push("system");
+    }
+    if chars & 0x0001 != 0 {
+        characteristics.push("relocs_stripped");
+    }
     let mut dll_characteristics = Vec::new();
-    if dllch & 0x0020 != 0 { dll_characteristics.push("high_entropy_va"); }
-    if dllch & 0x0040 != 0 { dll_characteristics.push("aslr"); }
-    if dllch & 0x0080 != 0 { dll_characteristics.push("force_integrity"); }
-    if dllch & 0x0100 != 0 { dll_characteristics.push("dep_nx"); }
-    if dllch & 0x0400 != 0 { dll_characteristics.push("no_seh"); }
-    if dllch & 0x4000 != 0 { dll_characteristics.push("control_flow_guard"); }
-    if dllch & 0x8000 != 0 { dll_characteristics.push("terminal_server_aware"); }
+    if dllch & 0x0020 != 0 {
+        dll_characteristics.push("high_entropy_va");
+    }
+    if dllch & 0x0040 != 0 {
+        dll_characteristics.push("aslr");
+    }
+    if dllch & 0x0080 != 0 {
+        dll_characteristics.push("force_integrity");
+    }
+    if dllch & 0x0100 != 0 {
+        dll_characteristics.push("dep_nx");
+    }
+    if dllch & 0x0400 != 0 {
+        dll_characteristics.push("no_seh");
+    }
+    if dllch & 0x4000 != 0 {
+        dll_characteristics.push("control_flow_guard");
+    }
+    if dllch & 0x8000 != 0 {
+        dll_characteristics.push("terminal_server_aware");
+    }
 
     let sub = subsystem_name(subsystem);
     let kind = format!(
         "{} {} - {}",
         if is64 { "PE32+" } else { "PE32" },
-        if subsystem == 1 { "driver" } else if is_dll { "DLL" } else { "executable" },
-        if is_dotnet { format!("{sub}, .NET") } else { sub.clone() }
+        if subsystem == 1 {
+            "driver"
+        } else if is_dll {
+            "DLL"
+        } else {
+            "executable"
+        },
+        if is_dotnet {
+            format!("{sub}, .NET")
+        } else {
+            sub.clone()
+        }
     );
 
     let exphash = if full {
@@ -904,20 +1307,22 @@ fn parse_pe(d: &[u8], ind: &mut Vec<Indicator>, full: bool) -> Option<PeInfo> {
     let (authenticode_subjects, version_info, resources) = if full {
         match hydradragonsig::rules::pe_extra::inspect_pe_extras(d) {
             Some((auth, ver, blobs)) => {
-                let mut vi = ver.map(|v| {
-                    let mut map = v.fields;
-                    if !map.contains_key("fileversion")
-                        && let Some((a, b, c, d)) = v.file_version
-                    {
-                        map.insert("fileversion".into(), format!("{a}.{b}.{c}.{d}"));
-                    }
-                    if !map.contains_key("productversion")
-                        && let Some((a, b, c, d)) = v.product_version
-                    {
-                        map.insert("productversion".into(), format!("{a}.{b}.{c}.{d}"));
-                    }
-                    map
-                }).unwrap_or_default();
+                let mut vi = ver
+                    .map(|v| {
+                        let mut map = v.fields;
+                        if !map.contains_key("fileversion")
+                            && let Some((a, b, c, d)) = v.file_version
+                        {
+                            map.insert("fileversion".into(), format!("{a}.{b}.{c}.{d}"));
+                        }
+                        if !map.contains_key("productversion")
+                            && let Some((a, b, c, d)) = v.product_version
+                        {
+                            map.insert("productversion".into(), format!("{a}.{b}.{c}.{d}"));
+                        }
+                        map
+                    })
+                    .unwrap_or_default();
                 vi.retain(|_, v| !v.is_empty());
                 let res: Vec<ResourceReport> = blobs
                     .iter()
@@ -960,7 +1365,11 @@ fn parse_pe(d: &[u8], ind: &mut Vec<Indicator>, full: bool) -> Option<PeInfo> {
         },
         entry_point: format!("0x{entry:08X}"),
         entry_section,
-        image_base: if is64 { format!("0x{image_base:016X}") } else { format!("0x{image_base:08X}") },
+        image_base: if is64 {
+            format!("0x{image_base:016X}")
+        } else {
+            format!("0x{image_base:08X}")
+        },
         section_alignment: sect_align,
         file_alignment: file_align,
         size_of_image: size_image,
@@ -995,9 +1404,11 @@ pub fn pe_imphash(data: &[u8]) -> Option<(String, usize, bool)> {
 /// Mandiant/pefile imphash (hydradragonsig's implementation, so the analyzer, the
 /// imphash signatures and HydraDragonSig `imphash_any` rules give the same value).
 fn imphash(imports: &[ImportDll]) -> Option<String> {
-    hydradragonsig::scanner::pe::imphash(
-        imports.iter().flat_map(|i| i.functions.iter().map(move |f| (i.dll.as_str(), f.as_str()))),
-    )
+    hydradragonsig::scanner::pe::imphash(imports.iter().flat_map(|i| {
+        i.functions
+            .iter()
+            .map(move |f| (i.dll.as_str(), f.as_str()))
+    }))
 }
 
 // ---------------------------------------------------------------- API indicators
@@ -1016,24 +1427,112 @@ fn api_indicators(imports: &[ImportDll], ind: &mut Vec<Indicator>) {
         out
     };
     let groups: [(&str, &str, &str, &[&str]); 7] = [
-        ("medium", "api_injection", "Process injection APIs", &["VirtualAllocEx", "WriteProcessMemory", "CreateRemoteThread", "NtWriteVirtualMemory", "QueueUserAPC", "SetThreadContext", "NtUnmapViewOfSection", "ZwUnmapViewOfSection", "RtlCreateUserThread"]),
-        ("low", "api_keylogging", "Keyboard capture APIs", &["SetWindowsHookEx", "GetAsyncKeyState", "GetKeyState", "GetKeyboardState", "RegisterRawInputDevices"]),
-        ("low", "api_anti_debug", "Anti-debugging APIs", &["IsDebuggerPresent", "CheckRemoteDebuggerPresent", "NtQueryInformationProcess", "OutputDebugString"]),
-        ("low", "api_privilege", "Token / privilege APIs", &["AdjustTokenPrivileges", "LookupPrivilegeValue", "OpenProcessToken", "ImpersonateLoggedOnUser"]),
-        ("low", "api_crypto", "Encryption APIs", &["CryptEncrypt", "CryptGenKey", "CryptAcquireContext", "BCryptEncrypt", "CryptDeriveKey"]),
-        ("low", "api_network", "Network / download APIs", &["InternetOpenUrl", "InternetReadFile", "URLDownloadToFile", "HttpSendRequest", "WinHttpSendRequest", "WSAStartup"]),
-        ("low", "api_persistence", "Persistence APIs (registry / services)", &["RegSetValueEx", "CreateService", "StartService", "ChangeServiceConfig"]),
+        (
+            "medium",
+            "api_injection",
+            "Process injection APIs",
+            &[
+                "VirtualAllocEx",
+                "WriteProcessMemory",
+                "CreateRemoteThread",
+                "NtWriteVirtualMemory",
+                "QueueUserAPC",
+                "SetThreadContext",
+                "NtUnmapViewOfSection",
+                "ZwUnmapViewOfSection",
+                "RtlCreateUserThread",
+            ],
+        ),
+        (
+            "low",
+            "api_keylogging",
+            "Keyboard capture APIs",
+            &[
+                "SetWindowsHookEx",
+                "GetAsyncKeyState",
+                "GetKeyState",
+                "GetKeyboardState",
+                "RegisterRawInputDevices",
+            ],
+        ),
+        (
+            "low",
+            "api_anti_debug",
+            "Anti-debugging APIs",
+            &[
+                "IsDebuggerPresent",
+                "CheckRemoteDebuggerPresent",
+                "NtQueryInformationProcess",
+                "OutputDebugString",
+            ],
+        ),
+        (
+            "low",
+            "api_privilege",
+            "Token / privilege APIs",
+            &[
+                "AdjustTokenPrivileges",
+                "LookupPrivilegeValue",
+                "OpenProcessToken",
+                "ImpersonateLoggedOnUser",
+            ],
+        ),
+        (
+            "low",
+            "api_crypto",
+            "Encryption APIs",
+            &[
+                "CryptEncrypt",
+                "CryptGenKey",
+                "CryptAcquireContext",
+                "BCryptEncrypt",
+                "CryptDeriveKey",
+            ],
+        ),
+        (
+            "low",
+            "api_network",
+            "Network / download APIs",
+            &[
+                "InternetOpenUrl",
+                "InternetReadFile",
+                "URLDownloadToFile",
+                "HttpSendRequest",
+                "WinHttpSendRequest",
+                "WSAStartup",
+            ],
+        ),
+        (
+            "low",
+            "api_persistence",
+            "Persistence APIs (registry / services)",
+            &[
+                "RegSetValueEx",
+                "CreateService",
+                "StartService",
+                "ChangeServiceConfig",
+            ],
+        ),
     ];
     for (sev, id, label, names) in groups {
         let found = has(names);
         if !found.is_empty() {
-            ind.push(Indicator { severity: sev, id, detail: format!("{label}: {}", found.join(", ")) });
+            ind.push(Indicator {
+                severity: sev,
+                id,
+                detail: format!("{label}: {}", found.join(", ")),
+            });
         }
     }
     let shadow = has(&["CreateProcess", "ShellExecute", "WinExec"]);
     let vss = has(&["DeleteFile", "MoveFileEx"]);
-    if !shadow.is_empty() && !vss.is_empty() && !has(&["CryptEncrypt", "BCryptEncrypt"]).is_empty() {
-        ind.push(Indicator { severity: "medium", id: "api_ransom_combo", detail: "Process launch + file delete/rename + encryption APIs together".into() });
+    if !shadow.is_empty() && !vss.is_empty() && !has(&["CryptEncrypt", "BCryptEncrypt"]).is_empty()
+    {
+        ind.push(Indicator {
+            severity: "medium",
+            id: "api_ransom_combo",
+            detail: "Process launch + file delete/rename + encryption APIs together".into(),
+        });
     }
 }
 
@@ -1052,30 +1551,71 @@ fn classify(s: &str, out: &mut StringsInfo) {
             break;
         }
         if let Some(k) = keywords.iter().find(|k| low.contains(**k)) {
-            if !out.keyword_hits.iter().any(|h| h.rule == *rule && h.string == s) {
-                out.keyword_hits.push(KeywordHit { rule, keyword: k, string: s.chars().take(300).collect() });
+            if !out
+                .keyword_hits
+                .iter()
+                .any(|h| h.rule == *rule && h.string == s)
+            {
+                out.keyword_hits.push(KeywordHit {
+                    rule,
+                    keyword: k,
+                    string: s.chars().take(300).collect(),
+                });
             }
         }
     }
     for scheme in ["http://", "https://", "ftp://", "ws://", "wss://"] {
         if let Some(p) = low.find(scheme) {
-            let url: String = s[p..].chars().take_while(|c| !c.is_whitespace() && !"\"'<>`".contains(*c)).take(300).collect();
+            let url: String = s[p..]
+                .chars()
+                .take_while(|c| !c.is_whitespace() && !"\"'<>`".contains(*c))
+                .take(300)
+                .collect();
             if url.len() > scheme.len() + 3 {
                 push_unique(&mut out.urls, &url);
             }
         }
     }
-    if low.contains("hkey_") || low.contains("software\\") || low.contains("system\\currentcontrolset") || low.contains("\\run") && low.contains("currentversion") {
+    if low.contains("hkey_")
+        || low.contains("software\\")
+        || low.contains("system\\currentcontrolset")
+        || low.contains("\\run") && low.contains("currentversion")
+    {
         push_unique(&mut out.registry, s);
     }
-    if (low.contains(":\\") || low.contains("%appdata%") || low.contains("%temp%") || low.contains("%programdata%") || low.starts_with("\\\\"))
-        || [".exe", ".dll", ".sys", ".bat", ".ps1", ".vbs", ".scr", ".lnk"].iter().any(|e| low.ends_with(e))
+    if (low.contains(":\\")
+        || low.contains("%appdata%")
+        || low.contains("%temp%")
+        || low.contains("%programdata%")
+        || low.starts_with("\\\\"))
+        || [
+            ".exe", ".dll", ".sys", ".bat", ".ps1", ".vbs", ".scr", ".lnk",
+        ]
+        .iter()
+        .any(|e| low.ends_with(e))
     {
         push_unique(&mut out.paths, s);
     }
-    if ["powershell", "cmd.exe /c", "cmd /c", "vssadmin", "wmic ", "bcdedit", "schtasks", "reg add", "certutil", "rundll32", "mshta", "bitsadmin", "-encodedcommand", "frombase64string", "invoke-expression", "iex("]
-        .iter()
-        .any(|k| low.contains(k))
+    if [
+        "powershell",
+        "cmd.exe /c",
+        "cmd /c",
+        "vssadmin",
+        "wmic ",
+        "bcdedit",
+        "schtasks",
+        "reg add",
+        "certutil",
+        "rundll32",
+        "mshta",
+        "bitsadmin",
+        "-encodedcommand",
+        "frombase64string",
+        "invoke-expression",
+        "iex(",
+    ]
+    .iter()
+    .any(|k| low.contains(k))
     {
         push_unique(&mut out.commands, s);
     }
@@ -1083,19 +1623,39 @@ fn classify(s: &str, out: &mut StringsInfo) {
     for tok in s.split(|c: char| !(c.is_ascii_digit() || c == '.' || c == ':')) {
         let host = tok.split(':').next().unwrap_or("");
         let parts: Vec<&str> = host.split('.').collect();
-        if parts.len() == 4 && parts.iter().all(|p| !p.is_empty() && p.len() <= 3 && p.parse::<u16>().is_ok_and(|n| n <= 255)) {
+        if parts.len() == 4
+            && parts
+                .iter()
+                .all(|p| !p.is_empty() && p.len() <= 3 && p.parse::<u16>().is_ok_and(|n| n <= 255))
+        {
             let first: u16 = parts[0].parse().unwrap_or(0);
-            if first != 0 && !(host.starts_with("1.0.") || host.starts_with("2.0.") || host.ends_with(".0.0")) {
+            if first != 0
+                && !(host.starts_with("1.0.") || host.starts_with("2.0.") || host.ends_with(".0.0"))
+            {
                 push_unique(&mut out.ips, tok);
             }
         }
     }
     // BTC / ETH / XMR wallets (shape only)
     for tok in s.split(|c: char| !c.is_ascii_alphanumeric()) {
-        let is_btc = (tok.starts_with("bc1") && (39..=62).contains(&tok.len()) && tok.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit()))
-            || ((tok.starts_with('1') || tok.starts_with('3')) && (26..=35).contains(&tok.len()) && tok.chars().all(|c| c.is_ascii_alphanumeric() && !"0OIl".contains(c)) && tok.chars().any(|c| c.is_ascii_uppercase()) && tok.chars().any(|c| c.is_ascii_digit()));
-        let is_eth = tok.starts_with("0x") && tok.len() == 42 && tok[2..].chars().all(|c| c.is_ascii_hexdigit());
-        let is_xmr = tok.starts_with('4') && tok.len() == 95 && tok.chars().all(|c| c.is_ascii_alphanumeric());
+        let is_btc = (tok.starts_with("bc1")
+            && (39..=62).contains(&tok.len())
+            && tok
+                .chars()
+                .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit()))
+            || ((tok.starts_with('1') || tok.starts_with('3'))
+                && (26..=35).contains(&tok.len())
+                && tok
+                    .chars()
+                    .all(|c| c.is_ascii_alphanumeric() && !"0OIl".contains(c))
+                && tok.chars().any(|c| c.is_ascii_uppercase())
+                && tok.chars().any(|c| c.is_ascii_digit()));
+        let is_eth = tok.starts_with("0x")
+            && tok.len() == 42
+            && tok[2..].chars().all(|c| c.is_ascii_hexdigit());
+        let is_xmr = tok.starts_with('4')
+            && tok.len() == 95
+            && tok.chars().all(|c| c.is_ascii_alphanumeric());
         if is_btc || is_eth || is_xmr {
             push_unique(&mut out.crypto_wallets, tok);
         }
@@ -1165,19 +1725,45 @@ pub fn extract_strings(data: &[u8]) -> StringsInfo {
 /// strings STRING_RULES look for, so those keyword checks are skipped for it.
 fn is_rule_text(file_name: &str) -> bool {
     let n = file_name.to_ascii_lowercase();
-    [".yar", ".yara", ".yml", ".yaml", ".yms", ".rules", ".ioc", ".sigma"].iter().any(|e| n.ends_with(e))
+    [
+        ".yar", ".yara", ".yml", ".yaml", ".yms", ".rules", ".ioc", ".sigma",
+    ]
+    .iter()
+    .any(|e| n.ends_with(e))
 }
 
 fn string_indicators(s: &StringsInfo, keyword_rules: bool, ind: &mut Vec<Indicator>) {
     if !s.crypto_wallets.is_empty() {
-        ind.push(Indicator { severity: "medium", id: "crypto_wallet", detail: format!("{} cryptocurrency address(es) embedded", s.crypto_wallets.len()) });
+        ind.push(Indicator {
+            severity: "medium",
+            id: "crypto_wallet",
+            detail: format!(
+                "{} cryptocurrency address(es) embedded",
+                s.crypto_wallets.len()
+            ),
+        });
     }
     let cmd_low: Vec<String> = s.commands.iter().map(|c| c.to_ascii_lowercase()).collect();
-    if cmd_low.iter().any(|c| c.contains("vssadmin") && c.contains("delete") || c.contains("shadowcopy delete") || c.contains("bcdedit") && c.contains("recoveryenabled")) {
-        ind.push(Indicator { severity: "high", id: "shadow_copy_delete", detail: "Commands to delete shadow copies / disable recovery".into() });
+    if cmd_low.iter().any(|c| {
+        c.contains("vssadmin") && c.contains("delete")
+            || c.contains("shadowcopy delete")
+            || c.contains("bcdedit") && c.contains("recoveryenabled")
+    }) {
+        ind.push(Indicator {
+            severity: "high",
+            id: "shadow_copy_delete",
+            detail: "Commands to delete shadow copies / disable recovery".into(),
+        });
     }
-    if cmd_low.iter().any(|c| c.contains("-encodedcommand") || c.contains("frombase64string")) {
-        ind.push(Indicator { severity: "medium", id: "encoded_powershell", detail: "Encoded or base64-decoded PowerShell".into() });
+    if cmd_low
+        .iter()
+        .any(|c| c.contains("-encodedcommand") || c.contains("frombase64string"))
+    {
+        ind.push(Indicator {
+            severity: "medium",
+            id: "encoded_powershell",
+            detail: "Encoded or base64-decoded PowerShell".into(),
+        });
     }
     for (sev, rule, label, _) in STRING_RULES.iter().filter(|_| keyword_rules) {
         let mut kws: Vec<&str> = Vec::new();
@@ -1187,11 +1773,22 @@ fn string_indicators(s: &StringsInfo, keyword_rules: bool, ind: &mut Vec<Indicat
             }
         }
         if !kws.is_empty() {
-            ind.push(Indicator { severity: sev, id: rule, detail: format!("{label}: {}", kws.join(", ")) });
+            ind.push(Indicator {
+                severity: sev,
+                id: rule,
+                detail: format!("{label}: {}", kws.join(", ")),
+            });
         }
     }
-    if s.registry.iter().any(|r| r.to_ascii_lowercase().contains("currentversion\\run")) {
-        ind.push(Indicator { severity: "low", id: "run_key", detail: "References a Run key (autostart)".into() });
+    if s.registry
+        .iter()
+        .any(|r| r.to_ascii_lowercase().contains("currentversion\\run"))
+    {
+        ind.push(Indicator {
+            severity: "low",
+            id: "run_key",
+            detail: "References a Run key (autostart)".into(),
+        });
     }
 }
 
@@ -1204,7 +1801,11 @@ fn crc_table() -> &'static [u32; 256] {
         for (i, e) in t.iter_mut().enumerate() {
             let mut c = i as u32;
             for _ in 0..8 {
-                c = if c & 1 != 0 { 0xEDB8_8320 ^ (c >> 1) } else { c >> 1 };
+                c = if c & 1 != 0 {
+                    0xEDB8_8320 ^ (c >> 1)
+                } else {
+                    c >> 1
+                };
             }
             *e = c;
         }
@@ -1252,9 +1853,19 @@ mod string_rule_tests {
     #[test]
     fn rule_files_and_ssh_keygen_stay_quiet() {
         let rule = b"rule x { strings: $a = \"get.activated.win\" condition: $a }";
-        assert!(!analyze(rule, "x.yar").indicators.iter().any(|i| i.id.starts_with("str_")));
+        assert!(
+            !analyze(rule, "x.yar")
+                .indicators
+                .iter()
+                .any(|i| i.id.starts_with("str_"))
+        );
         let git = b"....usr/bin/ssh-keygen.exe....";
-        assert!(!analyze(git, "git.bin").indicators.iter().any(|i| i.id == "str_crack"));
+        assert!(
+            !analyze(git, "git.bin")
+                .indicators
+                .iter()
+                .any(|i| i.id == "str_crack")
+        );
     }
 
     #[test]
@@ -1265,17 +1876,33 @@ mod string_rule_tests {
 
         assert_eq!(hex::encode(md5(b"")), "d41d8cd98f00b204e9800998ecf8427e");
         assert_eq!(hex::encode(md5(b"abc")), "900150983cd24fb0d6963f7d28e17f72");
-        assert_eq!(hex::encode(md5(b"123456789")), "25f9e794323b453885f5181f1b624d0b");
         assert_eq!(
-            hex::encode(md5(b"abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq")),
+            hex::encode(md5(b"123456789")),
+            "25f9e794323b453885f5181f1b624d0b"
+        );
+        assert_eq!(
+            hex::encode(md5(
+                b"abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq"
+            )),
             "8215ef0796a20bcaaae116d3876c664a"
         );
 
-        assert_eq!(hex::encode(sha1(b"")), "da39a3ee5e6b4b0d3255bfef95601890afd80709");
-        assert_eq!(hex::encode(sha1(b"abc")), "a9993e364706816aba3e25717850c26c9cd0d89d");
-        assert_eq!(hex::encode(sha1(b"123456789")), "f7c3bc1d808e04732adf679965ccc34ca7ae3441");
         assert_eq!(
-            hex::encode(sha1(b"abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq")),
+            hex::encode(sha1(b"")),
+            "da39a3ee5e6b4b0d3255bfef95601890afd80709"
+        );
+        assert_eq!(
+            hex::encode(sha1(b"abc")),
+            "a9993e364706816aba3e25717850c26c9cd0d89d"
+        );
+        assert_eq!(
+            hex::encode(sha1(b"123456789")),
+            "f7c3bc1d808e04732adf679965ccc34ca7ae3441"
+        );
+        assert_eq!(
+            hex::encode(sha1(
+                b"abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq"
+            )),
             "84983e441c3bd26ebaae4aa1f95129e5e54670f1"
         );
     }
@@ -1293,29 +1920,64 @@ mod timing {
         let t = std::time::Instant::now();
         let r = super::analyze(&data, &path);
         let json = serde_json::to_vec(&r).unwrap();
-        eprintln!("{} KB: report in {:?}, {} URLs, {} KB of JSON", data.len() / 1024, t.elapsed(), r.strings.urls.len(), json.len() / 1024);
+        eprintln!(
+            "{} KB: report in {:?}, {} URLs, {} KB of JSON",
+            data.len() / 1024,
+            t.elapsed(),
+            r.strings.urls.len(),
+            json.len() / 1024
+        );
         let time = |label: &str, f: &dyn Fn()| {
             let t = std::time::Instant::now();
             f();
             eprintln!("  {label}: {:?}", t.elapsed());
         };
-        time("entropy", &|| { super::shannon(&data); });
-        time("pe", &|| { super::parse_pe(&data, &mut Vec::new(), true); });
-        time("strings", &|| { super::extract_strings(&data); });
-        time("crc32", &|| { super::crc32(&data); });
-        time("md5", &|| { super::md5(&data); });
-        time("sha1", &|| { super::sha1(&data); });
-        time("sha256", &|| { use sha2::Digest; sha2::Sha256::digest(&data); });
-        time("tlsh", &|| { super::tlsh_digest(&data); });
+        time("entropy", &|| {
+            super::shannon(&data);
+        });
+        time("pe", &|| {
+            super::parse_pe(&data, &mut Vec::new(), true);
+        });
+        time("strings", &|| {
+            super::extract_strings(&data);
+        });
+        time("crc32", &|| {
+            super::crc32(&data);
+        });
+        time("md5", &|| {
+            super::md5(&data);
+        });
+        time("sha1", &|| {
+            super::sha1(&data);
+        });
+        time("sha256", &|| {
+            use sha2::Digest;
+            sha2::Sha256::digest(&data);
+        });
+        time("tlsh", &|| {
+            super::tlsh_digest(&data);
+        });
         // The threads give the same report as one after the other.
         let mut ind = Vec::new();
         let pe = super::parse_pe(&data, &mut ind, true);
-        assert_eq!(serde_json::to_value(&r.pe).unwrap(), serde_json::to_value(&pe).unwrap());
+        assert_eq!(
+            serde_json::to_value(&r.pe).unwrap(),
+            serde_json::to_value(&pe).unwrap()
+        );
         assert_eq!(r.hashes.md5, hex::encode(super::md5(&data)));
         assert_eq!(r.hashes.sha1, hex::encode(super::sha1(&data)));
         assert_eq!(r.hashes.crc32, format!("{:08X}", super::crc32(&data)));
         assert_eq!(r.hashes.tlsh, super::tlsh_digest(&data));
-        assert_eq!(serde_json::to_value(&r.strings).unwrap(), serde_json::to_value(super::extract_strings(&data)).unwrap());
-        assert!(r.indicators.iter().map(|i| i.id).collect::<Vec<_>>().starts_with(&ind.iter().map(|i| i.id).collect::<Vec<_>>()));
+        assert_eq!(
+            serde_json::to_value(&r.strings).unwrap(),
+            serde_json::to_value(super::extract_strings(&data)).unwrap()
+        );
+        assert!(
+            r.indicators
+                .iter()
+                .map(|i| i.id)
+                .collect::<Vec<_>>()
+                .starts_with(&ind.iter().map(|i| i.id).collect::<Vec<_>>())
+        );
     }
 }
