@@ -58,7 +58,11 @@ impl Objects {
             }
         }
         kinds.sort_by(|a, b| b.1.cmp(&a.1));
-        Self { count: objects.len(), bytes: objects.iter().map(|o| o.size).sum(), kinds }
+        Self {
+            count: objects.len(),
+            bytes: objects.iter().map(|o| o.size).sum(),
+            kinds,
+        }
     }
 }
 
@@ -87,11 +91,25 @@ struct State {
     by_stage: Vec<(&'static str, Vec<StageHit>)>,
 }
 
-static STATE: Mutex<State> =
-    Mutex::new(State { scans: 0, slow: 0, total_ns: 0, recent: VecDeque::new(), slowest: Vec::new(), by_stage: Vec::new() });
+static STATE: Mutex<State> = Mutex::new(State {
+    scans: 0,
+    slow: 0,
+    total_ns: 0,
+    recent: VecDeque::new(),
+    slowest: Vec::new(),
+    by_stage: Vec::new(),
+});
 
 /// Keeps `stages` of this scan among the slowest files of each stage.
-fn note_stage_hits(s: &mut State, file: &str, sha: &str, size: usize, total: Duration, verdict: Option<&str>, stages: &[StageTime]) {
+fn note_stage_hits(
+    s: &mut State,
+    file: &str,
+    sha: &str,
+    size: usize,
+    total: Duration,
+    verdict: Option<&str>,
+    stages: &[StageTime],
+) {
     let floor = STAGE_FLOOR.as_nanos() as u64;
     for t in stages.iter().filter(|t| t.self_ns >= floor) {
         let i = match s.by_stage.iter().position(|(n, _)| *n == t.name) {
@@ -126,7 +144,14 @@ fn note_stage_hits(s: &mut State, file: &str, sha: &str, size: usize, total: Dur
 /// Stages timed outside the engine scan (the server's threat-intel steps, which run
 /// after it): their files join each stage's slowest list like the engine's do. Not
 /// counted as a scan.
-pub fn record_stages(file: &str, sha: &str, size: usize, total: Duration, verdict: Option<&str>, stages: &[StageTime]) {
+pub fn record_stages(
+    file: &str,
+    sha: &str,
+    size: usize,
+    total: Duration,
+    verdict: Option<&str>,
+    stages: &[StageTime],
+) {
     let mut s = STATE.lock().unwrap_or_else(|e| e.into_inner());
     note_stage_hits(&mut s, file, sha, size, total, verdict, stages);
 }
@@ -160,7 +185,11 @@ pub fn record(
     }
     s.slow += 1;
     let objects = Objects::of(objects);
-    let kinds: Vec<String> = objects.kinds.iter().map(|(k, c, _)| format!("{c} {k}")).collect();
+    let kinds: Vec<String> = objects
+        .kinds
+        .iter()
+        .map(|(k, c, _)| format!("{c} {k}"))
+        .collect();
     let top: Vec<String> = stages
         .iter()
         .take(3)
@@ -201,7 +230,12 @@ pub fn record(
 fn scan_json(s: &SlowScan) -> serde_json::Value {
     let total_ns = s.total.as_nanos();
     let shown: Vec<_> = s.stages.iter().take(STAGES_PER_SCAN).collect();
-    let rest: u128 = s.stages.iter().skip(STAGES_PER_SCAN).map(|t| t.self_ns as u128).sum();
+    let rest: u128 = s
+        .stages
+        .iter()
+        .skip(STAGES_PER_SCAN)
+        .map(|t| t.self_ns as u128)
+        .sum();
     let counted: u128 = s.stages.iter().map(|t| t.self_ns as u128).sum();
     serde_json::json!({
         "at": s.at,
@@ -236,7 +270,11 @@ pub fn report() -> serde_json::Value {
     // Loaders time themselves too (startup, reloads); only the per-file stages here.
     let stages: Vec<StageTime> = memtrack::time_snapshot()
         .into_iter()
-        .filter(|t| t.name.starts_with("scan:") || t.name.starts_with("server:") || t.name.starts_with("ml:"))
+        .filter(|t| {
+            t.name.starts_with("scan:")
+                || t.name.starts_with("server:")
+                || t.name.starts_with("ml:")
+        })
         .collect();
     let all_ns: u128 = stages.iter().map(|t| t.self_ns as u128).sum();
     serde_json::json!({
@@ -281,19 +319,47 @@ mod tests {
     use super::*;
 
     fn stage(name: &'static str, ms: u64) -> StageTime {
-        StageTime { name, calls: 1, self_ns: ms * 1_000_000, cpu_ns: 0, max_ns: ms * 1_000_000 }
+        StageTime {
+            name,
+            calls: 1,
+            self_ns: ms * 1_000_000,
+            cpu_ns: 0,
+            max_ns: ms * 1_000_000,
+        }
     }
 
     #[test]
     fn keeps_each_stages_slowest_files_slowest_first() {
-        let mut s = State { scans: 0, slow: 0, total_ns: 0, recent: VecDeque::new(), slowest: Vec::new(), by_stage: Vec::new() };
+        let mut s = State {
+            scans: 0,
+            slow: 0,
+            total_ns: 0,
+            recent: VecDeque::new(),
+            slowest: Vec::new(),
+            by_stage: Vec::new(),
+        };
         let total = Duration::from_millis(500);
         for i in 0..(SLOWEST_PER_STAGE as u64 + 5) {
             let file = format!("f{i}.dll");
-            note_stage_hits(&mut s, &file, "sha", 10, total, Some("clean"), &[stage("scan:infector", 30 + i), stage("scan:yara", 5)]);
+            note_stage_hits(
+                &mut s,
+                &file,
+                "sha",
+                10,
+                total,
+                Some("clean"),
+                &[stage("scan:infector", 30 + i), stage("scan:yara", 5)],
+            );
         }
-        assert!(s.by_stage.iter().all(|(n, _)| *n != "scan:yara"), "below the floor");
-        let (_, hits) = s.by_stage.iter().find(|(n, _)| *n == "scan:infector").unwrap();
+        assert!(
+            s.by_stage.iter().all(|(n, _)| *n != "scan:yara"),
+            "below the floor"
+        );
+        let (_, hits) = s
+            .by_stage
+            .iter()
+            .find(|(n, _)| *n == "scan:infector")
+            .unwrap();
         assert_eq!(hits.len(), SLOWEST_PER_STAGE);
         assert_eq!(hits[0].file, format!("f{}.dll", SLOWEST_PER_STAGE + 4));
         assert!(hits.windows(2).all(|w| w[0].stage_ns >= w[1].stage_ns));
@@ -302,9 +368,19 @@ mod tests {
     #[test]
     fn stages_timed_after_the_scan_list_their_files_without_counting_a_scan() {
         let before = report()["scans"].as_u64().unwrap();
-        record_stages("late.exe", "abc", 7, Duration::from_millis(90), Some("unknown"), &[stage("server:ti_test_only", 40)]);
+        record_stages(
+            "late.exe",
+            "abc",
+            7,
+            Duration::from_millis(90),
+            Some("unknown"),
+            &[stage("server:ti_test_only", 40)],
+        );
         let r = report();
         assert_eq!(r["scans"].as_u64().unwrap(), before);
-        assert_eq!(r["stageSlowest"]["server:ti_test_only"][0]["file"], "late.exe");
+        assert_eq!(
+            r["stageSlowest"]["server:ti_test_only"][0]["file"],
+            "late.exe"
+        );
     }
 }

@@ -15,7 +15,9 @@ fn sha_of(line: &[u8]) -> Option<[u8; 64]> {
     let s = line.get(at..at + 64)?;
     s.iter().all(u8::is_ascii_hexdigit).then(|| {
         let mut out = [0u8; 64];
-        out.iter_mut().zip(s).for_each(|(o, b)| *o = b.to_ascii_lowercase());
+        out.iter_mut()
+            .zip(s)
+            .for_each(|(o, b)| *o = b.to_ascii_lowercase());
         out
     })
 }
@@ -63,7 +65,17 @@ fn main() {
     println!("lines           : {lines} ({bad} without a readable sha256)");
     println!("unique hashes   : {}", newest.len());
     println!("live lines      : {:.2} GB", gb(live_bytes));
-    println!("stale lines     : {:.2} GB ({:.1} % of the file)", gb(stale_bytes), 100.0 * stale_bytes as f64 / total_bytes.max(1) as f64);
-    println!("avg live record : {} B", live_bytes / newest.len().max(1) as u64);
-    println!("estimated SQLite size (one row per hash, ~live bytes + index): {:.2} GB", gb(live_bytes + newest.len() as u64 * 100));
+    println!(
+        "stale lines     : {:.2} GB ({:.1} % of the file)",
+        gb(stale_bytes),
+        100.0 * stale_bytes as f64 / total_bytes.max(1) as f64
+    );
+    println!(
+        "avg live record : {} B",
+        live_bytes / newest.len().max(1) as u64
+    );
+    println!(
+        "estimated SQLite size (one row per hash, ~live bytes + index): {:.2} GB",
+        gb(live_bytes + newest.len() as u64 * 100)
+    );
 }

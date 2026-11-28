@@ -53,8 +53,14 @@ impl Event {
                 let file = self.file.as_deref().unwrap_or("");
                 let size_str = format_size(self.size.unwrap_or(0));
                 let ms = self.ms.unwrap_or(0);
-                let items = self.items.map(|n| format!(", {n} item{}", if n == 1 { "" } else { "s" })).unwrap_or_default();
-                let mut line = format!("[{} #{}] {:<10} {} ({}, {} ms{})", client, session, verdict, file, size_str, ms, items);
+                let items = self
+                    .items
+                    .map(|n| format!(", {n} item{}", if n == 1 { "" } else { "s" }))
+                    .unwrap_or_default();
+                let mut line = format!(
+                    "[{} #{}] {:<10} {} ({}, {} ms{})",
+                    client, session, verdict, file, size_str, ms, items
+                );
                 if let Some(t) = &self.threat {
                     if !t.is_empty() {
                         line.push_str(" -> ");
@@ -75,7 +81,10 @@ impl Event {
                 let file = self.file.as_deref().unwrap_or("");
                 let size_str = format_size(self.size.unwrap_or(0));
                 let origin = self.origin_type.as_deref().unwrap_or("Extracted");
-                let mut line = format!("[{} #{}] {:<10} ↳ [{}] {} ({})", client, session, verdict, origin, file, size_str);
+                let mut line = format!(
+                    "[{} #{}] {:<10} ↳ [{}] {} ({})",
+                    client, session, verdict, origin, file, size_str
+                );
                 if let Some(t) = &self.threat {
                     if !t.is_empty() {
                         line.push_str(" -> ");
@@ -87,14 +96,20 @@ impl Event {
             "error" | "rejected" => {
                 let file = self.file.as_deref().unwrap_or("");
                 let msg = self.message.as_deref().unwrap_or("");
-                format!("[{} #{}] {:<10} {}: {}", client, session, self.kind, file, msg)
+                format!(
+                    "[{} #{}] {:<10} {}: {}",
+                    client, session, self.kind, file, msg
+                )
             }
             "edr_behavior" => {
                 let verdict = self.verdict.as_deref().unwrap_or("behavior");
                 let proc = self.file.as_deref().unwrap_or("");
                 let threat = self.threat.as_deref().unwrap_or("");
                 let detail = self.detail.as_deref().unwrap_or("");
-                format!("[EDR:Behavior] [{}] {} -> {} [{}]", verdict, proc, threat, detail)
+                format!(
+                    "[EDR:Behavior] [{}] {} -> {} [{}]",
+                    verdict, proc, threat, detail
+                )
             }
             "edr_flow" => {
                 let proc = self.file.as_deref().unwrap_or("");
@@ -117,7 +132,8 @@ impl Event {
 
     /// Convert event to Elastic Common Schema (ECS 8.x) JSON format for Elasticsearch.
     pub fn to_ecs_lite_json(&self) -> serde_json::Value {
-        let is_threat = self.verdict.as_deref() == Some("malicious") || self.verdict.as_deref() == Some("suspicious");
+        let is_threat = self.verdict.as_deref() == Some("malicious")
+            || self.verdict.as_deref() == Some("suspicious");
         let raw_verdict = self.verdict.as_deref().unwrap_or("unknown");
         let mut obj = serde_json::json!({
             "@timestamp": self.time.to_rfc3339(),
@@ -265,16 +281,14 @@ impl EventLog {
         }
 
         // Append to multron_events.ecs.jsonl (Elasticsearch ECS Lite format)
-        if let Ok(mut file) = std::fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(crate::config::app_dir().join(if crate::config::is_archive() {
-                    // The main server's log is mirrored as multron_events.ecs.jsonl.
-                    "multron_events.archive.ecs.jsonl"
-                } else {
-                    "multron_events.ecs.jsonl"
-                }))
-        {
+        if let Ok(mut file) = std::fs::OpenOptions::new().create(true).append(true).open(
+            crate::config::app_dir().join(if crate::config::is_archive() {
+                // The main server's log is mirrored as multron_events.ecs.jsonl.
+                "multron_events.archive.ecs.jsonl"
+            } else {
+                "multron_events.ecs.jsonl"
+            }),
+        ) {
             use std::io::Write;
             if let Ok(json_line) = serde_json::to_string(&ecs_json) {
                 let _ = writeln!(file, "{}", json_line);

@@ -19,8 +19,15 @@ use sha2::{Digest, Sha256};
 use crate::engine_adapter::{EngineAdapter, KeptFile};
 
 /// Move order: the first category goes first.
-const MOVE_ORDER: [&str; 7] =
-    ["clean", "xorfilter_clean", "possible_clean", "malicious", "xorfilter_malicious", "suspicious", "unknown"];
+const MOVE_ORDER: [&str; 7] = [
+    "clean",
+    "xorfilter_clean",
+    "possible_clean",
+    "malicious",
+    "xorfilter_malicious",
+    "suspicious",
+    "unknown",
+];
 
 #[derive(Default)]
 pub struct Offload {
@@ -120,18 +127,27 @@ fn move_one(engine: &EngineAdapter, target: &Path, k: &KeptFile) -> Result<u64, 
     let dir = target.join(k.category);
     std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
     let dest = dir.join(k.file_name());
-    let ok_already = dest.exists() && content_sha(&dest, k.xz).as_deref() == Some(k.sha256.as_str());
+    let ok_already =
+        dest.exists() && content_sha(&dest, k.xz).as_deref() == Some(k.sha256.as_str());
     if !ok_already {
         let part = dir.join(format!("{}.part", k.file_name()));
         std::fs::copy(&k.path, &part).map_err(|e| format!("copy {}: {e}", k.file_name()))?;
         if content_sha(&part, k.xz).as_deref() != Some(k.sha256.as_str()) {
             let _ = std::fs::remove_file(&part);
-            return Err(format!("{}: the copy does not match its SHA-256", k.file_name()));
+            return Err(format!(
+                "{}: the copy does not match its SHA-256",
+                k.file_name()
+            ));
         }
         let _ = std::fs::remove_file(&dest);
         std::fs::rename(&part, &dest).map_err(|e| format!("rename {}: {e}", k.file_name()))?;
     }
-    let freed = engine.forget_kept(k).ok_or_else(|| format!("{}: copied, but the local file could not be deleted", k.file_name()))?;
+    let freed = engine.forget_kept(k).ok_or_else(|| {
+        format!(
+            "{}: copied, but the local file could not be deleted",
+            k.file_name()
+        )
+    })?;
     crate::missing_files::record(&k.sha256, "offloaded", dest.display().to_string());
     Ok(freed)
 }
@@ -142,12 +158,21 @@ pub enum Mode {
 }
 
 /// Starts moving in the background. Returns how many files are candidates.
-pub fn start(engine: &Arc<EngineAdapter>, off: &Arc<Offload>, mode: Mode, log: impl Fn(String) + Send + 'static) -> Result<usize, String> {
+pub fn start(
+    engine: &Arc<EngineAdapter>,
+    off: &Arc<Offload>,
+    mode: Mode,
+    log: impl Fn(String) + Send + 'static,
+) -> Result<usize, String> {
     let target = check_target(engine, &off.target())?;
     let mut files = engine.list_kept();
     let reason = match &mode {
         Mode::Categories(cats) => {
-            let cats: Vec<&str> = if cats.is_empty() { KeptFile::CATEGORIES.to_vec() } else { cats.iter().map(String::as_str).collect() };
+            let cats: Vec<&str> = if cats.is_empty() {
+                KeptFile::CATEGORIES.to_vec()
+            } else {
+                cats.iter().map(String::as_str).collect()
+            };
             if let Some(bad) = cats.iter().find(|c| !KeptFile::CATEGORIES.contains(c)) {
                 return Err(format!("unknown category {bad}"));
             }
@@ -159,10 +184,23 @@ pub fn start(engine: &Arc<EngineAdapter>, off: &Arc<Offload>, mode: Mode, log: i
         return Err("a move is already running".into());
     }
     // Least useful category first, oldest first inside it.
-    let rank = |c: &str| MOVE_ORDER.iter().position(|m| *m == c).unwrap_or(MOVE_ORDER.len());
+    let rank = |c: &str| {
+        MOVE_ORDER
+            .iter()
+            .position(|m| *m == c)
+            .unwrap_or(MOVE_ORDER.len())
+    };
     let mut dated: Vec<(usize, std::time::SystemTime, KeptFile)> = files
         .into_iter()
-        .map(|k| (rank(k.category), std::fs::metadata(&k.path).and_then(|m| m.modified()).unwrap_or(std::time::UNIX_EPOCH), k))
+        .map(|k| {
+            (
+                rank(k.category),
+                std::fs::metadata(&k.path)
+                    .and_then(|m| m.modified())
+                    .unwrap_or(std::time::UNIX_EPOCH),
+                k,
+            )
+        })
         .collect();
     dated.sort_by_key(|(r, t, _)| (*r, *t));
     let n = dated.len();
@@ -175,43 +213,52 @@ pub fn start(engine: &Arc<EngineAdapter>, off: &Arc<Offload>, mode: Mode, log: i
     *off.reason.lock().unwrap() = reason.clone();
     *off.started_at.lock().unwrap() = Some(chrono::Utc::now().to_rfc3339());
     *off.finished_at.lock().unwrap() = None;
-    log(format!("moving kept files to {} ({reason}): {n} candidates", target.display()));
+    log(format!(
+        "moving kept files to {} ({reason}): {n} candidates",
+        target.display()
+    ));
     let (eng, o) = (Arc::clone(engine), Arc::clone(off));
-    let spawned = std::thread::Builder::new().name("offload".into()).spawn(move || {
-        let mut failures_in_row = 0;
-        for (_, _, k) in dated {
-            if o.stop.load(Ordering::Relaxed) {
-                break;
-            }
-            match move_one(&eng, &target, &k) {
-                Ok(freed) => {
-                    failures_in_row = 0;
-                    o.moved.fetch_add(1, Ordering::Relaxed);
-                    o.bytes.fetch_add(freed, Ordering::Relaxed);
+    let spawned = std::thread::Builder::new()
+        .name("offload".into())
+        .spawn(move || {
+            let mut failures_in_row = 0;
+            for (_, _, k) in dated {
+                if o.stop.load(Ordering::Relaxed) {
+                    break;
                 }
-                Err(e) => {
-                    o.failed.fetch_add(1, Ordering::Relaxed);
-                    *o.last_error.lock().unwrap() = e;
-                    failures_in_row += 1;
-                    // Target gone (share offline, disk full): stop instead of failing every file.
-                    if failures_in_row >= 5 {
-                        break;
+                match move_one(&eng, &target, &k) {
+                    Ok(freed) => {
+                        failures_in_row = 0;
+                        o.moved.fetch_add(1, Ordering::Relaxed);
+                        o.bytes.fetch_add(freed, Ordering::Relaxed);
+                    }
+                    Err(e) => {
+                        o.failed.fetch_add(1, Ordering::Relaxed);
+                        *o.last_error.lock().unwrap() = e;
+                        failures_in_row += 1;
+                        // Target gone (share offline, disk full): stop instead of failing every file.
+                        if failures_in_row >= 5 {
+                            break;
+                        }
                     }
                 }
             }
-        }
-        *o.finished_at.lock().unwrap() = Some(chrono::Utc::now().to_rfc3339());
-        o.running.store(false, Ordering::SeqCst);
-        let err = o.last_error.lock().unwrap().clone();
-        log(format!(
-            "kept files moved to {}: {} files, {:.2} GB, {} failed{}",
-            target.display(),
-            o.moved.load(Ordering::Relaxed),
-            o.bytes.load(Ordering::Relaxed) as f64 / (1024.0 * 1024.0 * 1024.0),
-            o.failed.load(Ordering::Relaxed),
-            if err.is_empty() { String::new() } else { format!(" (last error: {err})") }
-        ));
-    });
+            *o.finished_at.lock().unwrap() = Some(chrono::Utc::now().to_rfc3339());
+            o.running.store(false, Ordering::SeqCst);
+            let err = o.last_error.lock().unwrap().clone();
+            log(format!(
+                "kept files moved to {}: {} files, {:.2} GB, {} failed{}",
+                target.display(),
+                o.moved.load(Ordering::Relaxed),
+                o.bytes.load(Ordering::Relaxed) as f64 / (1024.0 * 1024.0 * 1024.0),
+                o.failed.load(Ordering::Relaxed),
+                if err.is_empty() {
+                    String::new()
+                } else {
+                    format!(" (last error: {err})")
+                }
+            ));
+        });
     if let Err(e) = spawned {
         off.running.store(false, Ordering::SeqCst);
         return Err(format!("cannot start the move thread: {e}"));
@@ -236,7 +283,8 @@ mod tests {
         // A file whose name claims another hash must not be deleted.
         let bad = "A".repeat(64);
         std::fs::write(work.join("clean").join(format!("{bad}_b.exe")), b"other").unwrap();
-        let engine = EngineAdapter::new(Some(work.clone()), false, true, 1, true, true, 1, false, 1);
+        let engine =
+            EngineAdapter::new(Some(work.clone()), false, true, 1, true, true, 1, false, 1);
         let off = Arc::new(Offload::default());
         *off.target.write().unwrap() = target.to_string_lossy().into_owned();
         assert!(check_target(&engine, &work.join("x").to_string_lossy()).is_err());
@@ -247,10 +295,18 @@ mod tests {
         }
         assert_eq!(off.moved.load(Ordering::Relaxed), 1);
         assert_eq!(off.failed.load(Ordering::Relaxed), 1);
-        assert_eq!(std::fs::read(target.join("unknown").join(format!("{sha}_a.exe"))).unwrap(), data);
+        assert_eq!(
+            std::fs::read(target.join("unknown").join(format!("{sha}_a.exe"))).unwrap(),
+            data
+        );
         assert!(!work.join("unknown").join(format!("{sha}_a.exe")).exists());
         assert!(work.join("clean").join(format!("{bad}_b.exe")).exists());
-        assert!(!target.join("clean").join(format!("{bad}_b.exe.part")).exists());
+        assert!(
+            !target
+                .join("clean")
+                .join(format!("{bad}_b.exe.part"))
+                .exists()
+        );
         let _ = std::fs::remove_dir_all(&base);
     }
 }

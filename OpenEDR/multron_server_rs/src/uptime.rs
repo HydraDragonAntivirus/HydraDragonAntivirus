@@ -33,9 +33,18 @@ fn load(path: PathBuf) -> State {
     let mut saved = std::fs::read_to_string(&path)
         .ok()
         .and_then(|t| serde_json::from_str::<Saved>(&t).ok())
-        .unwrap_or(Saved { first_start: now, total_secs: 0, starts: 0, last_seen: None });
+        .unwrap_or(Saved {
+            first_start: now,
+            total_secs: 0,
+            starts: 0,
+            last_seen: None,
+        });
     saved.starts += 1;
-    State { path, saved, started: Instant::now() }
+    State {
+        path,
+        saved,
+        started: Instant::now(),
+    }
 }
 
 fn snapshot(st: &State) -> Saved {
@@ -57,10 +66,12 @@ fn save(st: &State) {
 pub fn start() {
     let st = STATE.get_or_init(|| Mutex::new(load(crate::config::app_dir().join("uptime.json"))));
     save(&st.lock().unwrap());
-    let _ = std::thread::Builder::new().name("uptime".into()).spawn(|| loop {
-        std::thread::sleep(Duration::from_secs(60));
-        if let Some(st) = STATE.get() {
-            save(&st.lock().unwrap());
+    let _ = std::thread::Builder::new().name("uptime".into()).spawn(|| {
+        loop {
+            std::thread::sleep(Duration::from_secs(60));
+            if let Some(st) = STATE.get() {
+                save(&st.lock().unwrap());
+            }
         }
     });
 }
@@ -74,7 +85,9 @@ pub fn save_now() {
 
 /// {totalUptimeSecs, since, restarts, availability (% of the time since the first start)}.
 pub fn json() -> serde_json::Value {
-    let Some(st) = STATE.get() else { return serde_json::Value::Null };
+    let Some(st) = STATE.get() else {
+        return serde_json::Value::Null;
+    };
     let s = snapshot(&st.lock().unwrap());
     let span = (Utc::now() - s.first_start).num_seconds().max(1) as f64;
     serde_json::json!({
@@ -99,7 +112,10 @@ mod tests {
         s.total_secs = 100;
         std::fs::write(&path, serde_json::to_string(&s).unwrap()).unwrap();
         let b = load(path.clone());
-        assert_eq!((b.saved.starts, b.saved.total_secs, b.saved.first_start), (2, 100, a.saved.first_start));
+        assert_eq!(
+            (b.saved.starts, b.saved.total_secs, b.saved.first_start),
+            (2, 100, a.saved.first_start)
+        );
         let _ = std::fs::remove_file(&path);
     }
 }

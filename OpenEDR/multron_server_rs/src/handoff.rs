@@ -71,14 +71,25 @@ impl OldSide {
                 false
             }
             _ => {
-                let prev = server.maintenance.load(std::sync::atomic::Ordering::Relaxed);
+                let prev = server
+                    .maintenance
+                    .load(std::sync::atomic::Ordering::Relaxed);
                 // Normal maintenance stays (scans are refused anyway); otherwise scans go
                 // on and clients are told the server is being updated.
-                let prev_mode = if prev == 3 { g.map_or(0, |s| s.prev_mode) } else { prev };
+                let prev_mode = if prev == 3 {
+                    g.map_or(0, |s| s.prev_mode)
+                } else {
+                    prev
+                };
                 if matches!(prev, 0 | 3) {
                     server.set_maintenance("getting_updated");
                 }
-                *g = Some(Standby { pid, since: now, last_beat: now, prev_mode });
+                *g = Some(Standby {
+                    pid,
+                    since: now,
+                    last_beat: now,
+                    prev_mode,
+                });
                 true
             }
         }
@@ -93,7 +104,9 @@ impl OldSide {
         }
         *g = None;
         if server.maintenance_mode() == "getting_updated" {
-            server.maintenance.store(s.prev_mode, std::sync::atomic::Ordering::Relaxed);
+            server
+                .maintenance
+                .store(s.prev_mode, std::sync::atomic::Ordering::Relaxed);
         }
         Some(s.pid)
     }
@@ -119,7 +132,11 @@ impl OldSide {
 /// Loopback address to reach a dashboard bound to `ui` (0.0.0.0 -> 127.0.0.1).
 pub fn local_addr(ui: SocketAddr) -> SocketAddr {
     if ui.ip().is_unspecified() {
-        let ip = if ui.is_ipv4() { std::net::Ipv4Addr::LOCALHOST.into() } else { std::net::Ipv6Addr::LOCALHOST.into() };
+        let ip = if ui.is_ipv4() {
+            std::net::Ipv4Addr::LOCALHOST.into()
+        } else {
+            std::net::Ipv6Addr::LOCALHOST.into()
+        };
         SocketAddr::new(ip, ui.port())
     } else {
         ui
@@ -128,40 +145,71 @@ pub fn local_addr(ui: SocketAddr) -> SocketAddr {
 
 /// Minimal HTTP/1.1 call to the local dashboard (no HTTP client crate in this server).
 /// Returns the status code and the JSON body (Null when it is not JSON).
-pub async fn call(addr: SocketAddr, method: &str, path: &str, body: Option<&serde_json::Value>, timeout: Duration) -> Result<(u16, serde_json::Value), String> {
+pub async fn call(
+    addr: SocketAddr,
+    method: &str,
+    path: &str,
+    body: Option<&serde_json::Value>,
+    timeout: Duration,
+) -> Result<(u16, serde_json::Value), String> {
     let fut = async {
-        let mut s = tokio::net::TcpStream::connect(addr).await.map_err(|e| e.to_string())?;
+        let mut s = tokio::net::TcpStream::connect(addr)
+            .await
+            .map_err(|e| e.to_string())?;
         let payload = body.map(|b| b.to_string()).unwrap_or_default();
         let req = format!(
             "{method} {path} HTTP/1.1\r\nHost: 127.0.0.1\r\nX-Multron-Dashboard: 1\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{payload}",
             payload.len()
         );
-        s.write_all(req.as_bytes()).await.map_err(|e| e.to_string())?;
+        s.write_all(req.as_bytes())
+            .await
+            .map_err(|e| e.to_string())?;
         let mut raw = Vec::new();
         s.read_to_end(&mut raw).await.map_err(|e| e.to_string())?;
         parse_response(&raw)
     };
-    tokio::time::timeout(timeout, fut).await.map_err(|_| "timed out".to_string())?
+    tokio::time::timeout(timeout, fut)
+        .await
+        .map_err(|_| "timed out".to_string())?
 }
 
 fn parse_response(raw: &[u8]) -> Result<(u16, serde_json::Value), String> {
-    let split = raw.windows(4).position(|w| w == b"\r\n\r\n").ok_or("no HTTP header")?;
+    let split = raw
+        .windows(4)
+        .position(|w| w == b"\r\n\r\n")
+        .ok_or("no HTTP header")?;
     let head = String::from_utf8_lossy(&raw[..split]);
-    let status: u16 = head.split_whitespace().nth(1).and_then(|c| c.parse().ok()).ok_or("bad status line")?;
+    let status: u16 = head
+        .split_whitespace()
+        .nth(1)
+        .and_then(|c| c.parse().ok())
+        .ok_or("bad status line")?;
     let mut body = raw[split + 4..].to_vec();
-    if head.lines().any(|l| l.to_ascii_lowercase().starts_with("transfer-encoding:") && l.to_ascii_lowercase().contains("chunked")) {
+    if head.lines().any(|l| {
+        l.to_ascii_lowercase().starts_with("transfer-encoding:")
+            && l.to_ascii_lowercase().contains("chunked")
+    }) {
         body = dechunk(&body);
     }
-    Ok((status, serde_json::from_slice(&body).unwrap_or(serde_json::Value::Null)))
+    Ok((
+        status,
+        serde_json::from_slice(&body).unwrap_or(serde_json::Value::Null),
+    ))
 }
 
 fn dechunk(mut b: &[u8]) -> Vec<u8> {
     let mut out = Vec::new();
     while let Some(eol) = b.windows(2).position(|w| w == b"\r\n") {
-        let size = std::str::from_utf8(&b[..eol]).ok().and_then(|s| usize::from_str_radix(s.split(';').next()?.trim(), 16).ok());
-        let Some(size) = size.filter(|&n| n > 0) else { break };
+        let size = std::str::from_utf8(&b[..eol])
+            .ok()
+            .and_then(|s| usize::from_str_radix(s.split(';').next()?.trim(), 16).ok());
+        let Some(size) = size.filter(|&n| n > 0) else {
+            break;
+        };
         let start = eol + 2;
-        let Some(chunk) = b.get(start..start + size) else { break };
+        let Some(chunk) = b.get(start..start + size) else {
+            break;
+        };
         out.extend_from_slice(chunk);
         b = b.get(start + size + 2..).unwrap_or(&[]);
     }
@@ -180,8 +228,18 @@ pub enum Begin {
 
 pub async fn begin(ui: SocketAddr) -> Begin {
     let body = serde_json::json!({ "pid": std::process::id() });
-    match call(local_addr(ui), "POST", "/api/handoff/begin", Some(&body), Duration::from_secs(15)).await {
-        Ok((200, v)) => Begin::Accepted { pid: v["pid"].as_u64().unwrap_or(0) as u32 },
+    match call(
+        local_addr(ui),
+        "POST",
+        "/api/handoff/begin",
+        Some(&body),
+        Duration::from_secs(15),
+    )
+    .await
+    {
+        Ok((200, v)) => Begin::Accepted {
+            pid: v["pid"].as_u64().unwrap_or(0) as u32,
+        },
         Ok(_) => Begin::Unsupported,
         Err(_) => Begin::NoServer,
     }
@@ -203,7 +261,10 @@ impl Beater {
         let thread = std::thread::Builder::new()
             .name("handoff-beat".into())
             .spawn(move || {
-                let Ok(rt) = tokio::runtime::Builder::new_current_thread().enable_all().build() else {
+                let Ok(rt) = tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()
+                else {
                     eprintln!("[handoff] heartbeat thread: no runtime; the main loop beats alone");
                     return;
                 };
@@ -242,9 +303,22 @@ pub struct Released {
 pub async fn release(ui: SocketAddr, drain_secs: u64) -> Result<Released, String> {
     let body = serde_json::json!({ "pid": std::process::id(), "drainSeconds": drain_secs });
     let wait = Duration::from_secs(drain_secs + 30);
-    match call(local_addr(ui), "POST", "/api/handoff/release", Some(&body), wait).await {
-        Ok((200, v)) if v["released"].as_bool() == Some(true) => Ok(Released { listening: v["listening"].as_bool().unwrap_or(true) }),
-        Ok((code, v)) => Err(format!("release refused ({code}): {}", v["error"].as_str().unwrap_or(""))),
+    match call(
+        local_addr(ui),
+        "POST",
+        "/api/handoff/release",
+        Some(&body),
+        wait,
+    )
+    .await
+    {
+        Ok((200, v)) if v["released"].as_bool() == Some(true) => Ok(Released {
+            listening: v["listening"].as_bool().unwrap_or(true),
+        }),
+        Ok((code, v)) => Err(format!(
+            "release refused ({code}): {}",
+            v["error"].as_str().unwrap_or("")
+        )),
         Err(e) => Err(e),
     }
 }
@@ -252,16 +326,31 @@ pub async fn release(ui: SocketAddr, drain_secs: u64) -> Result<Released, String
 /// The standby gives up (it could not finish loading): the old server leaves the mode.
 pub async fn cancel(ui: SocketAddr) {
     let body = serde_json::json!({ "pid": std::process::id() });
-    let _ = call(local_addr(ui), "POST", "/api/handoff/cancel", Some(&body), Duration::from_secs(5)).await;
+    let _ = call(
+        local_addr(ui),
+        "POST",
+        "/api/handoff/cancel",
+        Some(&body),
+        Duration::from_secs(5),
+    )
+    .await;
 }
 
 /// Binds `addr` as soon as the old process has let it go.
-pub async fn bind_when_free(addr: SocketAddr, limit: Duration) -> Result<tokio::net::TcpListener, String> {
+pub async fn bind_when_free(
+    addr: SocketAddr,
+    limit: Duration,
+) -> Result<tokio::net::TcpListener, String> {
     let started = Instant::now();
     loop {
         match tokio::net::TcpListener::bind(addr).await {
             Ok(l) => return Ok(l),
-            Err(e) if started.elapsed() >= limit => return Err(format!("{addr} is still in use after {} s: {e}", limit.as_secs())),
+            Err(e) if started.elapsed() >= limit => {
+                return Err(format!(
+                    "{addr} is still in use after {} s: {e}",
+                    limit.as_secs()
+                ));
+            }
             Err(_) => tokio::time::sleep(Duration::from_millis(50)).await,
         }
     }
@@ -285,16 +374,25 @@ fn files() -> (PathBuf, PathBuf, PathBuf) {
 }
 
 fn sig_paths() -> Vec<PathBuf> {
-    vec![app_dir().join("tlsh_signatures"), crate::human_review::analyst_dir()]
+    vec![
+        app_dir().join("tlsh_signatures"),
+        crate::human_review::analyst_dir(),
+    ]
 }
 
 pub fn lengths() -> Lengths {
     let len = |p: &PathBuf| std::fs::metadata(p).map(|m| m.len()).unwrap_or(0);
     let (b, c, d) = files();
-    let insights_seq = crate::insight_db::InsightDb::open_readonly(&app_dir().join("threat_insights.db"))
-        .and_then(|db| db.max_seq())
-        .unwrap_or(0);
-    Lengths { insights_seq, reviews: len(&b), tlsh: len(&c), cache: len(&d) }
+    let insights_seq =
+        crate::insight_db::InsightDb::open_readonly(&app_dir().join("threat_insights.db"))
+            .and_then(|db| db.max_seq())
+            .unwrap_or(0);
+    Lengths {
+        insights_seq,
+        reviews: len(&b),
+        tlsh: len(&c),
+        cache: len(&d),
+    }
 }
 
 /// Standby: follows what the running server appends after the standby loaded the files.
@@ -320,7 +418,11 @@ impl Follow {
 
     /// Reads the lines appended since `lengths()` without heavy SQLite `resync_external`
     /// or TLSH reloads (`finish_heavy` runs those once in the background after takeover).
-    pub fn catch_up_fast(&mut self, ti: &ThreatIntelStore, cache: Option<&crate::cache::VerdictCache>) -> usize {
+    pub fn catch_up_fast(
+        &mut self,
+        ti: &ThreatIntelStore,
+        cache: Option<&crate::cache::VerdictCache>,
+    ) -> usize {
         // Same database: only the records held in memory and the counts follow.
         let seq = ti.db().max_seq().unwrap_or(self.insights_seq);
         let mut n = (seq - self.insights_seq).max(0) as usize;
@@ -336,7 +438,9 @@ impl Follow {
             }
         };
         feed(&mut self.reviews, &|l, r| ti.reviews.archive_ingest(l, r));
-        feed(&mut self.tlsh, &|l, r| ti.similarity.archive_ingest_index(l, r));
+        feed(&mut self.tlsh, &|l, r| {
+            ti.similarity.archive_ingest_index(l, r)
+        });
         if let Some(c) = cache {
             feed(&mut self.cache, &|l, r| c.archive_ingest(l, r));
         }
@@ -370,15 +474,22 @@ mod tests {
         assert_eq!(v["pid"], 12345);
         let (code, v) = parse_response(b"HTTP/1.1 200 OK\r\ntransfer-encoding: chunked\r\n\r\n5\r\n{\"a\":\r\n2\r\n1}\r\n0\r\n\r\n").unwrap();
         assert_eq!((code, v["a"].as_i64()), (200, Some(1)));
-        let (code, v) = parse_response(b"HTTP/1.1 404 Not Found\r\ncontent-length: 0\r\n\r\n").unwrap();
+        let (code, v) =
+            parse_response(b"HTTP/1.1 404 Not Found\r\ncontent-length: 0\r\n\r\n").unwrap();
         assert_eq!((code, v), (404, serde_json::Value::Null));
         assert!(parse_response(b"garbage").is_err());
     }
 
     #[test]
     fn loopback_for_unspecified() {
-        assert_eq!(local_addr("0.0.0.0:9440".parse().unwrap()), "127.0.0.1:9440".parse().unwrap());
-        assert_eq!(local_addr("127.0.0.1:9440".parse().unwrap()), "127.0.0.1:9440".parse().unwrap());
+        assert_eq!(
+            local_addr("0.0.0.0:9440".parse().unwrap()),
+            "127.0.0.1:9440".parse().unwrap()
+        );
+        assert_eq!(
+            local_addr("127.0.0.1:9440".parse().unwrap()),
+            "127.0.0.1:9440".parse().unwrap()
+        );
     }
 
     #[test]
@@ -389,10 +500,17 @@ mod tests {
         std::fs::write(&p, "one\ntwo\nthr").unwrap(); // "thr" is a line being written
         let len = std::fs::metadata(&p).unwrap().len();
         let mut t = Tail::after(p.clone(), len);
-        assert!(matches!(t.read(), TailRead::Same), "nothing complete after the loaded part");
+        assert!(
+            matches!(t.read(), TailRead::Same),
+            "nothing complete after the loaded part"
+        );
         std::fs::write(&p, "one\ntwo\nthree\nfour\n").unwrap();
         match t.read() {
-            TailRead::New(l) => assert_eq!(l, vec!["three", "four"], "the half-written line is read again whole"),
+            TailRead::New(l) => assert_eq!(
+                l,
+                vec!["three", "four"],
+                "the half-written line is read again whole"
+            ),
             _ => panic!("expected new lines"),
         }
         // Empty file: everything is new.

@@ -26,14 +26,13 @@ pub const ACTIVE_HTTP_CODES: &[u16] = &[100, 101, 200, 201, 202, 203, 204, 205, 
 /// PyFunceble `potentially_up_codes`: redirects, bot-blocks, server errors.
 /// The host answers, but we cannot be sure it is really serving the page.
 pub const POTENTIALLY_UP_HTTP_CODES: &[u16] = &[
-    0, 300, 301, 302, 303, 304, 305, 307, 403, 405, 406, 407, 408, 411, 413, 417,
-    500, 501, 502, 503, 504, 505,
+    0, 300, 301, 302, 303, 304, 305, 307, 403, 405, 406, 407, 408, 411, 413, 417, 500, 501, 502,
+    503, 504, 505,
 ];
 /// PyFunceble `down_potentially_codes`: client errors. Checked before the
 /// potentially-up list (403 lives in both): we cannot be sure a 400/404
 /// means the domain is dead, so it is potentially down, not down.
-pub const POTENTIALLY_DOWN_HTTP_CODES: &[u16] =
-    &[400, 402, 403, 404, 409, 410, 412, 414, 415, 416];
+pub const POTENTIALLY_DOWN_HTTP_CODES: &[u16] = &[400, 402, 403, 404, 409, 410, 412, 414, 415, 416];
 
 pub fn liveness_label(code: i32) -> &'static str {
     match code {
@@ -72,7 +71,9 @@ pub async fn check_liveness(raw_url: &str) -> (i32, String) {
     let (host, port) = match parsed {
         Ok(u) => {
             let h = u.host_str().unwrap_or("").trim().to_lowercase();
-            let p = u.port().unwrap_or(if u.scheme() == "https" { 443 } else { 80 });
+            let p = u
+                .port()
+                .unwrap_or(if u.scheme() == "https" { 443 } else { 80 });
             (h, p)
         }
         Err(_) => {
@@ -143,7 +144,9 @@ pub async fn check_liveness(raw_url: &str) -> (i32, String) {
 pub async fn fetch_page_content_safe(raw_url: &str) -> Option<(u16, String)> {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
-    let parsed = Url::parse(raw_url).or_else(|_| Url::parse(&format!("https://{}", raw_url))).ok()?;
+    let parsed = Url::parse(raw_url)
+        .or_else(|_| Url::parse(&format!("https://{}", raw_url)))
+        .ok()?;
     if parsed.scheme() != "http" {
         return None;
     }
@@ -157,18 +160,24 @@ pub async fn fetch_page_content_safe(raw_url: &str) -> Option<(u16, String)> {
         Some(q) => format!("{}?{}", parsed.path(), q),
         None => parsed.path().to_string(),
     };
-    let path = if path_and_query.is_empty() { "/" } else { &path_and_query };
+    let path = if path_and_query.is_empty() {
+        "/"
+    } else {
+        &path_and_query
+    };
 
     // SSRF guard: anyone can ask for a URL, so the server must not reach its own
     // loopback, the LAN or cloud metadata. Every resolved address has to be public,
     // and the connection goes to the address checked here (no second lookup that a
     // DNS rebind could answer differently).
-    let addrs: Vec<std::net::SocketAddr> =
-        tokio::time::timeout(Duration::from_millis(1500), lookup_host(format!("{}:{}", host, port)))
-            .await
-            .ok()?
-            .ok()?
-            .collect();
+    let addrs: Vec<std::net::SocketAddr> = tokio::time::timeout(
+        Duration::from_millis(1500),
+        lookup_host(format!("{}:{}", host, port)),
+    )
+    .await
+    .ok()?
+    .ok()?
+    .collect();
     if addrs.is_empty() || !addrs.iter().all(|a| is_public_ip(a.ip())) {
         return None;
     }
@@ -218,11 +227,19 @@ pub const WEB_PORTS: [u16; 4] = [80, 443, 8080, 8443];
 /// refuse or time out. Never toward loopback / LAN / metadata (SSRF guard, see
 /// `is_public_ip`): those stay UNKNOWN, there is nothing to learn about them from here.
 async fn probe_port(addrs: &[std::net::SocketAddr]) -> (i32, String) {
-    if !addrs.iter().all(|a| is_public_ip(a.ip()) && WEB_PORTS.contains(&a.port())) {
+    if !addrs
+        .iter()
+        .all(|a| is_public_ip(a.ip()) && WEB_PORTS.contains(&a.port()))
+    {
         return (LIVENESS_UNKNOWN, "UNKNOWN".to_string());
     }
     for a in addrs.iter().take(2) {
-        if let Ok(Ok(_)) = tokio::time::timeout(Duration::from_millis(2000), tokio::net::TcpStream::connect(a)).await {
+        if let Ok(Ok(_)) = tokio::time::timeout(
+            Duration::from_millis(2000),
+            tokio::net::TcpStream::connect(a),
+        )
+        .await
+        {
             return (LIVENESS_ACTIVE, "ACTIVE".to_string());
         }
     }
@@ -234,11 +251,18 @@ async fn probe_port(addrs: &[std::net::SocketAddr]) -> (i32, String) {
 pub fn is_internal_target(raw_url: &str) -> bool {
     let parsed = Url::parse(raw_url).or_else(|_| Url::parse(&format!("https://{}", raw_url)));
     let Ok(u) = parsed else { return false };
-    let host = u.host_str().unwrap_or("").trim_matches(|c| c == '[' || c == ']').to_ascii_lowercase();
+    let host = u
+        .host_str()
+        .unwrap_or("")
+        .trim_matches(|c| c == '[' || c == ']')
+        .to_ascii_lowercase();
     if let Ok(ip) = host.parse::<IpAddr>() {
         return !is_public_ip(ip);
     }
-    host == "localhost" || [".localhost", ".local", ".internal"].iter().any(|s| host.ends_with(s))
+    host == "localhost"
+        || [".localhost", ".local", ".internal"]
+            .iter()
+            .any(|s| host.ends_with(s))
 }
 
 /// Globally routable unicast address (`IpAddr::is_global` is unstable). Loopback,

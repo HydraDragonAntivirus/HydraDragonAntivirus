@@ -13,7 +13,7 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex, OnceLock};
 
 use axum::extract::{Query, State};
-use axum::http::{header, StatusCode};
+use axum::http::{StatusCode, header};
 use axum::response::{IntoResponse, Json, Response};
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
@@ -88,35 +88,47 @@ pub async fn handle_open(State(app): State<Arc<AppState>>, Json(b): Json<OpenBod
     let sha_in = b.sha256.trim().to_ascii_uppercase();
     let path_in = b.path.trim().trim_matches('"').to_string();
     let t = std::time::Instant::now();
-    let loaded = tokio::task::spawn_blocking(move || -> Result<(String, String, Vec<u8>), String> {
-        if !sha_in.is_empty() {
-            let k = eng.find_kept(&sha_in).ok_or_else(|| crate::missing_files::explain(&sha_in))?;
-            let data = k.read().ok_or("the kept file could not be read")?;
-            Ok((k.name.clone(), k.path.display().to_string(), data))
-        } else if !path_in.is_empty() {
-            let p = PathBuf::from(&path_in);
-            let meta = std::fs::metadata(&p).map_err(|e| format!("{path_in}: {e}"))?;
-            if !meta.is_file() {
-                return Err(format!("{path_in} is not a file"));
+    let loaded =
+        tokio::task::spawn_blocking(move || -> Result<(String, String, Vec<u8>), String> {
+            if !sha_in.is_empty() {
+                let k = eng
+                    .find_kept(&sha_in)
+                    .ok_or_else(|| crate::missing_files::explain(&sha_in))?;
+                let data = k.read().ok_or("the kept file could not be read")?;
+                Ok((k.name.clone(), k.path.display().to_string(), data))
+            } else if !path_in.is_empty() {
+                let p = PathBuf::from(&path_in);
+                let meta = std::fs::metadata(&p).map_err(|e| format!("{path_in}: {e}"))?;
+                if !meta.is_file() {
+                    return Err(format!("{path_in} is not a file"));
+                }
+                if meta.len() > MAX_OPEN_BYTES {
+                    return Err(format!(
+                        "file is larger than {} MB",
+                        MAX_OPEN_BYTES / (1024 * 1024)
+                    ));
+                }
+                let data = std::fs::read(&p).map_err(|e| format!("{path_in}: {e}"))?;
+                let name = p
+                    .file_name()
+                    .map(|n| n.to_string_lossy().to_string())
+                    .unwrap_or_default();
+                Ok((name, path_in, data))
+            } else {
+                Err("give a SHA-256 of a kept file or a path".into())
             }
-            if meta.len() > MAX_OPEN_BYTES {
-                return Err(format!("file is larger than {} MB", MAX_OPEN_BYTES / (1024 * 1024)));
-            }
-            let data = std::fs::read(&p).map_err(|e| format!("{path_in}: {e}"))?;
-            let name = p.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
-            Ok((name, path_in, data))
-        } else {
-            Err("give a SHA-256 of a kept file or a path".into())
-        }
-    })
-    .await;
+        })
+        .await;
     let (name, source, data) = match loaded {
         Ok(Ok(v)) => v,
         Ok(Err(e)) => return err(StatusCode::BAD_REQUEST, e),
         Err(e) => return err(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
     };
     if data.len() as u64 > MAX_OPEN_BYTES {
-        return err(StatusCode::BAD_REQUEST, format!("file is larger than {} MB", MAX_OPEN_BYTES / (1024 * 1024)));
+        return err(
+            StatusCode::BAD_REQUEST,
+            format!("file is larger than {} MB", MAX_OPEN_BYTES / (1024 * 1024)),
+        );
     }
     let read_ms = t.elapsed().as_millis();
     open_doc(&app, name, source, data, read_ms).await
@@ -131,11 +143,16 @@ const URL_ML_THRESHOLD: f32 = 0.9;
 /// Info only, never a verdict: ad-block filter lists (uBlock Origin, EasyList),
 /// hosts files and security tools carry thousands of malicious URLs on purpose.
 /// Returns every scored URL (highest first) for the report.
-fn url_ml_indicator(eng: &crate::engine_adapter::EngineAdapter, report: &mut crate::analyzer::FileReport) -> Vec<serde_json::Value> {
+fn url_ml_indicator(
+    eng: &crate::engine_adapter::EngineAdapter,
+    report: &mut crate::analyzer::FileReport,
+) -> Vec<serde_json::Value> {
     if report.strings.urls.is_empty() {
         return Vec::new();
     }
-    let Some(mut scores) = eng.url_ml_scores(&report.strings.urls) else { return Vec::new() };
+    let Some(mut scores) = eng.url_ml_scores(&report.strings.urls) else {
+        return Vec::new();
+    };
     scores.sort_by(|a, b| b.1.total_cmp(&a.1));
     let flagged: Vec<String> = scores
         .iter()
@@ -143,7 +160,10 @@ fn url_ml_indicator(eng: &crate::engine_adapter::EngineAdapter, report: &mut cra
         .take(10)
         .map(|(u, p)| format!("{u} ({p:.2})"))
         .collect();
-    let n = scores.iter().filter(|(_, p)| *p >= URL_ML_THRESHOLD).count();
+    let n = scores
+        .iter()
+        .filter(|(_, p)| *p >= URL_ML_THRESHOLD)
+        .count();
     if n > 0 {
         report.indicators.push(crate::analyzer::Indicator {
             severity: "info",
@@ -162,12 +182,21 @@ fn url_ml_indicator(eng: &crate::engine_adapter::EngineAdapter, report: &mut cra
 }
 
 /// `read_ms`: how long finding and reading the file took (for the timing log line).
-async fn open_doc(app: &Arc<AppState>, name: String, source: String, data: Vec<u8>, read_ms: u128) -> Response {
+async fn open_doc(
+    app: &Arc<AppState>,
+    name: String,
+    source: String,
+    data: Vec<u8>,
+    read_ms: u128,
+) -> Response {
     let data = Arc::new(data);
     let (d2, n2, eng) = (Arc::clone(&data), name.clone(), Arc::clone(&app.engine));
     let (report, url_ml, analyze_ms, url_ms) = match tokio::task::spawn_blocking(move || {
         let t = std::time::Instant::now();
-        let mut report = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| crate::analyzer::analyze(&d2, &n2))).ok()?;
+        let mut report = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            crate::analyzer::analyze(&d2, &n2)
+        }))
+        .ok()?;
         let analyze_ms = t.elapsed().as_millis();
         let t = std::time::Instant::now();
         let url_ml = url_ml_indicator(&eng, &mut report);
@@ -176,14 +205,31 @@ async fn open_doc(app: &Arc<AppState>, name: String, source: String, data: Vec<u
     .await
     {
         Ok(Some(r)) => r,
-        _ => return err(StatusCode::INTERNAL_SERVER_ERROR, "the analyzer failed on this file"),
+        _ => {
+            return err(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "the analyzer failed on this file",
+            );
+        }
     };
     let t = std::time::Instant::now();
     let sha = report.hashes.sha256.to_ascii_lowercase();
-    let token = format!("{}-{}", &sha[..16.min(sha.len())], chrono::Utc::now().timestamp_millis());
+    let token = format!(
+        "{}-{}",
+        &sha[..16.min(sha.len())],
+        chrono::Utc::now().timestamp_millis()
+    );
     {
         let mut g = docs().lock().unwrap();
-        add_doc(&mut g, Doc { token: token.clone(), name: name.clone(), source: source.clone(), data: Arc::clone(&data) });
+        add_doc(
+            &mut g,
+            Doc {
+                token: token.clone(),
+                name: name.clone(),
+                source: source.clone(),
+                data: Arc::clone(&data),
+            },
+        );
     }
     let insight = app.threat_intel.get(&sha);
     let review = app.threat_intel.reviews.get(&sha);
@@ -229,11 +275,21 @@ pub struct RangeQuery {
 
 /// Raw bytes [offset, offset+len) of an open file (len capped at 1 MB).
 pub async fn handle_bytes(Query(q): Query<RangeQuery>) -> Response {
-    let Some((_, data)) = doc(&q.token) else { return err(StatusCode::NOT_FOUND, "file is not open any more, open it again") };
+    let Some((_, data)) = doc(&q.token) else {
+        return err(
+            StatusCode::NOT_FOUND,
+            "file is not open any more, open it again",
+        );
+    };
     let start = (q.offset as usize).min(data.len());
-    let end = start.saturating_add(q.len.clamp(1, MAX_RANGE)).min(data.len());
+    let end = start
+        .saturating_add(q.len.clamp(1, MAX_RANGE))
+        .min(data.len());
     (
-        [(header::CONTENT_TYPE, "application/octet-stream"), (header::CACHE_CONTROL, "no-store")],
+        [
+            (header::CONTENT_TYPE, "application/octet-stream"),
+            (header::CACHE_CONTROL, "no-store"),
+        ],
         data[start..end].to_vec(),
     )
         .into_response()
@@ -255,14 +311,22 @@ pub struct DisasmQuery {
 
 fn parse_hex(s: &str) -> Option<u64> {
     let s = s.trim();
-    let s = s.strip_prefix("0x").or_else(|| s.strip_prefix("0X")).unwrap_or(s);
+    let s = s
+        .strip_prefix("0x")
+        .or_else(|| s.strip_prefix("0X"))
+        .unwrap_or(s);
     u64::from_str_radix(&s.replace(['_', '`', ' '], ""), 16).ok()
 }
 
 /// Disassembly of an open file: layout (format, architecture, entry, sections) and up
 /// to `count` instructions from the chosen place.
 pub async fn handle_disasm(Query(q): Query<DisasmQuery>) -> Response {
-    let Some((_, data)) = doc(&q.token) else { return err(StatusCode::NOT_FOUND, "file is not open any more, open it again") };
+    let Some((_, data)) = doc(&q.token) else {
+        return err(
+            StatusCode::NOT_FOUND,
+            "file is not open any more, open it again",
+        );
+    };
     let layout = crate::disasm::Layout::of(&data);
     let arch = match q.arch.trim() {
         "" | "auto" => layout.arch.unwrap_or(crate::disasm::Arch::X64),
@@ -276,7 +340,13 @@ pub async fn handle_disasm(Query(q): Query<DisasmQuery>) -> Response {
         layout
             .entry
             .and_then(|va| layout.va_to_off(va))
-            .or_else(|| layout.regions.iter().find(|r| r.exec && r.file_size > 0).map(|r| r.offset))
+            .or_else(|| {
+                layout
+                    .regions
+                    .iter()
+                    .find(|r| r.exec && r.file_size > 0)
+                    .map(|r| r.offset)
+            })
             .unwrap_or(0)
     } else if let Some(o) = at.strip_prefix("o:").or_else(|| at.strip_prefix("O:")) {
         match parse_hex(o) {
@@ -286,13 +356,25 @@ pub async fn handle_disasm(Query(q): Query<DisasmQuery>) -> Response {
     } else {
         match parse_hex(at).map(|va| (va, layout.va_to_off(va))) {
             Some((_, Some(o))) if (o as usize) < data.len() => o,
-            Some((va, _)) => return err(StatusCode::BAD_REQUEST, format!("{va:#x} is not backed by bytes in the file")),
-            None => return err(StatusCode::BAD_REQUEST, "give an address in hex (401000), o:offset or entry"),
+            Some((va, _)) => {
+                return err(
+                    StatusCode::BAD_REQUEST,
+                    format!("{va:#x} is not backed by bytes in the file"),
+                );
+            }
+            None => {
+                return err(
+                    StatusCode::BAD_REQUEST,
+                    "give an address in hex (401000), o:offset or entry",
+                );
+            }
         }
     };
     let count = if q.count == 0 { 300 } else { q.count };
     let insns = crate::disasm::disassemble(&data, &layout, arch, start, count);
-    let next = insns.last().map(|i| i.offset + (i.bytes.len() as u64 + 1) / 3);
+    let next = insns
+        .last()
+        .map(|i| i.offset + (i.bytes.len() as u64 + 1) / 3);
     Json(serde_json::json!({
         "format": layout.format,
         "arch": arch,
@@ -318,7 +400,12 @@ pub struct TokenQuery {
 /// Archive contents (hydradragonextractor, as the engine uses it) and the archive
 /// heuristics (encrypted bait, RLO names, ...).
 pub async fn handle_archive(Query(q): Query<TokenQuery>) -> Response {
-    let Some((_, data)) = doc(&q.token) else { return err(StatusCode::NOT_FOUND, "file is not open any more, open it again") };
+    let Some((_, data)) = doc(&q.token) else {
+        return err(
+            StatusCode::NOT_FOUND,
+            "file is not open any more, open it again",
+        );
+    };
     let r = tokio::task::spawn_blocking(move || {
         std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             let format = hydradragonextractor::detect_format(&data);
@@ -339,7 +426,10 @@ pub async fn handle_archive(Query(q): Query<TokenQuery>) -> Response {
     .await;
     match r {
         Ok(Ok(v)) => Json(v).into_response(),
-        _ => err(StatusCode::INTERNAL_SERVER_ERROR, "the extractor failed on this file"),
+        _ => err(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "the extractor failed on this file",
+        ),
     }
 }
 
@@ -350,12 +440,22 @@ pub struct ArchiveOpenBody {
 }
 
 /// Extracts one archive entry and opens it as a new document.
-pub async fn handle_archive_open(State(app): State<Arc<AppState>>, Json(b): Json<ArchiveOpenBody>) -> Response {
-    let Some((parent, data)) = doc(&b.token) else { return err(StatusCode::NOT_FOUND, "file is not open any more, open it again") };
+pub async fn handle_archive_open(
+    State(app): State<Arc<AppState>>,
+    Json(b): Json<ArchiveOpenBody>,
+) -> Response {
+    let Some((parent, data)) = doc(&b.token) else {
+        return err(
+            StatusCode::NOT_FOUND,
+            "file is not open any more, open it again",
+        );
+    };
     let entry = b.name.clone();
     let r = tokio::task::spawn_blocking(move || {
-        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| hydradragonextractor::extract_entry(&data, &entry).map_err(|e| e.to_string())))
-            .unwrap_or_else(|_| Err("the extractor failed".into()))
+        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            hydradragonextractor::extract_entry(&data, &entry).map_err(|e| e.to_string())
+        }))
+        .unwrap_or_else(|_| Err("the extractor failed".into()))
     })
     .await;
     let bytes = match r {
@@ -364,9 +464,17 @@ pub async fn handle_archive_open(State(app): State<Arc<AppState>>, Json(b): Json
         Err(e) => return err(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
     };
     if bytes.len() as u64 > MAX_OPEN_BYTES {
-        return err(StatusCode::BAD_REQUEST, format!("entry is larger than {} MB", MAX_OPEN_BYTES / (1024 * 1024)));
+        return err(
+            StatusCode::BAD_REQUEST,
+            format!("entry is larger than {} MB", MAX_OPEN_BYTES / (1024 * 1024)),
+        );
     }
-    let name = b.name.rsplit(['/', '\\']).next().unwrap_or(&b.name).to_string();
+    let name = b
+        .name
+        .rsplit(['/', '\\'])
+        .next()
+        .unwrap_or(&b.name)
+        .to_string();
     open_doc(&app, name, format!("{parent} › {}", b.name), bytes, 0).await
 }
 
@@ -384,12 +492,23 @@ pub struct DecompileQuery {
 /// strings built on the stack and characteristic opcode patterns (API hashing, PEB
 /// walks, indirect syscalls).
 pub async fn handle_decompile(Query(q): Query<DecompileQuery>) -> Response {
-    let Some((_, data)) = doc(&q.token) else { return err(StatusCode::NOT_FOUND, "file is not open any more, open it again") };
+    let Some((_, data)) = doc(&q.token) else {
+        return err(
+            StatusCode::NOT_FOUND,
+            "file is not open any more, open it again",
+        );
+    };
     let all = q.all;
     let min = if q.min == 0 { 5 } else { q.min.clamp(2, 64) };
     let r = tokio::task::spawn_blocking(move || {
         std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            let opts = hydradragondecompiler::ExtractOptions { min_len: min, ascii: all, wide: all, max_strings: 50_000, ..Default::default() };
+            let opts = hydradragondecompiler::ExtractOptions {
+                min_len: min,
+                ascii: all,
+                wide: all,
+                max_strings: 50_000,
+                ..Default::default()
+            };
             hydradragondecompiler::extract_strings(&data, &opts)
         }))
     })
@@ -407,50 +526,98 @@ pub async fn handle_decompile(Query(q): Query<DecompileQuery>) -> Response {
                 .collect();
             Json(serde_json::json!({"ok": true, "counts": counts, "items": items})).into_response()
         }
-        _ => err(StatusCode::INTERNAL_SERVER_ERROR, "the decompiler failed on this file"),
+        _ => err(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "the decompiler failed on this file",
+        ),
     }
 }
 
 /// Unicorn PE emulation (hydradragonunicorn, the engine's own unpacker): runs the
 /// file in the emulator, dumps the memory image and opens it as a new document.
 pub async fn handle_unpack(State(app): State<Arc<AppState>>, Json(b): Json<TokenBody>) -> Response {
-    let Some((name, data)) = doc(&b.token) else { return err(StatusCode::NOT_FOUND, "file is not open any more, open it again") };
+    let Some((name, data)) = doc(&b.token) else {
+        return err(
+            StatusCode::NOT_FOUND,
+            "file is not open any more, open it again",
+        );
+    };
     if !data.starts_with(b"MZ") {
-        return err(StatusCode::BAD_REQUEST, "the Unicorn unpacker runs PE files only");
+        return err(
+            StatusCode::BAD_REQUEST,
+            "the Unicorn unpacker runs PE files only",
+        );
     }
     let started = std::time::Instant::now();
     let (tx, rx) = tokio::sync::oneshot::channel::<Result<(Vec<u8>, String), String>>();
     // The emulator needs a big stack (as in the engine's scan threads).
-    let spawned = std::thread::Builder::new().name("alyzer-unicorn".into()).stack_size(64 * 1024 * 1024).spawn(move || {
-        let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| -> Result<(Vec<u8>, String), String> {
-            use hydradragonunicorn::unpacker::engine::{Sample, UnpackerEngine};
-            let sample = Sample::from_bytes(&data).map_err(|e| format!("not loadable: {e}"))?;
-            let mut un = UnpackerEngine::new(sample, "memory");
-            un.init_uc().map_err(|e| format!("emulator setup failed: {e}"))?;
-            let status = match un.emu() {
-                Ok(()) => "emulation finished".to_string(),
-                Err(e) => format!("emulation stopped: {e}"),
-            };
-            let dumped = un.dump_bytes().map_err(|e| format!("{status}; dump failed: {e}"))?;
-            Ok((dumped, status))
-        }))
-        .unwrap_or_else(|_| Err("the emulator crashed on this file".into()));
-        let _ = tx.send(r);
-    });
+    let spawned = std::thread::Builder::new()
+        .name("alyzer-unicorn".into())
+        .stack_size(64 * 1024 * 1024)
+        .spawn(move || {
+            let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(
+                || -> Result<(Vec<u8>, String), String> {
+                    use hydradragonunicorn::unpacker::engine::{Sample, UnpackerEngine};
+                    let sample =
+                        Sample::from_bytes(&data).map_err(|e| format!("not loadable: {e}"))?;
+                    let mut un = UnpackerEngine::new(sample, "memory");
+                    un.init_uc()
+                        .map_err(|e| format!("emulator setup failed: {e}"))?;
+                    let status = match un.emu() {
+                        Ok(()) => "emulation finished".to_string(),
+                        Err(e) => format!("emulation stopped: {e}"),
+                    };
+                    let dumped = un
+                        .dump_bytes()
+                        .map_err(|e| format!("{status}; dump failed: {e}"))?;
+                    Ok((dumped, status))
+                },
+            ))
+            .unwrap_or_else(|_| Err("the emulator crashed on this file".into()));
+            let _ = tx.send(r);
+        });
     if let Err(e) = spawned {
         return err(StatusCode::INTERNAL_SERVER_ERROR, e.to_string());
     }
     let (dumped, status) = match rx.await {
         Ok(Ok(v)) => v,
         Ok(Err(e)) => return err(StatusCode::BAD_REQUEST, e),
-        Err(_) => return err(StatusCode::INTERNAL_SERVER_ERROR, "the emulator thread ended without an answer"),
+        Err(_) => {
+            return err(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "the emulator thread ended without an answer",
+            );
+        }
     };
     let original = doc(&b.token).map(|(_, d)| d);
-    if dumped.is_empty() || original.as_deref().is_some_and(|o| o.as_slice() == dumped.as_slice()) {
+    if dumped.is_empty()
+        || original
+            .as_deref()
+            .is_some_and(|o| o.as_slice() == dumped.as_slice())
+    {
         return Json(serde_json::json!({"ok": false, "message": format!("{status} in {} ms; the memory image is the same as the file (nothing unpacked)", started.elapsed().as_millis())})).into_response();
     }
-    let mut resp = open_doc(&app, format!("{name}.unpacked.bin"), format!("{name} › Unicorn unpack ({status}, {} ms)", started.elapsed().as_millis()), dumped, 0).await;
-    resp.headers_mut().insert("X-Unpack-Status", axum::http::HeaderValue::from_str(&status.chars().filter(|c| c.is_ascii() && !c.is_control()).collect::<String>()).unwrap_or(axum::http::HeaderValue::from_static("done")));
+    let mut resp = open_doc(
+        &app,
+        format!("{name}.unpacked.bin"),
+        format!(
+            "{name} › Unicorn unpack ({status}, {} ms)",
+            started.elapsed().as_millis()
+        ),
+        dumped,
+        0,
+    )
+    .await;
+    resp.headers_mut().insert(
+        "X-Unpack-Status",
+        axum::http::HeaderValue::from_str(
+            &status
+                .chars()
+                .filter(|c| c.is_ascii() && !c.is_control())
+                .collect::<String>(),
+        )
+        .unwrap_or(axum::http::HeaderValue::from_static("done")),
+    );
     resp
 }
 
@@ -464,33 +631,56 @@ const DEVIRT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15 * 
 /// their call sites. The rebuilt PE opens as a new document; the lifter's report
 /// (coverage, bailout reasons, patched sites) comes back with it as `devirt`.
 pub async fn handle_devirt(State(app): State<Arc<AppState>>, Json(b): Json<TokenBody>) -> Response {
-    let Some((name, data)) = doc(&b.token) else { return err(StatusCode::NOT_FOUND, "file is not open any more, open it again") };
+    let Some((name, data)) = doc(&b.token) else {
+        return err(
+            StatusCode::NOT_FOUND,
+            "file is not open any more, open it again",
+        );
+    };
     if !data.starts_with(b"MZ") {
-        return err(StatusCode::BAD_REQUEST, "the devirtualizer works on PE files only");
+        return err(
+            StatusCode::BAD_REQUEST,
+            "the devirtualizer works on PE files only",
+        );
     }
     let started = std::time::Instant::now();
     type DevirtOut = Result<(Vec<u8>, serde_json::Value), String>;
     let (tx, rx) = tokio::sync::oneshot::channel::<DevirtOut>();
     // Deep symbolic expressions recurse: the same big stack as the emulator thread.
-    let spawned = std::thread::Builder::new().name("alyzer-devirt".into()).stack_size(256 * 1024 * 1024).spawn(move || {
-        let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| -> DevirtOut {
-            use hydradragonunicorn::unpacker::vm_devirt::{devirtualize_pe_bytes, BinaryDevirtConfig};
-            let (rebuilt, report) =
-                devirtualize_pe_bytes(&data, BinaryDevirtConfig::default()).map_err(|e| format!("devirtualization failed: {e}"))?;
-            let report = serde_json::to_value(&report).map_err(|e| e.to_string())?;
-            Ok((rebuilt, report))
-        }))
-        .unwrap_or_else(|_| Err("the devirtualizer crashed on this file".into()));
-        let _ = tx.send(r);
-    });
+    let spawned = std::thread::Builder::new()
+        .name("alyzer-devirt".into())
+        .stack_size(256 * 1024 * 1024)
+        .spawn(move || {
+            let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| -> DevirtOut {
+                use hydradragonunicorn::unpacker::vm_devirt::{
+                    BinaryDevirtConfig, devirtualize_pe_bytes,
+                };
+                let (rebuilt, report) = devirtualize_pe_bytes(&data, BinaryDevirtConfig::default())
+                    .map_err(|e| format!("devirtualization failed: {e}"))?;
+                let report = serde_json::to_value(&report).map_err(|e| e.to_string())?;
+                Ok((rebuilt, report))
+            }))
+            .unwrap_or_else(|_| Err("the devirtualizer crashed on this file".into()));
+            let _ = tx.send(r);
+        });
     if let Err(e) = spawned {
         return err(StatusCode::INTERNAL_SERVER_ERROR, e.to_string());
     }
     let (rebuilt, report) = match tokio::time::timeout(DEVIRT_TIMEOUT, rx).await {
         Ok(Ok(Ok(v))) => v,
         Ok(Ok(Err(e))) => return err(StatusCode::BAD_REQUEST, e),
-        Ok(Err(_)) => return err(StatusCode::INTERNAL_SERVER_ERROR, "the devirtualizer thread ended without an answer"),
-        Err(_) => return err(StatusCode::GATEWAY_TIMEOUT, format!("no result after {} min", DEVIRT_TIMEOUT.as_secs() / 60)),
+        Ok(Err(_)) => {
+            return err(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "the devirtualizer thread ended without an answer",
+            );
+        }
+        Err(_) => {
+            return err(
+                StatusCode::GATEWAY_TIMEOUT,
+                format!("no result after {} min", DEVIRT_TIMEOUT.as_secs() / 60),
+            );
+        }
     };
     let ms = started.elapsed().as_millis();
     let devirtualized = report["devirtualized_total"].as_u64().unwrap_or(0);
@@ -515,7 +705,10 @@ pub async fn handle_devirt(State(app): State<Arc<AppState>>, Json(b): Json<Token
     // Add the lifter report to the document JSON open_doc built.
     let (parts, body) = resp.into_parts();
     let Ok(bytes) = axum::body::to_bytes(body, usize::MAX).await else {
-        return err(StatusCode::INTERNAL_SERVER_ERROR, "could not build the response");
+        return err(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "could not build the response",
+        );
     };
     match serde_json::from_slice::<serde_json::Value>(&bytes) {
         Ok(mut v) if parts.status.is_success() => {
@@ -542,13 +735,21 @@ pub struct SearchQuery {
 /// Searches the open file for a byte pattern (`pattern`, hex), forward from `from` or
 /// backward with `back=true`. Returns the offset of the match.
 pub async fn handle_search(Query(q): Query<SearchQuery>) -> Response {
-    let Some((_, data)) = doc(&q.token) else { return err(StatusCode::NOT_FOUND, "file is not open any more, open it again") };
+    let Some((_, data)) = doc(&q.token) else {
+        return err(
+            StatusCode::NOT_FOUND,
+            "file is not open any more, open it again",
+        );
+    };
     let pat = match hex::decode(q.pattern.replace([' ', '-'], "")) {
         Ok(p) if !p.is_empty() && p.len() <= 4096 => p,
         _ => return err(StatusCode::BAD_REQUEST, "pattern must be 1..4096 hex bytes"),
     };
     let from = (q.from as usize).min(data.len());
-    let found = tokio::task::spawn_blocking(move || find(&data, &pat, from, q.back)).await.ok().flatten();
+    let found = tokio::task::spawn_blocking(move || find(&data, &pat, from, q.back))
+        .await
+        .ok()
+        .flatten();
     Json(serde_json::json!({ "ok": true, "offset": found })).into_response()
 }
 
@@ -605,13 +806,24 @@ pub struct StringsQuery {
 /// verdict, see `string_wl`; `file_type` names the type) are marked `"k": 1`, or left
 /// out with `unknown=1` (`hidden` counts them); `whitelist` is its status.
 pub async fn handle_strings(Query(q): Query<StringsQuery>) -> Response {
-    let Some((_, data)) = doc(&q.token) else { return err(StatusCode::NOT_FOUND, "file is not open any more, open it again") };
+    let Some((_, data)) = doc(&q.token) else {
+        return err(
+            StatusCode::NOT_FOUND,
+            "file is not open any more, open it again",
+        );
+    };
     let min = q.min.clamp(3, 64);
     let filter = q.q.to_lowercase();
     let only_unknown = q.unknown == 1;
     let (out, hidden, group) = tokio::task::spawn_blocking(move || {
         let group = crate::string_wl::file_type(&data);
-        let (out, hidden) = extract_strings(&data, min, &filter, crate::string_wl::get().map(|w| (w.as_ref(), group.as_str())), only_unknown);
+        let (out, hidden) = extract_strings(
+            &data,
+            min,
+            &filter,
+            crate::string_wl::get().map(|w| (w.as_ref(), group.as_str())),
+            only_unknown,
+        );
         (out, hidden, group)
     })
     .await
@@ -633,7 +845,11 @@ fn printable(b: u8) -> bool {
 /// Calls `f(offset, "A" | "W", text)` for every ASCII string, then every UTF-16LE
 /// string (both alignments), of at least `min` characters, until `f` returns false.
 /// Shared by the Strings page and the string whitelist, so both see the same strings.
-pub(crate) fn each_string(data: &[u8], min: usize, mut f: impl FnMut(usize, &'static str, &str) -> bool) {
+pub(crate) fn each_string(
+    data: &[u8],
+    min: usize,
+    mut f: impl FnMut(usize, &'static str, &str) -> bool,
+) {
     // ASCII (printable bytes only, so always valid UTF-8)
     let mut start = None;
     for (i, &b) in data.iter().enumerate() {
@@ -646,7 +862,8 @@ pub(crate) fn each_string(data: &[u8], min: usize, mut f: impl FnMut(usize, &'st
         }
     }
     if let Some(s) = start {
-        if data.len() - s >= min && !f(s, "A", std::str::from_utf8(&data[s..]).unwrap_or_default()) {
+        if data.len() - s >= min && !f(s, "A", std::str::from_utf8(&data[s..]).unwrap_or_default())
+        {
             return;
         }
     }
@@ -693,9 +910,14 @@ fn extract_strings(
     let mut out = Vec::new();
     let mut hidden = 0u64;
     let mut batch: Vec<(usize, &'static str, String)> = Vec::new();
-    let flush = |batch: &mut Vec<(usize, &'static str, String)>, out: &mut Vec<serde_json::Value>, hidden: &mut u64| {
+    let flush = |batch: &mut Vec<(usize, &'static str, String)>,
+                 out: &mut Vec<serde_json::Value>,
+                 hidden: &mut u64| {
         let known = match wl {
-            Some((w, group)) => w.contains_many(group, &batch.iter().map(|(_, _, s)| s.as_str()).collect::<Vec<_>>()),
+            Some((w, group)) => w.contains_many(
+                group,
+                &batch.iter().map(|(_, _, s)| s.as_str()).collect::<Vec<_>>(),
+            ),
             None => vec![false; batch.len()],
         };
         for ((off, enc, s), k) in batch.drain(..).zip(known) {
@@ -740,7 +962,12 @@ pub struct SaveBody {
 /// Writes a patched COPY to `alyzer_edited/` next to the server (never the original)
 /// and returns its path and SHA-256.
 pub async fn handle_save(State(app): State<Arc<AppState>>, Json(b): Json<SaveBody>) -> Response {
-    let Some((name, data)) = doc(&b.token) else { return err(StatusCode::NOT_FOUND, "file is not open any more, open it again") };
+    let Some((name, data)) = doc(&b.token) else {
+        return err(
+            StatusCode::NOT_FOUND,
+            "file is not open any more, open it again",
+        );
+    };
     let mut out = data.as_ref().clone();
     for (off, hx) in &b.patches {
         let bytes = match hex::decode(hx) {
@@ -749,22 +976,48 @@ pub async fn handle_save(State(app): State<Arc<AppState>>, Json(b): Json<SaveBod
         };
         let off = *off as usize;
         if off.checked_add(bytes.len()).map_or(true, |e| e > out.len()) {
-            return err(StatusCode::BAD_REQUEST, format!("patch at {off} is past the end of the file"));
+            return err(
+                StatusCode::BAD_REQUEST,
+                format!("patch at {off} is past the end of the file"),
+            );
         }
         out[off..off + bytes.len()].copy_from_slice(&bytes);
     }
     let sha = sha256_hex(&out);
     let dir = crate::config::app_dir().join("alyzer_edited");
     if let Err(e) = std::fs::create_dir_all(&dir) {
-        return err(StatusCode::INTERNAL_SERVER_ERROR, format!("{}: {e}", dir.display()));
+        return err(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("{}: {e}", dir.display()),
+        );
     }
-    let safe: String = name.chars().map(|c| if c.is_alphanumeric() || ".-_".contains(c) { c } else { '_' }).take(120).collect();
+    let safe: String = name
+        .chars()
+        .map(|c| {
+            if c.is_alphanumeric() || ".-_".contains(c) {
+                c
+            } else {
+                '_'
+            }
+        })
+        .take(120)
+        .collect();
     let path = dir.join(format!("{}_{}.patched", &sha[..12], safe));
     if let Err(e) = std::fs::write(&path, &out) {
-        return err(StatusCode::INTERNAL_SERVER_ERROR, format!("{}: {e}", path.display()));
+        return err(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("{}: {e}", path.display()),
+        );
     }
     if b.open {
-        return open_doc(&app, format!("{safe}.patched"), path.display().to_string(), out, 0).await;
+        return open_doc(
+            &app,
+            format!("{safe}.patched"),
+            path.display().to_string(),
+            out,
+            0,
+        )
+        .await;
     }
     Json(serde_json::json!({ "ok": true, "path": path.display().to_string(), "sha256": sha, "size": out.len() })).into_response()
 }
@@ -779,13 +1032,27 @@ pub struct TokenBody {
 /// extensions get `.bin` appended, so a double click on an unpacked sample (or a
 /// member taken out of an archive) cannot run it.
 fn export_name(name: &str, sha: &str) -> String {
-    let safe: String = name.chars().map(|c| if c.is_alphanumeric() || ".-_".contains(c) { c } else { '_' }).take(120).collect();
+    let safe: String = name
+        .chars()
+        .map(|c| {
+            if c.is_alphanumeric() || ".-_".contains(c) {
+                c
+            } else {
+                '_'
+            }
+        })
+        .take(120)
+        .collect();
     let lower = safe.to_ascii_lowercase();
     const RUNNABLE: &[&str] = &[
-        ".exe", ".dll", ".scr", ".sys", ".com", ".cpl", ".ocx", ".msi", ".bat", ".cmd", ".ps1", ".vbs", ".js",
-        ".jse", ".wsf", ".hta", ".lnk", ".jar",
+        ".exe", ".dll", ".scr", ".sys", ".com", ".cpl", ".ocx", ".msi", ".bat", ".cmd", ".ps1",
+        ".vbs", ".js", ".jse", ".wsf", ".hta", ".lnk", ".jar",
     ];
-    let tail = if RUNNABLE.iter().any(|e| lower.ends_with(e)) { ".bin" } else { "" };
+    let tail = if RUNNABLE.iter().any(|e| lower.ends_with(e)) {
+        ".bin"
+    } else {
+        ""
+    };
     format!("{}_{safe}{tail}", &sha[..12.min(sha.len())])
 }
 
@@ -793,16 +1060,27 @@ fn export_name(name: &str, sha: &str) -> String {
 /// extracted from an archive, a decoded stream - to `alyzer_saved/` next to the
 /// server. Until now such files lived only in memory (only hex edits could be saved).
 pub async fn handle_export(Json(b): Json<TokenBody>) -> Response {
-    let Some((name, data)) = doc(&b.token) else { return err(StatusCode::NOT_FOUND, "file is not open any more, open it again") };
+    let Some((name, data)) = doc(&b.token) else {
+        return err(
+            StatusCode::NOT_FOUND,
+            "file is not open any more, open it again",
+        );
+    };
     let sha = sha256_hex(&data);
     let dir = crate::config::app_dir().join("alyzer_saved");
     if let Err(e) = std::fs::create_dir_all(&dir) {
-        return err(StatusCode::INTERNAL_SERVER_ERROR, format!("{}: {e}", dir.display()));
+        return err(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("{}: {e}", dir.display()),
+        );
     }
     let path = dir.join(export_name(&name, &sha));
     if !path.exists() {
         if let Err(e) = std::fs::write(&path, data.as_slice()) {
-            return err(StatusCode::INTERNAL_SERVER_ERROR, format!("{}: {e}", path.display()));
+            return err(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("{}: {e}", path.display()),
+            );
         }
     }
     Json(serde_json::json!({ "ok": true, "path": path.display().to_string(), "sha256": sha, "size": data.len() })).into_response()
@@ -810,13 +1088,21 @@ pub async fn handle_export(Json(b): Json<TokenBody>) -> Response {
 
 /// "Download": the open file as a browser download (same name as `handle_export`).
 pub async fn handle_download(Query(q): Query<TokenQuery>) -> Response {
-    let Some((name, data)) = doc(&q.token) else { return err(StatusCode::NOT_FOUND, "file is not open any more, open it again") };
+    let Some((name, data)) = doc(&q.token) else {
+        return err(
+            StatusCode::NOT_FOUND,
+            "file is not open any more, open it again",
+        );
+    };
     let file = export_name(&name, &sha256_hex(&data));
     (
         [
             (header::CONTENT_TYPE, "application/octet-stream".to_string()),
             (header::CACHE_CONTROL, "no-store".to_string()),
-            (header::CONTENT_DISPOSITION, format!("attachment; filename=\"{file}\"")),
+            (
+                header::CONTENT_DISPOSITION,
+                format!("attachment; filename=\"{file}\""),
+            ),
         ],
         data.as_ref().clone(),
     )
@@ -829,7 +1115,12 @@ pub async fn handle_download(Query(q): Query<TokenQuery>) -> Response {
 /// the smart whitelist are applied too (the analyst ClamAV / HydraDragonSig / YARA
 /// signatures and signer rules are part of the engine scan itself).
 pub async fn handle_scan(State(app): State<Arc<AppState>>, Json(b): Json<TokenBody>) -> Response {
-    let Some((name, data)) = doc(&b.token) else { return err(StatusCode::NOT_FOUND, "file is not open any more, open it again") };
+    let Some((name, data)) = doc(&b.token) else {
+        return err(
+            StatusCode::NOT_FOUND,
+            "file is not open any more, open it again",
+        );
+    };
     let eng = Arc::clone(&app.engine);
     let ti = Arc::clone(&app.threat_intel);
     let res = tokio::task::spawn_blocking(move || {
@@ -837,7 +1128,13 @@ pub async fn handle_scan(State(app): State<Arc<AppState>>, Json(b): Json<TokenBo
         let r = eng.scan_blocking_opts(&data, &name, &sha, false, |res| {
             crate::scan_server::apply_threat_intel(&ti, &data, &name, res);
         });
-        (r, explain_json(&eng.explain_matches(&data, &name, MAX_EXPLAIN_RANGES), &data))
+        (
+            r,
+            explain_json(
+                &eng.explain_matches(&data, &name, MAX_EXPLAIN_RANGES),
+                &data,
+            ),
+        )
     })
     .await;
     match res {
@@ -864,8 +1161,21 @@ const EXPLAIN_CONTEXT: usize = 16;
 
 /// `MatchExplain` list as JSON, each range with the matched bytes (hex + ASCII, at most
 /// `EXPLAIN_BYTES`) and a little context before and after.
-fn explain_json(list: &[openedr_static::engine::MatchExplain], data: &[u8]) -> Vec<serde_json::Value> {
-    let ascii = |b: &[u8]| b.iter().map(|&c| if (0x20..0x7f).contains(&c) { c as char } else { '.' }).collect::<String>();
+fn explain_json(
+    list: &[openedr_static::engine::MatchExplain],
+    data: &[u8],
+) -> Vec<serde_json::Value> {
+    let ascii = |b: &[u8]| {
+        b.iter()
+            .map(|&c| {
+                if (0x20..0x7f).contains(&c) {
+                    c as char
+                } else {
+                    '.'
+                }
+            })
+            .collect::<String>()
+    };
     list.iter()
         .map(|m| {
             let ranges: Vec<serde_json::Value> = m
@@ -904,7 +1214,12 @@ mod tests {
     use super::*;
 
     fn d(token: &str, source: &str, data: &[u8]) -> Doc {
-        Doc { token: token.into(), name: String::new(), source: source.into(), data: Arc::new(data.to_vec()) }
+        Doc {
+            token: token.into(),
+            name: String::new(),
+            source: source.into(),
+            data: Arc::new(data.to_vec()),
+        }
     }
 
     #[test]
@@ -926,9 +1241,17 @@ mod tests {
     fn explain_shows_matched_bytes_with_context() {
         let data = b"....hello EVILCODE world....";
         let m = openedr_static::engine::MatchExplain {
-            engine: "ClamAV", rule: "Win.Test-1".into(), kind: "Extended".into(), score: 1.0,
-            source: Some("db/test.ndb".into()), line: Some(3), definition: Some("Win.Test-1:0:*:4556494c434f4445".into()),
-            object_path: Some("x".into()), view: Some("Raw".into()), evidence: vec![], ranges: vec![(10, 18), (5, 999)],
+            engine: "ClamAV",
+            rule: "Win.Test-1".into(),
+            kind: "Extended".into(),
+            score: 1.0,
+            source: Some("db/test.ndb".into()),
+            line: Some(3),
+            definition: Some("Win.Test-1:0:*:4556494c434f4445".into()),
+            object_path: Some("x".into()),
+            view: Some("Raw".into()),
+            evidence: vec![],
+            ranges: vec![(10, 18), (5, 999)],
         };
         let v = explain_json(&[m], data);
         let r = v[0]["ranges"].as_array().unwrap();
@@ -955,7 +1278,15 @@ mod tests {
         let mut d = b"\x00\x01hello world\x00\x02".to_vec();
         d.extend_from_slice(&[b'W', 0, b'i', 0, b'd', 0, b'e', 0, b'!', 0, 0, 0]);
         let (s, _) = extract_strings(&d, 4, "", None, false);
-        let texts: Vec<_> = s.iter().map(|v| (v["e"].as_str().unwrap().to_string(), v["s"].as_str().unwrap().to_string())).collect();
+        let texts: Vec<_> = s
+            .iter()
+            .map(|v| {
+                (
+                    v["e"].as_str().unwrap().to_string(),
+                    v["s"].as_str().unwrap().to_string(),
+                )
+            })
+            .collect();
         assert!(texts.contains(&("A".into(), "hello world".into())));
         assert!(texts.contains(&("W".into(), "Wide!".into())));
         assert_eq!(extract_strings(&d, 4, "world", None, false).0.len(), 1);
@@ -967,14 +1298,33 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         let wl = crate::string_wl::StringWhitelist::new(dir.clone());
         let clean = b"\x00kernel32.dll\x00".to_vec();
-        wl.sync(&["C".to_string()].into_iter().collect(), &|_| Some(clean.clone()));
+        wl.sync(&["C".to_string()].into_iter().collect(), &|_| {
+            Some(clean.clone())
+        });
         let mut d = b"\x00kernel32.dll\x00evil-payload\x00\x01\x01\x01".to_vec();
-        d.extend_from_slice(&[b'k', 0, b'e', 0, b'r', 0, b'n', 0, b'e', 0, b'l', 0, b'3', 0, b'2', 0, b'.', 0, b'd', 0, b'l', 0, b'l', 0, 0, 0]);
+        d.extend_from_slice(&[
+            b'k', 0, b'e', 0, b'r', 0, b'n', 0, b'e', 0, b'l', 0, b'3', 0, b'2', 0, b'.', 0, b'd',
+            0, b'l', 0, b'l', 0, 0, 0,
+        ]);
         let g = crate::string_wl::file_type(&d);
-        assert_eq!(g, crate::string_wl::file_type(&clean), "same type as the clean file");
+        assert_eq!(
+            g,
+            crate::string_wl::file_type(&clean),
+            "same type as the clean file"
+        );
         let (all, hidden) = extract_strings(&d, 4, "", Some((&wl, g.as_str())), false);
-        let k: Vec<(String, bool)> = all.iter().map(|v| (v["s"].as_str().unwrap().to_string(), v.get("k").is_some())).collect();
-        assert_eq!(k, [("kernel32.dll".into(), true), ("evil-payload".into(), false), ("kernel32.dll".into(), true)]);
+        let k: Vec<(String, bool)> = all
+            .iter()
+            .map(|v| (v["s"].as_str().unwrap().to_string(), v.get("k").is_some()))
+            .collect();
+        assert_eq!(
+            k,
+            [
+                ("kernel32.dll".into(), true),
+                ("evil-payload".into(), false),
+                ("kernel32.dll".into(), true)
+            ]
+        );
         assert_eq!(hidden, 0);
         let (unknown, hidden) = extract_strings(&d, 4, "", Some((&wl, g.as_str())), true);
         assert_eq!(unknown.len(), 1);

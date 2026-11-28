@@ -9,7 +9,12 @@ fn path_for(sha_lower: &str) -> Option<PathBuf> {
     if sha_lower.len() != 64 || !sha_lower.chars().all(|c| c.is_ascii_hexdigit()) {
         return None;
     }
-    Some(crate::config::app_dir().join("reports").join(&sha_lower[..2]).join(format!("{sha_lower}.json")))
+    Some(
+        crate::config::app_dir()
+            .join("reports")
+            .join(&sha_lower[..2])
+            .join(format!("{sha_lower}.json")),
+    )
 }
 
 pub fn exists(sha256: &str) -> bool {
@@ -23,7 +28,9 @@ pub fn save(report: &FileReport) {
     if crate::sample_deletions::blocks_storing(&report.hashes.sha256) {
         return;
     }
-    let Some(p) = path_for(&report.hashes.sha256.to_ascii_lowercase()) else { return };
+    let Some(p) = path_for(&report.hashes.sha256.to_ascii_lowercase()) else {
+        return;
+    };
     if p.is_file() {
         return;
     }
@@ -54,7 +61,9 @@ pub fn load(sha256: &str) -> Option<serde_json::Value> {
 
 /// Deletes the stored report; its path when there was one.
 pub fn remove(sha256: &str) -> std::io::Result<Option<PathBuf>> {
-    let Some(p) = path_for(&sha256.to_ascii_lowercase()) else { return Ok(None) };
+    let Some(p) = path_for(&sha256.to_ascii_lowercase()) else {
+        return Ok(None);
+    };
     match std::fs::remove_file(&p) {
         Ok(()) => Ok(Some(p)),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),

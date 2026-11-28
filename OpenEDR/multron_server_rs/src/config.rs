@@ -275,7 +275,10 @@ impl CliArgs {
     /// Clamps values that would let one client use too much memory or disk.
     pub fn enforce_limits(&mut self) {
         if self.max_mb > MAX_FILE_MB || self.max_mb < 1 {
-            eprintln!("[config] --max-mb {} not allowed, using {}", self.max_mb, MAX_FILE_MB);
+            eprintln!(
+                "[config] --max-mb {} not allowed, using {}",
+                self.max_mb, MAX_FILE_MB
+            );
             self.max_mb = self.max_mb.clamp(1, MAX_FILE_MB);
         }
         self.max_inflight_mb = self.max_inflight_mb.clamp(self.max_mb, 8192);
@@ -368,7 +371,11 @@ pub struct SavedSettings {
     pub tlsh_blacklist_max_dist: u32,
     /// ML decision thresholds (dashboard): a file whose model probability is at least
     /// this is flagged; None uses the engine default.
-    #[serde(default, skip_serializing_if = "Option::is_none", alias = "ml_pe_inner_threshold")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        alias = "ml_pe_inner_threshold"
+    )]
     pub ml_pe_threshold: Option<f32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ml_js_threshold: Option<f32>,
